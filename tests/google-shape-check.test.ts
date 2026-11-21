@@ -4,12 +4,14 @@
  * codec gives its verdict as a code and a key path, and the script refuses to
  * run under the test guard or in CI. No gog runs here.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
-  codecVerdict, diffKeyPaths, FIXTURE_DIR, fixtureKeyPaths, keyPaths, operationReport, SHAPE_FIXTURES, shapeCheckRefusal, shapePath, type ShapeOperation,
+  codecVerdict, diffKeyPaths, FIXTURE_DIR, fixtureKeyPaths, keyPaths, liveRead, operationReport, parseShapeCheckArgs, SHAPE_FIXTURES, shapeCheckEnvironment,
+  shapeCheckRefusal, shapePath, type ShapeOperation,
 } from "../scripts/google-shape-check";
+import { createFakeGog, type FakeGog } from "../packages/common/tests/support/fake-gog";
 
 const SCRIPT = join(import.meta.dir, "../scripts/google-shape-check.ts");
 const fixture = (name: string) => JSON.parse(readFileSync(join(FIXTURE_DIR, name), "utf8"));
@@ -111,12 +113,18 @@ const LIVE_ROUND: Readonly<Record<ShapeOperation, readonly string[]>> = {
 describe("key paths", () => {
   test("name every leaf with its type, collapse arrays and MIME nesting, and hide keys that could be data", () => {
     expect(keyPaths({ threads: [{ id: "19a0c3d2e4f50601" }, { id: "19a0c3d2e4f50700", messageCount: 2 }], nextPageToken: "", has_more: false, extra: null })).toEqual([
-      "$.extra: null", "$.has_more: boolean", "$.nextPageToken: string", "$.threads[].id: string", "$.threads[].messageCount: number",
+      "$.<key>: null", "$.has_more: boolean", "$.nextPageToken: string", "$.threads[].id: string", "$.threads[].messageCount: number",
     ]);
     expect(keyPaths({ payload: { parts: [{ parts: [{ parts: [{ body: { data: "x" } }] }] }, { body: { size: 1 } }] } })).toEqual([
       "$.payload.parts[]*.body.data: string", "$.payload.parts[]*.body.size: number",
     ]);
     expect(keyPaths({ "penelope@example.com": 1, labels: [], color: {} })).toEqual(["$.<key>: number", "$.color: {}", "$.labels: []"]);
+  });
+
+  test("print a key only when it is a structural name gog or Gmail uses, whatever its shape", () => {
+    expect(keyPaths({ Ithaca: 1, abcdef0123456789: { snippet: "x" }, labels: [{ Penelope: true, id: "Label_12" }] })).toEqual([
+      "$.<key>.snippet: string", "$.<key>: number", "$.labels[].<key>: boolean", "$.labels[].id: string",
+    ]);
   });
 
   test("never carry a value from the fixtures", () => {
@@ -199,6 +207,7 @@ describe("the codec's verdict", () => {
     expect(shapePath("$.headers.<key>")).toBe("$.headers.<key>");
     expect(shapePath("$")).toBe("$");
     for (const path of ["$.penelope@example.com", "$.a b", "$.threads[0].id=19a0c3d2e4f50601", "Suitors"]) expect(shapePath(path), path).toBe("<path>");
+    for (const path of ["$.Ithaca", "$.thread.abcdef0123456789", "$.headers.Penelope"]) expect(shapePath(path), path).toBe("<path>");
   });
 
   test("an operation's report carries the verdict beside the key paths, and no verdict without an answer", async () => {
@@ -209,6 +218,43 @@ describe("the codec's verdict", () => {
     expect((await operationReport("gmail.message.get", { exit: 0, end: "exit", json: { ...json, unsubscribe: 7 } })).codec)
       .toEqual({ refused: "transport_incompatible", at: "$.unsubscribe" });
     expect(await operationReport("gmail.thread.get", { exit: 5, end: "exit", json: null })).toEqual({ exit: 5, end: "exit" });
+  });
+});
+
+describe("its arguments and environment", () => {
+  test("an argument error names the flag at most, never a value it was given", () => {
+    for (const argv of [["--Ithaca", "penelope@example.com"], ["penelope@example.com"], ["--gog"], ["--query"], ["--gog", "/srv/ithaca/gog", "Suitors at the hall"]]) {
+      const parsed = parseShapeCheckArgs(argv);
+      expect(parsed.ok, argv.join(" ")).toBe(false);
+      const error = parsed.ok ? "" : parsed.error;
+      for (const supplied of ["Ithaca", "penelope", "example.com", "srv", "Suitors"]) expect(error, argv.join(" ")).not.toContain(supplied);
+    }
+    expect(parseShapeCheckArgs(["--query"])).toEqual({ ok: false, error: "--query needs a value" });
+    expect(parseShapeCheckArgs(["--gog", "/srv/ithaca/gog", "--account", "ithaca"])).toEqual({ ok: true, args: { gog: "/srv/ithaca/gog", account: "ithaca" } });
+  });
+
+  test("the maintainer's environment, narrowed; --home names the gog home as both GOG_HOME and HOME", () => {
+    const shell = {
+      HOME: "/home/odysseus", PATH: "/usr/bin:/bin", DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus", GOG_KEYRING_BACKEND: "auto",
+      GOG_ACCESS_TOKEN: "ya29.suitor", GOG_ACCOUNT: "suitor", GOG_CONFIG_DIR: "/srv/elsewhere", BRAIN_UI_GOOGLE_KEYRING_PASSWORD: "leaked",
+    };
+    expect(shapeCheckEnvironment(shell)).toEqual({
+      HOME: "/home/odysseus", PATH: "/usr/bin:/bin", DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus", GOG_KEYRING_BACKEND: "auto",
+    });
+    expect(shapeCheckEnvironment(shell, "ithaca-home")).toMatchObject({ GOG_HOME: resolve("ithaca-home"), HOME: resolve("ithaca-home") });
+  });
+
+  const fakes: FakeGog[] = [];
+  afterEach(() => {
+    for (const fake of fakes.splice(0)) fake.dispose();
+  });
+
+  test("a live read is capped at the transport's 8 MiB, like any operation", async () => {
+    const fake = createFakeGog({ "gmail.labels.list": [{ stdout_bytes: 8 * 1024 * 1024 + 1 }, { stdout: { labels: [] } }] });
+    fakes.push(fake);
+    const argv = ["--enable-commands-exact=gmail.labels.list", "gmail", "labels", "list"];
+    expect(await liveRead(fake.executable, argv, { PATH: "/usr/bin:/bin" })).toEqual({ exit: null, end: "output_too_large", json: null });
+    expect(await liveRead(fake.executable, argv, { PATH: "/usr/bin:/bin" })).toEqual({ exit: 0, end: "exit", json: { labels: [] } });
   });
 });
 

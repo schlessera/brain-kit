@@ -3,8 +3,10 @@
  * and positionals the Gmail catalog uses (packages/common/src/google/gog/
  * commands.ts), each with the type one gog release declares for it, and its
  * exit codes. Offline: it reads a saved `gog schema --json`, or runs the
- * given binary's `schema --json` with an empty home and no inherited
- * environment, which reaches no account and writes nothing.
+ * given binary's `schema --json` the way the transport runs gog: its
+ * allow-listed environment (environment.ts) over a fresh empty home, and the
+ * runner's process group and cap. That reaches no account and writes
+ * nothing.
  *
  *   bun scripts/gog-schema-snapshot.ts --schema <schema.json>
  *   bun scripts/gog-schema-snapshot.ts --gog <path to a pinned gog binary>
@@ -19,7 +21,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { GOG_COMMANDS, GOG_FORBIDDEN_FLAGS, GOG_ROOT_FLAGS, type GogCommand, type GogSchemaSnapshot } from "../packages/common/src/google/gog/commands.ts";
+import { gogEnvironment } from "../packages/common/src/google/gog/environment.ts";
 import { GOG_EXIT_CODES } from "../packages/common/src/google/gog/errors.ts";
+import { GOG_SCHEMA_STDOUT_CAP, runGogProcess } from "../packages/common/src/google/gog/runner.ts";
 
 export const SNAPSHOT_FILE = resolve(import.meta.dir, "../packages/common/src/google/gog/snapshot.ts");
 
@@ -76,15 +80,18 @@ export const GOG_SCHEMA_SNAPSHOT: GogSchemaSnapshot = ${JSON.stringify(snapshot,
 `;
 }
 
-function schemaFromBinary(gog: string): unknown {
+/** `gog schema --json` of one binary, run with the transport's environment over a fresh empty home. */
+export async function schemaFromBinary(gog: string): Promise<unknown> {
   const home = mkdtempSync(join(tmpdir(), "gog-schema-"));
   try {
-    const run = Bun.spawnSync([gog, "schema", "--json"], {
-      env: { PATH: "/usr/bin:/bin", HOME: home, XDG_CONFIG_HOME: join(home, ".config") },
-      cwd: home, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 60_000,
-    });
-    if (run.exitCode !== 0) throw new Error(`gog schema --json exited ${run.exitCode}`);
-    return JSON.parse(run.stdout.toString());
+    // `schema` opens no keyring; the allow-list needs a password all the same.
+    const environment = gogEnvironment({ home, keyringPassword: "schema-snapshot-opens-no-keyring" });
+    if (!environment.ok) throw new Error(`no gog environment: ${environment.reason}`);
+    const run = await runGogProcess(gog, ["schema", "--json"], { env: environment.environment, stdin: null, timeoutMs: 60_000, stdoutCap: GOG_SCHEMA_STDOUT_CAP });
+    if (run.end.kind !== "exit" || run.end.exitCode !== 0 || !run.stdout) {
+      throw new Error(`gog schema --json ended ${run.end.kind === "exit" ? `with exit ${run.end.exitCode}` : `by ${run.end.kind}`}`);
+    }
+    return JSON.parse(new TextDecoder().decode(run.stdout));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -96,7 +103,7 @@ if (import.meta.main) {
     console.error("usage: bun scripts/gog-schema-snapshot.ts --schema <schema.json> | --gog <gog binary>");
     process.exit(2);
   }
-  const schema = flag === "--schema" ? JSON.parse(readFileSync(value, "utf8")) : schemaFromBinary(resolve(value));
+  const schema = flag === "--schema" ? JSON.parse(readFileSync(value, "utf8")) : await schemaFromBinary(resolve(value));
   const snapshot = snapshotFromSchema(schema);
   writeFileSync(SNAPSHOT_FILE, renderSnapshot(snapshot));
   console.log(`wrote ${SNAPSHOT_FILE} from ${snapshot.gog}`);

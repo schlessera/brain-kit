@@ -13,8 +13,12 @@ import { GOG_ENVIRONMENT_NAMES, GOG_EXIT_CODES, GOG_OPERATION_INPUTS, gogEnviron
 import { GogArgvError, gogArgv, gogInvocation, type GogInvocation } from "../src/google/gog/argv.ts";
 import { GOG_COMMANDS, GOG_FORBIDDEN_FLAGS, GOG_ROOT_FLAGS, GOG_SEND_COMMAND, type GogCommand } from "../src/google/gog/commands.ts";
 import { GOG_SCHEMA_SNAPSHOT } from "../src/google/gog/snapshot.ts";
-import { renderSnapshot, snapshotFromSchema, SNAPSHOT_FILE } from "../../../scripts/gog-schema-snapshot.ts";
+import { renderSnapshot, schemaFromBinary, snapshotFromSchema, SNAPSHOT_FILE } from "../../../scripts/gog-schema-snapshot.ts";
+import { createFakeGog } from "./support/fake-gog.ts";
 import { schemaFromSnapshot } from "./support/gog-schema.ts";
+
+/** What the offline test guard adds to every child it spawns (scripts/test-network-guard.ts). */
+const GUARD_ADDED = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE)$/;
 
 const NUL = String.fromCharCode(0);
 const ACCOUNT = "ithaca";
@@ -273,6 +277,18 @@ describe("the schema snapshot", () => {
     const regenerated = renderSnapshot(snapshotFromSchema(schemaFromSnapshot(GOG_SCHEMA_SNAPSHOT) as never));
     expect(regenerated).toBe(readFileSync(SNAPSHOT_FILE, "utf8"));
     expect(SNAPSHOT_FILE).toBe(join(import.meta.dir, "../src/google/gog/snapshot.ts"));
+  });
+
+  test("the generator runs a binary with the transport's environment, over a fresh empty home", async () => {
+    const fake = createFakeGog({ schema: { stdout: schemaFromSnapshot(GOG_SCHEMA_SNAPSHOT) } });
+    try {
+      expect(snapshotFromSchema(await schemaFromBinary(fake.executable) as Parameters<typeof snapshotFromSchema>[0])).toEqual(GOG_SCHEMA_SNAPSHOT);
+      const [call] = fake.callsOf("schema");
+      expect(call!.argv).toEqual(["schema", "--json"]);
+      expect(call!.env_names.filter(name => !GUARD_ADDED.test(name))).toEqual([...GOG_ENVIRONMENT_NAMES].sort());
+    } finally {
+      fake.dispose();
+    }
   });
 
   test("the generator refuses a release that lacks a flag the catalog uses", () => {
