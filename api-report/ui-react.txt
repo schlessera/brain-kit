@@ -1139,6 +1139,47 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<WorkerHostStatus>;
+        codeChangePreview: (sessionId: string, turnId: string, checkout: string, signal?: AbortSignal) => Promise<{
+            diff?: string;
+            inline: boolean;
+            reason?: string;
+        }>;
+        codeChangeRevert: (sessionId: string, turnId: string, checkout: string, id: string) => Promise<{
+            current?: {
+                paths: {
+                    kind: string;
+                    path: string;
+                }[];
+                tree_after: string;
+            };
+            currentPreview?: {
+                diff?: string;
+                inline: boolean;
+                reason?: string;
+            };
+            error?: string;
+            expected?: string;
+            id: string;
+            status: "conflict" | "failed" | "restored" | "unknown";
+        }>;
+        codeChangeRevertStatus: (sessionId: string, turnId: string, id: string) => Promise<{
+            current?: {
+                paths: {
+                    kind: string;
+                    path: string;
+                }[];
+                tree_after: string;
+            };
+            currentPreview?: {
+                diff?: string;
+                inline: boolean;
+                reason?: string;
+            };
+            error?: string;
+            expected?: string;
+            id: string;
+            status: "conflict" | "failed" | "restored" | "unknown";
+        }>;
         createLivePersona: (request: LivePersonaCreateRequest) => Promise<LivePersona>;
         deleteLivePersona: (id: string, baseRevision: string) => Promise<void>;
         dictationSettings: () => Promise<DictationSettings>;
@@ -1960,6 +2001,47 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<import("@schlessera/brain-ui-sdk").WorkerHostStatus>;
+        codeChangePreview: (sessionId: string, turnId: string, checkout: string, signal?: AbortSignal) => Promise<{
+            diff?: string;
+            inline: boolean;
+            reason?: string;
+        }>;
+        codeChangeRevert: (sessionId: string, turnId: string, checkout: string, id: string) => Promise<{
+            current?: {
+                paths: {
+                    kind: string;
+                    path: string;
+                }[];
+                tree_after: string;
+            };
+            currentPreview?: {
+                diff?: string;
+                inline: boolean;
+                reason?: string;
+            };
+            error?: string;
+            expected?: string;
+            id: string;
+            status: "conflict" | "failed" | "restored" | "unknown";
+        }>;
+        codeChangeRevertStatus: (sessionId: string, turnId: string, id: string) => Promise<{
+            current?: {
+                paths: {
+                    kind: string;
+                    path: string;
+                }[];
+                tree_after: string;
+            };
+            currentPreview?: {
+                diff?: string;
+                inline: boolean;
+                reason?: string;
+            };
+            error?: string;
+            expected?: string;
+            id: string;
+            status: "conflict" | "failed" | "restored" | "unknown";
+        }>;
         createLivePersona: (request: import("@schlessera/brain-ui-sdk").LivePersonaCreateRequest) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
         deleteLivePersona: (id: string, baseRevision: string) => Promise<void>;
         dictationSettings: () => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;

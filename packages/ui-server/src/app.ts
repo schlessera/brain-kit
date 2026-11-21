@@ -2,6 +2,7 @@ import { credentialedIndexRefresh } from "./brain/credentialed-index-refresh.js"
 import { recordMaintenanceReceipt, startupReleaseFailure } from "./brain/host-maintenance-receipts.js";
 import { createNativeStartupReleases, setNativeStartupReleases } from "./brain/native-startup-releases.js";
 import type { IndexUpdateReceipt } from "./brain/index-update-receipt.js";
+import { createReferenceOwnerContinuity } from "./brain/reference-owner-resolution.js";
 import { createTrustSettings } from "./brain/trust-settings.js";
 import { createTrustSettingsRoutes } from "./routes/trust-settings.js";
 import { createTrustGitHubIdentity } from "./brain/trust-github-identity.js";
@@ -43,6 +44,8 @@ import { basename, dirname, join, resolve } from "path";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
+import { prepareNativeWorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { createCodeChangeHistory } from "./brain/code-change-history.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
@@ -430,6 +433,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const nativeLeases = await createNativeBrainLeaseManager(nativeClient, { statePath: nativeLeasePath, brainPath: nativeReady.brainPath, fsid: nativeReady.fsid, brainUuid: nativeReady.brainUuid })
     .catch(error => { if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true }); throw error; });
   const bootCleanup: (() => void | Promise<void>)[] = [];
+  const ownerContinuity = await createReferenceOwnerContinuity(config.brainPath, nativeReady);
+  bootCleanup.push(() => ownerContinuity.close());
   try {
   const nativeRecovery = await nativeLeases.recoverDeadOwners();
   if (nativeRecovery.unknown.length || nativeRecovery.retainedUnverifiable) observability.logger("brain").emit({ severityText: "WARN",
@@ -559,7 +564,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Worktree lifecycle (#2430); every grant is covered by the turn journal first.
   const referenceWorktrees = referenceSources ? createReferenceWorktrees({ db, pool: nativeManager, sources: referenceSources, log: brainLog,
     // Every grant is covered by the turn journal first; the journal exists once a turn can run.
-    coverage: (input, signal) => journal.attachWorktree(input.turnId, input.worktreeId, signal) }) : undefined;
+    coverage: (input, signal) => journal.attachWorktree(input.turnId, input.worktreeId, signal),
+    released: input => journal.releaseWorktree(input.turnId, input.worktreeId) }) : undefined;
   if (referenceSources) {
     bootCleanup.push(() => referenceSources.close());
     const recovered = await referenceSources.recover().catch((error: Error) => ({ released: [], retained: [error.message] }));
@@ -567,7 +573,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   }
   // The agent tools (#2432) reach both services only through the turn's own access.
   const referenceTools = referenceSources ? createReferenceTools({ sources: referenceSources, ...(referenceWorktrees ? { worktrees: referenceWorktrees } : {}),
-    reads: createReferenceReads({ db, brain: nativeReady.brainUuid, sources: referenceSources, pool: nativeManager, transport: referenceTransport }),
+    reads: createReferenceReads({ db, ownerRoot: ownerContinuity.root, ownerPolicy: () => trustSettings.ownerPolicy(), brain: nativeReady.brainUuid, sources: referenceSources, pool: nativeManager, transport: referenceTransport }),
     log: brainLog }) : undefined;
   if (referenceWorktrees) {
     bootCleanup.push(() => referenceWorktrees.close());
@@ -775,7 +781,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs }, { writer, catalog });
   // Idle passes keep the observer initialized and current, and expire old
   // turns, off the next admission's path (#3355).
-  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000, log: brainLog,
+  const journal = createTurnJournal(db, { codeChanges: { prepare: signal => prepareNativeWorkerStartupView(config.brainPath, nativeManager, signal), maintenance: { ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}), ...(config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}), maskPaths: turnMaskPaths } }, nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000, log: brainLog,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
       return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };
@@ -784,7 +790,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => journal.close());
   // Startup recovery commits, or refuses boot, before any turn can run.
   await journal.ready;
-  const policyProposals = createPolicyProposals({ root: config.brainPath, db, writer,
+  const policyProposals = createPolicyProposals({ afterPublication: () => trustSettings.refreshLocked(), root: config.brainPath, db, writer,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
     recordEvent: (review, turn) => activity.governanceWrites.record({ kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,
@@ -795,6 +801,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   // Built before the host it is handed to, so the two share one worker lock.
   const workerLock = createKeyedLock();
+  const codeHistory = createCodeChangeHistory(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: workerLock, boundary, nativeManager,
+    maintenance: { ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}), ...(config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}), maskPaths: turnMaskPaths },
+    ...(referenceWorktrees ? { worktrees: referenceWorktrees } : {}),
+    isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); } });
+  bootCleanup.push(() => codeHistory.settled());
   const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: workerLock, governance: activity.governanceWrites,
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
     refresh(turnId) { host.governedTurns?.refresh(host.workerLock, turnId); } });
@@ -1234,7 +1245,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     void chatDeletion.reconcile().catch(err => brainLog.emit({ severityText: "WARN", body: "chat deletion reconciliation failed",
       attributes: { error: err instanceof Error ? err.message : String(err) } }));
   }
-  app.route("/api", createJournalRoutes({ journal }));
+  app.route("/api", createJournalRoutes({ journal, codeHistory }));
   const storageHistory = createStorageHistory(db, config.brainPath, { writer });
   bootCleanup.push(() => storageHistory.close());
   const storageAuthorized = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
@@ -1356,7 +1367,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const piExcluded = () => unavailableBackends.some(failure => failure.backendId === "pi");
   app.route("/api", createPiAuthRoutes({ agent: config.agent, excluded: piExcluded }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent, excluded: piExcluded }));
-  const trustSettings = createTrustSettings({ root: config.brainPath, db, writer, lock: workerLock,
+  const trustSettings = createTrustSettings({ root: config.brainPath, ownerRoot: ownerContinuity.root, db, writer, lock: workerLock, originEnforcement: true,
     github: createTrustGitHubIdentity({ root: config.brainPath, access: githubReferenceAccess }),
     authority: id => {
       if (authMode !== "password") return null;
@@ -1364,6 +1375,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       return p?.kind === "owner" && ["password", "passkey"].includes(p.authMethod) && isUsablePrincipal(p, Date.now())
         ? JSON.stringify([p.id, p.authMethod, p.credentialId, p.createdAt, p.expiresAt]) : null;
     }, observe: (id, publish) => journal.observeSettingsPolicy(id, publish) });
+  await trustSettings.snapshot();
+  host.originTrust = trustSettings.live;
+  host.safetyTrust = trustSettings.live;
   app.route("/api", createTrustSettingsRoutes({ settings: trustSettings, trustProxy: auth.trustProxy }));
   const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.
@@ -1540,6 +1554,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => storageHistory.close());
       await attempt(() => scratchPrune.close());
       await attempt(() => scratchPins.close());
+      await attempt(() => codeHistory.settled());
       await attempt(() => reverts.close());
       await attempt(() => keyedReindex.idle());
       await attempt(async () => { await host.governedTurns?.close(); });
@@ -1557,6 +1572,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Consumers have drained; close the shared write connection before its reader.
       await attempt(() => writer.close());
       await attempt(() => db.close());
+      await attempt(() => ownerContinuity.close());
       clearTimeout(grace);
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, "Application shutdown retained failed cleanup outcomes.");

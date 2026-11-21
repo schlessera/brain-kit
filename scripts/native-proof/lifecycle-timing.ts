@@ -2,6 +2,25 @@ import type { ActivityTurnLifecycle, ActivityTurnOpenSubPhase } from "@schlesser
 
 const UNOBSERVED_CLAUDE_STEPS: readonly string[] = ["runtime_to_sdk_init", "mcp_connect:*", "first_enqueue", "prompt_recorded", "first_relay_request"];
 
+/** Admission proof is independent of any later backend startup evidence. */
+export function requireAdmissionSteps(sample: ReturnType<typeof lifecycleTimingSample>, name: string): void {
+  const fail = () => { throw Error(`OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED ${name}`); };
+  if (!sample) return fail();
+  if ([sample.governedAdmissionMs, sample.journalBeginMs].some(value => value === null || !Number.isFinite(value) || value < 0)) fail();
+  for (const [start, end] of [[sample.governedStartedAt, sample.governedAcquiredAt], [sample.journalStartedAt, sample.journalBeganAt]]) {
+    if (start === null || end === null || !Number.isFinite(start) || !Number.isFinite(end) || end < start) fail();
+  }
+  for (const [phase, start, end] of [["governed", sample.governedStartedAt, sample.governedAcquiredAt],
+    ["journal", sample.journalStartedAt, sample.journalBeganAt]] as const) {
+    const steps = sample.admissionSteps.filter(step => step.phase === phase);
+    if (!steps.length) fail();
+    for (const step of steps) {
+      if (!Number.isFinite(step.startedAt) || step.endedAt === null || !Number.isFinite(step.endedAt)
+        || step.startedAt < start! || step.endedAt! > end! || step.endedAt! < step.startedAt) fail();
+    }
+  }
+}
+
 /** Project the persisted raw record for --observation-timing, without joining clock origins. */
 export function lifecycleTimingSample(record: ActivityTurnLifecycle | undefined, coverage: "native" | "claude_worker_fixture" = "native") {
   if (!record) return null;
@@ -19,14 +38,16 @@ export function lifecycleTimingSample(record: ActivityTurnLifecycle | undefined,
     steps[key] = elapsedMs === null ? steps[key] ?? null : (steps[key] ?? 0) + elapsedMs;
     return { ...step, elapsedMs };
   });
-  return { turnId: record.turnId, backendInvokedAt: record.backendInvokedAt, firstFrameAt: record.firstFrameAt, endedAt: record.endedAt, firstRelayRequestAt: record.firstRelayRequestAt ?? null,
+  return { governedStartedAt: record.governedStartedAt, governedAcquiredAt: record.governedAcquiredAt,
+    journalStartedAt: record.journalStartedAt, journalBeganAt: record.journalBeganAt,
+    admissionSteps: record.subPhases ?? [], turnId: record.turnId, backendInvokedAt: record.backendInvokedAt, firstFrameAt: record.firstFrameAt, endedAt: record.endedAt, firstRelayRequestAt: record.firstRelayRequestAt ?? null,
     queueWaitMs: span(record.acceptedAt, record.dequeuedAt),
     governedAdmissionMs: span(record.governedStartedAt, record.governedAcquiredAt),
     budgetAdmissionMs: span(record.budgetStartedAt, record.budgetAdmittedAt), journalBeginMs: span(record.journalStartedAt, record.journalBeganAt),
     backendStartupMs: span(record.backendInvokedAt, record.firstFrameAt), timeToFirstFrameMs: span(record.acceptedAt, record.firstFrameAt),
     // An absent first request must not turn into a claimed receipt at failure/turn end.
     invocationToRelayMs: record.backendInvokedAt === null || record.firstRelayRequestAt == null ? null : Math.max(0, record.firstRelayRequestAt - record.backendInvokedAt),
-    backendSteps: observed.filter(step => step.phase === "backend"), backendMissingEvidence: record.backendMissingEvidence ?? null, steps };
+    backendSteps: observed.filter(step => step.phase === "backend"), backendEvidenceOmitted: record.backendEvidenceOmitted ?? null, backendMissingEvidence: record.backendMissingEvidence ?? null, steps };
 }
 
 /** The first and five warm samples of the native observation fixture. */

@@ -150,6 +150,7 @@ export "." (./src/index.ts)
   type ClientToolDenial
   type ClientTurnReceipt
   type ClientTurnTiming
+  type CodeChangeReceipt
   type ConfigurationCoverageRead
   type ConfiguredModule
   type ConflictVersionSelection
@@ -746,6 +747,7 @@ export "./client" (./src/client/index.ts)
   type ClientToolDenial
   type ClientTurnReceipt
   type ClientTurnTiming
+  type CodeChangeReceipt
   type CompleteShareInput
   type CompleteShareResult
   type ComputeHealthToolInput
@@ -1392,7 +1394,10 @@ export "./internal" (./src/internal.ts)
   type CompiledWorkerCommandPolicy
   DEFAULT_TURN_TEMP_BYTES
   EgressAdmissionRefused
+  type EgressChargeFailure
+  type EgressChargeResult
   type EgressDestinationPolicy
+  type EgressFailureReason
   type EgressRecord
   type EgressRefusal
   FIRST_PARTY_PROVIDER_RECIPIENTS
@@ -1502,6 +1507,7 @@ export "./internal" (./src/internal.ts)
   assertManagedTurnStartupView
   assertScratchMaskAsync
   bashCommand
+  canonicalEgressHost
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
@@ -1521,6 +1527,7 @@ export "./internal" (./src/internal.ts)
   describeClient
   egressAddressRefusal
   egressBootstrapEntry
+  egressChargeRefusal
   envMaskedPaths
   execWrapperSpawnOptions
   handleTurnTemp
@@ -1598,6 +1605,9 @@ export "./internal" (./src/internal.ts)
   runMaintenanceWorker
   runMaintenanceWorkerSync
   safetyAdmissionRefusal
+  safetyAdmissionSchema
+  safetyOccurrenceAdmissionSchema
+  safetyRecordSchema
   sameSafetyAdmission
   sessionPromptContext
   sessionPromptContextLocation
@@ -1609,6 +1619,7 @@ export "./internal" (./src/internal.ts)
   stripHostContextFromTitle
   turnTempLimit
   turnTempSpace
+  validatedEgressProvenance
   verifiedWorkerIdentity
   webSearchBrief
   webSearchKeySource
@@ -1801,6 +1812,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientToolDenial
   type ClientTurnReceipt
   type ClientTurnTiming
+  type CodeChangeReceipt
   type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConsumerServerMessage
@@ -2643,6 +2655,7 @@ export "./server" (./src/server/index.ts)
   type CoastlineConfig
   type CoastlineRequest
   type CoastlineResult
+  type CodeChangeReceipt
   type CompiledConfirmPattern
   type CompleteShareInput
   type CompleteShareResult
@@ -4543,6 +4556,7 @@ signatures (every public export and the types it is made of)
         backendInvokedAt: number | null;
         firstRelayRequestAt?: number | null;
         backendMissingEvidence?: string[];
+        backendEvidenceOmitted?: number;
         firstFrameAt: number | null;
         failureObservedAt: number | null;
         endedAt: number | null;
@@ -7553,6 +7567,29 @@ signatures (every public export and the types it is made of)
   CoastlineConfig (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CoastlineRequest (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CoastlineResult (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  CodeChangeReceipt (packages/ui-sdk/src/turn-journal.ts)
+    export interface CodeChangeReceipt {
+        checkout: string;
+        state: "recording" | "complete" | "partial";
+        head_before: {
+            commit: string;
+            ref: string | null;
+        };
+        head_after: {
+            commit: string;
+            ref: string | null;
+        };
+        tree_before: string;
+        tree_after: string;
+        paths: {
+            path: string;
+            kind: "added" | "deleted" | "modified";
+            untracked: boolean;
+        }[];
+        bytes: number;
+        untracked: number;
+        ignore_changed: boolean;
+    }
   CompiledConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
     export type CompiledConfirmPattern = RegExp & {
         readonly effect?: string;
@@ -15051,6 +15088,7 @@ signatures (every public export and the types it is made of)
     }
   TurnJournalDetails (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalDetails {
+        codeChanges?: CodeChangeReceipt[];
         turnId: string;
         sessionId: string;
         summary: TurnJournalSummary;
@@ -15382,6 +15420,7 @@ signatures (every public export and the types it is made of)
     export interface WebModelEgress {
         dir: string;
         inference(method: string, target: URL, signal: AbortSignal): unknown;
+        remainingBytes?(): number;
     }
   WebModelGrant (packages/ui-sdk/src/tool-contracts/web.ts)
     export interface WebModelGrant {
@@ -16356,6 +16395,7 @@ signatures (every public export and the types it is made of)
         }>;
     }, z.core.$strict>, z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
@@ -16522,6 +16562,7 @@ signatures (every public export and the types it is made of)
   clientSafetyReadSchema (packages/ui-sdk/src/safety.ts)
     const clientSafetyReadSchema: z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
@@ -21396,6 +21437,17 @@ signatures (every public export and the types it is made of)
             unresolvedCount: z.ZodNumber;
         }, z.core.$strict>;
         records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                policyHash: z.ZodNullable<z.ZodString>;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<false>;
+            }, z.core.$strict>, z.ZodObject<{
+                collectionRevision: z.ZodString;
+                policyHash: z.ZodString;
+                ruleId: z.ZodString;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<true>;
+            }, z.core.$strict>], "trusted">>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
             detector: z.ZodNullable<z.ZodString>;
@@ -21542,6 +21594,17 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   safetyRecordSchema (packages/ui-sdk/src/safety.ts)
     const safetyRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            policyHash: z.ZodNullable<z.ZodString>;
+            trustRevision: z.ZodString;
+            trusted: z.ZodLiteral<false>;
+        }, z.core.$strict>, z.ZodObject<{
+            collectionRevision: z.ZodString;
+            policyHash: z.ZodString;
+            ruleId: z.ZodString;
+            trustRevision: z.ZodString;
+            trusted: z.ZodLiteral<true>;
+        }, z.core.$strict>], "trusted">>;
         bindingId: z.ZodString;
         detailPruned: z.ZodBoolean;
         detector: z.ZodNullable<z.ZodString>;
@@ -22039,6 +22102,17 @@ signatures (every public export and the types it is made of)
             unresolvedCount: z.ZodNumber;
         }, z.core.$strict>;
         records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                policyHash: z.ZodNullable<z.ZodString>;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<false>;
+            }, z.core.$strict>, z.ZodObject<{
+                collectionRevision: z.ZodString;
+                policyHash: z.ZodString;
+                ruleId: z.ZodString;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<true>;
+            }, z.core.$strict>], "trusted">>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
             detector: z.ZodNullable<z.ZodString>;
@@ -22148,6 +22222,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -22314,6 +22389,7 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -25369,6 +25445,7 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -25536,6 +25613,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -27127,6 +27205,17 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -27285,6 +27374,17 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -27964,6 +28064,17 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -28138,6 +28249,17 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;

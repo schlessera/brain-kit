@@ -83,6 +83,7 @@ test("real dispatch records delayed governed admission and first frame, and link
   const { spyOn } = await import("bun:test");
   const db=createUiDb(":memory:"), store=createActivityStore(db), stream=createActivityStream(store);
   let now=1000; const clock=spyOn(Date,"now").mockImplementation(()=>now);
+  const monotonic=spyOn(performance,"now").mockImplementation(()=>now);
   const policy=createGovernancePolicyReader("/nonexistent-odysseus-fixture").load();
   const backend=makeFakeBackend({id:"pi",async startTurn(request){
     const end = request.startupTiming?.start("host_probe"); now=1500; end?.();
@@ -93,7 +94,7 @@ test("real dispatch records delayed governed admission and first frame, and link
     now=1900;request.bridge.emit({type:"result",sessionId:"ithaca",durationMs:200,numTurns:1,isError:false,costUsd:0});
   }});
   const host=new WsHost({registry:createStaticBackendRegistry([backend],"pi"),catalog:createSessionCatalog(()=>db),activity:{store,stream},
-    governedTurns:{async begin(...args:unknown[]){const timing=args[5] as ((name:string)=>()=>void)|undefined;const end=timing?.("gate_acquire");now=1400;end?.();return {sandbox:{profile:"strict",noteFacts:{},areas:[]},policy,async end(){now=2000;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
+    governedTurns:{async begin(...args:unknown[]){const timing=args[5] as ((name:string)=>()=>void)|undefined;const end=timing?.("gate_acquire");now=1400;end?.();return {sandbox:{profile:"strict",areas:[],noteFacts:{}},policy,async end(){now=2000;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
   try {
     await runSession(host,{authorization:testAuthorization("odysseus"),text:"Plan Ithaca",attachments:[]});
     const record=store.lifecycles()[0]!;
@@ -109,7 +110,7 @@ test("real dispatch records delayed governed admission and first frame, and link
       firstFrameAt:1700,endedAt:2000,sessionId:"ithaca",totalElapsedMs:1000,timeToFirstFrameMs:700,backendStartupMs:300,outcome:"success"});
     expect(record.backendRunId).toBe(record.turnId);
     expect(store.runRollup!(record.turnId)!.durationMs).toBe(200);
-  }finally{clock.mockRestore();host.close();stream.close();db.close();}
+  }finally{monotonic.mockRestore();clock.mockRestore();host.close();stream.close();db.close();}
 });
 
 
@@ -126,13 +127,14 @@ for (const mode of ["governed refusal","backend failure","revoked","budget refus
   const { spyOn } = await import("bun:test");
   const db=createUiDb(":memory:"),store=createActivityStore(db),stream=createActivityStream(store);
   let now=1000,entered=false;const clock=spyOn(Date,"now").mockImplementation(()=>now);
+  const monotonic=spyOn(performance,"now").mockImplementation(()=>now);
   const authorization=testAuthorization("odysseus"),policy=createGovernancePolicyReader("/nonexistent-odysseus-fixture").load();
   const backend=makeFakeBackend({id:"pi",async startTurn(){entered=true;now=1600;throw Error("Backend startup failed");}});
   const observation: import("@schlessera/brain-ui-sdk/protocol").BudgetObservation = {scope:"turn",costUsd:200,blockUsd:200,warnUsd:100,tokens:null,blockTokens:512000000,unknownRuns:0,warning:true,blocked:true};
   const host=new WsHost({registry:createStaticBackendRegistry([backend],"pi"),catalog:createSessionCatalog(()=>db),activity:{store,stream},
     ...(mode === "budget refusal" ? {budgets:{...createTurnBudgets(db,{resolve:()=>null}),begin(){now=1500;throw new BudgetExceeded(observation,"admission");}}} : {}),
     governedTurns:{async begin(){now=1400;if(mode === "governed refusal")throw Error("Governed admission refused");if(mode === "revoked")authorization.valid=false;
-      return {sandbox:{profile:"strict",noteFacts:{},areas:[]},policy,async end(){return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
+      return {sandbox:{profile:"strict",areas:[],noteFacts:{}},policy,async end(){return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
   try{
     await runSession(host,{authorization,text:"Plan Ithaca",attachments:[]});
     const record=store.lifecycles()[0]!;
@@ -142,7 +144,32 @@ for (const mode of ["governed refusal","backend failure","revoked","budget refus
     expect(entered).toBe(mode === "backend failure");
     if (mode === "backend failure") expect(record.openSubPhases?.find(step => step.name === "backend_exit"))
       .toMatchObject({ phase: "closing", startedAt: 1600, endedAt: 1600, elapsedMs: 0 });
-  }finally{clock.mockRestore();host.close();stream.close();db.close();}
+  }finally{monotonic.mockRestore();clock.mockRestore();host.close();stream.close();db.close();}
+});
+
+test("REST lifecycle detail cannot pair an older row with a newer floor", async () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  const life = createTurnLifecycle(store, "ithaca-rest-race", "ithaca", 1000, () => {}, () => 1200);
+  const view = { ...store, lifecycle(id: string) { const row = store.lifecycle(id); life.finish("success"); return row; },
+    lifecycleSnapshot(id: string) { life.finish("success"); return store.lifecycleSnapshot!(id); } };
+  try {
+    const response = await createActivityRoutes({ db, store: view }).request("/activity/runs/ithaca-rest-race");
+    const detail = await response.json();
+    expect(detail.lifecycle, "REST_LIFECYCLE_ROW_AND_FLOOR_ARE_CONSISTENT").toEqual(store.lifecycle("ithaca-rest-race"));
+    expect(detail.lifecycleSeq).toBe(store.runHighWaterSeq("lifecycle:ithaca-rest-race"));
+  } finally { db.close(); }
+});
+
+test("restart lifecycle close uses persisted observations after a backward wall-clock correction", async () => {
+  const { spyOn } = await import("bun:test");
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  let now = 1000; const life = createTurnLifecycle(store, "ithaca-restart-clock", "ithaca", now, () => {}, () => now);
+  life.mark("backendInvokedAt"); now = 1200; life.startupTiming.start("host_probe")(); now = 1300; life.firstFrame(null);
+  const clock = spyOn(Date, "now").mockReturnValue(900);
+  try {
+    store.sweepOwnOrphans();
+    expect(store.lifecycle("ithaca-restart-clock"), "RECOVERY_CLOSE_USES_PERSISTED_CLOCK_BASIS").toMatchObject({ endedAt: 1300, totalElapsedMs: 300, outcome: "interrupted" });
+  } finally { clock.mockRestore(); db.close(); }
 });
 
 test("build identity validates revision and retains runtime evidence with terminal milestones", () => {
@@ -182,6 +209,7 @@ test("real dispatch attributes a queued index delay and final observation only t
   const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store);
   let now = 1000, pending = true, finished = false;
   const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const monotonic = spyOn(performance, "now").mockImplementation(() => now);
   const makeBridge = bridges.makeBridge;
   const setup = spyOn(bridges, "makeBridge").mockImplementation(async (...args) => {
     const bridge = await makeBridge(...args);
@@ -208,7 +236,7 @@ test("real dispatch attributes a queued index delay and final observation only t
         { phase: "closing", name: "final_observation", startedAt: 1600, endedAt: 1900, elapsedMs: 300 }]);
     expect(record.openSubPhases?.filter(s => s.name === "journal_finish").map(s => s.elapsedMs)).toEqual([300, 0]);
     expect(record).toMatchObject({ endedAt: 1900, recorderSettledAt: 1900, idleEmittedAt: 1900 });
-  } finally { setup.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
+  } finally { setup.mockRestore(); monotonic.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
 });
 
 test("identical terminal replay emits no new change while a new trailing receipt does", () => {

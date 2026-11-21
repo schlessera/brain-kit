@@ -22,7 +22,7 @@ for (const cause of ["predicate throw", "immediate void stop"] as const) test(`$
   try {
     if (cause === "immediate void stop") {
       f.ack(undefined); const prior = f.result(); op = operation(f);
-      await op.prepareDispatch(Buffer.from(body())); expect(op.dispatch()).toBe(false);
+      await op.prepareDispatch(Buffer.from(body())); expect(op.dispatchReady()).toBe(false);
       await prior; op.finish("cancelled"); op = undefined;
     }
     blocked = hold(f);
@@ -35,12 +35,12 @@ for (const cause of ["predicate throw", "immediate void stop"] as const) test(`$
     const response = op.responseReady().then(value => { ready = true; return value; });
     const relayed = send(relay.socketPath, body("sail"), "/v1/messages", {}, "POST", () => { delivered = true; }); void relayed.catch(() => {});
     await blocked.entered; await cycle();
-    expect(op.dispatch(), "REQUIRED_RESULT_BLOCKS_UPSTREAM_UNTIL_COMMIT").toBe(false);
+    expect(op.dispatchReady(), "REQUIRED_RESULT_BLOCKS_UPSTREAM_UNTIL_COMMIT").toBe(false);
     expect(ready, "REQUIRED_RESULT_BLOCKS_RESPONSE_UNTIL_COMMIT").toBe(false);
     expect(upstream, "IMMEDIATE_RESULT_SENDS_NO_UPSTREAM_BEFORE_COMMIT").toBe(0);
     expect(delivered, "IMMEDIATE_RESULT_SENDS_NO_RESPONSE_BEFORE_COMMIT").toBe(false);
     blocked.release(); await observed; expect(await response).toBe(true);
-    expect(op.dispatch()).toBe(true); expect((await relayed).status).toBe(200);
+    expect(op.dispatchReady()).toBe(true); expect((await relayed).status).toBe(200);
   } finally { blocked?.restore(); op?.finish("cancelled"); relay.stop(); origin.stop(true); await f.close(); }
 });
 
@@ -52,12 +52,12 @@ test("a fallback cap refuses a straggler until Continue (T3)", async () => {
     writeFileSync(join(f.brain, "note.md"), "Penelope");
     const observed = f.result(); f.fireDeadline(); await observed;
     op = operation(f); await op.prepareDispatch(Buffer.from(body()));
-    expect(op.dispatch(), "PAUSED_STRAGGLER_CANNOT_DISPATCH").toBe(false);
+    expect(op.dispatchReady(), "PAUSED_STRAGGLER_CANNOT_DISPATCH").toBe(false);
     expect((await send(relay.socketPath)).status, "PAUSED_STRAGGLER_RECEIVES_403").toBe(403);
     expect(upstream).toBe(0);
     const receipt = f.journal.summary("voyage").scope!.receipts.at(-1)!;
     expect((await f.scope.decide({ type: "scope_decision", turnId: "voyage", sessionId: "ithaca", eventId: receipt.eventId, submissionId: "captain", action: "continue" }, true)).state).toBe("accepted");
-    expect(op.dispatch(), "STRAGGLER_MAY_DISPATCH_AFTER_CONTINUE").toBe(true);
+    expect(op.dispatchReady(), "STRAGGLER_MAY_DISPATCH_AFTER_CONTINUE").toBe(true);
     expect((await send(relay.socketPath)).status).toBe(200); expect(upstream).toBe(1);
   } finally { op?.finish("cancelled"); relay.stop(); origin.stop(true); await f.close(); }
 });
@@ -78,7 +78,8 @@ for (const cause of exits) test(`every relay exit gates ${cause} and observes ex
   }, egress: { ...f.proxy, inference(...args) {
     const op = f.proxy.inference(...args);
     return { ...op, signal: cause === "abort" ? AbortSignal.abort() : op.signal,
-      charge: cause === "byte cap" ? () => false : op.charge,
+      failure: cause === "admit false" ? () => ({ ok: false as const, reason: "policy_denied" as const }) : op.failure,
+      charge: cause === "byte cap" ? () => ({ ok: false as const, reason: "budget" as const }) : op.charge,
       async admit() {
         admissions++;
         if (cause === "admit false") return false;
@@ -96,7 +97,7 @@ for (const cause of exits) test(`every relay exit gates ${cause} and observes ex
     await cycle(); await cycle();
     expect(delivered, "EVERY_EXIT_WITHHOLDS_ALL_RESPONSE_BYTES_UNTIL_COMMIT").toBe(false);
     blocked.release(); await observed;
-    const expected = cause === "405" ? 405 : ["403", "admit false", "byte cap"].includes(cause) ? 403 : cause.includes("admit throws") ? 500 : cause === "credential throw" ? 503 : cause === "body size" ? 413 : cause === "abort" ? 499 : ["redirect", "upstream failure"].includes(cause) ? 502 : 200;
+    const expected = cause === "405" ? 405 : ["403", "admit false", "byte cap"].includes(cause) ? 403 : cause.includes("admit throws") ? 500 : cause === "credential throw" ? 502 : cause === "body size" ? 413 : cause === "abort" ? 499 : ["redirect", "upstream failure"].includes(cause) ? 502 : 200;
     expect((await response).status).toBe(expected);
     expect(observations, "EACH_EXIT_OBSERVES_ITS_RESULT_EXACTLY_ONCE").toBe(1);
   } finally { blocked.restore(); relay.stop(); origin.stop(true); fetchSpy.mockRestore(); await f.close(); }
@@ -108,7 +109,7 @@ test("authority lost after canDefer cannot manufacture a stop receipt (T5)", asy
   const read = spyOn(f.scope, "canDefer").mockImplementation(id => { const allowed = original(id); if (flip) f.authority(false); return allowed; });
   try {
     const observed = f.result(); op = operation(f); await op.prepareDispatch(Buffer.from(body())); flip = true;
-    expect(op.dispatch(), "ZERO_ACKNOWLEDGED_WORKERS_CANNOT_SPECULATE").toBe(false);
+    expect(op.dispatchReady(), "ZERO_ACKNOWLEDGED_WORKERS_CANNOT_SPECULATE").toBe(false);
     expect(f.stops).toBe(0); await observed;
   } finally { read.mockRestore(); op?.finish("cancelled"); await f.close(); }
 });
@@ -118,7 +119,7 @@ test("a second result cannot speculate for an older generation (T6)", async () =
   try {
     const first = f.result(); op = operation(f); await op.prepareDispatch(Buffer.from(body()));
     const second = f.result("sail"); await blocked.entered;
-    expect(op.dispatch(), "OLDER_GENERATION_CANNOT_AUTHORIZE_SPECULATION").toBe(false);
+    expect(op.dispatchReady(), "OLDER_GENERATION_CANNOT_AUTHORIZE_SPECULATION").toBe(false);
     blocked.release(); await first; await second;
   } finally { blocked.restore(); op?.finish("cancelled"); await f.close(); }
 });
@@ -140,7 +141,7 @@ test("N results retain N observations and a periodic commit cannot open their ga
     f.tick(); await periodicEntered.promise;
     const results = [f.result("loom"), f.result("sail"), f.result("bow")];
     op = operation(f); periodicRelease.resolve(); await resultEntered.promise;
-    expect(op.dispatch(), "PERIODIC_COMMIT_CANNOT_SATISFY_RESULT_GENERATIONS").toBe(false);
+    expect(op.dispatchReady(), "PERIODIC_COMMIT_CANNOT_SATISFY_RESULT_GENERATIONS").toBe(false);
     let ready = false; const response = op.responseReady().then(value => { ready = true; return value; }); await cycle();
     expect(ready).toBe(false); firstResultRelease.resolve(); await results[0]; await nextResultEntered.promise; await cycle();
     expect(ready, "RESPONSE_GATE_RECHECKS_AFTER_EACH_RESULT_COMMIT").toBe(false);
@@ -164,7 +165,7 @@ test("a rejected observation refuses only its turn (T8)", async () => {
     const other = control.requestStarted("pylos");
     expect(other.dispatch(), "ANOTHER_TURN_IS_NOT_POISONED").toBe(true); expect(await other.responseReady()).toBe(true); other.close();
     op = operation(f);
-    expect(op.dispatch(), "REJECTED_OBSERVATION_NEVER_OPENS_ITS_GATE").toBe(false);
+    expect(op.dispatchReady(), "REJECTED_OBSERVATION_NEVER_OPENS_ITS_GATE").toBe(false);
     expect(await op.responseReady(), "REJECTED_OBSERVATION_NEVER_OPENS_ITS_GATE").toBe(false);
   } finally { fail = false; unsubscribe(); releaseOther?.(); op?.finish("cancelled"); await f.close(); }
 });
@@ -173,7 +174,7 @@ test("nothing pending dispatches synchronously without joining journal work (T9)
   const f = await fixture(), blocked = hold(f); let op: ReturnType<typeof operation> | undefined;
   try {
     const unrelated = f.journal.observe(); await blocked.entered; op = operation(f);
-    expect(op.dispatch(), "EMPTY_GATE_DISPATCH_IS_A_SYNCHRONOUS_BOOLEAN").toBe(true);
+    expect(op.dispatchReady(), "EMPTY_GATE_DISPATCH_IS_A_SYNCHRONOUS_BOOLEAN").toBe(true);
     blocked.release(); await unrelated;
   } finally { blocked.restore(); op?.finish("cancelled"); await f.close(); }
 });

@@ -140,35 +140,49 @@ worker identity in the app group can edit the files its worktree inherited.
 
 ## Journal and scope
 
-A managed worktree is not inside the brain, so the brain's checkpoints never
-cover it. The turn journal observes each covered worktree as its own root,
-through that worktree's read-only checkpoints and deltas and the same observer
-and capture as the brain
-(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:617-629`;
-`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:458-472`).
-Coverage starts with a baseline checkpoint and inventory before the grant, and
-every journal observation, periodic, at a scope cap or at the turn's end, then
-observes the worktree too.
+**Amended 2026-11-20 (#4297).** A managed worktree is outside the brain and
+covered by a Git change receipt before a worker generation can reach it.
+Allocation's read-only baseline remains the cleanup service's comparison,
+not a per-file history inventory. Periodic and per-result brain observations
+no longer capture covered worktrees file by file.
 
-- **Identity.** A change is recorded under the logical path
-  `reference-worktree://<worktree id>/<path>` with scope `reference_worktree`.
-  It is never a host or worker path, and history revert never writes it into
-  the brain.
-- **Classification.** Worktree changes are `content` of the one turn that holds
-  the worktree, never steering of the brain. The worktree's own `.gitignore`
-  marks ignored versions, and Git internals are excluded except the raw
-  `HEAD`/refs coverage, as for workspaces.
-- **Scope.** Changed paths and observed bytes count toward the turn's scope
-  caps like workspace edits; they are not an exemption.
-- **Failure.** An unreadable entry is recorded as missing and makes the turn
-  partial. A worktree observation that fails stops its holding turn and leaves
-  it partial; other turns continue.
-- **Ownership.** Each observation checkpoint is recorded with the process that
-  took it before it exists and forgotten once released. Startup recovery
-  releases only checkpoints whose owner is provably gone (another boot or a dead
-  process); a live or unverifiable owner keeps them.
+The receipt is one `codeChanges` entry in the existing turn history under
+`reference-worktree://<id>/`. It records HEAD commits/refs, endpoint trees,
+changed paths/kinds, untracked flags/count, changed blob bytes and
+`ignore_changed`; the [HTTP contract](../integration-contract/http.md#checkout-change-receipts-4297)
+defines each field. The host-owned evidence repository beside the journal
+copies and pins both endpoint trees and their blobs as self-contained Git
+packs. Nothing depends on the source object store surviving. Its stored bytes
+count toward journal quota; its files and receipt rows are never worker mounts.
 
-Ordinary brain and workspace journaling is unchanged.
+Capture uses the credential-free maintenance worker, with hooks, filters and
+fsmonitor disabled and without installing repository configuration. Release
+captures the held endpoint under the worker hold; turn end captures after
+writers exit and before the generation closes. A baseline receipt commits
+before file coverage is excluded. Crash recovery retains owned endpoints and
+marks unfinished receipts partial. Unsupported or oversized evidence refuses
+that checkout's writable grant. Other checkouts and notes remain usable.
+
+Tracked and untracked non-ignored files are retained; ignored build output and
+intermediate versions are not. The pool allowance bounds the worktree and
+replaces its journal `turn_bytes` charge. Managed-worktree changed paths count
+against `files_changed` when a receipt is taken, at release or turn end, rather
+than on each observation (maintainer ruling, 2026-11-21, #4297). Between
+receipts the pool's per-operation byte allowance bounds the work.
+The existing maintenance transport bounds combined capture output to 64 MiB
+including base64 and path metadata, and refuses oversized evidence. In-brain opted-in checkouts
+share the receipt rules with an explicit 16 MiB content bound. Non-checkout
+workspace content and notes retain their file-level journal coverage.
+
+Preview and revert live on this entry. Preview reads the owned pack inside a
+maintenance worker. An owner-confirmed, identity-bound revert drains writers,
+compares a fresh capture against the recorded after-tree, then restores only
+the changed paths and removes additions. A mismatch shows recorded and current
+endpoints for review; it never overwrites later work. Commits and refs remain.
+The owning principal keeps access to retained code history, including preview
+and revert, after the worktree grant is withdrawn (maintainer ruling,
+2026-11-21, #4367). This remains owner-only and credential-free, and revert
+still requires a fresh capture equal to `tree_after`; no live grant is required.
 
 ## Guidance
 

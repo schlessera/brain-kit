@@ -1,4 +1,6 @@
 import { inferenceUsageObserver } from "./inference-usage.js";
+import { chargeReceivedBytes, relayAllowance } from "./egress-accounting.js";
+import { readRelayResponse, readRelayRequestHead } from "./relay-response.js";
 /**
  * The one network path out of a restricted (autonomous) worker (#676).
  *
@@ -15,7 +17,7 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { workerIdentityHelper } from "./worker-identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InferenceTimingMark, startEgressProxy } from "./egress-proxy.js";
+import { captureEgressFailure, egressChargeRefusal, type InferenceTimingMark, type startEgressProxy, type EgressChargeFailure } from "./egress-proxy.js";
 import { INFERENCE_RELAY_PLACEHOLDER } from "@schlessera/brain-common/internal/provider-unavailable";
 import { observeDiagnostic } from "./startup-timing.js";
 
@@ -27,6 +29,12 @@ export const INFERENCE_PLACEHOLDER = INFERENCE_RELAY_PLACEHOLDER;
 /** A request body larger than this is refused before anything is forwarded. */
 export const MAX_INFERENCE_REQUEST_BYTES = 32 * 1024 * 1024;
 
+/** These fixed messages also classify stored provider errors as host refusals. */
+function inferenceRefusalMessage(failure: EgressChargeFailure): string {
+  return failure.reason === "budget" ? "Inference egress limit exceeded"
+    : failure.reason === "cancelled" ? "Inference request cancelled" : "Inference network admission refused";
+}
+
 /** Internal turn-level gate, registered even when a request has no egress operation. */
 export interface InferenceArrival {
   prepareDispatch(body: Uint8Array): Promise<boolean>;
@@ -34,7 +42,11 @@ export interface InferenceArrival {
   responseReady(): Promise<boolean>;
   close(): void;
 }
-type InferenceOperation = ReturnType<Awaited<ReturnType<typeof startEgressProxy>>["inference"]>;
+type InferenceOperation = ReturnType<Awaited<ReturnType<typeof startEgressProxy>>["inference"]> & {
+  prepareDispatch?(body: Uint8Array): Promise<boolean>;
+  dispatchReady?(): boolean;
+  responseReady?(): Promise<boolean>;
+};
 const gated = Symbol("gated relay response");
 type Gated = { [gated]: Response };
 
@@ -50,6 +62,7 @@ export interface InferenceRelayOptions {
     inference(method: string, target: URL, signal: AbortSignal, arrival?: InferenceArrival): InferenceOperation;
     inferenceArrival?(path: string): InferenceArrival | undefined;
     inferenceRoutes?(paths: readonly string[]): void;
+    remainingBytes?(): number;
   };
   /** Called for every request, forwarded or refused. Values are never logged. */
   observe?(event: InferenceRelayEvent): void;
@@ -134,19 +147,19 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const path = url.pathname;
         let operation: InferenceOperation | undefined;
         let arrival: InferenceArrival | undefined;
+        const responseReady = () => operation?.responseReady?.() ?? arrival?.responseReady() ?? Promise.resolve(true);
         // Only exit can brand an inner result. Every return, including catch,
         // crosses the turn gate before the outer fetch can expose a Response.
         const exit = async (create: () => Response | Promise<Response>, discard?: () => Promise<void>): Promise<Gated> => {
-          const ready = () => operation?.responseReady() ?? arrival?.responseReady() ?? Promise.resolve(true);
-          if (!await ready()) {
-            await discard?.(); await ready();
+          if (!await responseReady()) {
+            await discard?.(); await responseReady();
             operation?.finish("denied", "deferred_observation_refused");
             return { [gated]: refuse(request.method, path, 403, "Inference request refused", "deferred_observation_refused") };
           }
           const response = await create();
           // Async response construction can cross a newer tool result too.
-          if (!await ready()) {
-            await response.body?.cancel().catch(() => {}); await ready();
+          if (!await responseReady()) {
+            await response.body?.cancel().catch(() => {}); await responseReady();
             operation?.finish("denied", "deferred_observation_refused");
             return { [gated]: refuse(request.method, path, 403, "Inference request refused", "deferred_observation_refused") };
           }
@@ -167,12 +180,19 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             op?.finish("denied", reason);
             return refuse(request.method, path, status, reason === "max_bytes_per_turn" ? "Inference egress limit exceeded" : "Inference request refused", op?.reason?.() ?? reason);
           });
-          if (op && !await op.admit()) {
-            const cancelled = request.signal.aborted || op.outcome() === "cancelled";
-            op.finish(cancelled ? "cancelled" : "denied", "inference_admission_refused");
-            return exit(() => refuse(request.method, path, cancelled ? 499 : 403, "Inference network admission refused", op.reason?.()));
-          }
+          const allowance=relayAllowance(op,options.egress?.remainingBytes?.bind(options.egress),MAX_INFERENCE_REQUEST_BYTES);
+          const chargeFailure=allowance.charge;
+          const receivedFailure=(count:number)=>chargeReceivedBytes(count,{charge:chargeFailure,remaining:allowance.remaining});
+          const chargeRefused = (failure: EgressChargeFailure): Response => { const detail = egressChargeRefusal(failure,"Inference"); return refuse(request.method,path,detail.status,inferenceRefusalMessage(failure),op?.reason?.() ?? detail.reason); };
+          const chargeDenied = (failure: EgressChargeFailure): Promise<Gated> => exit(() => chargeRefused(failure));
+          const admitFailure = async ():Promise<EgressChargeFailure|undefined> => op && !await op.admit() ? op.failure() ?? {ok:false,reason:"unavailable"} : undefined;
+          const initialAdmissionFailure=await admitFailure();
+          if (initialAdmissionFailure) return chargeDenied(initialAdmissionFailure);
           mark("admitMs");
+          const initialDecision = op?.charge(0);
+          if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
+          const requestHead=readRelayRequestHead(`${request.method} ${url.pathname}${url.search} HTTP/1.1`,request.headers,{charge:chargeFailure,remaining:allowance.remaining});
+          if(requestHead.failure)return chargeDenied(requestHead.failure);
           const declared = Number(request.headers.get("content-length") ?? "0");
           if (declared > MAX_INFERENCE_REQUEST_BYTES) return denied("inference_request_too_large", 413);
           // Do not allocate an unbounded arrayBuffer before checking the ceiling.
@@ -188,16 +208,17 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
               const next = await reader.read();
               if (next.done) break;
               length += next.value.byteLength;
-              if (length > MAX_INFERENCE_REQUEST_BYTES || op && !op.charge(next.value.byteLength + 16)) {
+              const failure = receivedFailure(next.value.byteLength + 16);
+              if (length > MAX_INFERENCE_REQUEST_BYTES || failure) {
                 await reader.cancel().catch(() => {});
-                return denied(length > MAX_INFERENCE_REQUEST_BYTES ? "inference_request_too_large" : "max_bytes_per_turn",
-                  length > MAX_INFERENCE_REQUEST_BYTES ? 413 : 403);
+                return failure ? chargeDenied(failure) : denied("inference_request_too_large",413);
               }
               chunks.push(next.value);
             }
           } catch {
-            op?.finish("cancelled", "client_disconnected");
-            return exit(() => refuse(request.method, path, 499, "Inference request cancelled"));
+            const cause=captureEgressFailure(signal,op);
+            op?.finish(cause.outcome,"request_body_failed");
+            return cause.failure?chargeDenied(cause.failure):exit(() => refuse(request.method,path,cause.status,"Inference request interrupted"));
           } finally { signal.removeEventListener("abort", cancelBody); reader?.releaseLock(); }
           mark("bodyMs");
           const body = new Uint8Array(length);
@@ -207,58 +228,63 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           for (const [name, value] of request.headers) if (!STRIPPED.has(name.toLowerCase())) headers.set(name, value);
           let credentials: Readonly<Record<string, string>>;
           if (signal.aborted) {
-            op?.finish("cancelled", "client_disconnected");
-            return exit(() => refuse(request.method, path, 499, "Inference request cancelled"));
+            const cause=captureEgressFailure(signal,op);
+            op?.finish(cause.outcome,"client_disconnected");
+            return chargeDenied(cause.failure ?? {ok:false,reason:"cancelled"});
           }
           try {
             credentials = typeof options.credentials === "function" ? await options.credentials(signal, new URL(target)) : options.credentials;
             validateCredentials(credentials);
             mark("credentialMs");
             if (signal.aborted) {
-              op?.finish("cancelled", "client_disconnected");
-              return exit(() => refuse(request.method, path, 499, "Inference request cancelled"));
+              const cause=captureEgressFailure(signal,op);
+              op?.finish(cause.outcome,"client_disconnected");
+              return chargeDenied(cause.failure ?? {ok:false,reason:"cancelled"});
             }
             for (const [name, value] of Object.entries(credentials)) headers.set(name, value);
           } catch {
             // A resolver error may carry a provider reply, credential or host path.
-            const cancelled = signal.aborted;
-            op?.finish(cancelled ? "cancelled" : "failed", "inference_credentials_unavailable");
-            return exit(() => refuse(request.method, path, cancelled ? 499 : 503,
-              cancelled ? "Inference request cancelled" : "Inference credentials unavailable"));
+            const cause=captureEgressFailure(signal,op);
+            op?.finish(cause.outcome,"inference_credentials_unavailable");
+            return cause.failure?chargeDenied(cause.failure):exit(() => refuse(request.method,path,cause.status,"Inference credentials unavailable"));
           }
           // HTTP application framing before provider TLS: never describe this as
           // measured TLS ciphertext/handshake bytes. Include every observable
           // query/header byte plus a conservative runtime framing allowance.
-          const headerBytes = (first: string, values: Headers): number => {
-            let bytes = Buffer.byteLength(first) + 1028;
-            for (const [name, value] of values) bytes += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
-            return bytes;
-          };
-          if (op && !op.charge(headerBytes(`${request.method} ${path}${url.search} HTTP/1.1`, headers))) {
-            return denied("max_bytes_per_turn");
-          }
+          const requestChargeFailure = requestHead.forward(`${request.method} ${path}${url.search} HTTP/1.1`,headers);
+          if (requestChargeFailure) return chargeDenied(requestChargeFailure);
           // Body/credential waits may have crossed an input-recording failure.
           // Re-enter the concrete host admission at the last dispatch boundary.
-          if(op&&!await op.admit())return denied("inference_admission_refused");
-          if (op && !await op.prepareDispatch(body)) return denied("inference_admission_refused");
-          if (op && !op.dispatch()) {
-            // An unconfirmed speculative stop falls back to the existing held
-            // observation. After it commits, base admission may proceed normally.
-            if (!await op.responseReady() || !await op.admit() || !op.dispatch()) return denied("inference_admission_refused");
+          const finalAdmissionFailure=await admitFailure();
+          if (finalAdmissionFailure) return chargeDenied(finalAdmissionFailure);
+          const dispatchDecision = op?.prepare();
+          if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
+          if (op?.prepareDispatch && !await op.prepareDispatch(body)) return denied("inference_admission_refused");
+          const dispatchReady = () => op?.dispatchReady?.() ?? arrival?.dispatch() ?? true;
+          if (!dispatchReady()) {
+            if (!await responseReady()) return denied("inference_admission_refused");
+            const failure = await admitFailure();
+            if (failure) return chargeDenied(failure);
+            if (!dispatchReady()) return denied("inference_admission_refused");
           }
           let response: Response;
           try {
             // Never follow a redirect: the upstream must not choose another host.
-            mark("dispatchMs");
-            response = await fetch(target, { method: "POST", headers, body, redirect: "manual", signal });
+            signal.throwIfAborted();
+            let pending!:Promise<Response>;
+            const send=()=>{mark("dispatchMs");pending=fetch(target,{method:"POST",headers,body,redirect:"manual",signal});};
+            const decision=op?op.dispatch(send):(send(),{ok:true as const});
+            if(!decision.ok)return chargeDenied(decision);
+            response=await pending;
           } catch {
-            const cancelled = signal.aborted;
-            op?.finish(cancelled ? "cancelled" : "failed", "upstream_unreachable");
-            return exit(() => refuse(request.method, path, cancelled ? 499 : 502,
-              cancelled ? "Inference request cancelled" : "Inference upstream unreachable"));
+            const cause=captureEgressFailure(signal,op);
+            op?.finish(cause.outcome,"upstream_unreachable");
+            return cause.failure?chargeDenied(cause.failure):exit(() => refuse(request.method,path,cause.status,"Inference upstream unreachable"));
           }
           mark("headersMs");
           return exit(async () => {
+            const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining});
+            if(incoming.headerFailure){await incoming.cancel().catch(()=>{});return chargeRefused(incoming.headerFailure);}
             if (response.status >= 300 && response.status < 400) {
               op?.finish("failed", "upstream_redirected");
               await response.body?.cancel().catch(() => {});
@@ -267,40 +293,34 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             observeDiagnostic(() => options.observe?.({ method: request.method, path, outcome: "forwarded", status: response.status }));
             const out = new Headers();
             for (const [name, value] of response.headers) if (!RESPONSE_STRIPPED.has(name.toLowerCase())) out.set(name, value);
-            if (op && !op.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers))) {
-              op.finish("denied", "max_bytes_per_turn");
-              await response.body?.cancel().catch(() => {});
-              return refuse(request.method, path, 403, "Inference egress limit exceeded");
-            }
-            if (!op) return new Response(response.body, { status: response.status, headers: out });
             if (!response.body) {
-              op.finish("completed");
+              const failure=incoming.fence();if(failure)return chargeRefused(failure);
+              op?.finish("completed");
               return new Response(null, { status: response.status, headers: out });
             }
-            const upstreamReader = response.body.getReader();
+            const upstreamReader = incoming;
             let observeUsage: ((chunk: Uint8Array) => void) | undefined;
-            observeDiagnostic(() => { observeUsage = inferenceUsageObserver(usage => observeDiagnostic(() => op.observeUsage(usage))); });
+            observeDiagnostic(() => { observeUsage = inferenceUsageObserver(usage => observeDiagnostic(() => op?.observeUsage(usage))); });
             let firstReadAttempted = false;
             let released = false;
-            const release = () => { if (!released) { released = true; upstreamReader.releaseLock(); } };
+            const release = () => { if (!released) { released = true; upstreamReader.release(); } };
             const output = new ReadableStream<Uint8Array>({
               async pull(controller) {
-                try {
-                  const next = await upstreamReader.read();
-                  if (!firstReadAttempted) { firstReadAttempted = true; mark("firstChunkMs"); }
-                  if (next.done) { op.finish("completed"); release(); controller.close(); }
-                  else if (!op.charge(next.value.byteLength + 16)) {
-                    op.finish("denied", "max_bytes_per_turn");
-                    await upstreamReader.cancel().catch(() => {}); release();
-                    controller.error(new Error("Inference egress limit exceeded"));
-                  } else { controller.enqueue(next.value); observeDiagnostic(() => observeUsage?.(next.value)); }
-                } catch {
-                  op.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
-                  release(); controller.error(new Error("Inference response interrupted"));
+                let next:Awaited<ReturnType<typeof upstreamReader.read>>;
+                try { next=await upstreamReader.read(); if (!firstReadAttempted) { firstReadAttempted = true; mark("firstChunkMs"); } }
+                catch {
+                  const cause=captureEgressFailure(signal,op);
+                  op?.finish(cause.outcome,"upstream_response_failed");
+                  release();controller.error(new Error(cause.failure?inferenceRefusalMessage(cause.failure):"Inference response interrupted"));return;
                 }
+                const failure=next.deliver(()=>{
+                  if(next.done){controller.close();op?.finish("completed");release();}
+                  else { controller.enqueue(next.value); observeDiagnostic(() => observeUsage?.(next.value)); }
+                });
+                if(failure){release();controller.error(new Error(inferenceRefusalMessage(failure)));}
               },
               async cancel() {
-                op.finish("cancelled", "client_disconnected");
+                op?.finish("cancelled", "client_disconnected");
                 await upstreamReader.cancel().catch(() => {}); release();
               },
             });

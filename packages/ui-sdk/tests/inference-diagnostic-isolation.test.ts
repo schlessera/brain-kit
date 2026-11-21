@@ -26,8 +26,7 @@ for (const point of points) test(`throwing relay diagnostic ${point} preserves d
   }) : undefined;
   const relay = startInferenceRelay({ upstream: upstream.url.origin, routes: ["/v1/messages"], credentials: {}, egress: {
     inference() { return {
-      async prepareDispatch() { return true; }, dispatch() { return true; }, async responseReady() { return true; },
-      async admit() { return true; }, commit() { return true; }, charge() { return true; }, signal: controller.signal,
+      async admit() { return true; }, prepare() { return { ok: true }; }, dispatch(send) { send(); return { ok: true }; }, charge() { return { ok: true }; }, failure() { return undefined; }, signal: controller.signal,
       outcome() { return outcome; }, reason() { return undefined; }, refusal() { return undefined; },
       finish(value) { outcome = value; },
       mark(name) { if (name === "firstChunkMs") firstReadAttempts++; if (name === point || point === "firstChunkOnce" && name === "firstChunkMs" && failures === 0) { failures++; throw Error("mark unavailable"); } marks.add(name); },

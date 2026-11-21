@@ -1659,6 +1659,7 @@ const activityTurnLifecycleSchema = z.looseObject({
   journalBeganAt: z.number().nullable(),
   backendInvokedAt: z.number().nullable(),
   firstRelayRequestAt: z.number().nullable().optional(),
+  backendEvidenceOmitted: z.number().int().nonnegative().optional(),
   backendMissingEvidence: z.array(z.string()).optional(),
   firstFrameAt: z.number().nullable(),
   failureObservedAt: z.number().nullable(),

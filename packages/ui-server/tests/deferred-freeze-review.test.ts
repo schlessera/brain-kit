@@ -92,8 +92,9 @@ for (const cause of ["credentials", "body size", "byte cap", "admission"] as con
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
   const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: async () => { if (cause === "credentials") throw Error("fixture unavailable"); return {}; }, egress: {
     ...f.proxy, inference(...args) { const operation = f.proxy.inference(...args); return { ...operation,
-      charge: cause === "byte cap" ? () => false : operation.charge,
+      charge: cause === "byte cap" ? () => ({ ok: false as const, reason: "budget" as const }) : operation.charge,
       admit: cause === "admission" ? async () => false : operation.admit,
+      failure: cause === "admission" ? () => ({ ok: false as const, reason: "policy_denied" as const }) : operation.failure,
     }; },
   } });
   try {
@@ -104,7 +105,7 @@ for (const cause of ["credentials", "body size", "byte cap", "admission"] as con
     const first = await Promise.race([entered.promise.then(() => "observation"), response.then(() => "reply")]);
     expect(first, "ALL_RELAY_ANSWERS_JOIN_THE_RESULT_OBSERVATION").toBe("observation");
     release.resolve(); await observed;
-    expect((await response).status).toBe(cause === "credentials" ? 503 : cause === "body size" ? 413 : 403);
+    expect((await response).status).toBe(cause === "credentials" ? 502 : cause === "body size" ? 413 : 403);
   } finally { release.resolve(); f.native.manager.checkpoint = checkpoint; relay.stop(); origin.stop(true); await f.close(); }
 });
 
@@ -136,7 +137,7 @@ test("unrelated global journal work neither delays nor refuses an ordinary infer
     await new Promise<void>(resolve => setImmediate(resolve));
     expect(prepared, "ORDINARY_INFERENCE_DOES_NOT_JOIN_GLOBAL_TAIL").toBe(true);
     expect(await preparing).toBe(true);
-    expect(operation.dispatch(), "ORDINARY_DISPATCH_RETAINS_BASE_COMMIT_BEHAVIOR").toBe(true);
+    expect(operation.dispatchReady(), "ORDINARY_DISPATCH_RETAINS_BASE_COMMIT_BEHAVIOR").toBe(true);
     release.resolve(); await unrelated;
   } finally { release.resolve(); operation?.finish("cancelled"); f.native.manager.checkpoint = checkpoint; await f.close(); }
 });
@@ -171,7 +172,7 @@ test("a non-deferred dispatch retains base commit behavior during another hold (
     f.native.manager.checkpoint = async (...args) => { entered.resolve(); await release.promise; return checkpoint(...args); };
     const unrelated = f.journal.observe(); await entered.promise;
     operation = f.proxy.inference("POST", new URL("http://127.0.0.1/v1/messages"), new AbortController().signal);
-    expect(operation.dispatch(), "ORDINARY_DISPATCH_HAS_NO_NEW_HOLD_REFUSAL").toBe(true);
+    expect(operation.dispatchReady(), "ORDINARY_DISPATCH_HAS_NO_NEW_HOLD_REFUSAL").toBe(true);
     release.resolve(); await unrelated;
   } finally { release.resolve(); operation?.finish("cancelled"); f.native.manager.checkpoint = checkpoint; await f.close(); }
 });
@@ -196,7 +197,7 @@ test("the synchronous dispatch predicate rechecks coverage after preparation (D1
     operation = f.proxy.inference("POST", new URL("http://127.0.0.1/v1/messages"), new AbortController().signal);
     expect(await operation.prepareDispatch(Buffer.from(body()))).toBe(true);
     await f.journal.writeOperation([{ sql: "UPDATE turn_journal_turns SET state='partial' WHERE turn_id=?", params: ["voyage"] }]);
-    expect(operation.dispatch(), "DISPATCH_HAS_THE_SAME_DEFERRAL_PREDICATE").toBe(false);
+    expect(operation.dispatchReady(), "DISPATCH_HAS_THE_SAME_DEFERRAL_PREDICATE").toBe(false);
     await observed;
   } finally { operation?.finish("cancelled"); await f.close(); }
 });
@@ -227,7 +228,7 @@ for (const phase of ["arming", "dispatch"] as const) test(`a predicate read fail
     f.db.query("UPDATE turn_scope SET summary='{' WHERE turn_id='voyage'").run();
     expect(() => {
       if (phase === "arming") { observed = f.result(); void observed.catch(() => {}); }
-      else expect(operation!.dispatch()).toBe(false);
+      else expect(operation!.dispatchReady()).toBe(false);
     }, "PREDICATE_READ_FAILURE_RETURNS_TO_IMMEDIATE_HOLD").not.toThrow();
     expect(f.frozen, "PREDICATE_READ_FAILURE_SYNCHRONOUSLY_TAKES_HOLD").toBe(true);
     expect(observed, "REQUIRED_OBSERVATION_RETURNS_A_PROMISE").toBeInstanceOf(Promise);

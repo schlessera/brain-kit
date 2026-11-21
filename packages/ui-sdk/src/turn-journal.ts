@@ -113,7 +113,22 @@ export interface JournalOutwardAction {
   revertible: false;
 }
 
+/** One checkout's endpoint evidence, retained with its turn, never sent to a provider. */
+export interface CodeChangeReceipt {
+  checkout: string;
+  state: "recording" | "complete" | "partial";
+  head_before: { commit: string; ref: string | null };
+  head_after: { commit: string; ref: string | null };
+  tree_before: string;
+  tree_after: string;
+  paths: { path: string; kind: "added" | "deleted" | "modified"; untracked: boolean }[];
+  bytes: number;
+  untracked: number;
+  ignore_changed: boolean;
+}
+
 export interface TurnJournalDetails {
+  codeChanges?: CodeChangeReceipt[];
   turnId: string;
   sessionId: string;
   summary: TurnJournalSummary;

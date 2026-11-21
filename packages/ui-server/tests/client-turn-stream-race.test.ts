@@ -13,9 +13,18 @@ for (const legacy of [false, true]) for (const view of ["index", "session", "run
     const folder = mkdtempSync(join(tmpdir(), "brain-client-receipt-"));
     const db = createUiDb(join(folder, "ui.db")), foreign = createUiDb(join(folder, "ui.db"));
     const store = createActivityStore(db), writer = createActivityStore(foreign);
-    if (legacy) Object.defineProperty(store, "snapshotLifecycles", { value: undefined });
+    if (legacy) {
+      Object.defineProperty(store, "snapshotLifecycles", { value: undefined });
+      Object.defineProperty(store, "lifecycleSnapshot", { value: undefined });
+    }
     const lifecycle = createTurnLifecycle(store, "turn-ithaca", "ithaca", 1000, () => {}, () => 1100, "odysseus");
     lifecycle.finish("success");
+    const scopedRead = store.snapshotLifecycles?.bind(store);
+    let scopedReads = 0, insideScopedRead = false, racedInsideScopedRead = false;
+    if (!legacy) store.snapshotLifecycles = scope => {
+      scopedReads++; insideScopedRead = true;
+      try { return scopedRead!(scope); } finally { insideScopedRead = false; }
+    };
     const stream = createActivityStream(store);
     const query = db.query.bind(db), own = Object.getOwnPropertyDescriptor(db, "query");
     let raced = false;
@@ -26,7 +35,7 @@ for (const legacy of [false, true]) for (const view of ["index", "session", "run
       return new Proxy(statement, { get(target, property) {
         if (property === "get") return (...bindings: unknown[]) => {
           const row = Reflect.apply(target.get, target, bindings);
-          if (!raced) { raced = true; expect(writer.writeClientReceipt!("turn-ithaca", "odysseus", timing)).toBe(true); }
+          if (!raced) { raced = true; racedInsideScopedRead = insideScopedRead; expect(writer.writeClientReceipt!("turn-ithaca", "odysseus", timing)).toBe(true); }
           return row;
         };
         const value = Reflect.get(target, property);
@@ -40,6 +49,10 @@ for (const legacy of [false, true]) for (const view of ["index", "session", "run
         ...(view === "session" ? { sessionId: "ithaca" } : view === "run" ? { runId: "turn-ithaca" } : {}) }, "odysseus");
       stream.pump();
       expect(raced).toBe(true);
+      if (!legacy) {
+        expect(scopedReads, "SCOPED_READER_IS_FIRST_CHOICE").toBe(1);
+        expect(racedInsideScopedRead, "RECEIPT_COMMITS_INSIDE_SCOPED_PAIR").toBe(true);
+      }
       const snapshot = frames.find(frame => frame.type === "activity_snapshot")!;
       const delta = frames.find(frame => frame.type === "activity_delta" && frame.lifecycle?.turnId === "turn-ithaca")!;
       expect(snapshot.type).toBe("activity_snapshot");
@@ -49,7 +62,7 @@ for (const legacy of [false, true]) for (const view of ["index", "session", "run
       // This is the shipped client's sequence rule: a delta at or below the
       // snapshot watermark is discarded. The receipt must be visible in one.
       const visible = atSnapshot ?? (delta.seq > (snapshot.highWaterSeq[delta.runId] ?? 0) ? delta.lifecycle?.clientTiming : undefined);
-      expect(visible).toEqual(timing);
+      expect(visible, "ATOMIC_RECEIPT_PAIR_CANNOT_HIDE_DELTA").toEqual(timing);
       if (!atSnapshot) expect(delta.seq).toBeGreaterThan(snapshot.highWaterSeq[delta.runId]!);
     } finally {
       if (own) Object.defineProperty(db, "query", own); else Reflect.deleteProperty(db, "query");
@@ -117,6 +130,51 @@ for (const list of [false, true]) {
     } finally {
       if (own) Object.defineProperty(db, "query", own); else Reflect.deleteProperty(db, "query");
       foreign.close(); db.close(); rmSync(folder, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const view of ["index", "session"] as const) {
+  test(`${view} lifecycle snapshot keeps two turns in one database view`, () => {
+    const folder = mkdtempSync(join(tmpdir(), "brain-scoped-lifecycles-"));
+    const db = createUiDb(join(folder, "ui.db")), foreign = createUiDb(join(folder, "ui.db"));
+    const store = createActivityStore(db), writer = createActivityStore(foreign);
+    for (const id of ["turn-ithaca", "turn-troy"]) createTurnLifecycle(store, id, "ithaca", 1000, () => {}, () => 1100);
+    const stream = createActivityStream(store);
+    const query = db.query.bind(db), own = Object.getOwnPropertyDescriptor(db, "query");
+    let raced = false;
+    Object.defineProperty(db, "query", { configurable: true, value: ((sql: string, ...args: unknown[]) => {
+      const statement = Reflect.apply(query, db, [sql, ...args]);
+      if (!sql.includes("COALESCE(MAX(seq), 0) AS hi")) return statement;
+      return new Proxy(statement, { get(target, property) {
+        if (property === "get") return (...bindings: unknown[]) => {
+          const row = Reflect.apply(target.get, target, bindings);
+          if (!raced && String(bindings[0]).startsWith("lifecycle:")) {
+            raced = true;
+            foreign.transaction(() => {
+              for (const id of ["turn-ithaca", "turn-troy"]) writer.writeLifecycle({ ...writer.lifecycle(id)!, endedAt: 1100, outcome: "success" });
+            })();
+          }
+          return row;
+        };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+    }) as typeof db.query });
+    try {
+      const frames: ServerMessage[] = [];
+      stream.handleSubscribe({ send: text => frames.push(JSON.parse(text)) }, {
+        type: "activity_subscribe", view, ...(view === "session" ? { sessionId: "ithaca" } : {}),
+      }, "odysseus");
+      expect(raced).toBe(true);
+      const snapshot = frames.find(frame => frame.type === "activity_snapshot");
+      if (snapshot?.type !== "activity_snapshot") throw new Error("Missing Activity snapshot");
+      expect(snapshot.lifecycles?.map(row => row.outcome), "SCOPED_LIFECYCLES_SHARE_ONE_DATABASE_VIEW").toEqual([null, null]);
+      expect(Object.values(snapshot.highWaterSeq), "SCOPED_FLOORS_SHARE_THE_RECORD_VIEW").toEqual([1, 1]);
+      expect(writer.lifecycles().map(row => row.outcome)).toEqual(["success", "success"]);
+    } finally {
+      if (own) Object.defineProperty(db, "query", own); else Reflect.deleteProperty(db, "query");
+      stream.close(); foreign.close(); db.close(); rmSync(folder, { recursive: true, force: true });
     }
   });
 }

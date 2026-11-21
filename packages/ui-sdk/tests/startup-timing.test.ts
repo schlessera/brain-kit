@@ -40,3 +40,11 @@ test("startup observations preserve names, durations and method receivers", () =
   timing.start("worker_launch")(); timing.worker("resources", 31); timing.missing("prompt_recorded"); timing.received();
   expect(events).toEqual([["ithaca", "worker_launch"], "ended", ["ithaca", "resources", 31], ["ithaca", "prompt_recorded"], "ithaca"]);
 });
+
+test("safe startup observations preserve an exact omitted diagnostic count", () => {
+  const calls: unknown[] = [];
+  const timing = safeStartupTiming({ start: () => () => {}, worker() {}, received() {},
+    missing(name, omitted) { calls.push([name, omitted]); } })!;
+  timing.missing("mcp_connect:additional_servers_omitted", 992);
+  expect(calls, "SAFE_OBSERVER_FORWARDS_OMITTED_COUNT").toEqual([["mcp_connect:additional_servers_omitted", 992]]);
+});

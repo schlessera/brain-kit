@@ -51,7 +51,8 @@ export function journalPathScope(path: string, ordinaryWorkspaces = false): { sc
 }
 
 export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: (path: string, maximum: number) => Promise<Buffer>, covered: readonly string[] = [], options: { workspaces?: boolean; ordinaryWorkspaces?: boolean; signal?: AbortSignal } = {}) {
-  const excluded = (path: string) => options.workspaces === false && isWithin("workspaces", path);
+  const receiptCoverage = new Set<string>();
+  const excluded = (path: string) => options.workspaces === false && isWithin("workspaces", path) || [...receiptCoverage].some(root => isWithin(root, path));
   const rules = new Map<string, Rule[]>();
   const admitted = new Set(covered);
   // Metadata is already indexed. Only ignore files are read here; no baseline
@@ -92,5 +93,5 @@ export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: 
     }
     return false;
   }
-  return { ignored, excluded, location: locationOf, cover(paths: readonly string[]) { for (const path of paths) admitted.add(path); } };
+  return { ignored, excluded, excludeCheckout(path: string) { receiptCoverage.add(path); }, location: locationOf, cover(paths: readonly string[]) { for (const path of paths) admitted.add(path); } };
 }

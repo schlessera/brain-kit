@@ -1,6 +1,6 @@
 import { admissionTimingSample } from "./admission-timing.js";
 import { seedObservationTree, observationTreeWatchdog, observationRunTimeout, type ObservationTree } from "./observation-tree.js";
-import { backendStartupSamples } from "./lifecycle-timing.js";
+import { backendStartupSamples, requireAdmissionSteps } from "./lifecycle-timing.js";
 import { observationWindowTrace, type RecordedTrace } from "./observation-recording.js";
 import { observationMatrixRequest } from "./observation-hold.js";
 import { afterAll, expect, test } from "bun:test";
@@ -50,7 +50,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   const dir = join(ARTIFACTS, "appdata"); mkdirSync(dir);
   const eventLog = new NativeEventLog(join(dir, "events.jsonl"), ARTIFACTS);
   const brain = "/brain-fixture/brain";
-  for (const path of ["notes", "node_modules/.bin", ".brain/scratch", "context/policies"]) mkdirSync(join(brain, path), { recursive: true });
+  for (const path of ["notes", "node_modules/.bin", ".brain/scratch", "context/policies", ...(OBSERVATION_TIMING ? ["workspaces"] : [])]) mkdirSync(join(brain, path), { recursive: true });
   for (const path of ["home", "agent", "pi"]) mkdirSync(join(dir, path));
   writeFileSync(join(dir, "agent/settings.json"), "{}");
   writeFileSync(join(brain, ".gitignore"), "node_modules/\n.brain/\n");
@@ -521,7 +521,7 @@ print(json.dumps(result))`;
       for (const [name, summary] of Object.entries({ writer: observationSteps.writer.all, begin, finish }))
         expect([name, summary.clock.unpaired, (summary.clock.minEndSlackMs ?? 0) >= 0], "OBSERVATION_TIMING_ONE_CLOCK").toEqual([name, [], true]);
       for (const [name, row] of Object.entries({ ...admission.scenarios, ...Object.fromEntries(warm.map((row, i) => [`warm-${i}`, row])) }))
-        expect(row?.journalBeginMs !== null && row?.governedAdmissionMs !== null && Object.keys(row?.steps ?? {}).length > 0, `OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED ${name}`).toBe(true);
+        requireAdmissionSteps(row, name);
       if (timeline) {
         for (const [tool, cell] of Object.entries(timeline.tools)) {
           expect([tool, cell.calls, cell.errors], "OBSERVATION_TIMING_20_SUCCESSFUL_CALLS_PER_TOOL").toEqual([tool, 20, 0]);

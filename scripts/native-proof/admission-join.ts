@@ -48,7 +48,7 @@ export async function measureAdmissionJoin(directory: string, samples = 5, host?
         inference(...args) {
           requestReceivedAt = performance.now();
           const operation = proxy.inference(...args);
-          return { ...operation, dispatch() { const allowed = operation.dispatch(); if (allowed) dispatchAt = performance.now(); return allowed; }, async admit() {
+          return { ...operation, dispatch(send: () => void) { return operation.dispatch(() => { dispatchAt = performance.now(); send(); }); }, async admit() {
             fences++; const start = performance.now();
             try { return await operation.admit(); } finally { admissionFencesMs.push(performance.now() - start); }
           } };

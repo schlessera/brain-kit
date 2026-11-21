@@ -3973,6 +3973,8 @@ export interface ActivityTurnLifecycle {
   firstRelayRequestAt?: number | null;
   /** SDK stages unavailable to the host; never inferred from another mark. */
   backendMissingEvidence?: string[];
+  /** Backend step/diagnostic observations omitted by count or encoded-byte limits. */
+  backendEvidenceOmitted?: number;
   firstFrameAt: number | null;
   failureObservedAt: number | null;
   endedAt: number | null;
@@ -4750,7 +4752,7 @@ export interface QueueStagingManifest extends ShareIntakeResult {
   source: "cli";
 }
 
-export type { JournalObservationReference, TurnHistoryAction, ConflictVersionSelection, TurnRevertRequest, JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction, ConfigurationCoverageRead } from "./turn-journal.js";
+export type { JournalObservationReference, TurnHistoryAction, ConflictVersionSelection, TurnRevertRequest, JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, CodeChangeReceipt, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction, ConfigurationCoverageRead } from "./turn-journal.js";
 
 /** Durable journal progress can arrive after the terminal result without reopening the turn. */
 export interface ServerTurnJournal extends SessionScoped {

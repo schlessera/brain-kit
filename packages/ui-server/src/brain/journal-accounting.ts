@@ -369,6 +369,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
             const owners = db.query("SELECT t.turn_id,t.missing FROM turn_journal_turns t JOIN turn_journal_object_refs r ON r.turn_id=t.turn_id WHERE r.hash=?").all(row.hash) as {turn_id:string;missing:string}[];
             for (const owner of owners) {
               const paths = db.query(`SELECT path FROM turn_journal_changes WHERE turn_id=?1 AND (json_extract(before_json,'$.hash')=?2 OR json_extract(after_json,'$.hash')=?2)
+                UNION SELECT checkout AS path FROM turn_journal_code_receipts WHERE turn_id=?1 AND pack_hash=?2
                 UNION SELECT path FROM turn_journal_claude_memory WHERE turn_id=?1 AND (json_extract(before_json,'$.hash')=?2 OR json_extract(after_json,'$.hash')=?2)
                 UNION SELECT p.path FROM turn_journal_revert_paths p JOIN turn_journal_revert_operations o ON o.id=p.operation_id WHERE o.journal_turn_id=?1 AND (json_extract(p.before_json,'$.hash')=?2 OR json_extract(p.after_json,'$.hash')=?2)`)
                 .all(owner.turn_id, row.hash) as {path:string}[];

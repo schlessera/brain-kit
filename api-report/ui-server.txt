@@ -125,6 +125,10 @@ signatures (every public export and the types it is made of)
             lifecycle: ActivityTurnLifecycle;
         }>;
         lifecycle(turnId: string): ActivityTurnLifecycle | null;
+        lifecycleSnapshot?(turnId: string): {
+            lifecycle: ActivityTurnLifecycle;
+            highWaterSeq: number;
+        } | null;
         lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
         snapshotLifecycles?(scope: {
             turnId?: string;
@@ -156,7 +160,7 @@ signatures (every public export and the types it is made of)
             span: SpanRow;
         }>;
         latestChangeCursor(): number;
-        snapshotRun(runId: string): RunSnapshot | null;
+        snapshotRun(runId: string, rootOnly?: boolean): RunSnapshot | null;
         runHighWaterSeq(runId: string): number;
         getSpan(spanId: string): SpanRow | null;
         previousSessionRoot?(spanId: string, sessionId: string): SpanRow | null;
@@ -695,7 +699,15 @@ signatures (every public export and the types it is made of)
                 connectionId: z.ZodOptional<z.ZodString>;
                 credentialMs: z.ZodOptional<z.ZodNumber>;
                 dispatchMs: z.ZodOptional<z.ZodNumber>;
+                dispatched: z.ZodOptional<z.ZodBoolean>;
                 durationMs: z.ZodNumber;
+                failureReason: z.ZodOptional<z.ZodEnum<{
+                    budget: "budget";
+                    cancelled: "cancelled";
+                    policy_denied: "policy_denied";
+                    safety_changed: "safety_changed";
+                    unavailable: "unavailable";
+                }>>;
                 firstChunkMs: z.ZodOptional<z.ZodNumber>;
                 headersMs: z.ZodOptional<z.ZodNumber>;
                 host: z.ZodString;
@@ -714,6 +726,16 @@ signatures (every public export and the types it is made of)
                 port: z.ZodNumber;
                 provider: z.ZodOptional<z.ZodLiteral<true>>;
                 reason: z.ZodOptional<z.ZodString>;
+                recipientAdmission: z.ZodOptional<z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    instance: z.ZodOptional<z.ZodString>;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                }, z.core.$strict>>;
+                recipientApproved: z.ZodOptional<z.ZodLiteral<true>>;
+                standingRecipient: z.ZodOptional<z.ZodLiteral<true>>;
+                trustedSource: z.ZodOptional<z.ZodLiteral<true>>;
             }, z.core.$strict>;
             version: number;
         };
@@ -1096,11 +1118,17 @@ signatures (every public export and the types it is made of)
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
                 occurrence: z.ZodOptional<z.ZodObject<{
-                    admission: z.ZodOptional<z.ZodObject<{
+                    admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
                         policyHash: z.ZodNullable<z.ZodString>;
-                        trustRevision: z.ZodLiteral<"0">;
+                        trustRevision: z.ZodString;
                         trusted: z.ZodLiteral<false>;
-                    }, z.core.$strict>>;
+                    }, z.core.$strict>, z.ZodObject<{
+                        collectionRevision: z.ZodString;
+                        policyHash: z.ZodString;
+                        ruleId: z.ZodString;
+                        trustRevision: z.ZodString;
+                        trusted: z.ZodLiteral<true>;
+                    }, z.core.$strict>], "trusted">>;
                     detector: z.ZodEnum<{
                         attachment_input: "attachment_input";
                         compute_input: "compute_input";
@@ -2331,6 +2359,10 @@ signatures (every public export and the types it is made of)
         capBytes?: number;
         now?: () => number;
         nativeManager: NativeJournalManager;
+        codeChanges?: {
+            maintenance: MaintenanceHost;
+            prepare?: (signal?: AbortSignal) => Promise<WorkerStartupView>;
+        };
         referencePool?: ReferenceWorktreeJournalPool;
         referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
@@ -2671,6 +2703,7 @@ signatures (every public export and the types it is made of)
             sessionId: null | string;
             workspaceMissing?: boolean;
             workspaceReadOnly?: boolean;
+            workspacesWritable?: boolean;
         }, stop: (error: Error) => void, signal?: AbortSignal, timing?: PhaseTimer): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): Promise<void>;
@@ -2685,6 +2718,11 @@ signatures (every public export and the types it is made of)
             retained: import("./native-journal-observer.js").NativeJournalReleaseAccounting;
         };
         close(): Promise<void>;
+        codePreview(sessionId: string, turnId: string, checkout: string): Promise<{
+            diff?: string;
+            inline: boolean;
+            reason?: string;
+        }>;
         configurationCoverage(): ConfigurationCoverageRead;
         coverPaths(turnId: string, paths: readonly string[]): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
@@ -2705,6 +2743,7 @@ signatures (every public export and the types it is made of)
         observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
             changedPaths: number;
+            checkoutBytes?: number;
             indexBytes?: null | number;
             observationChangedPaths?: number;
             observationToolUseId?: string;
@@ -2730,6 +2769,7 @@ signatures (every public export and the types it is made of)
             note: string;
         }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
         recoveryStatus(): JournalRecoveryStatus;
+        releaseWorktree(turnId: string, worktreeId: string): Promise<void>;
         releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
@@ -2747,6 +2787,7 @@ signatures (every public export and the types it is made of)
                 bytes: number;
             }>;
         };
+        withCodeEvidence<T>(sessionId: string, turnId: string, checkout: string, operation: (receipt: CodeChangeReceipt, pack: string) => Promise<T>): Promise<T>;
         withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): Promise<T>;
         withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): Promise<T>;
         worktrees(turnId: string): string[];

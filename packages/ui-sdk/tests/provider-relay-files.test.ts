@@ -6,7 +6,7 @@
  * handle and a blocked budget are refused before contact; files a turn leaves
  * behind are deleted when its relay stops.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, spyOn } from "bun:test";
 import { request as httpRequest } from "node:http";
 import { startProviderRelay, type ProviderRelay, type ProviderRelayOptions, type ProviderRelayReceipt, type ProviderRelayRefusal } from "../src/server/provider-relay.js";
 
@@ -17,6 +17,7 @@ const seen: Seen[] = [];
 /** Where the fictional provider says the bytes go; a test may point it elsewhere. */
 let uploadUrl: () => string;
 let fileCounter = 0;
+let deleteHandler:((request:Request)=>Response|Promise<Response>)|undefined;
 
 beforeAll(() => {
   upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -31,7 +32,7 @@ beforeAll(() => {
     }
     const handle = /^\/v1beta\/(files\/[a-z0-9-]+)$/.exec(url.pathname)?.[1];
     if (handle && request.method === "GET") return Response.json({ name: handle, state: "ACTIVE" });
-    if (handle && request.method === "DELETE") return Response.json({});
+    if (handle && request.method === "DELETE") return deleteHandler?.(request) ?? Response.json({});
     if (url.pathname.endsWith(":generateContent")) {
       return Response.json({ candidates: [{ content: { parts: [{ text: "00:10 The fleet leaves Troy." }] } }],
         usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 12 } });
@@ -42,6 +43,7 @@ beforeAll(() => {
 afterAll(() => upstream.stop(true));
 beforeEach(() => {
   seen.length = 0;
+  deleteHandler=undefined;
   uploadUrl = () => `${upstream.url.origin}/upload/v1beta/files?upload_id=ithaca-session&upload_protocol=resumable`;
 });
 
@@ -202,4 +204,33 @@ describe("the Files lifecycle a relayed brain video watch needs", () => {
     expect(seen[0]!.headers["x-goog-api-key"]).toBe(HOST_KEY);
     expect(receipts.at(-1), "STOP_CLEANUP_RECORDED").toMatchObject({ operation: "files", outcome: "completed", status: 200 });
   });
+});
+
+for(const unavailable of [false,true])test(`review14: Files cleanup retains ${unavailable?'unavailable':'safety'} without a dispatch receipt`,async()=>{
+ const {startEgressProxy}=await import('../src/server/egress-proxy');let current=true;
+ const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe(){},admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:unavailable?current:true,authorityCurrent:unavailable?true:current}),subscribe:()=>()=>{}}});
+ const all:ProviderRelayReceipt[]=[];const {relay,start,upload}=open({egress:proxy,observe:receipt=>all.push(receipt)});
+ try{const started=await start();await upload(String(started.headers['x-goog-upload-url']));seen.length=0;all.length=0;current=false;await relay.stop();expect(seen).toEqual([]);expect(all,'REFUSED_CLEANUP_HAS_TYPED_STATUS_AND_NEVER_DISPATCHED').toMatchObject([{operation:'files',outcome:'cancelled',status:0}]);}finally{await relay.stop();proxy.stop();}
+});
+
+for(const allowlist of [false,true])test(`review15: Files cleanup policy ${allowlist?'omission':'denial'} is 403`,async()=>{
+ const {startEgressProxy}=await import('../src/server/egress-proxy');const deny:string[]=[],allow=['127.0.0.1'];const records:import('../src/server/egress-proxy').EgressRecord[]=[];const proxy=await startEgressProxy({mode:allowlist?'allowlist':'record',allow,deny,maxBytes:65536,outwardHosts:[],observe:r=>records.push(r)});const all:ProviderRelayReceipt[]=[];const {relay,start,upload}=open({egress:proxy,observe:receipt=>all.push(receipt)});
+ try{const started=await start();await upload(String(started.headers['x-goog-upload-url']));seen.length=0;all.length=0;if(allowlist)allow.length=0;else deny.push('127.0.0.1');await relay.stop();expect(seen).toEqual([]);expect(all,'POLICY_REFUSAL_NEVER_LOOKS_UNAVAILABLE').toMatchObject([{operation:'files',outcome:'cancelled',status:0}]);expect(records.at(-1)).toMatchObject({outcome:'denied',reason:'destination_not_allowed'});}finally{await relay.stop();proxy.stop();}
+});
+
+for(const during of [false,true])test(`review17: cleanup cancellation ${during?'during fetch':'from dispatch observer'} never escapes the operation`,async()=>{
+ const {startEgressProxy}=await import('../src/server/egress-proxy');const root=new AbortController();const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],signal:root.signal,observe(){}});let armed=false,entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});let sentSignal:AbortSignal|undefined;const original=globalThis.fetch;const fetchSpy=spyOn(globalThis,'fetch').mockImplementation(Object.assign((...args:Parameters<typeof fetch>)=>{if(args[1]?.method==='DELETE')sentSignal=args[1].signal??undefined;return original(...args);},{preconnect:original.preconnect}));const all:ProviderRelayReceipt[]=[];const {relay,start,upload}=open({egress:proxy,observe:r=>all.push(r),preparing:()=>{if(armed&&!during)root.abort();}});
+ try{const started=await start();await upload(String(started.headers['x-goog-upload-url']));seen.length=0;all.length=0;armed=true;if(during)deleteHandler=async()=>{entered();await held;return Response.json({});};const pending=relay.stop();if(during){await reached;root.abort();expect(sentSignal?.aborted,'CLEANUP_FETCH_USES_OPERATION_CANCELLATION').toBe(true);}await pending;expect(seen.filter(r=>r.method==='DELETE'),'CANCELLED_OBSERVER_NEVER_DISPATCHES_DELETE').toHaveLength(during?1:0);expect(all.at(-1)).toMatchObject({outcome:'cancelled',status:0});}finally{release();await relay.stop();fetchSpy.mockRestore();deleteHandler=undefined;proxy.stop();}
+});
+
+for(const cleanup of [false,true])for(const unavailable of [false,true])test(`review19: final fence after observer (cleanup ${cleanup}, unavailable ${unavailable})`,async()=>{
+ const {startEgressProxy}=await import('../src/server/egress-proxy');let current=true,armed=false;const rows:import('../src/server/egress-proxy').EgressRecord[]=[];
+ const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe:r=>rows.push(r),admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:unavailable?current:true,authorityCurrent:unavailable?true:current}),subscribe:()=>()=>{}}});
+ const receipts:ProviderRelayReceipt[]=[];const {relay,start,upload,generate}=open({egress:proxy,observe:r=>receipts.push(r),preparing:()=>{if(armed)current=false;}});
+ try{const started=await start();const uploaded=await upload(String(started.headers['x-goog-upload-url']));expect(uploaded.status).toBe(200);seen.length=0;receipts.length=0;armed=true;if(cleanup)await relay.stop();else{const uri=JSON.parse(uploaded.body).file.uri;expect((await generate(uri)).status).toBe(unavailable?503:403);}expect(seen,'OBSERVER_REVOCATION_CANNOT_SEND_CREDENTIALS').toEqual([]);expect(receipts.at(-1)).toMatchObject({outcome:'cancelled',status:0});expect(rows.at(-1)).toMatchObject({outcome:'denied',failureReason:unavailable?'unavailable':'safety_changed'});}finally{await relay.stop();proxy.stop();}
+});
+
+test('review19: cleanup response headers cannot escape shared byte ceiling',async()=>{
+ const {startEgressProxy}=await import('../src/server/egress-proxy');const rows:import('../src/server/egress-proxy').EgressRecord[]=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe:r=>rows.push(r)});const {relay,start,upload,receipts}=open({egress:proxy});
+ try{const started=await start();await upload(String(started.headers['x-goog-upload-url']));deleteHandler=()=>new Response(null,{status:204,headers:{'x-ithaca-receipt':'x'.repeat(8192)}});const competing=proxy.inference('POST',new URL(upstream.url),new AbortController().signal);expect(await competing.admit()).toBe(true);expect(competing.charge(proxy.remainingBytes()-4096).ok).toBe(true);expect(competing.dispatch(()=>{}).ok).toBe(true);competing.finish('completed');await relay.stop();expect(receipts.at(-1),'CLEANUP_RESPONSE_HEADERS_ARE_METERED').toMatchObject({outcome:'cancelled',status:204});expect(rows.at(-1)).toMatchObject({outcome:'denied',reason:'max_bytes_per_turn',failureReason:'budget'});}finally{await relay.stop();proxy.stop();}
 });

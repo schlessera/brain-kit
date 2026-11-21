@@ -11,6 +11,8 @@ test("default observation output keeps the integration base backend samples", ()
     subPhases: [{ phase: "governed", name: "sandbox_resolve", startedAt: 1010, endedAt: 1015, elapsedMs: null }],
     openSubPhases: [{ phase: "backend", name: "host_probe", startedAt: 1030, endedAt: 1035, elapsedMs: null }, { phase: "closing", name: "journal_finish", startedAt: 1100, endedAt: 1200, elapsedMs: null }] };
   expect(admissionTimingSample(record), "INTEGRATION_BASE_BACKEND_SAMPLES_ARE_PRESERVED").toEqual({ turnId: "ithaca", backendInvokedAt: 1030, firstFrameAt: 1040, endedAt: 1200, firstRelayRequestAt: 1038, invocationToRelayMs: 8,
+    governedStartedAt: 1010, governedAcquiredAt: 1020, journalStartedAt: 1020, journalBeganAt: 1030,
+    admissionSteps: record.subPhases!, backendEvidenceOmitted: null,
     backendMissingEvidence: ["mcp_connect:brain"], backendSteps: [{ phase: "backend", name: "host_probe", startedAt: 1030, endedAt: 1035, elapsedMs: 5 }], queueWaitMs: 10,
     governedAdmissionMs: 10, budgetAdmissionMs: null, journalBeginMs: 10, backendStartupMs: 10, timeToFirstFrameMs: 40,
     steps: { "governed.sandbox_resolve": 5, "backend.host_probe": 5 } });
