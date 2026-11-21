@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 /**
  * Attachment reads through the installed Claude CLI (#3154). The caller
  * confines the SDK, the bundled CLI and every tool to loopback. Turn 0 sends
@@ -77,7 +78,7 @@ try {
         turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
       });
       capture.appends.push(turn.options.systemPrompt);
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
       try {
         let success = false;
         for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

@@ -1,6 +1,6 @@
 /** Short-lived root control/FD transfer; file access happens only after dropping UID. */
 import { dirname, join } from "node:path";
-import { NativeBrainManagerError } from "./native-brain-manager-protocol.js";
+import { NativeBrainManagerError, NATIVE_REQUEST_BYTES } from "./native-brain-manager-protocol.js";
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 
 export interface NativeCheckpointReadRequest {
@@ -30,7 +30,11 @@ channel,token,app_uid,worker_uid,gid,timeout,request,*root_descriptor=sys.argv[1
 if root_descriptor:
  original=int(root_descriptor[0]);os.dup2(original,3)
  if original!=3:os.close(original)
-app_uid=int(app_uid);worker_uid=int(worker_uid);gid=int(gid);timeout=float(timeout);request=json.loads(request)
+app_uid=int(app_uid);worker_uid=int(worker_uid);gid=int(gid);timeout=float(timeout)
+if request=="-":
+ request=sys.stdin.buffer.read(${NATIVE_REQUEST_BYTES + 1})
+ if len(request)>${NATIVE_REQUEST_BYTES}:raise RuntimeError("checkpoint request exceeds transport bound")
+request=json.loads(request)
 if os.geteuid()!=0 or worker_uid in (0,app_uid):raise RuntimeError("fixed separate reader identity required")
 if not stat.S_ISDIR(os.fstat(3).st_mode):raise RuntimeError("authorized root descriptor required")
 libc=ctypes.CDLL(None,use_errno=True);manager_pid=os.getppid();helper_pid=os.getpid()
@@ -67,7 +71,7 @@ def read_child(output):
  root_mount=mount_identity(3)
  def parts(value):
   result=value.split("/") if value else []
-  if value.startswith("/") or "\0" in value or len(result)>256 or any(p in ("",".","..") for p in result):raise ValueError("invalid relative checkpoint path")
+  if value.startswith("/") or "\0" in value or len(result)>(32768 if action=="stat" else 256) or any(p in ("",".","..") for p in result):raise ValueError("invalid relative checkpoint path")
   return result
  def directory(names):
   fd=os.dup(3)
@@ -228,8 +232,8 @@ export async function startNativeCheckpointRead(options: NativeCheckpointReadTic
   request: NativeCheckpointReadRequest | { action: "authority"; authority: NativeStageAuthorityMetadata };
 }) {
   const child = Bun.spawn(["/usr/bin/python3", "-I", "-S", "-c", NATIVE_CHECKPOINT_READER_PROGRAM,
-    options.socketPath, options.token, String(options.appUid), String(options.workerUid), String(options.appGid), String(options.timeoutMs / 1000), JSON.stringify(options.request)], {
-    cwd: "/", env: {}, stdio: ["ignore", "pipe", "pipe", options.rootFd],
+    options.socketPath, options.token, String(options.appUid), String(options.workerUid), String(options.appGid), String(options.timeoutMs / 1000), "-"], {
+    cwd: "/", env: {}, stdio: ["pipe", "pipe", "pipe", options.rootFd],
   });
   const errors = new Response(child.stderr as ReadableStream<Uint8Array>).text();
   const finished = child.exited.then(async code => {
@@ -238,10 +242,13 @@ export async function startNativeCheckpointRead(options: NativeCheckpointReadTic
   });
   void finished.catch(() => {});
   try {
+    child.stdin.write(JSON.stringify(options.request));
+    await child.stdin.end();
     const reader = (child.stdout as ReadableStream<Uint8Array>).getReader();
     let ready = "";
     while (!ready.endsWith("\n")) {
       const first = await reader.read();
+      if (first.done) await finished; // Preserve the fixed helper's refusal cause.
       if (first.done || ready.length + first.value.byteLength > 1024)
         throw new NativeBrainManagerError("unavailable", "Checkpoint reader did not establish its control channel.");
       ready += new TextDecoder().decode(first.value);

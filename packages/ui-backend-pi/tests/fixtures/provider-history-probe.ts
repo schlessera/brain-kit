@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 /** Native Pi workers and Responses serialization, inside the caller's offline namespace. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -65,6 +66,7 @@ process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = `openai=${server.url.origin}`;
 try {
   for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {
     brain = fixtureBrain(scratch, scenario);
+    if (scenario === "facts") mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     let backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
       profiles: [{ id: "fixture", label: "Fixture", vendor: "openai", model: "gpt-4o-mini", thinkingLevel: "off" }], confirmBashPatterns: [] });
@@ -78,9 +80,9 @@ try {
       if (scenario === "repository" && turnIndex) changeRepository(brain, turnIndex);
       const facts = scenario === "facts" ? turnIndex : 0;
       const controller = new AbortController();
-      const sandbox = prepareFixtureWorkerSandbox(brain, { profile: "strict", ...(scenario === "promotion" ? {} : { areas: [] }) });
+      const sandbox = prepareFixtureWorkerSandbox(brain, { profile: "strict", ...(scenario === "facts" ? { areas: ["workspaces"], codeChanges: turnIndex === 1 } : scenario === "promotion" ? {} : { areas: [] }) });
       const frames: ServerMessage[] = [];
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
       try {
         await startFixtureTurn(backend, brain, { prompt: `Odysseus checks voyage step ${turnIndex}.`, profileId: "fixture", sessionId,
           signal: controller.signal, turnId: `odysseus-${turnIndex}`,
@@ -135,6 +137,7 @@ try {
   voiceCapture.voiceRefusal = { message, before, after: requestCount() };
   scenario = "budget";
   brain = fixtureBrain(scratch, scenario);
+    if (scenario === "facts") mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
   capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
   sequence = 0;
   const hosted = historyHost(brain, createPiBackend({ brainPath: brain, sessionDir: join(scratch, "sessions-budget"), loadExtensions: false,

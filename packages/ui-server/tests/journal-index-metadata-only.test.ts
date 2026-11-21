@@ -36,7 +36,7 @@ function fixture() {
   for (const path of INDEX) writeFileSync(join(brain, path), "initial index");
   const native = createNativeJournalFixture(brain, root);
   const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: objects });
-  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, error => { throw error; });
   const reverts = createTurnReverts(db, { brainPath: brain, journal, gate: createWriterGate(db, brain, { pollMs: 1 }), lock: createKeyedLock(), isAuthorized: id => id === "odysseus", refresh() {} });
   /** Every content hash the journal could hold: its object rows, pins and stored object names. */
   const retained = () => {
@@ -52,7 +52,7 @@ function fixture() {
     async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
-test("observed index refreshes keep path, size and change evidence without retaining or serving their bytes (#2873)", async () => {
+test("new index refreshes keep no rows while similarly named controls retain exact bytes (#4302)", async () => {
   const f = fixture(), written = new Set<string>();
   try {
     // Two overlapping windows observe every refresh: a shared window must not
@@ -76,29 +76,7 @@ test("observed index refreshes keep path, size and change evidence without retai
     expect(details.summary.state, "INDEX_METADATA_ONLY_OBSERVATION_IS_COMPLETE").toBe("complete");
     expect(details.missing, "INDEX_METADATA_ONLY_IS_NOT_A_MISSING_VERSION").toEqual([]);
     const index = details.changes.filter(change => [...INDEX, COPY].includes(change.path));
-    expect(index.filter(change => change.path === ".brain-index/brain.db").map(change => change.after?.bytes), "INDEX_SIZE_EVIDENCE_PER_REFRESH").toEqual([4096, 4097, 4098]);
-    expect(index.filter(change => change.path === ".brain-index/brain.db-wal"), "INDEX_CHANGE_STAMP_DISTINGUISHES_EQUAL_SIZES").toHaveLength(3);
-    expect(new Set(index.map(change => change.path)), "INDEX_FAMILY_AND_PUBLICATION_COPY_RECORDED").toEqual(new Set([...INDEX, COPY]));
-    for (const change of index) {
-      for (const side of ["before", "after"] as const) {
-        const version = change[side];
-        if (!version) continue;
-        expect(version, `INDEX_VERSION_METADATA_ONLY ${change.path} ${side}`).toMatchObject({ ignored: false, metadataOnly: true });
-        expect(version.hash, `INDEX_VERSION_HAS_NO_CONTENT_HASH ${change.path} ${side}`).toBeUndefined();
-        expect(version.target, `INDEX_VERSION_HAS_NO_SYMLINK_TARGET ${change.path} ${side}`).toBeUndefined();
-        expect(version.stamp, `INDEX_VERSION_RECORDS_CHANGE_STAMP ${change.path} ${side}`).toBeString();
-        expect(f.journal.version("ithaca", "refresh", change.sequence, side), `INDEX_VERSION_NOT_SERVED ${change.path} ${side}`).toBeNull();
-      }
-      expect(change.conflict, `INDEX_SHARED_WINDOW_HAS_NO_CONFLICT_CHOICE ${change.path}`).toBeUndefined();
-      const preview = await routes.request(`/sessions/ithaca/turns/refresh/journal/${change.sequence}/preview`);
-      expect(await preview.json(), `INDEX_PREVIEW_REPORTS_METADATA_ONLY ${change.path}`).toEqual({ inline: false, reason: "metadata_only" });
-      for (const side of ["before", "after"] as const)
-        expect((await routes.request(`/sessions/ithaca/turns/refresh/journal/${change.sequence}/${side}`)).status, `INDEX_DOWNLOAD_UNAVAILABLE ${change.path} ${side}`).toBe(404);
-    }
-    const wal = index.filter(change => change.path === ".brain-index/brain.db-wal");
-    expect(new Set(wal.map(change => change.after?.stamp)).size, "INDEX_EQUAL_SIZE_VERSIONS_HAVE_DISTINCT_STAMPS").toBe(3);
-    expect(wal.filter(change => change.before?.stamp === change.after?.stamp), "INDEX_STAMP_CHANGES_WITH_EACH_REFRESH").toEqual([]);
-    expect(index.findLast(change => change.path === ".brain-index/brain.db-journal")?.after?.kind, "INDEX_SYMLINK_OBSERVED").toBe("symlink");
+    expect(index, "INDEX_FAMILY_AND_PUBLICATION_COPIES_EXCLUDED").toEqual([]);
     const kept = f.retained();
     expect([...written].filter(hash => kept.has(hash)), "INDEX_BYTES_NEVER_RETAINED").toEqual([]);
     for (const path of CONTROLS) {
@@ -150,6 +128,9 @@ test("history revert excludes the index family as metadata-only, including earli
     await f.journal.finish("return");
     // A version retained before the ruling, whose object this turn still holds:
     // history keeps it, and still never restores it.
+    // Seed pre-change metadata history: new observations no longer create it.
+    let historicalSequence = (f.db.query("SELECT max(sequence) AS sequence FROM turn_journal_changes WHERE turn_id='return'").get() as { sequence: number }).sequence;
+    for (const path of [".brain-index/brain.db", LOCK[0]!]) await f.journal.writeOperation([journalStatement("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps) VALUES (?,?,?,?,?,?,?,?,?)", "return", ++historicalSequence, path, "", null, JSON.stringify({ kind: "file", mode: 0o644, bytes: 12, ignored: false, metadataOnly: true, stamp: "legacy" }), "content", "agent", "[]")]);
     const legacy = (f.db.query("SELECT max(sequence) AS sequence FROM turn_journal_changes WHERE turn_id='return'").get() as { sequence: number }).sequence + 1;
     await f.journal.writeOperation([journalStatement("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps) VALUES (?,?,?,?,?,?,?,?,?)",
       "return", legacy, ".brain-index/brain.db-wal", "", null, JSON.stringify({ kind: "file", mode: 0o644, bytes: 3, hash: sha("wal"), ignored: false }), "content", "agent", "[]")]);

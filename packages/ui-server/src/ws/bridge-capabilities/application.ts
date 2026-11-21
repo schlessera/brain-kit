@@ -17,14 +17,14 @@ function operationToolNames(backendId: string) {
  * batch the turn's applications queue into.
  */
 export function createApplication(ctx: BridgeContext, self: () => BackendBridge, root: string, applicationPolicy: BrainApplicationPolicy,
-  options: Pick<MakeBridgeOptions, "protectedPaths" | "turnData">): { slice: BridgeSlice<"readBrainBase" | "applyBrain"> & Partial<BridgeSlice<"completeShare">>; indexBatch: IndexBatch } {
+  options: Pick<MakeBridgeOptions, "protectedPaths" | "workspaceReadOnly" | "turnData">): { slice: BridgeSlice<"readBrainBase" | "applyBrain"> & Partial<BridgeSlice<"completeShare">>; indexBatch: IndexBatch } {
   const { host, turn, turnId, principalId, authorization, signal, work, backendId, recorder, maskGuard, toolName, isAuthorized, recordingAvailable, hold, afterHolds, current } = ctx;
   const { protectedPaths, turnData } = options;
   const operationTools = operationToolNames(backendId);
   const effectCurrent = () => current() && recordingAvailable();
   const apply = createBrainApplication({
     root, principalId, turnId, signal, policy: applicationPolicy,
-    protectedPaths,
+    protectedPaths, workspaceReadOnly: options.workspaceReadOnly,
     ...(maskGuard ? { providerMasks: { guard: maskGuard, tool: operation => operationTools[operation] } } : {}),
     ...(host.applicationPlanner ? { planner: host.applicationPlanner } : {}),
     isAuthorized, hold,

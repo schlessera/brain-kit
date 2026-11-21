@@ -21,8 +21,29 @@ The [persistent-cache ruling](https://github.com/schlessera/brain-kit/issues/239
 places application-managed reference source outside brain content, indexing,
 capture and sync. Ordinary readers share source rather than receiving a full
 copy per agent or step. Reference source is read-only to agents. This creates
-no blanket `workspaces/` journal exemption and does not authorize changes to
-user-owned custom skills or automatic cleanup of arbitrary workspace repos.
+no exemption for writable workspaces. **Amended 2026-11-20 (#4295):**
+read-only inspection turns exclude `workspaces/` from their journal, policy
+freeze and observed-byte accounting; a concurrent opted-in writer retains its
+coverage. This does not authorize changes to user-owned custom skills or
+automatic cleanup of arbitrary workspace repos.
+
+**Install ruling, 2026-11-20 (#4298, Option A).** Inspecting source never
+writes. A turn that needs to install or build asks for a managed worktree, or
+for the session's code-changes switch. Under the approved Git receipt policy,
+tracked changes and untracked files Git does not ignore are protected; ignored
+install/build output is neither recorded nor restored because it can be
+regenerated. The initial workspace opt-in retains per-file journaling until
+that separate Git receipt transition. A default turn's read-only note names
+both routes to writable checkout access. Commands run against the read-only
+mount, so verification and dry runs that leave it unchanged remain usable. A
+read-only failure in a turn with an inspected workspace receives a fixed
+conditional remedy after execution; command names alone do not deny a call.
+The result makes no path attribution and may advise an outside write too:
+
+> If this write was under workspaces/, the checkout is read-only in this turn: switch on code changes for this session (applies from the next message) or use a managed worktree.
+
+Reading a source image
+for a scratch markup layer likewise requires no workspace write grant.
 
 ## Authority and credential isolation
 

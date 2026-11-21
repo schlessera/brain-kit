@@ -58,6 +58,16 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+The path matrix records 12 physical worker-freeze samples for each actual 0,
+1, 20 and 200 changed-path window, then 12 one-path windows after 10,000 rows.
+Counts come from committed sequence deltas, not requested writes. A periodic
+observation joining a slow window keeps its `sharedHold` label and remains a
+valid physical-stop sample; all such windows contribute to cell medians/p95s.
+Individual tool-phase attribution remains separate when a physical hold spans
+several observations. Partial/count-mismatched windows are retained in
+`rejectedSamples` and retried. The request's explicit watchdog owns the matrix;
+server and client idle deadlines are disabled for that request only.
+
 The `backendStartup` section (#4285/#4286) includes the first turn after
 server start and those five warm turns. Each sample carries invocation to
 first relay receipt when observed, the observed turn `endedAt`, the `openSubPhases` backend steps, their host receipt timestamps and
@@ -661,3 +671,15 @@ the allocator-selection or foreign remove/re-add window between validation and
 ioctl. This fixture retains its exclusive-minor disposable-host model; retries
 extend that existing window. File controls prove protocol and refusal behavior,
 not real kernel timing or elimination of this residual risk.
+
+
+The path matrix also runs against comparison sources that predate index scope
+metadata. It always returns the 0/1/20/200 timing cells and loaded-history cells;
+only the separate index-capacity probe is reported unsupported when the older
+scope summary has no index ceiling. It imports no new product runtime symbol to
+select that probe. Each physical hold includes absolute clock boundaries, and
+the fixture annotates existing `observe_record` traces with committed sequence
+deltas. Cell phase tables select the observation that actually committed the
+paths, including a periodic observation before the tool's zero-path capture.
+The full physical freeze remains the measured denominator; any other work in
+that shared window remains visibly unattributed.

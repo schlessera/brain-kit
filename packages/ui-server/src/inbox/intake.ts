@@ -209,8 +209,8 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
      * names the turn. With the turn's admitted protection set, every staging
      * effect refuses a protected target as the turn's application does (#2876).
      */
-    conversation: (input: ShareInput, key: string, principal: Principal, turnId: string, isCurrent: () => boolean, protectedPaths?: readonly string[], holds?: IntakeHolds) => {
-      const isProtected = protectedPaths ? createProtectedTargetCheck(brainRoot, protectedPaths) : undefined;
+    conversation: (input: ShareInput, key: string, principal: Principal, turnId: string, isCurrent: () => boolean, protectedPaths?: readonly string[], holds?: IntakeHolds, workspaceReadOnly = false) => {
+      const isProtected = protectedPaths || workspaceReadOnly ? createProtectedTargetCheck(brainRoot, protectedPaths ?? [], { workspaceReadOnly }) : undefined;
       const guard = isProtected && ((path: string) => { if (isProtected(path)) throw new ProtectedTargetRefusedError(); });
       return tracked(() => ingest("cli", input, principal, key, isCurrent, { conversationTurn: turnId }, guard, holds));
     },
