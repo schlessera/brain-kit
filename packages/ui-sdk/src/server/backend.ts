@@ -631,7 +631,7 @@ export interface StartTurnRequest {
   /** @internal Host-prepared native immutable input owner; non-governed workers retain one reference per child. */
   workerStartupView?: import("./worker-startup-view.js").WorkerStartupView;
   /** @internal Parent-owned lifecycle control; never serialized into a worker. */
-  workerStarted?: (worker: Pick<import("./worker-launcher.js").LaunchedWorker, "freeze" | "frozen" | "resume" | "kill" | "exited">) => void;
+  workerStarted?: (worker: Pick<import("./worker-launcher.js").LaunchedWorker, "freeze" | "resume" | "kill" | "exited">) => void;
   /**
    * @internal Server-only evidence of where one call actually ran, reported
    * before its `tool_result` and never serialized into a worker (#2834).
