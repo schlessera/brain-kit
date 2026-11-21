@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { GOG_PINS, gogPlatform, verifyGogBinary } from "@schlessera/brain-common/internal/google-gog";
 import { gogInvocation } from "../src/google/gog/argv.ts";
 import { gogEnvironment } from "../src/google/gog/environment.ts";
-import { checkGogSchema, verifyGogBinaryWith, type GogPinParameters } from "../src/google/gog/pin.ts";
+import { checkGogSchema, gogBinaryIdentity, hashOpen, verifyGogBinaryWith, type GogPinParameters } from "../src/google/gog/pin.ts";
 import { GOG_SCHEMA_SNAPSHOT } from "../src/google/gog/snapshot.ts";
 import { createGogTransportInternals, GOG_PIN_RETRY_MS } from "../src/google/gog/transport.ts";
 import { createFakeGog, type FakeGog, type FakeGogScenario } from "./support/fake-gog.ts";
@@ -116,6 +116,19 @@ describe("the pin refuses, and runs nothing before the hash matches", () => {
     chmodSync(fake.executable, 0o600);
     expect(await verify()).toMatchObject({ ok: false, reason: "not_executable" });
     expect(fake.calls()).toEqual([]);
+  });
+
+  test("the hash is taken only over the file the owner and mode checks saw", () => {
+    const { fake } = setup();
+    const checked = gogBinaryIdentity(fake.executable)!;
+    expect(hashOpen(fake.executable, checked)).toEqual({ sha256: sha256(fake.executable) });
+    // Same bytes, new inode: what a swap between the checks and the open would leave.
+    const copy = `${fake.executable}.new`;
+    copyFileSync(fake.executable, copy);
+    chmodSync(copy, 0o700);
+    renameSync(copy, fake.executable);
+    expect(hashOpen(fake.executable, checked)).toBe("binary_changed");
+    expect(hashOpen(join(fake.dir, "nowhere"), checked)).toBe("binary_missing");
   });
 
   test("an unlisted platform, a relative path and a missing file", async () => {

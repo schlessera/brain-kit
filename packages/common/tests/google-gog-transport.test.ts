@@ -310,10 +310,13 @@ describe("the operation boundary", () => {
       count: hits, has_more: false, nextPageToken: "",
       threads: Array.from({ length: hits }, (_, index) => ({ id: `19a0c3d2e4f5${String(index).padStart(4, "0")}` })),
     });
-    for (const [input, hits] of [[{ query: "in:inbox", limit: 2 }, 30], [{ query: "in:inbox" }, 11], [{ query: "in:inbox", limit: 25 }, 26]] as const) {
-      const { fake, transport } = setup({ "gmail.search": { stdout: page(hits) }, "gmail.thread.get": { stdout: fixture("thread-swine.json") } });
+    // Three hits naming two threads still answered more than the two asked for.
+    const repeated = { ...page(2), count: 3, threads: [...page(2).threads, page(2).threads[0]!] };
+    for (const [input, stdout] of [[{ query: "in:inbox", limit: 2 }, page(30)], [{ query: "in:inbox" }, page(11)], [{ query: "in:inbox", limit: 25 }, page(26)],
+      [{ query: "in:inbox", limit: 2 }, repeated]] as const) {
+      const { fake, transport } = setup({ "gmail.search": { stdout }, "gmail.thread.get": { stdout: fixture("thread-swine.json") } });
       const result = await transport.execute("gmail.search", input);
-      expect(fake.callsOf("gmail.thread.get"), `${hits} hits`).toEqual([]);
+      expect(fake.callsOf("gmail.thread.get"), `${stdout.threads.length} hits`).toEqual([]);
       expect(errorOf(result)).toEqual(["transport_incompatible", "page_too_large"]);
     }
   });

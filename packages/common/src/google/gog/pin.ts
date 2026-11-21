@@ -139,8 +139,12 @@ function checkPlace(identity: GogBinaryIdentity, uid: number): GogPinRefusal | n
   return null;
 }
 
-/** The sha256 of the file `identity` describes, read through one descriptor; `binary_changed` if it is not that file or moved while read. */
-function hashOpen(path: string, identity: GogBinaryIdentity): { sha256: string } | "binary_missing" | "binary_changed" {
+/**
+ * The sha256 of the file `identity` describes, read through one descriptor;
+ * `binary_changed` if the descriptor is not that file or it moved while read.
+ * Internal: exported for tests.
+ */
+export function hashOpen(path: string, identity: GogBinaryIdentity): { sha256: string } | "binary_missing" | "binary_changed" {
   let fd: number;
   try {
     fd = openSync(path, "r");
