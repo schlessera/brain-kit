@@ -473,5 +473,6 @@ test("standalone native SDK entries install the guard before importing their run
     expect(source.split("\n")[0], entry).toMatch(/^import "(?:\.\.\/|\.\/)+(?:scripts\/)?test-network-child-preload\.ts";$/);
   }
   const preload = readFileSync(join(ROOT, "scripts/test-network-child-preload.ts"), "utf8");
+  expect(preload).toContain("const guard = installNetworkGuard();");
   expect(preload.indexOf("installNetworkGuard();")).toBeLessThan(preload.indexOf('await import("bun:test")'));
 });
