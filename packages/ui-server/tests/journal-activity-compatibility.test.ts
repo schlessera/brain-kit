@@ -50,7 +50,7 @@ test("previous activity schemas parse journal clocks and index/release receipts 
     expect(modelText, "HOST_RECEIPT_SPANS_STAY_OUT_OF_PROVIDER_CONTEXT").not.toContain("Index update");
     expect(modelText, "STARTUP_RECEIPT_SPANS_STAY_OUT_OF_PROVIDER_CONTEXT").not.toContain("Startup checkpoint release");
     expect(JSON.parse(modelText.split("\n").slice(2, -1).join("\n")).spans.map((span: { spanId: string }) => span.spanId), "MODEL_RETAINS_ORDINARY_ACTIVITY_SPANS").toEqual([spanId]);
-    expect(detail.spans.filter(span => span.attrs?.hostMaintenanceReceipt === true), "OWNER_API_RETAINS_HOST_RECEIPTS").toHaveLength(3);
+    expect(detail.spans!.filter(span => span.attrs?.hostMaintenanceReceipt === true), "OWNER_API_RETAINS_HOST_RECEIPTS").toHaveLength(3);
     expect(detail.events).toHaveLength(3);
     for (const event of detail.events!) {
       const delta = { type: "activity_delta", runId: turnId, seq: event.eventIndex + 2, event };
