@@ -42,7 +42,7 @@ test("published activity schemas accept closing steps and other additive host ev
   const db = createUiDb(":memory:");
   try {
     const store = createActivityStore(db); let now = 1000;
-    const life = createTurnLifecycle(store, "turn-ithaca", "ithaca", now, () => {}, () => now, { buildRevision: "ithaca+4278" });
+    const life = createTurnLifecycle(store, "turn-ithaca", "ithaca", now, () => {}, () => now, undefined, { buildRevision: "ithaca+4278" });
     const admitted = life.timer("governed")("gate_acquire"); now = 1100; admitted();
     life.hold({ holdId: "hold-ithaca", cause: "tool", causeTurnId: "turn-ithaca", toolUseId: "shell-1",
       requestedAt: 1100, stoppedAt: 1101, resumedAt: 1102, changedPaths: 1, otherTurnsStopped: 1, inferenceInFlight: true });
@@ -82,7 +82,7 @@ test("query_activity never serializes this stream's host clock evidence", async 
   const { runActivityQuery } = await import("../src/activity/query");
   const db = createUiDb(":memory:"), store = createActivityStore(db), now = Date.now();
   try {
-    const live = createTurnLifecycle(store, "turn-clock-owner", "ithaca", now, () => {}, () => now, { buildRevision: "ithaca-host-clock-identity" });
+    const live = createTurnLifecycle(store, "turn-clock-owner", "ithaca", now, () => {}, () => now, undefined, { buildRevision: "ithaca-host-clock-identity" });
     live.timer("closing")("clock-owned-closing")();
     live.hold({ holdId: "hold-host-clock-evidence", cause: "tool", causeTurnId: "turn-clock-owner", toolUseId: "clock-owned-tool",
       requestedAt: now, stoppedAt: now, resumedAt: now, changedPaths: 1, otherTurnsStopped: 0, inferenceInFlight: false });

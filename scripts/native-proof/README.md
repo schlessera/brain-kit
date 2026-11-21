@@ -636,7 +636,10 @@ then reopened; a later sample cannot establish the state at the failed ioctl.
 Neither state identifies its holder by itself.
 
 `bun run test tests/owned-loop-evidence.test.ts tests/identity-native-fixture.test.ts`
-runs file-only protocol controls and fixture composition checks. These controls
+runs file-only protocol controls and fixture composition checks. Each rewritten
+identity fixture embeds the pure timeout helper and executes its configuration
+prefix in a separate directory without neighboring helpers, before any native
+filesystem setup. These controls
 are not kernel admission. Controlled held-descriptor/release proof and actual
 runner admission still require the reviewed privileged offline native harness;
 neither establishes historical attribution for #2420.

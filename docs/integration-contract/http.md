@@ -466,7 +466,9 @@ CONNECT records opaque bytes without a path or content claim; the inference
 tag comes only from the actual relay. Inference records may carry monotonic
 millisecond offsets from the operation start: `admitMs` (first admission returned after its final synchronous commit check), `bodyMs` (body read), `credentialMs` (credential resolved),
 `dispatchMs` (immediately before upstream fetch), `headersMs` (fetch resolved)
-and `firstChunkMs` (first upstream read resolved). Reached offsets are
+and `firstChunkMs` (first upstream read resolved, including EOF). Its mark is
+attempted once: a failed first mark remains absent and is never retried on a
+later read. Reached offsets are
 nonnegative, ordered and bounded by `durationMs`. Unreached marks are absent,
 including on refused/failed attempts. `loopLagMaxMs` is independently the
 maximum nonnegative drift of a 50 ms timer before dispatch (also sampled at

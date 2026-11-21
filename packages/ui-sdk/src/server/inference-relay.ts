@@ -233,13 +233,14 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const upstreamReader = response.body.getReader();
         let observeUsage: ((chunk: Uint8Array) => void) | undefined;
         observeDiagnostic(() => { observeUsage = inferenceUsageObserver(usage => observeDiagnostic(() => operation.observeUsage(usage))); });
+        let firstReadAttempted = false;
         let released = false;
         const release = () => { if (!released) { released = true; upstreamReader.releaseLock(); } };
         const output = new ReadableStream<Uint8Array>({
           async pull(controller) {
             try {
               const next = await upstreamReader.read();
-              mark("firstChunkMs");
+              if (!firstReadAttempted) { firstReadAttempted = true; mark("firstChunkMs"); }
               if (next.done) { operation.finish("completed"); release(); controller.close(); }
               else if (!operation.charge(next.value.byteLength + 16)) {
                 operation.finish("denied", "max_bytes_per_turn");

@@ -5,11 +5,12 @@ import { startInferenceRelay } from "../src/server/inference-relay";
 import type { InferenceUsage } from "../src/server/inference-usage";
 import * as usageObserver from "../src/server/inference-usage";
 
-const points = ["admitMs", "bodyMs", "credentialMs", "dispatchMs", "headersMs", "firstChunkMs", "usage", "usageFactory", "usageChunk"] as const;
+const points = ["admitMs", "bodyMs", "credentialMs", "dispatchMs", "headersMs", "firstChunkMs", "firstChunkOnce", "usage", "usageFactory", "usageChunk"] as const;
 for (const point of points) test(`throwing relay diagnostic ${point} preserves dispatch and bytes`, async () => {
   const inbound = Buffer.from('{"model":"odysseus","stream":true,"text":"Ἰθάκη"}');
   const outbound = Buffer.from('event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":17}}}\n\nevent: message_stop\ndata: {}\n\n');
   const marks = new Set<InferenceTimingMark>();
+  let firstReadAttempts = 0;
   let capturedUsage: InferenceUsage | undefined, failures = 0, dispatched = 0, received: Buffer | undefined;
   let outcome: EgressRecord["outcome"] | undefined;
   const controller = new AbortController();
@@ -28,7 +29,7 @@ for (const point of points) test(`throwing relay diagnostic ${point} preserves d
       async admit() { return true; }, commit() { return true; }, charge() { return true; }, signal: controller.signal,
       outcome() { return outcome; }, reason() { return undefined; }, refusal() { return undefined; },
       finish(value) { outcome = value; },
-      mark(name) { if (name === point) { failures++; throw Error("mark unavailable"); } marks.add(name); },
+      mark(name) { if (name === "firstChunkMs") firstReadAttempts++; if (name === point || point === "firstChunkOnce" && name === "firstChunkMs" && failures === 0) { failures++; throw Error("mark unavailable"); } marks.add(name); },
       observeUsage(value) { if (point === "usage") { failures++; throw Error("usage capture unavailable"); } capturedUsage = value; },
     }; },
   } });
@@ -54,7 +55,8 @@ for (const point of points) test(`throwing relay diagnostic ${point} preserves d
       expect(capturedUsage, "FAILED_USAGE_CAPTURE_STAYS_ABSENT").toBeUndefined();
       expect(marks.size).toBe(6);
     } else {
-      expect(marks.has(point as InferenceTimingMark), "FAILED_RELAY_MARK_STAYS_ABSENT").toBe(false);
+      expect(marks.has(point === "firstChunkOnce" ? "firstChunkMs" : point as InferenceTimingMark), "FAILED_RELAY_MARK_STAYS_ABSENT").toBe(false);
+      if (point === "firstChunkOnce") expect(firstReadAttempts, "FIRST_READ_MARK_IS_ATTEMPTED_ONCE").toBe(1);
       expect(marks.size).toBe(5); expect(capturedUsage).toEqual({ inputTokens: 17 });
     }
   } finally { relay.stop(); observer?.mockRestore(); await upstream.stop(true); }

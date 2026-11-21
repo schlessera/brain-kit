@@ -12,3 +12,5 @@ Keep best-effort timing evidence out of worker control flow, bind hold receipts 
 Hold clocks use the existing worker-control acknowledgement contract without additional kernel inspection. Diagnostic failures leave missing clocks or null inference-overlap samples and never change worker control. Closing cleanup only completes after the named turn's work succeeds.
 
 Isolate inference-relay timing marks and per-request usage capture so diagnostic exceptions cannot skip upstream dispatch or interrupt response bytes.
+
+Attempt the inference first-read mark once so a failed sample cannot be replaced by a later read. Generated identity fixtures embed their pure timeout helper and remain runnable outside the source directory.

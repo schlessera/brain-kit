@@ -85,9 +85,9 @@ export interface SessionCatalog {
   recordStateRoom?(sessionId: string, observation: StateRoomObservation): void;
   readStateRoom?(sessionId: string): StateRoomObservation | undefined;
   /** Scratch links in backend-persisted answers, before next-turn pruning. */
-  recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): boolean | void | Promise<boolean>;
+  recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): boolean | void | Promise<boolean | void>;
   /** Observed terminal metadata at its backend-normalized assistant position. */
-  recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): boolean | void | Promise<boolean>;
+  recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): boolean | void | Promise<boolean | void>;
   attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /**
    * Settles once every catalog write submitted before it has settled
@@ -107,7 +107,7 @@ export interface SessionCatalog {
   /** Whether the catalog holds a row for this session. Throws when the read fails. */
   hasSession?(sessionId: string): boolean;
   /** Observed position of a finished turn's last answer (#964). */
-  recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): boolean | void | Promise<boolean>;
+  recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): boolean | void | Promise<boolean | void>;
   /** Replayed history with host-proven turn ids joined onto the answers that ended each turn. */
   attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /** The provider/profile a stored session is pinned to, or null. */
