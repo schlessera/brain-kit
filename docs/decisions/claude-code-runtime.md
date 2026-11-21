@@ -1652,14 +1652,18 @@ MCP startup race; switching their schemas and execution to a second process
 would be a separate session-roster change.
 
 Module MCP tools have no static inventory yet (#4381). Before selecting a new
-hosted session's roster, a credential-filtered worker with the same turn view
-runs `brain module list --json`. A proven empty module-tool inventory permits
+hosted session's roster, a successful inventory is reused from disposable host
+memory when its configuration content hash matches. On a miss, a
+credential-filtered worker with the same turn view runs
+`brain module list --json` alongside runtime version and route-input
+preparation. A proven empty module-tool inventory permits
 the bridge. Config-selected module tools, an unavailable inventory, or malformed
 output retain the original project stdio entry and pin search off. The owner
 log records `brain_bridge_fallback_module_tools` or
 `brain_bridge_fallback_inventory_unavailable`; neither diagnostic enters the
-provider conversation. This adds one sandboxed inventory command for a new
-session; resumes use their retained selection. The extra command is not a
+provider conversation. Only a miss runs the sandboxed inventory command; a hit
+skips it, concurrent misses share the helper, and resumes use their retained
+selection. The extra command is not a
 `brain mcp` process. Pi keeps its existing in-worker reads.
 
 The pinned runtime can start a project stdio server even when an SDK server
@@ -1669,12 +1673,24 @@ checks that rejection in effective native settings before releasing input;
 other project MCP servers retain their existing startup behavior.
 
 The new-session inventory has its own `backend` startup span,
-`brain_tool_inventory`, including sandbox launch, command execution, parsing
-and owned cleanup. It runs serially before runtime launch and before the first
-provider request. Three offline real-sandbox samples measured 352.4, 288.1 and
-328.1 ms for a core-only inventory (median 328.1 ms); module-tool fallback
-samples measured 275.1, 280.5 and 329.7 ms (median 280.5 ms). These are isolated
-inventory-command wall times on the shared development host, with fresh
-processes and copied immutable fixture storage. They do not measure a native
-hosted turn's net startup change; the native observation attempt could not
-open `/dev/loop-control` in its proof container.
+`brain_tool_inventory`, including content hashing, lookup and any sandboxed
+command plus cleanup. Its `attributes.cached` boolean stays in host activity
+storage, never provider history. The bounded, disposable memory cache hashes
+configuration bytes and static local imports, package/lock bytes, resolved
+module manifests and settings, and the relevant view/mask facts. Hash inputs
+that cannot be read or resolved, changed inputs during a probe, and failed or
+timed-out helpers preserve stdio. Successful facts are reused until their
+inputs change; restarting the host discards them. No cache is written to
+`brain.db`. A new positive fact whose module sources were not in the first key
+is confirmed with those sources included before it is reused.
+
+A miss starts alongside independent runtime-version and route-input
+preparation; only the roster decision waits on inventory. All preparation
+owners settle before a failure propagates. Three offline real-sandbox samples
+measured core-only misses of 365.2, 280.4 and 236.4 ms (median 280.4 ms), with
+hits of 0.384, 0.182 and 0.168 ms (median 0.182 ms). Module-tool misses were
+405.2, 285.5 and 253.0 ms; hits were 0.544, 0.194 and 0.374 ms. These include
+hash lookup and owned cleanup on the shared host with fresh processes and
+copied immutable fixture storage; they do not establish a native hosted turn's
+net startup change. The native observation attempt could not open
+`/dev/loop-control` in its proof container.

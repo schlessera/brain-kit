@@ -28,8 +28,11 @@ Failures return `isError: true` with `brain_tool_unavailable` or
 `brain_tool_timeout`, without disabling other tools or falling back to a host
 read. A timed-out early call may succeed later once startup finishes.
 
-A new session's inventory is resolved by `brain module list --json` in the
-turn sandbox before retaining its roster. If module MCP tools are present, or
+A new session's inventory is reused from disposable host memory under a
+content hash of configuration, static dependencies, module manifests/settings
+and package/lock inputs. A cache miss resolves `brain module list --json` in
+the turn sandbox alongside independent runtime preparation before retaining
+the roster. Hash/read or helper failures preserve stdio. If module MCP tools are present, or
 the inventory is unavailable, the original project stdio entry is kept and
 search stays off. The named fallback reason is recorded in owner diagnostics,
 never in provider history. Static module inventory is tracked by #4381.

@@ -464,14 +464,18 @@ MCP startup race; switching their schemas and execution to a second process
 would be a separate session-roster change.
 
 Module MCP tools have no static inventory yet (#4381). Before selecting a new
-hosted session's roster, a credential-filtered worker with the same turn view
-runs `brain module list --json`. A proven empty module-tool inventory permits
+hosted session's roster, a successful inventory is reused from disposable host
+memory when its configuration content hash matches. On a miss, a
+credential-filtered worker with the same turn view runs
+`brain module list --json` alongside runtime version and route-input
+preparation. A proven empty module-tool inventory permits
 the bridge. Config-selected module tools, an unavailable inventory, or malformed
 output retain the original project stdio entry and pin search off. The owner
 log records `brain_bridge_fallback_module_tools` or
 `brain_bridge_fallback_inventory_unavailable`; neither diagnostic enters the
-provider conversation. This adds one sandboxed inventory command for a new
-session; resumes use their retained selection. The extra command is not a
+provider conversation. Only a miss runs the sandboxed inventory command; a hit
+skips it, concurrent misses share the helper, and resumes use their retained
+selection. The extra command is not a
 `brain mcp` process. Pi keeps its existing in-worker reads.
 
 The pinned runtime can start a project stdio server even when an SDK server
