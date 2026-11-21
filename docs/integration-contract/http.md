@@ -193,13 +193,17 @@ the server boots. No unknown or surviving storage charge is released.
 The response also adds optional `journalRecovery`, declared by `SystemStatus`:
 `{ unresolvedRecords: number, firstCause: null | { reservationId: string,
 hash: string, at: number, errorClass: string, message: string, site: string } }`.
-This is the journal worker's boot recovery summary: the count is unresolved
-object reservations, including multiple reservations of the same hash, and
+This is the journal worker's latest recovery summary, refreshed at startup and
+by idle maintenance: the count is unresolved reservations, including multiple
+reservations of the same hash and temporary reservations without a content
+identity. A temporary reservation carries `hash: ""`. The value can change
+without a restart, and `healthy` is recomputed from the refreshed result.
+For either kind of reservation,
 `firstCause` is the earliest recorded I/O refusal among them (`at` is Unix
 milliseconds). The first cause stays on its charged reservation across restarts;
 a successful later recovery removes both. Zero unresolved records means
 `firstCause: null`. Any unresolved records make `healthy` false without refusing
-boot or unrelated work. If persisting a cause fails, the current boot still
+boot or unrelated work. If persisting a cause fails, the current recovery pass still
 reports it and logs the diagnostic-write failure; the existing reservation
 remains durable and charged. Neither summary is exposed by unauthenticated
 `/api/status` or public `/api/health`. Additive in 0.45.0.
