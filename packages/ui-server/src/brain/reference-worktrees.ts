@@ -157,6 +157,7 @@ export function createReferenceWorktrees(options: {
    * Absent: access refuses, so no write path exists without the journal.
    */
   coverage?: (input: { turnId: string; worktreeId: string }, signal?: AbortSignal) => Promise<void>;
+  released?: (input: { turnId: string; worktreeId: string }) => Promise<void>;
   inactivityMs?: number;
   now?: () => number;
   owner?: ReturnType<typeof referenceWorktreeOwner>;
@@ -622,6 +623,9 @@ export function createReferenceWorktrees(options: {
       if (input.live && !input.live()) throw new ReferenceWorktreeError("unavailable", "The turn that asked for this ended first; nothing changed.");
       let row = owned(input.worktreeId, input.principalId);
       if (row.state === "released") return view(row);
+      const holding = row.holder ? generation(row.holder) : null;
+      if (holding) await options.released?.({ turnId: holding.turn_id, worktreeId: row.id });
+      if (input.live && !input.live()) throw new ReferenceWorktreeError("unavailable", "The turn that asked for this ended first; nothing changed.");
       await write("release", now(), row.id);
       row = worktree(row.id)!;
       // A live holder keeps it until its generation closes, after the final observation.
@@ -701,6 +705,17 @@ export function createReferenceWorktrees(options: {
 
   return {
     allocate, access, renew, release, reconcile, recover,
+    /** Authenticated history holds the writer gate and keeps grants/removal serialized. */
+    withHistoryCheckout<T>(worktreeId: string, principalId: string, operation: (path: string) => Promise<T>): Promise<T> {
+      return serial(worktreeId, async () => {
+        let row = owned(worktreeId, principalId);
+        if (holderState(row) !== false) throw new ReferenceWorktreeError("busy", "The checkout still has a live or unknown writer.");
+        if (row.holder) row = await recoverHolder(row);
+        const parked = await pool.poolPark(row.id);
+        if (!parked.path || parked.access) throw new ReferenceWorktreeError("unavailable", "The checkout could not be parked for history.");
+        return operation(parked.path);
+      });
+    },
     openGeneration, retireGeneration, closeGeneration,
     /** Hygiene review's revalidated removal of one released or expired worktree (#2431). */
     remove(worktreeId: string, input: ReferenceWorktreeRemoval, signal?: AbortSignal): Promise<ReferenceWorktreeRemovalOutcome> {

@@ -159,6 +159,9 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | S | Download a retained raw version | Before/after only; durable read lease, no direct hash access. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/journal/code/preview` | S | Preview one checkout's owned endpoint diff | Exact session/turn/checkout; no source object-store dependency. |
+| POST | `/api/sessions/:sessionId/turns/:turnId/journal/code/revert` | S | Confirm a checkout revert | Current owner, stable operation identity and fresh matching endpoint; otherwise conflict. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id` | S | Reconcile a checkout history action | Principal/session/turn-bound read; never repeats effects. |
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
@@ -712,6 +715,13 @@ owner/session boundary. GET `/api/sessions/:sessionId/turns/:turnId/journal`
 returns `TurnJournalDetails`: summary, ordered observations, overlapping turn
 IDs and missing-detail reasons. No retained turn in that session is JSON 404.
 An expired summary is still readable, with no raw detail or review actions.
+
+Journal details additionally expose optional `codeChanges` checkout receipts
+(#4297). The receipt fields and preview/revert/status routes are defined in the
+[checkout receipt contract](integration-contract/http.md#checkout-change-receipts-4297).
+For covered checkouts, this replaces new turns' per-file change rows; retained
+legacy rows remain readable. Notes keep their before-images. Each entry offers
+a bounded endpoint diff and an owner-confirmed revert that refuses later work.
 
 Journal details additionally expose outward admission receipts (#1664) through
 optional `outwardActions` and `outwardActionsTruncated`. Rows include event

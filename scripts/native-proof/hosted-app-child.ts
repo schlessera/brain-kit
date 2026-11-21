@@ -263,6 +263,10 @@ try {
       BRAIN_UI_TURN_TIMEOUT_MS: OBSERVATION_TIMING ? "900000" : "90000", BRAIN_UI_NATIVE_BRAIN_SOCKET: socket
     }), registry: createStaticBackendRegistry([backend], selectedBackend), observability
   });
+  if (OBSERVATION_TIMING) {
+    const { proveCodeChangeReceipts } = await import("./code-change-receipts.js");
+    await proveCodeChangeReceipts(app, event);
+  }
   const {spyOn} = await import("bun:test");
   const workerSandbox = await import(join(source!,"packages/ui-sdk/src/server/worker-sandbox.ts"));
   const scan = workerSandbox.scanForOutsideLinks;

@@ -149,6 +149,7 @@ export "." (./src/index.ts)
   type ClientToolDenial
   type ClientTurnReceipt
   type ClientTurnTiming
+  type CodeChangeReceipt
   type ConfigurationCoverageRead
   type ConfiguredModule
   type ConflictVersionSelection
@@ -744,6 +745,7 @@ export "./client" (./src/client/index.ts)
   type ClientToolDenial
   type ClientTurnReceipt
   type ClientTurnTiming
+  type CodeChangeReceipt
   type CompleteShareInput
   type CompleteShareResult
   type ComputeHealthToolInput
@@ -1795,6 +1797,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientToolDenial
   type ClientTurnReceipt
   type ClientTurnTiming
+  type CodeChangeReceipt
   type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConsumerServerMessage
@@ -2636,6 +2639,7 @@ export "./server" (./src/server/index.ts)
   type CoastlineConfig
   type CoastlineRequest
   type CoastlineResult
+  type CodeChangeReceipt
   type CompiledConfirmPattern
   type CompleteShareInput
   type CompleteShareResult
@@ -7526,6 +7530,29 @@ signatures (every public export and the types it is made of)
   CoastlineConfig (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CoastlineRequest (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CoastlineResult (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  CodeChangeReceipt (packages/ui-sdk/src/turn-journal.ts)
+    export interface CodeChangeReceipt {
+        checkout: string;
+        state: "recording" | "complete" | "partial";
+        head_before: {
+            commit: string;
+            ref: string | null;
+        };
+        head_after: {
+            commit: string;
+            ref: string | null;
+        };
+        tree_before: string;
+        tree_after: string;
+        paths: {
+            path: string;
+            kind: "added" | "deleted" | "modified";
+            untracked: boolean;
+        }[];
+        bytes: number;
+        untracked: number;
+        ignore_changed: boolean;
+    }
   CompiledConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
     export type CompiledConfirmPattern = RegExp & {
         readonly effect?: string;
@@ -15022,6 +15049,7 @@ signatures (every public export and the types it is made of)
     }
   TurnJournalDetails (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalDetails {
+        codeChanges?: CodeChangeReceipt[];
         turnId: string;
         sessionId: string;
         summary: TurnJournalSummary;

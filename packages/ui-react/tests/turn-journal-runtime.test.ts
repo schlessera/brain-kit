@@ -536,3 +536,33 @@ for (const [width, theme] of journalRuntimeCells) test(`persisted external memor
     expect(outside).toEqual([]);
   } finally { await context.close(); }
 });
+
+test("code changes stay in turn history and require owner confirmation; later changes show both endpoints", async () => {
+  const { context, page, outside } = await scene(320, "dark");
+  const before = "a".repeat(40), after = "b".repeat(40), current = "c".repeat(40);
+  let effects = 0;
+  try {
+    await page.route(`**/api/sessions/ithaca/turns/${turnId}/journal`, route => route.fulfill({ json: {
+      ...app.wsHost.journal!.details("ithaca", turnId), codeChanges: [{ checkout: "workspaces/argo", state: "complete", head_before: { commit: before, ref: "refs/heads/main" }, head_after: { commit: after, ref: "refs/heads/main" }, tree_before: before, tree_after: after,
+        paths: [{ path: "chart.md", kind: "modified", untracked: false }, { path: "raft.md", kind: "added", untracked: true }], bytes: 32, untracked: 1, ignore_changed: true }],
+    } }));
+    await page.route("**/journal/code/preview?checkout=*", route => route.fulfill({ json: { inline: true, diff: "--- a/chart.md\n+++ b/chart.md\n@@ -1 +1 @@\n-Ithaca\n+Scheria\n" } }));
+    await page.route("**/journal/code/revert", route => {
+      effects++;
+      return route.fulfill({ json: { id: route.request().postDataJSON().id, status: "conflict", expected: after, current: { tree_after: current, paths: [{ path: "chart.md", kind: "modified" }] } } });
+    });
+    await page.getByRole("button", { name: /changed file/ }).click();
+    await page.getByRole("heading", { name: "Code changes · workspaces/argo" }).waitFor({ state: "visible" });
+    await page.getByText("raft.md · added · untracked").waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "Review code changes", exact: true }).click();
+    await page.getByText("Scheria", { exact: false }).last().waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "Revert code changes", exact: true }).click();
+    expect(effects, "CODE_REVERT_REQUIRES_OWNER_CONFIRMATION").toBe(0);
+    await page.getByRole("button", { name: "Confirm code revert", exact: true }).click();
+    await page.getByText(`Recorded endpoint: ${after}`).waitFor({ state: "visible" });
+    await page.getByText(`Current endpoint: ${current}`).waitFor({ state: "visible" });
+    expect(effects, "CODE_REVERT_ONE_CONFIRMED_REQUEST").toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "CODE_HISTORY_320PX_NO_HORIZONTAL_OVERFLOW").toBe(true);
+    expect(outside).toEqual([]);
+  } finally { await context.close(); }
+});

@@ -42,7 +42,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   const dir = join(ARTIFACTS, "appdata"); mkdirSync(dir);
   const eventLog = new NativeEventLog(join(dir, "events.jsonl"), ARTIFACTS);
   const brain = "/brain-fixture/brain";
-  for (const path of ["notes", "node_modules/.bin", ".brain/scratch", "context/policies"]) mkdirSync(join(brain, path), { recursive: true });
+  for (const path of ["notes", "node_modules/.bin", ".brain/scratch", "context/policies", ...(OBSERVATION_TIMING ? ["workspaces"] : [])]) mkdirSync(join(brain, path), { recursive: true });
   for (const path of ["home", "agent", "pi"]) mkdirSync(join(dir, path));
   writeFileSync(join(dir, "agent/settings.json"), "{}");
   writeFileSync(join(brain, ".gitignore"), "node_modules/\n.brain/\n");
