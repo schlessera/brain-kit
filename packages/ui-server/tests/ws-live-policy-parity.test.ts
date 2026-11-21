@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 /** #3071: real socket admission, backend application policy and parent effects.
  * Speech and worker inference are scripted; application/permission/index paths
  * execute production code against an isolated fictional corpus. */
@@ -23,7 +24,7 @@ import { testPrincipal } from "./helpers/principal.js";
 const { createFixtureHostBoundary } = installNativeHostFixtures();
 
 async function until(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + watchdogMs(5000);
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error("Expected host policy milestone was not reached");
     await new Promise(resolve => setTimeout(resolve, 5));

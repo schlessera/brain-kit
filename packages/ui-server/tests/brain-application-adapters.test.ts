@@ -57,7 +57,7 @@ async function adapter(kind: "claude" | "pi", voice = false) {
     // Keep the real request, worker and publication boundary unchanged.
     // Only this fixture's planner stdin/results enter diagnostics, never its
     // execution environment or credentials. Successful assertions stay quiet.
-    const request = { purpose: execution.purpose, stdin: execution.stdin, timeoutMs: execution.timeoutMs,
+    const request = { purpose: execution.purpose, stdin: execution.stdin, timeoutMs: /* native-product-timing: The adapter must forward the product-provided execution budget unchanged. */ execution.timeoutMs,
       gate: execution.gate };
     try {
       const result = await run(execution);

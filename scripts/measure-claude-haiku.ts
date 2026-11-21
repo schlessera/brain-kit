@@ -1,10 +1,12 @@
+import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
+import { nativeFixtureDirectory, nativeScriptedService, nativeScriptedQuery } from "./test-native-guard";
 // #1238: actual bundled runtime, production model assembly, fixture inference.
 // Run inside a network namespace with only loopback. No real credentials.
 import assert from "node:assert/strict";
 import { createMeasurementWorkerFixture } from "./measurement-worker-fixture.js";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { SDKMessage, query as QueryFunction } from "@anthropic-ai/claude-agent-sdk";
 import { createClaudeBackend } from "../packages/ui-backend-claude/src/backend";
@@ -17,14 +19,14 @@ const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta
 const { query } = await import(entry) as { query: typeof QueryFunction };
 const sdk = JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8"));
 const manifest = JSON.parse(readFileSync(join(dirname(entry), "manifest.json"), "utf8"));
-const root = mkdtempSync(join(tmpdir(), "haiku-native-"));
+const root = nativeFixtureDirectory("haiku-native-");
 const brainPath = join(root, "brain");
 mkdirSync(brainPath);
 const env = { ...CLEARED_API_CREDENTIALS, HOME: root, PATH: process.env.PATH ?? "/usr/bin:/bin",
   CLAUDE_CONFIG_DIR: join(root, "config"), CLAUDE_CODE_OAUTH_TOKEN: "",
   ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
 const controller = new AbortController();
-const deadline = setTimeout(() => controller.abort(), 25_000);
+const deadline = setTimeout(() => controller.abort(), watchdogMs(25_000));
 const requests: Array<Record<string, unknown>> = [];
 const otherRequests: Array<{ path: string; method: string }> = [];
 let server: ReturnType<typeof Bun.serve> | undefined;
@@ -66,6 +68,7 @@ try {
       ];
       return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     } });
+    nativeScriptedService(server.url.origin);
     const profiles = defineProfiles([{ id: model, model, label: "Claude Haiku 5.5", apiKeyEnv: "OFFLINE_FIXTURE_KEY" }]);
     profiles[0]!.requiredEnvKeys = [];
     profiles[0]!.buildEnv = () => ({ ...env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${server!.port}` });
@@ -85,7 +88,7 @@ try {
     }
     const frames: Array<{ type: string; outcome?: string; message?: string }> = [];
     worker = createMeasurementWorkerFixture(brainPath, root);
-    const backend = createClaudeBackend({ brainPath, maintenance: worker.maintenance, profiles, queryFn: observedQuery, allowedTools: [], log: () => {} });
+    const backend = createClaudeBackend({ brainPath, maintenance: worker.maintenance, profiles, queryFn: nativeScriptedQuery(observedQuery, server.url.origin), allowedTools: [], log: () => {} });
     await backend.startTurn({ ...worker.request, profileId: model, prompt: "Reply with the fictional fixture sentence.", signal: controller.signal,
       bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "deny", message: "No tools in this measurement." }) } });
     assert.equal(frames.at(-1)?.outcome, "success", JSON.stringify(frames.at(-1)));

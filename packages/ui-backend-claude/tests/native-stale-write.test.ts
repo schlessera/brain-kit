@@ -1,7 +1,9 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Real installed CLI file tools, a scripted loopback model, and fictional credentials only. */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type HookCallback, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createKeyedLock, type ServerMessage } from "@schlessera/brain-ui-sdk/server";
@@ -14,7 +16,7 @@ import { nativeModelReply as reply } from "./helpers/native-model-reply";
 
 for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mode of (toolName === "NotebookEdit" ? ["stale"] : ["stale", "cached", "fresh"]) as readonly ("stale" | "cached" | "fresh")[]) test(`real Claude ${toolName} ${mode === "fresh" ? "recovers after a fresh read" : mode === "cached" ? "does not refresh a hash from a cached unchanged read" : "refuses a byte-stale file even when its mtime was preserved"}`, async () => {
   const reread = mode !== "stale", recovered = mode === "fresh";
-  const root = mkdtempSync(join(tmpdir(), "odysseus-native-stale-")), brain = join(root, "brain"), home = join(root, "home");
+  const root = nativeFixtureDirectory("odysseus-native-stale-"), brain = join(root, "brain"), home = join(root, "home");
   mkdirSync(brain); mkdirSync(home);
   const notebook = (source: string) => JSON.stringify({ cells: [{ cell_type: "code", id: "loom", metadata: {}, source: [source], outputs: [], execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 });
   const path = join(brain, toolName === "NotebookEdit" ? "loom.ipynb" : "loom.md"), before = toolName === "NotebookEdit" ? notebook("Penelope weaves.\n") : "Penelope weaves.\n", peer = toolName === "NotebookEdit" ? notebook("Penelope sleeps.\n") : "Penelope sleeps.\n";
@@ -24,7 +26,7 @@ for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mo
     { name: toolName, input: toolName === "Write" ? { file_path: path, content: "Athena charts.\n" } : toolName === "NotebookEdit" ? { notebook_path: path, cell_id: "loom", new_source: "Athena charts.", edit_mode: "replace" } : { file_path: path, old_string: "Penelope", new_string: "Odysseus" }, id: "toolu_ithaca_write" }];
   if (reread) calls.splice(1, 0, { name: "Read", input: { file_path: path }, id: "toolu_ithaca_reread" });
   let sent = 0, reads = 0, rereadContent: string | undefined, nativeDenial = false, version: string | undefined;
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), watchdogMs(20_000));
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (new URL(request.url).pathname !== "/v1/messages") return Response.json({});
     const body = await request.json() as { tools?: { name: string }[] };
@@ -32,6 +34,7 @@ for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mo
     if (!call || !body.tools?.some(tool => tool.name === call.name)) return reply();
     sent++; return reply(call);
   } });
+  nativeScriptedService(server.url.origin);
   const frames: ServerMessage[] = [], lock = createTurnLockBinding({ turn: { ended: false, pendingReleases: new Map() }, writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {} });
   const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca.", signal: controller.signal,
     workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] }, bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }) } },

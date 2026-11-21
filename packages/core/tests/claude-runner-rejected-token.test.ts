@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /**
  * A rejected subscription token fails `brain sync`'s Claude runner; nothing
  * retries it on the API key the host also holds (#254).
@@ -56,6 +57,7 @@ function tempDir(prefix: string): string {
 
 describe("the Claude runner on a rejected token", () => {
   test("fails, and no request carries the API key", async () => {
+    nativeScriptedService(`http://127.0.0.1:${server.port}`);
     const home = tempDir("rejected-home-");
     mkdirSync(join(home, ".claude"), { recursive: true });
     delete process.env.CLAUDE_CODE_PATH;

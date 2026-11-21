@@ -1,3 +1,6 @@
+import "./measurement-entry-preload.ts";
+import type { createWorkerEffectWitness } from "./worker-effect-witness";
+import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // Re-measures the Claude Code runtime behaviours the permission design rests
 // on, against whatever SDK and CLI this workspace installs (#209,
 // docs/decisions/claude-code-runtime.md, "Re-checking a measured behaviour
@@ -142,10 +145,11 @@ export function resultText(content: unknown): string {
 /** A loopback Messages API that plays one planned tool call per turn. */
 export function scriptedModel(): {
   url: string;
-  plan(call: PlannedCall | null): ModelLog;
+  plan(call: PlannedCall | null, witness?: ReturnType<typeof createWorkerEffectWitness>): ModelLog;
   stop(): void;
 } {
   let call: PlannedCall | null = null;
+  let effects: ReturnType<typeof createWorkerEffectWitness> | undefined;
   let log: ModelLog = freshLog();
   function freshLog(): ModelLog {
     return { mainRequests: 0, callSent: false, auth: [], offered: [], deferred: [] };
@@ -155,6 +159,7 @@ export function scriptedModel(): {
     port: 0,
     async fetch(req) {
       const path = new URL(req.url).pathname;
+      if (effects && path === effects.path) return effects.fetch(req);
       if (path !== "/v1/messages") return Response.json({});
       log.auth.push({
         xApiKey: req.headers.get("x-api-key"),
@@ -175,9 +180,11 @@ export function scriptedModel(): {
       return toolReply(call);
     },
   });
+nativeScriptedService(server.url.origin);
   return {
     url: `http://127.0.0.1:${server.port}`,
-    plan(next) {
+    plan(next, witness) {
+      effects = witness;
       call = next;
       log = freshLog();
       return log;
@@ -765,7 +772,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
   // always starts after the release.
   const releasingHook = (release: string) => (record: HookRecorder): HookCallback => async (input) => {
     const call = record.start(input as PreToolUseHookInput);
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, /* native-product-timing: Controlled hook-ordering stimulus; the RELEASE witness, not elapsed time, proves ordering. */ 300));
     writeFileSync(release, "");
     call.endedAt = performance.now();
     return { continue: true };
@@ -929,11 +936,13 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
     BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
   });
   const worker = createMeasurementWorkerFixture(sc.cwd, sc.home);
+  const leaveRoute = nativeScriptedService(model.url, {fixtureRoots:[sc.cwd,sc.home]});
   try {
     const backend = createClaudeBackend({
       maintenance: worker.maintenance,
+      queryFn: nativeScriptedQuery(query, model.url),
       brainPath: sc.cwd,
-      profiles: defineProfiles([{ id: "claude", label: "Claude", source: "builtin" }]),
+      profiles: defineProfiles([{ id: "claude", label: "Claude", source: "builtin", baseUrl: model.url }]),
       log: () => {},
     });
     await backend.startTurn({
@@ -943,6 +952,7 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
       bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "deny", message: "probe" }) },
     });
   } finally {
+    leaveRoute();
     worker.cleanup();
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
     Object.assign(process.env, saved);

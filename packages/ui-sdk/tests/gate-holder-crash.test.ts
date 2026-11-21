@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,7 +47,7 @@ async function crashBeforeRelease(mode: string, token?: string, eof?: "eof"): Pr
   const server = Bun.spawn([process.execPath, SERVER, brain, mode, ...token === undefined ? [] : [JSON.stringify(token)], ...eof ? [eof] : []],
     { env: { ...process.env }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   owned.push({ pid: server.pid, start: stat(server.pid)?.[19] ?? "" });
-  const line = await readLine(server.stdout, Date.now() + 15_000).catch(async error => {
+  const line = await readLine(server.stdout, Date.now() + watchdogMs(15_000)).catch(async error => {
     server.kill("SIGKILL"); await server.exited;
     throw new Error(`${String(error)}: ${await new Response(server.stderr).text()}`);
   });
@@ -59,7 +60,7 @@ async function crashBeforeRelease(mode: string, token?: string, eof?: "eof"): Pr
   server.kill("SIGKILL");
   await server.exited;
   expect(server.signalCode, "the gate holder died by SIGKILL").toBe("SIGKILL");
-  const deadline = Date.now() + DEATH_MS;
+  const deadline = Date.now() + watchdogMs(DEATH_MS);
   while (launch.some(alive) && Date.now() < deadline) await Bun.sleep(5);
   expect(launch.filter(alive), "every process of the launch ended after the holder's death").toEqual([]);
   return { brain, launch: launch.length };

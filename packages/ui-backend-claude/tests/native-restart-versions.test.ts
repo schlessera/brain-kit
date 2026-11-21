@@ -1,7 +1,10 @@
+import { recordNativeRelayTurn } from "./helpers/native-relay-turn-diagnostic";
+import { watchdogMs } from "../../../scripts/test-deadlines";
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Actual installed native tools through the production runner; only the worker transport is replaced. */
 import { expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { createWorkerFileObserver, workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
@@ -12,16 +15,17 @@ import { MEASURED_RUNTIME } from "../src/measured-runtime";
 import { nativeModelReply } from "./helpers/native-model-reply";
 
 for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted Claude runner restores native observations before actual ${tool}`, async () => {
-  const root = mkdtempSync(join(tmpdir(), "odysseus-claude-restart-")), brain = join(root, "brain"), home = join(root, "home");
+  const root = nativeFixtureDirectory("odysseus-claude-restart-"), brain = join(root, "brain"), home = join(root, "home");
   mkdirSync(brain); mkdirSync(home);
   const notebook = (source: string) => JSON.stringify({ cells: [{ cell_type: "code", id: "loom", metadata: {}, source: [source], outputs: [], execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 });
   const path = join(brain, tool === "NotebookEdit" ? "loom.ipynb" : "loom.md"), peer = tool === "NotebookEdit" ? notebook("Penelope sleeps.\n") : "Penelope sleeps.\n";
   writeFileSync(path, tool === "NotebookEdit" ? notebook("Penelope weaves.\n") : "Penelope weaves.\n");
   utimesSync(path, new Date("2026-07-12T00:00:00Z"), new Date("2026-07-12T00:00:00Z"));
   const stamp = statSync(path);
-  let mode = "read", sent = 0, runtime: string | undefined, environmentCalls = 0, turns = 0;
+  let mode = "read", sent = 0, runtime: string | undefined, environmentCalls = 0, turns = 0, requests = 0;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (new URL(request.url).pathname !== "/v1/messages") return Response.json({});
+    requests++;
     const body = await request.json() as { tools?: { name: string }[] };
     const name = mode === "read" || (mode === "recover" && sent === 0) ? "Read" : tool;
     if (sent >= (mode === "recover" ? 2 : 1) || !body.tools?.some(item => item.name === name)) return nativeModelReply();
@@ -31,6 +35,7 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
       : { notebook_path: path, cell_id: "loom", new_source: "Athena charts.", edit_mode: "replace" };
     return nativeModelReply({ name, input, id: name === "Read" ? "toolu_ithaca_read" : "toolu_ithaca_native" });
   } });
+  nativeScriptedService(server.url.origin);
   const env = { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), PATH: process.env.PATH ?? "/usr/bin:/bin",
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "odysseus-offline-only-key", ANTHROPIC_AUTH_TOKEN: undefined,
     CLAUDE_CODE_OAUTH_TOKEN: undefined, CLAUDE_CODE_USE_BEDROCK: "", CLAUDE_CODE_USE_VERTEX: "", CLAUDE_CODE_USE_FOUNDRY: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
@@ -53,7 +58,8 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
   let backend = makeBackend(), sessionId: string | undefined;
   async function turn(next: string) {
     mode = next; sent = 0; turns++;
-    const frames: ServerMessage[] = [], controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
+    const turnStarted=performance.now(),requestStart=requests;
+    const frames: ServerMessage[] = [], controller = new AbortController(), timer = setTimeout(() => controller.abort(), watchdogMs(20_000));
     try {
       await backend.startTurn({ sessionId, prompt: next, signal: controller.signal,
         workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
@@ -64,7 +70,12 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
       expect(sent, "ACTUAL_NATIVE_OPERATION_REQUESTED").toBe(next === "recover" ? 2 : 1);
       expect(frames.some(frame => frame.type === "result" && frame.outcome === "success")).toBe(true);
       return frames;
-    } finally { clearTimeout(timer); controller.abort(); }
+    } finally {
+      const terminal=frames.slice().reverse().find(frame=>frame.type==="result"||frame.type==="error");
+      recordNativeRelayTurn({elapsedMs:performance.now()-turnStarted,aborted:controller.signal.aborted,requestDelta:requests-requestStart,refreshDelta:0,
+        outcome:terminal?.type==="result"?terminal.outcome:undefined,errorClass:terminal?.type==="result"?terminal.failure?.errorClass:terminal?.type==="error"?terminal.failure?.errorClass:undefined});
+      clearTimeout(timer); controller.abort();
+    }
   }
   try {
     await turn("read"); expect(sessionId).toBeDefined();

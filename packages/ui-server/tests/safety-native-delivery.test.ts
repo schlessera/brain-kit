@@ -1,3 +1,6 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
+import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /** Installed Claude file tools against a scripted loopback model and the real host ledger. */
 import {expect,test} from "bun:test";
 import {request as httpRequest} from "node:http";
@@ -5,9 +8,8 @@ import {startInferenceRelay,ANTHROPIC_INFERENCE_ROUTES} from "@schlessera/brain-
 import {resolveGovernancePolicy} from "@schlessera/brain-common/internal/governance-policy";
 import {prepareTurnEgress} from "../src/brain/turn-egress";
 import {query} from "@anthropic-ai/claude-agent-sdk";
-import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from "node:fs";
+import {mkdirSync,rmSync,writeFileSync} from "node:fs";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
 import {createUiDb} from "../src/db/client";
 import {openSqliteWriter} from "../src/db/write-worker";
 import * as probe from "./fixtures/write-worker-probe";
@@ -19,13 +21,13 @@ import {MEASURED_RUNTIME} from "../../ui-backend-claude/src/measured-runtime";
 import {nativeModelReply} from "../../ui-backend-claude/tests/helpers/native-model-reply";
 
 for(const mode of ["complete","writer-loss"] as const)test(`installed Claude ${mode} preserves the recorder delivery boundary`,async()=>{
- const root=mkdtempSync(join(tmpdir(),"odysseus-safety-native-")),brain=join(root,"brain"),home=join(root,"home");
+ const root=nativeFixtureDirectory("odysseus-safety-native-"),brain=join(root,"brain"),home=join(root,"home");
  mkdirSync(join(brain,"workspaces","voyage"),{recursive:true});mkdirSync(home);
  const path=join(brain,"workspaces","voyage","raft.md");writeFileSync(path,"Odysseus repairs the raft.\n");
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer),controller=new AbortController();
  const bindingId=crypto.randomUUID();let version:string|undefined,requests=0,postReached=false,finalizedBeforeProvider=false;
  const trace:string[]=[];
- const timer=setTimeout(()=>controller.abort(),20000);
+ const timer=setTimeout(()=>controller.abort(),watchdogMs(20000));
  const origin=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
   if(new URL(request.url).pathname!=="/v1/messages")return Response.json({});
   const body=JSON.stringify(await request.json());requests++;trace.push(`provider-${requests}:${body.includes("Odysseus repairs the raft")}`);
@@ -62,6 +64,7 @@ for(const mode of ["complete","writer-loss"] as const)test(`installed Claude ${m
    const response=await post(...args);await slow;trace.push(`post-response:${JSON.stringify(response)}`);return response;
   }];
   let failure:unknown;
+  nativeScriptedService(ingress.url.origin);
   try{for await(const message of query({prompt:"Read the raft plan.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:["Read"],...wiring,abortController:controller,
    env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),PATH:process.env.PATH??"/usr/bin:/bin",ANTHROPIC_BASE_URL:ingress.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
     if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;

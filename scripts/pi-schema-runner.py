@@ -118,6 +118,7 @@ def launch(out, form, bun, offline, mutation=None, expected_account=None, replay
     command.extend(["--proc","/proc","--dev","/dev","--tmpfs","/tmp","--ro-bind",str(ROOT),"/workspace","--ro-bind",str(bun.parent),"/runtime","--bind",str(run),"/fixture-run","--bind",str(out/"billing"),"/billing","--chdir","/fixture-run/brain","/runtime/bun"])
     if offline: command.extend(["--preload","/workspace/scripts/pi-schema-offline-preload.ts"])
     command.extend(["--preload","/workspace/scripts/pi-schema-preload.ts","/workspace/scripts/measure-pi-schema.ts","--brain","/fixture-run/brain","--out","/fixture-run/result.json"])
+    if not offline: command.append("--allow-real-provider")
     started=time.monotonic()
     with (run/"stdout.log").open("wb") as stdout, (run/"stderr.log").open("wb") as stderr:
         process_receipt=wait_owned_process(command,env,stdout,stderr)

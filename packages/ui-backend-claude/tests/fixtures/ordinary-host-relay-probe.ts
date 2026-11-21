@@ -1,3 +1,7 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.ts";
+import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
+import "../../../../scripts/test-network-child-preload.ts";
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Actual ordinary Claude spawn/state path; copied storage fixture, not Btrfs qualification. */
 import { query, type AccountInfo } from "@anthropic-ai/claude-agent-sdk";
 import { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, acquireHostCredentialExclusion, startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
@@ -7,14 +11,13 @@ import { createWorkerSpawn } from "../../src/worker-spawn.js";
 import { createStateLedger } from "../../src/worker-state-budget.js";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import type { LaunchedWorker, WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 
 const profile = process.argv[2] === "strict" ? "strict" : "governed";
 const ledger = createStateLedger();
-const root = mkdtempSync(join(tmpdir(), "odysseus-native-host-relay-"));
+const root = nativeFixtureDirectory("odysseus-native-host-relay-");
 const host = join(root, "host"), worker = join(root, "worker"), brain = join(worker, "brain"), directory = join(root, "lock");
 for (const path of [host, worker, brain, directory]) mkdirSync(path, { mode: 0o700 });
 const access = ["odysseus-host-first", "odysseus-host-changed", "odysseus-host-refreshed"];
@@ -64,6 +67,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
     apiKey: request.headers.get("x-api-key"), model: body.model, priorMessages: body.messages.length });
   return nativeModelReply();
 } });
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, worker, directory] });
 const originalFetch = globalThis.fetch;
 // Only the host's lowest fetch method is replaced. The native CLI makes real
 // HTTP requests over the real Unix socket. Both upstream exchanges reach a
@@ -110,7 +114,7 @@ function files(path: string): string {
 async function bounded<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), 5000);
+    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), watchdogMs(5000));
   })]); } finally { clearTimeout(timer); }
 }
 let session: string | undefined, hostAfterRefresh = false;
@@ -122,7 +126,7 @@ try {
     if (turn === 3) { save(access[1]!, 1); holdRefresh = true; }
     const before = readFileSync(join(host, ".credentials.json"));
     const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), 20_000);
+    const timer = setTimeout(() => abort.abort(), watchdogMs(20_000));
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
     let live: LaunchedWorker | undefined;
@@ -173,7 +177,7 @@ try {
       try { await bounded(refreshEnded); }
       catch { closeRefresh?.(); } // The parent requires refreshCancelled=true.
       cancellationRetainedHostBytes = readFileSync(join(host, ".credentials.json")).equals(before);
-      const lock = await acquireHostCredentialExclusion({ domain: { directory }, timeoutMs: 1000 });
+      const lock = await acquireHostCredentialExclusion({ domain: { directory }, timeoutMs: watchdogMs(1000) });
       lock.release(); cancellationReleasedLock = true;
     }
   }

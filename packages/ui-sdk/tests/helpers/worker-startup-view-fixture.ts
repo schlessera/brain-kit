@@ -1,3 +1,4 @@
+import {nativeFixtureDirectory, registerNativeFixtureKeeper} from "../../../../scripts/test-native-guard.ts";
 /** Immutable configuration execution inputs. No git, imports, links followed or shared inodes. */
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
   readlinkSync, readSync, rmdirSync, unlinkSync, symlinkSync, writeSync, chmodSync, fchmodSync, ftruncateSync, futimesSync, utimesSync, writeFileSync } from "node:fs";
@@ -77,7 +78,7 @@ os.rmdir(sys.argv[1])
 function createStartupInputStorage(): WorkerStartupStorage {
   const python = Bun.which("python3");
   if (!python) throw new Error("python3 is required for immutable startup input crash cleanup");
-  const root = mkdtempSync("/tmp/brain-startup-input-");
+  const root = nativeFixtureDirectory("brain-startup-input-");
   let keeper: ReturnType<typeof Bun.spawn<"pipe", "ignore", "ignore">>;
   try { keeper = Bun.spawn([python, "-I", "-S", "-c", INPUT_CLEANUP, root], { env: {}, stdin: "pipe", stdout: "ignore", stderr: "ignore" }); }
   catch (error) { removePrivateView(root); throw error; }
@@ -210,7 +211,9 @@ export function prepareFixtureWorkerOutput(brain: string, options: Parameters<ty
   const view = options.startupView ?? createFixtureWorkerStartupView(brain);
   try {
     const output = prepareWorkerOutput(brain, { ...options, startupView: view });
-    return { ...output, cleanup() { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } } };
+    let unregister: () => void;
+    try { unregister=registerNativeFixtureKeeper(output.output.storage!); } catch(error) { output.cleanup(); throw error; }
+    return { ...output, cleanup() { try { output.cleanup(); } finally { try { unregister(); } finally { if (!options.startupView) view.cleanup(); } } } };
   } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
 }
 
@@ -221,11 +224,13 @@ export async function prepareFixtureNativeWorkerOutput(brain: string, options: {
   let publication: ReturnType<typeof prepareWorkerOutput>;
   try { publication = prepareWorkerOutput(brain, { startupView: view, areas: options.areas }); }
   catch (error) { await view.cleanup(); throw error; }
+  let unregister: () => void;
+  try { unregister=registerNativeFixtureKeeper(publication.output.storage!); } catch(error) { try { await publication.cleanup(); } finally { await view.cleanup(); } throw error; }
   let cleanup: Promise<void> | undefined;
   return { view, output: publication.output,
     async publish() { publication.publish(); },
     async publishLocked(lock) { await publication.publishLocked(lock); },
-    cleanup() { return cleanup ??= (async () => { try { await publication.cleanup(); } finally { await view.cleanup(); } })(); },
+    cleanup() { return cleanup ??= (async () => { try { await publication.cleanup(); } finally { try { unregister(); } finally { await view.cleanup(); } } })(); },
   };
 }
 

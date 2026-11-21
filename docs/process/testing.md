@@ -694,6 +694,7 @@ pair with reason `other` through `scripts/ci-timings.ts record`
 | Variable | Meaning |
 | --- | --- |
 | `BRAIN_HOST_ADMISSION_LIMIT` | Concurrent heavy commands admitted on this host. Defaults to one per four CPUs, at least 1; anything but a positive integer is refused. |
+| `BRAIN_NATIVE_RECEIPT` | Internal descriptor and device/inode identity for guard-owned test receipts. The preload consumes it; native payloads and protocol-only worker bootstraps do not inherit it. |
 | `BRAIN_TEST_RESOURCE_ROOT` | Internal, one-generation launcher/preload handoff for process-lifetime test storage. The preload consumes and removes it before tests run; the launcher deletes the tree after the child group drains. |
 | `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test launcher (or standalone preload) gives each invocation a private ledger, which its descendants also find through their ancestry; a test exercising the host ledger names its own. |
 | `BRAIN_WORKER_ID`, `BRAIN_ORCHESTRATOR_ID` | Opaque worker and orchestrator IDs recorded with each slot. Without them a worker is `host-<pid>` and has no orchestrator; it still gets the admission limit. |
@@ -1116,3 +1117,145 @@ The dedicated backend drives the real host bridge; it does not call an image
 provider. The ordinary native SDK fixture remains unchanged.
 All selected phase deadlines, final joins, diagnostics and owned cleanup remain
 required. This partial composition does not replace complete PR proof.
+
+## Native Claude test isolation
+
+The test preload admits installed native Claude only on disposable hosted
+runners with working Linux namespaces. An unqualified launch fails before
+process creation with a `native-offline-boundary` receipt; it is never a skip.
+Runtime provenance uses resolved installed SDK/runtime paths and a size-filtered
+content hash to recognize renamed copies; harmless fixture scripts named
+`claude` remain ordinary test programs. This includes SDK `node:child_process`
+launches (which use Bun's subprocess transport) and the existing worker bootstrap's exec payload.
+
+Direct SDK children get an empty root filesystem, explicit system/runtime and
+fixture mounts, fresh PID and network namespaces, and one Unix socket bridged
+to the exact scripted loopback service. They receive synthetic credentials or
+registered relay placeholders.
+Host account databases, managed settings, homes and credential storage are not
+mounted. The boundary traces native and descendant socket syscalls with
+raw arguments and `execve` with zero-length argument strings. The private trace
+contains executable paths but no decoded connect addresses or payloads. A
+successful native exec record is required: an empty or missing trace produces
+a failed receipt with `nativeLaunched: false`. The emitted `native-offline-audit`
+receipt contains only the exact head, launch evidence and aggregate denied-socket counts.
+Guard records use a private append-only receipt file and inherited descriptor,
+flushed by the owning test process to its own stderr. They never enter the
+payload's piped stderr. Protocol-only worker bootstraps and native payloads
+receive no receipt descriptor or locator.
+A missing namespace launcher or tracing capability refuses before launch.
+Managed settings supplied by a hostile fixture are synthetic. Workers receive
+a private network namespace and retain their concrete fixture mounts, while
+losing the broad read-only host root. An unavailable isolated view refuses.
+Restricted fixture code declares its scripted origin with
+`nativeScriptedService`. The guard creates Unix servers under that authority
+and pins all handler fetch/TCP/Unix transports to it. Socket ownership alone
+is never admission: a pre-existing, unregistered relay refuses. Admission follows
+the live guard-created socket inode across hard-link aliases and is revoked
+when that server stops. SDK runtime
+discovery includes every workspace owner and refuses unresolved declared SDKs.
+SDK fixture adapters pin the existing spawn callback
+to their declared service. Standalone native fixture entries load the preload,
+and outer namespaces preserve qualification metadata across `clearenv`.
+For the existing separate-UID identity supervisor, the guard transforms its
+concrete nested launcher. Tracing starts after the UID handoff and stays outside
+an inner native mount/PID view that hides the audit storage. Offline proof
+containers inherit hosted-runner qualification only from an actual hosted run,
+plus the exact checkout head for receipts when Git metadata is not mounted.
+Worker environments retain only known runtime paths/selectors and pinned
+synthetic inference credentials; unrelated keys and loader overrides are removed.
+Fixture tool directories on PATH are mounted read-only only from public fixture
+sources or the private temporary storage containing the declared HOME/cwd.
+Common ancestors and unrelated directories are never exposed; witnesses belong
+inside an existing writable fixture HOME/cwd mount. `USE_BUILTIN_RIPGREP` and
+`ENABLE_TOOL_SEARCH` retain their test-selected behavior.
+The Unix inference transport deliberately has native tunnel authentication
+semantics: when both synthetic key and OAuth variables are present, it selects
+OAuth. Its measurement is labelled accordingly and does not prove ordinary TCP
+credential precedence.
+No production authentication or managed-policy behavior changes.
+
+Measurement commands share synchronous entry admission before runtime imports.
+Offline commands install the test guard; documented live commands require
+`BRAIN_LIVE_EVAL=587` or `--allow-real-provider`, print a real-provider/cost
+warning, and leave authorized provider access intact. Pure pricing and counting
+libraries do not install process-wide guards.
+
+Native descendants inherit a Linux seccomp user-notification policy. It
+emulates connections only to the pinned guard-owned relay inode; it never
+continues an untrusted connect syscall. A socket created later in any live
+fixture bind cannot become an allowed destination. Addressed messages,
+alternate syscall ABIs, io_uring and attempts to replace the policy are denied.
+The broker remains non-dumpable, its listener is absent from the native child,
+and native processes cannot duplicate or inspect its control descriptors.
+Hosted qualification must pass the real kernel-policy self-test before any
+installed runtime launches; missing compiler or kernel support emits a failed
+receipt. Fixture namespaces that hide compiler inputs compile once in their
+outer process, then bind the artifact read-only after all covering mounts and
+pass its digest to the inner guard. Relay fixture views create the mount target
+inside their own `/tmp` tmpfs, after covering mounts; real bubblewrap tests run
+all discovered launcher shapes with `/usr/bin/true`. The inner guard verifies regular-file type,
+non-writability and SHA-256 before using it; an absent or changed artifact
+refuses instead of falling back. Unit shards and determinism use the same
+fixture preparation as runtime proof. Local plan tests compile the helper but
+mock that hosted probe.
+
+Separate-UID trace storage stays guard-owned with an ACL granting only the
+verified worker UID write access. Receipt reads validate ownership, inode,
+mode and ACL integrity. The hostile-settings proof always registers and fails
+explicitly when isolation is unavailable.
+
+`tests/native-offline-boundary.test.ts` proves local refusal with harmless
+synthetic executables. Hosted proof additionally exercises hostile managed
+settings, an outside-HOME sentinel credential, helper descendants, denied TCP,
+and the one permitted scripted service; the child silently swallows denied
+connections, so the audit count comes from the boundary rather than child output.
+The SDK fixture inventory discovers non-type references to `query` and
+`prewarm`, plus explicit Claude backend construction, including aliases,
+dynamic imports and APIs passed as values. Provider injection is classified
+per constructor call. Registry-selected backends and direct binary spawns
+without those source references are outside this syntax inventory; runtime
+admission still covers installed native executables independently of it.
+Worker plans restoring the canonical resolver file read-only receive a
+synthetic loopback resolver in guard-owned storage. The guard validates the
+regular-file source but reads no host DNS bytes, admits no containing service
+directory and provides no DNS route. An unrelated file or writable resolver
+bind still refuses.
+The baseline retention fixture keeps its tool wrapper and runtime-rg alias
+together in a read-only tool directory and its invocation witness in HOME.
+Run installed-native backend and
+provider-history cells only in hosted CI; a temporary HOME and SDK options
+alone do not establish isolation.
+
+The native test boundary binds only these distribution directories read-only:
+`/usr`, `/bin`, `/sbin`, `/lib`, `/lib32`, `/lib64`, `/libx32` (when present).
+Its distribution metadata is limited to `/etc/ld.so.cache`, `/etc/localtime`
+and `/etc/os-release`. These fixed distribution mounts are exempt from recursive
+socket discovery; they are not host-writable service storage. Writable mounts
+of distribution sources are refused. `/etc/alternatives` is omitted from the
+test worker view rather than walking aliases back into the distribution tree.
+Every non-system bind keeps the socket walk and refuses missing (`ENOENT`)
+or inaccessible (`EACCES`) entries. The lifetime socket broker remains active
+for every mount, including the distribution view.
+
+The bind inventory refuses the host roots `/run`, `/var/run`, `/tmp`, `/dev`,
+`/dev/shm`, `/home`, `/var/lib`, `/etc`, `/var` and `/` as either bind source or
+destination. Private `--tmpfs` and `--dev` mounts are newly created views;
+fixture subdirectories are separate non-system sources, never broad host-root
+binds. Any needed service-storage data must be copied into a fixture first.
+
+Scripted-service fixtures explicitly declare their created data roots and any
+additional regular-file inputs. Additional file inputs are captured as bytes
+and copied into guard-owned read-only staging; inherited unlisted read binds
+refuse. The copied startup/output fixture creates its staging roots through
+the guard, which records their identities. An existing host directory cannot
+be marked by that creation helper. Symlinks in fixture data cannot authorize
+outside files. Native workers omit inherited resolver/certificate views because
+their only provider transport is the pinned Unix relay.
+
+Worker admission resolves the executable in `argv[0]` with the child's cwd and
+PATH, validates the actual first-party launcher prefixes, and requires its
+payload tail to agree with the recorded command. Missing or inconsistent
+metadata emits a failed receipt. Offline collector credentials are created and
+marked by the fixture helper, and the collector registers its scripted origin
+at the existing SDK spawn hook; unmarked ambient credentials gain no authority.

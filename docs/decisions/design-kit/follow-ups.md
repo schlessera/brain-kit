@@ -166,13 +166,13 @@ bun scripts/measure-show-block.ts --suggestions --schema-cost
 bun run test tests/measure-suggestions.test.ts
 
 # SDK level: 6 prompts x 2 arms x 3 repetitions = 36 turns.
-bun scripts/measure-show-block.ts --suggestions --reps 3 --out sdk.json --md sdk.md
-bun scripts/measure-show-block.ts --suggestions --tokens
+bun scripts/measure-show-block.ts --allow-real-provider --suggestions --reps 3 --out sdk.json --md sdk.md
+bun scripts/measure-show-block.ts --allow-real-provider --suggestions --tokens
 
 # Server level: 36 turns per backend, each against a separate fixture copy.
 # Copies live outside any checkout and home directory and are indexed first.
-bun scripts/measure-show-block-server.ts --suggestions --brain <claude-fixture-copy> --backend claude --model claude-sonnet-5-5 --runs 3 --out claude.json
-bun scripts/measure-show-block-server.ts --suggestions --brain <pi-fixture-copy> --backend pi --vendor anthropic --model claude-sonnet-5-5 --runs 3 --out pi.json
+bun scripts/measure-show-block-server.ts --allow-real-provider --suggestions --brain <claude-fixture-copy> --backend claude --model claude-sonnet-5-5 --runs 3 --out claude.json
+bun scripts/measure-show-block-server.ts --allow-real-provider --suggestions --brain <pi-fixture-copy> --backend pi --vendor anthropic --model claude-sonnet-5-5 --runs 3 --out pi.json
 bun scripts/measure-show-block-server.ts --report claude.json
 bun scripts/measure-show-block-server.ts --report pi.json
 ```

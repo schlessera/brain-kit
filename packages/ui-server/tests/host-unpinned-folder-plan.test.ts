@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync, existsSync, rmSync, lstatSync } from "node:fs";
 import { join } from "node:path";
@@ -25,11 +26,11 @@ for (const renamed of ["group/private", "group"] as const) test(`an existing fol
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
   let old: Awaited<ReturnType<typeof fallback.launch>> | undefined, oldOutput: Promise<string[]> | undefined, refusal: unknown;
   let admitted: Awaited<ReturnType<typeof turns.begin>> | undefined, next: ReturnType<typeof launchAgentWorker> | undefined, nextOutput: Promise<string[]> | undefined;
-  const ready = async (path: string) => { const deadline = Date.now() + 5000; while (!existsSync(join(brain, path))) { if (Date.now() >= deadline) throw Error(`readiness timeout ${path}`); await Bun.sleep(5); } };
+  const ready = async (path: string) => { const deadline = Date.now() + watchdogMs(5000); while (!existsSync(join(brain, path))) { if (Date.now() >= deadline) throw Error(`readiness timeout ${path}`); await Bun.sleep(5); } };
   try {
     expect(fallback.isolated()).toBe(false);
     try {
-      old = await fallback.launch({ argv: ["/bin/sh", "-c", `printf ready > old-ready.md; i=0; while ! test -f old-go.md; do i=$((i+1)); test $i -gt 1500 && exit 47; sleep 0.01; done; mv ${renamed} ${renamed}-retired || exit 44; mkdir -p group/private || exit 45; printf Athena > group/private/born.md`], env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "shared", purpose: "old host maintenance", timeoutMs: 15000 });
+      old = await fallback.launch({ argv: ["/bin/sh", "-c", `printf ready > old-ready.md; i=0; while ! test -f old-go.md; do i=$((i+1)); test $i -gt 1500 && exit 47; sleep 0.01; done; mv ${renamed} ${renamed}-retired || exit 44; mkdir -p group/private || exit 45; printf Athena > group/private/born.md`], env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "shared", purpose: "old host maintenance", timeoutMs: watchdogMs(15000) });
       oldOutput = Promise.all([new Response(old.stdout).text(), new Response(old.stderr).text()]); await ready("old-ready.md");
     } catch (error) { refusal = error; }
     expect(refusal, "EXISTING_FOLDER_POLICY_REFUSES_HOST_PLAN").toBeInstanceOf(HostFallbackRefusedError);

@@ -1,3 +1,6 @@
+import "../../../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../../../scripts/test-deadlines";
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Keyless selected-runtime assembly receipt; caller denies all external network. */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -21,6 +24,7 @@ const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   ];
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
+nativeScriptedService(upstream.url.origin, { fixtureRoots: [scratch] });
 try {
   for (let index = 0; index < 4; index++) {
     const brainPath = join(scratch, `ithaca-${index}`);
@@ -45,7 +49,7 @@ try {
       abortController, allowedTools, confirmPatterns: [],
       turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
     });
-    const timer = setTimeout(() => abortController.abort(), 45_000);
+    const timer = setTimeout(() => abortController.abort(), watchdogMs(45_000));
     try {
       let success = false;
       for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

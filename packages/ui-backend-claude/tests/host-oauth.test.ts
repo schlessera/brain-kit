@@ -1,7 +1,8 @@
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
-import { chmodSync, existsSync, linkSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, linkSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import * as crypto from "node:crypto";
@@ -20,14 +21,16 @@ const refresh = "odysseus-fictional-refresh";
 const fresh = () => ({ accessToken: secret, refreshToken: refresh, expiresAt: Date.now() + 3_600_000,
   scopes: ["user:inference", "user:profile"], subscriptionType: "max", rateLimitTier: "default_claude_max_5x", clientId: "odysseus-client" });
 function fixture(auth: Record<string, unknown> = fresh()) {
-  const root = mkdtempSync(join(tmpdir(), "odysseus-host-oauth-")); roots.push(root);
-  const directory = mkdtempSync(join(tmpdir(), "odysseus-host-auth-domain-")); roots.push(directory); domains.set(root, { directory });
+  const root = nativeFixtureDirectory("odysseus-host-oauth-"); roots.push(root);
+  const directory = nativeFixtureDirectory("odysseus-host-auth-domain-"); roots.push(directory); domains.set(root, { directory });
   const path = join(root, ".credentials.json");
   writeFileSync(path, JSON.stringify({ unrelated: { retained: true }, claudeAiOauth: auth }), { mode: 0o600 });
   return { root, path };
 }
 function upstream(handler: (request: Request) => Response | Promise<Response>) {
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler }); servers.push(server);
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler });
+  nativeScriptedService(server.url.origin);
+  servers.push(server);
   // Lowest shared request method rewrites only the measured fixed authority.
   // The actual HTTP request and response stream still use the guarded loopback network.
   const replacement = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {

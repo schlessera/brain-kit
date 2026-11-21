@@ -1,4 +1,6 @@
-import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
+import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /**
  * With `CLAUDE_CODE_PATH` unset, a turn runs the Agent SDK's built-in Claude
  * Code binary (#213, docs/decisions/claude-code-runtime.md, "The decision").
@@ -13,8 +15,7 @@ import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worke
  * real against a loopback server with bogus credentials only.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendActivityEvent, BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
@@ -69,13 +70,14 @@ afterEach(() => {
 });
 
 function tempDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = nativeFixtureDirectory(prefix);
   scratch.push(dir);
   return dir;
 }
 
 /** The environment a host would give the server, with every credential bogus. */
 function arrangeHost(extra: Record<string, string> = {}): string {
+  nativeScriptedService(server.url.origin);
   const home = tempDir("bundled-home-");
   mkdirSync(join(home, ".claude"), { recursive: true });
   const brainPath = tempDir("bundled-brain-");
@@ -92,7 +94,7 @@ function arrangeHost(extra: Record<string, string> = {}): string {
     ANTHROPIC_API_KEY: API_KEY,
     ANTHROPIC_AUTH_TOKEN: AUTH_TOKEN,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-    BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,ANTHROPIC_BASE_URL",
     ...extra,
   });
   return brainPath;
@@ -110,7 +112,7 @@ async function productionTurn(brainPath: string): Promise<BackendActivityEvent[]
     activity: (event) => activity.push(event),
   };
   const workerStartupView = createFixtureWorkerStartupView(brainPath);
-  try { await backend.startTurn({ workerStartupView, prompt: "Reply with the single word ok.", signal: new AbortController().signal, bridge }); }
+  try { await backend.startTurn({ workerStartupView, workerSandbox: prepareFixtureWorkerSandbox(brainPath, { home: process.env.HOME, areas: [] }), prompt: "Reply with the single word ok.", signal: new AbortController().signal, bridge }); }
   finally { workerStartupView.cleanup(); }
   return activity;
 }
@@ -118,7 +120,7 @@ async function productionTurn(brainPath: string): Promise<BackendActivityEvent[]
 /** An exec wrapper that records the command the SDK chose, and runs nothing. */
 function recordingWrapper(): { wrapper: string; commands: () => string[] } {
   // /tmp is fresh inside the worker; this fixture executable stays read-only.
-  const dir = mkdtempSync(join(tmpdir(), "bundled-wrapper-"));
+  const dir = nativeFixtureDirectory("bundled-wrapper-");
   scratch.push(dir);
   const wrapper = join(dir, "wrapper");
   const report = `await fetch("http://127.0.0.1:${server.port}/fixture-command", {method:"POST", body:process.argv.at(-1)});`;

@@ -1,3 +1,4 @@
+import { watchdogMs } from "../test-deadlines";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -33,7 +34,7 @@ const { serializeSigned } = await import(join(SOURCE, "node_modules/hono/dist/ut
 const NativeWebSocket = WebSocket as any;
 const sleep = (ms: number) => Bun.sleep(ms);
 async function until(check: () => boolean, deadlineMs = 20000) {
-  const end = performance.now() + deadlineMs;
+  const end = performance.now() + watchdogMs(deadlineMs);
   while (!check()) { if (performance.now() > end) throw Error("Probe wait deadline exceeded"); await sleep(10); }
 }
 test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebSocket, Stop and cancellation`, async () => {
@@ -129,7 +130,7 @@ print(json.dumps(result))`;
         while (!stop) {
           const start = performance.now();
           try {
-            const response = await fetch(origin + "/api/health", { headers: { cookie }, signal: AbortSignal.timeout(1000) });
+            const response = await fetch(origin + "/api/health", { headers: { cookie }, signal: AbortSignal.timeout(/* native-product-timing: Fixed one-second application health and recovery responsiveness budget. */ 1000) });
             health.push({ elapsedMs: performance.now() - start, status: response.status, timeout: false }); await response.body?.cancel();
           } catch (error) { health.push({ elapsedMs: performance.now() - start, timeout: true, error: String(error) }); }
           await sleep(50);
@@ -154,14 +155,14 @@ print(json.dumps(result))`;
         const ack = sender.frames.find(f => f.type === "session_info" && f.requestId === requestId)!;
         expect(ack.workerProfile?.actualProfile, "NATIVE_ADMITTED_GOVERNED_PROFILE").toBe("governed");
         sid = ack.sessionId; turnId = ack.turnId;
-        ackRecovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        ackRecovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(/* native-product-timing: Fixed one-second application health and recovery responsiveness budget. */ 1000) }).then(r => r.json());
         durableAckMs = performance.now() - begin;
         await until(() => sender.frames.some(f => f.type === "result" && f.receiptAt >= begin && f.sessionId === (sid ?? f.sessionId)) || sender.frames.some(f => f.type === "error" && f.receiptAt >= begin && f.requestId === requestId), 45000);
         // Visible result/journal frames precede final durable settlement and slot release.
         await until(() => sender.frames.some(f => f.type === "turn_journal" && f.turnId === ack.turnId && f.journal?.state === "complete") &&
           eventLog.read("turn-settlement").some(row => row.kind === "session_slot_released" && row.turnId === ack.turnId),10000);
         expect(sender.frames.filter(f => f.type === "turn_journal" && f.turnId === ack.turnId).every(f => f.journal?.profile === "governed"), "NATIVE_JOURNAL_GOVERNED_PROFILE").toBe(true);
-        recovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        recovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(/* native-product-timing: Fixed one-second application health and recovery responsiveness budget. */ 1000) }).then(r => r.json());
       }
       catch (error) { completed = false; phaseError = String(error); }
       finally { stop = true; clearInterval(pingTimer); await probe; }
@@ -184,7 +185,7 @@ print(json.dumps(result))`;
         sender = await device();
         sender.ws.send(JSON.stringify({ type: "session_resume", sessionId: sid }));
         await until(() => sender.frames.some(f => f.type === "session_info" && f.sessionId === sid));
-        const recovered = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        const recovered = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(/* native-product-timing: Fixed one-second application health and recovery responsiveness budget. */ 1000) }).then(r => r.json());
         expect(recovered.latest?.requestId, "RECONNECT_RECOVERS_SAME_ACCEPTED_REQUEST").toBe(requestId);
         expect(recovered.latest?.state, "RECONNECT_RECOVERS_TERMINAL_REQUEST").toBe("terminal");
         await sleep(200);
@@ -520,7 +521,7 @@ print(json.dumps(result))`;
     let forcedCleanup = false;
     let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
     const code = await Promise.race([child.exited, new Promise<number>(resolve => {
-      cleanupTimer = setTimeout(() => { forcedCleanup = true; child.kill("SIGKILL"); void child.exited.then(resolve); }, 45000);
+      cleanupTimer = setTimeout(() => { forcedCleanup = true; child.kill("SIGKILL"); void child.exited.then(resolve); }, watchdogMs(45000));
     })]);
     clearTimeout(cleanupTimer);
     descendants?.close();
@@ -742,7 +743,7 @@ if (BACKEND === "pi" && APP_UID === 0) test("every native manager check still re
   }
   expect(inspectors() - launchedBefore, "NATIVE_MANAGER_ONE_IDENTITY_INSPECTOR").toBe(1);
   // The shared interpreter answers exactly as a fresh launch of the same program does.
-  const inspector = createNativeIdentityInspector({ python: "/usr/bin/python3", env: { PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" }, timeoutMs: 30_000, maximumBytes: 65_536 });
+  const inspector = createNativeIdentityInspector({ python: "/usr/bin/python3", env: { PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" }, timeoutMs: watchdogMs(30_000), maximumBytes: 65_536 });
   try {
     for (const [program, path] of [["root", brain], ["loop", "/dev/brain-native-proof-loop"]] as const) {
       const fresh = Bun.spawnSync(["/usr/bin/python3", "-I", "-S", "-c", program === "root" ? NATIVE_ROOT_INSPECTION : NATIVE_LOOP_INSPECTION, path], { env: { PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" }, cwd: "/" });

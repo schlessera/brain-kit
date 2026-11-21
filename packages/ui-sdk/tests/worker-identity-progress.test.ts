@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 // #3664: a separate-UID readiness timeout names the supervisor's last recorded setup step.
 import { expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -124,14 +125,14 @@ test("the real supervisor records each setup step it reaches: a helper that neve
   const supervisor = Bun.spawn([...command, JSON.stringify(config)], { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   try {
     const record = `${readyPath(broker)}.progress`;
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + watchdogMs(10_000);
     while (!broker.setupProgress(spawnedAt).startsWith("step: launch-sent")) {
       if (supervisor.exitCode !== null || Date.now() >= deadline)
         throw new Error(`supervisor never recorded launch-sent: ${broker.setupProgress(spawnedAt)}`);
       await Bun.sleep(5);
     }
     // The host's real wait reaches its own deadline and reads the same record.
-    const refusal = await runWorkerStepsAsync(broker.readySteps(supervisor.pid, Date.now() + 200)).then(() => undefined, (error: Error) => error.message);
+    const refusal = await runWorkerStepsAsync(broker.readySteps(supervisor.pid, Date.now() + /* native-product-timing: The real broker readySteps deadline expiry is the product behavior under test. */ 200)).then(() => undefined, (error: Error) => error.message);
     expect(refusal).toBe("worker_identity_setup_timed_out");
     expect(broker.setupProgress(spawnedAt), "REAL_SUPERVISOR_RECORDS_LAUNCH_SENT").toMatch(/^step: launch-sent, ms: \d+, sinceSpawnMs: \d+$/);
     // A private record in the server's private directory: no new path for anyone else.

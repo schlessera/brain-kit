@@ -138,13 +138,13 @@ describe("documentation paths", () => {
     const body = readFileSync(join(ROOT, "docs/decisions/design-kit/show-block-brief.md"), "utf8");
     const { children } = unified().use(remarkParse).parse(body);
     const index = children.findIndex((node) => node.type === "code"
-      && node.value.startsWith("bun scripts/measure-show-block.ts --always-load"));
+      && node.value.startsWith("bun scripts/measure-show-block.ts --allow-real-provider --always-load"));
     expect(index).toBeGreaterThanOrEqual(0);
     const command = children[index];
     expect(command?.type).toBe("code");
     if (command?.type !== "code") throw new Error("D43 reproduction command missing");
     expect(command.lang).toBe("sh");
-    expect(command.value).toBe(String.raw`bun scripts/measure-show-block.ts --always-load --reps 3 --only \
+    expect(command.value).toBe(String.raw`bun scripts/measure-show-block.ts --allow-real-provider --always-load --reps 3 --only \
   compare-short,compare-long,trend,contact,table,steps,quote,bars`);
     const prose = children[index + 1];
     expect(prose?.type).toBe("paragraph");

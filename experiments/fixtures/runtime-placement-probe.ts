@@ -1,3 +1,4 @@
+import "../../scripts/test-network-child-preload.ts";
 /** Keyless same-byte native serialization control; caller supplies offline netns. */
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

@@ -1,3 +1,6 @@
+import "../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../scripts/test-deadlines";
+import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
 import { startFixtureTurn } from "./worker-input-fixture.js";
 /** Executed inside a network namespace with loopback fixture inference only. */
@@ -90,6 +93,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } },
     { type: "message_stop" }]);
 } });
+nativeScriptedService(server.url.origin, { fixtureRoots: [root] });
 function start(): unknown {
   return { type: "message_start", message: { id: `msg_${crypto.randomUUID()}`, type: "message", role: "assistant",
     model: "claude-sonnet-4-6", content: [], stop_reason: null, stop_sequence: null,
@@ -113,7 +117,7 @@ const backend = backendName === "claude" ? createClaudeBackend({ brainPath, prof
   createPiBackend({ brainPath, sessionDir: join(root, "pi-sessions"), profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }], loadExtensions: false });
 const controller = new AbortController();
 if (scenario === "preaborted") controller.abort();
-const deadline = setTimeout(() => controller.abort(), 15_000);
+const deadline = setTimeout(() => controller.abort(), watchdogMs(15_000));
 try {
   if (scenario === "ordinary") {
     await startFixtureTurn(backend, brainPath, { prompt: "Odysseus fixture", profileId: "fixture", signal: controller.signal,

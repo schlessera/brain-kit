@@ -1,3 +1,4 @@
+import { watchdogMs } from "../test-deadlines";
 /** Real reference-pool qualification on owned Btrfs loop volumes (#2428). Runs only inside reference-pool-fixture.py. */
 import { expect, spyOn } from "bun:test";
 import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, truncateSync, unlinkSync, writeFileSync, writeSync, chmodSync, renameSync } from "node:fs";
@@ -32,7 +33,7 @@ const subvolUuid = (path: string) => command(["/usr/bin/python3", "-I", "-S", "-
 mkdirSync("/native-runtime", { mode: 0o755 });
 const config: NativeBrainManagerConfig = {
   storePath: "/brain-fixture", devicePath: "/dev/brain-store-loop", fsid: fsid("/brain-fixture"), brainUuid: subvolUuid("/brain-fixture/brain"),
-  socketPath: "/native-runtime/pool.sock", appGid: 1000, capacityBytes: 1024 ** 3, recoveryReserveBytes: 8 * MIB, operationTimeoutMs: 20_000,
+  socketPath: "/native-runtime/pool.sock", appGid: 1000, capacityBytes: 1024 ** 3, recoveryReserveBytes: 8 * MIB, operationTimeoutMs: /* native-hang-guard: Successful reference pool operations; the held-deletion deadline has a separate fixed budget. */ watchdogMs(20_000),
   referencePool: { storePath: POOL, devicePath: "/dev/brain-pool-loop", fsid: fsid(POOL), combinedLimitBytes: 256 * MIB, operationLimitBytes: 32 * MIB,
     emergencyBytes: 4 * MIB, physicalFloorBytes: 64 * MIB, headroomLedgerPath: LEDGER, maxIdentities: 256 },
 };
@@ -261,7 +262,7 @@ const shapes = await create("staging", 32 * MIB);
 
 // 9. Deletion with an open hold stays charged through its deadline.
 {
-  manager = await restart({ operationTimeoutMs: 4_000 });
+  manager = await restart({ operationTimeoutMs: /* native-product-timing: Fixed deletion timeout exercised by REFERENCE_POOL_HOLD_UNKNOWN_OUTCOME and REFERENCE_POOL_HOLD_STAYS_CHARGED. */ 4_000 });
   const held = await create("worktree", 8 * MIB);
   fill(join(held.path!, "rope.bin"), 4 * MIB);
   const holder = Bun.spawn(["/usr/bin/python3", "-I", "-S", "-c", "import os,sys,time\nfd=os.open(sys.argv[1],os.O_RDONLY)\nprint('held',flush=True)\ntime.sleep(60)", join(held.path!, "rope.bin")], { stdout: "pipe" });
@@ -676,7 +677,7 @@ const shapes = await create("staging", 32 * MIB);
   mkdirSync(state, { recursive: true });
   await manager.close();
   const served = await serveNativeBrainManager(config);
-  const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 });
+  const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: watchdogMs(20_000) });
   const db = createUiDb(join(state, "ui.db"));
   try {
     const penelope = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 86_400 });
@@ -882,7 +883,7 @@ const shapes = await create("staging", 32 * MIB);
   await manager.close();
   const served = await serveNativeBrainManager(config);
   try {
-    await runReferenceEfficiency({ client: createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 }), socketPath: config.socketPath, artifacts: ARTIFACTS, note, command, sync });
+    await runReferenceEfficiency({ client: createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: watchdogMs(20_000) }), socketPath: config.socketPath, artifacts: ARTIFACTS, note, command, sync });
   } finally { await served.close(); }
   manager = await createNativeBrainManager(config);
 }
@@ -978,7 +979,7 @@ const shapes = await create("staging", 32 * MIB);
   const { proveManagedReferenceSource } = await import("./managed-reference-source.js");
   await manager.close();
   const served = await serveNativeBrainManager(config);
-  try { await proveManagedReferenceSource(createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 }), "/brain-fixture/brain", note); }
+  try { await proveManagedReferenceSource(createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: watchdogMs(20_000) }), "/brain-fixture/brain", note); }
   finally { await served.close(); }
   manager = await createNativeBrainManager(config);
 }
@@ -990,7 +991,7 @@ const shapes = await create("staging", 32 * MIB);
   await manager.close();
   const served = await serveNativeBrainManager(config);
   try {
-    const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 });
+    const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: watchdogMs(20_000) });
     expect((await client.listPoolRecovery()).records, "REFERENCE_POOL_RESTART_RECONSTRUCTS").toEqual(before.records);
     writeFileSync("/native-runtime/config.json", JSON.stringify(config)); chmodSync("/native-runtime/config.json", 0o600);
     // The manager serves from this process: a synchronous child would block its event loop.

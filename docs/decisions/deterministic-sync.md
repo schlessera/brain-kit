@@ -158,7 +158,7 @@ of an adversarial review of the first cut, which found each of them missing.
 
 Jev (`jev-1.13.0`) on the two keyless eval sets in
 `packages/core/fixtures/sync-judge/`, three repeats each, scored at the
-thresholds above with `bun scripts/measure-sync-judge.ts --set all --repeat 3
+thresholds above with `bun scripts/measure-sync-judge.ts --allow-real-provider --set all --repeat 3
 --min-precision 0.9`:
 
 | Set | Items × repeats | Accuracy | Coverage at the line | Precision at the line | Order consistency | Repeat agreement | p50 / p95 |

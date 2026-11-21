@@ -5,13 +5,14 @@ import { verifyIndexReleaseReproduction } from "./native-proof/verify-index-rele
 import { EXPECTED_FAILURE_PREFIX, runExpectedFailureControl } from "./expected-failure-log.js";
 
 import { ownedCleanupComplete } from "./native-proof/verify-owned-remove.js";
+import { nativeGuardEnvironment } from "./native-proof/guard-environment.ts";
 
 export const NATIVE_PROOF_IMAGE = "brain-kit-native-runtime:1";
 export const NATIVE_PROOF_NAME = "native managed hosted admission";
 
 export function nativeHostDockerArgs(root: string, artifact: string, uid: string, backend: string, apparmor: boolean, retainIndexNamespace: boolean, bun: string, applyTiming = false, observationTiming = false): string[] {
   const lease = join(root, "tmp", "workspace-operation");
-  return ["docker", "run", "--rm", "--pull=never", "--network=none",
+  return ["docker", "run", "--rm", "--pull=never", "--network=none", ...nativeGuardEnvironment(),
         ...(retainIndexNamespace ? ["--env=BRAIN_NATIVE_PROOF_RETAIN_INDEX_NAMESPACE=1"] : []),
         ...(applyTiming ? ["--env=BRAIN_NATIVE_PROOF_APPLY_TIMING=1"] : []),
         ...(observationTiming ? ["--env=BRAIN_NATIVE_PROOF_OBSERVATION_TIMING=1"] : []),

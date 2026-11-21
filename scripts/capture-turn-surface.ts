@@ -1,3 +1,6 @@
+import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
+import { nativeScriptedService } from "./test-native-guard.ts";
 /** #587: capture the installed CLI's request using a loopback scripted model.
  * This observes serialization, not model choice or model quality. No real
  * credential is used. Run in an explicitly offline namespace when testing.
@@ -90,8 +93,9 @@ export async function captureSurface(control?: {
     const call = isMain ? calls[mainRequests++] : undefined;
     return scriptedReply(body.model, call, bodies.length, control?.finalOutputTokens ?? 1);
   } });
+nativeScriptedService(server.url.origin);
   const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), 30_000);
+  const timeout = setTimeout(() => abortController.abort(), watchdogMs(30_000));
   let completion: string | undefined;
   let gateRefusal: string | undefined;
   let cliVersion: string | undefined;

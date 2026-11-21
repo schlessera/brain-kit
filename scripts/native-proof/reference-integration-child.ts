@@ -1,3 +1,4 @@
+import "../test-network-child-preload.ts";
 /**
  * The hosted app for the integrated reference proof (#2751), run by
  * reference-integration.native.ts as the unprivileged app user. Both backends

@@ -1,3 +1,6 @@
+import "../../../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../../../scripts/test-deadlines";
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Installed CLI/SDK, isolated by the caller's offline network namespace. */
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -55,6 +58,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   return response(selected.map((name, index) => ({ type: "tool_use", id: `toolu_raft_${captures.length}_${index}`,
     name: /^[A-Z]/.test(name) || name.startsWith("mcp__") ? name : `mcp__brain-ui__${name}`, input: inputs[name] ?? missingInputs[name] ?? {} })));
 } });
+nativeScriptedService(server.url.origin, { fixtureRoots: [scratch] });
 function response(calls: unknown[]) {
   const content: any[] = calls.length ? calls : [{ type: "text", text: "Odysseus checks the mast." }];
   const events: any[] = [{ type: "message_start", message: { id: "msg_raft", type: "message", role: "assistant", model: "claude-sonnet-4-6", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } }];
@@ -90,7 +94,7 @@ try {
       if ("hookSpecificOutput" in result && result.hookSpecificOutput?.hookEventName === "PreToolUse" && result.hookSpecificOutput.permissionDecision === "deny" && args[0].hook_event_name === "PreToolUse") active.denials.push(args[0].tool_name);
       return result;
     }) }));
-    const timer = setTimeout(() => controller.abort(), 30_000);
+    const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
     try {
       for await (const message of query({ prompt: turn.prompt, options: turn.options })) {
         if (message.type === "system" && message.subtype === "init") Object.assign(active, { mcp: message.mcp_servers });

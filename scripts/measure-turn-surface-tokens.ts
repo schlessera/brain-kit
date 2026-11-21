@@ -1,3 +1,4 @@
+import "./measurement-entry-preload.ts";
 /** Count the captured installed-CLI surface; never generate an answer. */
 import { createHash } from "node:crypto";
 import { captureSurface, SURFACE_MODEL } from "./capture-turn-surface";

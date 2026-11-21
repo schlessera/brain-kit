@@ -1,3 +1,5 @@
+import "./measurement-entry-preload.ts";
+import {watchdogMs} from "./test-deadlines";
 /** Private #587 experiment: overlap installed-CLI startup with a bounded router.
  * MCP listing waits for the decision; claim discovers the fixture's project
  * skills after any diagnostic pruning. All arms use the same startup path.
@@ -82,7 +84,7 @@ export async function startOverlappedTurn(params: {
       return hint ? { hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: hint } } : {};
     }] }] },
   };
-  const warming = prewarm({ options, initializeTimeoutMs: 30_000 });
+  const warming = prewarm({ options, initializeTimeoutMs: watchdogMs(30_000) });
   void warming.catch(() => {});
   let spare: SpareProcess | undefined;
   try {

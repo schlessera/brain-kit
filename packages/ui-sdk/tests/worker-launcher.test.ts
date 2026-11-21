@@ -1,3 +1,5 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
+import { nativeScriptedService } from "../../../scripts/test-native-guard";
 import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
 import { closeSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
@@ -87,7 +89,7 @@ signal.signal(signal.SIGRTMIN, signal.SIG_IGN)
 os.closerange(3, os.sysconf("SC_OPEN_MAX"))
 os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, ${JSON.stringify(boot.env)})`;
       const child = Bun.spawnSync([python!, "-c", program], { env: {}, stdin: pipes.child[0],
-        stdout: pipes.child[1], stderr: pipes.child[2], timeout: 5_000 });
+        stdout: pipes.child[1], stderr: pipes.child[2], timeout: watchdogMs(5_000) });
       pipes.closeChild(); pipes.closeInput();
       const output = readFileSync(pipes.parent[1], "utf8");
       expect(readFileSync(pipes.parent[2], "utf8")).toBe("");
@@ -157,7 +159,7 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
     } finally { closeSync(fd); pipes.cleanup(); f.cleanup(); }
   });
 
-  test("actual configured-brain probe passes and removes all disposable sentinels", () => {
+  test("actual configured-brain probe passes and removes all disposable sentinels", async () => {
     const f = fixture();
     try {
       expect(probeWorkerHost(f.brain)).toEqual({ ok: true });
@@ -166,13 +168,16 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
       const versions = Object.fromEntries(["@anthropic-ai/claude-agent-sdk", "@earendil-works/pi-coding-agent",
         "@schlessera/brain-backend-claude", "@schlessera/brain-backend-pi"].map(name =>
         [name, JSON.parse(readFileSync(join(ROOT, "node_modules", name, "package.json"), "utf8")).version]));
-      // The native observer is outside the JS network guard. Its version-only
-      // execution gets a denied network namespace and read-only host root.
-      const native = Bun.spawnSync([Bun.which("bwrap")!, "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
+      // Version observation uses the same qualified native boundary as SDK turns.
+      const service = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
+      const restoreService = nativeScriptedService(service.url.origin);
+      const native = Bun.spawn([
         join(ROOT, "node_modules", `@anthropic-ai/claude-agent-sdk-linux-${process.arch}`, "claude"), "--version"],
         { env: {}, stdout: "pipe", stderr: "pipe" });
-      expect(native.exitCode).toBe(0);
-      versions["claude-code"] = native.stdout.toString().trim();
+      const [code, version] = await Promise.all([native.exited, new Response(native.stdout).text()]);
+      restoreService(); service.stop(true);
+      expect(code).toBe(0);
+      versions["claude-code"] = version.trim();
       const mount = Bun.spawnSync([Bun.which("findmnt")!, "--target", f.brain, "--noheadings", "--output", "FSTYPE"]);
       expect(mount.exitCode).toBe(0);
       const tuple = { architecture: process.arch, kernel: release(), bun: Bun.version,

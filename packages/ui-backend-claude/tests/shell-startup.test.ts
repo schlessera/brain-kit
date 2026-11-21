@@ -1,3 +1,5 @@
+import { watchdogMs } from "../../../scripts/test-deadlines.ts";
+import { nativeNamespaceEnvironment, nativeNamespacePolicy } from "../../../scripts/test-native-guard.ts";
 /** Native commands need OS isolation: the entire fixture has only loopback networking. */
 import { expect, test } from "bun:test";
 import { mkdtempSync, readlinkSync, rmSync } from "node:fs";
@@ -35,11 +37,12 @@ for (const shell of ["bash", "zsh"] as const) for (const [profile, startupEnv] o
     const scratch = mkdtempSync(join(tmpdir(), "odysseus-shell-startup-"));
     const fixture = new URL("./fixtures/shell-startup-probe.ts", import.meta.url).pathname;
     try {
-      const child = Bun.spawn(["bwrap", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/opt/odysseus-shell-fixture/home",
+      const policy = nativeNamespacePolicy();
+      const child = Bun.spawn(["bwrap", "--clearenv", ...nativeNamespaceEnvironment(), "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/opt/odysseus-shell-fixture/home",
         "--unshare-net", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--tmpfs", "/opt",
-        "--bind", scratch, "/opt/odysseus-shell-fixture", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev",
-        process.execPath, fixture, "/opt/odysseus-shell-fixture", branch, profile, startupEnv ? "startup-env" : "clean-env", shell], {
-        env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: 30_000,
+        "--bind", scratch, "/opt/odysseus-shell-fixture", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", ...policy.mounts,
+        process.execPath, fixture, "/opt/odysseus-shell-fixture", branch, profile, startupEnv ? "startup-env" : "clean-env", shell, ...policy.args], {
+        env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: watchdogMs(30_000),
       });
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect(exit, stderr || stdout).toBe(0);

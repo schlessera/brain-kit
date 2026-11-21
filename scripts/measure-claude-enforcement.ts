@@ -1,9 +1,11 @@
+import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
+import { nativeFixtureDirectory, nativeScriptedQuery } from "./test-native-guard.ts";
 // #901: real production wiring, real CLI, scripted loopback inference.
 // Run in the same loopback-only network namespace as measure-claude-runtime.
 // The query wrapper observes existing handlers and messages; it forwards their
 // inputs and outputs unchanged. It installs no permission decision of its own.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { HookJSONOutput, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
@@ -33,7 +35,7 @@ let failures = 0;
 try {
   for (const scenario of ["manual-default", "plain", "settings-allow", "settings-hook-allow", "rtk-rewrite"] as const) {
     for (const arm of ["denied", "approved", "allowlisted"] as const) {
-      const root = mkdtempSync(join(tmpdir(), "enforcement-probe-"));
+      const root = nativeFixtureDirectory("enforcement-probe-");
       const cwd = join(root, "cwd"), home = join(root, "home"), bin = join(root, "bin");
       for (const dir of [cwd, home, bin]) mkdirSync(dir);
       const original = join(WORKER_SCRATCH, "original"), rewritten = join(WORKER_SCRATCH, "rewritten"), settingsMarker = join(WORKER_SCRATCH, "settings-hook-ran");
@@ -61,7 +63,7 @@ try {
       Object.assign(process.env, { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), PATH: scenario === "rtk-rewrite"
         ? "/usr/local/bin:/usr/bin:/bin" : `${bin}:/usr/bin:/bin` });
       resetRtkProbe();
-      const log = model.plan({ name: "Bash", input: { command } });
+      const log = model.plan({ name: "Bash", input: { command } }, witness);
       const hookCalls: Array<{ index: string; input: unknown; output: HookJSONOutput }> = [];
       const callbackCalls: Array<{ input: unknown; output: unknown }> = [];
       const requests: PermissionRequest[] = [];
@@ -70,7 +72,7 @@ try {
       let toolUseSeen = false, error: string | undefined;
       let matchingHooks: string[] = [];
       const controller = new AbortController();
-      const deadline = setTimeout(() => controller.abort(), 20_000);
+      const deadline = setTimeout(() => controller.abort(), watchdogMs(20_000));
       const worker = createMeasurementWorkerFixture(cwd, home);
       try {
         const observedQuery: typeof query = (params) => {
@@ -81,6 +83,7 @@ try {
           const originalCallback = options.canUseTool!;
           const hooks = { ...options.hooks, PreToolUse: options.hooks?.PreToolUse?.map((matcher, i) => ({
             ...matcher, hooks: matcher.hooks.map((hook, j) => async (input, id, context) => {
+              if(scenario==="rtk-rewrite")worker.qualifyRtk();
               const output = await hook(input, id, context);
               if ("tool_use_id" in input && input.tool_use_id === callId) hookCalls.push({ index: `${i}:${j}`, input, output });
               return output;
@@ -114,7 +117,7 @@ try {
         const profile: InferenceProfile = { id: "probe", label: "Probe", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [],
           buildEnv: () => ({ ...CLEARED_API_CREDENTIALS, ANTHROPIC_BASE_URL: model.url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "",
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
-        const backend = createClaudeBackend({ brainPath: cwd, maintenance: worker.maintenance, profiles: [profile], allowedTools: arm === "allowlisted" ? ["Bash"] : [], queryFn: observedQuery, log: () => {} });
+        const backend = createClaudeBackend({ brainPath: cwd, maintenance: worker.maintenance, profiles: [profile], allowedTools: arm === "allowlisted" ? ["Bash"] : [], queryFn: nativeScriptedQuery(observedQuery, model.url), log: () => {} });
         await backend.startTurn({ ...worker.request, prompt: "Run the planned tool call.", profileId: "probe", signal: controller.signal, enforceAllowedTools: scenario !== "manual-default",
           bridge: { emit: () => {}, requestPermission: async (request) => {
             requests.push(request);

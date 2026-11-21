@@ -1,9 +1,13 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
+import { captureNativeReceipts } from "../../../../scripts/native-test-receipts.ts";
+import "../../../../scripts/test-network-child-preload.ts";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { defaultIdentityPhase } from "./default-identity-phases.js";
 import { installDbRepeatObservation, repeatWarmIndex } from "./db-repeat-observation.js";
 import { installBootPruneCapture } from "./boot-prune-capture.js";
 /** Real managed-server admission and native SDK turn; explicit fictional API profile. */
 import { expect } from "bun:test";
-import { lstatSync, mkdirSync, statSync, readdirSync } from "node:fs";
+import { lstatSync, mkdirSync, statSync, readdirSync, readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createApp } from "../../../ui-server/src/app.js";
 import { resolveServerConfig } from "../../../ui-server/src/config/env.js";
@@ -13,6 +17,13 @@ import { createPrincipal } from "../../../ui-server/src/db/principals.js";
 import { createClaudeBackend } from "../../../ui-backend-claude/src/backend.js";
 import { nativeModelReply } from "../../../ui-backend-claude/tests/helpers/native-model-reply.js";
 import { serializeSigned } from "hono/utils/cookie";
+import { bundledClaudeBinary } from "../../../core/src/providers/agents/claude-binary.js";
+import { nativeScriptedService, nativeScriptedQuery } from "../../../../scripts/test-native-guard.ts";
+
+import { observeNativeWorkerStartup } from "./native-worker-startup-diagnostics.js";
+import type { LaunchedWorker } from "../../src/server/worker-launcher.js";
+import { isNativeClaude } from "../../../../scripts/test-native-guard.ts";
+const nativeBootstraps=new Map<number,Bun.Subprocess>();
 
 const sharedGit = new URL(import.meta.url).searchParams.has("shared-git");
 const bootPruneCapture = sharedGit && process.argv.includes("--boot-prune-capture");
@@ -28,6 +39,38 @@ stage("module-loaded");
 const brain = "/brain-fixture/brain", root = profile === "strict" ? "/identity-server-private/server-ws-strict" : "/identity-server-private/server-ws";
 const home = join(root, "home"), config = join(home, ".claude"), data = root;
 mkdirSync(data, { mode: 0o700, recursive: true }); mkdirSync(config, { recursive: true, mode: 0o700 });
+// Temporary diagnosis of the fresh separate-UID startup; only sanitized tails persist.
+if (defaultIdentityPhase(process.argv.slice(2)) === "fresh") process.argv.push(`--native-identity-startup-audit=${data}`);
+// Actual separate-UID fixture: directory metadata is shared, file bytes are not.
+const privateRoot=join(brain,"private");
+if (existsSync(privateRoot)) {
+  expect(process.getuid?.(),"PRIVATE_FIXTURE_GUARD_UID").toBe(21001);
+  expect(lstatSync(privateRoot).uid,"PRIVATE_FIXTURE_OWNER_UID").toBe(21002);
+  expect(lstatSync(privateRoot).mode & 0o007,"PRIVATE_FIXTURE_NO_WORLD_ACCESS").toBe(0);
+  const privateEntries=readdirSync(privateRoot);
+  expect(privateEntries,"PRIVATE_FIXTURE_PROVENANCE_TRAVERSABLE").toContain("result.md");
+  const privateFile=join(privateRoot,privateEntries.includes(".gitattributes")?".gitattributes":"result.md");
+  let readError: string | undefined;
+  try {readFileSync(privateFile);} catch(error) {readError=(error as NodeJS.ErrnoException).code;}
+  expect(readError,"PRIVATE_FIXTURE_CONTENTS_STAY_WORKER_ONLY").toBe("EACCES");
+  const runtime=bundledClaudeBinary();if(!runtime)throw Error("installed SDK identity unavailable");
+  // Plan only: no native process launches. The registered root is exercised by
+  // the real turn below; the same accessible, unregistered root must refuse.
+  const refusalReceipts=captureNativeReceipts();
+  const refused=Bun.spawnSync([process.execPath,"-e",`
+    import {nativeWorkerBoundary,nativeScriptedService} from "/repo/scripts/test-native-guard.ts";
+    const spawnSync=Bun.spawnSync,which=Bun.which;
+    Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+    process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+    nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(home)}]});
+    nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:["/usr/bin/true",${JSON.stringify(runtime)}],brainPath:${JSON.stringify(home)},env:{HOME:${JSON.stringify(home)}},argv:["bwrap","--ro-bind",${JSON.stringify(privateRoot)},"/tmp/odysseus-private","--","/usr/bin/true",${JSON.stringify(runtime)}]})});
+  `],{env:{...process.env,...refusalReceipts.env},stdout:"pipe",stderr:"pipe"});
+  const refusalText=refused.stderr.toString()+refusalReceipts.read();refusalReceipts.dispose();
+  expect(refused.exitCode,"PRIVATE_FIXTURE_UNREGISTERED_ROOT_REFUSES").not.toBe(0);
+  expect(refusalText).toContain("worker bind was not created or staged by the fixture");
+  expect(refusalText).toContain('"nativeLaunched":false');
+}
 const requests: Array<{ model: string; history: number; apiCredential: boolean }> = [];
 // Native worker calls this loopback provider directly. The outer Docker network
 // namespace has no external route; no fetch implementation or native SDK is mocked.
@@ -36,13 +79,15 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   requests.push({ model: body.model, history: body.messages.length, apiCredential: request.headers.get("x-api-key") === "odysseus-fictional-api-key" });
   return nativeModelReply();
 } });
-const backend = createClaudeBackend({ brainPath: brain, profiles: [{ id: "odysseus-haiku", label: "Odysseus Haiku", billing: "api",
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, home] });
+const backend = createClaudeBackend({ brainPath: brain, queryFn: nativeScriptedQuery(query, provider.url.origin), profiles: [{ id: "odysseus-haiku", label: "Odysseus Haiku", billing: "api",
   requiredEnvKeys: [], model: "claude-haiku-4-5", buildEnv: () => ({ ANTHROPIC_BASE_URL: provider.url.origin,
     ANTHROPIC_API_KEY: "odysseus-fictional-api-key", HOME: home, CLAUDE_CONFIG_DIR: config, PATH: "/usr/local/bin:/usr/bin:/bin",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" }) }], log() {} });
 const backendProfiles: Array<string | undefined> = [];
 const admissionReads: Array<ReturnType<NonNullable<Parameters<typeof backend.startTurn>[0]["bridge"]["admissionSafety"]>["read"]>> = [];
 const observedBackend = { ...backend, startTurn(request: Parameters<typeof backend.startTurn>[0]) {
+  nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, home] });
   backendProfiles.push(request.workerSandbox?.profile);
   // Observe the real host gate synchronously, returning each original read
   // unchanged. Native refusals otherwise collapse to a generic HTTP 403.
@@ -55,6 +100,14 @@ const observedBackend = { ...backend, startTurn(request: Parameters<typeof backe
       return value;
     };
   }
+  const started=request.workerStarted;
+  request.workerStarted=worker=>{
+    started?.(worker);
+    // The existing callback receives the full worker at runtime; its public
+    // request type intentionally exposes only control/lifecycle operations.
+    const full=worker as LaunchedWorker,bootstrap=nativeBootstraps.get(full.pid);
+    if(bootstrap)observeNativeWorkerStartup(full,bootstrap,[secret,"odysseus-fictional-api-key"]);
+  };
   return backend.startTurn(request);
 } };
 const observability = createRecordingObservability(), secret = "odysseus-fixture-cookie-secret-0123456789";
@@ -79,7 +132,16 @@ Object.defineProperty(Bun, "spawn", { ...spawnDescriptor, value: (...args: any[]
         classes: ["attested-stage-container", "git-adapter", "frozen-config"], nodes } }));
     }
   }
-  return Reflect.apply(spawn, Bun, args);
+  const child=Reflect.apply(spawn, Bun, args) as Bun.Subprocess;
+  if(launch) {
+    const command=JSON.parse(launch).command as string[]|undefined;
+    if(command?.[0] && isNativeClaude(command[0],command.slice(1))) {
+      nativeBootstraps.set(child.pid,child);
+      void child.exited.then(code=>console.error(JSON.stringify({kind:"native-fixture-bootstrap-exit",exitCode:code,signal:child.signalCode})),
+        ()=>console.error(JSON.stringify({kind:"native-fixture-bootstrap-exit",exitCode:null,signal:child.signalCode})));
+    }
+  }
+  return child;
 } });
 // Local diagnostic artifact only: fixed disposable fixture root, no contents or recursion.
 function recordFixtureRootMetadata(phase: "before-app" | "after-app") {
@@ -96,7 +158,7 @@ function recordFixtureRootMetadata(phase: "before-app" | "after-app") {
   console.log(receipt);
 }
 async function until(check: () => boolean, label: string) {
-  const deadline = Date.now() + 30000;
+  const deadline = Date.now() + watchdogMs(30000);
   while (!check()) { if (Date.now() > deadline) throw Error(label); await Bun.sleep(10); }
 }
 try {

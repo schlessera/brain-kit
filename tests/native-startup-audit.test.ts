@@ -1,0 +1,65 @@
+import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
+import { expect, test } from "bun:test";
+import { scrubNativeStartupTrace } from "../scripts/test-native-guard";
+
+test("identity startup audit bounds the tail and omits argv environment credentials and paths",()=>{
+ const prompt="SIRENS_PROMPT_MUST_NOT_PRINT",secret="sk-ant-"+"v".repeat(48);
+ const text=scrubNativeStartupTrace('old header\n'+"compiler note voyage\n".repeat(6000)+
+  `42 execve("/tmp/odysseus-runtime", ["${prompt}"], ["TOKEN=${secret}"]) = 0\n`+
+  `43 execveat(3, "cli", ["${prompt}"], ["TOKEN=${secret}"], 0) = 0\n`+
+  '42 openat(AT_FDCWD, "/tmp/odysseus-private/config", O_RDONLY) = -1 ENOENT\n'+
+  '42 clone3({flags=CLONE_VM}, 88) = -1 EAGAIN\n');
+ expect(text.length).toBeLessThanOrEqual(65536);expect(text).not.toContain("old header");
+ for(const hidden of [prompt,secret,"/tmp/odysseus-private"])expect(text).not.toContain(hidden);
+ expect(text).toContain("execve([arguments omitted])");expect(text).toContain("clone3");expect(text).toContain("EAGAIN");
+ expect(scrubNativeStartupTrace('execve("x", ["'+prompt.repeat(4000)+'"], []) = 0')).toBe("");
+});
+
+for(const writeFailure of [false,true]) test(`identity audit snapshots sanitized file/process evidence before raw cleanup (${writeFailure?"blocked":"retained"})`,async()=>{
+ const fs=await import("node:fs"),path=await import("node:path"),os=await import("node:os");
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),"odysseus-identity-audit-"));
+ try{
+  const script=path.join(root,"probe.ts"),guard=path.join(import.meta.dir,"../scripts/test-native-guard.ts");
+  fs.writeFileSync(script,`import * as fs from "node:fs";import {mock} from "bun:test";
+   const originalFs={...fs};
+   ${writeFailure?'mock.module("node:fs",()=>({...originalFs,writeFileSync:(path,...args)=>{if(String(path).includes("/native-startup-audit-"))throw Error("fixture diagnostic write refused");return originalFs.writeFileSync(path,...args);}}));':''}
+   const spawnSync=Bun.spawnSync;
+   Bun.spawnSync=((argv,options)=>{if(argv[0]==="/usr/bin/python3") {if(argv[5]==="set"){fs.chmodSync(argv[7],0o730);fs.chmodSync(argv[8],0o620);}return {exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)};}return Reflect.apply(spawnSync,Bun,[argv,options]);});
+   process.argv.push("--native-identity-startup-audit="+${JSON.stringify(root)});
+   const {auditNativeLaunch}=await import(${JSON.stringify(guard+"?identity-audit-fixture")});
+   let cleaned=false;const audit=auditNativeLaunch(["/usr/bin/true"],["/synthetic/runtime"],()=>{cleaned=true;},21002);
+   const selection=audit.argv.find(value=>value.startsWith("trace="));
+   if(!selection.includes("%file,%process")||/read|write/.test(selection))throw Error("UNSAFE_OR_MISSING_STARTUP_TRACE");
+   const raw=audit.argv[audit.argv.indexOf("-o")+1];
+   fs.writeFileSync(raw,'42 execve("/synthetic/runtime", ["SIRENS_PRIVATE_PROMPT"], ["TOKEN=sk-ant-'+"v".repeat(48)+'"]) = 0\\n42 clone3({}, 88) = -1 EAGAIN\\n42 openat(AT_FDCWD, \"connect(3) = -1 EPERM\", O_RDONLY) = -1 ENOENT\\n');
+   fs.appendFileSync(raw,${JSON.stringify("42 newfstatat(AT_FDCWD, \"/dev/urandom\", {st_mode=S_IFCHR|0666, st_uid=65534, st_gid=65534}, 0) = 0\n42 statfs(\"/dev/urandom\", {f_flags=ST_VALID|ST_NODEV|ST_NOSUID}) = 0\n42 openat(AT_FDCWD, \"/dev/urandom\", O_RDONLY) = -1 EACCES (Permission denied)\n")});
+   audit.dispose();
+   if(!cleaned||fs.existsSync(raw))throw Error("RAW_AUDIT_NOT_CLEANED");
+   console.log(JSON.stringify(fs.readdirSync(${JSON.stringify(root)}).filter(name=>name.startsWith("native-startup-audit-")).map(name=>JSON.parse(fs.readFileSync(${JSON.stringify(root)}+"/"+name,"utf8")))));`);
+  const child=spawnGuardFixture([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
+  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),child.guardOutput()]);
+  expect(code,err).toBe(0);
+  const audit=JSON.parse(err.split("\n").find(line=>line.startsWith('{"kind":"native-offline-audit"'))!);expect(audit.deniedConnects).toBe(0);
+  const snapshots=JSON.parse(out);expect(snapshots).toHaveLength(writeFailure?0:1);
+  if(writeFailure) { expect(err).toContain('"kind":"native-fixture-startup-audit-failure"');expect(err).toContain('"nativeLaunched":true,"success":true'); }
+  else {expect(snapshots[0].verdict,"RETAINED_FINAL_AUDIT_VERDICT_SURVIVES_CHANNEL_TEARDOWN").toMatchObject({kind:"native-offline-audit",nativeLaunched:true,success:true});expect(snapshots[0].deviceMetadata,"RETAINED_DEVICE_METADATA_SURVIVES_CHANNEL_TEARDOWN").toEqual([{device:"urandom",mode:0o666,uid:65534,gid:65534,nodev:true,nosuid:true,ro:false}]);expect(snapshots[0].failedOpenStages,"RETAINED_OPEN_STAGE_SURVIVES_CHANNEL_TEARDOWN").toEqual([{stage:"payload",execPosition:1,device:"urandom",error:"EACCES"}]);expect(snapshots[0].text).toContain("EAGAIN");expect(snapshots[0].text).not.toContain("SIRENS_PRIVATE_PROMPT");expect(snapshots[0].text).not.toContain("sk-ant-");}
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+
+test("failed-open labels retain fixture-relative names and remove every outside path segment",()=>{
+ const paths=["/fixture/voyage/loom.env","/home/secret-captain/My Secret/config","/root/private","/proc/self/exe","/sys/kernel/private","/dev/secret-device","/etc/secret-settings","/usr/lib/secret-runtime","/outside/secret-owner/file"];
+ const trace=paths.map(path=>`9 openat(AT_FDCWD, ${JSON.stringify(path)}, O_RDONLY) = -1 EACCES`).join("\n");
+ const text=scrubNativeStartupTrace(trace,["/fixture/voyage"]);
+ expect(text,"FIXTURE_FAILED_OPEN_IS_IDENTIFIED").toContain("fixture-0:loom.env");
+ for(const category of ["home-outside-fixture","proc","sys","dev","etc","runtime-root","other-absolute"])expect(text).toContain(`"${category}"`);
+ for(const hidden of ["secret-captain","My Secret","secret-owner","secret-runtime","secret-device","/home/","/fixture/","/root/","/outside/"])expect(text,"FAILED_OPEN_HOST_PATH_IS_OMITTED").not.toContain(hidden);
+ expect(text).toContain("EACCES");
+});
+
+test("failed device opens retain only fixed non-secret device basenames",()=>{
+ const trace=['/dev/stdin','/dev/stdout','/dev/stderr','/dev/fd/2','/dev/null','/dev/urandom','/dev/tty','/dev/pts/7','/dev/shm/circe-private'].map(path=>`1 openat(AT_FDCWD, ${JSON.stringify(path)}, O_RDONLY) = -1 EACCES (Permission denied)`).join("\n");
+ const text=scrubNativeStartupTrace(trace,[]);
+ for(const label of ['dev:stdin','dev:stdout','dev:stderr','dev:fd/2','dev:null','dev:urandom','dev:tty','dev:pts/7','dev:shm/[entry]'])expect(text,"FIXED_DEVICE_OPEN_LABEL").toContain(label);
+ expect(text).not.toContain('circe');expect(text).not.toContain('/dev/');
+});

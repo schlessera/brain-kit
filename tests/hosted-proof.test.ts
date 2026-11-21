@@ -1,5 +1,6 @@
+import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BROWSER_DETERMINISM_REPORT, browserDeterminismPairs, categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
@@ -421,4 +422,58 @@ test("an oversized browser selection runs as planned partitions: every pair in e
   // Unselected, and on main where repetition never runs, the matrix expression still has one value.
   expect(browserDeterminismShards({ ...selected, browserDeterminism: undefined, cadence: "confirmation" })).toEqual([1]);
   expect(browserDeterminismShards({ ...armada, cadence: "integrated" }), "MAIN_NEVER_REPEATS").toEqual([1]);
+});
+
+test("standalone native measurement commands load the same offline boundary as tests", () => {
+  const plan = planChecks(["scripts/test-network-guard.ts"], workspaces(ROOT));
+  const commands = localChecks(plan, true);
+  for (const script of ["measure-claude-runtime", "measure-claude-enforcement", "measure-claude-delegation", "measure-claude-capability", "measure-claude-haiku"]) {
+    const command = commands.find(command => command.argv.join(" ").includes(`scripts/${script}.ts`));
+    expect(command, script).toBeDefined();
+    expect(command!.argv.join(" ")).toContain(`bun --no-install --preload ./scripts/test-network-child-preload.ts scripts/${script}.ts`);
+  }
+});
+
+test("native CLI command preload resolves as a file and latches refusal before any runtime launch", async () => {
+  const plan = planChecks(["scripts/test-network-guard.ts"], workspaces(ROOT));
+  const command = localChecks(plan, true).find(command => command.name === "measure-claude-runtime")!;
+  const prefix = /bun (--no-install --preload \S+) scripts\/measure-claude-runtime\.ts/.exec(command.argv.at(-1)!)?.[1];
+  expect(prefix).toBeDefined();
+  const root = mkdtempSync(join(tmpdir(), "odysseus-cli-preload-")); directories.push(root);
+  const alias = join(root, "probe-runtime"), program = join(root, "refusal.ts");
+  symlinkSync(process.execPath, alias);
+  writeFileSync(program, `import {nativeClaudeBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+    if(globalThis.fetch.name!=="offlineFetch")throw Error("offline preload was not installed");
+    delete process.env.GITHUB_ACTIONS;delete process.env.RUNNER_ENVIRONMENT;
+    try{nativeClaudeBoundary("/synthetic/native",[],{});}catch{}process.exit(0);`);
+  // The alias is deliberately outside automatic Bun-child preload propagation.
+  // Use the actual configured CLI flags; the program never execs native Claude.
+  const child = spawnGuardFixture([alias, ...prefix!.split(" "), program], { cwd: ROOT,
+    env: { PATH: "/usr/bin:/bin", HOME: root }, stdout: "pipe", stderr: "pipe" });
+  const [code, output] = await Promise.all([child.exited, child.guardOutput()]);
+  expect(code).not.toBe(0);
+  expect(output).toContain('"success":false,"nativeLaunched":false');
+  expect(output).toContain("positive native proof requires a hosted runner");
+});
+
+
+test("standalone native SDK entries install the guard before importing their runtime dependencies", () => {
+  const entries = [
+    "scripts/measure-claude-capability.ts", "scripts/measure-claude-runtime.ts", "scripts/measure-claude-usage.ts",
+    "scripts/measure-claude-haiku.ts", "scripts/measure-claude-enforcement.ts", "scripts/measure-claude-delegation.ts",
+    "scripts/measure-show-block.ts", "scripts/measure-show-block-server.ts",
+    "scripts/measure-turn-surface-live.ts", "scripts/measure-turn-surface-tokens.ts", "scripts/show-block-schema-forms.ts",
+    "scripts/capture-turn-surface.ts", "scripts/turn-surface-overlap.ts", "scripts/fixtures/claude-core-default-probe.ts",
+    "scripts/native-proof/hosted-app-child.ts", "scripts/native-proof/reference-integration-child.ts",
+    "experiments/fixtures/runtime-placement-probe.ts", "experiments/2052-title-provenance/probe.ts",
+  ];
+  for (const entry of entries) {
+    const source = readFileSync(join(ROOT, entry), "utf8");
+    // A first side-effect import evaluates the guard before static SDK imports,
+    // backend dependencies or dynamic SDK resolution in the entry's body.
+    expect(source.split("\n")[0], entry).toMatch(/^import (?:.* from )?"(?:\.\.\/|\.\/)+(?:scripts\/)?(?:test-network-child-preload|measurement-entry-preload)\.ts";$/);
+  }
+  const preload = readFileSync(join(ROOT, "scripts/test-network-child-preload.ts"), "utf8");
+  expect(preload).toContain("const guard = installNetworkGuard();");
+  expect(preload.indexOf("installNetworkGuard();")).toBeLessThan(preload.indexOf('await import("bun:test")'));
 });

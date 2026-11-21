@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { constants, mkdtempSync, mkdirSync, openSync, writeFileSync, readFileSync, readdirSync, rmSync, renameSync, existsSync, linkSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -215,7 +216,7 @@ test("root and ancestor pins keep live peer additions behind a fixed directory c
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([ready(), new Promise((_, reject) => { timer = setTimeout(() => reject(Error("Provider folder reader readiness timed out")), 5000); })]);
+    await Promise.race([ready(), new Promise((_, reject) => { timer = setTimeout(() => reject(Error("Provider folder reader readiness timed out")), watchdogMs(5000)); })]);
     clearTimeout(timer);
     const writer = Bun.spawnSync(workerCommand({ brainPath: brain, sandbox: prepare(), env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c", `
       mv -T group/private group/moved-private 2>/dev/null; printf 'root=%s\\n' "$?"
@@ -368,7 +369,7 @@ test("a broker brain view qualifies mounts only as the worker's own brain mount"
     const qualify = (path: string) => {
       let closed = 0;
       const open = () => openSync(path, constants.O_RDONLY | constants.O_DIRECTORY), close = () => { closed++; };
-      const run = () => verifyWorkerFolderMounts(brain, sandbox.protection, sandbox.retainedFolders, pid, Date.now() + 5_000, undefined,
+      const run = () => verifyWorkerFolderMounts(brain, sandbox.protection, sandbox.retainedFolders, pid, Date.now() + watchdogMs(5_000), undefined,
         { open: () => workerStep(open, async () => open()), close: () => workerStep(close, async () => close()) });
       return { run, closed: () => closed };
     };

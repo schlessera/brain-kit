@@ -1,3 +1,4 @@
+import { measurementAuthorizationArgs } from "./measurement-entry-preload.ts";
 // Measures how often a backend reaches for `show_block` (D41) and what the
 // classification pass (D42) finds in the markdown it typed instead —
 // through the running server, so any backend can be measured.
@@ -16,9 +17,9 @@
 //
 // Two modes:
 //
-//   bun scripts/measure-show-block-server.ts --brain <dir> --out runs.json \
+//   bun scripts/measure-show-block-server.ts --allow-real-provider --brain <dir> --out runs.json \
 //     [--backend pi|claude] [--model claude-sonnet-5-5] [--prompts 0,1,2,3] [--runs 6]
-//   bun scripts/measure-show-block-server.ts --suggestions --brain <dir> --backend pi --runs 3 --out suggestions.json
+//   bun scripts/measure-show-block-server.ts --allow-real-provider --suggestions --brain <dir> --backend pi --runs 3 --out suggestions.json
 //   bun scripts/measure-show-block-server.ts --report runs.json [more.json …]
 //
 // Point `--brain` at a copy of a brain OUTSIDE any checkout of this repo.
@@ -904,7 +905,7 @@ async function measureSuggestionArms(): Promise<void> {
     const armOut = `${out}.${arm}.json`;
     const args = process.argv.slice(2);
     args[args.indexOf("--out") + 1] = armOut;
-    const child = Bun.spawn([process.execPath, "--preload", join(import.meta.dir, "measure-suggestions-preload.ts"), import.meta.path, ...args], {
+    const child = Bun.spawn([process.execPath, "--preload", join(import.meta.dir, "measure-suggestions-preload.ts"), import.meta.path, ...args, ...measurementAuthorizationArgs], {
       env: { ...process.env, BRAIN_MEASURE_SUGGESTIONS_ARM: arm }, stdout: "inherit", stderr: "inherit",
     });
     if (await child.exited !== 0) throw new Error(`Suggestions arm ${arm} failed; partial records remain in ${armOut}.`);

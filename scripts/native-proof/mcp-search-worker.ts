@@ -1,3 +1,4 @@
+import { watchdogMs } from "../test-deadlines";
 /**
  * Inside an actual strict Claude worker (#2848): the brain's own MCP server,
  * started as the brain's `.mcp.json` starts it (with `BRAIN_ROOT` pinned to
@@ -20,7 +21,7 @@ void (async () => {
 const send = (method: string, params: unknown) => new Promise<Parameters<NonNullable<ReturnType<typeof waiting.get>>>[0]>(done => {
   waiting.set(++id, done); child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`); child.stdin.flush();
 });
-const timer = setTimeout(() => { child.kill("SIGKILL"); console.log(JSON.stringify({ error: "the brain MCP server did not answer within 60 s" })); process.exit(1); }, 60_000);
+const timer = setTimeout(() => { child.kill("SIGKILL"); console.log(JSON.stringify({ error: "the brain MCP server did not answer within 60 s" })); process.exit(1); }, watchdogMs(60_000));
 try {
   await send("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "odysseus-native-worker", version: "0" } });
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`); child.stdin.flush();
@@ -29,4 +30,3 @@ try {
   const paths = [...new Set(text.match(/notes\/scheria-log-\d\d\.md/g) ?? [])].sort();
   console.log(JSON.stringify({ paths, isError: found.result?.isError === true || found.error !== undefined, root: process.env.BRAIN_ROOT, dataRoot: process.env.BRAIN_WORKER_DATA_ROOT }));
 } finally { clearTimeout(timer); child.kill("SIGKILL"); }
-export {};

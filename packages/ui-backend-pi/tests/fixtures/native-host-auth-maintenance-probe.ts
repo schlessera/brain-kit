@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { syncPiAuth } from "../../src/session-storage.js";
 import {
@@ -62,7 +63,7 @@ try {
     home,
     env: { PATH: "/usr/bin:/bin", HOME: home },
     readPaths: restrictedReadPaths([process.execPath, entry]),
-    timeoutMs: 30000,
+    timeoutMs: watchdogMs(30000),
   });
   assert.equal(result.exitCode, 0, result.stderr);
   const observation = JSON.parse(result.stdout.trim().split("\n").at(-1)!);

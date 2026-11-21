@@ -1,3 +1,4 @@
+import { watchdogMs } from "../test-deadlines";
 /**
  * Integrated shared-reference and managed-worktree proof (#2751). Runs only
  * inside reference-pool-fixture.py, on its owned Btrfs store and reference
@@ -79,7 +80,7 @@ function command(argv: string[], options: { cwd?: string } = {}): string {
   return result.stdout.toString();
 }
 async function until(check: () => boolean, label: string, deadlineMs = 60_000) {
-  const end = performance.now() + deadlineMs;
+  const end = performance.now() + watchdogMs(deadlineMs);
   while (!check()) { if (performance.now() > end) throw Error(`Wait deadline exceeded: ${label}`); await Bun.sleep(25); }
 }
 const fsid = (path: string) => command(["btrfs", "filesystem", "show", "--raw", path]).split("uuid: ")[1]!.split(/\s/)[0]!;
@@ -136,10 +137,10 @@ const staging = hostOutputStagingLimits({});
 const socket = "/native-runtime/manager.sock";
 const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-store-loop", fsid: fsid("/brain-fixture"), brainUuid: subvolUuid(brain),
   socketPath: socket, appUid: APP_UID, appGid: APP_UID, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
-  capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * MIB, operationTimeoutMs: 20_000,
+  capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * MIB, operationTimeoutMs: /* native-hang-guard: Successful native manager integration operations; timeout outcome is not exercised. */ watchdogMs(20_000),
   referencePool: { storePath: POOL, devicePath: "/dev/brain-pool-loop", fsid: fsid(POOL), combinedLimitBytes: 256 * MIB, operationLimitBytes: 32 * MIB,
     emergencyBytes: 4 * MIB, physicalFloorBytes: 64 * MIB, headroomLedgerPath: "/native-backing/ledger/headroom.json", maxIdentities: 256 } });
-const manager = createNativeBrainManagerClient({ socketPath: socket, timeoutMs: 20_000 });
+const manager = createNativeBrainManagerClient({ socketPath: socket, timeoutMs: watchdogMs(20_000) });
 const ready = await manager.ready();
 note("native-ready", { ready });
 const qualified = await manager.poolStatus();
@@ -217,7 +218,7 @@ async function run(backend: "claude" | "pi") {
       Bun.spawnSync(["sync"]);
       const before = poolIo(), began = performance.now();
       const loops = [
-        (async () => { while (running) { const at = performance.now(); const status = await fetch(origin + "/api/health", { signal: AbortSignal.timeout(10_000) }).then(response => response.status, () => 0); health.push({ turn, ms: performance.now() - at, status }); await Bun.sleep(100); } })(),
+        (async () => { while (running) { const at = performance.now(); const status = await fetch(origin + "/api/health", { signal: AbortSignal.timeout(watchdogMs(10_000)) }).then(response => response.status, () => 0); health.push({ turn, ms: performance.now() - at, status }); await Bun.sleep(100); } })(),
         (async () => { while (running) { const probeId = `odysseus-${backend}-${turn}-${probes++}`; pings.set(probeId, { turn, sent: performance.now() }); ws!.send(JSON.stringify({ type: "ping", probeId })); await Bun.sleep(200); } })(),
         // Read-only sysfs, never the manager: a second client polling it mid-turn would queue behind, and perturb, the app's own pool calls.
         (async () => { while (running) { const value = poolDiskUsed();

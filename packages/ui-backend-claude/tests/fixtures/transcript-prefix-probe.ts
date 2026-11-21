@@ -1,3 +1,6 @@
+import "../../../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../../../scripts/test-deadlines";
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Narrow #2049 proof; follows the offline CLI pattern from #2053/#2047. */
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -42,18 +45,19 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   events.push({ type: "message_delta", delta: { stop_reason: index < 2 ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
   return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
+nativeScriptedService(server.url.origin, { fixtureRoots: [scratch] });
 let sessionId: string | undefined;
 try {
   for (let turnIndex = 0; turnIndex < 2; turnIndex++) {
     const controller = new AbortController(), view = createFixtureWorkerStartupView(brain);
-    const sandbox = prepareFixtureWorkerSandbox(brain, { home: process.env.HOME, profile: "strict" });
+    const sandbox = prepareFixtureWorkerSandbox(brain, { home: process.env.HOME, profile: "strict", areas: [] });
     const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: turnIndex ? "Use the chart" : "Prepare the chart", sessionId,
       signal: controller.signal, turnId: `odysseus-${turnIndex}`, workerStartupView: view, workerSandbox: sandbox,
       bridge: { emit() {}, async requestPermission() { return { behavior: "allow" }; } } },
       profile: { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
         ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus", ...(!cacheEnabled ? { DISABLE_PROMPT_CACHING: "1" } : {}), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }) },
       abortController: controller, allowedTools: ["Read", "Bash"], confirmPatterns: [], turnLock: { acquire() {}, release() {} } as never, log() {} });
-    const deadline = setTimeout(() => controller.abort(), 45000);
+    const deadline = setTimeout(() => controller.abort(), watchdogMs(45000));
     try {
       let success = false;
       for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

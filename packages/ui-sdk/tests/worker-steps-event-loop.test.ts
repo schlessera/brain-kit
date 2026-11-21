@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 /**
  * The asynchronous worker checks leave the server's event loop free (#2416).
  * A synchronous probe, sandbox check or launch blocks every other request
@@ -372,7 +373,7 @@ function readyBroker(supervisor: number): Broker {
   try {
     const { ready } = JSON.parse(broker.command.at(-1)!) as { ready: string };
     writeFileSync(ready, JSON.stringify({ ok: true, workerUid: process.getuid!() + 1, worker: { pid: 2, start: "1" }, roots: {} }));
-    broker.ready(supervisor, Date.now() + 5_000);
+    broker.ready(supervisor, Date.now() + watchdogMs(5_000));
     return broker;
   } catch (error) { broker.discard(); throw error; }
 }

@@ -1,3 +1,6 @@
+import "../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../scripts/test-deadlines";
+import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 import { spyOn } from "bun:test";
 import * as startup from "../../packages/ui-sdk/src/server/worker-startup-view.js";
 import { createFixtureWorkerStartupView } from "../../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
@@ -125,7 +128,7 @@ async function server(): Promise<void> {
     secrets: [join(home, ".ssh/id_odysseus"), join(root, "claude/.credentials.json"), join(root, "pi/settings.json"), join(brainPath, ".git/config")],
     hostHome: home, upstreamPort: 0, policy: policyPath });
   const shell = adapter === "claude" ? "Bash" : "bash";
-  const bash = (command: string) => adapter === "claude" ? { name: "Bash", input: { command, timeout: 60000 } } : { name: "bash", input: { command } };
+  const bash = (command: string) => adapter === "claude" ? { name: "Bash", input: { command, timeout: /* native-product-timing: Bash tool-input execution budget is a product parameter, not a fixture watchdog. */ 60000 } } : { name: "bash", input: { command } };
   // An out-of-roster call must escalate to a durable decision, never run.
   const outside = adapter === "claude" ? { name: "mcp__brain-ui__show_block", input: { block: { type: "callout", text: "Odysseus" } } }
     : { name: "read_file", input: { path: "context/policies/crew.md" } };
@@ -171,6 +174,7 @@ async function server(): Promise<void> {
     events.push({ type: "message_delta", delta: { stop_reason: chosen.length ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
     return new Response(events.map((e: any) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   } }));
+  nativeScriptedService(upstream.url.origin, { fixtureRoots: [root] });
   const url = `http://127.0.0.1:${upstream.port}`;
   writeFileSync(join(root, "pi/models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: url } } }));
   const backend = adapter === "claude"
@@ -215,7 +219,7 @@ async function server(): Promise<void> {
     result = await runAutonomousTurn({ db, store: createActivityStore(db, { writer: "autonomous-containment", pricing }), backend, brainPath, nativeManager: nativeHost.nativeManager,
       emit: frame => frames.push(frame as Record<string, any>), checkpoint: intent => { settled.push(JSON.parse(JSON.stringify(intent))); } },
       { turnId: "share-run", principalId: principal.id, prompt: `Triage this staged share.\n---\n${share}`, profileId: "fixture", billingMode: "api",
-        allowedTools: adapter === "claude" ? [shell, "Agent"] : [shell], systemPromptAppend: `${SNAPSHOT}: triage only; stage findings in scratch.`, signal: AbortSignal.timeout(100_000) });
+        allowedTools: adapter === "claude" ? [shell, "Agent"] : [shell], systemPromptAppend: `${SNAPSHOT}: triage only; stage findings in scratch.`, signal: AbortSignal.timeout(watchdogMs(100_000)) });
   } catch (error) { failure = { name: (error as Error).name, message: (error as Error).message }; }
   Bun.spawn = original.spawn; Bun.spawnSync = original.spawnSync;
   const toolResults = frames.filter(f => f.type === "tool_result").map(f => ({ toolUseId: f.toolUseId, isError: f.isError, output: String(f.output ?? "") }));

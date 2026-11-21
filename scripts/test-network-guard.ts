@@ -1,5 +1,8 @@
+import { inheritNativeReceipts, withoutNativeReceipts, nativeReceipt, flushNativeReceipts } from "./native-test-receipts.ts";
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
+import { prepareNativeBootstrapDiagnostics, recordNativeGuardChild, isGuardedNativePlan, guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, nativeTestHead, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
 import { basename, join } from "node:path";
+import { Server as HttpServer } from "node:http";
 import { isIP, Socket } from "node:net";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
 
@@ -28,6 +31,17 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
 export function installNetworkGuard(): { assertNoEscapes(): void } {
   if (installed) return installed;
   Object.assign(process.env, testGitEnvironment(process.env));
+  const nativeHttpListen = HttpServer.prototype.listen;
+  const nativeHttpEmit = HttpServer.prototype.emit;
+  HttpServer.prototype.listen = function(this: HttpServer, ...args: unknown[]) {
+    guardNativeHttpListen(this, args);
+    return Reflect.apply(nativeHttpListen, this, args);
+  } as typeof nativeHttpListen;
+  HttpServer.prototype.emit = function(this: HttpServer, ...args: unknown[]) {
+    return guardNativeHttpEvent(this, args[0], () => Reflect.apply(nativeHttpEmit, this, args));
+  } as typeof nativeHttpEmit;
+  const nativeServe = Bun.serve;
+  Bun.serve = ((options: any) => guardNativeRelayServer(options, value => nativeServe(value))) as typeof Bun.serve;
   const escapes: string[] = [];
   let reported = 0;
   const message = () => `Offline test guard: attempted real network access\n${escapes.join("\n")}`;
@@ -36,6 +50,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
     throw new Error(message());
   }
   function permitted(url: URL): void {
+    assertNativeRelayDestination(url);
     if (!["http:", "https:"].includes(url.protocol) || !LOOPBACK.has(url.hostname)) {
       refuse(`fetch ${url.href}`);
     }
@@ -58,8 +73,10 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         };
       // Unix paths and adoption/TLS upgrades of an existing socket open no
       // new TCP destination. SNI on an adopted socket is not its address.
+      if (options.path) assertNativeRelayUnix(options.path);
       if (!options.path && !options.socket && options.fd == null) {
         const host = options.host ?? "localhost";
+        assertNativeRelaySocket(host, options.port);
         if (!socketLoopback(host)) refuse(`socket.connect ${host}:${options.port}`);
       }
       return Reflect.apply(nativeSocketConnect, this, args);
@@ -69,6 +86,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
   Object.defineProperty(Bun, "connect", {
     ...Object.getOwnPropertyDescriptor(Bun, "connect"),
     value: async function offlineBunConnect(options: Bun.TCPSocketConnectOptions<unknown> | Bun.UnixSocketOptions<unknown>) {
+      if ("hostname" in options) assertNativeRelaySocket(options.hostname, options.port);
+      else if ("unix" in options) assertNativeRelayUnix(options.unix);
       if ("hostname" in options && !socketLoopback(options.hostname)) {
         refuse(`Bun.connect ${options.hostname}:${options.port}`);
       }
@@ -86,6 +105,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
     // A Unix socket never leaves the host; `new Request` drops Bun's `unix`
     // option, so every hop passes it on or a socket request becomes TCP.
     const unix = (init as RequestInit & { unix?: string } | undefined)?.unix;
+    if (unix) assertNativeRelayUnix(unix);
     for (let hop = 0; ; hop++) {
       const replay = request.clone();
       let replayBody = replay.body;
@@ -150,19 +170,58 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       // actual output owner in its ancestor, never pass its writable lock fd
       // into a pipe-only boundary. This is test coordination, not a worker flag.
       const pipeOnly = /\/ui-sdk\/(src|dist)\/server\/worker-entry\.(ts|js)$/.test(cmd[1] ?? "");
-      const options = (Array.isArray(first) ? args[1] ?? {} : args[0]) as { env?: Record<string, string | undefined> };
+      const options = (Array.isArray(first) ? args[1] ?? {} : args[0]) as { cwd?: string; env?: Record<string, string | undefined> };
       // Fixture helpers often replace env completely, including provider-history
       // probes. Carry test Git policy through those children as well as shells.
-      const inherited = inheritWorkspaceLease({ ...options, env: testGitEnvironment(options.env ?? process.env) }, defaultStderr, pipeOnly);
+      let boundary: ReturnType<typeof nativeClaudeBoundary> | undefined;
+      // Runtime provenance also covers wrapper/interpreter arguments;
+      // non-file status descriptors are excluded before resolving identity.
+      if (isNativeClaude(executable, cmd.slice(1), options)) {
+        if (key === "spawnSync") refuseNativeClaude(executable, cmd.slice(1), options);
+        boundary = nativeClaudeBoundary(executable, cmd.slice(1), options);
+        args[0] = Array.isArray(first) ? boundary.argv : { ...first, cmd: boundary.argv };
+      }
+      const workerBoundary = boundary ? undefined : nativeWorkerBoundary(testGitEnvironment({ ...options.env ?? process.env,
+        ...(options.env?.BRAIN_NATIVE_TEST_HEAD === undefined ? { BRAIN_NATIVE_TEST_HEAD: nativeTestHead() } : {}),
+        ...(options.env?.GITHUB_ACTIONS === undefined && process.env.GITHUB_ACTIONS === "true" ? { GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: options.env?.RUNNER_ENVIRONMENT ?? process.env.RUNNER_ENVIRONMENT } : {}) }));
+      let inherited = inheritWorkspaceLease({ ...options, env: boundary?.env ?? workerBoundary!.env }, defaultStderr, pipeOnly);
+      if(!boundary&&!pipeOnly&&!isGuardedNativePlan(cmd)){
+        const actual=Array.isArray(args[0])?args[0] as string[]:(args[0] as {cmd:string[]}).cmd;
+        const channel=inheritNativeReceipts(inherited,actual,defaultStderr);inherited=channel.options;
+        args[0]=Array.isArray(first)?channel.argv:{...args[0] as object,cmd:channel.argv};
+      }else inherited=withoutNativeReceipts(inherited);
+      const bootstrap = key === "spawn" && pipeOnly && Boolean(options.env?.BRAIN_WORKER_LAUNCH);
+      // A synchronous non-native probe may read its FIFO without awaiting exited.
+      // Only an admitted native plan owns the asynchronous diagnostic writer.
+      const bootstrapDiagnostics = bootstrap && (boundary !== undefined || workerBoundary?.native === true) ? prepareNativeBootstrapDiagnostics(inherited) : undefined;
+      if (bootstrapDiagnostics) inherited=bootstrapDiagnostics.options as typeof inherited;
       if (Array.isArray(first)) args[1] = inherited;
-      else args[0] = inherited;
-      const result = Reflect.apply(native, Bun, args);
-      return result;
+      else args[0] = { ...inherited, cmd: (args[0] as { cmd: string[] }).cmd };
+      try {
+        boundary?.beforeLaunch(); workerBoundary?.beforeLaunch();
+        const result = Reflect.apply(native, Bun, args);
+        if (key === "spawn") {
+          const exited=result.exited,evidence=bootstrapDiagnostics?.attach(result);
+          const report=recordNativeGuardChild(result,bootstrap,evidence,boundary?.nativeExecuted??workerBoundary?.nativeExecuted);
+          workerBoundary?.observe?.(result.pid);
+          const completed=exited.then(async(code:number)=>{
+            await evidence?.drained;await report;
+            boundary?.dispose();workerBoundary?.dispose();flushNativeReceipts();return code;
+          });
+          // Callers can synchronously read a protocol FIFO after this promise.
+          // No guard-owned writer or deferred receipt remains when it resolves.
+          Object.defineProperty(result,"exited",{value:completed,configurable:true});
+        }
+        else {workerBoundary?.dispose();flushNativeReceipts();}
+        return result;
+      } catch (error) { bootstrapDiagnostics?.dispose(); boundary?.dispose(); workerBoundary?.dispose(); throw error; }
     }) as typeof Bun.spawn & typeof Bun.spawnSync;
   }
 
   installed = {
     assertNoEscapes() {
+      flushNativeReceipts();
+      assertNoNativeRefusals();
       if (escapes.length > reported) {
         reported = escapes.length;
         throw new Error(message());
@@ -172,8 +231,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
   // Ordinary Bun children have no test hooks. A caught error, including one
   // followed by process.exit(0), must still make that process unsuccessful.
   process.on("exit", () => {
-    if (escapes.length) {
-      console.error(message());
+    if (escapes.length || nativeIsolationFailed()) {
+      if(escapes.length)console.error(message());else nativeReceipt({kind:"native-offline-invocation-failed",head:nativeTestHead(),success:false,reason:"native isolation failed; see native-offline-* receipts"});
       process.exit(1);
     }
   });

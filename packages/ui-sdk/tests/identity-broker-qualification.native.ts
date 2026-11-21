@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 /** Explicit disposable-container proof; never installs a helper on the host. */
 import { expect, spyOn } from "bun:test";
 import * as identity from "../src/server/worker-identity.js";
@@ -18,7 +19,7 @@ const MIB = 1024 * 1024;
 let cases = 0;
 const sleep = (ms: number) => Bun.sleep(ms);
 async function until(condition: () => boolean, label: string, timeout = 5000) {
-  const deadline = Date.now() + timeout;
+  const deadline = Date.now() + watchdogMs(timeout);
   while (!condition()) { if (Date.now() >= deadline) throw Error(label); await sleep(20); }
 }
 function workerPids(): number[] {
@@ -47,7 +48,7 @@ async function close(worker: LaunchedWorker) {
 }
 async function check(name: string, run: () => Promise<void>) {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  try { await Promise.race([run(), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(Error(`IDENTITY_CASE_TIMED_OUT: ${name}`)), 20000); })]); }
+  try { await Promise.race([run(), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(Error(`IDENTITY_CASE_TIMED_OUT: ${name}`)), watchdogMs(20000)); })]); }
   finally { clearTimeout(timer); }
   cases++; console.log(JSON.stringify({ case: name, result: "pass" }));
 }
@@ -365,7 +366,7 @@ control=[(socket.SOL_SOCKET,socket.SCM_RIGHTS,array.array('i',[os.open('/dev/nul
 left.sendmsg([request.encode()],control)
 reply=json.loads(left.recv(65536));out,error=child.communicate(timeout=5)
 print(json.dumps(dict(reply=reply,code=child.returncode)))`;
-        const child=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",script],{env:{},stdout:"pipe",stderr:"pipe",timeout:7000});
+        const child=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",script],{env:{},stdout:"pipe",stderr:"pipe",timeout:watchdogMs(7000)});
         expect(child.exitCode,attempt.name+": "+child.stderr.toString()).toBe(0);
         const result=JSON.parse(child.stdout.toString());expect(result.code).toBe(125);expect(result.reply.ok).toBe(false);expect(result.reply.reason).toContain(attempt.reason);
       }

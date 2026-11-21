@@ -1,3 +1,6 @@
+import "../test-network-child-preload.ts";
+import { watchdogMs } from "../test-deadlines";
+import { nativeScriptedService } from "../test-native-guard.ts";
 /** Actual core factory, actual bundled CLI, networkless fictional control only. */
 import { mkdirSync,writeFileSync,readFileSync,existsSync,appendFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,18 +29,19 @@ for(const arm of ["allow","deny"]){
   entry.forwarded=true;entry.servedModel=MODEL;const call=plans[turn++];const bytes=call?reply([{type:"tool_use",id:"tool_"+arm+"_"+turn,name:call.name,input:call.input}],"tool_use"):reply([{type:"text",text:"Odysseus controlled turn complete."}],"end_turn");entry.rawResponse=bytes;writeFileSync(join(output,arm+"-physical.json"),JSON.stringify(physical,null,2));
   return new Response(bytes,{headers:{"content-type":"text/event-stream","anthropic-ratelimit-unified-status":"allowed","anthropic-ratelimit-unified-overage-status":"disabled"}});
  }});
+ nativeScriptedService(server.url.origin);
  Object.assign(process.env,{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),CLAUDE_CODE_OAUTH_TOKEN:OAUTH,ANTHROPIC_BASE_URL:`http://127.0.0.1:${server.port}`,ANTHROPIC_MODEL:MODEL,ANTHROPIC_DEFAULT_SONNET_MODEL:MODEL,ANTHROPIC_DEFAULT_OPUS_MODEL:MODEL,ANTHROPIC_DEFAULT_HAIKU_MODEL:MODEL,ANTHROPIC_SMALL_FAST_MODEL:MODEL,CLAUDE_CODE_SUBAGENT_MODEL:MODEL,CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"});
  const original=nativeSpawn;let close:Promise<any>|undefined,stdout:Promise<string>|undefined,stderr:Promise<string>|undefined,args:any,stdin="",forcedKill=false;
  observedSpawn=(command:any,options:any)=>{
   args=command;writeFileSync(join(output,arm+"-args.json"),JSON.stringify(command));const child:any=Reflect.apply(original,Bun,[command,options]);const [out,copy]=child.stdout.tee(),[err,errcopy]=child.stderr!.tee();
   const collect=async(stream:any,path:string)=>{let text="",reader=stream.getReader(),decoder=new TextDecoder();for(;;){const {done,value}=await reader.read();if(done)break;appendFileSync(path,value);text+=decoder.decode(value,{stream:true});}return text+decoder.decode();};stdout=collect(copy,join(output,arm+"-stdout.jsonl"));stderr=collect(errcopy,join(output,arm+"-stderr.bin"));close=child.exited;
-  const watchdog=setTimeout(()=>{forcedKill=true;child.kill("SIGKILL");},20000);void child.exited.then(()=>clearTimeout(watchdog));
+  const watchdog=setTimeout(()=>{forcedKill=true;child.kill("SIGKILL");},watchdogMs(20000));void child.exited.then(()=>clearTimeout(watchdog));
   const sink=child.stdin!;
   return {stdout:out,stderr:err,exited:child.exited,kill:child.kill.bind(child),stdin:{write(chunk:any){stdin+=typeof chunk==="string"?chunk:Buffer.from(chunk).toString("utf8");writeFileSync(join(output,arm+"-stdin.jsonl"),stdin);return sink.write(chunk);},flush:sink.flush.bind(sink),end:sink.end.bind(sink)}};
 
  };
  let result:string|null=null,error:string|null=null;const events:any[]=[],runtimes:any[]=[];
- try{const runner=claudeRunner();result=arm==="allow"?await runner.runStreaming!("Inspect and maintain the fictional raft.",{cwd,onEvent:e=>events.push(e),onRuntime:r=>runtimes.push(r)}):await runner.run("Respect the operator's denied Write.",{cwd,timeoutMs:25000,onRuntime:r=>runtimes.push(r)});}catch(e){error=String(e);}
+ try{const runner=claudeRunner();result=arm==="allow"?await runner.runStreaming!("Inspect and maintain the fictional raft.",{cwd,onEvent:e=>events.push(e),onRuntime:r=>runtimes.push(r)}):await runner.run("Respect the operator's denied Write.",{cwd,timeoutMs:watchdogMs(25000),onRuntime:r=>runtimes.push(r)});}catch(e){error=String(e);}
  const [exitCode,rawStdout,rawStderr]=await Promise.all([close,stdout,stderr]);await server.stop(true);
  const record={arm,args,stdin,forcedKill,rawStdout,rawStderr,exitCode,result,error,events,runtimes,physical,bashMarker:existsSync(join(cwd,"bash-marker.txt")),bashContent:existsSync(join(cwd,"bash-marker.txt"))?readFileSync(join(cwd,"bash-marker.txt"),"utf8"):null,allowedContent:existsSync(join(cwd,"allowed.md"))?readFileSync(join(cwd,"allowed.md"),"utf8"):null,deniedWritten:existsSync(join(cwd,"denied.md")),ownedDrained:exitCode!==undefined&&rawStdout!==undefined&&rawStderr!==undefined};observations.push(record);
 }

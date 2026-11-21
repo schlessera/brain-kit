@@ -1,3 +1,4 @@
+import "./measurement-entry-preload.ts";
 /**
  * The schema forms #336 A/Bs, and the credential its live half runs on.
  *

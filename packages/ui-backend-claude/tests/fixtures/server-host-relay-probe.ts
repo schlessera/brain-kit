@@ -1,5 +1,11 @@
+import { recordNativeRelayTurn } from "../helpers/native-relay-turn-diagnostic.js";
+import { watchdogMs } from "../../../../scripts/test-deadlines.ts";
+import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
+import "../../../../scripts/test-network-child-preload.ts";
+import { workerPlanMasksHostLogin } from "../helpers/native-host-login-mask.js";
+import { isNativeClaude, nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Real turn runner and an explicitly prepared transport; no live provider calls. */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect } from "bun:test";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -12,7 +18,7 @@ import { createNativeBrainManagerClient } from "../../../ui-sdk/src/server/nativ
 import { Database } from "bun:sqlite";
 
 
-const root = mkdtempSync(join(tmpdir(), "odysseus-server-inference-"));
+const root = nativeFixtureDirectory("odysseus-server-inference-");
 const managed = process.argv.includes("--managed");
 const brainPath = managed ? "/brain-fixture/brain" : join(root, "brain");
 // outside-masks: the host's Claude config sits where no host mask hides it (the caller mounts /opt).
@@ -60,9 +66,12 @@ if (mode === "server-custom-project-same" || mode === "server-custom-project-oth
     mode === "server-custom-project-same" ? "https://GATEWAY.ithaca.invalid:443/anthropic/" : "https://gateway.ithaca.invalid/other-tenant" } }));
 }
 if (mode === "server-custom-other-port") process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://gateway.ithaca.invalid:8443";
+let managedSettingsFile:string|undefined;
 if (mode === "managed-custom") {
   mkdirSync("/etc/claude-code");
-  writeFileSync("/etc/claude-code/managed-settings.json", JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
+  const json=JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } });
+  managedSettingsFile="/etc/claude-code/managed-settings.json";
+  writeFileSync("/etc/claude-code/managed-settings.json",json);
 }
 if (mode === "api-key-project-credential") {
   mkdirSync(join(brainPath, ".claude"));
@@ -79,7 +88,13 @@ const nativeEnvironments: string[] = [];
 let liveWorker: { pid: number; state?: { root: string } } | undefined;
 let stateFiles = "";
 /** Whether a process in the worker's own mount namespace could open the host login file. */
-let hostLoginVisible: boolean | null = null, controlVisible = false;
+let hostLoginVisible: boolean | null = null, controlVisible = false, productionLoginMaskPresent=false;
+const originalSpawn=Bun.spawn;
+if(mode==="outside-masks")Bun.spawn=((...args:any[])=>{
+ const encoded=args[1]?.env?.BRAIN_WORKER_LAUNCH;
+ if(encoded){const launch=JSON.parse(encoded);if(Array.isArray(launch.command)&&isNativeClaude(launch.command[0],launch.command.slice(1),{cwd:launch.brainPath,env:launch.env}))productionLoginMaskPresent=workerPlanMasksHostLogin(launch.argv,join(config,".credentials.json"));}
+ return Reflect.apply(originalSpawn,Bun,args);
+}) as typeof Bun.spawn;
 function workerViewOfHostLogin(): void {
   const pending = [liveWorker?.pid ?? 0];
   hostLoginVisible ??= false;
@@ -123,6 +138,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   requests.push({ credential: tokens.indexOf(request.headers.get("authorization")?.replace("Bearer ", "") ?? ""), model: body.model, history: body.messages.length });
   return nativeModelReply();
 } });
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brainPath, home,...(managedSettingsFile?["/etc/claude-code"]:[])],fixtureFiles:[...(managedSettingsFile?[managedSettingsFile]:[]),...(mode === "outside-masks"?[join(config,"visible.json")]:[])] });
 const nativeFetch = globalThis.fetch;
 globalThis.fetch = (async (input, init) => {
   const target = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);
@@ -175,7 +191,8 @@ try {
   for (let turn = 0; turn < (mode === "three" ? 3 : mode === "cleanup-failure" ? 2 : 1); turn++) {
     if (turn === 1) { save(1); model = "claude-sonnet-4-6"; }
     if (turn === 2) { save(1, true); model = "claude-haiku-4-5"; }
-    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20000);
+    const turnStarted=performance.now(),requestStart=requests.length,refreshStart=refreshes,frameStart=frames.length;
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), watchdogMs(20000));
     const turnId = `turn-ithaca-${turn}`;
     const tracked = new Set<EventListenerOrEventListenerObject>();
     const add = controller.signal.addEventListener.bind(controller.signal), remove = controller.signal.removeEventListener.bind(controller.signal);
@@ -217,6 +234,11 @@ try {
       cleanupFailures.push(String(error));
       expect(String(error), "ACTUAL_NATIVE_RELEASE_FAILURE_PROPAGATED").toContain("Claude turn cleanup did not complete");
     } finally {
+      const terminal=frames.slice(frameStart).reverse().find(frame=>frame.type==="result"||frame.type==="error");
+      recordNativeRelayTurn({elapsedMs:performance.now()-turnStarted,aborted:controller.signal.aborted,
+        requestDelta:requests.length-requestStart,refreshDelta:refreshes-refreshStart,
+        outcome:terminal?.type==="result"?terminal.outcome:undefined,
+        errorClass:terminal?.type==="result"?terminal.failure?.errorClass:terminal?.type==="error"?terminal.failure?.errorClass:undefined});
       if (mode === "cleanup-failure") {
         expect(existsSync(join(proxy.dir, "inference.sock")), "NATIVE_RELEASE_FAILURE_RELAY_LINK_REMOVED").toBe(false);
         expect(readdirSync(tmpdir()).filter(name => name.startsWith("brain-inference-")), "NATIVE_RELEASE_FAILURE_RELAY_DIRECTORY_REMOVED").toEqual(relayDirectories);
@@ -226,7 +248,7 @@ try {
     }
   }
   const observed = JSON.stringify({ nativeEnvironments, stateFiles });
-  console.log(JSON.stringify({ requests, refreshes, apiRequests, nativeEnvironmentCount: nativeEnvironments.length, hostLoginVisible, controlVisible,
+  console.log(JSON.stringify({ requests, refreshes, apiRequests, nativeEnvironmentCount: nativeEnvironments.length, hostLoginVisible, controlVisible, productionLoginMaskPresent,
     secretInWorker: [apiSecret, hostLogin, ambientBearer, ambientRouter, cliGemini, cliTypesafe].some(secret => observed.includes(secret)),
     withheldKeys: nativeEnvironments.map(value => /(?:^|\0)BRAIN_WITHHELD_KEYS=([^\0]*)/.exec(value)?.[1] ?? null),
     workerPlaceholders: nativeEnvironments.map(value => ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ODYSSEUS_ANTHROPIC_KEY"]
@@ -234,4 +256,4 @@ try {
     results: frames.filter(frame => frame.type === "result" || frame.type === "error"),
     observations: (db.query("SELECT session_id, model, record FROM observations").all() as Array<{ session_id: string; model: string; record: string }>).map(row => ({ sessionId: row.session_id, model: row.model, payload: JSON.parse(row.record) })),
   }));
-} finally { globalThis.fetch = nativeFetch; provider.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }
+} finally { Bun.spawn=originalSpawn;globalThis.fetch = nativeFetch; provider.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }

@@ -1,3 +1,4 @@
+import "./measurement-entry-preload.ts";
 /** #587 offline mechanics. This entry has no live transport or query import. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

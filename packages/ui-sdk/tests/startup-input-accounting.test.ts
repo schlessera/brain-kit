@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { expect, test } from "bun:test";
 import { mkdtempSync, openSync, writeSync, closeSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -96,7 +97,7 @@ await Bun.stdin.text();`;
     const alive = (pid: number) => {
       try { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "")[0] !== "Z"; } catch { return false; }
     };
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + watchdogMs(5000);
     while ((existsSync(receipt.root) || alive(receipt.inputKeeper) || alive(receipt.outputKeeper)) && Date.now() < deadline) await Bun.sleep(5);
     expect(existsSync(receipt.root), "NO_IMMUTABLE_BYTES_LEFT_AFTER_SERVER_SIGKILL").toBe(false);
     expect(alive(receipt.inputKeeper), "NO_INPUT_CLEANUP_KEEPER_LEFT").toBe(false);

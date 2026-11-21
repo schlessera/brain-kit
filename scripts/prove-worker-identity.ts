@@ -1,3 +1,4 @@
+import { watchdogMs } from "./test-deadlines";
 /** Real cross-UID broker proof; fixture elevation exists only in this container. */
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -9,6 +10,7 @@ import { ownedPruneVariant, ownedPruneDiagnosticSelected, bootPruneCaptureVarian
 import { dbRepeatStageVariant } from "./native-proof/db-repeat-variant.js";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 import { WORKER_FILESYSTEM_FILTER_PROGRAM } from "../packages/ui-sdk/src/server/worker-filesystem-filter.js";
+import { nativeGuardEnvironment } from "./native-proof/guard-environment.ts";
 
 /** Fixed, diagnostic-only source variant; never changes the checked-out product files. */
 export function collectorInventoryVariant(collectorSource: string, hostSource: string) {
@@ -67,7 +69,7 @@ process.exitCode = code;
 
 export function workerIdentityDockerArgs(source: string, artifact: string, container: string, image: string, apparmor: boolean, variants: { db: boolean; boot: boolean; prune: boolean; inventory: boolean; scratch: boolean }, bun: string): string[] {
   const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
-  return ["docker", "run", "--name", container, "--rm", "--pull=never", "--network=none", "--cap-drop=ALL", ...capabilities.map(cap => `--cap-add=${cap}`),
+  return ["docker", "run", "--name", container, "--rm", "--pull=never", "--network=none", ...nativeGuardEnvironment(), "--cap-drop=ALL", ...capabilities.map(cap => `--cap-add=${cap}`),
     `--security-opt=seccomp=${join(source, "scripts/native-proof/seccomp.json")}`,
     ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []), "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
     "--mount", `type=bind,source=${dirname(artifact)},target=/proof-runs`,
@@ -354,7 +356,7 @@ exit "$case_code"
     const forward = (signal: NodeJS.Signals) => child.kill(signal);
     for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
     let code: number | undefined, cleanupFailure: Error | undefined, captureFailure: unknown;
-    const timeout = setTimeout(() => child.kill("SIGTERM"), containerTimeoutMs);
+    const timeout = setTimeout(() => child.kill("SIGTERM"), watchdogMs(containerTimeoutMs));
     const capture = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => {
       let text = "";
       for await (const chunk of stream) { const current = new TextDecoder().decode(chunk); text += current; if (channel === "stdout") process.stdout.write(current); else process.stderr.write(current); writeFileSync(join(artifact, channel + ".log"), text); }

@@ -1,3 +1,6 @@
+import "../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../scripts/test-deadlines";
+import {nativeScriptedService} from "../../scripts/test-native-guard.ts";
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
 import { replaceNativeStartupAcquisitionForFixture } from "../../packages/ui-server/tests/helpers/fixture-native-startup.js";
 const restoreNativeAcquisition = replaceNativeStartupAcquisitionForFixture();
@@ -282,7 +285,7 @@ async function server(): Promise<void> {
   const relative = ["context/policies/crew.md", "notes/../context/policies/crew.md", "notes/policy-hardlink.md", "notes/policy-symlink.md",
     "notes/policies-link/crew.md", "Context/Policies/crew.md", "context/ｐolicies/crew.md", "context/policies/new.md"];
   const n = adapter === "claude" ? (name: string) => name.startsWith("$") || /^[A-Z]/.test(name) ? name : `mcp__brain-ui__${name}` : (name: string) => name;
-  const bash = adapter === "claude" ? (command: string) => ({ name: "Bash", input: { command, timeout: 60000 } }) : (command: string) => ({ name: "bash", input: { command } });
+  const bash = adapter === "claude" ? (command: string) => ({ name: "Bash", input: { command, timeout: /* native-product-timing: Bash tool-input execution budget is a product parameter, not a fixture watchdog. */ 60000 } }) : (command: string) => ({ name: "bash", input: { command } });
   const routed = [
     ...relative.map(path => ({ name: n("write_file"), input: { path, content: ESCAPE, expectedBaseHash: path.endsWith("new.md") ? null : policyHash } })),
     ...relative.slice(0, 5).map(path => ({ name: n("edit_file"), input: { path, old_string: "Athena", new_string: ESCAPE, expectedBaseHash: policyHash } })),
@@ -418,6 +421,7 @@ async function server(): Promise<void> {
   const url = `http://127.0.0.1:${inference.port}`;
   const configDir = join(root, "claude"), agentDir = join(root, "pi");
   mkdirSync(configDir, { recursive: true }); mkdirSync(agentDir, { recursive: true });
+  nativeScriptedService(inference.url.origin, { fixtureRoots: [root] });
   process.env.CLAUDE_CONFIG_DIR = configDir;
   process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
   process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -473,7 +477,7 @@ async function server(): Promise<void> {
   const nativeHost = createFixtureTurnHost(brainPath, db, scenario.startsWith("governed") ? "governed" : "strict");
   const { governedTurns, applicationPlanner } = nativeHost;
   const host = new WsHost({ ...nativeHost, governedTurns, applicationPlanner, brainPath, registry: createStaticBackendRegistry([selected as typeof backend], adapter),
-    catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream, governance: event => recordGovernanceEvent(db, event) }, turnTimeoutMs: 90_000 });
+    catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream, governance: event => recordGovernanceEvent(db, event) }, turnTimeoutMs: /* native-hang-guard: Successful policy-boundary turns; this probe does not assert deadline expiry. */ watchdogMs(90_000) });
   const frames: Frame[] = [];
   let maskRequests = 0, askRequests = 0;
   const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -502,7 +506,7 @@ async function server(): Promise<void> {
   const settled: unknown[] = [];
   let failure: { name: string; message: string } | undefined;
   let autonomous: unknown;
-  const deadline = setTimeout(() => { for (const turn of host.coordinator.running) turn.abortController.abort(); }, 100_000);
+  const deadline = setTimeout(() => { for (const turn of host.coordinator.running) turn.abortController.abort(); }, watchdogMs(100_000));
   try {
     if (posture === "autonomous") {
       const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });

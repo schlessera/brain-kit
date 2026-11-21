@@ -1,3 +1,4 @@
+import "./measurement-entry-preload.ts";
 // Measures the two judgments `brain sync` asks Jev for (E2) against the
 // labelled sets in `packages/core/fixtures/sync-judge/`:
 //
@@ -14,7 +15,7 @@
 // Why a script and not a test: there is no keyless stand-in for what Jev
 // answers. CI never runs this; the tests drive it with a fake client.
 //
-//   bun scripts/measure-sync-judge.ts [--set files|pairs|all] [--repeat N] \
+//   bun scripts/measure-sync-judge.ts --allow-real-provider [--set files|pairs|all] [--repeat N] \
 //     [--json] [--min-precision X]
 //
 // `--json` prints the full score as JSON instead of the tables.
@@ -293,7 +294,7 @@ export async function main(argv: readonly string[], deps: MainDeps = {}): Promis
     if (!apiKey) {
       err(
         "TYPESAFE_API_KEY is not set. The measurement asks Jev live and has no keyless mode.\n" +
-          "Set it for this run: TYPESAFE_API_KEY=<key> bun scripts/measure-sync-judge.ts [--set files|pairs|all]"
+          "Set it for this run: TYPESAFE_API_KEY=<key> bun scripts/measure-sync-judge.ts --allow-real-provider [--set files|pairs|all]"
       );
       return 2;
     }

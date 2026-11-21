@@ -1,3 +1,7 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.ts";
+import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
+import "../../../../scripts/test-network-child-preload.ts";
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 import { SDK_RELAY_TURN_COUNT, SDK_RELAY_TURN_TIMEOUT_MS, SDK_RELAY_CANCELLATION_TIMEOUT_MS } from "./sdk-host-relay-limits.js";
 /** Actual ordinary Claude spawn/state path; copied storage fixture, not Btrfs qualification. */
 import { query, type AccountInfo } from "@anthropic-ai/claude-agent-sdk";
@@ -11,9 +15,8 @@ import { settingsRefusal, subscriptionVerdict, type CliSettingsReport } from "..
 import { processStateLedger } from "../../src/worker-state-budget.js";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import type { LaunchedWorker, WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 
 const separateIdentity = process.argv[4] === "separate-uid";
@@ -28,7 +31,7 @@ const permissionProof = process.argv[3] === "permission";
 const settingsProof = process.argv[3] === "managed" || process.argv[3] === "project";
 let withheldForSettings = false;
 let permissionRequests = 0;
-const root = mkdtempSync(join(tmpdir(), "odysseus-native-host-relay-"));
+const root = nativeFixtureDirectory("odysseus-native-host-relay-");
 const host = join(root, "host"), worker = join(root, "worker"), brain = join(worker, "brain"), directory = join(root, "lock");
 for (const path of [host, worker, brain, directory]) mkdirSync(path, { mode: 0o700 });
 if (separateIdentity) {
@@ -45,9 +48,12 @@ function save(token: string, expiresAt = Date.now() + 3_600_000) {
   } }), { mode: 0o600 });
 }
 save(access[0]!);
+let managedSettingsFile:string|undefined;
 if (process.argv[3] === "managed") {
   mkdirSync("/etc/claude-code", { recursive: true });
-  writeFileSync("/etc/claude-code/managed-settings.json", JSON.stringify({ env: { ANTHROPIC_UNIX_SOCKET: "/run/odysseus-unapproved.sock" } }));
+  const json=JSON.stringify({ env: { ANTHROPIC_UNIX_SOCKET: "/run/odysseus-unapproved.sock" } });
+  managedSettingsFile="/etc/claude-code/managed-settings.json";
+  writeFileSync("/etc/claude-code/managed-settings.json",json);
 }
 if (process.argv[3] === "project") {
   mkdirSync(join(brain, ".claude"));
@@ -113,6 +119,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
     name: "Bash", id: "tool_ithaca_denied", input: { command: `printf odysseus > ${join(brain, "should-not-exist")}` },
   } : undefined);
 } });
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, worker, directory,...(managedSettingsFile?["/etc/claude-code"]:[])],fixtureFiles:[...(managedSettingsFile?[managedSettingsFile]:[])] });
 const originalFetch = globalThis.fetch;
 // Only the host's lowest fetch method is replaced. The native CLI makes real
 // HTTP requests over the real Unix socket. Both upstream exchanges reach a
@@ -161,7 +168,7 @@ function files(path: string): string {
 async function bounded<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), SDK_RELAY_CANCELLATION_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), watchdogMs(SDK_RELAY_CANCELLATION_TIMEOUT_MS));
   })]); } finally { clearTimeout(timer); }
 }
 let session: string | undefined, hostAfterRefresh = false;
@@ -185,7 +192,7 @@ try {
     const before = readFileSync(join(host, ".credentials.json"));
     const abort = new AbortController();
     currentAbort = abort;
-    const timer = setTimeout(() => abort.abort(), SDK_RELAY_TURN_TIMEOUT_MS);
+    const timer = setTimeout(() => abort.abort(), watchdogMs(SDK_RELAY_TURN_TIMEOUT_MS));
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
     let live: LaunchedWorker | undefined;
@@ -287,7 +294,7 @@ try {
       try { await bounded(refreshEnded); }
       catch { closeRefresh?.(); } // The parent requires refreshCancelled=true.
       cancellationRetainedHostBytes = readFileSync(join(host, ".credentials.json")).equals(before);
-      const lock = await acquireHostCredentialExclusion({ domain: { directory }, timeoutMs: 1000 });
+      const lock = await acquireHostCredentialExclusion({ domain: { directory }, timeoutMs: watchdogMs(1000) });
       lock.release(); cancellationReleasedLock = true;
     }
   }

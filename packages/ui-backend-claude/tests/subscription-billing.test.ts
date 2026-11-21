@@ -1,4 +1,7 @@
-import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { installSubscriptionHelperWitness } from "./helpers/subscription-helper-witness";
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
+import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A Claude turn on a profile with no credential of its own runs on the
@@ -15,8 +18,7 @@ import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BackendActivityEvent, BackendBridge, ServerMessage } from "@schlessera/brain-ui-sdk/server";
@@ -76,7 +78,7 @@ afterEach(() => {
 });
 
 function tempDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = nativeFixtureDirectory(prefix);
   scratch.push(dir);
   return dir;
 }
@@ -93,6 +95,7 @@ interface Setup {
 
 /** A fresh HOME, config dir and brain repo, and the process env a host would have. */
 function arrange(setup: Setup): { brainPath: string; home: string } {
+  nativeScriptedService(server.url.origin);
   const home = tempDir("sub-home-");
   const configDir = join(home, ".claude");
   mkdirSync(configDir, { recursive: true });
@@ -114,7 +117,7 @@ function arrange(setup: Setup): { brainPath: string; home: string } {
     DECLARED_TOKEN_ENV: DECLARED_TOKEN,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     BRAIN_UI_SUBPROCESS_ENV_EXTRA:
-      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,ANTHROPIC_CUSTOM_HEADERS",
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,ANTHROPIC_CUSTOM_HEADERS,ANTHROPIC_BASE_URL",
   });
   if (setup.customHeaders !== undefined) process.env.ANTHROPIC_CUSTOM_HEADERS = setup.customHeaders;
   if (setup.oauth === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
@@ -141,7 +144,8 @@ function observedQuery(observed: SDKMessage[]): typeof query {
 
 async function runTurn(
   { brainPath }: { brainPath: string },
-  profileId?: string
+  profileId?: string,
+  witnessProfile?: "governed"
 ): Promise<{ frames: ServerMessage[]; observed: SDKMessage[]; activity: BackendActivityEvent[] }> {
   const frames: ServerMessage[] = [];
   const observed: SDKMessage[] = [];
@@ -163,7 +167,12 @@ async function runTurn(
     log: () => {},
   });
   const workerStartupView = createFixtureWorkerStartupView(brainPath);
-  try { await backend.startTurn({ workerStartupView,
+  try {
+  // Only helper twins need a shared writable witness. Subscription admission
+  // branches on billing/account/settings, independently of the worker profile.
+  const workerSandbox=prepareFixtureWorkerSandbox(brainPath,{home:process.env.HOME,areas:[],...(witnessProfile?{profile:witnessProfile}:{})});
+  if(witnessProfile)expect(workerSandbox.profile,"HELPER_PROTECTED_VIEW_IS_GOVERNED").toBe("governed");
+  await backend.startTurn({ workerStartupView, workerSandbox: { ...workerSandbox, areas: [] },
     prompt: "Reply with the single word ok.",
     signal: new AbortController().signal,
     bridge,
@@ -251,12 +260,10 @@ describe("a profile without its own credential bills the subscription", () => {
   }, LIVE);
 
   test("a project apiKeyHelper refuses the turn: it never runs, and nothing is sent", async () => {
-    const marker = join(tempDir("sub-marker-"), "helper-ran");
-    const fixture = arrange({
-      projectSettings: { apiKeyHelper: `touch ${marker}; echo ${HELPER_KEY}` },
-    });
+    const fixture = arrange({});
+    const marker = installSubscriptionHelperWitness(fixture.brainPath, HELPER_KEY);
     // (The helper fixture is proven live by the control test below.)
-    const { frames } = await runTurn(fixture);
+    const { frames } = await runTurn(fixture, undefined, "governed");
 
     expect(seen).toEqual([]);
     expectAuthFailure(frames);
@@ -268,12 +275,9 @@ describe("a profile without its own credential bills the subscription", () => {
     // check, so a configured helper refuses the turn outright. The marker comes
     // first, so its absence means the helper never started — not that it was
     // killed during the sleep.
-    const marker = join(tempDir("sub-marker-"), "helper-ran");
-    const fixture = arrange({
-      oauth: OAUTH,
-      projectSettings: { apiKeyHelper: `touch ${marker}; sleep 2; echo ${HELPER_KEY}` },
-    });
-    const { frames } = await runTurn(fixture);
+    const fixture = arrange({ oauth: OAUTH });
+    const marker = installSubscriptionHelperWitness(fixture.brainPath, HELPER_KEY, true);
+    const { frames } = await runTurn(fixture, undefined, "governed");
 
     expect(seen).toEqual([]);
     expectAuthFailure(frames);
@@ -323,11 +327,8 @@ describe("the fixtures would catch what they are for", () => {
   test("control: without the backend, the project helper runs and its key is sent", async () => {
     // Proves the helper fixture is live, so the "never runs" assertions above
     // are about the backend and not about a helper that could not have run.
-    const marker = join(tempDir("sub-marker-"), "helper-ran");
-    const { brainPath } = arrange({
-      oauth: OAUTH,
-      projectSettings: { apiKeyHelper: `touch ${marker}; echo ${HELPER_KEY}` },
-    });
+    const { brainPath } = arrange({ oauth: OAUTH });
+    const marker = installSubscriptionHelperWitness(brainPath, HELPER_KEY);
     const run = query({
       prompt: "Reply with the single word ok.",
       options: {

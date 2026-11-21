@@ -4,6 +4,27 @@ import { nativeHostDockerArgs } from "../scripts/prove-native-host.ts";
 import { workerIdentityDockerArgs } from "../scripts/prove-worker-identity.ts";
 import { captureRenderArgs } from "../scripts/capture.ts";
 import { workspaceLeaseDockerArgs } from "../scripts/workspace-lease-container.ts";
+import { nativeGuardEnvironment } from "../scripts/native-proof/guard-environment.ts";
+import { nativeNamespaceEnvironment } from "../scripts/test-native-guard.ts";
+
+test("native containers carry an exact head without promoting local execution to hosted", () => {
+  const saved = { GITHUB_ACTIONS: process.env.GITHUB_ACTIONS, RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT, BRAIN_TEST_DEADLINE_FACTOR: process.env.BRAIN_TEST_DEADLINE_FACTOR };
+  try {
+    delete process.env.GITHUB_ACTIONS; delete process.env.RUNNER_ENVIRONMENT;process.env.BRAIN_TEST_DEADLINE_FACTOR="3";
+    const local = nativeGuardEnvironment();
+    expect(local).toHaveLength(1);
+    expect(local[0]).toMatch(/^--env=BRAIN_NATIVE_TEST_HEAD=[0-9a-f]{40}$/);
+    expect(nativeNamespaceEnvironment()).toEqual(["--setenv", "BRAIN_NATIVE_TEST_HEAD", local[0]!.split("=").at(-1)!, "--setenv", "BRAIN_TEST_DEADLINE_FACTOR", "3"]);
+    process.env.GITHUB_ACTIONS = "true"; process.env.RUNNER_ENVIRONMENT = "github-hosted";
+    expect(nativeGuardEnvironment()).toEqual([...local, "--env=GITHUB_ACTIONS=true", "--env=RUNNER_ENVIRONMENT=github-hosted"]);
+    expect(nativeNamespaceEnvironment()).toEqual(["--setenv", "BRAIN_NATIVE_TEST_HEAD", local[0]!.split("=").at(-1)!, "--setenv", "BRAIN_TEST_DEADLINE_FACTOR", "3",
+      "--setenv", "GITHUB_ACTIONS", "true", "--setenv", "RUNNER_ENVIRONMENT", "github-hosted"]);
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
 
 function bindSources(argv: string[]): string[] {
   return argv.flatMap((arg, index) => {

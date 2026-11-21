@@ -1,3 +1,6 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
+import { writePrivateProofArtifact } from "./private-proof-artifact.js";
+import { PRIVATE_FIXTURE_DIRECTORY_ACCESS } from "./private-fixture-directory-access.js";
 import { defaultIdentityPhase } from "./default-identity-phases.js";
 import { applicationQualificationScenario } from "./application-qualification.js";
 import { ordinaryIdentityPhases, IDENTITY_PHASE_TIMEOUT_MS, IDENTITY_CLEANUP_TIMEOUT_MS } from "./ordinary-identity-phases.js";
@@ -189,20 +192,41 @@ if (process.argv[2] === "--index-child") {
   let foreignRequests = 0;
   const foreign = Bun.serve({ unix: "/identity-fixture/foreign-relay.sock", fetch() { foreignRequests++; return new Response("ithaca"); } });
   chownSync("/identity-fixture/foreign-relay.sock", 0, 21001); chmodSync("/identity-fixture/foreign-relay.sock", 0o660);
+  // Kernel access proof runs before the diagnostic-producing identity phase.
+  // Container root writes; only the runner-owned proof directory's UID may read.
+  const privateControl = writePrivateProofArtifact("/proof", `private-artifact-access-${process.pid}.txt`, "Odysseus private audit control");
+  const artifactOwner = lstatSync("/proof");
+  const accessProbe = "import errno,sys\ntry: data=open(sys.argv[1]).read()\nexcept OSError as error: sys.exit(0 if sys.argv[2]=='denied' and error.errno==errno.EACCES else 3)\nsys.exit(0 if sys.argv[2]=='allowed' and data=='Odysseus private audit control' else 4)";
+  for (const [uid, gid, admission] of [[artifactOwner.uid, artifactOwner.gid, "allowed"], [21002, 21001, "denied"]] as const) {
+    command(["/usr/bin/setpriv", `--reuid=${uid}`, `--regid=${gid}`, "--clear-groups", "/usr/bin/python3", "-I", "-S", "-c", accessProbe, privateControl, admission]);
+  }
+  console.log(JSON.stringify({ privateArtifactOwnership: "pass", mode: "0600", runnerReadable: true, workerDenied: true }));
   try {
     const phases = ordinaryIdentityPhases({ applicationScenario, applicationQualification, probeStatePlacement,
       sharedGit, privateGitInputs, indexControls: process.argv[2] === "--index-controls" });
     let aggregateOutput = "", aggregateErrors = "";
     for (const phase of phases) {
+      // Private-input controls finish before these application phases. The
+      // guard may inspect directory metadata; private files stay worker-only.
+      if (phase && ["fresh", "fresh-app", "warm", "strict"].includes(phase)) {
+        console.log(command(["/usr/bin/python3", "-I", "-S", "-c", PRIVATE_FIXTURE_DIRECTORY_ACCESS, brain, "21002", "21001"]));
+      }
       const started = performance.now();
       const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename,
         process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(omitProbeStatePlacement ? ["--omit-probe-state-placement"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(bootPruneCapture ? ["--boot-prune-capture"] : []), ...(applicationScenario === "db-repeat" && phase === "warm" ? ["--db-repeat-index"] : []), ...(phase ? [sharedGit ? `--shared-phase=${phase}` : `--default-phase=${phase}`] : [])], {
-        env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: IDENTITY_PHASE_TIMEOUT_MS });
+        env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: watchdogMs(IDENTITY_PHASE_TIMEOUT_MS) });
       const [capturedOutput, capturedErrors, code] = await Promise.all([
         phase ? retainFixtureStream(child.stdout, `/proof/${sharedGit ? "shared-git" : "default"}-${phase}-server.stdout`) : new Response(child.stdout).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })),
         phase ? retainFixtureStream(child.stderr, `/proof/${sharedGit ? "shared-git" : "default"}-${phase}-server.stderr`) : new Response(child.stderr).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })), child.exited]);
       if (capturedOutput.failure) throw capturedOutput.failure.error;
       if (capturedErrors.failure) throw capturedErrors.failure.error;
+      if (phase === "fresh" && !sharedGit) {
+        const auditRoot = "/identity-server-private/server-ws";
+        if (existsSync(auditRoot)) for (const name of readdirSync(auditRoot).filter(name => /^native-startup-audit-[0-9]+\.json$/.test(name))) {
+          // The guard already bounded/scrubbed this snapshot before raw audit cleanup.
+          writePrivateProofArtifact("/proof", name, readFileSync(join(auditRoot, name)));
+        }
+      }
       const output = capturedOutput.text, errors = capturedErrors.text;
       aggregateOutput += output; aggregateErrors += errors;
       writeFileSync("/proof/server.stdout", aggregateOutput); writeFileSync("/proof/server.stderr", aggregateErrors);
@@ -224,7 +248,7 @@ if (process.argv[2] === "--index-child") {
     }
   } finally {
     foreign.stop(true); for (const relay of restrictedRelays) relay.stop(true); await service.close();
-    const deadline = Date.now() + IDENTITY_CLEANUP_TIMEOUT_MS;
+    const deadline = Date.now() + watchdogMs(IDENTITY_CLEANUP_TIMEOUT_MS);
     for (;;) {
       const records = readdirSync("/run/brain-identity-fixture");
       const sources = existsSync("/run/brain-identity-mounts") ? readdirSync("/run/brain-identity-mounts") : [];

@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,7 +25,7 @@ beforeEach(() => {
   const kill = process.kill.bind(process);
   processKill = spyOn(process, "kill").mockImplementation((pid: number, signal?: NodeJS.Signals | number) => {
     if (signal !== "SIGKILL" && signal !== 9) return kill(pid, signal);
-    setTimeout(() => { try { kill(pid, signal); } catch { /* gone meanwhile */ } }, PID_SIGNAL_DELAY_MS);
+    setTimeout(() => { try { kill(pid, signal); } catch { /* gone meanwhile */ } }, /* native-product-timing: Controlled delayed-signal stimulus exposes the refused-launch race; not a hang deadline. */ PID_SIGNAL_DELAY_MS);
     return true;
   });
 });
@@ -47,7 +48,7 @@ const childrenOf = (pid: number) => { try { return readFileSync(`/proc/${pid}/ta
  * gate released has written its marker by then.
  */
 async function sandboxesDead(gated: { pid: number; start: string | undefined }[]) {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + watchdogMs(10_000);
   const running = ({ pid, start }: { pid: number; start: string | undefined }) => {
     const fields = stat(pid);
     return fields !== undefined && fields[19] === start && !["Z", "X", "x"].includes(fields[0]!);
@@ -62,7 +63,7 @@ function delayedKills<T extends { kill(signal?: NodeJS.Signals | number): void }
   const kill = child.kill.bind(child);
   child.kill = (signal?: NodeJS.Signals | number) => {
     if (signal === "SIGSTOP") kill(signal);
-    else setTimeout(() => kill(signal), SIGNAL_DELAY_MS);
+    else setTimeout(() => kill(signal), /* native-product-timing: Controlled delayed-signal stimulus exposes the refused-launch race; not a hang deadline. */ SIGNAL_DELAY_MS);
   };
   return child;
 }
@@ -120,7 +121,7 @@ test("closing an unreleased gate kills a sandbox whose status was never read", a
   const supervisor: WorkerStatusSupervisor = delayedKills(child);
   try {
     // Wait until bubblewrap has forked its gated sandbox process.
-    const deadline = Date.now() + 5_000;
+    const deadline = Date.now() + watchdogMs(5_000);
     const children = () => childrenOf(child.pid);
     while (!children() && child.exitCode === null && Date.now() < deadline) await Bun.sleep(5);
     expect(children(), "bubblewrap forked its sandbox").not.toBe("");
@@ -144,7 +145,7 @@ test("closing an unreleased gate kills a verified sandbox that outlived its reap
   { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   let gated: number | undefined;
   try {
-    gated = channel.childPid(child.pid, Date.now() + 5_000);
+    gated = channel.childPid(child.pid, Date.now() + watchdogMs(5_000));
     const sandbox = identity(gated);
     channel.closeWriter();
     child.kill("SIGKILL");

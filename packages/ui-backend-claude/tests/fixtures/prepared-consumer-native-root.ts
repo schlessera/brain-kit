@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import { expect } from "bun:test";
 import { chmodSync, chownSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -52,7 +53,7 @@ if (process.argv[2] === "--child") {
     if (process.argv.includes("--guards-only")) process.exitCode = 0;
     else {
     const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--clear-groups", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename, "--child", ...(process.argv.includes("--cleanup-failure") ? ["cleanup-failure"] : [])], {
-      env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 90000 });
+      env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: watchdogMs(90000) });
     const [output, errors, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     writeFileSync("/proof/server.stdout", output); writeFileSync("/proof/server.stderr", errors);
     expect(code, errors).toBe(0);

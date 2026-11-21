@@ -1,11 +1,14 @@
+import { watchdogMs } from "../../../scripts/test-deadlines.ts";
+import { nativeNamespaceEnvironment, nativeNamespacePolicy } from "../../../scripts/test-native-guard.ts";
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 const root = resolve(import.meta.dir, "../../..");
 function probe(fixture: string, mode?: string): Record<string, any> {
-  const child = Bun.spawnSync(["bwrap", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp",
-    "--unshare-net", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--tmpfs", "/opt", "--proc", "/proc", "--dev", "/dev",
-    process.execPath, "--preload", resolve(root, "scripts/test-network-child-preload.ts"), resolve(import.meta.dir, "fixtures", fixture), ...(mode ? [mode] : [])],
-  { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 25000 });
+  const policy = nativeNamespacePolicy();
+  const child = Bun.spawnSync(["bwrap", "--clearenv", ...nativeNamespaceEnvironment(), "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp",
+    "--unshare-net", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--tmpfs", "/opt", "--proc", "/proc", "--dev", "/dev", ...policy.mounts,
+    process.execPath, "--preload", resolve(root, "scripts/test-network-child-preload.ts"), resolve(import.meta.dir, "fixtures", fixture), ...(mode ? [mode] : []), ...policy.args],
+  { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: watchdogMs(25000) });
   expect(child.exitCode, child.stderr.toString()).toBe(0);
   return JSON.parse(child.stdout.toString().trim().split("\n").at(-1)!);
 }
@@ -104,6 +107,7 @@ test("the host's stored login outside every host mask is masked in the worker", 
   const proof = probe("server-host-relay-probe.ts", "outside-masks");
   expect(proof.requests, "OUTSIDE_MASKS_HOST_LOGIN_STILL_RELAYED").toEqual([{ credential: 0, model: "claude-haiku-4-5", history: 1 }]);
   expect(proof.controlVisible, "OUTSIDE_MASKS_WORKER_VIEW_OBSERVED").toBe(true);
+  expect(proof.productionLoginMaskPresent,"OUTSIDE_MASKS_PRODUCTION_LOGIN_MASK_PRESENT").toBe(true);
   expect(proof.hostLoginVisible, "OUTSIDE_MASKS_HOST_LOGIN_MASKED").toBe(false);
 });
 

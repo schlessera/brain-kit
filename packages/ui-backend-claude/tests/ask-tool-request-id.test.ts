@@ -1,3 +1,5 @@
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
+import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /**
  * The four ask tools key their request by the model's tool_use id (#910).
  *
@@ -12,8 +14,7 @@
  * Keyless: the credentials are bogus and the only server is 127.0.0.1.
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -165,10 +166,11 @@ test("each ask tool hands the bridge the tool_use id the model sent", async () =
       return { answers: { course: "Coast" } };
     },
   });
-  const home = mkdtempSync(join(tmpdir(), "ask-request-id-"));
+  const home = nativeFixtureDirectory("ask-request-id-");
   const toolUses: string[] = [];
   let resultSubtype: string | undefined;
   try {
+    nativeScriptedService(server.url.origin);
     const stream = query({
       prompt: "Ask the planned questions.",
       options: {

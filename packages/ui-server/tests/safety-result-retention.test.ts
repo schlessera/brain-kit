@@ -1,3 +1,7 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
+import {searchWitnessScript} from "./helpers/search-witness";
+import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /** A tool result that reaches the host already exists in the runtime's own
  * session: the installed Claude runtime replays it on resume. So its record
  * must be written whatever happened to the turn, and a record that cannot be
@@ -7,10 +11,9 @@
  * still owing it when the collection ends is a gap. Installed Claude, a
  * scripted loopback model and the real host ledger; no key, no network. */
 import {expect,test} from "bun:test";
-import {chmodSync,existsSync,mkdirSync,mkdtempSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
+import {chmodSync,existsSync,mkdirSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {createRequire} from "node:module";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
 import {query} from "@anthropic-ai/claude-agent-sdk";
 import {createUiDb} from "../src/db/client";
 import {openSqliteWriter} from "../src/db/write-worker";
@@ -58,8 +61,8 @@ function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]
  return new Response(events.map(event=>`event: ${(event as {type:string}).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
 }
 async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<typeof createUiDb>;writes:ReturnType<typeof createGovernanceWrites>;
- first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number};searched:boolean;replayed:string[]})=>void){
- const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retention-")),brain=join(root,"brain"),home=join(root,"home");
+ first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number};searched:boolean;searchInvoked:boolean;replayed:string[]})=>void){
+ const root=nativeFixtureDirectory("odysseus-safety-retention-"),brain=join(root,"brain"),home=join(root,"home");
  // A note: reading it records nothing before the tool runs, so only the
  // search output's own record stands between it and a complete chat.
  mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(home);
@@ -67,13 +70,10 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
  // The runtime searches with the `rg` on its PATH. This one is the
  // installed runtime's own ripgrep; it marks when the matches are out and
  // then holds its exit, the window a stop lands in.
- const bin=join(root,"bin"),searched=join(root,"sirens-heard"),rg=installedRipgrep(root);mkdirSync(bin);
- writeFileSync(join(bin,"rg"),`#!/bin/sh
-case " $* " in
-  *" sirens "*) '${rg}' "$@"; code=$?; : > '${searched}'; sleep 3; exit "$code";;
-  *) exec '${rg}' "$@";;
-esac
-`);chmodSync(join(bin,"rg"),0o755);
+ const bin=join(root,"bin"),searched=join(home,"sirens-heard");mkdirSync(bin);
+ const rg=installedRipgrep(bin);
+ const searchStatus=join(home,"sirens-status");
+ writeFileSync(join(bin,"rg"),searchWitnessScript(rg,searched,searchStatus));chmodSync(join(bin,"rg"),0o755);
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
  holdSafetyRecovery(db);
  // Each turn's provider requests, as the loopback model received them.
@@ -105,7 +105,7 @@ esac
   const refused=new Promise<void>(resolve=>{refusal=resolve;});
   const awaitIndex=async()=>{
    if(!interrupt||interruption!=="duplicate"||++indexWaits<2)return;
-   const deadline=Date.now()+15000;
+   const deadline=Date.now()+watchdogMs(15000);
    while(!existsSync(searched)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,5));
    if(!existsSync(searched))throw new Error("The first search never ran");
    controller.abort(new Error("Odysseus stopped the turn while the first search ran"));
@@ -124,7 +124,7 @@ esac
   // search has printed its matches, and refuses the Read.
   const retooling=interrupt&&interruption==="retooled",tools=retooling?["Grep","Read"]:["Grep"];
   const fileVersions={beginRead:async()=>{
-   const deadline=Date.now()+15000;
+   const deadline=Date.now()+watchdogMs(15000);
    while(!existsSync(searched)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,5));
    if(!existsSync(searched))throw new Error("The search never ran");
    controller.abort(new Error("Odysseus stopped the turn after the search ran"));
@@ -148,7 +148,8 @@ esac
   }
   // Stop the turn the moment the search has printed its matches.
   const watching=interrupt&&interruption==="running"?setInterval(()=>{if(existsSync(searched))controller.abort(new Error("Odysseus stopped the turn while the search ran"));},5):undefined;
-  const timer=setTimeout(()=>controller.abort(),20000);
+  const timer=setTimeout(()=>controller.abort(),watchdogMs(20000));
+  nativeScriptedService(origin.url.origin);
   try{for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:tools,...wiring,abortController:controller,
    ...(resume?{resume}:{}),
    env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"||interruption==="denied"||interruption==="retooled"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
@@ -158,7 +159,7 @@ esac
   finally{
    clearInterval(watching);clearTimeout(timer);db.exec("DROP TRIGGER IF EXISTS refuse_result");
    // The denial lands before the turn's end, as it would once the hook returns.
-   if(interrupt&&(interruption==="duplicate"||interruption==="retooled"))await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
+   if(interrupt&&(interruption==="duplicate"||interruption==="retooled"))await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,watchdogMs(2000)))]);
    await writes.safetyEnd(turnId);
   }
   return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals};
@@ -166,7 +167,7 @@ esac
  try{
   const first=await voyage("voyage",null,true);
   expect(version,"SAFETY_ACTUAL_INSTALLED_RUNTIME").toBe(MEASURED_RUNTIME.claudeCode);
-  if(interruption==="running"||interruption==="duplicate"||interruption==="retooled")expect(existsSync(searched),"SAFETY_ACTUAL_SEARCH_RAN").toBe(true);
+  if(interruption==="running"||interruption==="duplicate"||interruption==="retooled"){ expect(existsSync(searched),"SAFETY_ACTUAL_SEARCH_RAN").toBe(true); expect(readFileSync(searchStatus,"utf8").trim(),"SAFETY_SEARCH_EXIT_STATUS").toBe("0"); }
   if(interruption!=="denied")expect(first.aborted,"SAFETY_INTERRUPTED_RESULT_STOPS_ITS_TURN").toBe(true);
   expect(runtimeSession,"SAFETY_RUNTIME_SESSION_TO_RESUME").toBeDefined();
   turn=1;
@@ -180,7 +181,7 @@ esac
   expect(replayed.length,"SAFETY_RUNTIME_RESUMES_THE_INTERRUPTED_CALL").toBeGreaterThan(0);
   // The premise: interrupting the record did not keep the result out of the model's context.
   if(interruption==="refused"||interruption==="cancelled")expect(resumed.some(r=>r.raw.includes(SONG)),"SAFETY_RUNTIME_REPLAYS_THE_INTERRUPTED_RESULT").toBe(true);
-  check({db,writes,first,searched:existsSync(searched),replayed});
+  check({db,writes,first,searched:existsSync(searched),searchInvoked:existsSync(searchStatus),replayed});
   // Contained to its chat: the brain-wide recorder is untouched, and a
   // recovery has nothing to clear, so the chat keeps its restriction (or,
   // with nothing lost, stays normal).
@@ -250,11 +251,12 @@ test("a denial under an id the runtime admitted twice cannot settle the search t
  expect(first.admitted,"SAFETY_HOST_REPORTS_BOTH_ADMISSIONS").toBe(2);
 }),60000);
 
-test("a search denied at its permission card never runs, and its chat stays normal with no gap",()=>voyageHome("denied",({db,writes,first,searched})=>{
+test("a search denied at its permission card never runs, and its chat stays normal with no gap",()=>voyageHome("denied",({db,writes,first,searched,searchInvoked})=>{
  // The runtime asks the callback, its last gate, and Penelope's deny keeps
  // the search from running at all.
  expect(first.cards,"SAFETY_RUNTIME_ASKS_THE_CALLBACK").toBe(1);
  expect(searched,"SAFETY_DENIED_SEARCH_NEVER_RAN").toBe(false);
+ expect(searchInvoked,"SAFETY_DENIED_SEARCH_NEVER_INVOKED").toBe(false);
  // The denial of the id's only admission proves the call never ran.
  expect(db.query("SELECT failure,gap FROM safety_collections WHERE turn_id='voyage'").get(),"SAFETY_CARD_DENY_LEAVES_NO_GAP").toEqual({failure:null,gap:null});
  const chat=writes.safety("homeward","ithaca");
@@ -286,7 +288,7 @@ test("a denial of another tool under the search's id cannot settle the search th
  * call's own hook, which never saw the id, denies it, in the runtime's own
  * hook order or with the hook both tools share starting late. */
 for(const late of [false,true])test(`a denied shell call reusing a search's id cannot settle the search that ran${late?", even when the shared hook starts late":""}`,async()=>{
- const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retool-")),brain=join(root,"brain"),home=join(root,"home");
+ const root=nativeFixtureDirectory("odysseus-safety-retool-"),brain=join(root,"brain"),home=join(root,"home");
  mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(home);
  const path=join(brain,"notes","sirens.md");writeFileSync(path,`${SONG}\n`);
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
@@ -303,7 +305,7 @@ for(const late of [false,true])test(`a denied shell call reusing a search's id c
   // The search's result never reaches the host.
   result:async()=>{}};
  const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:"allow"}),inputSafety}},allowedTools:["Grep","Bash"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
- if(late)for(const group of wiring.hooks!.PreToolUse!)if(!group.matcher)group.hooks=group.hooks.map(hook=>async(...args)=>{if((args[0] as {tool_name?:string}).tool_name==="Bash")await new Promise(resolve=>setTimeout(resolve,150));return hook(...args);});
+ if(late)for(const group of wiring.hooks!.PreToolUse!)if(!group.matcher)group.hooks=group.hooks.map(hook=>async(...args)=>{if((args[0] as {tool_name?:string}).tool_name==="Bash")await new Promise(resolve=>setTimeout(resolve,/* native-product-timing: Deliberate late-hook ordering stimulus; not an upper deadline. */ 150));return hook(...args);});
  const origin=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
   if(new URL(request.url).pathname!=="/v1/messages")return Response.json({});
   const raw=await request.text(),body=JSON.parse(raw);
@@ -312,8 +314,9 @@ for(const late of [false,true])test(`a denied shell call reusing a search's id c
   return nativeModelReply(requests===1?{name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}}
    :requests===2?{name:"Bash",id:"toolu_sirens",input:{command:"echo rafts",run_in_background:true}}:undefined);
  }});
- const timer=setTimeout(()=>controller.abort(),20000);
+ const timer=setTimeout(()=>controller.abort(),watchdogMs(20000));
  try{
+  nativeScriptedService(origin.url.origin);
   for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:4,permissionMode:"default",allowedTools:["Grep","Bash"],...wiring,abortController:controller,
    env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),PATH:process.env.PATH??"/usr/bin:/bin",ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
    if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;

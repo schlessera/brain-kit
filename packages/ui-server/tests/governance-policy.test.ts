@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
@@ -350,7 +351,7 @@ test.each(["missing", "legacy", "ancestor"] as const)("a pre-existing unpinned p
   const old = launchAgentWorker({ brainPath: f.brain, sandbox: oldSandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
     "printf ready > old-ready.md; IFS= read -r go || exit 43; mv group/private group/retired-private || exit 44; mkdir group/private || exit 45; printf Athena > group/private/born.md"] });
   async function collect(stream: NodeJS.ReadableStream) { let text = ""; for await (const chunk of stream as AsyncIterable<Buffer>) text += chunk.toString(); return text; }
-  async function ready(path: string) { const deadline = Date.now() + 5000; while (!existsSync(join(f.brain, path))) { if (Date.now() >= deadline) throw Error(`Native peer readiness timed out: ${path}`); await Bun.sleep(5); } }
+  async function ready(path: string) { const deadline = Date.now() + watchdogMs(5000); while (!existsSync(join(f.brain, path))) { if (Date.now() >= deadline) throw Error(`Native peer readiness timed out: ${path}`); await Bun.sleep(5); } }
   const oldOutput = Promise.all([collect(old.stdout), collect(old.stderr)]);
   let admitted: Awaited<ReturnType<typeof f.turns.begin>> | undefined;
   let next: ReturnType<typeof launchAgentWorker> | undefined, refusal: unknown;
@@ -411,7 +412,7 @@ test("a live peer retaining a descendant permits shared admission of its pinned 
   const oldOutput = Promise.all([collect(old.stdout), collect(old.stderr)]);
   let hold: Awaited<ReturnType<typeof f.turns.begin>> | undefined;
   try {
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + watchdogMs(5000);
     while (!existsSync(join(f.brain, "older-ready.md"))) { if (Date.now() >= deadline) throw Error("Pinned peer readiness timed out"); await Bun.sleep(5); }
     f.write("providers: [{ paths: [group/private/**], allow: [anthropic] }]");
     hold = await f.turns.begin("shared-pinned-ancestor", new AbortController().signal);

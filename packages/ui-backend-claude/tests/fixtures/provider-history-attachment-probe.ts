@@ -1,3 +1,6 @@
+import "../../../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../../../scripts/test-deadlines";
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /**
  * Attachment reads through the installed Claude CLI (#3154). The caller
  * confines the SDK, the bundled CLI and every tool to loopback. Turn 0 sends
@@ -42,6 +45,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     { type: "message_delta", delta: { stop_reason: step ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
+nativeScriptedService(server.url.origin, { fixtureRoots: [scratch] });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
   const brain = fixtureBrain(scratch, "attachment");
@@ -77,7 +81,7 @@ try {
         turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
       });
       capture.appends.push(turn.options.systemPrompt);
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
       try {
         let success = false;
         for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

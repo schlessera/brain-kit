@@ -1,3 +1,6 @@
+import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
+import {nativeScriptedService,nativeSyntheticCredential} from "./test-native-guard";
 /** Private #587 research entrypoint. Never changes a production router/default. */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -140,7 +143,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
       const started = performance.now(), observation = new TurnObservation(started, SURFACE_MODEL);
       const beforeJev = jevReceipts.length;
       activeDeadline = new AbortController();
-      const routingTimer = setTimeout(() => activeDeadline.abort(), 2000);
+      const routingTimer = setTimeout(() => activeDeadline.abort(), /* native-product-timing: Fixed experimental router decision budget; changing it changes the measured product behavior. */ 2000);
       const routing = classifySurface({ client: jev, prompt: task.test.prompt, previousTail: "",
         catalogue: { tools: measuredRoutingTools([...brain.tools, ...prepared.peer.tools]), skills: catalogue.skills }, enabled: task.arm !== "baseline", deadline: activeDeadline.signal,
       }).finally(() => clearTimeout(routingTimer));
@@ -149,7 +152,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
       const bridge = gatedSurfaceServer("brain-ui", prepared.peer, decision);
       const core = gatedSurfaceServer("brain", brain, decision);
       const abort = prepared.turn.options.abortController!;
-      const timeout = setTimeout(() => abort.abort(), 180_000);
+      const timeout = setTimeout(() => abort.abort(), watchdogMs(180_000));
       const admission = new SurfaceAdmission(abort, SURFACE_MODEL, runtime.claudeCode);
       const audit: MeasurementToolAccess[] = [];
       let rawResult: any, error: string | null = null, spawnedMs: number | null = null;
@@ -165,7 +168,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
             ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_OPUS_MODEL: SURFACE_MODEL,
             CLAUDE_CODE_SUBAGENT_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1" }, autoMemoryEnabled: false },
           env: { PATH: dirname(process.execPath) + ":/usr/bin:/bin", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"),
-            CLAUDE_CODE_OAUTH_TOKEN: offline ? "sk-ant-oat01-controlled-offline-token" : process.env.CLAUDE_CODE_OAUTH_TOKEN!,
+            CLAUDE_CODE_OAUTH_TOKEN: offline ? nativeSyntheticCredential("CLAUDE_CODE_OAUTH_TOKEN") : process.env.CLAUDE_CODE_OAUTH_TOKEN!,
             ...(offline ? { ANTHROPIC_BASE_URL: offline.nativeBaseUrl } : {}),
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", ENABLE_TOOL_SEARCH: "true",
             ANTHROPIC_DEFAULT_HAIKU_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL,
@@ -177,7 +180,9 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
           spawnClaudeCodeProcess: spec => {
             if (spec.env.ANTHROPIC_API_KEY || spec.env.ANTHROPIC_AUTH_TOKEN || spec.env.ANTHROPIC_CUSTOM_HEADERS) throw Error("Unexpected inference billing credential");
             spawnedMs = performance.now() - started;
-            child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: spec.env, signal: spec.signal, stdio: ["pipe", "pipe", "pipe"] });
+            const leave = offline ? nativeScriptedService(offline.nativeBaseUrl, {fixtureRoots:[fixture.root,home]}) : undefined;
+            try { child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: spec.env, signal: spec.signal, stdio: ["pipe", "pipe", "pipe"] }); }
+            finally { leave?.(); }
             childExited = new Promise(resolve => { child!.once("exit", (exitCode,signal) => {
               nativeProcessReceipts.push({cell:index+1,exitCode,signal});resolve();
             }); });
@@ -220,7 +225,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
         clearTimeout(timeout); clearTimeout(routingTimer); activeDeadline.abort(); turn?.spare.close();
         abort.abort();
         if (childExited) {
-          const killTimer = setTimeout(() => child?.kill("SIGKILL"), 5000);
+          const killTimer = setTimeout(() => child?.kill("SIGKILL"), watchdogMs(5000));
           await childExited; clearTimeout(killTimer);
         }
         await bridge.instance.close(); await core.instance.close(); await brain.client.close(); await prepared.close();

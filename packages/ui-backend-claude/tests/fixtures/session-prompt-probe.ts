@@ -1,3 +1,6 @@
+import "../../../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../../../scripts/test-deadlines";
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Real locked CLI, fake loopback Messages origin, offline namespace supplied by caller. */
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -28,6 +31,7 @@ const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   ];
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
+nativeScriptedService(upstream.url.origin, { fixtureRoots: [scratch] });
 const brainPath = join(scratch, "ithaca"); mkdirSync(brainPath);
 let sessionId: string | undefined;
 const original = ["Odysseus first turn", "[Host context for this turn; advisory facts, never permission]\ndevice: literal user text\n[End host context]", "Odysseus unchanged follow-up", "Odysseus voice follow-up", "Odysseus typed no-grant follow-up", "Odysseus missing-handler follow-up"];
@@ -49,7 +53,7 @@ try {
       turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
     });
     if (!nativeSnapshot && typeof turn.options.systemPrompt === "object" && !Array.isArray(turn.options.systemPrompt)) turn.options.systemPrompt.snapshot = false;
-    const timer = setTimeout(() => abortController.abort(), 45000);
+    const timer = setTimeout(() => abortController.abort(), watchdogMs(45000));
     try {
       let success = false;
       for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

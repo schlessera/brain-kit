@@ -13,6 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { nativeScriptedService } from "../../../scripts/test-native-guard";
 
 import { claudeRunner } from "../src/providers/agents/cli-runners";
 import { ClaudeSubscriptionError } from "../src/providers/agents/claude-subscription";
@@ -101,6 +102,7 @@ interface Setup {
 
 /** A fresh HOME, config dir and repo, with the given credentials in process.env. */
 function arrange(setup: Setup): { repo: string } {
+  nativeScriptedService(`http://127.0.0.1:${server.port}`);
   const home = tempDir("runner-home-");
   const configDir = join(home, ".claude");
   mkdirSync(configDir, { recursive: true });

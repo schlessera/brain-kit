@@ -2,10 +2,11 @@
 import { chmodSync, mkdtempSync, mkdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
+import { nativeGuardEnvironment } from "./native-proof/guard-environment.ts";
 
 /** `integrated` runs the app-level proof of #2751 on the same owned volumes, for the named backends. */
 export function referencePoolDockerArgs(root: string, artifact: string, apparmor: boolean, bun: string, integrated?: { backends: string[] }, candidate?: string): string[] {
-  return ["docker", "run", "--rm", "--pull=never", "--network=none", "--cap-drop=ALL",
+  return ["docker", "run", "--rm", "--pull=never", "--network=none", ...nativeGuardEnvironment(), "--cap-drop=ALL",
     // The efficiency report (#3513) names the exact candidate it measured.
     ...(candidate ? [`--env=BRAIN_PROOF_CANDIDATE=${candidate}`] : []),
     ...(integrated ? [`--env=BRAIN_REFERENCE_INTEGRATION_BACKENDS=${integrated.backends.join(",")}`] : []),

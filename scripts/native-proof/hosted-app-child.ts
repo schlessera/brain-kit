@@ -1,3 +1,4 @@
+import "../test-network-child-preload.ts";
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 

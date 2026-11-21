@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 /** Synthetic PNGs through the real native hosted bridge; no image provider. */
 import { expect } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, utimesSync, rmSync } from "node:fs";
@@ -34,7 +35,7 @@ export async function exerciseNativeScratchMask(request: Parameters<AgentBackend
     expect(request.workerStartupView, "SCRATCH_MASK_GOVERNED_LIVE_VIEW").toBeUndefined();
     const worker = launchAgentWorker({ brainPath: brain, sandbox: request.workerSandbox, env: { PATH: "/usr/local/bin:/usr/bin:/bin" },
       command: ["/bin/sh", "-c", 'id -u; git -c safe.directory=/brain-fixture/brain check-ignore --quiet --no-index -- .brain/scratch'] });
-    const timer = setTimeout(() => worker.kill("SIGKILL"), 10000);
+    const timer = setTimeout(() => worker.kill("SIGKILL"), watchdogMs(10000));
     try {
       worker.stdin.end();
       const collect = async (stream: import("node:stream").Readable) => { let text = ""; for await (const chunk of stream) text += chunk.toString(); return text; };

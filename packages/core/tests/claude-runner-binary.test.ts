@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /**
  * The Claude runner spawns the binary chat runs, not whatever `claude` is on
  * `PATH` (#213). With no `claude` on `PATH` at all, `brain sync` still runs:
@@ -85,6 +86,7 @@ describe("the Claude runner's binary", () => {
     const path = tempDir("runner-path-");
     symlinkSync(process.execPath, join(path, "bun"));
     expect(Bun.which("claude", { PATH: path })).toBeNull();
+    nativeScriptedService(`http://127.0.0.1:${server.port}`);
     const home = tempDir("runner-home-");
     mkdirSync(join(home, ".claude"), { recursive: true });
     delete process.env.CLAUDE_CODE_PATH;

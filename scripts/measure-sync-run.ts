@@ -1,3 +1,4 @@
+import "./measurement-entry-preload.ts";
 /**
  * Time `brain sync run` over the E3 states it meets most: (a) nothing to do,
  * (b) local edits only, (c) two clones editing different files, (d) two
