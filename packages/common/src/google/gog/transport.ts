@@ -21,14 +21,14 @@
  * A `gmail.search` is the search and then one thread read per hit: gog's
  * search output carries only the first message's labels, by name, so the
  * union of each thread's label ids that `hidden_labels` filtering needs comes
- * from reading the thread (plan §5, last bullet). The pre-read is capped by
- * the page size, at most 25.
+ * from reading the thread (plan §5, last bullet). A page with more hits than
+ * it asked for (at most 25) is refused before any thread read is scheduled.
  *
  * Write operations have argv and the full write discipline here; their
  * codecs come with the write tasks, and until then `execute` refuses them
  * without running anything.
  */
-import type { GoogleError, GoogleOperation } from "../catalog.js";
+import { GMAIL_LIMITS, type GoogleError, type GoogleOperation } from "../catalog.js";
 import type { GmailLabelRecord, GmailMessageRecord, GmailSearchPageRecord, GmailThreadRecord } from "../records.js";
 import {
   GOG_OPERATION_INPUTS, GOG_THREAD_INPUT, GogArgvError, gogArgv, gogInvocation, isGogAccountAlias, type GogInvocation, type GogOperationInput,
@@ -271,6 +271,10 @@ export function createGogTransportInternals(
   async function search(input: GogOperationInput<"gmail.search">): Promise<GogResult<GmailSearchPageRecord>> {
     const page = await decoded("gmail.search", gogInvocation("gmail.search", input), GOG_READ_CODECS["gmail.search"]);
     if (!page.ok) return page;
+    // `--max` bounds the page; more hits is not the gog the argv was built for, and each would be a process.
+    if (page.value.hit_count > Math.min(input.limit ?? GMAIL_LIMITS.searchDefault, GMAIL_LIMITS.searchMax)) {
+      return { ok: false, error: gogError("transport_incompatible", "page_too_large") };
+    }
     // Ids go back into argv, so they pass the same validator as any input.
     if (!page.value.thread_ids.every(thread_id => GOG_THREAD_INPUT.safeParse({ thread_id }).success)) {
       return { ok: false, error: gogError("transport_incompatible", "unexpected_shape") };

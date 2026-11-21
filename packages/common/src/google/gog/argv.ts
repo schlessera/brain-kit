@@ -24,7 +24,7 @@
 import { z } from "zod";
 import { parseGoogleMailbox } from "../address.js";
 import {
-  GMAIL_DRAFT_INPUT, GMAIL_MODIFY_INPUT, GMAIL_SEARCH_INPUT, GMAIL_TRASH_INPUT, type GoogleOperation,
+  GMAIL_DRAFT_INPUT, GMAIL_LIMITS, GMAIL_MODIFY_INPUT, GMAIL_SEARCH_INPUT, GMAIL_TRASH_INPUT, type GoogleOperation,
 } from "../catalog.js";
 import { GMAIL_DRAFT_ID_PATTERN, GMAIL_MESSAGE_ID_PATTERN, GMAIL_THREAD_ID_PATTERN } from "../ids.js";
 import { GMAIL_RAW_DRAFT_LIMITS } from "../mime.js";
@@ -177,7 +177,7 @@ export function gogInvocation<O extends GoogleOperation>(operation: O, input: Go
   switch (operation) {
     case "gmail.search": {
       const { query, limit, page_token } = input as GogOperationInput<"gmail.search">;
-      const flags: GogFlag[] = [["ids-only", true], ["max", String(limit ?? 10)]];
+      const flags: GogFlag[] = [["ids-only", true], ["max", String(limit ?? GMAIL_LIMITS.searchDefault)]];
       if (page_token !== undefined) flags.push(["page", value("page_token", page_token)]);
       return invocation("gmail.search", { flags, positionals: [value("query", query)] });
     }

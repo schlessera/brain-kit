@@ -41,9 +41,10 @@
  * type-checked and ignored.
  *
  * gog's own envelopes must have exactly their keys: a new or missing key
- * there is a gog change the shape check has to look at. An unknown key is
- * named in the error only when it is an identifier, so the path never
- * carries data. gog's content-bearing additions (`body`, `unsubscribe`, a
+ * there is a gog change the shape check has to look at. A key is named in an
+ * error path only when it is one of {@link GOG_KEY_NAMES}, the structural
+ * names gog and Gmail use; any other is `<key>`, so the path never carries
+ * data, however identifier-shaped. gog's content-bearing additions (`body`, `unsubscribe`, a
  * full-form hit's `from` and `subject`) are type-checked and dropped: no
  * record field holds them, so neither view can show them. The record's text
  * comes from Gmail's own resource.
@@ -55,7 +56,13 @@
  * gmail/v1/gmail-gen.go:1684-1834), whose every field is `omitempty`: an
  * empty string, a zero size or an empty value is absent rather than `""` or
  * `0`. So a multipart container's body is `{}`, and a header Go wrote without
- * `value` has an empty value. A null is never written and is refused.
+ * `value` has an empty value. A null is never written and is refused: an
+ * empty `labelIds`, `messages`, `headers` or `parts` is absent, never null,
+ * and so is a draft without a message. The two nulls gog does write are its
+ * own envelope fields filled from a Go slice that may be nil: `labels`
+ * (`map[string]any{"labels": resp.Labels}`, gmail_labels.go:304-306) and
+ * `downloaded` (gmail_thread.go:90-93). A search's `threads` is always an
+ * array (gmail_search.go:84-93 and 113-121).
  *
  * Any other deviation is a {@link GogShapeError}, which the transport answers
  * as `transport_incompatible`; no field is ever guessed.
@@ -86,9 +93,29 @@ function object(value: unknown, path: string): Json {
   return value;
 }
 
-/** A key name as an error path may show it: an identifier, or `<key>` for anything that could be data. */
-const KEY = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
-const keyName = (key: string) => KEY.test(key) ? key : "<key>";
+/**
+ * The structural key names an error path, and the live shape check's key
+ * paths, may show: every key of gog's read envelopes (above, with
+ * gmail_attachments.go:27-48 for its attachment items and
+ * internal/outfmt/untrusted.go:220-228 for `externalContent`), and every
+ * field of the Gmail resources the codecs decode (Thread, Message,
+ * MessagePart, MessagePartBody, MessagePartHeader, Label, LabelColor, Draft
+ * and Message's classification values, gmail/v1/gmail-gen.go). A closed
+ * list, because a key that merely looks like an identifier (`Ithaca`, a hex
+ * id) can be data.
+ */
+export const GOG_KEY_NAMES: ReadonlySet<string> = Object.freeze(new Set([
+  // gog's envelopes
+  "threads", "nextPageToken", "count", "has_more", "totalMatches", "totalMatchesAtLeast", "id", "date", "internalDateIso", "from", "subject", "labels",
+  "messageCount", "thread", "downloaded", "attachments", "messageId", "path", "cached", "message", "headers", "body", "unsubscribe", "filename", "size",
+  "sizeHuman", "mimeType", "attachmentId", "attachmentIndex", "reply_to", "to", "cc", "bcc", "message_id", "in_reply_to", "references", "draft",
+  "externalContent", "untrusted", "source", "wrapped",
+  // Gmail's resources
+  "historyId", "messages", "snippet", "classificationLabelValues", "internalDate", "labelIds", "payload", "raw", "sizeEstimate", "threadId", "partId",
+  "parts", "data", "name", "value", "color", "labelListVisibility", "messageListVisibility", "messagesTotal", "messagesUnread", "threadsTotal",
+  "threadsUnread", "type", "backgroundColor", "textColor", "fields", "labelId", "fieldId", "selection",
+]));
+const keyName = (key: string) => GOG_KEY_NAMES.has(key) ? key : "<key>";
 
 /** A gog envelope: exactly these keys, the required ones present. */
 function envelope(value: unknown, path: string, required: readonly string[], optional: readonly string[] = []): Json {
@@ -133,11 +160,19 @@ function boolean(record: Json, key: string, path: string): boolean {
   return value;
 }
 
+/** An array Go omits when empty: absent or an array, never null. */
 function optionalArray(record: Json, key: string, path: string): unknown[] {
   const value = record[key];
-  if (value === undefined || value === null) return [];
+  if (value === undefined) return [];
   if (!Array.isArray(value)) throw new GogShapeError(`${path}.${key}`);
   return value;
+}
+
+/** One of gog's envelope arrays, filled from a Go slice that may be nil: present, an array or null. */
+function nullableArray(record: Json, key: string, path: string): unknown[] {
+  if (record[key] === null) return [];
+  if (!Array.isArray(record[key])) throw new GogShapeError(`${path}.${key}`);
+  return record[key] as unknown[];
 }
 
 function strings(record: Json, key: string, path: string): string[] {
@@ -312,7 +347,7 @@ export function decodeGogMessage(json: unknown): GmailMessageRecord {
 /** `gmail labels list --json`. */
 export function decodeGogLabels(json: unknown): GmailLabelRecord[] {
   const top = envelope(json, "$", ["labels"]);
-  return optionalArray(top, "labels", "$").map((item, index) => {
+  return nullableArray(top, "labels", "$").map((item, index) => {
     const path = `$.labels[${index}]`;
     const label = object(item, path);
     const name = optionalString(label, "name", path);
@@ -330,6 +365,8 @@ export function decodeGogLabels(json: unknown): GmailLabelRecord[] {
 /** One page of `gmail search --ids-only --json`: the thread ids, in Gmail's order, and the next page token. */
 export interface GogSearchIds {
   thread_ids: string[];
+  /** How many hits the page carried, before repeated ids were folded into one. */
+  hit_count: number;
   next_page_token: string | null;
 }
 
@@ -341,7 +378,8 @@ export function decodeGogSearchIds(json: unknown): GogSearchIds {
   count(top, "count", "$");
   boolean(top, "has_more", "$");
   const token = string(top, "nextPageToken", "$");
-  const ids = optionalArray(top, "threads", "$").map((item, index) => {
+  if (!Array.isArray(top.threads)) throw new GogShapeError("$.threads");
+  const ids = top.threads.map((item, index) => {
     const path = `$.threads[${index}]`;
     const hit = envelope(item, path, ["id"], SEARCH_ITEM_KEYS);
     for (const key of ["date", "internalDateIso", "from", "subject"]) optionalString(hit, key, path);
@@ -349,7 +387,7 @@ export function decodeGogSearchIds(json: unknown): GogSearchIds {
     optionalCount(hit, "messageCount", path);
     return id(hit, "id", path);
   });
-  return { thread_ids: [...new Set(ids)], next_page_token: token.length > 0 ? token : null };
+  return { thread_ids: [...new Set(ids)], hit_count: ids.length, next_page_token: token.length > 0 ? token : null };
 }
 
 /**
@@ -398,7 +436,7 @@ export async function decodeGogDraft(json: unknown): Promise<GogDraftRead> {
   const top = envelope(json, "$", ["draft"]);
   const draft = object(top.draft, "$.draft");
   const draftId = id(draft, "id", "$.draft");
-  if (draft.message === undefined || draft.message === null) return { draft: { id: draftId, message: null }, raw: null, parsed: null };
+  if (draft.message === undefined) return { draft: { id: draftId, message: null }, raw: null, parsed: null };
   const path = "$.draft.message";
   const message = object(draft.message, path);
   const raw = decodeBase64Url(string(message, "raw", path));

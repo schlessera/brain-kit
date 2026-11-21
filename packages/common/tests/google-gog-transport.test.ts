@@ -305,6 +305,19 @@ describe("the operation boundary", () => {
     expect(fake.callsOf("gmail.thread.get")).toEqual([]);
   });
 
+  test("a search page with more hits than it asked for is refused before any thread read is scheduled", async () => {
+    const page = (hits: number) => ({
+      count: hits, has_more: false, nextPageToken: "",
+      threads: Array.from({ length: hits }, (_, index) => ({ id: `19a0c3d2e4f5${String(index).padStart(4, "0")}` })),
+    });
+    for (const [input, hits] of [[{ query: "in:inbox", limit: 2 }, 30], [{ query: "in:inbox" }, 11], [{ query: "in:inbox", limit: 25 }, 26]] as const) {
+      const { fake, transport } = setup({ "gmail.search": { stdout: page(hits) }, "gmail.thread.get": { stdout: fixture("thread-swine.json") } });
+      const result = await transport.execute("gmail.search", input);
+      expect(fake.callsOf("gmail.thread.get"), `${hits} hits`).toEqual([]);
+      expect(errorOf(result)).toEqual(["transport_incompatible", "page_too_large"]);
+    }
+  });
+
   test("an empty search answers an empty page without a pre-read", async () => {
     const { fake, transport } = setup({ "gmail.search": { stdout: fixture("search-empty.json") } });
     expect(await transport.execute("gmail.search", { query: "label:Ithaca" })).toEqual({

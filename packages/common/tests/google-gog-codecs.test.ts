@@ -86,8 +86,12 @@ describe("message, labels, search and raw draft", () => {
   });
 
   test("a search page is its thread ids and next page token", () => {
-    expect(decodeGogSearchIds(fixture("search-ids.json"))).toEqual({ thread_ids: ["19a0c3d2e4f50601", "19a0c3d2e4f50700"], next_page_token: "09876543210987654321" });
-    expect(decodeGogSearchIds(fixture("search-empty.json"))).toEqual({ thread_ids: [], next_page_token: null });
+    expect(decodeGogSearchIds(fixture("search-ids.json"))).toEqual({ thread_ids: ["19a0c3d2e4f50601", "19a0c3d2e4f50700"], hit_count: 2, next_page_token: "09876543210987654321" });
+    expect(decodeGogSearchIds(fixture("search-empty.json"))).toEqual({ thread_ids: [], hit_count: 0, next_page_token: null });
+    // A repeated id is read once, and still counts as the hit gog returned.
+    const repeated = fixture("search-ids.json");
+    repeated.threads.push({ id: "19a0c3d2e4f50601" });
+    expect(decodeGogSearchIds(repeated)).toMatchObject({ thread_ids: ["19a0c3d2e4f50601", "19a0c3d2e4f50700"], hit_count: 3 });
   });
 
   test("a raw draft keeps its exact bytes, which the send card's parser reads", async () => {
@@ -214,7 +218,7 @@ describe("the shapes gog 0.48.1 emits (the live round)", () => {
       id: "19a0c3d2e4f50601", date: "2026-07-12 09:40", internalDateIso: "2026-07-12T09:40:00Z", from: "Telemachus <telemachus@example.com>",
       subject: "Re: Suitors at the hall", labels: ["INBOX", "UNREAD"], messageCount: 2,
     }] };
-    expect(decodeGogSearchIds(full)).toEqual({ thread_ids: ["19a0c3d2e4f50601"], next_page_token: null });
+    expect(decodeGogSearchIds(full)).toEqual({ thread_ids: ["19a0c3d2e4f50601"], hit_count: 1, next_page_token: null });
     const wrong: [string, unknown][] = [["date", 12], ["internalDateIso", null], ["from", ["x"]], ["subject", 7], ["labels", "INBOX"], ["messageCount", "2"]];
     for (const [key, value] of wrong) {
       const json = clone(full);
@@ -256,7 +260,7 @@ describe("strictness of what gog 0.48.1 can emit", () => {
     const json = fixture("message-herald.json");
     expect(shapeError(() => decodeGogMessage({ ...json, unsubscribe: ["https://example.com/herald/leave"] }))).toBe("$.unsubscribe");
     expect(shapeError(() => decodeGogMessage({ ...json, body: {} }))).toBe("$.body");
-    expect(shapeError(() => decodeGogMessage({ ...json, headers: { ...json.headers, list_unsubscribe: "" } }))).toBe("$.headers.list_unsubscribe");
+    expect(shapeError(() => decodeGogMessage({ ...json, headers: { ...json.headers, list_unsubscribe: "" } }))).toBe("$.headers.<key>");
     const { unsubscribe: _unsubscribe, body: _body, ...bare } = json;
     expect(shapeError(() => decodeGogMessage(bare))).toBeNull();
   });
@@ -303,10 +307,39 @@ describe("strictness of what gog 0.48.1 can emit", () => {
     expect(shapeError(() => decodeGogMessage({ ...fixture("message-herald.json"), externalContent: { untrusted: true } }))).toBe("$.externalContent");
   });
 
-  test("an unknown envelope key is named in the error only when it is an identifier", () => {
+  test("an unknown envelope key is named in the error only when it is a structural name gog or Gmail uses", () => {
     expect(shapeError(() => decodeGogMessage({ ...fixture("message-get.json"), "penelope@example.com": 1 }))).toBe("$.<key>");
     expect(shapeError(() => decodeGogLabels({ labels: [], "Suitors at the hall": [] }))).toBe("$.<key>");
     expect(shapeError(() => decodeGogMessage({ ...fixture("message-get.json"), headers: { ...fixture("message-get.json").headers, "x.y": "" } }))).toBe("$.headers.<key>");
+    // Identifier-shaped is not enough: a name or an id can be one.
+    expect(shapeError(() => decodeGogMessage({ ...fixture("message-get.json"), Ithaca: 1 }))).toBe("$.<key>");
+    expect(shapeError(() => decodeGogLabels({ labels: [], abcdef0123456789: [] }))).toBe("$.<key>");
+    expect(shapeError(() => decodeGogMessage({ ...fixture("message-get.json"), headers: { ...fixture("message-get.json").headers, Penelope: "" } }))).toBe("$.headers.<key>");
+    // A key gog or Gmail does use keeps its name, here one the codec refuses in this envelope.
+    expect(shapeError(() => decodeGogLabels({ labels: [], threads: [] }))).toBe("$.threads");
+  });
+
+  test("a resource array Go never writes as null is refused as null; gog's own nil-slice envelope fields are not", async () => {
+    const thread = (edit: (json: Record<string, any>) => void) => {
+      const json = clone(fixture("thread-hall.json"));
+      edit(json);
+      return () => decodeGogThread(json);
+    };
+    const cases: [string, () => unknown][] = [
+      ["$.thread.messages", thread(json => { json.thread.messages = null; })],
+      ["$.thread.messages[1].labelIds", thread(json => { json.thread.messages[1].labelIds = null; })],
+      ["$.thread.messages[0].payload.headers", thread(json => { json.thread.messages[0].payload.headers = null; })],
+      ["$.thread.messages[0].payload.parts", thread(json => { json.thread.messages[0].payload.parts = null; })],
+      ["$.message.labelIds", () => decodeGogMessage({ ...fixture("message-get.json"), message: { ...fixture("message-get.json").message, labelIds: null } })],
+      ["$.threads", () => decodeGogSearchIds({ ...fixture("search-ids.json"), threads: null })],
+    ];
+    for (const [path, run] of cases) expect(shapeError(run), path).toBe(path);
+    // Gmail's Draft.message is omitted when empty, never null.
+    const draft = await decodeGogDraft({ draft: { id: "r-1234567890123456789", message: null } }).then(() => null, (error: unknown) => error);
+    expect(draft instanceof GogShapeError ? draft.path : draft).toBe("$.draft.message");
+    // gog writes these two from a Go slice that may be nil (gmail_labels.go:304-306, gmail_thread.go:90-93).
+    expect(decodeGogLabels({ labels: null })).toEqual([]);
+    expect(decodeGogThread({ ...fixture("thread-hall.json"), downloaded: null }).messages).toHaveLength(2);
   });
 });
 
