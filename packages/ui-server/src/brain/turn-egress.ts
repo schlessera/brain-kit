@@ -142,6 +142,11 @@ export async function prepareTurnEgress(options: {
   const collectionEpoch = (db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId) as {id:string}|null)?.id??crypto.randomUUID();
   const exposures = new Map<string, Occurrence>();
   const ownCollectionStarts = new Map<string,string>();
+  // Each card owns its peer inputs until its last connection terminates. Keep
+  // their immutable ids after a peer finishes so a slower peer sees the same
+  // reviewed context; independent cards and independent input remain evidence.
+  type ApprovalGroup = { members:Set<string>; occurrences:Set<string>; starts:Set<string> };
+  const approvalGroups = new Map<string,ApprovalGroup>();
   const exposureCommits = new Map<string, Promise<unknown>>();
   const normalBefore = new Set<string>();
   const standingRecipients = new Map<string, Pick<TrustMatch, "ruleId" | "policyHash" | "trustRevision" | "collectionRevision">>();
@@ -178,6 +183,7 @@ export async function prepareTurnEgress(options: {
     if (!connectionId) return;
     trustedInputs.delete(connectionId);standingRecipients.delete(connectionId);
     exposures.delete(connectionId);ownCollectionStarts.delete(connectionId);exposureCommits.delete(connectionId);normalBefore.delete(connectionId);
+    approvalGroups.get(connectionId)?.members.delete(connectionId);approvalGroups.delete(connectionId);
     approvalMarkers.delete(`${connectionId}:network`);approvalMarkers.delete(`${connectionId}:outward`);
   };
   const report = (record: EgressRecord): void => {
@@ -243,27 +249,32 @@ export async function prepareTurnEgress(options: {
       const key = `${connectionId ?? "global"}:${kind}`, version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString(),callGeneration]);
       const cached = approvalMarkers.get(key); if (cached?.version === version) return cached.marker;
       const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
+      const group=connectionId&&kind==="network"?approvalGroups.get(connectionId):undefined;
       const ownStart=connectionId?ownCollectionStarts.get(connectionId):undefined;
+      const starts=new Set(group?.starts);if(ownStart)starts.add(ownStart);
+      const inputs=new Set(group?.occurrences);const ownInput=connectionId?exposures.get(connectionId)?.id:undefined;if(ownInput)inputs.add(ownInput);
       // An uninstrumented turn was already unknown before its first record.
       // Creating its sole incomplete epoch is metadata of this same input.
-      const coverage=ownStart&&state.coverage.epochs.length===1&&state.coverage.epochs[0]?.id===ownStart&&state.coverage.state==="incomplete"?"unknown":state.coverage.state;
-      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), connectionId ? exposures.get(connectionId)?.id ?? null : null,connectionId?ownCollectionStarts.get(connectionId)??null:null),
+      const coverage=state.coverage.epochs.length===1&&starts.has(state.coverage.epochs[0]!.id)&&state.coverage.state==="incomplete"?"unknown":state.coverage.state;
+      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
         writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable,callGeneration]);
       approvalMarkers.set(key,{version,marker}); return marker;
     };
-  const asking = new Map<string, Promise<boolean>>();
-  const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal): Promise<boolean> => {
+  const asking = new Map<string, {decision:Promise<boolean>;group:ApprovalGroup}>();
+  const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?:string): Promise<boolean> => {
     const key = JSON.stringify([destination.host, destination.port, destination.method, destination.protocol, destination.managedReference, approvalRevision()]);
     let pending = asking.get(key);
     if (!pending) {
-      pending = requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network", kind: "command",
+      const decision = requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network", kind: "command",
         input: { ...destination, target: networkAuthority(destination) },
         description: taintedDestinationDescription(destination, firstTaint()?.source ?? null),
       }).then(decision => decision.behavior === "allow", () => false).finally(() => asking.delete(key));
+      pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set()}};
       asking.set(key, pending);
     }
-    const allowed = await pending;
+    if(connectionId){pending.group.members.add(connectionId);approvalGroups.set(connectionId,pending.group);}
+    const allowed = await pending.decision;
     return allowed && !signal.aborted;
   };
   // The extraction classifier (#4088), off unless the policy turns it on. It
@@ -329,6 +340,8 @@ export async function prepareTurnEgress(options: {
       : { trusted: false, policyHash: trustSnapshot ? trustSnapshot.policyHash : options.policyHash ?? null, trustRevision: trustSnapshot?.revision ?? "0" };
     exposure.provenance=provenance;
     exposures.set(destination.connectionId, exposure);
+    const group=approvalGroups.get(destination.connectionId);
+    if(group){group.occurrences.add(exposure.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}
     const hadCollection=db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId);
     try {
       const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
@@ -343,7 +356,7 @@ export async function prepareTurnEgress(options: {
     finally { exposureCommits.delete(destination.connectionId); }
     if(db&&!hadCollection){
       const created=db.query("SELECT c.id FROM safety_collections c WHERE c.turn_id=? AND (SELECT r.id FROM safety_records r WHERE r.collection_id=c.id AND r.kind='occurrence' ORDER BY length(r.sequence),r.sequence LIMIT 1)=?").get(options.turnId,exposure.id) as {id:string}|null;
-      if(created)ownCollectionStarts.set(destination.connectionId,created.id);
+      if(created){ownCollectionStarts.set(destination.connectionId,created.id);if(group){group.starts.add(created.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}}
     }
     if(match)trustedInputs.set(destination.connectionId,{destination,revision:match.trustRevision,ruleId:match.ruleId,instance:instance!});
     if (match && !inputCurrent(destination.connectionId)) throw new EgressAdmissionRefused("Source trust changed before dispatch","source_trust_changed");

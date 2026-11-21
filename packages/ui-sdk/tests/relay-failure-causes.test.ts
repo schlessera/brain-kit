@@ -59,10 +59,11 @@ for(const path of paths)for(const cause of causes)test(`failure cause: ${cause} 
    }else expect(refusals,'NO_NEW_ERROR_ENVELOPE_AFTER_STREAM_OR_INTERNAL_CLEANUP').toEqual([]);
   }
   if(isInference&&!streaming){
-   const detail=cause==='cancelled'?'Inference request cancelled':cause==='safety_changed'?'Inference safety or authority changed':cause==='policy_denied'?'Inference network policy refused the request':cause==='unavailable'?'Inference egress unavailable':cause==='budget'?'Inference egress limit exceeded':path==='credentials'?'Inference credentials unavailable':'Inference upstream unreachable';
+   const detail=cause==='cancelled'?'Inference request cancelled':cause==='safety_changed'||cause==='policy_denied'||cause==='unavailable'?'Inference network admission refused':cause==='budget'?'Inference egress limit exceeded':path==='credentials'?'Inference credentials unavailable':'Inference upstream unreachable';
    expect(JSON.parse(result!.body).error).toMatchObject({type:'brain_inference_refused',message:detail});
    expect(JSON.parse(result!.body).error.reason).toBeUndefined();
    expect(inference.at(-1)).toMatchObject({outcome:'refused',status,reason:detail});
+   if(typed)expect(inference.at(-1)?.denialReason,'TYPED_CAUSE_STAYS_HOST_ONLY').toBe(cause==='cancelled'?'turn_cancelled':cause==='budget'?'max_bytes_per_turn':cause==='unavailable'?'egress_unavailable':cause==='policy_denied'?'destination_not_allowed':'safety_changed');
   }
   const outcome=typed?'cancelled':'failed';
   // HTTP contract: docs/integration-contract/http.md:1412-1413 — status is upstream evidence, never the local refusal.

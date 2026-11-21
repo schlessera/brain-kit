@@ -2483,7 +2483,7 @@ so nothing in them can be recorded or limited.
 **The design.** A `governed` or `strict` worker gets `--unshare-net` and a
 server-owned egress proxy, bind-mounted as a Unix socket in the same way as
 the inference relay. The relay's `observe` hook already exists but is not
-connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:40`).
+connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:46`).
 Inside the worker, a small loopback listener forwards to the socket, and
 `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` point at it.
 
@@ -3566,7 +3566,7 @@ recipient only when it can record what the turn is shown (`const recipient = opt
 view is not on managed native storage, where the relay runs, is refused before
 this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
-(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:83-85`),
+(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:89-91`),
 pi refuses a changed endpoint before its credential is read, and a turn that
 has a recipient but no relay refuses to start. A model change inside a turn
 cannot leave the one relay socket the worker has.
@@ -3696,7 +3696,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:75`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:81`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -4194,7 +4194,7 @@ and a documented "no GitHub here" were both rejected. The rest of the ruling:
   approves a write, and autonomous turns have no write surface.
 - **The Network card stays.** An unclassified connection to an outward GitHub
   host keeps its `Network` approval card (`approveOutward`,
-  `packages/ui-server/src/brain/turn-egress.ts:365-372`); it is not refused
+  `packages/ui-server/src/brain/turn-egress.ts:378-385`); it is not refused
   outright. The hosted report behind #3791 was a compound shell command that
   ended in `curl` to `api.github.com`. The classifier reads such a command as
   opaque, so no visible-read exception covers it. Its `CONNECT` was held for
@@ -4397,7 +4397,7 @@ Concurrent connections to the same host share one card. An allowed
 connection's admission adds its host to the turn's contacted hosts, and its
 charged `egress_connection` record carries the host into the session's later
 turns, so it is not asked for again; a different host still asks
-(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:256-267`).
+(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:265-276`).
 A decline refuses: the record stays an `egress_denial` with reason
 `taint_allowlist`, and the 403 carries a short reason the tool can print (`function describeRefusal`,
 `packages/ui-sdk/src/server/egress-proxy.ts:203-219`). Stopping the turn while the
@@ -4485,7 +4485,7 @@ the byte ceiling, an unapproved outward host, or a tainted session's host
 outside its allow-list, with the session's first taint source and what the
 user can do (`function describeRefusal`,
 `packages/ui-sdk/src/server/egress-proxy.ts:203-219`; the source wording,
-`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:301`). The status
+`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:312`). The status
 line carries the reason because `curl -v`, `git` and `egress-connect` print
 only that line for a refused CONNECT. The provider relay passes the proxy's
 reason through as the refusal body's `error.message` and an additive
@@ -4590,7 +4590,7 @@ admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:615`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
 (`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:386`). Turn egress
 records neither a taint nor a contacted host for the operation
-(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:310-315`). So in a
+(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:321-326`). So in a
 tainted session, the worker's own traffic stays narrowed away from the
 provider's host.
 

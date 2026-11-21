@@ -99,10 +99,10 @@ export interface EgressProxyOptions {
    * anything but `true`, refuses.
    */
   taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean; contacted(host: string): boolean;
-    /** Immutable evidence/authority marker; may exclude only this admission's own recorded input. */
+    /** Immutable evidence/authority marker; excludes inputs admitted under this exact shared card. */
     approvalRevision?(connectionId?: string, kind?: "network" | "outward"): string;
     recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean | Extract<EgressRecipientAuthority,{kind:"rule"}>["admission"];
-    approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal): Promise<boolean>;
+    approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?: string): Promise<boolean>;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
   /**
@@ -356,7 +356,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
-    const approvalRevision = (own = false, outward = false) => options.taint?.approvalRevision?.(own ? connectionId : undefined, outward ? "outward" : "network") ?? JSON.stringify(options.admissionSafety?.read());
+    const approvalRevision = (own = false, outward = false) => options.taint?.approvalRevision?.(own || !outward ? connectionId : undefined, outward ? "outward" : "network") ?? JSON.stringify(options.admissionSafety?.read());
     const grantCurrent = (own = false) => {
       if (!granted && !outwardApproved) return true;
       try {
@@ -386,7 +386,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const narrowed = (final = false) => recipientDecision(final) === null;
     const narrowing = async () => {
       if (!narrowed()) return true;
-      if (options.taint?.approve) { grantRevision = approvalRevision(); granted = await approval(options.taint.approve.bind(options.taint));
+      if (options.taint?.approve) { grantRevision = approvalRevision(); granted = await approval((destination, signal) => options.taint!.approve!(destination, signal, connectionId));
         if (granted && !grantCurrent()) { refuseStaleApproval(); return false; } }
       if (!granted) finish(stopped ? "cancelled" : "denied", options.taint?.approve ? "taint_not_approved" : "taint_not_allowed");
       return granted;

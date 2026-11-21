@@ -1389,8 +1389,19 @@ New egress records carry optional `dispatched` evidence. Charged preparation
 with `dispatched:false` never grants contacted-host permission in later turns;
 older records without the field retain their existing interpretation. Historical
 contacted hosts use the same canonical comparison key as current destinations,
-including legacy bracketed IPv6 literals. Recording unavailability is always
-503 `egress_unavailable`, including initial admission.
+including legacy bracketed IPv6 literals. This operation's recording
+unavailability is 503 `egress_unavailable`, including initial admission.
+Another recorder's loss or an independent pending input is a safety change,
+403 `safety_changed`.
+
+A shared Network card excludes every occurrence admitted under that exact
+card from its approval-evidence marker, including completed peers and their
+initial collection metadata. Independent inputs, cards, human decisions and
+authority or trust changes still invalidate the pending approval. These host
+exclusions never remove occurrences from safety history or effective taint.
+Inference refusal wire messages retain their existing fixed text (including
+`Inference network admission refused`); the specific cause stays in the host's
+`denialReason`, preserving runtime classification and stored-history readers.
 
 Egress audit records add optional `failureReason` with the stored terminal
 category: `budget`, `safety_changed`, `policy_denied`, `unavailable` or

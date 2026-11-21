@@ -27,6 +27,12 @@ export const INFERENCE_PLACEHOLDER = INFERENCE_RELAY_PLACEHOLDER;
 /** A request body larger than this is refused before anything is forwarded. */
 export const MAX_INFERENCE_REQUEST_BYTES = 32 * 1024 * 1024;
 
+/** These fixed messages also classify stored provider errors as host refusals. */
+function inferenceRefusalMessage(failure: EgressChargeFailure): string {
+  return failure.reason === "budget" ? "Inference egress limit exceeded"
+    : failure.reason === "cancelled" ? "Inference request cancelled" : "Inference network admission refused";
+}
+
 export interface InferenceRelayOptions {
   /** Server-selected upstream base, e.g. `https://api.anthropic.com`. */
   upstream: string;
@@ -127,7 +133,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const allowance=relayAllowance(operation,options.egress?.remainingBytes?.bind(options.egress),MAX_INFERENCE_REQUEST_BYTES);
         const chargeFailure=allowance.charge;
         const receivedFailure=(count:number)=>chargeReceivedBytes(count,{charge:chargeFailure,remaining:allowance.remaining});
-        const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Inference"); return refuse(request.method,path,detail.status,detail.message,operation?.reason?.() ?? detail.reason); };
+        const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Inference"); return refuse(request.method,path,detail.status,inferenceRefusalMessage(failure),operation?.reason?.() ?? detail.reason); };
         const admitFailure = async ():Promise<EgressChargeFailure|undefined> => operation && !await operation.admit() ? operation.failure() ?? {ok:false,reason:"unavailable"} : undefined;
         const initialAdmissionFailure=await admitFailure();
         if (initialAdmissionFailure) return chargeDenied(initialAdmissionFailure);
@@ -238,13 +244,13 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             catch {
               const cause=captureEgressFailure(signal,operation);
               operation?.finish(cause.outcome,"upstream_response_failed");
-              release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Inference").message:"Inference response interrupted"));return;
+              release();controller.error(new Error(cause.failure?inferenceRefusalMessage(cause.failure):"Inference response interrupted"));return;
             }
             const failure=next.deliver(()=>{
               if(next.done){controller.close();operation?.finish("completed");release();}
               else controller.enqueue(next.value);
             });
-            if(failure){release();controller.error(new Error(egressChargeRefusal(failure,"Inference").message));}
+            if(failure){release();controller.error(new Error(inferenceRefusalMessage(failure)));}
           },
           async cancel() {
             operation?.finish("cancelled", "client_disconnected");
