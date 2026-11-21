@@ -13,7 +13,7 @@ import { nativeReleaseObservations } from "./native-release-observation.js";
 import { Database } from "bun:sqlite";
 import { NativeEventLog } from "./event-log.js";
 import { proveRecoveryInventory } from "./recovery-inventory.js";
-import { observationPhases, summarizePhases, median as phaseMedian, type ManagerSpan, type ObservationTrace, type PhaseSample } from "./observation-phases.js";
+import { observationPhases, summarizePhases, median as phaseMedian, type ManagerSpan, type PhaseSample } from "./observation-phases.js";
 
 const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
