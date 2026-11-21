@@ -4,7 +4,7 @@
  * every refusal is proven against a binary that otherwise passes.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, chownSync, copyFileSync, mkdirSync, readFileSync, renameSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, chownSync, copyFileSync, linkSync, mkdirSync, readFileSync, renameSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { GOG_PINS, gogPlatform, verifyGogBinary } from "@schlessera/brain-common/internal/google-gog";
 import { gogInvocation } from "../src/google/gog/argv.ts";
@@ -381,6 +381,9 @@ describe("the transport re-checks the binary's identity", () => {
   test("a symlink retargeted after verification or after a refusal is a changed binary: the new target is verified and run", async () => {
     const first = setup({ "gmail.labels.list": { stdout: labels } });
     const second = setup({ "gmail.labels.list": { stdout: labels } });
+    // Another name for the second file, made before anything is verified: a new hard link moves the file's ctime.
+    const alias = join(dirname(second.fake.executable), "gog-alias");
+    linkSync(second.fake.executable, alias);
     const { link, retarget } = linked(first.fake);
     const transport = linkedTransport(link, first.fake, { ...first.parameters, pins: [...first.parameters.pins, ...second.parameters.pins] });
     expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
@@ -391,6 +394,12 @@ describe("the transport re-checks the binary's identity", () => {
     expect(second.fake.callsOf("schema")).toHaveLength(1);
     expect(second.fake.callsOf("gmail.labels.list")).toHaveLength(1);
     expect(await transport.availability()).toMatchObject({ ok: true, pin: { path: second.fake.executable } });
+    // Pointed at that other name, the link resolves to the very same file, unchanged, in the same directory, under another
+    // path: verified again, and that path is what runs.
+    retarget(alias);
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("binary_changed"));
+    expect(await transport.availability()).toMatchObject({ ok: true, pin: { path: alias } });
+    expect(second.fake.callsOf("schema")).toHaveLength(2);
     // A refused link pointed at a good binary is verified again at once.
     const bad = setup({ version: { stdout: "v0.48.1 (deadbeef 2026-11-16T05:55:59Z)\n" } });
     const good = setup({ "gmail.labels.list": { stdout: labels } });
