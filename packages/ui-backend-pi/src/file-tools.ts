@@ -42,7 +42,7 @@ export function readFileTool(kit: BrainToolKit): ToolDefinition {
 
 /** `grep`: a regular-expression search scoped to the repository. */
 export function grepTool(kit: BrainToolKit): ToolDefinition {
-  const { deps, brain, resolveOrThrow } = kit;
+  const { deps, brain, turn, resolveOrThrow } = kit;
   return {
     name: "grep",
     label: "Grep",
@@ -56,23 +56,32 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       ),
     }),
     async execute(_id: string, params: { pattern: string; path?: string }, signal?: AbortSignal) {
+      signal = signal && turn.signal ? AbortSignal.any([signal, turn.signal]) : signal ?? turn.signal ?? undefined;
+      signal?.throwIfAborted();
       // Containment: scope the search path to the repo; grep runs with cwd=repo.
       const rel = params.path ?? ".";
       resolveOrThrow(rel);
       const exec = deps.exec ?? ambientExecConfig();
-      const proc = spawn(wrapCommand(["grep", "-rInE", "--", params.pattern, rel], exec.wrapper), {
+      const argv=wrapCommand(["grep", "-rInE", "--", params.pattern, rel], exec.wrapper);
+      const spawnOptions={
         cwd: brain.root,
         env: subprocessEnv([...resolveEnabledWebSearchEnvNames(), ...WORKER_EGRESS_TRANSPORT_ENV]),
-        stdout: "pipe",
-        stderr: "pipe",
+        stdout: "pipe" as const,
+        stderr: "pipe" as const,
         ...execWrapperSpawnOptions(exec.wrapper),
-      });
-      const onAbort = () => killWrapped(proc, exec);
-      signal?.addEventListener("abort", onAbort, { once: true });
+      };
+      let stop=()=>{};const onAbort=()=>stop();
+      signal?.addEventListener("abort",onAbort,{once:true});
+      try {
+      signal?.throwIfAborted();
+      const proc=spawn(argv,spawnOptions);
+      stop=()=>killWrapped(proc,exec);
+      if(signal?.aborted)stop();
       const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-      signal?.removeEventListener("abort", onAbort);
+      signal?.throwIfAborted();
       const text = out.trim();
       return textResult(text ? clip(text) : "No matches.", { pattern: params.pattern });
+      } finally {signal?.removeEventListener("abort",onAbort);}
     },
   } satisfies ToolDefinition;
 }
@@ -187,7 +196,7 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
         if (turn.bridge?.commitToolAdmission) await turn.bridge.commitToolAdmission(_id, "bash", params);
         else {
           try {
-            const validate=()=>revalidatePiAdmission(turn,"bash",_id,params);
+            const validate=()=>{signal?.throwIfAborted();return revalidatePiAdmission(turn,"bash",_id,params);};
             const stale=validate();if(stale)throw new Error(stale);
             await turn.bridge?.inputSafety?.allowed?.(_id,validate);
             const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
@@ -198,31 +207,34 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
             throw error;
           }
         }
+        signal?.throwIfAborted();
         const exec = deps.exec ?? ambientExecConfig();
         // Not a login shell (#2960): `-l` sourced /etc/profile and the first
         // profile under HOME before every command, so their output reached
         // the result and anything they exported, PATH included, overrode the
         // allowlisted childEnv. --noprofile --norc reads no startup file; the
         // command sees exactly childEnv.
-        const proc = spawn(wrapCommand(["bash", "--noprofile", "--norc", "-c", cmd], exec.wrapper), {
+        const argv=wrapCommand(["bash", "--noprofile", "--norc", "-c", cmd], exec.wrapper);
+        const spawnOptions={
           cwd: deps.shellCwd ?? brain.root,
           env: childEnv,
-          stdout: "pipe",
-          stderr: "pipe",
+          stdout: "pipe" as const,
+          stderr: "pipe" as const,
           ...execWrapperSpawnOptions(exec.wrapper),
-        });
-        let killedByAbort = false;
-        const onAbort = () => {
-          killedByAbort = true;
-          killWrapped(proc, exec);
         };
-        signal?.addEventListener("abort", onAbort, { once: true });
+        let killedByAbort=false,stop=()=>{};
+        const onAbort=()=>{killedByAbort=true;stop();};
+        signal?.addEventListener("abort",onAbort,{once:true});
+        try {
+        signal?.throwIfAborted();
+        const proc=spawn(argv,spawnOptions);
+        stop=()=>killWrapped(proc,exec);
+        if(signal?.aborted)onAbort();
         const [stdout, stderr, code] = await Promise.all([
           new Response(proc.stdout).text(),
           new Response(proc.stderr).text(),
           proc.exited,
         ]);
-        signal?.removeEventListener("abort", onAbort);
         const body = [stdout, stderr].filter(Boolean).join("\n").trim();
         // The exit line goes after the clip, so a long failing output still
         // ends with it: the host classifies a nonzero exit from it (#1671).
@@ -232,6 +244,7 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
         // that independently exited with the same status (including 143).
         if (killedByAbort) throw new DOMException(`Tool cancelled by abort\n${output}`, "AbortError");
         return textResult(output, { exitCode: code });
+        }finally{signal?.removeEventListener("abort",onAbort);}
       });
     },
   } satisfies ToolDefinition;

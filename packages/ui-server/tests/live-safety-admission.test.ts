@@ -820,3 +820,31 @@ for(const route of ['gate','rpc'] as const)test(`Pi non-Bash ${route} rechecks r
   expect(waited,'LEGACY_NON_BASH_ALLOWANCE_WAS_REACHED').toBe(true);
  }finally{await f.close();}
 });
+
+for(const route of ['allowed','rpc'] as const)test(`Pi tool-only cancellation during ${route} admission never spawns Bash`,async()=>{
+ const f=await fixture(),tool=new AbortController();try{
+  let waited=false;
+  const bridge:BackendBridge={emit(){},inputSafety:{...f.collector,async allowed(id,validate){waited=true;await f.collector.allowed!(id,validate);tool.abort();}},requestPermission:async()=>({behavior:'allow'})};
+  const turn={...createTurnContext(),bridge,signal:f.controller.signal};
+  if(route==='rpc')bridge.commitToolAdmission=async()=>{waited=true;await Promise.resolve();tool.abort();};
+  const marker=join(f.root,'cancelled-tool-spawned');
+  let denied=false;try{await bashTool(createBrainToolKit({brain:createBrainAccess(f.root),turn,exec:{},lock:{withKey:async(_key,body)=>body()}})).execute('cancel-tool',{command:`printf Ithaca > '${marker}'`},tool.signal,undefined,{} as never);}catch{denied=true;}
+  expect(waited,'TOOL_CANCEL_HAPPENS_IN_THE_FINAL_WAIT').toBe(true);
+  expect(denied,'CANCELLED_TOOL_MUST_REFUSE_DISPATCH').toBe(true);
+  expect(existsSync(marker),'CANCELLED_TOOL_HAS_NO_PROCESS_EFFECT').toBe(false);
+  expect(f.controller.signal.aborted,'TURN_STAYS_LIVE_DURING_TOOL_ONLY_ABORT').toBe(false);
+ }finally{await f.close();}
+});
+for(const failure of ['configuration','root'] as const)test(`Claude final hook fence turns ${failure} recomputation failure into a recorded denial`,async()=>{
+ const f=await fixture();try{
+  let final=false;const released:string[]=[],refused:string[]=[];
+  const safety={read(){if(final&&failure==='root')throw new Error('Final root unavailable');return f.safety.read();},subscribe:f.safety.subscribe};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),admissionSafety:safety,inputSafety:{...f.collector,forAdmission:(...args)=>f.collector.forAdmission!(...args),async refused(id,denied){refused.push(id);await f.collector.refused!(id,denied);}}}},allowedTools:['Read'],confirmPatterns:[],brainPath:f.root,configurationRoot(){if(final){if(failure==='configuration')throw new Error('Final configuration unavailable');safety.read();}return f.root;},turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(id:string){released.push(id);}} as never,childEnv:{},log(){}});
+  const group=wiring.hooks!.PreToolUse!.find(group=>group.matcher==='^Read$')!;
+  // The native-read hook itself completes; the outer fence recomputes next.
+  const original=f.collector.forAdmission!;
+  f.collector.forAdmission=(_id,_tool,root)=>{const view=original(_id,_tool,failure==='root'?f.safety:root);return {read(){const state=view.read();final=true;return state;},subscribe:view.subscribe};};
+  expect(await group.hooks[0]!({hook_event_name:'PreToolUse',tool_name:'Read',tool_input:{file_path:'notes/loom.md'},tool_use_id:'final-fence'} as never,'final-fence',{signal:f.controller.signal}),'FINAL_FENCE_FAILURE_IS_AN_EXPLICIT_DENIAL').toMatchObject({hookSpecificOutput:{permissionDecision:'deny'}});
+  expect(released).toContain('final-fence');expect(refused).toContain('final-fence');
+ }finally{await f.close();}
+});

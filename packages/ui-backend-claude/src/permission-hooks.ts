@@ -752,20 +752,20 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
       safety=args[0].hook_event_name==="PreToolUse"?toolAdmissionSafety(req.bridge,args[0].tool_use_id,args[0].tool_name):req.bridge.admissionSafety;
       snapshot = safety?.read();
       output = await hook(...args);
+      const outwardInput="hookSpecificOutput" in output&&output.hookSpecificOutput?.hookEventName==="PreToolUse"?output.hookSpecificOutput.updatedInput:undefined;
+      const refusal = safetyAdmissionRefusal(safety, snapshot)
+        ?? (args[0].hook_event_name==="PreToolUse"&&outward(args[0].tool_name,outwardInput??args[0].tool_input).classification.actions.length?outwardAdmissionRefusal(safety,snapshot):null)
+        ?? (req.signal.aborted || args[2].signal.aborted ? "Turn cancelled before tool admission." : null);
+      if (refusal) {
+        if (args[0].hook_event_name === "PreToolUse") turnLock.releaseForTool(args[0].tool_use_id);
+        return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } };
+      }
+      return output;
     } catch (error) {
       if (args[0].hook_event_name === "PreToolUse") turnLock.releaseForTool(args[0].tool_use_id);
       return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
         permissionDecisionReason: error instanceof Error ? error.message : "Host tool admission is unavailable." } };
     }
-    const outwardInput="hookSpecificOutput" in output&&output.hookSpecificOutput?.hookEventName==="PreToolUse"?output.hookSpecificOutput.updatedInput:undefined;
-    const refusal = safetyAdmissionRefusal(safety, snapshot)
-      ?? (args[0].hook_event_name==="PreToolUse"&&outward(args[0].tool_name,outwardInput??args[0].tool_input).classification.actions.length?outwardAdmissionRefusal(safety,snapshot):null)
-      ?? (req.signal.aborted || args[2].signal.aborted ? "Turn cancelled before tool admission." : null);
-    if (refusal) {
-      if (args[0].hook_event_name === "PreToolUse") turnLock.releaseForTool(args[0].tool_use_id);
-      return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } };
-    }
-    return output;
   }
   const safetyResult: HookCallback = async input => {
     if((input.hook_event_name==="PostToolUse"||input.hook_event_name==="PostToolUseFailure")&&req.bridge.inputSafety){
