@@ -153,6 +153,7 @@ async function server(name: ProfileName, root: string, mode: "dry" | "live", pri
       return new Response(events.map((e: any) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     } });
   }
+  const releaseScripted = fixture ? (await import("./test-native-guard")).nativeScriptedService(new URL(fixture.url).origin) : undefined;
   const upstream = fixture ? `http://127.0.0.1:${fixture.port}` : PROVIDER;
   if (profile.adapter === "pi" && fixture) writeFileSync(join(root, "pi/models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: upstream } } }));
 
@@ -387,7 +388,7 @@ async function server(name: ProfileName, root: string, mode: "dry" | "live", pri
     ...(fixture ? { fixture: { maxTokens: fixtureMaxTokens, serverCredentialInjected: injected } } : {}),
   };
   writeFileSync(join(root, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n");
-  listener.stop(true); await app.close(); fixture?.stop(true);
+  listener.stop(true); await app.close(); fixture?.stop(true); releaseScripted?.();
   rmSync(join(root, "pi-sessions"), { recursive: true, force: true });
   process.exit(0);
 }

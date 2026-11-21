@@ -1,3 +1,4 @@
+import {searchWitnessScript} from "./helpers/search-witness";
 import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /** A tool result that reaches the host already exists in the runtime's own
  * session: the installed Claude runtime replays it on resume. So its record
@@ -8,7 +9,7 @@ import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
  * still owing it when the collection ends is a gap. Installed Claude, a
  * scripted loopback model and the real host ledger; no key, no network. */
 import {expect,test} from "bun:test";
-import {chmodSync,existsSync,mkdirSync,mkdtempSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
+import {chmodSync,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {createRequire} from "node:module";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
@@ -70,12 +71,8 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
  // then holds its exit, the window a stop lands in.
  const bin=join(root,"bin"),searched=join(home,"sirens-heard");mkdirSync(bin);
  const rg=installedRipgrep(bin);
- writeFileSync(join(bin,"rg"),`#!/bin/sh
-case " $* " in
-  *" sirens "*) '${rg}' "$@"; code=$?; : > '${searched}'; sleep 3; exit "$code";;
-  *) exec '${rg}' "$@";;
-esac
-`);chmodSync(join(bin,"rg"),0o755);
+ const searchStatus=join(home,"sirens-status");
+ writeFileSync(join(bin,"rg"),searchWitnessScript(rg,searched,searchStatus));chmodSync(join(bin,"rg"),0o755);
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
  holdSafetyRecovery(db);
  // Each turn's provider requests, as the loopback model received them.
@@ -169,7 +166,7 @@ esac
  try{
   const first=await voyage("voyage",null,true);
   expect(version,"SAFETY_ACTUAL_INSTALLED_RUNTIME").toBe(MEASURED_RUNTIME.claudeCode);
-  if(interruption==="running"||interruption==="duplicate"||interruption==="retooled")expect(existsSync(searched),"SAFETY_ACTUAL_SEARCH_RAN").toBe(true);
+  if(interruption==="running"||interruption==="duplicate"||interruption==="retooled"){ expect(existsSync(searched),"SAFETY_ACTUAL_SEARCH_RAN").toBe(true); expect(readFileSync(searchStatus,"utf8").trim(),"SAFETY_SEARCH_EXIT_STATUS").toBe("0"); }
   if(interruption!=="denied")expect(first.aborted,"SAFETY_INTERRUPTED_RESULT_STOPS_ITS_TURN").toBe(true);
   expect(runtimeSession,"SAFETY_RUNTIME_SESSION_TO_RESUME").toBeDefined();
   turn=1;

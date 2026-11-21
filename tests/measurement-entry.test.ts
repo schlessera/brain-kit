@@ -36,3 +36,20 @@ test("every runnable measurement entry admits before runtime dependencies and ne
   expect(readFileSync(join(ROOT,"scripts/measure-real-provider-dispatch.ts"),"utf8")).toContain('String(prior), "--allow-real-provider"');
   expect(readFileSync(join(ROOT,"scripts/measure-show-block-server.ts"),"utf8")).toContain("...args, ...measurementAuthorizationArgs");
 });
+for (const [entry, argv] of [
+ ["measure-show-block.ts", ["--suggestions", "--schema-cost"]],
+ ["measure-show-block-server.ts", ["--report", "saved.json"]],
+ ["measure-show-block-server.ts", ["--inspect-suggestions"]],
+ ["measure-real-provider-dispatch.ts", ["claude", "--dry-run"]],
+ ["measure-real-provider-dispatch.ts", ["--server", "claude", "/tmp/ithaca", "dry", "0"]],
+ ["measure-turn-surface-live.ts", ["--offline"]],
+] as const) test(`${entry} ${argv.join(" ")} stays offline with or without authorization`, () => {
+ for (const authorized of [false,true]) {
+  let installs=0,warnings=0;
+  expect(enterMeasurement({entry,argv:[...argv,...(authorized?["--allow-real-provider"]:[])],liveEval:authorized?"587":undefined},
+   {installOffline(){installs++;},warn(){warnings++;}})).toBe("offline");
+  expect(installs).toBe(1);expect(warnings).toBe(0);
+ }
+});
+for(const [entry,argv] of [["measure-show-block.ts",["--tokens"]],["measure-show-block.ts",["--suggestions","--tokens"]],["measure-show-block-server.ts",["--classify"]],["measure-real-provider-dispatch.ts",["--server","claude","/tmp/ithaca","live","0","--dry-run"]]] as const)
+ test(`${entry} ${argv.join(" ")} requires live authorization`,()=>expect(()=>enterMeasurement({entry,argv},{installOffline(){},warn(){}})).toThrow("before runtime import"));

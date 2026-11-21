@@ -15,4 +15,4 @@ export const measurementAdmission = enterMeasurement({ entry, argv: process.argv
 // Keep existing command parsers unchanged after the explicit flag is consumed.
 export const measurementAuthorizationArgs = measurementAdmission === "live" && process.argv.includes("--allow-real-provider")
   ? ["--allow-real-provider"] : [];
-if (measurementAuthorizationArgs.length) process.argv = process.argv.filter(arg => arg !== "--allow-real-provider");
+if (process.argv.includes("--allow-real-provider")) process.argv = process.argv.filter(arg => arg !== "--allow-real-provider");

@@ -162,7 +162,7 @@ Reproduction commands (live commands require authorized API use):
 
 ```sh
 # Keyless estimate and checks.
-bun scripts/measure-show-block.ts --allow-real-provider --suggestions --schema-cost
+bun scripts/measure-show-block.ts --suggestions --schema-cost
 bun run test tests/measure-suggestions.test.ts
 
 # SDK level: 6 prompts x 2 arms x 3 repetitions = 36 turns.
@@ -173,8 +173,8 @@ bun scripts/measure-show-block.ts --allow-real-provider --suggestions --tokens
 # Copies live outside any checkout and home directory and are indexed first.
 bun scripts/measure-show-block-server.ts --allow-real-provider --suggestions --brain <claude-fixture-copy> --backend claude --model claude-sonnet-5-5 --runs 3 --out claude.json
 bun scripts/measure-show-block-server.ts --allow-real-provider --suggestions --brain <pi-fixture-copy> --backend pi --vendor anthropic --model claude-sonnet-5-5 --runs 3 --out pi.json
-bun scripts/measure-show-block-server.ts --allow-real-provider --report claude.json
-bun scripts/measure-show-block-server.ts --allow-real-provider --report pi.json
+bun scripts/measure-show-block-server.ts --report claude.json
+bun scripts/measure-show-block-server.ts --report pi.json
 ```
 
 > **2026-10-10 — Implementation context (the keyless check above).** That test
