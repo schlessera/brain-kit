@@ -16,6 +16,7 @@ import { publishProtectedPolicy } from "./policy-publication.js";
 import * as writes from "./trust-settings-writes.js";
 import type { createTrustGitHubIdentity, TrustGitHubIdentity } from "./trust-github-identity.js";
 import { ReferenceTransportError } from "./reference-transport.js";
+import { resolvePrincipal, isUsablePrincipal } from "../db/principals.js";
 const hash = (s: string | Uint8Array) => createHash("sha256").update(s).digest("hex");
 const id = () => randomBytes(24).toString("base64url");
 const exactDiff = (before: string | null, after: string) => (before ?? "").split("\n").map(line => `- ${line}`).concat(after.split("\n").map(line => `+ ${line}`)).join("\n");
@@ -41,12 +42,12 @@ type LiveProjection = Projection & { readonly ruleInstances: Readonly<Record<str
 /** Kept off every strict Settings JSON response; captured atomically with its projection. */
 const withInstances = (projection:Projection,instances:Readonly<Record<string,string>>):LiveProjection =>
   Object.defineProperty(projection,"ruleInstances",{value:Object.freeze(instances),enumerable:false}) as LiveProjection;
-interface Receipt {
+export interface Receipt {
   version: 1; requestId: string; operationId: string; stage: "prepared" | "file_published" | "committed" | "partial" | "unknown" | "refused";
   publication: "not_published" | "proved" | "unknown"; ruleId: string; publishedTrustRevision: string | null;
   currentRule: "present" | "removed" | "changed" | "unknown"; enforcement: "unavailable" | "enforced"; reason: string | null;
 }
-interface Payload { input: Prepare; reviewId: string; proposed: string; proposedHash: string; base: string | null; topology: string; rule: TrustRule | null; githubIdentity?: TrustGitHubIdentity }
+interface Payload { input: Prepare; reviewId: string; proposed: string; proposedHash: string; base: string | null; topology: string; rule: TrustRule | null; githubIdentity?: TrustGitHubIdentity; safetyReview?: { body: import("@schlessera/brain-ui-sdk/protocol").SafetyReviewBody; requestId: string } }
 interface Row { principal_id: string; brain_id: string; authority: string; expires_at: number; retain_until: number; payload: string; stage: string; proof: string | null; receipt: string }
 const topology = (root: string) => [root, join(root, "context"), join(root, "context/policies"), join(root, "context/policies/governance.md")].map((path, i) => {
   const stat = lstatSync(path, { throwIfNoEntry: false });
@@ -195,19 +196,19 @@ export function createTrustSettings(options: {
     const rule = p.rules.find(rule => rule.id === receipt.ruleId);
     return { ...receipt, currentRule: p.error ? "unknown" : !rule ? "removed" : JSON.stringify(rule) === JSON.stringify(payload.rule) ? "present" : "changed" };
   };
+  const readCurrent = (principal: string, request: string, p: Projection) => {
+    const r = row(principal, request), payload = JSON.parse(r.payload) as Payload;
+    let receipt = JSON.parse(r.receipt) as Receipt;
+    if (r.stage === "writing") receipt = { ...receipt, stage: "unknown", publication: "unknown", reason: "publication_completion_unknown" };
+    if (r.stage === "file_published") receipt = { ...receipt, stage: "partial", publication: r.proof ? "proved" : "unknown", reason: "publication_recorded_completion_incomplete" };
+    return { receipt: current(receipt, payload, p), review: { reviewId: payload.reviewId, base: payload.base, proposed: payload.proposed,
+      diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at,
+      repositoryIdentity: payload.githubIdentity ?? null,
+      includesFutureRepositories: payload.rule?.selector.kind === "github_owner" }, policy: p, capabilities };
+  };
   const read = async (principal: string, request: string) => {
     row(principal, request);
-    return options.lock.withLock(BRAIN_LOCK_KEY, async () => {
-      const p = await refresh();
-      const r = row(principal, request), payload = JSON.parse(r.payload) as Payload;
-      let receipt = JSON.parse(r.receipt) as Receipt;
-      if (r.stage === "writing") receipt = { ...receipt, stage: "unknown", publication: "unknown", reason: "publication_completion_unknown" };
-      if (r.stage === "file_published") receipt = { ...receipt, stage: "partial", publication: r.proof ? "proved" : "unknown", reason: "publication_recorded_completion_incomplete" };
-      return { receipt: current(receipt, payload, p), review: { reviewId: payload.reviewId, base: payload.base, proposed: payload.proposed,
-        diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at,
-        repositoryIdentity: payload.githubIdentity ?? null,
-        includesFutureRepositories: payload.rule?.selector.kind === "github_owner" }, policy: p, capabilities };
-    });
+    return options.lock.withLock(BRAIN_LOCK_KEY, async () => readCurrent(principal,request,await refresh()));
   };
   return {
     /** Snapshot the existing live interpretation; writers fence its generation after waits. */
@@ -219,6 +220,44 @@ export function createTrustSettings(options: {
       } catch { return; }
     },
     live,
+    /** Recovery uses durable completion/publication evidence, never preparation
+     * expiry as a proxy for publication order. Scope and retention share read's
+     * authority, served brain and clock, including expiry during the lock wait. */
+    async safetyStatus(principal: string, session: import("@schlessera/brain-ui-sdk/protocol").SafetySessionKey, occurrenceId: string) {
+      authority(principal);
+      return options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+        authority(principal);
+        const select = (present: string[] = []) => options.db.query(`SELECT o.request_id FROM trust_settings_operations o
+          LEFT JOIN safety_decisions d ON d.request_id=json_extract(o.payload,'$.safetyReview.requestId')
+          WHERE o.brain_id=? AND o.principal_id=? AND o.retain_until>=?
+          AND json_extract(o.payload,'$.safetyReview.body.occurrenceId')=?
+          AND json_extract(o.payload,'$.safetyReview.body.session.sessionId')=?
+          AND json_extract(o.payload,'$.safetyReview.body.session.historyOwnerId')=?
+          AND json_extract(o.payload,'$.safetyReview.body.session.historyGeneration')=?
+          ORDER BY (d.id IS NOT NULL) DESC,
+            EXISTS(SELECT 1 FROM json_each(?) present_rule WHERE present_rule.value=json_extract(o.receipt,'$.ruleId')) DESC,
+            CASE WHEN o.proof IS NOT NULL THEN 0 WHEN o.stage='writing' OR json_extract(o.receipt,'$.publication')='unknown' THEN 1 ELSE 2 END,
+            length(coalesce(json_extract(o.proof,'$.publishedTrustRevision'),'')) DESC,
+            coalesce(json_extract(o.proof,'$.publishedTrustRevision'),'') DESC,o.rowid DESC LIMIT 1`)
+          .get(brain,principal,now(),occurrenceId,session.sessionId,session.historyOwnerId,session.historyGeneration,JSON.stringify(present)) as {request_id:string}|null;
+        if (!select()) return null;
+        const p = await refresh();
+        return options.db.transaction(() => {
+          const selected = select(p.error ? [] : p.rules.map(rule=>rule.id));
+          if (!selected) { authority(principal); return null; }
+          try {
+            const binding = (JSON.parse(row(principal,selected.request_id).payload) as Payload).safetyReview;
+            if (!binding) throw new TrustSettingsError("request_conflict");
+            return {requestId:selected.request_id,binding,receipt:readCurrent(principal,selected.request_id,p).receipt};
+          } catch (error) {
+            if (!(error instanceof TrustSettingsError) || error.code !== "unavailable" || error.status !== 404) throw error;
+            authority(principal); return null;
+          }
+        }).deferred();
+      });
+    },
+    /** Internal binding; ordinary Settings commits cannot publish a combined review. */
+    safetyReview(principal: string, request: string) { return (JSON.parse(row(principal, request).payload) as Payload).safetyReview; },
     /** The other protected publisher already owns the shared brain lock. */
     refreshLocked: refresh,
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
@@ -233,10 +272,27 @@ export function createTrustSettings(options: {
       const row = options.db.query("SELECT selector,identity,proof FROM trust_settings_github_boundaries WHERE brain_id=? AND rule_id=?").get(brain, ruleId) as { selector: string; identity: string; proof: string } | null;
       return row && row.selector === JSON.stringify(rule.selector) ? { identity: JSON.parse(row.identity) as TrustGitHubIdentity, proof: JSON.parse(row.proof) as unknown } : null;
     }); },
-    async list(principal: string) { authority(principal); const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh); authority(principal);
-      return { ...p, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
+    async list(principal: string) {
+      const access = () => {
+        const mutationAllowed = !!options.authority(principal);
+        if (!mutationAllowed) {
+          const reader = resolvePrincipal(options.db, principal);
+          if (!reader || !["owner", "agent", "ambient"].includes(reader.kind) || !isUsablePrincipal(reader, now()))
+            throw new TrustSettingsError("unauthorized", 403);
+        }
+        return mutationAllowed;
+      };
+      access();
+      const p = await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+        const snapshot = await refresh();
+        // Observation-only incarnation tokens, captured with the same policy.
+        // The internal stream-fence projection remains non-enumerable.
+        return { ...snapshot, instances: { ...(snapshot as LiveProjection).ruleInstances } };
+      });
+      const mutationAllowed = access();
+      return { ...p, mutationAllowed, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
     read,
-    async prepare(principal: string, raw: unknown, signal?: AbortSignal) {
+    async prepare(principal: string, raw: unknown, signal?: AbortSignal, safetyReview?: Payload["safetyReview"]) {
       const auth = authority(principal), input = TrustPrepareSchema.parse(raw);
       if (process.platform !== "linux") throw new TrustSettingsError("unavailable", 503);
       // Names/IDs supplied by browsers cannot create repository identity proof.
@@ -269,7 +325,7 @@ export function createTrustSettings(options: {
         }
         if (Buffer.byteLength(JSON.stringify({ base, proposed, diff: exactDiff(base, proposed) })) > 196608) throw new TrustSettingsError("capacity", 503);
         const payload: Payload = { input, reviewId: id(), proposed, proposedHash: hash(proposed), base, topology: identity,
-          rule: change.action === "remove" ? null : change.rule, ...(githubIdentity ? { githubIdentity } : {}) };
+          rule: change.action === "remove" ? null : change.rule, ...(safetyReview ? { safetyReview } : {}), ...(githubIdentity ? { githubIdentity } : {}) };
         const receipt: Receipt = { version: 1, requestId, operationId, stage: "prepared", publication: "not_published", ruleId,
           publishedTrustRevision: null, currentRule: "unknown", enforcement: "unavailable", reason: null };
         const inserted = await call<string>("insert", { requestId, brainId: brain, principalId: principal, authority: auth, expires: now() + 900000, retain: now() + 86400000,
@@ -279,10 +335,11 @@ export function createTrustSettings(options: {
       });
       return read(principal, request);
     },
-    async commit(principal: string, raw: unknown, signal?: AbortSignal) {
+    async commit(principal: string, raw: unknown, signal?: AbortSignal, safety?: { binding: NonNullable<Payload["safetyReview"]>; check(): void }) {
       const input: Commit = TrustCommitSchema.parse(raw); row(principal, input.requestId);
       await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
         const r = row(principal, input.requestId), payload = JSON.parse(r.payload) as Payload;
+        if (JSON.stringify(payload.safetyReview) !== JSON.stringify(safety?.binding)) throw new TrustSettingsError("request_conflict");
         if (payload.reviewId !== input.reviewId || payload.proposedHash !== input.reviewedBytesHash) throw new TrustSettingsError("request_conflict");
         if (r.stage !== "prepared") return; // Readback only, including uncertain writes.
         if (r.expires_at < now()) throw new TrustSettingsError("request_expired");
@@ -303,6 +360,7 @@ export function createTrustSettings(options: {
           let identityAuthority: (() => void) | undefined;
           const check = () => { signal?.throwIfAborted();
             if (!publicationOpen) throw new TrustSettingsError("publication_failed");
+            safety?.check();
             row(principal, input.requestId); identityAuthority?.(); if (r.expires_at < now()) throw new TrustSettingsError("request_expired");
             if (!matchesTopology(root, payload.topology, true)) throw new TrustSettingsError("stale_base");
             verifyGovernancePolicyAnchored(target!, p.policyHash); };

@@ -74,7 +74,7 @@ export function safetyReviewTarget(db: Database, body: SafetyReviewBody, princip
     || !sameAccount(db, { principalId: owner.principal_id, account: owner.principal_account }, principalId))) return "unavailable";
   return null;
 }
-function eligible(db: Database, body: SafetyReviewBody, actor: SafetyReviewer): string | null {
+export function eligible(db: Database, body: SafetyReviewBody, actor: SafetyReviewer): string | null {
   const r = db.query(`SELECT c.turn_id,c.principal_id,c.principal_account,c.generation,r.state,coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) trusted,COALESCE((SELECT x.state FROM safety_records x
     WHERE x.occurrence_id=r.id AND x.kind='exposure' ORDER BY length(x.sequence) DESC,x.sequence DESC LIMIT 1),r.state) final_state
     FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
@@ -136,6 +136,23 @@ export function commitSafetyReview(db: Database, requestId: string, value: Safet
     if (!row || row.principal_id !== actor.principalId || row.channel !== actor.channel)
       return receipt(body, requestId, null, "unavailable", null);
     if (row.body_hash !== fingerprint(body, actor)) return receipt(body, requestId, row.operation_id, "request_conflict", null);
+    // A combined handle cannot bypass publication through the individual HTTP
+    // endpoint or another caller of this FULL worker procedure. Check on the
+    // acquired write connection, before committing OR replaying its verdict.
+    const publication = db.query(`SELECT proof,payload,receipt,brain_id,principal_id,authority
+      FROM trust_settings_operations WHERE json_extract(payload,'$.safetyReview.requestId')=?`).get(requestId) as
+      {proof:string|null;payload:string;receipt:string;brain_id:string;principal_id:string;authority:string}|null;
+    if (publication) {
+      const proof = publication.proof ? JSON.parse(publication.proof) : null;
+      const rule = JSON.parse(publication.receipt), payload = JSON.parse(publication.payload);
+      if (!proof || rule.publication !== "proved" || proof.operationId !== rule.operationId
+        || proof.reviewedBytesHash !== payload.proposedHash || proof.brain !== publication.brain_id
+        || proof.principal !== actor.principalId || publication.principal_id !== actor.principalId
+        || proof.authority !== publication.authority)
+        return receipt(body,requestId,row.operation_id,"publication_unproven",null);
+      // Refusal above is non-terminal: only THIS still-valid handle may finish
+      // after the protected publisher durably records its own publication proof.
+    }
     if (row.terminal_at !== null) {
       if (clock(now) >= row.terminal_at + RECEIPT_MS) return receipt(body, requestId, row.operation_id, "request_expired", null);
       return JSON.parse(row.receipt) as SafetyReviewReceipt;

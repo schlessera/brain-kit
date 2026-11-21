@@ -38,6 +38,7 @@ test("implicit HEAD preserves every ordinary GET handler's status and headers wh
       const head = await t.fetch(path, { method: "HEAD" });
       expect({ path, status: head.status }).toEqual({ path, status: get.status });
       expect(head.headers.get("content-type")).toBe(get.headers.get("content-type"));
+      if (path.startsWith("/api/trust-settings")) expect([...head.headers]).toEqual([...get.headers]);
       expect(await head.text()).toBe("");
       await get.arrayBuffer();
     }

@@ -1,3 +1,4 @@
+export { safetyFutureStatusSchema, safetyFuturePrepareSchema, safetyFutureCommitSchema, safetyFuturePreparedSchema, safetyFutureResultSchema } from "./safety.js";
 export { safetyProjectionSchema, safetyReviewBodySchema, safetyReviewReceiptSchema, safetyReviewResponseSchema, safetySessionKeySchema, safetyPageSchema, safetyUpdateSchema, safetyCapabilitiesSchema } from "./safety.js";
 import { clientSafetyReadSchema, clientSafetySubscribeSchema, clientSafetyUnsubscribeSchema, serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema, safetyCapabilitiesSchema } from "./safety.js";
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
@@ -2324,3 +2325,6 @@ export const queueAddRequestSchema = z.strictObject({
 export const queueAddResultSchema = z.looseObject({
   queued: z.literal(true), created: z.boolean(), threadId: id, itemId: id, stagingId: id,
 }) satisfies z.ZodType<QueueAddResult>;
+
+/** Canonical Settings inputs, shared with the protected policy writer. */
+export { parseTrustOrigin, parseTrustTunnel, parseTrustGithub, TrustRuleSchema, TrustedSourcesSchema } from "@schlessera/brain-common/internal/taint-trust";

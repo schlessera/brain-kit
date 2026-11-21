@@ -3666,3 +3666,90 @@ pins this choice alongside entry correlation; changing it requires a fresh
 snapshot. Older readers retain their strict record shape and conservative
 interpretation. New clients omit the field when the server capability is absent.
 HTTP readers explicitly opt in with `admissions=1`; repeated/invalid query values are refused. This affects host UI sidecars only; it never changes provider history.
+
+### Combined single-trigger and future-source review (#3611)
+
+All three combined-review endpoints are supported POST operations in the
+[classified HTTP inventory](../http-api.md#inventory-and-selection), with live
+password-mode owner, exact Origin and bounded JSON authority fences. Status is
+a read-only POST; it adds no GET or implicit HEAD endpoint.
+
+When `capabilities.sessionSafetyFutureRules` and `safetyCapabilities.review`
+are true, a password-mode owner may
+POST `/api/sessions/:id/safety/reviews/future/prepare` with the individual
+review body plus `future: { incomingContent: true, recipientWhileRestricted:
+boolean }`. The recipient flag is independently chosen, off by default.
+Only finalized proxy occurrences with host-attested web-origin or explicitly
+labelled tunnel provenance qualify. Repository choices remain unavailable.
+The response binds a request ID, exact session/occurrence, the proposed policy
+bytes/diff, review ID and SHA-256 reviewed-bytes hash. Clients must display this
+review before POSTing `/future/commit` with `{ version: 1, requestId, reviewId,
+reviewedBytesHash }`. No caller-supplied selector, principal or historical range
+is accepted. Old clients retain the existing individual review endpoints.
+
+The protected Settings operation stores its original single-verdict handle
+before publication. Publication precedes that verdict; publication alone never
+resolves the occurrence. Responses distinguish `verdict_committed`, `partial`,
+`unknown` and `refused`, retain publication evidence and the original verdict
+receipt, and include separate live `currentProjection` and rule presence
+(`present`, `removed`, `changed`, `unknown`). A proved publication can resume
+only its original verdict request; unknown publication requires fresh review.
+Retries never republish a removed rule. All other recorded triggers, including
+later input from the same source, keep their identities and verdicts.
+
+Prepared reviews expire after 15 minutes, with existing 24-hour receipt
+retention and bounded Settings/verdict capacity. Existing live owner epoch,
+Origin/JSON, session generation, evidence revision and protected publication
+fences apply. Auth/session changes discard pending browser work without replay.
+These host sidecars never enter provider history.
+
+POST `/future/status` with `{ version: 1, session, occurrenceId }` reads the
+retained combined operation selected by completion/publication evidence,
+without publishing or committing a verdict.
+It returns the same result envelope, or null when no receipt is retained. Commit and status derive
+completion from the exact operation's durable verdict decision, including after
+a lost acknowledgement or a retry refused by the pending-review quota. A retained
+noncommitted verdict receipt has its internal request/operation IDs redacted on
+both endpoints. Missing verdict receipts do not erase a durable decision.
+Clients correlate prepared and committed responses with the originally requested
+session and occurrence before using a handle or acknowledging completion.
+A failed status read (including a mismatched target) displays explicit
+could-not-verify uncertainty; successful JSON null clears the receipt display.
+Only the newest overlapping status read can update that display. The
+owner UI reads this after reload and on focus to show partial/unknown completion
+and current rule presence separately from the remaining-trigger projection.
+
+#### Combined-review ordering and legacy capability encoding
+
+A verdict handle bound to a combined operation requires that operation's durable
+publication proof inside the FULL verdict transaction, including commits through
+the individual review endpoint and receipt replay. `publication_unproven` refuses
+only that attempt without consuming the handle; equal current policy bytes are
+not publication proof. Prepared/noncommitted status redacts the internal verdict
+request and operation IDs. A separately prepared individual review remains an
+independent human decision and does not finish the combined operation.
+
+For compatibility with the previously shipped strict SDK parser, every
+`server_hello.safetyCapabilities` retains `originRules: false`,
+`repositoryRules: false`, and `recipientRules: false`. Future-rule support is
+instead offered as the additive boolean
+`server_hello.capabilities.sessionSafetyFutureRules`. A new UI enables its local
+future source/recipient controls only when that offer and `safetyCapabilities.review`
+are both true. Old UIs ignore the boolean offer and retain safety history and
+individual review. No protocol revision or breaking schema migration is required.
+
+Operation completion text never asserts current rule presence or current trigger
+resolution. Refreshed status owns current rule presence; the live safety ledger
+owns the selected trigger's verdict and remaining-trigger count. A partial
+combined receipt can coexist with a later independent safe decision.
+
+Status recovery considers only the current principal/served brain/session's
+retained Settings operations, using the same retention clock as Settings reads.
+A committed verdict takes precedence. Otherwise, rule presence in the currently
+verified policy takes precedence, then proved publication ordered by its durable
+trust revision, then unknown publication, then the newest unpublished preparation.
+Preparation expiry is not publication order. Selection and readback share a read transaction
+after the policy lock and refresh waits. Expired or concurrently pruned receipts
+return JSON null without needing another write to prune storage. Authority and
+session fences still apply before delivery. The UI sequences focus reads so an older
+success or failure cannot replace a newer rule-presence result.

@@ -1,5 +1,7 @@
+import { CombinedSafetyReviews, combinedPrepareSchema, combinedCommitSchema } from "../governance/combined-safety-reviews.js";
+import { TrustSettingsError } from "../brain/trust-settings.js";
 import { Hono } from "hono";
-import { safetyReviewBodySchema } from "@schlessera/brain-ui-sdk/schemas";
+import { safetyReviewBodySchema, safetyFutureStatusSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { AppEnv } from "../app-env.js";
 import { OwnerSafetyReviews, OwnerSafetyUnavailable } from "../governance/owner-safety-reviews.js";
 import { readJsonBody } from "../middleware/body-limit.js";
@@ -8,7 +10,7 @@ import { requireOwner } from "../middleware/require-owner.js";
 
 /** These browser mutations require a present exact Origin, even for clients
  * claiming same-origin fetch metadata. Unrelated routes keep their policy. */
-export function createOwnerSafetyReviewRoutes(reviews: OwnerSafetyReviews, trustProxy: boolean): Hono<AppEnv> {
+export function createOwnerSafetyReviewRoutes(reviews: OwnerSafetyReviews, trustProxy: boolean, combined?: CombinedSafetyReviews): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const prefix = "/sessions/:id/safety/reviews";
   app.use(`${prefix}/*`, async (c,next)=>{
@@ -25,6 +27,30 @@ export function createOwnerSafetyReviewRoutes(reviews: OwnerSafetyReviews, trust
     } catch { return c.json({code:"unauthorized",reason:"cross_origin_rejected",retryable:false},403); }
     return next();
   }, requireOwner(), requireJson());
+  if (combined) app.post(`${prefix}/future/status`, async c => {
+    try {
+      const raw=await readJsonBody(c,16384);
+      if(raw instanceof Response)return raw;
+      const input=safetyFutureStatusSchema.parse(raw);
+      if(input.session.sessionId!==c.req.param("id")||new URL(c.req.url).search)return c.json({code:"unavailable"},400);
+      return c.json(await combined.status(c.get("principal")!,input));
+    }catch{return c.json({code:"unavailable",retryable:false},404);}
+  });
+  if (combined) for (const action of ["prepare", "commit"] as const) app.post(`${prefix}/future/${action}`, async c => {
+    try {
+      const raw = await readJsonBody(c, 16384);
+      if (raw instanceof Response) return c.json({code:"capacity",reason:"request_too_large",retryable:false},413);
+      const input = (action === "prepare" ? combinedPrepareSchema : combinedCommitSchema).parse(raw);
+      if (new URL(c.req.url).search || action === "prepare" && (input as import("@schlessera/brain-ui-sdk/protocol").SafetyReviewBody).session.sessionId !== c.req.param("id"))
+        return c.json({code:"unavailable",reason:"invalid_request",retryable:false},400);
+      const value = action === "prepare" ? await combined.prepare(c.get("principal")!,input,c.req.raw.signal) : await combined.commit(c.get("principal")!,input,c.req.raw.signal,c.req.param("id"));
+      if (value.session.sessionId !== c.req.param("id")) return c.json({code:"unavailable",reason:"invalid_request",retryable:false},400);
+      return c.json(value);
+    } catch (error) {
+      const status = error instanceof TrustSettingsError ? error.status : error instanceof OwnerSafetyUnavailable ? 403 : 400;
+      return c.json({code:"unavailable",reason:error instanceof TrustSettingsError ? error.code : "invalid_request",retryable:false},status);
+    }
+  });
   for (const action of ["prepare","commit"] as const) {
     app.post(action === "prepare" ? `${prefix}/prepare` : `${prefix}/:requestId/commit`, async c=>{
       try {

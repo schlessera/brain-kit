@@ -1,5 +1,6 @@
 /// <reference types="@vitest/browser-playwright" />
 import {afterAll,afterEach,beforeAll,expect,test} from 'vitest';
+import {watchdogMs} from '../../../../scripts/test-deadlines.js';
 import {commands,page,userEvent} from 'vitest/browser';
 import {createRoot,type Root} from 'react-dom/client';
 import {flushSync} from 'react-dom';
@@ -17,17 +18,21 @@ let styles:HTMLStyleElement;const oldTheme=document.documentElement.dataset.them
 beforeAll(async()=>{styles=document.createElement('style');styles.textContent=await commands.formConsumerStyles();document.head.append(styles);});
 afterAll(async()=>{styles.remove();await page.viewport(viewport.width,viewport.height);});
 async function disposeView(){safetyClient?.dispose();safetyClient=undefined;if(renderer)flushSync(()=>renderer!.unmount());renderer=undefined;ui?.dispose();ui=undefined;socket?.close();socket=undefined;host?.remove();host=undefined;}
-afterEach(async()=>{await disposeView();if(fixture)await commands.safetyServer({op:'stop',id:fixture.id});fixture=undefined;if(oldTheme===undefined)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=oldTheme;});
+afterEach(async()=>{statusBarrier=undefined;commitBarrier=undefined;await disposeView();if(fixture)await commands.safetyServer({op:'stop',id:fixture.id});fixture=undefined;if(oldTheme===undefined)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=oldTheme;});
 const patch=(patch:Record<string,unknown>={})=>commands.safetyServer({op:'set',id:fixture!.id,patch}) as Promise<{page:SafetyPage;commits:number;prepares:number;decisions:Array<{occurrence_id:string}>}>;
 const noop=()=>{};
 const message:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
  toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Read',inputJson:'{}',input:{file_path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
  parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'text',text:'Voyage notes retained.'}]};
+let commitBarrier:((result:{status:number;body:unknown})=>Promise<void>)|undefined;
+let statusBarrier:((body:Record<string,unknown>,result:{status:number;body:unknown})=>Promise<void>)|undefined;
 async function view(independentSocket=false){
  const f=fixture!;
  ui=createBrainUiRoot({storage:null,config:{backendUrl:f.url},request:async(url,init)=>{
   if(!String(url).includes('/safety/reviews/'))return Response.json({providers:[]});
   const result=await patch({action:'request',path:new URL(url).pathname,body:init?.body}) as unknown as {status:number;body:unknown};
+  if(String(url).endsWith('/future/status')&&statusBarrier)await statusBarrier(JSON.parse(String(init?.body)),result);
+  if(String(url).endsWith('/commit')&&commitBarrier)await commitBarrier(result);
   if(init?.signal?.aborted)throw new DOMException('Aborted','AbortError');return Response.json(result.body,{status:result.status});
  }});
  const frames:unknown[]=[],sent:unknown[]=[];const current=ui;current.stores.chat.setState({activeSessionId:'ithaca',buffers:{ithaca:{messages:[message],isStreaming:false,askUser:null,lastTouched:message.timestamp}}});
@@ -222,4 +227,140 @@ for(const width of [320,1280])for(const theme of ['light','dark'])for(const tunn
  for(const [id,r] of Object.entries(records))if(r.kind==='occurrence')records[id]={...r,admission:{trusted:true,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'},provenance:tunnel?{kind:'tunnel_authority',authority:{host:'::1',port:443},verifiedBy:'host_proxy'}:{kind:'web_origin',origin:{scheme:'http',host:'::1',port:8080},verifiedBy:'host_transport'}};
  flushSync(()=>ui!.stores.safety.setState({records}));const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getAttribute('aria-label')?.startsWith('Trusted at admission'))!;await userEvent.click(indicator);
  const expected=tunnel?'[::1]:443':'http://[::1]:8080';await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent,{message:'IPV6_HISTORY_BRACKETS_THE_EXACT_AUTHORITY'}).toContain(expected);
+});
+
+for(const width of [320,1280])for(const allow of [false,true])test(`${width}: future origin review, recipient ${allow}, exact bytes then A only and reload`,async()=>{
+ await scene(width,'light');await patch({action:'add_verified'});
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
+ const mark=section().querySelector<HTMLElement>('[role=button],button')!;await userEvent.click(mark);
+ const only=section().querySelector<HTMLInputElement>('input[type=radio]')!;expect(only.parentElement!.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);expect(only.checked,'COMBINED_DEFAULT_ONLY_THIS_TRIGGER').toBe(true);
+ await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));
+ const recipient=page.getByRole('checkbox',{name:'Allow sending data while restricted'});
+ await expect.element(recipient).not.toBeChecked();
+ if(allow)await userEvent.click(recipient);
+ await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));
+ await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();
+ expect(section().textContent).toContain('ithaca.invalid');expect((await patch()).commits).toBe(0);
+ await userEvent.click(page.getByRole('button',{name:allow?'Save rule, allow sending while restricted, and mark this trigger safe':'Save future source rule and mark this trigger safe',exact:true}));
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
+ expect((await patch()).decisions).toHaveLength(1);
+ expect(document.body.textContent).not.toContain('Normal policy restored');
+ await disposeView();await view();
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent).toContain('Future rule: present');
+ expect((await patch()).commits,'COMBINED_RELOAD_STATUS_NEVER_REPLAYS').toBe(1);
+});
+
+async function futureReviewScene(width:number,partial=false){
+ await scene(width,'light');await patch({action:'add_verified'});
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);
+ await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));
+ await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));
+ await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();
+ if(partial)await patch({action:'fail_combined_verdict'});
+ await userEvent.click(page.getByRole('button',{name:'Save future source rule and mark this trigger safe',exact:true}));
+ await expect.poll(()=>ui!.stores.safety.getState().status).toBe('ready');
+ return section;
+}
+for(const width of [320,1280])test(`${width} review F3: focus refresh replaces commit-time rule presence`,async()=>{
+ const section=await futureReviewScene(width);
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
+ await expect.poll(()=>section().textContent).toContain('Future rule: present');
+ await patch({action:'remove_future_rule'});window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Future rule: removed');
+ expect(section().textContent,'F3_NO_STALE_COMMIT_TIME_PRESENCE').not.toContain('currently present');
+ expect(section().textContent).not.toContain('Future rule: present');
+});
+for(const width of [320,1280])test(`${width} review F4: partial operation is distinct from another tab's safe verdict`,async()=>{
+ const section=await futureReviewScene(width,true);
+ await expect.poll(()=>section().textContent).toContain('Rule publication proved');
+ await patch({action:'individual_safe'});
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
+ window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Marked safe by you');
+ expect(section().textContent,'F4_PARTIAL_RECEIPT_IS_NOT_CURRENT_TRIGGER_STATE').not.toContain('this trigger is still unresolved');
+ expect(section().textContent).not.toContain('this trigger remains unresolved');
+});
+
+for(const width of [320,1280])for(const older of ['success','error'] as const)test(`${width} matrix CS-O ${older}: an older focus response cannot overwrite newer revocation`,async()=>{
+ const section=await futureReviewScene(width);
+ await expect.poll(()=>section().textContent).toContain('Future rule: present');
+ const entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>(),returned=Promise.withResolvers<void>();let held=false;
+ const occurrenceId=section().dataset.safetyTrigger;
+ statusBarrier=async body=>{if(!held&&body.occurrenceId===occurrenceId){held=true;entered.resolve();await release.promise;returned.resolve();if(older==='error')throw new Error('Older status read failed');}};
+ try{
+ window.dispatchEvent(new Event('focus'));await entered.promise;
+ await patch({action:'remove_future_rule'});window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Future rule: removed');
+ release.resolve();await returned.promise;
+ // The transport already holds a complete JSON body; drain its promise chain
+ // and React's render frames after releasing the deliberately older response.
+ await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
+ expect(section().textContent,'R2F2_LATE_PRESENT_CANNOT_OVERWRITE_REMOVED').toContain('Future rule: removed');
+ expect(section().textContent).not.toContain('Future rule: present');
+ }finally{release.resolve();statusBarrier=undefined;}
+});
+
+for(const width of [320,1280])test(`${width} matrix CS-F initial / CS-R recovery: failed first read of a partial operation is not JSON null (round 3 F3)`,async()=>{
+ const old=await futureReviewScene(width,true);await expect.poll(()=>old().textContent).toContain('Rule publication proved');
+ const target=old().dataset.safetyTrigger;await disposeView();await view();
+ const entered=Promise.withResolvers<void>();statusBarrier=async body=>{if(body.occurrenceId===target){entered.resolve();throw new Error('Controlled first status-read loss');}};
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);await entered.promise;
+ const section=()=>document.querySelector<HTMLElement>(`[data-safety-trigger="${target}"]`)!;
+ await expect.poll(()=>section().textContent).toContain('Could not verify');
+ expect(section().textContent).not.toContain('Future rule: present');expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ statusBarrier=undefined;window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Future rule: present');expect(section().textContent).not.toContain('Could not verify');
+});
+for(const width of [320,1280])test(`${width} matrix CS-M: a status response for another target cannot set presence`,async()=>{
+ const old=await futureReviewScene(width,true);await expect.poll(()=>old().textContent).toContain('Rule publication proved');
+ const target=old().dataset.safetyTrigger;await disposeView();await view();
+ statusBarrier=async(body,result)=>{if(body.occurrenceId===target)result.body={...(result.body as Record<string,unknown>),occurrenceId:'wrong_occurrence'};};
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>document.querySelector<HTMLElement>(`[data-safety-trigger="${target}"]`)!;
+ await expect.poll(()=>section().textContent).toContain('Could not verify');expect(section().textContent).not.toContain('Future rule: present');
+});
+
+for(const width of [320,1280])test(`${width} matrix CS-F later / CS-E: expired receipt null clears display without hiding read failure`,async()=>{
+ const section=await futureReviewScene(width,true);await expect.poll(()=>section().textContent).toContain('Future rule: present');
+ const target=section().dataset.safetyTrigger;
+ statusBarrier=async body=>{if(body.occurrenceId===target)throw new Error('Later read failed');};window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Could not verify');
+ await patch({action:'expire_future_receipts'});statusBarrier=undefined;window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).not.toContain('Could not verify');expect(section().textContent).not.toContain('Future rule:');expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+});
+
+for(const future of [false,true])test(`fable F1 browser: ${future?'combined':'individual'} live update precedes commit response`,async()=>{
+ await page.viewport(320,900);fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view();
+ await patch({action:'add_verified'});await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
+ let responseObserved=false;
+ commitBarrier=async result=>{
+  const receipt=result.body as {stage?:string;receipt?:{stage:string};currentProjection:{evidenceRevision:string}};
+  expect(result.status).toBe(200);expect(receipt.stage??receipt.receipt?.stage).toBe('verdict_committed');
+  await expect.poll(()=>ui!.stores.safety.getState().revision,{timeout:watchdogMs(5000)}).toBe(receipt.currentProjection.evidenceRevision);
+  responseObserved=true;
+ };
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);
+ if(future){await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Save future source rule and mark this trigger safe',exact:true}));}
+ else await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ // Protected publication and response delivery have no one-second product deadline.
+ // First await the real committed response with its own live update observed;
+ // then await React's acknowledgement. Both are bounded hang watchdogs.
+ await expect.poll(()=>responseObserved,{timeout:watchdogMs(5000)}).toBe(true);
+ await expect.poll(()=>section().textContent,{timeout:watchdogMs(5000)}).toContain(future?'This operation recorded a safe verdict':'Decision recorded');expect(section().textContent).not.toContain('Review cancelled');
+},watchdogMs(20000));
+test('fable F2 browser: cancel future preparation then individual review remains Decision recorded',async()=>{
+ await page.viewport(320,900);fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view();await patch({action:'add_verified'});await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Cancel future rule review',exact:true}));
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);await userEvent.click(page.getByRole('radio',{name:'Only this trigger',exact:true}));await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ await expect.poll(()=>section().textContent).toContain('Decision recorded');ui!.stores.safety.getState().refresh();await expect.poll(()=>ui!.stores.safety.getState().status).toBe('ready');expect(section().textContent).not.toContain('No decision was sent');
 });

@@ -1,3 +1,7 @@
+import {createTrustSettings} from '../../../ui-server/src/brain/trust-settings.js';
+import {createKeyedLock} from '@schlessera/brain-ui-sdk/server';
+import {CombinedSafetyReviews} from '../../../ui-server/src/governance/combined-safety-reviews.js';
+import {createOwnerSafetyReviewRoutes} from '../../../ui-server/src/routes/owner-safety-review.js';
 /** Keyless loopback browser fixture: real writer, owner HTTP and WS sidecars. */
 import {occurrence} from '../../../ui-server/src/governance/occurrence.js';
 import {retireChat} from '../../../ui-server/src/ws/chat-lifecycle.js';
@@ -20,18 +24,43 @@ const app=new Hono<AppEnv>();
 // Test-only bootstrap supplies the fixture principal to a real WS host. HTTP
 // mutations below still traverse the actual cookie/Origin/owner route stack.
 app.get('/ws',async(c,next)=>{c.set('principal',f.principal);return next();},createWsUpgrade(f.host));
+const trust=createTrustSettings({root:f.root,db:f.db,writer:f.writer,lock:createKeyedLock(),originEnforcement:true,
+ authority:id=>id===f.principal.id&&f.reviews!.authorized(f.principal)?'owner-epoch':null,observe:async(_id,write)=>{await write();}});
+f.reviews!.enableFutureRules(trust);
+let failVerdict=false,verifiedId:string|null=null;
+const originalReview=f.reviews!.review.bind(f.reviews!);
+f.reviews!.review=async(...args)=>{if(failVerdict&&args[2]!==null)throw new Error('fixture verdict unavailable');return originalReview(...args);};
+const combined=new CombinedSafetyReviews(f.db,f.reviews!,trust);
+const futureApp=new Hono<AppEnv>();futureApp.use('*',async(c,next)=>{c.set('principal',f.principal);await next();});
+futureApp.route('/api',createOwnerSafetyReviewRoutes(f.reviews!,false,combined));
 const inner=f.url.replace('ws:','http:').replace('/ws','');let commits=0,prepares=0;
 app.post('/fixture',async c=>{
  const input=await c.req.json();
  if(input.action==='request'){
-  if(typeof input.path!=='string'||!/^\/api\/sessions\/ithaca\/safety\/reviews\/(prepare|[A-Za-z0-9_-]+\/commit)$/.test(input.path))return c.json({error:'invalid fixture route'},400);
-  if(input.path.endsWith('/commit'))commits++;else prepares++;
-  const response=await fetch(inner+input.path,{method:'POST',headers:{cookie:f.cookie,origin:inner,'content-type':'application/json'},body:input.body});
+  if(typeof input.path!=='string'||!/^\/api\/sessions\/ithaca\/safety\/reviews\/(prepare|future\/(prepare|commit|status)|[A-Za-z0-9_-]+\/commit)$/.test(input.path))return c.json({error:'invalid fixture route'},400);
+  if(input.path.endsWith('/commit'))commits++;else if(input.path.endsWith('/prepare'))prepares++;
+  const response=input.path.includes('/future/')?await futureApp.request(inner+input.path,{method:'POST',headers:{origin:inner,'content-type':'application/json'},body:input.body}):await fetch(inner+input.path,{method:'POST',headers:{cookie:f.cookie,origin:inner,'content-type':'application/json'},body:input.body});
   return c.json({status:response.status,body:await response.json()});
+ }
+ if(input.action==='expire_future_receipts')f.db.query('UPDATE trust_settings_operations SET retain_until=0').run();
+ if(input.action==='fail_combined_verdict')failVerdict=true;
+ if(input.action==='remove_future_rule'){
+ const p=await trust.list(f.principal.id),rule=p.rules[0];if(!rule)throw new Error('Missing future rule');
+ const prepared=await trust.prepare(f.principal.id,{version:1,expectedTrustRevision:p.revision,expectedPolicyHash:p.policyHash,change:{action:'remove',ruleId:rule.id}});
+ await trust.commit(f.principal.id,{version:1,requestId:prepared.receipt.requestId,reviewId:prepared.review.reviewId,reviewedBytesHash:prepared.review.reviewedBytesHash});
+ }
+ if(input.action==='individual_safe'){
+ if(!verifiedId)throw new Error('Missing verified occurrence');failVerdict=false;
+ const p=f.writes.safety(null,'ithaca'),body={version:1 as const,session:p.session!,occurrenceId:verifiedId,expectedEvidenceRevision:p.evidenceRevision,verdict:'safe' as const};
+ const prepared=await originalReview(f.principal,body,null);await originalReview(f.principal,body,prepared.receipt.requestId!);
  }
  if(input.action==='retire'){
   const result=retireChat(f.db,{operationId:'odysseus-retire',principalId:f.principal.id,target:{sessionId:'ithaca'},expected:{backendId:'claude',generation:1},removableBackends:['claude'],at:Date.now()});
   if(result.status!=='retired')throw new Error('Fixture retirement failed');f.host.chatRetired(f.principal.id,result);return c.json({retired:true,commits,prepares});
+ }
+ if(input.action==='add_verified'){
+ const o=occurrence(f.bindingId,'proxy_input',null,'finalized');verifiedId=o.id;o.provenance={kind:'web_origin',origin:{scheme:'https',host:'ithaca.invalid',port:443},verifiedBy:'host_transport'};
+ await observedWrites.record({kind:'taint',sessionId:'ithaca',turnId:'voyage',actor:'interactive',model:null,profile:'governed',payload:{source:'egress_connection',tool:'shell',detail:null,occurrence:o}});
  }
  if(input.action==='add')await tool(input.id??'tool_d',input.finalized!==false);
  if(input.action==='prune')pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);
