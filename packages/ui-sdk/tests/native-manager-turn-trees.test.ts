@@ -57,6 +57,7 @@ function fixture() {
       return stat(path, options);
     }) as typeof fs.statSync),
     spyOn(fs, "readFileSync").mockImplementation(((path: string | number, options?: never) => {
+      if (path === "/proc/meminfo") return "MemAvailable: 0 kB\n";
       if (path === "/proc/self/mountinfo") return `41 25 0:38 / ${root} rw - btrfs ${config.devicePath} rw\n`;
       if (path === "/sys/dev/block/1:0/size") return String(config.capacityBytes / 512);
       if (path === `/sys/fs/btrfs/${config.fsid}/devices/device/dev`) return "1:0";
@@ -237,7 +238,7 @@ test("the reader census reads every process's mounts and refuses what it cannot 
   expect(() => nativeTurnTreeReaders("0:38", "/.brain-native/trees/a", proc), "UNREADABLE_CENSUS_IS_NOT_EMPTY").toThrow();
 });
 
-test("packing preserves the running-turn floor and later tree admission preserves its reservation",async()=>{
+test("packing preserves the turn floor and reservation with zero memory headroom",async()=>{
  const f=fixture(),capacity=100*1024**3;
  // Keep the privileged kernel doubles; exercise the real manager/intents.
  f.config.capacityBytes=capacity;
@@ -247,8 +248,9 @@ test("packing preserves the running-turn floor and later tree admission preserve
  f.setAvailablePages(pages(4*1024**3));
  await expect(manager.run({operation:"prepareStage",id:id(11),checkpointId:id(10),allowanceBytes:16*1024**2,packing:true}),"PACKING_MATCHES_FIVE_PERCENT_TURN_FLOOR").rejects.toMatchObject({code:"capacity"});
  f.setAvailablePages(pages(6*1024**3));
- await manager.run({operation:"prepareStage",id:id(12),checkpointId:id(10),allowanceBytes:256*1024**2,packing:true});
- expect(f.prepared.at(-1),"MANAGER_SELECTS_DISK_PACKING_STAGE").toHaveProperty("packing",true);
+ await expect(manager.run({operation:"prepareStage",id:id(12),checkpointId:id(10),allowanceBytes:256*1024**2,packing:true}),"PACKING_REQUIRES_DISK_NOT_MEMORY").resolves.toBeInstanceOf(Response);
+ await expect(manager.run({operation:"prepareStage",id:id(14),checkpointId:id(10),allowanceBytes:4096}),"PACKING_PRESERVES_GENERIC_TMPFS_BUDGET").resolves.toBeInstanceOf(Response);
+ expect(f.prepared.find(stage=>stage.id===id(12)),"MANAGER_SELECTS_DISK_PACKING_STAGE").toHaveProperty("packing",true);
  // With no disk stage this tree fits; the existing stage owns both the image
  // and the publication copy, and neither allowance can be promised again.
  await expect(manager.run({operation:"prepareTurnTree",id:id(13),allowanceBytes:768*1024**2}),"TURN_TREE_CANNOT_SPEND_PACKING_RESERVATION").rejects.toMatchObject({code:"capacity"});
