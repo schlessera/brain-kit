@@ -200,7 +200,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         // Body/credential waits may have crossed an input-recording failure.
         // Re-enter the concrete host admission at the last dispatch boundary.
         if(operation&&!await operation.admit())return denied("inference_admission_refused");
-        if(operation&&!operation.commit())return denied("inference_admission_refused");
+        if (operation && !await operation.prepareDispatch(body)) return denied("inference_admission_refused");
+        if(operation&&!operation.dispatch())return denied("inference_admission_refused");
         let response: Response;
         try {
           // Never follow a redirect: the upstream must not choose another host.
@@ -212,6 +213,12 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             signal.aborted ? "Inference request cancelled" : "Inference upstream unreachable");
         }
         mark("headersMs");
+        // Even an immediate/large upstream answer cannot cross the result's
+        // durable observation boundary. This is control flow, never timing.
+        if (operation && !await operation.responseReady()) {
+          await response.body?.cancel().catch(() => {});
+          return denied("deferred_observation_refused");
+        }
         if (response.status >= 300 && response.status < 400) {
           operation?.finish("failed", "upstream_redirected");
           await response.body?.cancel().catch(() => {});

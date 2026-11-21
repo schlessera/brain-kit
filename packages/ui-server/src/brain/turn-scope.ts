@@ -257,11 +257,19 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       if (observationHolds++ > 0) { timing(() => recordStops(hold)); return; }
       observationFailed = false;
       for (const [turnId, turn] of active) {
-        if (!turn.current() || turn.summary.receipts.some(receipt => receipt.state === "paused")) continue;
+        if (turn.summary.receipts.some(receipt => receipt.state === "paused")) continue;
         const held: Worker[] = []; periodicHeld.set(turnId, { turn, workers: held });
-        for (const worker of turn.workers) { held.push(worker); freeze(worker); }
+        if (hold?.requireConfirmedStop && !turn.workers.size) throw new Error("Deferred observation has no worker to stop");
+        for (const worker of turn.workers) {
+          held.push(worker);
+          freeze(worker);
+          if (hold?.requireConfirmedStop && !confirmed(worker)) throw new Error("Deferred worker stop was not confirmed");
+        }
         if (hold) timing(() => recordStop(hold, turnId, held.filter(confirmed)));
       }
+    },
+    async settled() {
+      for (const id of active.keys()) for (let tail = tails.get(id); tail; tail = tails.get(id)) await tail;
     },
     after(completed: boolean, hold?: JournalHold) {
       if (hold) intervals.delete(hold);
@@ -317,6 +325,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       });
     },
     workerStarted(turnId: string, worker: Worker) {
+      void options.journal.flushDeferred?.().catch(() => {});
       const turn = active.get(turnId); if (!turn || !turn.current()) { worker.kill("SIGKILL"); return; }
       turn.workers.add(worker);
       void worker.exited.finally(() => { turn.workers.delete(worker); confirmedStops.delete(worker); }).catch(() => {});
@@ -335,6 +344,15 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     toolCall(turnId: string, toolUseId: string) {
       const turn = active.get(turnId); if (!turn || turn.calls.has(toolUseId)) return;
       turn.calls.add(toolUseId); turn.summary.calls = turn.calls.size; check(turnId, turn, { toolUseId });
+    },
+    canDefer(turnId: string): boolean {
+      const turn = active.get(turnId);
+      return !!turn && turn.current() && !turn.unrecorded && turn.workers.size === 1 && !observationHolds
+        && !turn.summary.receipts.some(receipt => receipt.state === "paused");
+    },
+    responseAllowed(turnId: string): boolean {
+      const turn = active.get(turnId);
+      return !!turn && turn.current() && !turn.unrecorded && !turn.summary.receipts.some(receipt => receipt.state === "paused");
     },
     isPaused(turnId: string) { return active.get(turnId)?.summary.receipts.some(receipt => receipt.state === "paused") ?? false; },
     /**

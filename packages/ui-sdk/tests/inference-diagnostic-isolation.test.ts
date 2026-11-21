@@ -26,6 +26,7 @@ for (const point of points) test(`throwing relay diagnostic ${point} preserves d
   }) : undefined;
   const relay = startInferenceRelay({ upstream: upstream.url.origin, routes: ["/v1/messages"], credentials: {}, egress: {
     inference() { return {
+      async prepareDispatch() { return true; }, dispatch() { return true; }, async responseReady() { return true; },
       async admit() { return true; }, commit() { return true; }, charge() { return true; }, signal: controller.signal,
       outcome() { return outcome; }, reason() { return undefined; }, refusal() { return undefined; },
       finish(value) { outcome = value; },

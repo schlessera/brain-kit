@@ -365,7 +365,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { observeUsage, mark, finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    // The concrete host turn wraps these only for per-result observation.
+    // Admission's own commit must never stop a partially transmitted request.
+    return { observeUsage, mark, finish, charge, admit, commit,
+      prepareDispatch: async (_body: Uint8Array) => true,
+      dispatch: () => commit(), responseReady: async () => true,
+      refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -471,7 +476,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   };
   options.signal?.addEventListener("abort", stop, { once: true });
   if (options.signal?.aborted) stop();
-  return { dir, socketPath, stop, inferenceInFlight: () => inferenceControllers.size > 0, usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
+  return { dir, socketPath, stop, inferenceInFlight: () => inferenceControllers.size > 0, inferenceCount: () => inferenceControllers.size, usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
     /** The existing inference relay shares this turn's admission, counter and audit. */
     inference(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, "inference"); },
     /**
@@ -496,6 +501,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
     return { observeUsage: op.observeUsage, mark: op.mark, charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
+      prepareDispatch: op.prepareDispatch, dispatch: op.dispatch, responseReady: op.responseReady,
       admit: async () => !op.signal.aborted && await op.admit() && (relay === "inference" || op.commit()),
       /** The concrete relay calls this again after its own final async waits. */
       commit: op.commit,

@@ -1631,15 +1631,53 @@ from worker transcripts, and no extension of the observed-shell guarantee.
 > the scope-limit bound stay; no coalescing, overshoot relaxation or durability
 > change.
 
+**Amendment (maintainer, 2026-11-20), Option A — deferred freeze (#4292).**
+Keep a synchronous observation at every write-capable or unproven result. The
+hold may be taken when the turn's relay has fully accepted the next inference
+request and is about to dispatch it, instead of when the result is handled,
+provided the stop is confirmed before dispatch. The upstream response then
+overlaps the unchanged hold. A missing or ambiguous request, a pending sibling
+call, an unknown writer or an interruption takes the immediate path. Each
+required observation, its attribution, its durability and its terminal
+accounting are preserved. One inference request may therefore be sent before
+the observation's scope verdict is known.
+
+The implementation arms only one result boundary, with one 50 ms fallback
+from that result. Dispatch, the deadline, a new tool or worker, another hold,
+the periodic tick, finish, abort and shutdown claim that same boundary
+synchronously; another result never coalesces with it
+(`deferredObservation`, `packages/ui-server/src/brain/deferred-observation.ts:4-21`). Eligibility requires a
+single active turn and worker, no pending calls globally, no peer unproven
+producer, and no in-flight relay request at the result. Only a streaming
+Messages request whose final assistant call and sole final user tool result
+match that boundary can overlap. Token counts, tool-free titles, parallel
+arrivals, unsupported request shapes and unknown transport state keep the
+prior-verdict fence (`followsToolResult`,
+`packages/ui-server/src/brain/deferred-observation.ts:24-36`). Admission still
+checks both fences and the session binding.
+
+A synchronous control receipt, independent of diagnostic hold/timing marks,
+confirms every stopped worker before upstream dispatch. A failed or legacy
+void stop acknowledgement refuses dispatch and retains a partial journal
+cause. The relay also holds response headers and body until the observation
+and its scope writes commit. A scope refusal discards the in-flight upstream
+response and records the connection as refused; the scope receipt remains
+paused and the worker stays stopped for the existing authorized decision.
+Files changed, observed turn bytes, index capacity, wall minutes and free
+space can be discovered by this deferred observation after one request has
+left. The tool-call cap is still checked at launch. No cap, credential,
+recording or authority failure authorizes another request. These host facts
+never enter provider history.
+
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:273`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:292-313`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:320-364`),
 and the scope monitor's hold freezes every active turn's productive workers
-until the capture completes (`before() {`,
-`packages/ui-server/src/brain/turn-scope.ts:193-201`). Pi's agent loop runs in
+until the capture completes (`before(hold?: JournalHold)`,
+`packages/ui-server/src/brain/turn-scope.ts:255-272`). Pi's agent loop runs in
 its worker, so a frozen worker cannot send its next provider request until the
 resume. On the native fixture the gap between a result and the next request
 tracked the hold, not the bridge call.
@@ -1648,7 +1686,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:605-612`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:681-703`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
