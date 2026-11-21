@@ -17,17 +17,19 @@ let styles:HTMLStyleElement;const oldTheme=document.documentElement.dataset.them
 beforeAll(async()=>{styles=document.createElement('style');styles.textContent=await commands.formConsumerStyles();document.head.append(styles);});
 afterAll(async()=>{styles.remove();await page.viewport(viewport.width,viewport.height);});
 async function disposeView(){safetyClient?.dispose();safetyClient=undefined;if(renderer)flushSync(()=>renderer!.unmount());renderer=undefined;ui?.dispose();ui=undefined;socket?.close();socket=undefined;host?.remove();host=undefined;}
-afterEach(async()=>{await disposeView();if(fixture)await commands.safetyServer({op:'stop',id:fixture.id});fixture=undefined;if(oldTheme===undefined)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=oldTheme;});
+afterEach(async()=>{statusBarrier=undefined;await disposeView();if(fixture)await commands.safetyServer({op:'stop',id:fixture.id});fixture=undefined;if(oldTheme===undefined)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=oldTheme;});
 const patch=(patch:Record<string,unknown>={})=>commands.safetyServer({op:'set',id:fixture!.id,patch}) as Promise<{page:SafetyPage;commits:number;prepares:number;decisions:Array<{occurrence_id:string}>}>;
 const noop=()=>{};
 const message:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
  toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Read',inputJson:'{}',input:{file_path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
  parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'text',text:'Voyage notes retained.'}]};
+let statusBarrier:((body:Record<string,unknown>)=>Promise<void>)|undefined;
 async function view(independentSocket=false){
  const f=fixture!;
  ui=createBrainUiRoot({storage:null,config:{backendUrl:f.url},request:async(url,init)=>{
   if(!String(url).includes('/safety/reviews/'))return Response.json({providers:[]});
   const result=await patch({action:'request',path:new URL(url).pathname,body:init?.body}) as unknown as {status:number;body:unknown};
+  if(String(url).endsWith('/future/status')&&statusBarrier)await statusBarrier(JSON.parse(String(init?.body)));
   if(init?.signal?.aborted)throw new DOMException('Aborted','AbortError');return Response.json(result.body,{status:result.status});
  }});
  const frames:unknown[]=[],sent:unknown[]=[];const current=ui;current.stores.chat.setState({activeSessionId:'ithaca',buffers:{ithaca:{messages:[message],isStreaming:false,askUser:null,lastTouched:message.timestamp}}});
@@ -280,4 +282,23 @@ for(const width of [320,1280])test(`${width} review F4: partial operation is dis
  await expect.poll(()=>section().textContent).toContain('Marked safe by you');
  expect(section().textContent,'F4_PARTIAL_RECEIPT_IS_NOT_CURRENT_TRIGGER_STATE').not.toContain('this trigger is still unresolved');
  expect(section().textContent).not.toContain('this trigger remains unresolved');
+});
+
+for(const width of [320,1280])test(`${width} round 2 F2: an older focus response cannot overwrite newer revocation`,async()=>{
+ const section=await futureReviewScene(width);
+ await expect.poll(()=>section().textContent).toContain('Future rule: present');
+ const entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>(),returned=Promise.withResolvers<void>();let held=false;
+ const occurrenceId=section().dataset.safetyTrigger;
+ statusBarrier=async body=>{if(!held&&body.occurrenceId===occurrenceId){held=true;entered.resolve();await release.promise;returned.resolve();}};
+ try{
+ window.dispatchEvent(new Event('focus'));await entered.promise;
+ await patch({action:'remove_future_rule'});window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Future rule: removed');
+ release.resolve();await returned.promise;
+ // The transport already holds a complete JSON body; drain its promise chain
+ // and React's render frames after releasing the deliberately older response.
+ await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
+ expect(section().textContent,'R2F2_LATE_PRESENT_CANNOT_OVERWRITE_REMOVED').toContain('Future rule: removed');
+ expect(section().textContent).not.toContain('Future rule: present');
+ }finally{release.resolve();statusBarrier=undefined;}
 });

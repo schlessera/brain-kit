@@ -38,20 +38,13 @@ export class CombinedSafetyReviews {
  async status(principal:Principal,raw:unknown){
   const input=safetyFutureStatusSchema.parse(raw),body={...input,expectedEvidenceRevision:"0",verdict:"safe" as const};
   this.reviews.delivery(principal,body);
-  const row=this.db.query(`SELECT request_id FROM trust_settings_operations WHERE principal_id=?
-    AND json_extract(payload,'$.safetyReview.body.occurrenceId')=?
-    AND json_extract(payload,'$.safetyReview.body.session.sessionId')=?
-    AND json_extract(payload,'$.safetyReview.body.session.historyOwnerId')=?
-    AND json_extract(payload,'$.safetyReview.body.session.historyGeneration')=?
-    ORDER BY expires_at DESC,rowid DESC LIMIT 1`).get(principal.id,input.occurrenceId,input.session.sessionId,input.session.historyOwnerId,input.session.historyGeneration) as {request_id:string}|null;
-  if(!row)return null;
-  const binding=this.settings.safetyReview(principal.id,row.request_id);
-  if(!binding)throw new TrustSettingsError("unavailable");
-  const rule:Receipt=(await this.settings.read(principal.id,row.request_id)).receipt;
+  const selected=await this.settings.safetyStatus(principal.id,input.session,input.occurrenceId);
+  if(!selected){this.reviews.delivery(principal,body);return null;}
+  const {binding}=selected,rule:Receipt=selected.receipt;
   const stored=this.db.query("SELECT receipt FROM safety_review_requests WHERE id=?").get(binding.requestId) as {receipt:string}|null;
   const verdict=stored?JSON.parse(stored.receipt):null;
   const currentProjection=this.reviews.delivery(principal,body);
-  return {version:1 as const,requestId:row.request_id,session:input.session,occurrenceId:input.occurrenceId,
+  return {version:1 as const,requestId:selected.requestId,session:input.session,occurrenceId:input.occurrenceId,
     stage:verdict?.verdict==="committed"?"verdict_committed":rule.publication==="proved"?"partial":rule.publication==="unknown"?"unknown":rule.stage==="prepared"?"prepared":"refused",
     rule,verdict:verdict&&verdict.verdict!=="committed"?{...verdict,requestId:null,operationId:null}:verdict,currentProjection};
  }

@@ -195,19 +195,19 @@ export function createTrustSettings(options: {
     const rule = p.rules.find(rule => rule.id === receipt.ruleId);
     return { ...receipt, currentRule: p.error ? "unknown" : !rule ? "removed" : JSON.stringify(rule) === JSON.stringify(payload.rule) ? "present" : "changed" };
   };
+  const readCurrent = (principal: string, request: string, p: Projection) => {
+    const r = row(principal, request), payload = JSON.parse(r.payload) as Payload;
+    let receipt = JSON.parse(r.receipt) as Receipt;
+    if (r.stage === "writing") receipt = { ...receipt, stage: "unknown", publication: "unknown", reason: "publication_completion_unknown" };
+    if (r.stage === "file_published") receipt = { ...receipt, stage: "partial", publication: r.proof ? "proved" : "unknown", reason: "publication_recorded_completion_incomplete" };
+    return { receipt: current(receipt, payload, p), review: { reviewId: payload.reviewId, base: payload.base, proposed: payload.proposed,
+      diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at,
+      repositoryIdentity: payload.githubIdentity ?? null,
+      includesFutureRepositories: payload.rule?.selector.kind === "github_owner" }, policy: p, capabilities };
+  };
   const read = async (principal: string, request: string) => {
     row(principal, request);
-    return options.lock.withLock(BRAIN_LOCK_KEY, async () => {
-      const p = await refresh();
-      const r = row(principal, request), payload = JSON.parse(r.payload) as Payload;
-      let receipt = JSON.parse(r.receipt) as Receipt;
-      if (r.stage === "writing") receipt = { ...receipt, stage: "unknown", publication: "unknown", reason: "publication_completion_unknown" };
-      if (r.stage === "file_published") receipt = { ...receipt, stage: "partial", publication: r.proof ? "proved" : "unknown", reason: "publication_recorded_completion_incomplete" };
-      return { receipt: current(receipt, payload, p), review: { reviewId: payload.reviewId, base: payload.base, proposed: payload.proposed,
-        diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at,
-        repositoryIdentity: payload.githubIdentity ?? null,
-        includesFutureRepositories: payload.rule?.selector.kind === "github_owner" }, policy: p, capabilities };
-    });
+    return options.lock.withLock(BRAIN_LOCK_KEY, async () => readCurrent(principal,request,await refresh()));
   };
   return {
     /** Snapshot the existing live interpretation; writers fence its generation after waits. */
@@ -219,6 +219,42 @@ export function createTrustSettings(options: {
       } catch { return; }
     },
     live,
+    /** Recovery uses durable completion/publication evidence, never preparation
+     * expiry as a proxy for publication order. Scope and retention share read's
+     * authority, served brain and clock, including expiry during the lock wait. */
+    async safetyStatus(principal: string, session: import("@schlessera/brain-ui-sdk/protocol").SafetySessionKey, occurrenceId: string) {
+      authority(principal);
+      return options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+        authority(principal);
+        const select = (present: string[] = []) => options.db.query(`SELECT o.request_id FROM trust_settings_operations o
+          LEFT JOIN safety_decisions d ON d.request_id=json_extract(o.payload,'$.safetyReview.requestId')
+          WHERE o.brain_id=? AND o.principal_id=? AND o.retain_until>=?
+          AND json_extract(o.payload,'$.safetyReview.body.occurrenceId')=?
+          AND json_extract(o.payload,'$.safetyReview.body.session.sessionId')=?
+          AND json_extract(o.payload,'$.safetyReview.body.session.historyOwnerId')=?
+          AND json_extract(o.payload,'$.safetyReview.body.session.historyGeneration')=?
+          ORDER BY (d.id IS NOT NULL) DESC,
+            EXISTS(SELECT 1 FROM json_each(?) present_rule WHERE present_rule.value=json_extract(o.receipt,'$.ruleId')) DESC,
+            CASE WHEN o.proof IS NOT NULL THEN 0 WHEN o.stage='writing' OR json_extract(o.receipt,'$.publication')='unknown' THEN 1 ELSE 2 END,
+            length(coalesce(json_extract(o.proof,'$.publishedTrustRevision'),'')) DESC,
+            coalesce(json_extract(o.proof,'$.publishedTrustRevision'),'') DESC,o.rowid DESC LIMIT 1`)
+          .get(brain,principal,now(),occurrenceId,session.sessionId,session.historyOwnerId,session.historyGeneration,JSON.stringify(present)) as {request_id:string}|null;
+        if (!select()) return null;
+        const p = await refresh();
+        return options.db.transaction(() => {
+          const selected = select(p.error ? [] : p.rules.map(rule=>rule.id));
+          if (!selected) { authority(principal); return null; }
+          try {
+            const binding = (JSON.parse(row(principal,selected.request_id).payload) as Payload).safetyReview;
+            if (!binding) throw new TrustSettingsError("request_conflict");
+            return {requestId:selected.request_id,binding,receipt:readCurrent(principal,selected.request_id,p).receipt};
+          } catch (error) {
+            if (!(error instanceof TrustSettingsError) || error.code !== "unavailable" || error.status !== 404) throw error;
+            authority(principal); return null;
+          }
+        }).deferred();
+      });
+    },
     /** Internal binding; ordinary Settings commits cannot publish a combined review. */
     safetyReview(principal: string, request: string) { return (JSON.parse(row(principal, request).payload) as Payload).safetyReview; },
     /** The other protected publisher already owns the shared brain lock. */

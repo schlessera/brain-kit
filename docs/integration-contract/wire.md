@@ -3393,7 +3393,8 @@ fences apply. Auth/session changes discard pending browser work without replay.
 These host sidecars never enter provider history.
 
 POST `/future/status` with `{ version: 1, session, occurrenceId }` reads the
-latest retained combined operation without publishing or committing a verdict.
+retained combined operation selected by completion/publication evidence,
+without publishing or committing a verdict.
 It returns the same result envelope, or null when no receipt is retained. The
 owner UI reads this after reload and on focus to show partial/unknown completion
 and current rule presence separately from the remaining-trigger projection.
@@ -3421,3 +3422,14 @@ Operation completion text never asserts current rule presence or current trigger
 resolution. Refreshed status owns current rule presence; the live safety ledger
 owns the selected trigger's verdict and remaining-trigger count. A partial
 combined receipt can coexist with a later independent safe decision.
+
+Status recovery considers only the current principal/served brain/session's
+retained Settings operations, using the same retention clock as Settings reads.
+A committed verdict takes precedence. Otherwise, rule presence in the currently
+verified policy takes precedence, then proved publication ordered by its durable
+trust revision, then unknown publication, then the newest unpublished preparation.
+Preparation expiry is not publication order. Selection and readback share a read transaction
+after the policy lock and refresh waits. Expired or concurrently pruned receipts
+return JSON null without needing another write to prune storage. Authority and
+session fences still apply before delivery. The UI sequences focus reads so an older
+success or failure cannot replace a newer rule-presence result.

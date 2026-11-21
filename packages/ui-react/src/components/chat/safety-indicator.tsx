@@ -125,13 +125,16 @@ function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
   const sessionKey=JSON.stringify(session);
   useEffect(()=>{
     if(!readable||!owner||!state.capabilities?.originRules||!session){setSavedRule(null);return;}
-    const controller=new AbortController();
-    const read=()=>void root.api.safetyFutureStatus({version:1,session,occurrenceId:r.id},controller.signal).then(result=>{
-      if(controller.signal.aborted)return;
-      if(!result){setSavedRule(null);return;}
-      const presence=result.rule.currentRule;
-      setSavedRule(`${result.stage==="prepared"?"Future rule prepared but not published; fresh review is required. ":result.stage==="partial"?"Rule publication proved; this operation's verdict is incomplete. ":result.stage==="unknown"?"Rule publication is unknown; fresh review is required. ":""}Future rule: ${presence}.`);
-    }).catch(()=>{if(!controller.signal.aborted)setSavedRule(previous=>previous?"Current future rule presence is unavailable.":null);});
+    const controller=new AbortController();let sequence=0;
+    const read=()=>{
+      const request=++sequence;
+      void root.api.safetyFutureStatus({version:1,session,occurrenceId:r.id},controller.signal).then(result=>{
+        if(controller.signal.aborted||request!==sequence)return;
+        if(!result){setSavedRule(null);return;}
+        const presence=result.rule.currentRule;
+        setSavedRule(`${result.stage==="prepared"?"Future rule prepared but not published; fresh review is required. ":result.stage==="partial"?"Rule publication proved; this operation's verdict is incomplete. ":result.stage==="unknown"?"Rule publication is unknown; fresh review is required. ":""}Future rule: ${presence}.`);
+      }).catch(()=>{if(!controller.signal.aborted&&request===sequence)setSavedRule(previous=>previous?"Current future rule presence is unavailable.":null);});
+    };
     read();window.addEventListener("focus",read);
     return()=>{controller.abort();window.removeEventListener("focus",read);};
   },[root,r.id,sessionKey,readable,owner,state.capabilities?.originRules,state.revision]);

@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test";
-import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { BRAIN_LOCK_KEY, createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createTrustSettings } from "../src/brain/trust-settings";
 import { CombinedSafetyReviews } from "../src/governance/combined-safety-reviews";
 import { safetyHistoryFixture } from "./helpers/safety-history-fixture";
 import { occurrence } from "../src/governance/occurrence";
 
-async function fixture(checkpoint?: (stage: string) => void | Promise<void>) {
+async function fixture(checkpoint?: (stage: string) => void | Promise<void>, now?:()=>number) {
   const f = await safetyHistoryFixture(true, true);
   const options = {root:f.root,db:f.db,writer:f.writer,lock:createKeyedLock(),originEnforcement:true as const,
     authority:(id:string)=>id===f.principal.id&&f.reviews!.authorized(f.principal)?"owner-epoch":null,
-    observe:async (_id:string, write:()=>void|Promise<void>)=>{await write();},checkpoint};
+    observe:async (_id:string, write:()=>void|Promise<void>)=>{await write();},checkpoint,...(now?{now}:{})};
   const settings=createTrustSettings(options),combined=new CombinedSafetyReviews(f.db,f.reviews!,settings);
   const add=async (name:string,verified=true,state:"finalized"|"open"|"interrupted_unknown"="finalized")=>{
     const o=occurrence(f.bindingId,"proxy_input",name,state);
@@ -196,5 +196,58 @@ test('review F2: legacy SDK can parse the real owner hello and retains individua
  expect(socket.hello.capabilities?.sessionSafetyFutureRules).toBe(true);
  const a=await f.add('A'),{future:_,...body}=f.body(a.id),prepared=await f.reviews!.review(f.principal,body,null);
  expect((await f.reviews!.review(f.principal,body,prepared.receipt.requestId!)).receipt.verdict).toBe('committed');
+ }finally{await f.close();}
+});
+
+test('round 2 F1: the committed earlier preparation outranks a later unpublished tab',async()=>{
+ let clock=Date.now();const f=await fixture(undefined,()=>clock);try{
+ const a=await f.add('A'),body=f.body(a.id),first=await f.combined.prepare(f.principal,body);clock++;
+ const later=await f.combined.prepare(f.principal,body);expect(later.requestId).not.toBe(first.requestId);
+ expect((await f.combined.commit(f.principal,{version:1,requestId:first.requestId,reviewId:first.review.reviewId,reviewedBytesHash:first.review.reviewedBytesHash})).stage).toBe('verdict_committed');
+ const status=await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ expect(status?.requestId,'R2F1_COMMITTED_OPERATION_OWNS_RECOVERY').toBe(first.requestId);
+ expect(status?.stage).toBe('verdict_committed');expect(status?.rule.currentRule).toBe('present');
+ }finally{await f.close();}
+});
+test('round 2 F3: expired receipt read returns JSON null without another insert',async()=>{
+ const {Hono}=await import('hono'),{authGuard}=await import('../src/middleware/auth'),{createOwnerSafetyReviewRoutes}=await import('../src/routes/owner-safety-review');
+ let clock=Date.now();const f=await fixture(undefined,()=>clock),app=new Hono<import('../src/app-env').AppEnv>();
+ app.use('/api/*',authGuard('password',f.auth,f.db));app.route('/api',createOwnerSafetyReviewRoutes(f.reviews!,false,f.combined));
+ const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:app.fetch}),origin=`http://127.0.0.1:${server.port}`;
+ try{
+ const a=await f.add('A'),body=f.body(a.id);await f.combined.prepare(f.principal,body);
+ clock+=86400001;
+ expect(f.db.query('SELECT count(*) n FROM trust_settings_operations').get()).toEqual({n:1});
+ const response=await fetch(`${origin}/api/sessions/ithaca/safety/reviews/future/status`,{method:'POST',headers:{cookie:f.cookie,origin,'content-type':'application/json'},body:JSON.stringify({version:1,session:body.session,occurrenceId:a.id})});
+ expect(response.status,'R2F3_EXPIRED_RECEIPT_IS_NOT_HTTP_UNAVAILABLE').toBe(200);expect(await response.json()).toBeNull();
+ expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+ expect(f.db.query('SELECT count(*) n FROM trust_settings_operations').get()).toEqual({n:1});
+ }finally{server.stop(true);await f.close();}
+});
+
+test('round 2 F1: status selects after a queued publisher, not before the lock wait',async()=>{
+ const f=await fixture();let release:(()=>void)|undefined;try{
+ const a=await f.add('A'),body=f.body(a.id),first=await f.combined.prepare(f.principal,body);await f.combined.prepare(f.principal,body);
+ release=await f.options.lock.acquire(BRAIN_LOCK_KEY);
+ const commit=f.combined.commit(f.principal,{version:1,requestId:first.requestId,reviewId:first.review.reviewId,reviewedBytesHash:first.review.reviewedBytesHash});
+ const read=f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ release();release=undefined;
+ const [saved,status]=await Promise.all([commit,read]);expect(saved.stage).toBe('verdict_committed');
+ expect(status?.requestId,'R2F1_SELECTION_RECHECKS_AFTER_PUBLICATION_WAIT').toBe(first.requestId);expect(status?.rule.currentRule).toBe('present');
+ }finally{release?.();await f.close();}
+});
+
+test('round 2 F1: a current unknown publication is not hidden by an older removed proof',async()=>{
+ let crash=false;const f=await fixture(stage=>{if(crash&&stage==='renamed')throw new Error('publication unknown');});try{
+ const a=await f.add('A'),body=f.body(a.id),first=await f.combined.prepare(f.principal,body),original=f.reviews!.review.bind(f.reviews!);
+ f.reviews!.review=async()=>{throw new Error('verdict unavailable');};
+ expect((await f.combined.commit(f.principal,{version:1,requestId:first.requestId,reviewId:first.review.reviewId,reviewedBytesHash:first.review.reviewedBytesHash})).stage).toBe('partial');f.reviews!.review=original;
+ const p=await f.settings.list(f.principal.id),remove=await f.settings.prepare(f.principal.id,{version:1,expectedTrustRevision:p.revision,expectedPolicyHash:p.policyHash,change:{action:'remove',ruleId:first.rule.ruleId}});
+ await f.settings.commit(f.principal.id,{version:1,requestId:remove.receipt.requestId,reviewId:remove.review.reviewId,reviewedBytesHash:remove.review.reviewedBytesHash});
+ const newer=await f.combined.prepare(f.principal,f.body(a.id));crash=true;
+ expect((await f.combined.commit(f.principal,{version:1,requestId:newer.requestId,reviewId:newer.review.reviewId,reviewedBytesHash:newer.review.reviewedBytesHash})).stage).toBe('unknown');
+ const status=await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ expect(status?.requestId,'R2F1_CURRENT_RULE_KEEPS_ITS_UNKNOWN_RECEIPT_VISIBLE').toBe(newer.requestId);
+ expect(status?.stage).toBe('unknown');expect(status?.rule.currentRule).toBe('present');expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(1);
  }finally{await f.close();}
 });
