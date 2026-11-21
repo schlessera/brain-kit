@@ -1,5 +1,5 @@
-import { watchdogMs } from "../../../../scripts/test-deadlines";
 import "../../../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import {nativeScriptedService} from "../../../../scripts/test-native-guard.ts";
 import { prepareNativeScratchMask, answerNativeScratchMask, exerciseNativeScratchMask } from "./scratch-mask-native.js";
 import { defaultIdentityPhase } from "./default-identity-phases.js";

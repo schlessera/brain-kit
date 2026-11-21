@@ -1,5 +1,5 @@
-import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
 import {nativeScriptedService,nativeSyntheticCredential} from "./test-native-guard";
 /** Private #587 research entrypoint. Never changes a production router/default. */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";

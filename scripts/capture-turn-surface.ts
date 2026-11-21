@@ -1,5 +1,5 @@
-import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
 import { nativeScriptedService } from "./test-native-guard.ts";
 /** #587: capture the installed CLI's request using a loopback scripted model.
  * This observes serialization, not model choice or model quality. No real

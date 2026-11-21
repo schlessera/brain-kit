@@ -1,5 +1,5 @@
-import { watchdogMs } from "../../scripts/test-deadlines";
 import "../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../scripts/test-deadlines";
 import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 import { spyOn } from "bun:test";
 import * as startup from "../../packages/ui-sdk/src/server/worker-startup-view.js";

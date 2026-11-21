@@ -7,9 +7,13 @@ export function nativeRtkFailureCategory(error:unknown):string {
  if(message==="native fixture RTK payload ambiguous")return "multiple-match";
  if(["native fixture RTK root identity changed","native fixture RTK audited identity changed","native fixture RTK payload identity changed","native fixture RTK identity changed"].includes(message))return "start-mismatch";
  if(["native fixture RTK executable changed","native fixture RTK executable unavailable"].includes(message))return "exe-mismatch";
- if(["native fixture RTK spawn is unregistered","native fixture RTK worker unavailable","native fixture RTK worker identity unavailable"].includes(message))return "launch-mismatch";
+ if(["native fixture RTK runtime selection ambiguous","native fixture RTK spawn is unregistered","native fixture RTK worker unavailable","native fixture RTK worker identity unavailable"].includes(message))return "launch-mismatch";
  return "register-refused";
 }
+export function nativeRtkExecutableLabel(error:unknown):string|undefined {
+ if(nativeRtkFailureCategory(error)!=="exe-mismatch"||!(error instanceof Error))return;
+ return ["basename-equal-but-path-differs","different-basename","unavailable"].includes(String(error.cause))?String(error.cause):"unavailable";
+}
 export function diagnoseNativeFixtureRtk(register:()=>void):void {
- try{register();}catch(error){nativeReceipt({kind:"native-fixture-rtk-registration",head:nativeTestHead(),success:false,category:nativeRtkFailureCategory(error)});throw error;}
+ try{register();}catch(error){nativeReceipt({kind:"native-fixture-rtk-registration",head:nativeTestHead(),success:false,category:nativeRtkFailureCategory(error),...(nativeRtkExecutableLabel(error)?{executableLabel:nativeRtkExecutableLabel(error)}:{})});throw error;}
 }

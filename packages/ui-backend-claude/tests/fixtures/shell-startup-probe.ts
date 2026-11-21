@@ -1,5 +1,5 @@
-import { watchdogMs } from "../../../../scripts/test-deadlines";
 import "../../../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Real SDK-selected CLI in the production worker; caller supplies an offline namespace. */
 import { query } from "@anthropic-ai/claude-agent-sdk";

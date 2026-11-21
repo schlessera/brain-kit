@@ -1,5 +1,5 @@
-import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
 import { nativeFixtureDirectory, nativeScriptedQuery } from "./test-native-guard.ts";
 // #901: real production wiring, real CLI, scripted loopback inference.
 // Run in the same loopback-only network namespace as measure-claude-runtime.

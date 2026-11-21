@@ -30,4 +30,3 @@ try {
   const paths = [...new Set(text.match(/notes\/scheria-log-\d\d\.md/g) ?? [])].sort();
   console.log(JSON.stringify({ paths, isError: found.result?.isError === true || found.error !== undefined, root: process.env.BRAIN_ROOT, dataRoot: process.env.BRAIN_WORKER_DATA_ROOT }));
 } finally { clearTimeout(timer); child.kill("SIGKILL"); }
-export {};

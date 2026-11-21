@@ -1,5 +1,5 @@
-import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
 import { nativeFixtureDirectory, nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // #1213: production enforcement and foreground rewrite inherited by a real subagent.
 // Run with only loopback enabled. All credentials and commands are controlled fixtures.

@@ -1,5 +1,5 @@
-import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
 import { nativeFixtureDirectory, nativeScriptedService, nativeScriptedQuery } from "./test-native-guard";
 // #1238: actual bundled runtime, production model assembly, fixture inference.
 // Run inside a network namespace with only loopback. No real credentials.

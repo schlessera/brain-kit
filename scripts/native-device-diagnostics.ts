@@ -14,3 +14,17 @@ export function nativeDeviceMetadata(trace:string):Array<Record<string,string|nu
  }
  return [...records.values()];
 }
+
+/** Exec positions and /dev basenames only; never retain executable or host paths. */
+export function nativeStartupOpenStages(trace:string,expected:readonly string[],wrapper:string):Array<{stage:string;execPosition:number;device:string;error:string}> {
+ const states=new Map<number,{stage:string;execPosition:number}>();const records:Array<{stage:string;execPosition:number;device:string;error:string}>=[];
+ for(const line of trace.split("\n")){
+  const exec=/^\s*(\d+)\s+execve\(("(?:\\.|[^"\\])*"),/.exec(line);
+  if(exec&&/= 0$/.test(line)){let path:string;try{path=JSON.parse(exec[2]!);}catch{continue;}const previous=states.get(Number(exec[1]));states.set(Number(exec[1]),{stage:expected.includes(path)?"payload":path===wrapper?"wrapper":"bootstrap",execPosition:(previous?.execPosition??0)+1});}
+  const fork=/^\s*(\d+)\s+(?:clone3?|fork|vfork)\(.*\)\s+= (\d+)$/.exec(line);
+  if(fork){const state=states.get(Number(fork[1]));if(state)states.set(Number(fork[2]),{...state});}
+  const failed=/^\s*(\d+)\s+open(?:at2?)?\(.*?"(\/dev\/(?:stdin|stdout|stderr|null|urandom|tty|fd\/\d+|pts\/\d+|shm\/[^"/]+))".*= -1 (EACCES|EPERM)\b/.exec(line);
+  if(failed){const state=states.get(Number(failed[1]))??{stage:"bootstrap",execPosition:0};const device=failed[2]!.startsWith("/dev/shm/")?"shm":failed[2]!.slice(5);records.push({...state,device,error:failed[3]!});}
+ }
+ return records.slice(-32);
+}

@@ -1,5 +1,5 @@
-import { watchdogMs } from "../../scripts/test-deadlines";
 import "../../scripts/test-network-child-preload.ts";
+import { watchdogMs } from "../../scripts/test-deadlines";
 import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 /** Run through run.ts: the SDK, CLI and tool descendants share an offline netns. */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";

@@ -1,5 +1,5 @@
-import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
+import { watchdogMs } from "./test-deadlines";
 /**
  * Measure the `show_block` call rate on the Claude backend, with and without
  * the tool's per-turn brief.

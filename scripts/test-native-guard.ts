@@ -1,4 +1,4 @@
-import { nativeDeviceMetadata, nativeDeviceMetadataCommand } from "./native-device-diagnostics";
+import { nativeDeviceMetadata, nativeDeviceMetadataCommand, nativeStartupOpenStages } from "./native-device-diagnostics";
 import { nativeReceipt } from "./native-test-receipts.ts";
 /** Test-only OS boundary for installed native Claude processes (#4313). */
 import { constants, createWriteStream, cpSync, fstatSync, statfsSync, chmodSync, closeSync, mkdirSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -473,6 +473,7 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       let trace = "";
       try { trace = readFileSync(log, "utf8"); } catch { /* Missing evidence is a failed receipt. */ }
       if (diagnosticRoot) {
+        for(const failure of nativeStartupOpenStages(trace,expected,process.execPath))nativeReceipt({kind:"native-fixture-startup-open",head:nativeTestHead(),...failure});
         for(const metadata of nativeDeviceMetadata(trace))nativeReceipt({kind:"native-fixture-device-metadata",head:nativeTestHead(),...metadata});
         try { writeFileSync(join(diagnosticRoot, `native-startup-audit-${directoryStamp.ino}.json`),
           JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace,diagnosticFixtureRoots) }), { flag: "wx", mode: 0o600 }); }
@@ -576,6 +577,14 @@ export function nativeAdmittedRelayBaseUrl(value:string|undefined,admitted:boole
   return "http://localhost"+path;
 }
 
+/** Preserve direct-query authentication; the trusted forwarder mints only transport. */
+export function nativeDirectTransportEnvironment(env:Record<string,string|undefined>,relayed:boolean):Record<string,string> {
+ return relayed?{ANTHROPIC_BASE_URL:nativeAdmittedRelayBaseUrl(env.ANTHROPIC_BASE_URL,true),ANTHROPIC_UNIX_SOCKET:"/tmp/native-relay/relay.sock"}:{ANTHROPIC_BASE_URL:"http://127.0.0.1"};
+}
+export function nativeDirectTransportCommand(command:readonly string[]):string[] {
+ return ["/usr/bin/python3","-I","-S","-c",'import os,sys,urllib.parse\np=urllib.parse.urlsplit(os.environ["HTTP_PROXY"])\nassert p.scheme=="http" and p.hostname=="127.0.0.1" and p.port and not p.username and not p.password and not p.path and not p.query and not p.fragment\nos.environ["ANTHROPIC_BASE_URL"]=os.environ["HTTP_PROXY"]\nos.execvp(sys.argv[1],sys.argv[1:])',...command];
+}
+
 /** Direct SDK launch: empty filesystem, fresh PID/network namespaces, one IPC. */
 export function nativeClaudeBoundary(command: string, args: string[], options: { cwd?: string; env?: Record<string, string | undefined>; managedSettings?: string }): Boundary {
   qualify();
@@ -594,7 +603,8 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   if (inheritedSocket && !inheritedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (inheritedOrigin && (!scriptedRoute.getStore() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(scriptedRoute.getStore()!.origin))) refuse("native relay did not match scripted authority");
   const bridge = startNativeTestRelay(route.origin);
-  const turnProxy=route.turnProxy?startNativeTurnProxyTunnel(route.origin,bridge.directory):undefined;
+  const direct=!inheritedOrigin;
+  const turnProxy=direct||route.turnProxy?startNativeTurnProxyTunnel(route.origin,bridge.directory):undefined;
   try {
     const tools = fixtureToolView(env, cwd, home);
     command = resolveExecutable(command, options);
@@ -614,7 +624,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     const argv = [bwrapExecutable, "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...mounts, "--clearenv"];
     const childEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: versionHome ?? env.CLAUDE_CONFIG_DIR ?? home,
       PATH: tools.path, LANG: "C.UTF-8",
-      ANTHROPIC_BASE_URL: nativeAdmittedRelayBaseUrl(env.ANTHROPIC_BASE_URL,Boolean(inheritedOrigin)), ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
+      ...nativeDirectTransportEnvironment(env,Boolean(inheritedOrigin)),
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
     // These are public model selectors, never ambient provider credentials.
     for (const key of ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "ENABLE_TOOL_SEARCH"]) {
@@ -629,8 +639,8 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_UNIX_SOCKET"]) delete childEnv[key];
     }
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
-    const payload=nativeSocketCommand([command,...args],inheritedSocket&&inheritedOrigin?inheritedSocket:join(bridge.directory,"relay.sock"),"/tmp/native-relay/relay.sock",turnProxy?{source:turnProxy.socket,allowed:WORKER_TURN_PROXY}:undefined);
-    argv.push("--chdir",cwd,"--",...(turnProxy?[process.execPath,"--config=/dev/null","--no-env-file",join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"),...payload]:payload));
+    const payload=nativeSocketCommand(direct?nativeDirectTransportCommand([command,...args]):[command,...args],inheritedSocket&&inheritedOrigin?inheritedSocket:join(bridge.directory,"relay.sock"),"/tmp/native-relay/relay.sock",turnProxy?{source:turnProxy.socket,allowed:WORKER_TURN_PROXY}:undefined);
+    argv.push("--chdir",cwd,"--",...(turnProxy?[process.execPath,"--config=/dev/null","--no-env-file",join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"),...(direct?["--direct-loopback"]:[]),...payload]:payload));
     const audited = auditNativeLaunch(argv, expectedNativeExec(command, args, options), () => { turnProxy?.dispose();bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); });
     beforeLaunch();
     guardedPlans.add(audited.argv);
@@ -925,7 +935,9 @@ const nativeFixtureRtkSpawns=new Map<number,NativeFixtureRtkSpawn>();
 export function observeNativeFixtureRtkSpawn(pid:number,launch:import("../packages/ui-sdk/src/server/worker-launcher").WorkerLaunch,expected:readonly string[],liveExecs:()=>ReadonlyMap<number,string>):void {
   const start=guardedChildren.get(pid);
   if(!start||processStart(pid)!==start)throw Error("native fixture RTK spawn is unregistered");
-  nativeFixtureRtkSpawns.set(pid,{start,launch:structuredClone(launch),expected:[...expected],liveExecs});
+  const selected=[...new Set(expected.map(path=>realpathSync(path)))];
+  if(selected.length!==1)throw Error("native fixture RTK runtime selection ambiguous");
+  nativeFixtureRtkSpawns.set(pid,{start,launch:structuredClone(launch),expected:selected,liveExecs});
   if(nativeFixtureRtkSpawns.size>256)nativeFixtureRtkSpawns.delete(nativeFixtureRtkSpawns.keys().next().value!);
 }
 /** Re-register only the kernel/audit-proven payload view hidden by our broker. */
@@ -942,8 +954,8 @@ export function registerNativeFixtureRtk(worker:import("../packages/ui-sdk/src/s
   for(const [pid,auditedStart] of record.liveExecs()){
     const start=owned.get(pid);if(!start)continue;
     if(start!==auditedStart)throw Error("native fixture RTK audited identity changed");
-    let executable:string;try{executable=realpathSync(`/proc/${pid}/exe`);}catch{throw Error("native fixture RTK executable unavailable");}
-    if(!record.expected.includes(executable))throw Error("native fixture RTK executable changed");
+    let executable:string;try{executable=realpathSync(`/proc/${pid}/exe`);}catch{throw Error("native fixture RTK executable unavailable",{cause:"unavailable"});}
+    if(!record.expected.includes(executable))throw Error("native fixture RTK executable changed",{cause:record.expected.some(path=>basename(path)===basename(executable))?"basename-equal-but-path-differs":"different-basename"});
     if(processStart(pid)!==start)throw Error("native fixture RTK payload identity changed");selected.push(pid);
   }
   if(selected.length!==1)throw Error(selected.length===0?"native fixture RTK payload missing":"native fixture RTK payload ambiguous");
@@ -1182,6 +1194,10 @@ function nativeBwrapIndex(argv: readonly string[]): number {
   return -1;
 }
 
+export function nativeDiagnosticWorkerPayload(payload:string[],diagnostic:boolean):string[] {
+ return diagnostic?nativeDeviceMetadataCommand(payload):payload;
+}
+
 /** Keep only the pinned transport and fixed launcher gates outside the payload filter. */
 export function nativeWorkerPayloadCommand(payload:string[],command:string[],protect:(argv:string[],trustedWrapper?:boolean)=>string[]):string[] {
   const same=(value:string|undefined,expected:string)=>{try{return !!value&&realpathSync(value)===realpathSync(expected);}catch{return false;}};
@@ -1284,7 +1300,8 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     const payloadIndex = workerArgv.indexOf("--", bwrap) + 1;
     const nativePayload = workerArgv.splice(payloadIndex);
     const turnProxy=admittedRelay(workerArgv,WORKER_TURN_PROXY);
-    workerArgv.push(...nativeWorkerPayloadCommand(nativePayload,command,(argv,trusted)=>nativeSocketCommand(supervisor&&process.argv.some(value=>value.startsWith("--native-identity-startup-audit="))?nativeDeviceMetadataCommand(argv):argv, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET,trusted&&turnProxy?{source:turnProxy.path,allowed:WORKER_TURN_PROXY}:undefined)));
+    const protectedPayload=nativeWorkerPayloadCommand(nativePayload,command,(argv,trusted)=>nativeSocketCommand(argv, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET,trusted&&turnProxy?{source:turnProxy.path,allowed:WORKER_TURN_PROXY}:undefined));
+    workerArgv.push(...nativeDiagnosticWorkerPayload(protectedPayload,Boolean(supervisor&&process.argv.some(value=>value.startsWith("--native-identity-startup-audit=")))));
     const nativeMounts = workerArgv.slice(bwrap + 1, workerArgv.indexOf("--", bwrap));
     const beforeLaunch = () => {
       try { keeper?.refresh(); assertWorkerFixtureBinds(nativeMounts, route, bridge.directory,keeper); assertNativeMountSockets(nativeMounts, route.origin,keeper); }
