@@ -116,9 +116,13 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
  * backend result can precede asynchronous journal finalization, so recovery
  * reads the committed terminal from `idle`, before a successor starts.
  */
-export function publishTurnStatus(run: Pick<TurnRun, "host" | "turn">, outcome: Pick<TurnOutcome, "cancelledBeforeStart">): void {
+export function publishTurnStatus(run: Pick<TurnRun, "host" | "turn" | "clientReceiptEligible">, outcome: Pick<TurnOutcome, "cancelledBeforeStart">): void {
   const { host, turn } = run;
   if (outcome.cancelledBeforeStart) host.sendToClients(withTurnScope({ type: "status", status: "cancelled",
     detail: "Cancelled before starting", ...(turn.requestId ? { requestId: turn.requestId } : {}) }, turn));
-  else if (turn.sessionId) host.sendToClients(withTurnScope({ type: "status", status: "idle" }, turn));
+  else if (turn.sessionId) {
+    // The marker describes completed host cleanup, not a database commit.
+    // Eligibility was captured in memory; idle never reads lifecycle storage.
+    host.sendToClients(withTurnScope({ type: "status", status: "idle", ...(run.clientReceiptEligible ? { hostTurnComplete: true as const } : {}) }, turn));
+  }
 }

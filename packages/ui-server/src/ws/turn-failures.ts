@@ -69,7 +69,7 @@ const BOUNDARY_READ_MS = 10_000;
 
 type RecordingState = { failed: boolean; pending: number };
 /** Inspect existing writes without introducing a new close-path wait. */
-function recordingCompletion(result: boolean | void | Promise<boolean>, state: RecordingState): void {
+function recordingCompletion(result: boolean | void | Promise<boolean | void>, state: RecordingState): void {
   if (result instanceof Promise) {
     state.pending++;
     void result.then(stored => { state.failed ||= stored !== true; state.pending--; }, () => { state.failed = true; state.pending--; });
