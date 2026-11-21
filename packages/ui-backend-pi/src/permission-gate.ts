@@ -125,11 +125,12 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         if (answer?.block) { await safety?.refused?.(event.toolCallId, true); return answer; }
         const validate=()=>{
           const visible=prepareOutwardPlan({toolName:event.toolName,shellToolName:"bash",input:event.input,autonomous:!!turn.autonomous}).classification.actions.length>0;
-          return visible?revalidatePiAdmission(turn,event.toolName,event.toolCallId,event.input??{}):null;
+          return safetyAdmissionRefusal(turn.bridge?.admissionSafety)??(visible?revalidatePiAdmission(turn,event.toolName,event.toolCallId,event.input??{}):null);
         };
         try{
           const stale=validate();if(stale)throw new Error(stale);
           if(event.toolName!=="bash")await safety?.allowed?.(event.toolCallId,validate);
+          const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
         }catch(error){
           await safety?.refused?.(event.toolCallId,true);
           return {block:true,reason:error instanceof Error?error.message:'Safety recording refused this call.'};
@@ -236,6 +237,6 @@ async function decidePiToolPermissionUnchecked(options: PermissionGateOptions, t
   const stale = commitOutwardPlan(finalPlan, { bridge: turn.bridge, safety, before: snapshot, approved: outwardApproved, signal: turn.signal });
   observeOutwardPlan(finalPlan, { bridge: turn.bridge, toolName, input: effective, toolUseId, decision: stale ? "refused" : { behavior: "allow" } });
   if (stale) return { behavior: "deny", message: stale };
-  rememberPiAdmission(turn, toolName, toolUseId, effective, snapshot, outwardApproved);
+  rememberPiAdmission(turn, toolName, toolUseId, effective, snapshot, outwardApproved, safety);
   return effective === input ? { behavior: "allow" } : { behavior: "allow", updatedInput: effective };
 }

@@ -85,7 +85,7 @@ const command = "git push https://github.com/odysseus/voyage.git main";
 const allow = [{ command: "^git push ", remotes: ["github.com/odysseus/*"], index: 0 }];
 type Binding = "claude-hook" | "claude-callback" | "pi";
 async function execute(f: Fixture, binding: Binding, options: {
-  phase?: "approval" | "input" | "index" | "lock" | "allowed"; interleave?: () => Promise<unknown>; explicit?: boolean;
+  phase?: "approval" | "input" | "index" | "lock" | "allowed"; interleave?: () => Promise<unknown>; explicit?: boolean; legacyAllowed?: boolean; freshFacade?: boolean;
 }) {
   let interleaved = false;
   const pause = async (phase: typeof options.phase) => {
@@ -95,7 +95,7 @@ async function execute(f: Fixture, binding: Binding, options: {
   const bridge: BackendBridge = { emit() {}, admissionSafety: f.safety, activity: e => { events.push(e); },
     async requestPermission(req) { requests.push(req); await pause("approval"); return { behavior: "allow" }; },
     async awaitIndex() { await pause("index"); },
-    inputSafety: { ...f.collector, async begin(id, tool, input) { await f.collector.begin(id, tool, input); await pause("input"); }, async allowed(id,validate) {await pause("allowed");await f.collector.allowed!(id,validate);} } };
+    inputSafety: { ...f.collector, ...(options.freshFacade?{forAdmission: (_id:string,_tool:string,root:typeof f.safety)=>{const base=f.collector.forAdmission!(_id,_tool,root);let previous=base.read().evidenceRevision,revision=0;return {read(){const state=base.read();if(state.evidenceRevision!==previous){revision++;previous=state.evidenceRevision;}return {...state,evidenceRevision:String(revision)};},subscribe:base.subscribe};}}:{}), async begin(id, tool, input) { await f.collector.begin(id, tool, input); await pause("input"); }, async allowed(id,validate) {await pause("allowed");await f.collector.allowed!(id,options.legacyAllowed?undefined:validate);} } };
   const policy = { hash: null, deny: [], confirm: options.phase === "approval" && binding === "claude-hook" && !options.explicit
     ? [{ pattern: "^git push ", reason: "Review this command", index: 0 }] : [], outwardAllow: options.explicit ? [] : allow,
     taint: () => f.writes.taint("voyage", "ithaca") };
@@ -768,10 +768,10 @@ test('Claude callback returns an explicit denial when unavailable-state diagnost
 });
 
 
-test('Pi final RPC allowance queue rechecks revisions before recording allowance',async()=>{
+for(const legacy of [false,true])test(`Pi final RPC allowance queue rechecks revisions before recording allowance (legacy=${legacy})`,async()=>{
  const f=await fixture(false);let release=()=>{};let pending:Promise<Error|null>|undefined;try{
   const entered=Promise.withResolvers<void>(),gate=Promise.withResolvers<void>();release=()=>gate.resolve();let finalAdmission=false;
-  const safety={...f.collector,async allowed(id:string,validate?:()=>string|null){if(!finalAdmission)throw new Error("Bash allowance preceded final admission");entered.resolve();await gate.promise;await f.collector.allowed!(id,validate);}};
+  const safety={...f.collector,async allowed(id:string,validate?:()=>string|null){if(!finalAdmission)throw new Error("Bash allowance preceded final admission");entered.resolve();await gate.promise;await f.collector.allowed!(id,legacy?undefined:validate);}};
   const turn={...createTurnContext(),bridge:{emit(){},admissionSafety:f.safety,inputSafety:safety,requestPermission:async()=>({behavior:'allow' as const})},signal:f.controller.signal,commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[]}};
   const context={brainPath:f.root,turn,live(){},grants:new Map(),releases:new Map(),admitTool(){},autonomous:false,allowedTools:new Set(['bash']),confirmPatterns:[],workerLock:{async acquire(){return ()=>{};}},executed:()=>({name:'bash',lock:false,host:false,phases:new Set()})} as unknown as PiWorkerRpcContext;
   const dispatch=createPiWorkerRpcDispatcher(context),id='rpc-queued';
@@ -782,8 +782,41 @@ test('Pi final RPC allowance queue rechecks revisions before recording allowance
   pending=dispatch(message(3,'admission',{command})).then(()=>null,error=>error as Error);
   await Promise.race([entered.promise,pending.then(()=>{throw new Error('Final RPC did not reach its allowance wait');})]);await f.add('during_final_rpc_queue');gate.resolve();
   expect(String(await pending),'RPC_QUEUE_CANNOT_AUTHORIZE_STALE_DISPATCH').toContain('Safety or authority changed');
-  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'RPC_QUEUE_REFUSAL_PRECEDES_ALLOWED_STATE').toEqual({n:0});
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'RPC_QUEUE_REFUSAL_PRECEDES_ALLOWED_STATE_WHEN_SUPPORTED').toEqual({n:legacy?1:0});
   expect(context.grants.has(id)).toBe(false);
   for(const unlock of context.releases.values())unlock();
  }finally{release();await pending;await f.close();}
+});
+
+for(const binding of ['claude-callback','pi'] as const)for(const change of ['healthy','evidence','trust'] as const)test(`${binding}: legacy allowance cannot skip the final ${change} check`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{explicit:true,legacyAllowed:true,phase:'allowed',interleave:async()=>{if(change==='evidence')await f.add('legacy_wait');if(change==='trust')f.remove();}});
+  expect(result.interleaved,'LEGACY_ALLOWANCE_WAIT_REACHED').toBe(true);
+  expect(result.executed,'LEGACY_COLLECTOR_CANNOT_AUTHORIZE_STALE_DISPATCH').toBe(change==='healthy');
+ }finally{await f.close();}
+});
+test('Pi retains the approval-time facade when the host creates fresh local revision views',async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,'pi',{explicit:true,freshFacade:true,phase:'allowed',interleave:()=>f.add('fresh_facade_change')});
+  expect(result.interleaved).toBe(true);expect(result.executed,'APPROVAL_FACADE_IDENTITY_SURVIVES_COMMIT').toBe(false);
+ }finally{await f.close();}
+});
+
+for(const route of ['gate','rpc'] as const)test(`Pi non-Bash ${route} rechecks revocation after legacy allowance`,async()=>{
+ const f=await fixture();try{
+  let waited=false;
+  const bridge:BackendBridge={emit(){},admissionSafety:f.safety,inputSafety:{...f.collector,async allowed(id){await f.collector.allowed!(id);waited=true;f.revoke();}},requestPermission:async()=>({behavior:'allow'})};
+  const turn={...createTurnContext(),bridge,signal:f.controller.signal};
+  const input={path:'notes/loom.md'};
+  if(route==='gate'){
+   const gate=createPermissionGate({turn,allowedTools:new Set(['read_file']),confirmPatterns:[]});let handler:((event:unknown)=>Promise<{block?:boolean}|undefined>)|undefined;
+   (typeof gate==='function'?gate:gate.factory)({on(name:string,callback:unknown){if(name==='tool_call')handler=callback as typeof handler;}} as never);
+   expect(await handler!({toolName:'read_file',toolCallId:'legacy_read',input}),'NON_BASH_GATE_RECHECKS_AFTER_ALLOWED').toMatchObject({block:true});
+  }else{
+   const context={brainPath:f.root,turn,live(){},grants:new Map(),releases:new Map(),admitTool(){},autonomous:false,allowedTools:new Set(['read_file']),confirmPatterns:[],executed:()=>({name:'read_file',lock:false,host:false,phases:new Set()})} as unknown as PiWorkerRpcContext;
+   expect(await createPiWorkerRpcDispatcher(context)({type:'rpc',id:1,method:'permission',toolName:'read_file',toolCallId:'legacy_read',input}),'NON_BASH_RPC_RECHECKS_AFTER_ALLOWED').toMatchObject({behavior:'deny'});
+   expect(context.grants.size).toBe(0);
+  }
+  expect(waited,'LEGACY_NON_BASH_ALLOWANCE_WAS_REACHED').toBe(true);
+ }finally{await f.close();}
 });

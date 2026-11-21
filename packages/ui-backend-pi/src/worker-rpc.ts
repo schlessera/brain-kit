@@ -173,6 +173,7 @@ async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorker
     // Bash cannot execute with this permission ticket: it must consume a
     // separate final-admission RPC after its rewrite and lock waits.
     if(msg.toolName!=="bash")await bridge.inputSafety?.allowed?.(msg.toolCallId,validate);
+    const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
   }catch(error){return {behavior:"deny",message:error instanceof Error?error.message:"Safety recording refused this call."};}
   context.live();
   if (grant) context.grants.set(msg.toolCallId, grant);
@@ -279,6 +280,7 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
       const validate=()=>{context.live();return revalidatePiAdmission(context.turn,msg.toolName,msg.toolCallId,msg.input);};
       const stale=validate();if(stale)throw new Error(stale);
       await bridge.inputSafety?.allowed?.(msg.toolCallId,validate);
+      const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
       forgetPiAdmission(context.turn,msg.toolName,msg.toolCallId);
       return {ok:true};
     }catch(error){

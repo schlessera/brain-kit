@@ -190,6 +190,7 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
             const validate=()=>revalidatePiAdmission(turn,"bash",_id,params);
             const stale=validate();if(stale)throw new Error(stale);
             await turn.bridge?.inputSafety?.allowed?.(_id,validate);
+            const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
             forgetPiAdmission(turn,"bash",_id);
           }catch(error){
             forgetPiAdmission(turn,"bash",_id);
