@@ -418,3 +418,66 @@ describe("parseGmailRawDraft: controls after decoding", () => {
     expect([parsed.subject, flags(parsed)]).toEqual(["Home \u{1F468}\u200D\u{1F466}", CLEAN]);
   });
 });
+
+describe("parseGmailRawDraft: only parameters and encodings the parser understands", () => {
+  const BODY_PARAMETER = { ...CLEAN, unreadable_body: true, problems: ["body_parameter"] as GmailRawDraftProblem[] };
+  const TRANSFER = { ...CLEAN, unreadable_body: true, problems: ["transfer_encoding"] as GmailRawDraftProblem[] };
+  const body = async (contentType: string, text: string, encoding?: string) => {
+    const draft = await parseGmailRawDraft(message("To: penelope@example.com", contentType, ...(encoding ? [`Content-Transfer-Encoding: ${encoding}`] : []), "", text));
+    return [draft.body_text, flags(draft)];
+  };
+
+  test("format=flowed with delsp is unreadable, not shown with its soft breaks", async () => {
+    // An RFC 3676 client shows "Pay 1000 coins."; the card would show two lines.
+    expect(await body("Content-Type: text/plain; charset=utf-8; format=flowed; delsp=yes", "Pay 1 \r\n000 coins.")).toEqual([null, BODY_PARAMETER]);
+  });
+
+  const refused: [name: string, contentType: string][] = [
+    ["format=flowed", "Content-Type: text/plain; charset=utf-8; format=flowed"],
+    ["format in upper case flowed", "Content-Type: text/plain; format=FLOWED"],
+    ["delsp beside format=fixed", "Content-Type: text/plain; format=fixed; delsp=no"],
+    ["reply-type", "Content-Type: text/plain; charset=us-ascii; reply-type=original"],
+    ["an unknown parameter", "Content-Type: text/plain; charset=utf-8; x-loom=woven"],
+    ["an extended format", "Content-Type: text/plain; format*=''flowed"],
+    ["a continued format", "Content-Type: text/plain; format*0=\"flo\"; format*1=\"wed\""],
+  ];
+  for (const [name, contentType] of refused) {
+    test(`a body with ${name} is unreadable`, async () => {
+      expect(await body(contentType, "The loom.")).toEqual([null, BODY_PARAMETER]);
+    });
+  }
+
+  test("charset and format=fixed, in any case, are understood", async () => {
+    expect([
+      await body("Content-Type: text/plain; charset=utf-8; format=fixed", "The loom."),
+      await body("Content-Type: text/plain; charset=\"UTF-8\"; FORMAT=\"Fixed\"", "The loom."),
+    ]).toEqual([["The loom.", CLEAN], ["The loom.", CLEAN]]);
+  });
+
+  test("the binary transfer encoding is unreadable on a body", async () => {
+    expect(await body("Content-Type: text/plain; charset=utf-8", "The loom.", "binary")).toEqual([null, TRANSFER]);
+  });
+
+  test("the binary transfer encoding is unreadable on a multipart", async () => {
+    const draft = await parseGmailRawDraft(message("To: penelope@example.com", "Content-Type: multipart/mixed; boundary=b1", "Content-Transfer-Encoding: binary", "", "--b1", "", "Text.", "--b1--"));
+    expect([draft.body_text, flags(draft)]).toEqual([null, TRANSFER]);
+  });
+
+  const TEXT = "Weave by day,\r\nunweave by night: Ithaca \u2693\r\n";
+  const utf8 = new TextEncoder().encode(TEXT);
+  const encodings: [encoding: string, body: string][] = [
+    ["7bit", "Weave by day,\r\nunweave by night.\r\n"],
+    ["8bit", String.fromCharCode(...utf8)],
+    ["quoted-printable", "Weave by day,\r\nunweave by night: Ithaca =E2=9A=93\r\n"],
+    ["base64", btoa(String.fromCharCode(...utf8))],
+  ];
+  for (const [encoding, raw] of encodings) {
+    test(`a plain-text UTF-8 draft as gog writes it, in ${encoding}, is displayable`, async () => {
+      const parsed = await parseGmailRawDraft(latin([
+        "MIME-Version: 1.0", "From: Odysseus <odysseus@example.com>", "To: Penelope <penelope@example.com>", "Subject: Home",
+        "Date: Sun, 12 Jul 2026 09:30:00 +0000", "Message-ID: <home.1@example.com>",
+        "Content-Type: text/plain; charset=\"UTF-8\"", `Content-Transfer-Encoding: ${encoding}`, "", raw].join("\r\n")));
+      expect([parsed.body_text, flags(parsed)]).toEqual([encoding === "7bit" ? "Weave by day,\nunweave by night.\n" : "Weave by day,\nunweave by night: Ithaca \u2693\n", CLEAN]);
+    });
+  }
+});

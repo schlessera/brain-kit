@@ -13,8 +13,10 @@
  * subtype other than mixed, alternative and related, a broken multipart
  * structure, or decoded text holding a control or bidirectional embedding,
  * override or isolate character the card cannot show faithfully sets an
- * unreadable flag. Only a part with no disposition or an `inline` one can be
- * the body; any other disposition is an attachment. The digest covers the
+ * unreadable flag. The displayed body may carry only the Content-Type
+ * parameters `charset` and `format=fixed`, and only the transfer encodings
+ * 7bit, 8bit, quoted-printable and base64. Only a part with no disposition
+ * or an `inline` one can be the body; any other disposition is an attachment. The digest covers the
  * input bytes exactly, so the host can send and record what the card was
  * built from.
  *
@@ -30,7 +32,7 @@ import {
 export const GMAIL_RAW_DRAFT_PROBLEMS = [
   "too_large", "bare_cr", "header_syntax", "header_encoding", "header_control_character", "duplicate_header",
   "unshown_address_header", "address_syntax", "from_not_single", "encoded_word", "message_id_syntax",
-  "content_type", "content_disposition", "extended_parameter", "transfer_encoding", "charset", "body_control_character",
+  "content_type", "content_disposition", "extended_parameter", "body_parameter", "transfer_encoding", "charset", "body_control_character",
   "multipart_subtype", "multipart_structure", "too_deep", "too_many_parts",
 ] as const;
 export type GmailRawDraftProblem = typeof GMAIL_RAW_DRAFT_PROBLEMS[number];
@@ -89,6 +91,25 @@ const FIELD_NAME = /^[\x21-\x39\x3b-\x7e]+$/;
 const MULTIPART_SUBTYPES = new Set(["mixed", "alternative", "related"]);
 /** Parameters whose values the parser acts on; their RFC 2231 forms are never decoded, so they are unreadable. */
 const RELIED_PARAMETERS = ["charset", "boundary"];
+/** The transfer encodings a part may use: a body is decoded from these, and a multipart takes only the identity ones. */
+const BODY_ENCODINGS = new Set(["7bit", "8bit", "quoted-printable", "base64"]);
+const MULTIPART_ENCODINGS = new Set(["7bit", "8bit"]);
+
+/**
+ * Whether the displayed body's Content-Type parameters are all ones the
+ * parser understands: `charset`, and `format` only when it is `fixed`. Any
+ * other parameter changes how a client renders the text (`format=flowed`
+ * and `delsp` rejoin lines, RFC 3676) or means something the parser does not
+ * know, so the card would not show what the recipient sees.
+ */
+function understoodBodyParameters(parameters: Parameters): boolean {
+  for (const [name, value] of parameters.values) {
+    if (name === "charset") continue;
+    if (name === "format" && value.toLowerCase() === "fixed") continue;
+    return false;
+  }
+  return true;
+}
 const MESSAGE_IDS = /^(?:[\t ]*<[\x21-\x3b\x3d\x3f-\x7e]+>)+[\t ]*$/;
 const TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
 const CONTENT_TYPE = new RegExp(`^[\\t ]*(${TOKEN})/(${TOKEN})[\\t ]*(.*)$`, "s");
@@ -253,7 +274,7 @@ function splitMultipart(body: string, boundary: string): string[] | null {
 }
 
 function decodeTransfer(body: string, encoding: string): string | null {
-  if (encoding === "7bit" || encoding === "8bit" || encoding === "binary") return body;
+  if (encoding === "7bit" || encoding === "8bit") return body;
   if (encoding === "quoted-printable") return decodeQuotedPrintable(body);
   if (encoding === "base64") return decodeBase64(body);
   return null;
@@ -277,7 +298,7 @@ function readPart(headers: Headers, body: string, depth: number, reader: Reader)
 
   if (type.type === "multipart") {
     if (!MULTIPART_SUBTYPES.has(type.subtype)) return reader.structure("multipart_subtype");
-    if (encoding !== "7bit" && encoding !== "8bit" && encoding !== "binary") return reader.structure("transfer_encoding");
+    if (!MULTIPART_ENCODINGS.has(encoding)) return reader.structure("transfer_encoding");
     const boundary = type.parameters.values.get("boundary");
     if (!boundary || boundary.length > 70) return reader.structure("multipart_structure");
     const parts = splitMultipart(body, boundary);
@@ -303,6 +324,8 @@ function readPart(headers: Headers, body: string, depth: number, reader: Reader)
     reader.attachment = true;
     return;
   }
+  if (!understoodBodyParameters(type.parameters)) return reader.structure("body_parameter");
+  if (!BODY_ENCODINGS.has(encoding)) return reader.structure("transfer_encoding");
   const decoded = decodeTransfer(body, encoding);
   if (decoded === null) return reader.structure("transfer_encoding");
   const text = decodeCharset(binaryToBytes(decoded), type.parameters.values.get("charset") ?? "us-ascii");
