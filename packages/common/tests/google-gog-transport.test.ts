@@ -341,8 +341,13 @@ describe("the operation boundary", () => {
       [{ account: "penelope@example.com" }, "account"],
       [{ environment: { home: "relative/home", keyringPassword: "x" } }, "environment_home"],
       [{ environment: { home: "/srv/ithaca", keyringPassword: "" } }, "environment_keyring_password"],
+      [{ binary: { kind: "pinned", path: undefined } }, "binary"],
+      [{ binary: { kind: "pinned", path: "" } }, "binary"],
+      [{ binary: { kind: "fake", path: 7 } }, "binary"],
+      [{ binary: { kind: "other", path: "/usr/bin/gog" } }, "binary"],
+      [{ binary: undefined }, "binary"],
     ] as const) {
-      const broken = createGogTransport({ binary: fake.binary, account: "ithaca", environment: fake.environment, ...options });
+      const broken = createGogTransport({ binary: fake.binary, account: "ithaca", environment: fake.environment, ...options } as never);
       expect(errorOf(await broken.execute("gmail.labels.list", {}))).toEqual(["unavailable", reason]);
       expect(await broken.availability()).toMatchObject({ ok: false, error: { code: "unavailable", reason } });
     }

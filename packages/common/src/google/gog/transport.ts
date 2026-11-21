@@ -160,6 +160,11 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 /** How long a transient pin refusal stands before the next call verifies the binary again. */
 export const GOG_PIN_RETRY_MS = 30_000;
 
+/** A binary path the pin and the spawn can take: a non-empty string with no NUL or line break. */
+function usableBinaryPath(path: unknown): path is string {
+  return typeof path === "string" && path.length > 0 && !/[\0\r\n]/.test(path);
+}
+
 /** Builds the transport. Never throws: a bad option makes every call answer `unavailable` with its reason. */
 export function createGogTransport(options: GogTransportOptions): GogTransport {
   return createGogTransportInternals(options);
@@ -176,7 +181,7 @@ export function createGogTransportInternals(
   const environment = gogEnvironment(options.environment);
   const setup: GoogleError | null = !isGogAccountAlias(account) ? gogError("unavailable", "account")
     : !environment.ok ? gogError("unavailable", `environment_${environment.reason}`)
-      : binary?.kind !== "pinned" && binary?.kind !== "fake" ? gogError("unavailable", "binary")
+      : (binary?.kind !== "pinned" && binary?.kind !== "fake") || !usableBinaryPath(binary.path) ? gogError("unavailable", "binary")
         : null;
   const env: GogEnvironment | null = environment.ok ? environment.environment : null;
 
