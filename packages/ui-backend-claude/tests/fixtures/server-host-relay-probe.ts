@@ -2,7 +2,8 @@ import { recordNativeRelayTurn } from "../helpers/native-relay-turn-diagnostic.j
 import { watchdogMs } from "../../../../scripts/test-deadlines.ts";
 import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
 import "../../../../scripts/test-network-child-preload.ts";
-import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
+import { workerPlanMasksHostLogin } from "../helpers/native-host-login-mask.js";
+import { isNativeClaude, nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Real turn runner and an explicitly prepared transport; no live provider calls. */
 import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -87,7 +88,13 @@ const nativeEnvironments: string[] = [];
 let liveWorker: { pid: number; state?: { root: string } } | undefined;
 let stateFiles = "";
 /** Whether a process in the worker's own mount namespace could open the host login file. */
-let hostLoginVisible: boolean | null = null, controlVisible = false;
+let hostLoginVisible: boolean | null = null, controlVisible = false, productionLoginMaskPresent=false;
+const originalSpawn=Bun.spawn;
+if(mode==="outside-masks")Bun.spawn=((...args:any[])=>{
+ const encoded=args[1]?.env?.BRAIN_WORKER_LAUNCH;
+ if(encoded){const launch=JSON.parse(encoded);if(Array.isArray(launch.command)&&isNativeClaude(launch.command[0],launch.command.slice(1),{cwd:launch.brainPath,env:launch.env}))productionLoginMaskPresent=workerPlanMasksHostLogin(launch.argv,join(config,".credentials.json"));}
+ return Reflect.apply(originalSpawn,Bun,args);
+}) as typeof Bun.spawn;
 function workerViewOfHostLogin(): void {
   const pending = [liveWorker?.pid ?? 0];
   hostLoginVisible ??= false;
@@ -241,7 +248,7 @@ try {
     }
   }
   const observed = JSON.stringify({ nativeEnvironments, stateFiles });
-  console.log(JSON.stringify({ requests, refreshes, apiRequests, nativeEnvironmentCount: nativeEnvironments.length, hostLoginVisible, controlVisible,
+  console.log(JSON.stringify({ requests, refreshes, apiRequests, nativeEnvironmentCount: nativeEnvironments.length, hostLoginVisible, controlVisible, productionLoginMaskPresent,
     secretInWorker: [apiSecret, hostLogin, ambientBearer, ambientRouter, cliGemini, cliTypesafe].some(secret => observed.includes(secret)),
     withheldKeys: nativeEnvironments.map(value => /(?:^|\0)BRAIN_WITHHELD_KEYS=([^\0]*)/.exec(value)?.[1] ?? null),
     workerPlaceholders: nativeEnvironments.map(value => ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ODYSSEUS_ANTHROPIC_KEY"]
@@ -249,4 +256,4 @@ try {
     results: frames.filter(frame => frame.type === "result" || frame.type === "error"),
     observations: (db.query("SELECT session_id, model, record FROM observations").all() as Array<{ session_id: string; model: string; record: string }>).map(row => ({ sessionId: row.session_id, model: row.model, payload: JSON.parse(row.record) })),
   }));
-} finally { globalThis.fetch = nativeFetch; provider.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }
+} finally { Bun.spawn=originalSpawn;globalThis.fetch = nativeFetch; provider.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }

@@ -1191,3 +1191,47 @@ test("direct and trusted worker plans admit only a registered turn-proxy endpoin
   expect(result.code,result.output).toBe(0);
  }finally{rmSync(scratch,{recursive:true,force:true});}
 });
+
+test("every native launch path preserves the product's Unix-socket auth intent",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-all-native-auth-"));
+ try{
+  const result=await probe(`${imports}
+   import {writeFileSync} from "node:fs";import {spyOn} from "bun:test";
+   import * as launcher from ${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/worker-launcher.ts"))};
+   import {WORKER_IDENTITY_SUPERVISOR} from ${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/worker-identity-program.ts"))};
+   import {nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};
+   spyOn(launcher,"verifiedWorkerIdentity").mockReturnValue({identity:"separate_uid",workerUid:(process.getuid()||21000)+1});
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((name,options)=>name==="strace"?"/synthetic/strace":which(name,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+   const recorder=Bun.serve({port:0,fetch:()=>new Response("Ithaca")});const leave=nativeScriptedService(recorder.url.origin,{fixtureRoots:[${JSON.stringify(scratch)}]});
+   const source=${JSON.stringify(join(scratch,"product-inference.sock"))},target="/run/brain-egress/inference.sock",relay=Bun.serve({unix:source,fetch:()=>new Response("Ithaca")});
+   const declaredKey="sk-ant-api03-"+"d".repeat(95)+"AA",completed=[];
+   for(const path of ["direct","prewarm","worker","relayed","separate-UID"]){
+    for(const productSocket of (path==="relayed"?[true]:[false,true])){
+     const env={HOME:${JSON.stringify(scratch)},ANTHROPIC_BASE_URL:recorder.url.origin,ANTHROPIC_API_KEY:productSocket?"brain-inference-relay-placeholder":declaredKey,...(productSocket?{ANTHROPIC_UNIX_SOCKET:target}:{})};
+     let argv,dispose;
+     if(path==="direct"||path==="prewarm"){
+      // SDK prewarm uses the direct process transport with --await-claim;
+      // prewarm through a worker spawn callback is covered by the worker rows.
+      const boundary=nativeClaudeBoundary(${JSON.stringify(runtime)},path==="prewarm"?["--await-claim"]:[],{cwd:${JSON.stringify(scratch)},env:{...env,...(productSocket?{ANTHROPIC_UNIX_SOCKET:source}:{})}});argv=boundary.argv;dispose=boundary.dispose;
+     }else{
+      const gates=productSocket?[]:["/usr/bin/prlimit","--nofile=1024:1024","--","/bin/sh","-c",'IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"',"brain-worker-state-gate","/bin/sh","-c",'IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"',"brain-worker-start-gate"];
+      const payload=["bwrap",...(productSocket?["--ro-bind",source,target]:[]),"--",...gates,${JSON.stringify(runtime)}];
+      const outer=path==="separate-UID"?["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:payload})]:payload;
+      const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env,argv:outer})});argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;dispose=plan.dispose;
+      if(path==="separate-UID")argv=JSON.parse(argv[5]).argv;
+     }
+     if(!productSocket&&!["direct","prewarm"].includes(path)){const gate=argv.indexOf("brain-worker-start-gate"),entry=argv.findIndex(arg=>arg.endsWith("/egress-worker-entry.ts")),broker=argv.findIndex((arg,index)=>arg.endsWith("/native-connect")&&argv[index+1]==="--head");if(!(gate>=0&&entry>gate&&broker>entry))throw Error("REAL_WORKER_PLAN_GATES_THEN_FORWARDER_THEN_FILTER:"+path);}
+     const injected={};for(let i=0;i<argv.length;i++)if(argv[i]==="--setenv")injected[argv[i+1]]=argv[i+2];
+     if(injected.ANTHROPIC_API_KEY!==env.ANTHROPIC_API_KEY)throw Error("EVERY_NATIVE_PATH_PRESERVES_DECLARED_KEY_OR_PRODUCT_PLACEHOLDER:"+path);
+     if(Object.hasOwn(injected,"ANTHROPIC_UNIX_SOCKET")!==productSocket)throw Error("EVERY_NATIVE_PATH_PRESERVES_PRODUCT_SOCKET_INTENT:"+path+":"+productSocket);
+     if(productSocket&&!["direct","prewarm"].includes(path)&&injected.ANTHROPIC_UNIX_SOCKET!==target)throw Error("RELAYED_WORKER_SOCKET_UNCHANGED");
+     const log=argv[argv.indexOf("-o")+1];writeFileSync(log,${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});dispose();completed.push(path+":"+productSocket);
+    }
+   }
+   if(completed.length!==9)throw Error("ALL_NATIVE_PATHS_ENUMERATED");relay.stop(true);leave();recorder.stop(true);`,scratch);
+  expect(result.code,result.output).toBe(0);
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+},watchdogMs(120000));

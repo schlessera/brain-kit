@@ -1199,24 +1199,83 @@ export function nativeDiagnosticWorkerPayload(payload:string[],diagnostic:boolea
 }
 
 /** Keep only the pinned transport and fixed launcher gates outside the payload filter. */
-export function nativeWorkerPayloadCommand(payload:string[],command:string[],protect:(argv:string[],trustedWrapper?:boolean)=>string[]):string[] {
+export function nativeWorkerGatePrefixLength(payload:readonly string[]):number|undefined {
   const same=(value:string|undefined,expected:string)=>{try{return !!value&&realpathSync(value)===realpathSync(expected);}catch{return false;}};
   let at=0;
-  if(same(payload[at],"/usr/bin/prlimit")) {
-    at++;const start=at;
-    while(/^--(?:data|fsize|nofile|nproc)=\d+:\d+$/.test(payload[at]??""))at++;
-    if(at===start||payload[at++]!=="--")return protect(payload);
+  if(same(payload[at],"/usr/bin/prlimit")){
+    at++;const start=at;while(/^--(?:data|fsize|nofile|nproc)=\d+:\d+$/.test(payload[at]??""))at++;
+    if(at===start||payload[at++]!=="--")return;
   }
-  if(same(payload[at],"/bin/sh")) {
+  while(same(payload[at],"/bin/sh")){
     const gate=payload.slice(at,at+4);
-    if(gate[1]!=="-c"||!(gate[2]==='IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"'&&gate[3]==="brain-worker-state-gate"||gate[2]==='IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"'&&gate[3]==="brain-worker-start-gate"))return protect(payload);
+    if(gate[1]!=="-c"||!(gate[2]==='IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"'&&gate[3]==="brain-worker-state-gate"||gate[2]==='IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"'&&gate[3]==="brain-worker-start-gate"))return;
     at+=4;
   }
+  return at;
+}
+export function nativeWorkerPayloadCommand(payload:string[],command:string[],protect:(argv:string[],trustedWrapper?:boolean)=>string[]):string[] {
+  const same=(value:string|undefined,expected:string)=>{try{return !!value&&realpathSync(value)===realpathSync(expected);}catch{return false;}};
+  let at=nativeWorkerGatePrefixLength(payload);if(at===undefined)return protect(payload);
   const entry=join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts");
   if(!same(payload[at],process.execPath)||payload[at+1]!==entry||!same(payload[at+1],entry))return protect(payload);
   at+=2;if(payload[at]==="--direct-loopback")at++;
   if(payload.length-at!==command.length||!command.every((value,index)=>payload[at+index]===value))return protect(payload);
   return [...payload.slice(0,at),...protect(payload.slice(at),true)];
+}
+
+export function nativeUnrelayedWorkerPayloadCommand(payload:string[],protect:(argv:string[])=>string[]):string[] {
+  const gates=nativeWorkerGatePrefixLength(payload);if(gates===undefined)return refuse("unrecognized native worker start gate");
+  return [...payload.slice(0,gates),process.execPath,join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"),"--direct-loopback",...protect(nativeDirectTransportCommand(payload.slice(gates)))];
+}
+
+/** Only positively non-native worker plans bypass native admission checks. */
+export function nativeWorkerArgvNeedsIsolation(argv:readonly string[],context:SpawnContext={},depth=0):boolean {
+  if(depth>8)return true;
+  if(!argv.length)return true;
+  try{resolveExecutable(argv[0]!,context);}catch{return true;}
+  if(isNativeClaude(argv[0]!,argv.slice(1),context))return true;
+  const shells=new Set<string>();for(const path of ["/bin/sh","/bin/bash","/bin/dash","/usr/bin/zsh"]){try{shells.add(realpathSync(path));}catch{}}
+  const literal=(text:string):string|undefined=>{
+    const match=/^(?:'([^']*)'|"([^"$`\\]*)"|([^\s'"$`\\;&|<>(){}\[\]*?~]+))(?=\s|[;&|)]|$)/.exec(text.trimStart());
+    return match?.[1]??match?.[2]??match?.[3];
+  };
+  for(let i=0;i<argv.length;i++){
+    let executable:string;try{executable=resolveExecutable(argv[i]!,context);}catch{continue;}
+    if(!shells.has(executable))continue;
+    let flag=i+1;while(argv[flag]?.startsWith("-")&&!/^-[a-z]*c[a-z]*$/.test(argv[flag]!))flag++;
+    if(!/^-[a-z]*c[a-z]*$/.test(argv[flag]??""))continue;
+    const script=argv[flag+1];if(script===undefined)return true;
+    // These pinned product gates exec only their supplied argv, scanned above.
+    const knownGate=(script==='IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"'&&argv[flag+2]==="brain-worker-state-gate"||script==='IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"'&&argv[flag+2]==="brain-worker-start-gate");
+    if(knownGate&&argv.length>flag+3)continue;
+    if(/(?:^|[;&|()\n])\s*(?:eval|source|\.)\s/.test(script))return true;
+    for(const token of script.matchAll(/[^\s'";&|<>(){}\[\]]+/g))if(isNativeClaude(token[0],[],context))return true;
+    const execs=[...script.matchAll(/(?:^|[;&|()\n])\s*exec(?:\s+|$)/g)];
+    for(const match of execs){
+      const rest=script.slice(match.index!+match[0].length),target=literal(rest);
+      if(!target||target.startsWith("-"))return true;
+      try{resolveExecutable(target,context);}catch{return true;}
+      if(isNativeClaude(target,[],context))return true;
+      // An env/interpreter chain with dynamic words cannot establish a safe target.
+      const words=rest.split(/[;&|\n]/,1)[0]!;
+      if(/[$`]/.test(words))return true;
+      const tokens:string[]=[];let remaining=words.trim();
+      while(remaining){
+        const token=/^(?:'([^']*)'|"([^"$`\\]*)"|([^\s'"$`\\;&|<>(){}\[\]*?~]+))(?=\s|$)/.exec(remaining);
+        if(!token)return true;tokens.push(token[1]??token[2]??token[3]!);remaining=remaining.slice(token[0].length).trimStart();
+      }
+      if(nativeWorkerArgvNeedsIsolation(tokens,context,depth+1))return true;
+    }
+    if(!execs.length){
+      const target=literal(script);if(!target)return true;
+      if(["eval","source","."].includes(target))return true;
+      if(!["printf","echo","exit","return","true","false","read","test","[","cd","pwd","set","export","unset","umask","trap","wait","kill","shift",":"].includes(target)){
+        try{resolveExecutable(target,context);}catch{return true;}
+        if(isNativeClaude(target,[],context))return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */
@@ -1243,20 +1302,16 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     if (!supervisor || !Array.isArray(supervisor.argv) || !supervisor.argv.every(value => typeof value === "string")) refuse("invalid native identity launcher");
     workerArgv = supervisor.argv;
   }
+  const command = launch.command!;
+  const actualNative = nativeWorkerArgvNeedsIsolation(command,context)||nativeWorkerArgvNeedsIsolation(argv,context)||(workerArgv!==argv&&nativeWorkerArgvNeedsIsolation(workerArgv,context));
+  if(!actualNative)return unchanged;
   try { argv[0] = resolveExecutable(argv[0]!, context); workerArgv[0] = resolveExecutable(workerArgv[0]!, context); }
   catch { refuse("worker executable could not be resolved"); }
-  const command = launch.command!;
   const tail = workerArgv.slice(-command.length);
   let agrees = false;
   try { agrees = tail.length === command.length && resolveExecutable(tail[0]!, context) === resolveExecutable(command[0]!, context)
     && tail.slice(1).every((value, index) => value === command[index + 1]); } catch { /* Unknown executable refuses. */ }
   if (!agrees) refuse("worker command and executable argv disagree");
-  const actualNative = isNativeClaude(command[0]!, command.slice(1), context) || isNativeClaude(argv[0]!, [], context) || isNativeClaude(workerArgv[0]!, [], context);
-  if (!actualNative) {
-    if (supervisor) argv[5] = JSON.stringify(supervisor);
-    launch.argv = argv;
-    return { ...unchanged, env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) } };
-  }
   const bwrap = nativeBwrapIndex(workerArgv);
   if (bwrap < 0) refuse("native worker lacks the OS launcher");
   // Even ordinary test workers use a private network and a single bridge.
@@ -1271,6 +1326,8 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   qualify();
   workerArgv[bwrap] = bwrapExecutable;
   const bridge = startNativeTestRelay(route.origin);
+  const directTunnel=!ownedOrigin?startNativeTurnProxyTunnel(route.origin,bridge.directory):undefined;
+  const disposeBridge=()=>{directTunnel?.dispose();bridge.dispose();};
   try {
     const tools = fixtureToolView(launch.env ?? {}, launch.brainPath ?? ROOT, launch.hostHome ?? launch.env?.HOME);
     assertNativeMountSockets(tools.mounts, route.origin);
@@ -1280,7 +1337,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
     }
     workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", "--unshare-pid");
-    const pinned = { ANTHROPIC_BASE_URL: nativeAdmittedRelayBaseUrl(launch.env?.ANTHROPIC_BASE_URL,Boolean(ownedOrigin)), ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
+    const pinned = { ...nativeDirectTransportEnvironment(launch.env??{},Boolean(ownedOrigin)),...(ownedOrigin?{ANTHROPIC_UNIX_SOCKET:socket!}:{}),
       PATH: tools.path, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1",
       ...(["0", "1"].includes(launch.env?.USE_BUILTIN_RIPGREP ?? "") ? { USE_BUILTIN_RIPGREP: launch.env!.USE_BUILTIN_RIPGREP! } : {}),
       ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "",
@@ -1293,6 +1350,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       "--ro-bind", process.execPath, process.execPath, "--ro-bind", compileSocketPolicy(), compileSocketPolicy(),
       "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",...nativeFixtureFileMounts(bridge.directory),
+      ...(directTunnel?["--dir","/run/brain-egress","--ro-bind",directTunnel.socket,WORKER_TURN_PROXY]:[]),
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
     const keeper=workerKeeper(workerArgv,bwrap);
     try { stageWorkerFixtureBinds(workerArgv,bwrap,route,bridge.directory,keeper); }
@@ -1300,7 +1358,10 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     const payloadIndex = workerArgv.indexOf("--", bwrap) + 1;
     const nativePayload = workerArgv.splice(payloadIndex);
     const turnProxy=admittedRelay(workerArgv,WORKER_TURN_PROXY);
-    const protectedPayload=nativeWorkerPayloadCommand(nativePayload,command,(argv,trusted)=>nativeSocketCommand(argv, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET,trusted&&turnProxy?{source:turnProxy.path,allowed:WORKER_TURN_PROXY}:undefined));
+    let protectedPayload:string[];
+    if(directTunnel){
+      protectedPayload=nativeUnrelayedWorkerPayloadCommand(nativePayload,argv=>nativeSocketCommand(argv,join(bridge.directory,"relay.sock"),"/tmp/native-relay/relay.sock",{source:directTunnel.socket,allowed:WORKER_TURN_PROXY}));
+    }else protectedPayload=nativeWorkerPayloadCommand(nativePayload,command,(argv,trusted)=>nativeSocketCommand(argv, admitted!.path, socket!,trusted&&turnProxy?{source:turnProxy.path,allowed:WORKER_TURN_PROXY}:undefined));
     workerArgv.push(...nativeDiagnosticWorkerPayload(protectedPayload,Boolean(supervisor&&process.argv.some(value=>value.startsWith("--native-identity-startup-audit=")))));
     const nativeMounts = workerArgv.slice(bwrap + 1, workerArgv.indexOf("--", bwrap));
     const beforeLaunch = () => {
@@ -1318,7 +1379,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       const { verifiedWorkerIdentity } = createRequire(import.meta.url)("../packages/ui-sdk/src/server/worker-launcher.ts") as typeof import("../packages/ui-sdk/src/server/worker-launcher");
       const identity = launch.brainPath && verifiedWorkerIdentity(launch.brainPath);
       if (!identity || identity.workerUid === process.getuid?.()) refuse("native worker audit lacks a verified separate UID");
-      audited = auditNativeLaunch(nativeSeparateUidAuditCommand(bwrapExecutable,payload,"AUDIT_STORAGE"), expected, bridge.dispose, identity.workerUid);
+      audited = auditNativeLaunch(nativeSeparateUidAuditCommand(bwrapExecutable,payload,"AUDIT_STORAGE"), expected, disposeBridge, identity.workerUid);
       const log = audited.argv[audited.argv.indexOf("-o") + 1]!, directory = dirname(log);
       audited.argv[audited.argv.indexOf("AUDIT_STORAGE")] = directory;
       // Only the outer tracer sees this mount; the native process sees tmpfs.
@@ -1330,7 +1391,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       launch.argv = argv;
     } else {
       workerArgv.splice(workerArgv.indexOf("--",bwrap),0,...readOnlyRemounts);
-      audited = auditNativeLaunch(workerArgv, expected, bridge.dispose);
+      audited = auditNativeLaunch(workerArgv, expected, disposeBridge);
       launch.argv = audited.argv;
     }
     const encoded=JSON.stringify(launch);
@@ -1338,5 +1399,5 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       bootstrapArgc:launch.argv!.length,bootstrapArgvBytes:Buffer.byteLength(JSON.stringify(launch.argv)),
       sandboxArgc:workerArgv.length,sandboxArgvBytes:Buffer.byteLength(JSON.stringify(workerArgv)),metadataBytes:Buffer.byteLength(encoded)});
     return { native: true, env: { ...env, BRAIN_WORKER_LAUNCH: encoded }, dispose: audited.dispose, beforeLaunch,nativeExecuted:audited.nativeExecuted,observe(pid){observeNativeFixtureRtkSpawn(pid,originalLaunch,expected,audited.liveExecs);} };
-  } catch (error) { bridge.dispose(); throw error; }
+  } catch (error) { disposeBridge(); throw error; }
 }
