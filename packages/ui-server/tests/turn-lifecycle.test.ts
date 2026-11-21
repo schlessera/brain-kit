@@ -84,6 +84,10 @@ test("real dispatch records delayed governed admission and first frame, and link
   let now=1000; const clock=spyOn(Date,"now").mockImplementation(()=>now);
   const policy=createGovernancePolicyReader("/nonexistent-odysseus-fixture").load();
   const backend=makeFakeBackend({id:"pi",async startTurn(request){
+    const end = request.startupTiming?.start("host_probe"); now=1500; end?.();
+    request.startupTiming?.worker("resources", 37);
+    request.startupTiming?.missing("mcp_connect:brain");
+    now=1600; request.startupTiming?.received();
     now=1700;request.bridge.emit({type:"session_info",sessionId:"ithaca",isNew:true});
     now=1900;request.bridge.emit({type:"result",sessionId:"ithaca",durationMs:200,numTurns:1,isError:false,costUsd:0});
   }});
@@ -92,7 +96,14 @@ test("real dispatch records delayed governed admission and first frame, and link
   try {
     await runSession(host,{authorization:testAuthorization("odysseus"),text:"Plan Ithaca",attachments:[]});
     const record=store.lifecycles()[0]!;
-    expect(record.subPhases,"DISPATCH_PASSES_THE_GOVERNED_STEP_TIMER").toEqual([{phase:"governed",name:"gate_acquire",startedAt:1000,endedAt:1400,elapsedMs:400}]);
+    expect(record.subPhases).toEqual([{phase:"governed",name:"gate_acquire",startedAt:1000,endedAt:1400,elapsedMs:400}]);
+    expect(record.openSubPhases,"DISPATCH_PERSISTS_BACKEND_STEPS").toEqual([
+      {phase:"backend",name:"host_probe",startedAt:1400,endedAt:1500,elapsedMs:100},
+      {phase:"backend",name:"first_relay_request",startedAt:1400,endedAt:1600,elapsedMs:200},
+      {phase:"backend",name:"resources",startedAt:1500,endedAt:1500,elapsedMs:37,timeBase:"worker",workerElapsedMs:37},
+    ]);
+    expect(record.backendMissingEvidence).toEqual(["mcp_connect:brain"]);
+    expect(record.firstRelayRequestAt).toBe(1600);
     expect(record).toMatchObject({acceptedAt:1000,governedStartedAt:1000,governedAcquiredAt:1400,backendInvokedAt:1400,
       firstFrameAt:1700,endedAt:2000,sessionId:"ithaca",totalElapsedMs:1000,timeToFirstFrameMs:700,backendStartupMs:300,outcome:"success"});
     expect(record.backendRunId).toBe(record.turnId);
