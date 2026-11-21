@@ -150,7 +150,10 @@ class Refused extends Error {
 /** Every note the scan reads, in path order. Hidden directories and symlinked directories are not walked. */
 export function referenceNotes(root: string): string[] {
   const notes: string[] = [];
-  for (const path of discoveryFiles(root, path => PROTECTED.some(p => `${path}/`.startsWith(p) || `${path}/`.includes(`/${p}`)))) {
+  for (const path of discoveryFiles(root, path => PROTECTED.some(p => `${path}/`.startsWith(p) || `${path}/`.includes(`/${p}`)),
+    undefined, (path, directory) => {
+      if (directory || path.endsWith(".md")) throw new Refused({ code: "inventory-unscannable", path, reason: "not-utf8" });
+    })) {
     if (!path.endsWith(".md")) continue;
     const rel = path.split("\\").join("/");
     if (PROTECTED.some((p) => rel.startsWith(p) || rel.includes(`/${p}`))) continue;
