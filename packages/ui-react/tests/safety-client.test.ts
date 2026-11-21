@@ -290,3 +290,15 @@ test("a correlated capacity refusal terminates the active recovery page", () => 
     expect(safety.getState(), "ACTIVE_READ_CAPACITY_REFUSAL_REMAINS_TERMINAL").toMatchObject({ status: "unavailable", requestId: null, reason: "capacity", normal: false });
   } finally { client.dispose(); }
 });
+
+test('review F2: future rules require the additive boolean offer and live review capability',()=>{
+ for(const offered of [false,true])for(const review of [false,true]){
+ const f=supportedClient('ithaca');try{
+ f.client.frame({...hello,capabilities:{sessionSafetyHistory:true,sessionSafetyFutureRules:offered},safetyCapabilities:{...SAFETY_READ_CAPABILITIES,review,originRules:false,recipientRules:false}});
+ expect(f.safety.getState().supported).toBe(true);
+ expect(f.safety.getState().capabilities?.originRules,'F2_BOOLEAN_OFFER_CONTROLS_NEW_UI').toBe(offered&&review);
+ expect(f.safety.getState().capabilities?.recipientRules).toBe(offered&&review);
+ expect(f.sent.some(m=>m.type==='safety_read')).toBe(true);
+ }finally{f.client.dispose();}
+ }
+});

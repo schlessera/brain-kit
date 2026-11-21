@@ -1,3 +1,5 @@
+import { safetyFuturePreparedSchema, safetyFutureResultSchema } from "@schlessera/brain-ui-sdk/schemas";
+import type { SafetyFuturePrepare, SafetyFutureCommit } from "@schlessera/brain-ui-sdk/protocol";
 import type { TrustSettingsRead, TrustOperation, TrustChange } from "./trust-settings.js";
 import type { AgentPolicyRead, ApifyPolicyChange, ApifyPolicyProposalRead, ApifySettingsRead } from "@schlessera/brain-ui-sdk/protocol";
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -365,6 +367,9 @@ export function createBrainApi(
   }
 
   return {
+    safetyFutureStatus: async (body:{version:1;session:import("@schlessera/brain-ui-sdk/protocol").SafetySessionKey;occurrenceId:string},signal:AbortSignal) => safetyFutureResultSchema.nullable().parse(await fetchJson(`/sessions/${encodeURIComponent(body.session.sessionId)}/safety/reviews/future/status`,{method:"POST",body:JSON.stringify(body),signal})),
+    safetyFuturePrepare: async (body:SafetyFuturePrepare,signal:AbortSignal) => safetyFuturePreparedSchema.parse(await fetchJson(`/sessions/${encodeURIComponent(body.session.sessionId)}/safety/reviews/future/prepare`,{method:"POST",body:JSON.stringify(body),signal})),
+    safetyFutureCommit: async (sessionId:string,body:SafetyFutureCommit,signal:AbortSignal) => safetyFutureResultSchema.parse(await fetchJson(`/sessions/${encodeURIComponent(sessionId)}/safety/reviews/future/commit`,{method:"POST",body:JSON.stringify(body),signal})),
     safetyPrepare: (body:SafetyReviewBody,signal:AbortSignal)=>safetyReview(body,null,signal),
     safetyCommit: (requestId:string,body:SafetyReviewBody,signal:AbortSignal)=>safetyReview(body,requestId,signal),
     turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnJournalDetails>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal`, { signal }),

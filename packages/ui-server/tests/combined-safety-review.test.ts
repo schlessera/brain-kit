@@ -1,0 +1,375 @@
+import { expect, test } from "bun:test";
+import { BRAIN_LOCK_KEY, createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { createTrustSettings } from "../src/brain/trust-settings";
+import { CombinedSafetyReviews } from "../src/governance/combined-safety-reviews";
+import { safetyHistoryFixture } from "./helpers/safety-history-fixture";
+import { occurrence } from "../src/governance/occurrence";
+
+async function fixture(checkpoint?: (stage: string) => void | Promise<void>, now?:()=>number) {
+  const f = await safetyHistoryFixture(true, true);
+  const options = {root:f.root,db:f.db,writer:f.writer,lock:createKeyedLock(),originEnforcement:true as const,
+    authority:(id:string)=>id===f.principal.id&&f.reviews!.authorized(f.principal)?"owner-epoch":null,
+    observe:async (_id:string, write:()=>void|Promise<void>)=>{await write();},checkpoint,...(now?{now}:{})};
+  const settings=createTrustSettings(options),combined=new CombinedSafetyReviews(f.db,f.reviews!,settings);
+  const add=async (name:string,verified=true,state:"finalized"|"open"|"interrupted_unknown"="finalized")=>{
+    const o=occurrence(f.bindingId,"proxy_input",name,state);
+    if(verified)o.provenance={kind:"web_origin",origin:{scheme:"https",host:"ithaca.invalid",port:443},verifiedBy:"host_transport"};
+    await f.writes.record({kind:"taint",turnId:"voyage",sessionId:"ithaca",actor:"interactive",model:null,profile:"governed",payload:{source:"egress_connection",tool:"shell",detail:null,occurrence:o}});return o;
+  };
+  const body=(id:string)=>({version:1 as const,session:f.writes.safety(null,"ithaca").session!,occurrenceId:id,expectedEvidenceRevision:f.writes.safety(null,"ithaca").evidenceRevision,verdict:"safe" as const, future:{incomingContent:true as const,recipientWhileRestricted:false}});
+  return {...f,settings,options,combined,add,body};
+}
+test("combined review publishes exact future rule then resolves only A; replay observes removal",async()=>{
+  const f=await fixture();try{
+    const a=await f.add("A");await f.add("B");await f.add("C");
+    const body=f.body(a.id),p=await f.combined.prepare(f.principal,body);
+    expect(p.review.proposed).toContain("ithaca.invalid");
+    expect(f.writes.safety(null,"ithaca").unresolvedCount).toBe(3);
+    const input={version:1 as const,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash};
+    const saved=await f.combined.commit(f.principal,input);
+    expect(saved.stage,"COMBINED_VERDICT_AFTER_PROVED_PUBLICATION").toBe("verdict_committed");
+    expect(saved.currentProjection.unresolvedCount,"COMBINED_A_NEVER_CLEARS_B_C").toBe(2);
+    expect(saved.rule.currentRule).toBe("present");expect((await f.settings.list(f.principal.id)).rules[0]!.recipientWhileRestricted).toBe(false);
+    const current=await f.settings.list(f.principal.id),remove=await f.settings.prepare(f.principal.id,{version:1,expectedTrustRevision:current.revision,expectedPolicyHash:current.policyHash,change:{action:"remove",ruleId:saved.rule.ruleId}});
+    await f.settings.commit(f.principal.id,{version:1,requestId:remove.receipt.requestId,reviewId:remove.review.reviewId,reviewedBytesHash:remove.review.reviewedBytesHash});
+    const restarted=new CombinedSafetyReviews(f.db,f.reviews!,createTrustSettings(f.options));
+    const replay=await restarted.commit(f.principal,input);
+    expect((await restarted.status(f.principal,{version:1,session:body.session,occurrenceId:a.id}))?.rule.currentRule,"COMBINED_RESTART_READ_WITHOUT_MUTATION").toBe("removed");
+    expect(replay.rule.currentRule,"COMBINED_RETRY_NEVER_REPUBLISHES_REMOVED_RULE").toBe("removed");
+    expect(replay.currentProjection.unresolvedCount).toBe(2);
+  }finally{await f.close();}
+});
+for(const state of ["open","interrupted_unknown"] as const)test(`combined review refuses ${state} and unverified provenance`,async()=>{
+ const f=await fixture();try{const a=await f.add("A",true,state);await expect(f.combined.prepare(f.principal,f.body(a.id))).rejects.toThrow();
+ const b=await f.add("B",false);await expect(f.combined.prepare(f.principal,f.body(b.id))).rejects.toThrow("provenance_unavailable");
+ expect((await f.settings.list(f.principal.id)).rules).toEqual([]);}finally{await f.close();}
+});
+test("publication proof survives partial failure; retry cannot publish twice or clear stale evidence",async()=>{
+ const f=await fixture();try{
+ const a=await f.add("A"),p=await f.combined.prepare(f.principal,f.body(a.id));await f.add("B");
+ const result=await f.combined.commit(f.principal,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash});
+ expect(result.stage).toBe("refused");expect(result.rule.publication).toBe("not_published");expect(f.writes.safety(null,"ithaca").unresolvedCount).toBe(2);
+ }finally{await f.close();}
+});
+
+test("proved publication with verdict failure stays restrictive; durable binding resumes without republishing",async()=>{
+ const f=await fixture();try{
+ const a=await f.add("A"),p=await f.combined.prepare(f.principal,f.body(a.id));
+ const input={version:1 as const,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash};
+ const original=f.reviews!.review.bind(f.reviews!);
+ f.reviews!.review=async()=>{throw new Error("simulated verdict outage");};
+ const partial=await f.combined.commit(f.principal,input);
+ expect((await new CombinedSafetyReviews(f.db,f.reviews!,createTrustSettings(f.options)).status(f.principal,{version:1,session:f.body(a.id).session,occurrenceId:a.id}))?.stage,"COMBINED_PARTIAL_SURVIVES_SERVICE_RESTART_READ").toBe("partial");
+ expect(partial.stage,"COMBINED_VERDICT_OUTAGE_RETURNS_PARTIAL_RECEIPT").toBe("partial");
+ expect(f.writes.safety(null,"ithaca").unresolvedCount,"COMBINED_PUBLICATION_ALONE_NEVER_CLEARS_A").toBe(1);
+ expect((await f.settings.read(f.principal.id,p.requestId)).receipt.publication).toBe("proved");
+ f.reviews!.review=original;
+ const result=await new CombinedSafetyReviews(f.db,f.reviews!,createTrustSettings(f.options)).commit(f.principal,input);
+ expect(result.stage).toBe("verdict_committed");
+ expect(f.db.query('SELECT count(*) n FROM trust_settings_operations').get()).toEqual({n:1});
+ }finally{await f.close();}
+});
+test("unproved rename crash requires fresh review and never commits the verdict on retry",async()=>{
+ let publications=0;const f=await fixture(stage=>{if(stage==="renamed"){publications++;throw new Error("crash before proof");}});try{
+ const a=await f.add("A"),p=await f.combined.prepare(f.principal,f.body(a.id));
+ const input={version:1 as const,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash};
+ for(let i=0;i<2;i++){
+ const result=await new CombinedSafetyReviews(f.db,f.reviews!,createTrustSettings(f.options)).commit(f.principal,input);
+ expect(result.stage,"COMBINED_UNKNOWN_PUBLICATION_NEVER_BLESSED_BY_EQUAL_BYTES").toBe("unknown");expect(result.verdict?.verdict).toBe("unresolved");expect(result.verdict?.requestId).toBeNull();expect(result.verdict?.operationId).toBeNull();
+ }
+ expect(publications).toBe(1);expect(f.writes.safety(null,"ithaca").unresolvedCount).toBe(1);
+ }finally{await f.close();}
+});
+test("rule removed between authorities does not return; the selected verdict can still commit",async()=>{
+ const f=await fixture();try{
+ const a=await f.add("A"),p=await f.combined.prepare(f.principal,f.body(a.id));
+ const original=f.reviews!.review.bind(f.reviews!);f.reviews!.review=async(...args)=>{
+ const policy=await f.settings.list(f.principal.id),remove=await f.settings.prepare(f.principal.id,{version:1,expectedTrustRevision:policy.revision,expectedPolicyHash:policy.policyHash,change:{action:"remove",ruleId:p.rule.ruleId}});
+ await f.settings.commit(f.principal.id,{version:1,requestId:remove.receipt.requestId,reviewId:remove.review.reviewId,reviewedBytesHash:remove.review.reviewedBytesHash});return original(...args);};
+ const result=await f.combined.commit(f.principal,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash});
+ expect(result.stage).toBe("verdict_committed");expect(result.rule.currentRule,"COMBINED_CURRENT_RULE_ABSENCE_IS_HONEST").toBe("removed");expect((await f.settings.list(f.principal.id)).rules).toEqual([]);
+ }finally{await f.close();}
+});
+test("generic Settings commit and wrong-session route cannot consume a combined binding",async()=>{
+ const f=await fixture();try{const a=await f.add("A"),p=await f.combined.prepare(f.principal,f.body(a.id));
+ const input={version:1 as const,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash};
+ expect(await f.settings.commit(f.principal.id,input).then(()=>"published",error=>error.message),"COMBINED_GENERIC_SETTINGS_CANNOT_PUBLISH_BOUND_REVIEW").toBe("request_conflict");
+ await expect(f.combined.commit(f.principal,input,undefined,"troy")).rejects.toThrow("request_conflict");
+ expect((await f.settings.list(f.principal.id)).rules).toEqual([]);
+ }finally{await f.close();}
+});
+
+test("combined real HTTP/WS owner, Origin, provenance and session fences",async()=>{
+ const {Hono}=await import('hono'),{authGuard}=await import('../src/middleware/auth'),{createOwnerSafetyReviewRoutes}=await import('../src/routes/owner-safety-review');
+ const f=await fixture(),app=new Hono<import('../src/app-env').AppEnv>();
+ f.reviews!.enableFutureRules(f.settings);
+ app.use('/api/*',authGuard('password',f.auth,f.db));app.route('/api',createOwnerSafetyReviewRoutes(f.reviews!,false,f.combined));
+ const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:app.fetch}),origin=`http://127.0.0.1:${server.port}`;
+ const post=(action:string,body:unknown,headers:Record<string,string>={})=>fetch(`${origin}/api/sessions/ithaca/safety/reviews/future/${action}`,{method:'POST',headers:{cookie:f.cookie,origin,'content-type':'application/json',...headers},body:JSON.stringify(body)});
+ try{
+ const a=await f.add('A'),body=f.body(a.id);
+ expect((await f.connect()).hello).toMatchObject({safetyCapabilities:{review:true,originRules:false,recipientRules:false,repositoryRules:false},capabilities:{sessionSafetyFutureRules:true}});
+ expect((await post('prepare',body,{origin:'https://troy.invalid'})).status).toBe(403);
+ expect((await post('prepare',{...body,future:{...body.future,selector:{kind:'web_origin',host:'troy.invalid'}}})).status).toBe(400);
+ const prepared=await post('prepare',body);expect(prepared.status,'COMBINED_HTTP_PREPARE_REQUIRES_IMPLEMENTED_ROUTE').toBe(200);
+ const p=await prepared.json();
+ const response=await post('commit',{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash});
+ expect(response.status).toBe(200);expect((await response.json()).stage).toBe('verdict_committed');
+ expect(f.starts()).toBe(0);
+ }finally{server.stop(true);await f.close();}
+});
+
+test("closing and reopening both DB authorities recovers a partial combined operation without publication replay",async()=>{
+ const {createUiDb}=await import('../src/db/client'),{openSqliteWriter}=await import('../src/db/write-worker'),{createGovernanceWrites}=await import('../src/governance/event-writes'),{OwnerSafetyReviews}=await import('../src/governance/owner-safety-reviews'),{rmSync}=await import('node:fs');
+ const f=await fixture();let closed=false;
+ try{
+  const a=await f.add('A'),body=f.body(a.id),p=await f.combined.prepare(f.principal,body);
+  const input={version:1 as const,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash};
+  f.reviews!.review=async()=>{throw new Error('verdict unavailable');};
+  expect((await f.combined.commit(f.principal,input)).stage).toBe('partial');
+  await f.close(true);closed=true;
+  const db=createUiDb(f.path),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer),reviews=new OwnerSafetyReviews(db,writes,'password',f.brainKey);
+  let publications=0;
+  const settings=createTrustSettings({...f.options,db,writer,lock:createKeyedLock(),authority:id=>id===f.principal.id&&reviews.authorized(f.principal)?'owner-epoch':null,observe:async(_id,write)=>{publications++;await write();}});
+  const service=new CombinedSafetyReviews(db,reviews,settings);
+  try{
+   expect((await service.status(f.principal,{version:1,session:body.session,occurrenceId:a.id}))?.stage,'COMBINED_REOPENED_DB_READS_PARTIAL').toBe('partial');
+   expect(writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+   const retried=await service.commit(f.principal,input);
+   expect(retried.stage,'COMBINED_RESTART_RECOVERY_PRESERVES_LIFECYCLE_FENCE').toBe('partial');
+   expect(retried.verdict?.reason).toBe('stale_revision');
+   expect(writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+   expect(publications,'COMBINED_REOPENED_DB_NEVER_REPUBLISHES').toBe(0);
+  }finally{await writer.close();db.close();}
+ }finally{if(!closed)await f.close();else rmSync(f.root,{recursive:true,force:true});}
+});
+
+test("explicit tunnel provenance remains a tunnel and recipient permission is independently reviewed",async()=>{
+ const f=await fixture();try{
+ const a=occurrence(f.bindingId,'proxy_input',null,'finalized');a.provenance={kind:'tunnel_authority',authority:{host:'ithaca.invalid',port:8443},verifiedBy:'host_proxy'};
+ await f.writes.record({kind:'taint',turnId:'voyage',sessionId:'ithaca',actor:'interactive',model:null,profile:'governed',payload:{source:'egress_connection',tool:'shell',detail:null,occurrence:a}});
+ const p=await f.combined.prepare(f.principal,{...f.body(a.id),future:{incomingContent:true,recipientWhileRestricted:true}});
+ const result=await f.combined.commit(f.principal,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash});
+ expect(result.stage).toBe('verdict_committed');
+ expect((await f.settings.list(f.principal.id)).rules[0]).toMatchObject({selector:{kind:'tunnel_authority',host:'ithaca.invalid',port:8443},incomingContent:true,recipientWhileRestricted:true});
+ }finally{await f.close();}
+});
+
+test("historical JSON without the host provenance attestation cannot offer a standing rule",async()=>{
+ const f=await fixture();try{
+ const a=await f.add('A');
+ const row=f.db.query('SELECT payload FROM safety_records WHERE id=?').get(a.id) as {payload:string};
+ const payload=JSON.parse(row.payload);delete payload.occurrence.provenance.verifiedBy;
+ f.db.query('UPDATE safety_records SET payload=? WHERE id=?').run(JSON.stringify(payload),a.id);
+ expect(await f.combined.prepare(f.principal,f.body(a.id)).then(()=>"prepared",error=>error.message),'COMBINED_REQUIRES_HOST_ATTESTATION').toBe('provenance_unavailable');
+ expect((await f.settings.list(f.principal.id)).rules).toEqual([]);
+ }finally{await f.close();}
+});
+
+for(const crash of [false,true])test(`review F1: individual endpoint cannot consume a combined handle before proved publication (crash ${crash})`,async()=>{
+ const f=await fixture(crash?stage=>{if(stage==='renamed')throw new Error('unproved publication');}:undefined);try{
+ const a=await f.add('A'),{future,...body}=f.body(a.id),p=await f.combined.prepare(f.principal,{...body,future});
+ if(crash)expect((await f.combined.commit(f.principal,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash})).stage).toBe('unknown');
+ const handle=f.settings.safetyReview(f.principal.id,p.requestId)!.requestId;
+ const origin=f.url.replace('ws:','http:').replace('/ws','');
+ const response=await fetch(`${origin}/api/sessions/ithaca/safety/reviews/${handle}/commit`,{method:'POST',headers:{cookie:f.cookie,origin,'content-type':'application/json'},body:JSON.stringify(body)});
+ expect(response.status,'F1_INDIVIDUAL_ENDPOINT_REQUIRES_COMBINED_PUBLICATION_PROOF').toBe(409);
+ expect((await response.json()).receipt.reason).toBe('publication_unproven');
+ expect((await f.reviews!.review(f.principal,body,handle)).receipt.verdict).toBe('unresolved');
+ expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+ if(!crash)expect((await f.combined.commit(f.principal,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash})).stage).toBe('verdict_committed');
+ }finally{await f.close();}
+});
+test('review F1: prepared status never exposes the unpublished verdict handle',async()=>{
+ const f=await fixture();try{const a=await f.add('A'),body=f.body(a.id);await f.combined.prepare(f.principal,body);
+ const status=await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ expect(status?.verdict?.requestId,'F1_NO_EARLY_VERDICT_HANDLE').toBeNull();
+ }finally{await f.close();}
+});
+test('review F2: legacy SDK can parse the real owner hello and retains individual review',async()=>{
+ const {z}=await import('zod'),{safetyCapabilitiesSchema}=await import('@schlessera/brain-ui-sdk/schemas');
+ const f=await fixture();try{f.reviews!.enableFutureRules(f.settings);const socket=await f.connect();
+ if(socket.hello.type!=='server_hello')throw new Error('Missing hello');
+ const legacy=safetyCapabilitiesSchema.extend({originRules:z.literal(false),recipientRules:z.literal(false)}).safeParse(socket.hello.safetyCapabilities);
+ expect(legacy.success,'F2_OLD_SDK_RETAINS_SAFETY_CAPABILITIES').toBe(true);
+ if(!legacy.success)throw legacy.error;expect(legacy.data).toMatchObject({read:true,review:true});
+ expect(socket.hello.capabilities?.sessionSafetyFutureRules).toBe(true);
+ const a=await f.add('A'),{future:_,...body}=f.body(a.id),prepared=await f.reviews!.review(f.principal,body,null);
+ expect((await f.reviews!.review(f.principal,body,prepared.receipt.requestId!)).receipt.verdict).toBe('committed');
+ }finally{await f.close();}
+});
+
+test('round 2 F1: the committed earlier preparation outranks a later unpublished tab',async()=>{
+ let clock=Date.now();const f=await fixture(undefined,()=>clock);try{
+ const a=await f.add('A'),body=f.body(a.id),first=await f.combined.prepare(f.principal,body);clock++;
+ const later=await f.combined.prepare(f.principal,body);expect(later.requestId).not.toBe(first.requestId);
+ expect((await f.combined.commit(f.principal,{version:1,requestId:first.requestId,reviewId:first.review.reviewId,reviewedBytesHash:first.review.reviewedBytesHash})).stage).toBe('verdict_committed');
+ const status=await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ expect(status?.requestId,'R2F1_COMMITTED_OPERATION_OWNS_RECOVERY').toBe(first.requestId);
+ expect(status?.stage).toBe('verdict_committed');expect(status?.rule.currentRule).toBe('present');
+ }finally{await f.close();}
+});
+test('round 2 F3: expired receipt read returns JSON null without another insert',async()=>{
+ const {Hono}=await import('hono'),{authGuard}=await import('../src/middleware/auth'),{createOwnerSafetyReviewRoutes}=await import('../src/routes/owner-safety-review');
+ let clock=Date.now();const f=await fixture(undefined,()=>clock),app=new Hono<import('../src/app-env').AppEnv>();
+ app.use('/api/*',authGuard('password',f.auth,f.db));app.route('/api',createOwnerSafetyReviewRoutes(f.reviews!,false,f.combined));
+ const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:app.fetch}),origin=`http://127.0.0.1:${server.port}`;
+ try{
+ const a=await f.add('A'),body=f.body(a.id);await f.combined.prepare(f.principal,body);
+ clock+=86400001;
+ expect(f.db.query('SELECT count(*) n FROM trust_settings_operations').get()).toEqual({n:1});
+ const response=await fetch(`${origin}/api/sessions/ithaca/safety/reviews/future/status`,{method:'POST',headers:{cookie:f.cookie,origin,'content-type':'application/json'},body:JSON.stringify({version:1,session:body.session,occurrenceId:a.id})});
+ expect(response.status,'R2F3_EXPIRED_RECEIPT_IS_NOT_HTTP_UNAVAILABLE').toBe(200);expect(await response.json()).toBeNull();
+ expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+ expect(f.db.query('SELECT count(*) n FROM trust_settings_operations').get()).toEqual({n:1});
+ }finally{server.stop(true);await f.close();}
+});
+
+test('round 2 F1: status selects after a queued publisher, not before the lock wait',async()=>{
+ const f=await fixture();let release:(()=>void)|undefined;try{
+ const a=await f.add('A'),body=f.body(a.id),first=await f.combined.prepare(f.principal,body);await f.combined.prepare(f.principal,body);
+ release=await f.options.lock.acquire(BRAIN_LOCK_KEY);
+ const commit=f.combined.commit(f.principal,{version:1,requestId:first.requestId,reviewId:first.review.reviewId,reviewedBytesHash:first.review.reviewedBytesHash});
+ const read=f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ release();release=undefined;
+ const [saved,status]=await Promise.all([commit,read]);expect(saved.stage).toBe('verdict_committed');
+ expect(status?.requestId,'R2F1_SELECTION_RECHECKS_AFTER_PUBLICATION_WAIT').toBe(first.requestId);expect(status?.rule.currentRule).toBe('present');
+ }finally{release?.();await f.close();}
+});
+
+test('round 2 F1: a current unknown publication is not hidden by an older removed proof',async()=>{
+ let crash=false;const f=await fixture(stage=>{if(crash&&stage==='renamed')throw new Error('publication unknown');});try{
+ const a=await f.add('A'),body=f.body(a.id),first=await f.combined.prepare(f.principal,body),original=f.reviews!.review.bind(f.reviews!);
+ f.reviews!.review=async()=>{throw new Error('verdict unavailable');};
+ expect((await f.combined.commit(f.principal,{version:1,requestId:first.requestId,reviewId:first.review.reviewId,reviewedBytesHash:first.review.reviewedBytesHash})).stage).toBe('partial');f.reviews!.review=original;
+ const p=await f.settings.list(f.principal.id),remove=await f.settings.prepare(f.principal.id,{version:1,expectedTrustRevision:p.revision,expectedPolicyHash:p.policyHash,change:{action:'remove',ruleId:first.rule.ruleId}});
+ await f.settings.commit(f.principal.id,{version:1,requestId:remove.receipt.requestId,reviewId:remove.review.reviewId,reviewedBytesHash:remove.review.reviewedBytesHash});
+ const newer=await f.combined.prepare(f.principal,f.body(a.id));crash=true;
+ expect((await f.combined.commit(f.principal,{version:1,requestId:newer.requestId,reviewId:newer.review.reviewId,reviewedBytesHash:newer.review.reviewedBytesHash})).stage).toBe('unknown');
+ const status=await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ expect(status?.requestId,'R2F1_CURRENT_RULE_KEEPS_ITS_UNKNOWN_RECEIPT_VISIBLE').toBe(newer.requestId);
+ expect(status?.stage).toBe('unknown');expect(status?.rule.currentRule).toBe('present');expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+ }finally{await f.close();}
+});
+
+test('matrix SV-L committed: pending limit cannot downgrade the durable verdict (round 3 F1)',async()=>{
+ const {holdOwnerReviews}=await import('./helpers/held-owner-reviews');const f=await fixture();let pressure:Awaited<ReturnType<typeof holdOwnerReviews>>|undefined;try{
+ const a=await f.add('A'),{future,...body}=f.body(a.id),p=await f.combined.prepare(f.principal,{...body,future});
+ const input={version:1 as const,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash};
+ expect((await f.combined.commit(f.principal,input)).stage).toBe('verdict_committed');
+ pressure=await holdOwnerReviews({reviews:f.reviews!,writes:f.writes,principal:f.principal},body);
+ const replay=await f.combined.commit(f.principal,input),status=await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ expect(replay.stage,'R3F1_LIMIT_CANNOT_DOWNGRADE_COMMITTED_FACT').toBe('verdict_committed');expect(replay.stage).toBe(status!.stage);
+ expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:1});
+ }finally{await pressure?.close();await f.close();}
+});
+test('matrix SV-F after: lost acknowledgement still reports the durable committed verdict',async()=>{
+ const f=await fixture();try{
+ const a=await f.add('A'),body=f.body(a.id),p=await f.combined.prepare(f.principal,body),original=f.writes.safetyCommitReview;
+ f.writes.safetyCommitReview=async(...args)=>{await original(...args);throw new Error('Lost worker acknowledgement');};
+ const result=await f.combined.commit(f.principal,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash});
+ expect(result.stage,'R3F1_ACK_LOSS_DOES_NOT_ERASE_COMMIT').toBe('verdict_committed');
+ expect(result.stage).toBe((await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id}))!.stage);
+ }finally{await f.close();}
+});
+
+// The full boundary matrix is recorded in #4428 before the round-3 patches.
+async function matrixOperation(f:Awaited<ReturnType<typeof fixture>>){
+ const a=await f.add('A'),{future,...body}=f.body(a.id),prepared=await f.combined.prepare(f.principal,{...body,future});
+ const input={version:1 as const,requestId:prepared.requestId,reviewId:prepared.review.reviewId,reviewedBytesHash:prepared.review.reviewedBytesHash};
+ return {a,body,prepared,input};
+}
+const rejected=async(p:Promise<unknown>)=>p.then(()=>"accepted",error=>error.code??error.message);
+for(const id of ['SP-L','SP-E','SP-M','SP-F'] as const)test(`matrix ${id}: preparation cannot create authority through a failed boundary`,async()=>{
+ const {holdOwnerReviews}=await import('./helpers/held-owner-reviews');const f=await fixture();let pressure:Awaited<ReturnType<typeof holdOwnerReviews>>|undefined;try{
+ const a=await f.add('A'),{future,...body}=f.body(a.id);
+ let expected:string;
+ if(id==='SP-L'){pressure=await holdOwnerReviews({reviews:f.reviews!,writes:f.writes,principal:f.principal},body);expected='capacity';}
+ else if(id==='SP-E'){f.db.query('UPDATE principals SET expires_at=0 WHERE id=?').run(f.principal.id);expected='unauthorized';}
+ else if(id==='SP-M'){body.session={...body.session,historyGeneration:'999'};expected='unavailable';}
+ else{f.writes.safetyPrepareReview=async()=>{throw new Error('Controlled prepare read failure');};expected='Controlled prepare read failure';}
+ expect(await rejected(f.combined.prepare(f.principal,{...body,future}))).toBe(expected);
+ expect(f.db.query('SELECT count(*) n FROM trust_settings_operations').get()).toEqual({n:0});expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await pressure?.close();await f.close();}
+});
+for(const id of ['SB-L','SV-L partial','SS-L'] as const)test(`matrix ${id}: pending quota does not invent a verdict or block status`,async()=>{
+ const {holdOwnerReviews}=await import('./helpers/held-owner-reviews');const f=await fixture();let pressure:Awaited<ReturnType<typeof holdOwnerReviews>>|undefined;try{
+ const op=await matrixOperation(f);
+ if(id!=='SB-L'){const original=f.writes.safetyCommitReview;f.writes.safetyCommitReview=async()=>{throw new Error('Before verdict');};expect((await f.combined.commit(f.principal,op.input)).stage).toBe('partial');f.writes.safetyCommitReview=original;}
+ pressure=await holdOwnerReviews({reviews:f.reviews!,writes:f.writes,principal:f.principal},op.body);
+ const result=id==='SS-L'?await f.combined.status(f.principal,{version:1,session:op.body.session,occurrenceId:op.a.id}):await f.combined.commit(f.principal,op.input);
+ expect(result?.stage).toBe('partial');expect(result?.rule.publication).toBe('proved');expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await pressure?.close();await f.close();}
+});
+test('matrix SB-E: an expired publication review cannot publish',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);f.db.query('UPDATE trust_settings_operations SET expires_at=0 WHERE request_id=?').run(op.input.requestId);
+ expect(await rejected(f.combined.commit(f.principal,op.input))).toBe('request_expired');expect((await f.settings.list(f.principal.id)).rules).toEqual([]);expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+ }finally{await f.close();}
+});
+for(const mismatch of ['hash','review','session'] as const)test(`matrix SB-M ${mismatch}: publication is bound to its exact review`,async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f),input={...op.input};
+ if(mismatch==='hash')input.reviewedBytesHash=(input.reviewedBytesHash[0]==='a'?'b':'a')+input.reviewedBytesHash.slice(1);
+ if(mismatch==='review')input.reviewId='wrong_review';
+ expect(await rejected(f.combined.commit(f.principal,input,undefined,mismatch==='session'?'troy':undefined))).toBe('request_conflict');
+ expect((await f.settings.list(f.principal.id)).rules).toEqual([]);expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+for(const boundary of ['before','rename','proof'] as const)test(`matrix SB-F ${boundary}: publication failure reports only proved facts`,async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);
+ if(boundary==='before')f.options.observe=async()=>{throw new Error('Observation read failed');};
+ else f.options.checkpoint=stage=>{if(stage===(boundary==='rename'?'renamed':'file_published'))throw new Error('Controlled publication interruption');};
+ const result=await f.combined.commit(f.principal,op.input);
+ expect(result.rule.publication).toBe(boundary==='before'?'not_published':boundary==='rename'?'unknown':'proved');
+ expect(result.stage).toBe(boundary==='before'?'refused':boundary==='rename'?'unknown':'verdict_committed');
+ expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(boundary==='proof'?0:1);
+ }finally{await f.close();}
+});
+test('matrix SV-E: an expired original verdict cannot become a fresh request',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f),original=f.writes.safetyCommitReview;
+ f.writes.safetyCommitReview=async()=>{throw new Error('Verdict unavailable');};expect((await f.combined.commit(f.principal,op.input)).stage).toBe('partial');f.writes.safetyCommitReview=original;
+ const {commitSafetyReview}=await import('../src/governance/safety-reviews');
+ f.writes.safetyCommitReview=async(id,body,actor)=>commitSafetyReview(f.db,id,body,actor,false,false,()=>Date.now()+900001);
+ const result=await f.combined.commit(f.principal,op.input);expect(result.stage).toBe('partial');expect(result.verdict?.reason).toBe('request_expired');expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+test('matrix SV-M: evidence added after publication prevents the selected verdict',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);f.options.checkpoint=async stage=>{if(stage==='committed')await f.add('B');};
+ const result=await f.combined.commit(f.principal,op.input);expect(result.rule.publication).toBe('proved');expect(result.stage).toBe('partial');expect(result.verdict?.reason).toBe('stale_revision');expect(result.currentProjection.unresolvedCount).toBe(2);
+ }finally{await f.close();}
+});
+test('matrix SV-F before: failed verdict call leaves a durable partial operation',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);f.writes.safetyCommitReview=async()=>{throw new Error('Worker read unavailable');};
+ const result=await f.combined.commit(f.principal,op.input),status=await f.combined.status(f.principal,{version:1,session:op.body.session,occurrenceId:op.a.id});
+ expect(result.stage).toBe('partial');expect(status?.stage).toBe(result.stage);expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+for(const stage of ['prepared','unknown','partial','verdict_committed'] as const)test(`matrix SS-R ${stage}: status retries are read-only durable views`,async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);
+ if(stage==='unknown')f.options.checkpoint=value=>{if(value==='renamed')throw new Error('Unproved rename');};
+ if(stage==='partial')f.writes.safetyCommitReview=async()=>{throw new Error('No verdict');};
+ if(stage!=='prepared')await f.combined.commit(f.principal,op.input);
+ const body={version:1,session:op.body.session,occurrenceId:op.a.id},one=await f.combined.status(f.principal,body),two=await f.combined.status(f.principal,body);
+ expect(one?.stage).toBe(stage);expect(two?.stage).toBe(stage);expect(one?.requestId).toBe(two?.requestId);
+ if(stage!=='verdict_committed')expect(two?.verdict?.requestId??null).toBeNull();
+ expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:stage==='verdict_committed'?1:0});
+ }finally{await f.close();}
+});
+test('matrix SS-M: status cannot read another history generation',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);
+ expect(await rejected(f.combined.status(f.principal,{version:1,session:{...op.body.session,historyGeneration:'999'},occurrenceId:op.a.id}))).toBe('unavailable');
+ }finally{await f.close();}
+});
+test('matrix SS-F: a storage read failure is not a null receipt',async()=>{
+ const {spyOn}=await import('bun:test');const f=await fixture();let spy:ReturnType<typeof spyOn>|undefined;try{const op=await matrixOperation(f),query=f.db.query.bind(f.db);
+ spy=spyOn(f.db,'query').mockImplementation(((sql:string)=>{if(sql.includes('FROM trust_settings_operations o'))throw new Error('Controlled status storage read failure');return query(sql);}) as typeof f.db.query);
+ expect(await rejected(f.combined.status(f.principal,{version:1,session:op.body.session,occurrenceId:op.a.id}))).toBe('Controlled status storage read failure');
+ }finally{spy?.mockRestore();await f.close();}
+});
+
+test('matrix SS-R retained operation: pruning its verdict receipt cannot erase the durable decision',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);await f.combined.commit(f.principal,op.input);
+ const binding=f.settings.safetyReview(f.principal.id,op.input.requestId)!;f.db.query('DELETE FROM safety_review_requests WHERE id=?').run(binding.requestId);
+ const status=await f.combined.status(f.principal,{version:1,session:op.body.session,occurrenceId:op.a.id});
+ expect(status?.stage).toBe('verdict_committed');expect(status?.verdict).toBeNull();expect((await f.combined.commit(f.principal,op.input)).stage).toBe('verdict_committed');expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:1});
+ }finally{await f.close();}
+});

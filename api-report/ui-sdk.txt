@@ -337,6 +337,9 @@ export "." (./src/index.ts)
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
+  type SafetyFutureCommit
+  type SafetyFuturePrepare
+  type SafetyFuturePrepared
   type SafetyHistoryProjection
   type SafetyIdentity
   type SafetyPage
@@ -1115,6 +1118,9 @@ export "./client" (./src/client/index.ts)
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
+  type SafetyFutureCommit
+  type SafetyFuturePrepare
+  type SafetyFuturePrepared
   type SafetyHistoryProjection
   type SafetyIdentity
   type SafetyPage
@@ -1976,6 +1982,9 @@ export "./protocol" (./src/protocol.ts)
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
+  type SafetyFutureCommit
+  type SafetyFuturePrepare
+  type SafetyFuturePrepared
   type SafetyHistoryProjection
   type SafetyIdentity
   type SafetyPage
@@ -2296,6 +2305,11 @@ export "./schemas" (./src/schemas.ts)
   queuedFollowUpViewSchema
   resolutionEffectSchema
   safetyCapabilitiesSchema
+  safetyFutureCommitSchema
+  safetyFuturePrepareSchema
+  safetyFuturePreparedSchema
+  safetyFutureResultSchema
+  safetyFutureStatusSchema
   safetyPageSchema
   safetyProjectionSchema
   safetyReviewBodySchema
@@ -3044,6 +3058,9 @@ export "./server" (./src/server/index.ts)
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
+  type SafetyFutureCommit
+  type SafetyFuturePrepare
+  type SafetyFuturePrepared
   type SafetyHistoryProjection
   type SafetyIdentity
   type SafetyPage
@@ -11965,10 +11982,10 @@ signatures (every public export and the types it is made of)
             reviewBodyBytes?: 16384 | undefined;
             reviewLifetimeMs?: 900000 | undefined;
         };
-        originRules: false;
+        originRules: boolean;
         read: true;
         readOnlyReason: "owner_required" | "review_unavailable" | null;
-        recipientRules: false;
+        recipientRules: boolean;
         repositoryRules: false;
         review: boolean;
         version: 1;
@@ -13453,6 +13470,12 @@ signatures (every public export and the types it is made of)
     const SUBSCRIPTION_RELOGIN_PROCEDURE: string;
   SafetyCapabilities (packages/ui-sdk/src/safety.ts)
     export type SafetyCapabilities = z.infer<typeof safetyCapabilitiesSchema>;
+  SafetyFutureCommit (packages/ui-sdk/src/safety.ts)
+    export type SafetyFutureCommit = z.infer<typeof safetyFutureCommitSchema>;
+  SafetyFuturePrepare (packages/ui-sdk/src/safety.ts)
+    export type SafetyFuturePrepare = z.infer<typeof safetyFuturePrepareSchema>;
+  SafetyFuturePrepared (packages/ui-sdk/src/safety.ts)
+    export type SafetyFuturePrepared = z.infer<typeof safetyFuturePreparedSchema>;
   SafetyHistoryProjection (packages/ui-sdk/src/safety.ts)
     export type SafetyHistoryProjection = z.infer<typeof safetyProjectionSchema>;
   SafetyIdentity (packages/ui-sdk/src/safety.ts)
@@ -21311,15 +21334,305 @@ signatures (every public export and the types it is made of)
             reviewBodyBytes: z.ZodOptional<z.ZodLiteral<16384>>;
             reviewLifetimeMs: z.ZodOptional<z.ZodLiteral<900000>>;
         }, z.core.$strict>;
-        originRules: z.ZodLiteral<false>;
+        originRules: z.ZodBoolean;
         read: z.ZodLiteral<true>;
         readOnlyReason: z.ZodNullable<z.ZodEnum<{
             owner_required: "owner_required";
             review_unavailable: "review_unavailable";
         }>>;
-        recipientRules: z.ZodLiteral<false>;
+        recipientRules: z.ZodBoolean;
         repositoryRules: z.ZodLiteral<false>;
         review: z.ZodBoolean;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFutureCommitSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFutureCommitSchema: z.ZodObject<{
+        requestId: z.ZodString;
+        reviewId: z.ZodString;
+        reviewedBytesHash: z.ZodString;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFuturePrepareSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFuturePrepareSchema: z.ZodObject<{
+        expectedEvidenceRevision: z.ZodString;
+        future: z.ZodObject<{
+            incomingContent: z.ZodLiteral<true>;
+            recipientWhileRestricted: z.ZodBoolean;
+        }, z.core.$strict>;
+        occurrenceId: z.ZodString;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
+        verdict: z.ZodLiteral<"safe">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFuturePreparedSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFuturePreparedSchema: z.ZodObject<{
+        currentProjection: z.ZodNullable<z.ZodObject<{
+            coverage: z.ZodObject<{
+                detectorVersion: z.ZodLiteral<1>;
+                epochs: z.ZodArray<z.ZodObject<{
+                    acknowledged: z.ZodArray<z.ZodString>;
+                    backendId: z.ZodString;
+                    endSequence: z.ZodNullable<z.ZodString>;
+                    id: z.ZodString;
+                    mandatory: z.ZodArray<z.ZodString>;
+                    reason: z.ZodNullable<z.ZodString>;
+                    startSequence: z.ZodString;
+                    status: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>>;
+                exclusions: z.ZodArray<z.ZodString>;
+                state: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>;
+            earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+            evidenceRevision: z.ZodString;
+            pendingCount: z.ZodNumber;
+            reasons: z.ZodArray<z.ZodEnum<{
+                capacity: "capacity";
+                coverage_unknown: "coverage_unknown";
+                recording_failed: "recording_failed";
+                recording_pending: "recording_pending";
+                unresolved: "unresolved";
+            }>>;
+            restriction: z.ZodEnum<{
+                normal: "normal";
+                restricted: "restricted";
+            }>;
+            session: z.ZodNullable<z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>>;
+            unresolvedCount: z.ZodNumber;
+        }, z.core.$strict>>;
+        occurrenceId: z.ZodString;
+        requestId: z.ZodString;
+        review: z.ZodObject<{
+            base: z.ZodNullable<z.ZodString>;
+            diff: z.ZodString;
+            expiresAt: z.ZodNumber;
+            includesFutureRepositories: z.ZodBoolean;
+            proposed: z.ZodString;
+            repositoryIdentity: z.ZodNull;
+            reviewId: z.ZodString;
+            reviewedBytesHash: z.ZodString;
+        }, z.core.$strict>;
+        rule: z.ZodObject<{
+            currentRule: z.ZodEnum<{
+                changed: "changed";
+                present: "present";
+                removed: "removed";
+                unknown: "unknown";
+            }>;
+            enforcement: z.ZodEnum<{
+                enforced: "enforced";
+                unavailable: "unavailable";
+            }>;
+            operationId: z.ZodString;
+            publication: z.ZodEnum<{
+                not_published: "not_published";
+                proved: "proved";
+                unknown: "unknown";
+            }>;
+            publishedTrustRevision: z.ZodNullable<z.ZodString>;
+            reason: z.ZodNullable<z.ZodString>;
+            requestId: z.ZodString;
+            ruleId: z.ZodString;
+            stage: z.ZodEnum<{
+                committed: "committed";
+                file_published: "file_published";
+                partial: "partial";
+                prepared: "prepared";
+                refused: "refused";
+                unknown: "unknown";
+            }>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFutureResultSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFutureResultSchema: z.ZodObject<{
+        currentProjection: z.ZodObject<{
+            coverage: z.ZodObject<{
+                detectorVersion: z.ZodLiteral<1>;
+                epochs: z.ZodArray<z.ZodObject<{
+                    acknowledged: z.ZodArray<z.ZodString>;
+                    backendId: z.ZodString;
+                    endSequence: z.ZodNullable<z.ZodString>;
+                    id: z.ZodString;
+                    mandatory: z.ZodArray<z.ZodString>;
+                    reason: z.ZodNullable<z.ZodString>;
+                    startSequence: z.ZodString;
+                    status: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>>;
+                exclusions: z.ZodArray<z.ZodString>;
+                state: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>;
+            earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+            evidenceRevision: z.ZodString;
+            pendingCount: z.ZodNumber;
+            reasons: z.ZodArray<z.ZodEnum<{
+                capacity: "capacity";
+                coverage_unknown: "coverage_unknown";
+                recording_failed: "recording_failed";
+                recording_pending: "recording_pending";
+                unresolved: "unresolved";
+            }>>;
+            restriction: z.ZodEnum<{
+                normal: "normal";
+                restricted: "restricted";
+            }>;
+            session: z.ZodNullable<z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>>;
+            unresolvedCount: z.ZodNumber;
+        }, z.core.$strict>;
+        occurrenceId: z.ZodString;
+        requestId: z.ZodString;
+        rule: z.ZodObject<{
+            currentRule: z.ZodEnum<{
+                changed: "changed";
+                present: "present";
+                removed: "removed";
+                unknown: "unknown";
+            }>;
+            enforcement: z.ZodEnum<{
+                enforced: "enforced";
+                unavailable: "unavailable";
+            }>;
+            operationId: z.ZodString;
+            publication: z.ZodEnum<{
+                not_published: "not_published";
+                proved: "proved";
+                unknown: "unknown";
+            }>;
+            publishedTrustRevision: z.ZodNullable<z.ZodString>;
+            reason: z.ZodNullable<z.ZodString>;
+            requestId: z.ZodString;
+            ruleId: z.ZodString;
+            stage: z.ZodEnum<{
+                committed: "committed";
+                file_published: "file_published";
+                partial: "partial";
+                prepared: "prepared";
+                refused: "refused";
+                unknown: "unknown";
+            }>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
+        stage: z.ZodEnum<{
+            partial: "partial";
+            prepared: "prepared";
+            refused: "refused";
+            unknown: "unknown";
+            verdict_committed: "verdict_committed";
+        }>;
+        verdict: z.ZodNullable<z.ZodObject<{
+            occurrenceId: z.ZodString;
+            operationId: z.ZodNullable<z.ZodString>;
+            projection: z.ZodNullable<z.ZodObject<{
+                coverage: z.ZodObject<{
+                    detectorVersion: z.ZodLiteral<1>;
+                    epochs: z.ZodArray<z.ZodObject<{
+                        acknowledged: z.ZodArray<z.ZodString>;
+                        backendId: z.ZodString;
+                        endSequence: z.ZodNullable<z.ZodString>;
+                        id: z.ZodString;
+                        mandatory: z.ZodArray<z.ZodString>;
+                        reason: z.ZodNullable<z.ZodString>;
+                        startSequence: z.ZodString;
+                        status: z.ZodEnum<{
+                            complete: "complete";
+                            incomplete: "incomplete";
+                            unknown: "unknown";
+                        }>;
+                    }, z.core.$strict>>;
+                    exclusions: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>;
+                earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+                evidenceRevision: z.ZodString;
+                pendingCount: z.ZodNumber;
+                reasons: z.ZodArray<z.ZodEnum<{
+                    capacity: "capacity";
+                    coverage_unknown: "coverage_unknown";
+                    recording_failed: "recording_failed";
+                    recording_pending: "recording_pending";
+                    unresolved: "unresolved";
+                }>>;
+                restriction: z.ZodEnum<{
+                    normal: "normal";
+                    restricted: "restricted";
+                }>;
+                session: z.ZodNullable<z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>>;
+                unresolvedCount: z.ZodNumber;
+            }, z.core.$strict>>;
+            reason: z.ZodNullable<z.ZodString>;
+            requestId: z.ZodNullable<z.ZodString>;
+            session: z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>;
+            stage: z.ZodEnum<{
+                prepared: "prepared";
+                refused: "refused";
+                verdict_committed: "verdict_committed";
+            }>;
+            verdict: z.ZodEnum<{
+                committed: "committed";
+                unresolved: "unresolved";
+            }>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFutureStatusSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFutureStatusSchema: z.ZodObject<{
+        occurrenceId: z.ZodString;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
         version: z.ZodLiteral<1>;
     }, z.core.$strict>;
   safetyIdentitySchema (packages/ui-sdk/src/safety.ts)
@@ -23254,13 +23567,13 @@ signatures (every public export and the types it is made of)
                 reviewBodyBytes: z.ZodOptional<z.ZodLiteral<16384>>;
                 reviewLifetimeMs: z.ZodOptional<z.ZodLiteral<900000>>;
             }, z.core.$strict>;
-            originRules: z.ZodLiteral<false>;
+            originRules: z.ZodBoolean;
             read: z.ZodLiteral<true>;
             readOnlyReason: z.ZodNullable<z.ZodEnum<{
                 owner_required: "owner_required";
                 review_unavailable: "review_unavailable";
             }>>;
-            recipientRules: z.ZodLiteral<false>;
+            recipientRules: z.ZodBoolean;
             repositoryRules: z.ZodLiteral<false>;
             review: z.ZodBoolean;
             version: z.ZodLiteral<1>;
@@ -24214,13 +24527,13 @@ signatures (every public export and the types it is made of)
                 reviewBodyBytes: z.ZodOptional<z.ZodLiteral<16384>>;
                 reviewLifetimeMs: z.ZodOptional<z.ZodLiteral<900000>>;
             }, z.core.$strict>;
-            originRules: z.ZodLiteral<false>;
+            originRules: z.ZodBoolean;
             read: z.ZodLiteral<true>;
             readOnlyReason: z.ZodNullable<z.ZodEnum<{
                 owner_required: "owner_required";
                 review_unavailable: "review_unavailable";
             }>>;
-            recipientRules: z.ZodLiteral<false>;
+            recipientRules: z.ZodBoolean;
             repositoryRules: z.ZodLiteral<false>;
             review: z.ZodBoolean;
             version: z.ZodLiteral<1>;
