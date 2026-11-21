@@ -1195,9 +1195,10 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
   /** Resolves once no descriptor of this worker's stdio remains open in this process, once its streams have ended (#2862). */
   released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
-  /** Confirm the worker and all descendants are frozen before returning. */
-  freeze(): void;
-  resume(): void;
+  /** True means the existing worker control acknowledged the stop; void has no timing confirmation. */
+  freeze(): boolean | void;
+  /** True means the existing worker control acknowledged the resume; void has no timing confirmation. */
+  resume(): boolean | void;
   /** The resource limits this launch was given (#1660). */
   limits: WorkerLimitsPlan;
   /** Which limits it has hit so far and, once it has exited, whether one ended it. */
@@ -1589,8 +1590,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     const statusChannel = status, supervisor = child;
     void child.exited.finally(() => statusChannel?.close(supervisor));
     const freezer = identityBroker ? {
-      freeze: () => identityBroker!.request("signal", { signal: "STOP" }),
-      resume: () => identityBroker!.request("signal", { signal: "CONT" }),
+      freeze: () => { identityBroker!.request("signal", { signal: "STOP" }); return true; },
+      resume: () => { identityBroker!.request("signal", { signal: "CONT" }); return true; },
     } : createWorkerFreezer(pid);
     const openIdentityRoot = (name: "state" | "temp") => {
       const receipt = identityReady!.roots[name]!;

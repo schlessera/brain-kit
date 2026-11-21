@@ -1,3 +1,5 @@
+import packageInfo from "@schlessera/brain-ui-server/package.json" with { type: "json" };
+import { parseBuildRevision } from "../config/env.js";
 import type { ActivityTurnLifecycle, ActivityTurnSubPhase, ActivityTurnOpenSubPhase, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { AwaitableActivityStore } from "./store.js";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
@@ -10,11 +12,15 @@ import { orderedWrites } from "./store-writes.js";
  */
 export type PhaseTimer = (name: string) => () => void;
 
-type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
+type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt" | "recorderSettledAt" | "idleEmittedAt";
 
 export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,
-  acceptedAt: number, onWrite: () => void, clock: () => number = Date.now, principalId?: string) {
+  acceptedAt: number, onWrite: () => void, clock: () => number = Date.now, principalId?: string, identity: { buildRevision?: string } = {}) {
+  const observedClock = () => { try { return clock(); } catch { return undefined; } };
+  const buildRevision = parseBuildRevision(identity.buildRevision);
   const record: ActivityTurnLifecycle = {
+    packageVersion: packageInfo.version, ...(buildRevision ? { buildRevision } : {}),
+    recorderSettledAt: null, idleEmittedAt: null,
     hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,
     journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstRelayRequestAt: null, backendMissingEvidence: [], firstFrameAt: null, failureObservedAt: null,
@@ -28,7 +34,8 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   persist();
   const recordHostEvent = (kind: ActivityTurnLifecycle["hostEvents"][number]["kind"], principalId: string) => {
     if (record.endedAt !== null) return;
-    record.hostEvents.push({ principalId, kind, observedAt: clock() }); persist();
+    const at = observedClock(); if (at === undefined) return;
+    record.hostEvents.push({ principalId, kind, observedAt: at }); persist();
   };
   const backendOpen = () => record.backendInvokedAt !== null && record.firstRelayRequestAt === null && record.endedAt === null;
   const missingNames = new Set<string>();
@@ -45,18 +52,22 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     const next = steps.findIndex(other => other.startedAt > step.startedAt);
     steps.splice(next < 0 ? steps.length : next, 0, step);
   };
-  const phaseTimer = (phase: string): PhaseTimer => name => {
+  const phaseTimer = (phase: string, metadata: { pending?: boolean } = {}): PhaseTimer => name => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
-    const step = { phase, name, startedAt: clock(), endedAt: null as number | null, elapsedMs: null };
-    if (phase === "governed" || phase === "journal") (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
+    const startedAt = observedClock(); if (startedAt === undefined) return () => {};
+    const step = { phase, name, ...metadata, startedAt, endedAt: null as number | null, elapsedMs: null };
+    if (phase === "governed" || phase === "journal") {
+      (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
+      record.subPhases.sort((a, b) => a.startedAt - b.startedAt);
+    }
     else addOpenStep(step);
-    return () => { if (record.endedAt === null && step.endedAt === null && (phase !== "backend" || backendOpen())) step.endedAt = clock(); };
+    return () => { if (record.endedAt === null && step.endedAt === null && (phase !== "backend" || backendOpen())) step.endedAt = observedClock() ?? null; };
   };
   const startupTiming: NonNullable<StartTurnRequest["startupTiming"]> = {
     start: phaseTimer("backend"),
     worker(name, durationMs) {
       if (!backendOpen() || !Number.isFinite(durationMs) || durationMs < 0) return;
-      const at = clock();
+      const at = observedClock(); if (at === undefined) return;
       addOpenStep({ phase: "backend", name, startedAt: at, endedAt: at, elapsedMs: null,
         timeBase: "worker", workerElapsedMs: durationMs });
     },
@@ -73,7 +84,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     received() {
       if (!backendOpen()) return;
-      const at = clock(); record.firstRelayRequestAt = at;
+      const at = observedClock(); if (at === undefined) return; record.firstRelayRequestAt = at;
       addOpenStep({ phase: "backend", name: "first_relay_request", startedAt: record.backendInvokedAt!, endedAt: at, elapsedMs: null });
       persist();
     },
@@ -88,23 +99,32 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     skip(phase: "governed" | "budget" | "journal") {
       if (record.endedAt === null && !record.skippedPhases.includes(phase)) { record.skippedPhases.push(phase); persist(); }
     },
-    mark(milestone: LifecycleMilestone, at = clock()) {
-      if (record.endedAt !== null || record[milestone] !== null) return;
+    mark(milestone: LifecycleMilestone, at = observedClock()) {
+      if ((record.endedAt !== null && milestone !== "recorderSettledAt" && milestone !== "idleEmittedAt") || record[milestone] != null) return;
+      if (at === undefined) return;
       record[milestone] = at;
       persist();
     },
+    hold(hold: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnHold) { if (record.endedAt === null) (record.holds ??= []).push(hold); },
+    runtimeVersion(version: string) { if (record.endedAt === null) record.runtimeVersion = version; },
     timer: phaseTimer,
+    backendExit() {
+      if (record.endedAt !== null) return;
+      const at = observedClock(); if (at === undefined) return;
+      addOpenStep({ phase: "closing", name: "backend_exit", startedAt: at, endedAt: at, elapsedMs: 0 });
+    },
     bindSession(id: string) { if (record.endedAt === null) { record.sessionId = id; persist(); } },
     linkBackend(id: string) { if (record.endedAt === null) { record.backendRunId = id; persist(); } },
     firstFrame(id: string | null) {
       if (record.endedAt !== null || record.firstFrameAt !== null) return;
-      const at = clock();
+      const at = observedClock(); if (at === undefined) return;
       if (backendOpen()) addOpenStep({ phase: "backend", name: "first_backend_frame", startedAt: record.backendInvokedAt!, endedAt: at, elapsedMs: null });
       record.firstFrameAt = at; record.backendRunId = id; persist();
     },
     finish(outcome: ActivitySpanOutcome, reason: string | null = null) {
       if (record.endedAt !== null) return;
-      record.endedAt = clock(); record.outcome = outcome; record.reason = reason; persist();
+      const at = observedClock(); if (at === undefined) return;
+      record.endedAt = at; record.outcome = outcome; record.reason = reason; persist();
     },
   };
 }
@@ -125,6 +145,7 @@ export function lifecycleTiming(record: ActivityTurnLifecycle): ActivityTurnLife
     // A step follows its phase's rules: unfinished, it measures to the failure boundary.
     ...(record.subPhases ? { subPhases: record.subPhases.map(step => ({ ...step, elapsedMs: phase(step.startedAt, step.endedAt) })) } : {}),
     ...(record.openSubPhases ? { openSubPhases: record.openSubPhases.map(step => ({ ...step, elapsedMs: step.timeBase === "worker" ? step.workerElapsedMs ?? null
-      : phase(step.startedAt, step.endedAt ?? (step.phase === "backend" ? record.firstRelayRequestAt ?? null : null)) })) } : {}),
+      : step.phase === "backend" ? phase(step.startedAt, step.endedAt ?? record.firstRelayRequestAt ?? null)
+      : elapsed(step.startedAt, step.endedAt ?? (record.failureObservedAt !== null && record.failureObservedAt >= step.startedAt ? record.failureObservedAt : record.endedAt)) })) } : {}),
   };
 }

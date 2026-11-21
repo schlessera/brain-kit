@@ -668,7 +668,7 @@ phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
 endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
 not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
 measuring to `failureObservedAt` or terminal time once the record is terminal,
-and null before. Every step lies inside its phase's paired milestones, and the
+and null before. Admission steps lie inside their phase's paired milestones, and the
 `observe_*` steps lie inside `observe`. Steps are carried by the record's next
 milestone or terminal write, never written on their own. `name` is open
 vocabulary, so a consumer tolerates names it does not know. A step that does
@@ -713,6 +713,30 @@ or terminal writes. The current open phase names are:
   to the observed mark. `first_backend_frame` is absent if the first frame
   follows relay receipt; the existing `backendStartupMs` still records it.
 
+- `closing`: `backend_exit` (zero-width confirmation when the backend returns
+  or throws), `index_settle` (optional `pending` boolean records whether an
+  update was queued), `egress_settle`, `journal_finish`,
+  `worktree_generation_close`, `scope_finish`, `governed_reconcile`,
+  `failure_recording`. The journal finish also carries its existing
+  `hold_wait`, `final_observation` (with the `observe_*` steps above),
+  `finish_worktrees`, `finish_record`, `finish_collect`, `finish_publish`
+  timers. `final_observation` is a lifecycle container only, never an
+  additional leaf in the native observation trace. Repeated cleanup calls
+  remain repeated steps in start order. Absent operations have no step;
+  caught cleanup failures leave their reached step unended. `scope_finish`
+  confirms both successful final scope writes only if their result arrives
+  before the existing lifecycle terminal. An unopened scope, failed write or
+  pending write cannot complete that step. `index_settle` and
+  `failure_recording` also stay unended when the flush, history read or catalog
+  write failed, or a catalog write remains unconfirmed. Catalog confirmation
+checks the stored turn and failure after an ignored insert conflict; an
+unrelated result-reader wait expiring does not invalidate a later successful
+recording. Logging or absorbing
+  an error does not turn it into successful work. These clocks add no
+  close-path wait. Closing steps record reached work on failure/cancellation too; they lie
+  between backend exit (when a backend ran) and status emission.
+
+
 The backend bracket ends at optional `firstRelayRequestAt` (host epoch
 milliseconds), the first model request received on an authorized inference
 relay route, before admission, body reading and dispatch. Token-count routes
@@ -754,6 +778,56 @@ Without a timing observer, the
 backend does not read the MCP diagnostic list.
 
 Historical records may omit either timing array; neither is backfilled.
+
+Optional nullable `recorderSettledAt` and `idleEmittedAt` milestones follow
+`endedAt`: they confirm recorder settlement and the actual idle emission,
+respectively. They never move the existing end stamp or backend duration.
+Cancelled-before-start status is not idle, so it has no idle timestamp. Only
+these trailing receipts may enrich a terminal record, once each; restart
+interruption remains terminal and cannot be enriched by a stale writer. Replaying
+an identical terminal or trailing receipt performs no write and emits no delta.
+
+Optional `packageVersion` identifies the running ui-server package. Optional
+`buildRevision` comes only from `BRAIN_UI_BUILD_REVISION`, a host-supplied
+1–64 character ASCII token (`[A-Za-z0-9._+-]`). Unset or invalid input is
+absent. Optional `runtimeVersion` is the selected backend's reported runtime
+version for this turn, absent when it reports none. These are host metadata
+and never enter the provider conversation.
+
+Optional `holds` lists observation intervals joinable by `holdId`. Each
+record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),
+`causeTurnId` (this turn when it caused the hold, otherwise null), optional
+`toolUseId` (only on the causing turn), `requestedAt`, nullable `stoppedAt`
+and `resumedAt`, nullable `changedPaths`, `otherTurnsStopped` and
+nullable `inferenceInFlight`. Stop/resume mean **the host's worker control
+acknowledged the stop/resume** under that control's existing confirmation
+semantics (PID namespace, cgroup or broker). They do not independently prove
+kernel process state. A false or void return leaves the corresponding mark
+null. Timing adds no `/proc` or cgroup evidence reads and performs no stop-state
+rechecks. Diagnostic callbacks and clock failures are best-effort: a throw
+leaves a missing mark and cannot fail a freeze, kill a worker or prevent thaw.
+Each successful worker acknowledgement is stamped immediately, including a
+resume preceding another worker's failed resume. A completed interval cannot
+acquire a later worker's stop. Nested observations share the earlier stop
+acknowledgement for registered workers held across both intervals. Worker exit
+unregisters that worker; a replacement cannot complete its earlier interval.
+Late-admitted turns join the existing interval with its original `holdId` and
+`requestedAt`. Late workers resample inference overlap at their acknowledged
+stop and update every participant's
+`otherTurnsStopped` count. A scope cap and its ensuing shared observation use
+the same `holdId`, preserving the causing turn's `toolUseId`. Approved policy
+writes and targeted retention keep their known causing turn as well.
+`changedPaths` is the union of distinct paths recorded across this held
+operation's captures, including a managed worktree's qualified path, not the
+turn's cumulative scope count. A cap triggered by an observation retains that
+observation's count; subsequent quiet observations cannot overwrite it. Other turns' identities are never exposed.
+Inference overlap includes request setup and response streaming at the stop
+acknowledgement; null means its callback failed. Evidence accumulates in
+memory and rides the next existing milestone/terminal write; it adds no
+awaited write before the hold or after a tool result. Evidence callbacks are
+unregistered even when teardown fails. A registered callback alone is not an
+observation window: finished journal participants receive no new hold records.
+
 
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
