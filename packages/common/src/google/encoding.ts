@@ -109,14 +109,32 @@ function decodeQ(text: string): string | null {
 }
 
 const ENCODED_WORD = /=\?([^?\s]+)\?([BbQq])\?([^?\s]*)\?=/g;
-/** C0 and C1 controls and DEL, tab excepted: what no decoded header text may hold. */
-const HEADER_CONTROL = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/;
+/**
+ * The bidirectional embedding, override and isolate controls (U+202A-U+202E,
+ * U+2066-U+2069). They reorder the text around them, so a card showing a
+ * value that holds one would not show it faithfully.
+ */
+export const BIDI_CONTROL = /[\u202A-\u202E\u2066-\u2069]/;
+/**
+ * C0 and C1 controls and DEL, tab excepted, and the bidirectional controls:
+ * what no header value or decoded header text may hold.
+ */
+export const HEADER_CONTROL = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u202A-\u202E\u2066-\u2069]/;
+/**
+ * What no body a send card shows may hold: C0 controls but tab, line feed
+ * and a carriage return that starts a CRLF; DEL; C1 controls; and the
+ * bidirectional controls. Joiners, marks and other ordinary text stay
+ * displayable. The draft input schema and the raw-draft parser both apply
+ * it, so a draft brain-kit writes is one the card can show.
+ */
+export const BODY_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202A-\u202E\u2066-\u2069]|\r(?!\n)/;
 
 /**
  * Decodes the RFC 2047 encoded words in header text. Whitespace between two
  * adjacent encoded words is dropped (§6.2); other text is kept as written.
  * An encoded word in an unknown charset or encoding, or one whose decoded
- * text holds a control character, makes the whole text unreadable (`null`).
+ * text holds a control or bidirectional embedding, override or isolate
+ * character, makes the whole text unreadable (`null`).
  */
 export function decodeEncodedWords(text: string): string | null {
   let out = "";

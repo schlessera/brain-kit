@@ -10,7 +10,8 @@
  *   split it) and then ignored for matching;
  * - group syntax (`team: a@x, b@y;`), comments (`(…)`), quoted local parts
  *   (`"a b"@x`), domain literals (`a@[192.0.2.1]`), whitespace inside an
- *   addr-spec and every control character are refused;
+ *   addr-spec, every control character and the bidirectional embedding,
+ *   override and isolate controls are refused;
  * - the local part is a dot-atom of ASCII characters, compared exactly as
  *   written: RFC 5322 leaves its case to the receiving domain, so brain-kit
  *   does not fold it;
@@ -54,8 +55,12 @@ const LOCAL_PART = new RegExp(`^${LOCAL_ATOM}(?:\\.${LOCAL_ATOM})*$`);
 /** Before IDNA: Unicode letters, marks and digits, hyphens and ASCII dots, at least two labels. */
 const RAW_DOMAIN = /^[\p{L}\p{M}\p{N}-]+(?:\.[\p{L}\p{M}\p{N}-]+)+$/u;
 const ASCII_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-/** Every control character, tab included: none belongs in an address. */
-const CONTROL = /[\p{Cc}\u2028\u2029]/u;
+/**
+ * Every control character, tab included, the line and paragraph separators,
+ * and the bidirectional embedding, override and isolate controls, which
+ * reorder how a display name reads: none belongs in an address.
+ */
+const CONTROL = /[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069]/u;
 /** RFC 5322 specials that may not appear unquoted in a display name; `.` is allowed (obs-phrase). */
 const PHRASE_SPECIALS = /[()<>[\]:;@\\,"]/;
 

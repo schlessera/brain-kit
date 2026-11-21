@@ -43,6 +43,8 @@ describe("parseGoogleMailbox", () => {
     ["a full-width dot in the domain", "penelope@example\uFF0Ecom", "refused: invalid_domain"],
     ["a non-ASCII local part", "p\u00E9n\u00E9lope@example.com", "refused: invalid_local_part"],
     ["a header injection", "penelope@example.com\r\nBcc: suitor@example.invalid", "refused: control_character"],
+    ["a bidirectional override in a display name", "\u202Eenolep <penelope@example.com>", "refused: control_character"],
+    ["a bidirectional isolate in a quoted display name", "\"\u2067Penelope\u2069\" <penelope@example.com>", "refused: control_character"],
     ["two mailboxes", "penelope@example.com, telemachus@example.com", "refused: malformed"],
     ["an unclosed angle bracket", "Penelope <penelope@example.com", "refused: malformed"],
     ["text after the angle brackets", "<penelope@example.com> Penelope", "refused: malformed"],

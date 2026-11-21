@@ -284,3 +284,137 @@ describe("parseGmailRawDraft: digest", () => {
     expect([draft.unreadable_headers, draft.digest, draft.bytes]).toEqual([true, sha256(bytes), bytes.length]);
   });
 });
+
+describe("parseGmailRawDraft: multipart subtypes the card can represent", () => {
+  test("a multipart/digest is unreadable, not read as a text body", async () => {
+    // A digest child without Content-Type is message/rfc822 (RFC 2046 5.1.5): here a whole HTML message.
+    const draft = await parseGmailRawDraft(message(
+      "To: penelope@example.com", "Content-Type: multipart/digest; boundary=d1", "",
+      "--d1", "", "From: antinous@example.invalid", "Subject: Suitors", "Content-Type: text/html", "", "<p>Marry me</p>",
+      "--d1--"));
+    expect([draft.body_text, flags(draft)]).toEqual([null, { ...CLEAN, unreadable_body: true, problems: ["multipart_subtype"] }]);
+  });
+
+  for (const subtype of ["parallel", "signed", "report", "x-loom"]) {
+    test(`multipart/${subtype} is unreadable`, async () => {
+      const draft = await parseGmailRawDraft(message("To: penelope@example.com", `Content-Type: multipart/${subtype}; boundary=b1`, "", "--b1", "", "Text.", "--b1--"));
+      expect([draft.body_text, flags(draft)]).toEqual([null, { ...CLEAN, unreadable_body: true, problems: ["multipart_subtype"] }]);
+    });
+  }
+
+  test("multipart/related is walked like mixed", async () => {
+    const draft = await parseGmailRawDraft(message(
+      "To: penelope@example.com", "Content-Type: multipart/related; boundary=r1", "",
+      "--r1", "Content-Type: text/plain", "", "The map.", "--r1", "Content-Type: image/png", "Content-Transfer-Encoding: base64", "", "iVBORw0KGgo=", "--r1--"));
+    expect([draft.body_text, flags(draft)]).toEqual(["The map.", { ...CLEAN, attachment: true }]);
+  });
+
+  test("a message/* part is an attachment", async () => {
+    for (const type of ["message/rfc822", "message/global"]) {
+      const draft = await parseGmailRawDraft(message(
+        "To: penelope@example.com", "Content-Type: multipart/mixed; boundary=b1", "",
+        "--b1", "", "Forwarded below.", "--b1", `Content-Type: ${type}`, "", "From: antinous@example.invalid", "", "Marry me.", "--b1--"));
+      expect([type, draft.body_text, flags(draft)]).toEqual([type, "Forwarded below.", { ...CLEAN, attachment: true }]);
+    }
+  });
+});
+
+describe("parseGmailRawDraft: parameters the parser relies on", () => {
+  const body = async (contentType: string, text: string) => {
+    const draft = await parseGmailRawDraft(message("To: penelope@example.com", contentType, "", text));
+    return [draft.body_text, flags(draft)];
+  };
+  const EXTENDED = { ...CLEAN, unreadable_body: true, problems: ["extended_parameter"] };
+
+  test("an RFC 2231 extended charset is unreadable", async () => {
+    expect(await body("Content-Type: text/plain; charset*=utf-8''utf-7", "+AKM-")).toEqual([null, EXTENDED]);
+  });
+
+  test("a continued charset is unreadable", async () => {
+    expect(await body("Content-Type: text/plain; charset*0=\"utf-\"; charset*1=\"7\"", "+AKM-")).toEqual([null, EXTENDED]);
+  });
+
+  test("an extended charset beside a literal one is unreadable", async () => {
+    expect(await body("Content-Type: text/plain; charset=us-ascii; charset*=utf-8''utf-7", "+AKM-")).toEqual([null, EXTENDED]);
+  });
+
+  test("an extended boundary beside a literal one is unreadable", async () => {
+    expect(await body("Content-Type: multipart/mixed; boundary=b1; boundary*0=b2", "--b1\r\n\r\nText.\r\n--b1--")).toEqual([null, EXTENDED]);
+  });
+
+  test("an extended name still marks an attachment", async () => {
+    expect(await body("Content-Type: text/plain; name*0=\"suitors\"; name*1=\".txt\"", "Antinous")).toEqual([null, { ...CLEAN, attachment: true }]);
+  });
+});
+
+describe("parseGmailRawDraft: dispositions", () => {
+  const body = async (disposition: string) => {
+    const draft = await parseGmailRawDraft(message("To: penelope@example.com", "Content-Type: text/plain", `Content-Disposition: ${disposition}`, "", "The loom."));
+    return [draft.body_text, flags(draft)];
+  };
+
+  for (const token of ["x-attachment", "form-data", "signal"]) {
+    test(`a ${token} disposition makes a text part an attachment`, async () => {
+      expect(await body(token)).toEqual([null, { ...CLEAN, attachment: true }]);
+    });
+  }
+
+  test("an inline disposition, in any case, is the body", async () => {
+    expect([await body("inline"), await body("INLINE")]).toEqual([["The loom.", CLEAN], ["The loom.", CLEAN]]);
+  });
+});
+
+describe("parseGmailRawDraft: controls after decoding", () => {
+  const CONTROL = { ...CLEAN, unreadable_body: true, problems: ["body_control_character"] };
+  const draft = (encoding: string, body: string) =>
+    parseGmailRawDraft(latin(`To: penelope@example.com\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: ${encoding}\r\n\r\n${body}`));
+  const rows: [name: string, encoding: string, body: string][] = [
+    ["a raw NUL", "8bit", "loom\x00shroud"],
+    ["a quoted-printable NUL", "quoted-printable", "loom=00shroud"],
+    ["a base64 NUL", "base64", btoa("loom\x00shroud")],
+    ["a raw bare carriage return", "8bit", "loom\rshroud"],
+    ["a quoted-printable bare carriage return", "quoted-printable", "loom=0Dshroud"],
+    ["a base64 bare carriage return", "base64", btoa("loom\rshroud")],
+    ["an escape", "8bit", "loom\x1b[2Jshroud"],
+    ["a form feed", "8bit", "loom\x0cshroud"],
+    ["DEL", "8bit", "loom\x7fshroud"],
+    ["a C1 control", "8bit", "loom\xc2\x85shroud"],
+    ["a right-to-left override", "8bit", "loom\xe2\x80\xaeshroud"],
+    ["a left-to-right embedding", "quoted-printable", "loom=E2=80=AAshroud"],
+    ["a right-to-left isolate", "base64", btoa("loom\xe2\x81\xa7shroud")],
+    ["a pop directional isolate", "8bit", "loom\xe2\x81\xa9shroud"],
+  ];
+  for (const [name, encoding, body] of rows) {
+    test(`${name} in the decoded body is unreadable`, async () => {
+      const parsed = await draft(encoding, body);
+      expect([parsed.body_text, flags(parsed)]).toEqual([null, CONTROL]);
+    });
+  }
+
+  test("tabs, CRLF line breaks and ZWJ emoji stay displayable", async () => {
+    const text = "Weave\tby day,\r\nunweave by night \u{1F468}\u200D\u{1F469}\u200D\u{1F466}.";
+    const parsed = await parseGmailRawDraft(message("To: penelope@example.com", "Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: base64", "",
+      btoa(String.fromCharCode(...new TextEncoder().encode(text)))));
+    expect([parsed.body_text, flags(parsed)]).toEqual(["Weave\tby day,\nunweave by night \u{1F468}\u200D\u{1F469}\u200D\u{1F466}.", CLEAN]);
+  });
+
+  test("a bidirectional override in a raw subject is unreadable", async () => {
+    expect(flags(await parseGmailRawDraft(message("To: penelope@example.com", "Subject: Invoice \u202Efdp.exe", "", ""))))
+      .toEqual({ ...CLEAN, unreadable_headers: true, unreadable_body: true, problems: ["header_control_character"] });
+  });
+
+  test("a bidirectional override in an encoded subject is unreadable", async () => {
+    const parsed = await parseGmailRawDraft(message("To: penelope@example.com", "Subject: =?utf-8?Q?Invoice_=E2=80=AEfdp.exe?=", "", ""));
+    expect([parsed.subject, flags(parsed)]).toEqual([null, { ...CLEAN, unreadable_headers: true, problems: ["encoded_word"] }]);
+  });
+
+  test("a bidirectional isolate in an encoded display name is unreadable", async () => {
+    const parsed = await parseGmailRawDraft(message("To: =?utf-8?Q?=E2=81=A7Penelope?= <penelope@example.com>", "", ""));
+    expect([addresses(parsed.to), flags(parsed)]).toEqual([[], { ...CLEAN, unreadable_headers: true, problems: ["address_syntax"] }]);
+  });
+
+  test("a ZWJ emoji in a subject stays displayable", async () => {
+    const parsed = await parseGmailRawDraft(message("Subject: =?utf-8?Q?Home_=F0=9F=91=A8=E2=80=8D=F0=9F=91=A6?=", "", ""));
+    expect([parsed.subject, flags(parsed)]).toEqual(["Home \u{1F468}\u200D\u{1F466}", CLEAN]);
+  });
+});

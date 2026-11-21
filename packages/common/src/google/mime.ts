@@ -7,22 +7,31 @@
  * Subject, In-Reply-To, References and the text/plain body. It flags an HTML
  * part, an attachment and anything it cannot read; the host refuses a send
  * (`draft_not_displayable`) on any flag. It never guesses: an unknown
- * charset or transfer encoding, a malformed or repeated header, a header that
- * names addresses the card does not show, or a broken multipart structure
- * sets an unreadable flag. The digest covers the input bytes exactly, so the
- * host can send and record what the card was built from.
+ * charset or transfer encoding, an RFC 2231 extended or continued form of a
+ * parameter it relies on (`charset`, `boundary`), a malformed or repeated
+ * header, a header that names addresses the card does not show, a multipart
+ * subtype other than mixed, alternative and related, a broken multipart
+ * structure, or decoded text holding a control or bidirectional embedding,
+ * override or isolate character the card cannot show faithfully sets an
+ * unreadable flag. Only a part with no disposition or an `inline` one can be
+ * the body; any other disposition is an attachment. The digest covers the
+ * input bytes exactly, so the host can send and record what the card was
+ * built from.
  *
  * Address headers are parsed by the strict mailbox parser before any encoded
  * word is decoded, so an encoded word cannot add a recipient or split one.
  */
 import { parseGoogleMailboxList, type GoogleMailbox } from "./address.js";
-import { binaryToBytes, bytesToBinary, decodeBase64, decodeCharset, decodeEncodedWords, decodeQuotedPrintable, sha256Hex } from "./encoding.js";
+import {
+  binaryToBytes, BODY_CONTROL, bytesToBinary, decodeBase64, decodeCharset, decodeEncodedWords, decodeQuotedPrintable, HEADER_CONTROL, sha256Hex,
+} from "./encoding.js";
 
 /** Why a part of the draft could not be read. Closed, and never carries draft text. */
 export const GMAIL_RAW_DRAFT_PROBLEMS = [
   "too_large", "bare_cr", "header_syntax", "header_encoding", "header_control_character", "duplicate_header",
   "unshown_address_header", "address_syntax", "from_not_single", "encoded_word", "message_id_syntax",
-  "content_type", "content_disposition", "transfer_encoding", "charset", "multipart_structure", "too_deep", "too_many_parts",
+  "content_type", "content_disposition", "extended_parameter", "transfer_encoding", "charset", "body_control_character",
+  "multipart_subtype", "multipart_structure", "too_deep", "too_many_parts",
 ] as const;
 export type GmailRawDraftProblem = typeof GMAIL_RAW_DRAFT_PROBLEMS[number];
 
@@ -70,8 +79,16 @@ const SINGLE = ["from", "to", "cc", "bcc", "reply-to", "subject", "in-reply-to",
 /** Headers that name a sender or recipient the card does not show. Their presence is unreadable. */
 const UNSHOWN_ADDRESS = /^(?:sender|resent-[a-z-]+|disposition-notification-to|return-receipt-to)$/;
 const FIELD_NAME = /^[\x21-\x39\x3b-\x7e]+$/;
-/** C0 and C1 controls and DEL, tab excepted. */
-const HEADER_CONTROL = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/;
+/**
+ * The multipart subtypes the card can represent. Each defaults a child
+ * without Content-Type to text/plain (RFC 2046 5.1). Every other subtype is
+ * unreadable: digest children default to message/rfc822, and signed,
+ * encrypted, parallel, report and the rest mean something the card does not
+ * show.
+ */
+const MULTIPART_SUBTYPES = new Set(["mixed", "alternative", "related"]);
+/** Parameters whose values the parser acts on; their RFC 2231 forms are never decoded, so they are unreadable. */
+const RELIED_PARAMETERS = ["charset", "boundary"];
 const MESSAGE_IDS = /^(?:[\t ]*<[\x21-\x3b\x3d\x3f-\x7e]+>)+[\t ]*$/;
 const TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
 const CONTENT_TYPE = new RegExp(`^[\\t ]*(${TOKEN})/(${TOKEN})[\\t ]*(.*)$`, "s");
@@ -172,12 +189,14 @@ function readEntity(binary: string, reader: Reader, report: (problem: GmailRawDr
   }
 }
 
-interface Parameters { values: Map<string, string>; names: Set<string> }
+/** Parameter values by exact name, every base name present, and the base names that appeared in an RFC 2231 form. */
+interface Parameters { values: Map<string, string>; names: Set<string>; extended: Set<string> }
 
 /** `; name=value` parameters. RFC 2231 forms (`name*`, `name*0`) count as present but are not decoded. */
 function readParameters(rest: string): Parameters | null {
   const values = new Map<string, string>();
   const names = new Set<string>();
+  const extended = new Set<string>();
   let text = rest;
   while (text.length > 0) {
     if (/^;[\t ]*$/.test(text)) break;
@@ -186,14 +205,16 @@ function readParameters(rest: string): Parameters | null {
     const name = match[1]!.toLowerCase();
     if (values.has(name)) return null;
     values.set(name, match[2] ?? match[3]!.replace(/\\(.)/g, "$1"));
-    names.add(name.split("*")[0]!);
+    const base = name.split("*")[0]!;
+    names.add(base);
+    if (base !== name) extended.add(base);
     text = text.slice(match[0].length);
   }
-  return { values, names };
+  return { values, names, extended };
 }
 
 function contentType(value: string | undefined): { type: string; subtype: string; parameters: Parameters } | null {
-  if (value === undefined) return { type: "text", subtype: "plain", parameters: { values: new Map([["charset", "us-ascii"]]), names: new Set(["charset"]) } };
+  if (value === undefined) return { type: "text", subtype: "plain", parameters: { values: new Map([["charset", "us-ascii"]]), names: new Set(["charset"]), extended: new Set() } };
   if (value.includes("(")) return null;
   const match = CONTENT_TYPE.exec(value);
   if (!match) return null;
@@ -249,10 +270,13 @@ function readPart(headers: Headers, body: string, depth: number, reader: Reader)
   const encoding = (headers.get("content-transfer-encoding")?.[0] ?? "7bit").toLowerCase();
   const shown = disposition(headers.get("content-disposition")?.[0]);
   if (shown === null) return reader.structure("content_disposition");
+  if (RELIED_PARAMETERS.some(name => type.parameters.extended.has(name))) return reader.structure("extended_parameter");
   const named = type.parameters.names.has("name") || shown?.parameters.names.has("filename") === true;
-  const attached = shown?.type === "attachment" || named;
+  // Only no disposition, or `inline`, leaves a part displayable; any other token is an attachment.
+  const attached = (shown !== undefined && shown.type !== "inline") || named;
 
   if (type.type === "multipart") {
+    if (!MULTIPART_SUBTYPES.has(type.subtype)) return reader.structure("multipart_subtype");
     if (encoding !== "7bit" && encoding !== "8bit" && encoding !== "binary") return reader.structure("transfer_encoding");
     const boundary = type.parameters.values.get("boundary");
     if (!boundary || boundary.length > 70) return reader.structure("multipart_structure");
@@ -283,6 +307,7 @@ function readPart(headers: Headers, body: string, depth: number, reader: Reader)
   if (decoded === null) return reader.structure("transfer_encoding");
   const text = decodeCharset(binaryToBytes(decoded), type.parameters.values.get("charset") ?? "us-ascii");
   if (text === null) return reader.structure("charset");
+  if (BODY_CONTROL.test(text)) return reader.structure("body_control_character");
   reader.body = text.replace(/\r\n/g, "\n");
 }
 
