@@ -550,7 +550,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         catch(error){if(error instanceof TransportHandoffFailed){upstreamFailed();return false;}}
         outgoing?.destroy();if(!response.headersSent)refuse();else response.destroy();return false;
       };
-      const dispatched=sendUpstream(()=>{outgoing=httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal }, incoming => {
+      const dispatched=sendUpstream(()=>{outgoing=httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal,
+        // This operation owns its connection. A pooled socket can have an
+        // unread origin FIN when another independently fenced request takes it.
+        agent: false }, incoming => {
         if (!op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders).ok) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
         }

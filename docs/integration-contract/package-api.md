@@ -6022,6 +6022,8 @@ Provider history remains byte-identical as an earlier prefix.
 
 ## Turn egress charge and cancellation
 
+Each cleartext HTTP proxy operation uses its own non-pooled upstream connection, matching its `Connection: close` request header. A closed socket from an earlier operation is never reused, and transport failures do not automatically replay the request. Application-byte accounting and the final admission fence run once per send. CONNECT already owns a distinct upstream socket; inference and provider relays retain their separate Fetch transports.
+
 The concrete turn proxy's `charge(bytes)` returns `{ok:true}` or
 `{ok:false,reason:"budget"|"safety_changed"|"policy_denied"|"unavailable"|"cancelled"}`. Callers preserve that
 classification. Each terminal decision stores its typed reason before notifying
