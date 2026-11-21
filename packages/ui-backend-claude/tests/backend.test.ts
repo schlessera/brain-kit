@@ -22,6 +22,26 @@ import { defineProfiles } from "../src/profiles";
 
 type Gen = (options: Options) => AsyncGenerator<unknown>;
 
+test("Claude collects a bounded MCP name sample only from the first initialization frame", async () => {
+  const missing: string[] = [];
+  const servers = Array.from({ length: 1000 }, (_, index) => ({ name: index === 0 ? "🦉".repeat(80) : `ithaca-server-${index}`, status: "connected" }));
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: servers };
+    for (let i = 0; i < 100; i++) yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: [{ name: `ithaca-late-server-${i}`, status: "connected" }] };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const { bridge, frames } = makeBridge();
+  await backend.startTurn(makeReq(bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, missing: name => { missing.push(name); }, worker() {}, received() {},
+  } }));
+  expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
+  expect(missing.length, "CLAUDE_MCP_NAMES_ARE_BOUNDED").toBeLessThanOrEqual(36);
+  expect(missing.filter(name => name.startsWith("mcp_connect:ithaca-server-"))).toHaveLength(31);
+  expect(missing).toContain("mcp_connect:additional_servers_omitted");
+  expect(missing.filter(name => Buffer.byteLength(name) > 256)).toEqual([]);
+  expect(missing).not.toContain("mcp_connect:ithaca-late-server-99");
+});
+
 test("Claude startup records its host probe and names unavailable SDK and per-server clocks", async () => {
   const completed: string[] = [], missing: string[] = [];
   const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {

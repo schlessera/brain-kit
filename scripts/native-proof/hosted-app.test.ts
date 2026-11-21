@@ -402,7 +402,7 @@ print(json.dumps(result))`;
         try { return (ui.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at").all() as { record: string }[]).map(row => JSON.parse(row.record)); }
         finally { ui.close(); }
       };
-      const phases = lifecycleTimingSample;
+      const phases = (record: Parameters<typeof lifecycleTimingSample>[0]) => lifecycleTimingSample(record, BACKEND === "claude" ? "claude_worker_fixture" : "native");
       const lifecycleOf = (turnId: string) => phases(lifecycles().find(record => record.turnId === turnId));
       // (a) The process's first governed, journaled turn: the qualification's first admission.
       const firstAfterStart = phases(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null));

@@ -2,7 +2,7 @@ import { retainNativeRouteInputs } from "./native-route-inputs.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { FollowUpRequest, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
-import { assertTurnPosture, BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, assertTurnPosture, BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { NativeFileVersions, requireWorkerHostAsync } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
@@ -119,6 +119,7 @@ export function createClaudeTurnRunner(options: ClaudeTurnRunnerOptions): Claude
 }
 
 async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promise<void> {
+  req = { ...req, startupTiming: safeStartupTiming(req.startupTiming) };
   const { options, activeTurns, fileVersionsBySession } = runner;
   // Before anything is claimed or emitted: a refused posture rejects, per
   // the startTurn contract, and leaves no turn behind.

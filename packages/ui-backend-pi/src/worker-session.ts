@@ -2,7 +2,7 @@ import { sessionPromptContext, describeClient, NativeFileVersions, workerExecHel
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getAgentDir, SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { BackendRequestError, compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, BackendRequestError, compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 
 import { piRelayOrigin } from "./host-inference.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
@@ -59,6 +59,7 @@ export async function piInferenceOrigin(backend: CreatePiBackendOptions, session
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string, nativeSessions = new Map<string, NativeFileVersions>()) {
   const startupStarted = performance.now();
+  env = { ...env, startupTiming: safeStartupTiming(env.startupTiming) };
   const prepared = env.startupTiming?.start("preparation");
   env.workerSignal?.throwIfAborted();
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));

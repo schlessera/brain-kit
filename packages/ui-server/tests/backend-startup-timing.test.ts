@@ -11,6 +11,27 @@ const previousStep = z.looseObject({ phase: z.enum(["governed", "journal"]), nam
   endedAt: z.number().nullable(), elapsedMs: z.number().nullable() });
 const previousLifecycle = z.looseObject({ subPhases: z.array(previousStep).optional() });
 
+test("missing startup evidence stays bounded by count and UTF-8 bytes, including late reports", () => {
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db);
+    const life = createTurnLifecycle(store, "turn-ithaca", "ithaca", 1000, () => {}, () => 1100);
+    life.mark("backendInvokedAt"); life.startupTiming.missing("first_enqueue");
+    life.startupTiming.missing("mcp_connect:" + "🦉".repeat(80));
+    life.startupTiming.missing("mcp_connect:" + "ithaca".repeat(1000));
+    for (let i = 0; i < 3000; i++) life.startupTiming.missing(`mcp_connect:ithaca-server-${i}`);
+    life.startupTiming.received();
+    for (let i = 3000; i < 6000; i++) life.startupTiming.missing(`mcp_connect:ithaca-server-${i}`);
+    life.finish("success");
+    const names = store.lifecycle("turn-ithaca")!.backendMissingEvidence!;
+    expect(names, "MISSING_EVIDENCE_COUNT_IS_BOUNDED").toHaveLength(64);
+    expect(new Set(names).size).toBe(64);
+    expect(names[0]).toBe("first_enqueue");
+    expect(names).toContain("additional_missing_evidence_omitted");
+    expect(names.filter(name => Buffer.byteLength(name) > 256), "MISSING_EVIDENCE_BYTES_ARE_BOUNDED").toEqual([]);
+  } finally { db.close(); }
+});
+
 test("the previous SDK keeps activity frames containing backend and future open phases", () => {
   const db = createUiDb(":memory:");
   try {

@@ -31,6 +31,13 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     record.hostEvents.push({ principalId, kind, observedAt: clock() }); persist();
   };
   const backendOpen = () => record.backendInvokedAt !== null && record.firstRelayRequestAt === null && record.endedAt === null;
+  const missingNames = new Set<string>();
+  let missingOmitted = false;
+  const omitMissing = () => {
+    if (missingOmitted) return;
+    missingOmitted = true;
+    record.backendMissingEvidence!.push("additional_missing_evidence_omitted");
+  };
   // Milestone intervals can be observed after steps that started later.
   // Insert by their actual start, retaining observation order for equal starts.
   const addOpenStep = (step: ActivityTurnOpenSubPhase) => {
@@ -55,7 +62,15 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     // A later init frame may identify a server whose connection clock was
     // unavailable. This reports absence only, never a late timing mark.
-    missing(name) { if (record.backendInvokedAt !== null && record.endedAt === null && !record.backendMissingEvidence!.includes(name)) record.backendMissingEvidence!.push(name); },
+    missing(name) {
+      if (record.backendInvokedAt === null || record.endedAt !== null) return;
+      // Reserve one of 64 slots for visible loss; never retain oversized names
+      // or the unbounded set of omitted names. Check length before hashing.
+      if (typeof name !== "string" || name.length > 256 || Buffer.byteLength(name) > 256 || name === "additional_missing_evidence_omitted") { omitMissing(); return; }
+      if (missingNames.has(name)) return;
+      if (missingNames.size >= 63) { omitMissing(); return; }
+      missingNames.add(name); record.backendMissingEvidence!.push(name);
+    },
     received() {
       if (!backendOpen()) return;
       const at = clock(); record.firstRelayRequestAt = at;

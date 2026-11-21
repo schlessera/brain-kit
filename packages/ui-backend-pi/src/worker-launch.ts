@@ -14,7 +14,7 @@ import { join, relative, isAbsolute } from "node:path";
 import { stateRoomCopy, stateRoomWarning, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { getAgentDir, type FileEntry } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
-import { BackendRequestError, type compileConfirmPatterns, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, BackendRequestError, type compileConfirmPatterns, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { workerOutwardNote, workerCommandPolicyNote, createLimitTracker, launchAgentWorkerAsync, launchLimits, prepareWorkerSandbox, prepareWorkerSandboxAsync, processStateLedger, retainWorkerStartupView, prepareNativeWorkerOutput, type PreparedWorkerOutput,
   outputStagingLimit, requireWorkerHostAsync, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
@@ -81,13 +81,14 @@ export interface PiWorkerAdmission {
  * against the process ledger. A refusal stops every relay it started.
  */
 export async function admitPiWorker(request: PiWorkerAdmissionRequest): Promise<PiWorkerAdmission> {
+  const startupTiming = safeStartupTiming(request.env.startupTiming);
   const { backend, env, declared, restricted, entries, resumeId, sessionId, profileId, promptContext, exec } = request;
   const agentFiles: Record<string, string> = {};
   const agentDir = piSessionDirectory(backend.brainPath, getAgentDir());
   // A restricted autonomous turn copies no native state into the worker: no
   // stored login, provider override or settings (#676). The relay holds the key.
   const envelope = restricted ? piAutonomousEnvelope(declared, agentDir, undefined,
-    path => { if (!path.endsWith("/count_tokens")) env.startupTiming?.received(); }) : undefined;
+    path => { if (!path.endsWith("/count_tokens")) startupTiming?.received(); }) : undefined;
   // A governed or strict turn on the turn proxy: the host holds the credential
   // and the worker's pi reaches inference only through the relay (#1665).
   const egress = !env.autonomous ? env.workerSandbox?.egress : undefined;
@@ -129,11 +130,11 @@ export async function admitPiWorker(request: PiWorkerAdmissionRequest): Promise<
     if (egress && relayedModel) {
       hostInference = await preparePiHostInference({ provider: relayedModel.provider, modelId: relayedModel.id, agentDir,
         ...(recipient ? { recipientOrigin: recipient.origin } : {}),
-        brainPath: backend.brainPath, egress, environment: subprocessEnv(), received: path => { if (!path.endsWith("/count_tokens")) env.startupTiming?.received(); }, ...(env.workerSignal ? { signal: env.workerSignal } : {}) });
+        brainPath: backend.brainPath, egress, environment: subprocessEnv(), received: path => { if (!path.endsWith("/count_tokens")) startupTiming?.received(); }, ...(env.workerSignal ? { signal: env.workerSignal } : {}) });
       Object.assign(init, { relayed: hostInference.worker });
     }
     admissionObservation = checkSessionSize(init);
-    const probed = env.startupTiming?.start("host_probe");
+    const probed = startupTiming?.start("host_probe");
     const workerHost = await requireWorkerHostAsync(backend.brainPath, { restricted, turnTempBytes: turnTempLimits.allowanceBytes });
     probed?.();
     if (workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined) identity = { kind: "separate_uid", workerUid: workerHost.workerUid };
@@ -175,6 +176,7 @@ export interface LaunchedPiWorker {
  * reservation are released.
  */
 export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<LaunchedPiWorker> {
+  const startupTiming = safeStartupTiming(request.env.startupTiming);
   const { backend, env, admission, restricted, resumeId, execHelpers, confirmPatterns, startupStarted, turnContext } = request;
   const { envelope, egress, hostInference, cachedNpmModules, reservation, admissionObservation, identity } = admission;
   const { workerSandbox, workerProviderMasks, workerDataTree, workerLock, workerStarted, workerStartupView, workerSignal } = admission.hostEnv;
@@ -234,8 +236,8 @@ export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<La
     }
     workerSignal?.throwIfAborted();
     const spawning = performance.now();
-    request.prepared?.();
-    const spawned = env.startupTiming?.start("worker_spawn");
+    try { request.prepared?.(); } catch { /* Observability cannot refuse the prepared worker. */ }
+    const spawned = startupTiming?.start("worker_spawn");
     backend.log?.("debug", "Pi startup phase", { phase: "preparation", durationMs: spawning - startupStarted, elapsedMs: spawning - startupStarted });
     child = await launchAgentWorkerAsync({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
       ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),

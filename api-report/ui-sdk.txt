@@ -3347,6 +3347,7 @@ export "./server" (./src/server/index.ts)
   resolveThinkingLevel
   reverseGeocode
   rtkRewriteCommand
+  safeStartupTiming
   signedArea
   simplify
   stateRoomCopy
@@ -21223,6 +21224,8 @@ signatures (every public export and the types it is made of)
     export function runBackendModuleContract(harness: BackendModuleContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
   runSpeechProviderContract (packages/ui-sdk/src/testing/speech-contract.ts)
     export function runSpeechProviderContract(harness: SpeechProviderContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
+  safeStartupTiming (packages/ui-sdk/src/server/startup-timing.ts)
+    export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): StartTurnRequest["startupTiming"];
   safetyCapabilitiesSchema (packages/ui-sdk/src/safety.ts)
     const safetyCapabilitiesSchema: z.ZodObject<{
         detectorVersion: z.ZodLiteral<1>;

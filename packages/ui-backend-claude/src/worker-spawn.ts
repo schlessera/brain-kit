@@ -11,7 +11,7 @@ import { prepareRecoveredWorkerFiles, workerExecHelpers, createTurnTempPromoter,
   WORKER_SCRATCH, WORKER_STATE, WORKER_EMPTY_HOME, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
-import { wrapCommand, type ExecWrapperConfig, type TurnFailure, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, wrapCommand, type ExecWrapperConfig, type TurnFailure, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
 import { processCleanupReconciler, type CleanupReconciler } from "./cleanup-reconciler.js";
 import { processStateLedger } from "./worker-state-budget.js";
@@ -106,6 +106,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   // The wrapper becomes the worker's first program: a regular file, never a directory bound into its view (#1429).
   if (!restricted) workerExecHelpers({ wrapper: config.wrapper });
   const completions: Promise<void>[] = [];
+  const startupTiming = safeStartupTiming(stateOptions.startupTiming);
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));
   const stateLimits = stateOptions.limits ?? resolveWorkerStateLimits({});
@@ -130,6 +131,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
    */
   let startFailure: unknown;
   let sdkInitialized: (() => void) | undefined;
+  let initializationObserved = false;
   const record = (error: unknown) => {
     // By class, not constructor: the process ledger may come from another copy of this module.
     const errorClass = workerStateClass(error);
@@ -139,7 +141,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   const checks = new Set<() => void>();
   /** `preparation` also stops a facade the SDK killed before the worker existed. */
   async function spawnNow({ command, args, env, signal }: SpawnOptions, preparation: AbortSignal, preparedOutput?: PreparedWorkerOutput) {
-      const probed = stateOptions.startupTiming?.start("worker_host_probe");
+      const probed = startupTiming?.start("worker_host_probe");
       // The real launcher, with this worker's allowance, before anything is
       // restored, admitted or copied. Awaited, so the event loop keeps
       // answering while a loaded host starts the probe worker (#2790).
@@ -158,7 +160,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       } catch (error) { record(error); throw error; }
       const emitter = new EventEmitter();
       let worker: LaunchedWorker;
-      const launched = stateOptions.startupTiming?.start("worker_launch");
+      const launched = startupTiming?.start("worker_launch");
       try {
         const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
         if (!restricted) childEnv.PATH = brainWorkerPath(brainPath, childEnv.PATH);
@@ -203,7 +205,10 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         throw error;
       }
       launched?.();
-      sdkInitialized = stateOptions.startupTiming?.start("runtime_to_sdk_init");
+      // A hand-driven query can acknowledge initialization before the deferred
+      // launch. That ordering observes no runtime-to-SDK interval.
+      if (!initializationObserved) sdkInitialized = startupTiming?.start("runtime_to_sdk_init");
+      else startupTiming?.missing("runtime_to_sdk_init");
       let startFailure: unknown;
       reports.push(worker.limitReport);
       const handle = worker.state!;
@@ -313,7 +318,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       return { process, settled: done };
   }
   return {
-    sdkInitialized: () => sdkInitialized?.(),
+    sdkInitialized: () => { initializationObserved = true; sdkInitialized?.(); },
     /** The resource limits this turn's workers hit so far (#1660). */
     limits,
     /** The turn-temp allowance each of this turn's workers is mounted with (#1703). */

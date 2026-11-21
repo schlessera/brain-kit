@@ -1,5 +1,6 @@
 import type { AccountInfo, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming } from "@schlessera/brain-ui-sdk/server";
 
 import type { StreamAdapter } from "./stream-adapter.js";
 import type { TurnInput } from "./turn-input.js";
@@ -76,14 +77,25 @@ export class CarriedResult {
  * Exactly one terminal frame per turn, whatever the stream does.
  */
 export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
+  const startupTiming = safeStartupTiming(inputs.req.startupTiming);
   const { input, adapter, terminal } = inputs;
   let announced = false;
+  let mcpInitObserved = false;
   let reported = false;
   let carried: CarriedResult | null = null;
   try {
     for await (const msg of inputs.stream) {
-      if (msg.type === "system" && msg.subtype === "init")
-        for (const server of msg.mcp_servers ?? []) inputs.req.startupTiming?.missing(`mcp_connect:${server.name}`);
+      if (msg.type === "system" && msg.subtype === "init" && !mcpInitObserved) {
+        mcpInitObserved = true;
+        const servers = msg.mcp_servers ?? [];
+        let omitted = servers.length > 32;
+        for (const server of servers.slice(0, 32)) {
+          const name = server.name;
+          if (typeof name !== "string" || name.length > 240 || Buffer.byteLength(name) > 240) { omitted = true; continue; }
+          startupTiming?.missing(`mcp_connect:${name}`);
+        }
+        if (omitted) startupTiming?.missing("mcp_connect:additional_servers_omitted");
+      }
       input.observe(msg);
       if (carried && CarriedResult.continues(msg)) carried.continued = true;
       // A withheld turn has already decided its outcome; nothing the stream

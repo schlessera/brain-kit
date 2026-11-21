@@ -71,11 +71,18 @@ which launches a real shell worker and synthesizes SDK responses. It exercises
 SDK process or send a model request. Its `coverage` and `unobserved` fields
 identify that limitation, and relay receipt stays null. It cannot qualify
 Claude SDK/MCP/enqueue/first-request timings; those still need a real SDK run.
+The Claude worker-fixture projection omits those unsupported SDK intervals from
+both `steps` and `backendSteps`, even when an older raw record carries an open
+SDK-init timer. No numeric SDK initialization duration is inferred from turn end.
 The Pi fixture runs its real SDK and must provide all seven startup steps
 (`preparation`, `host_probe`, `worker_spawn`, `bootstrap_imports`, `resources`,
 `session`, `initialize`) plus a relay receipt. Every required step must be
 complete on the first sample and each warm sample. A receipt alone cannot
 qualify a startup breakdown.
+Pi must also carry its `first_relay_request` step matching the observed relay
+milestone. Both fixtures require `first_backend_frame` when the observed frame
+is inside the startup bracket, with the step's timestamps matching that
+milestone. A frame observed after relay receipt remains outside the bracket.
 
 Its `phases` section (#2915) attributes each observed writer's worker hold and
 each harbour turn's journal begin and finish to their steps: the queue for the

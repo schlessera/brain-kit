@@ -558,6 +558,9 @@ backend run and span tree. Its distinct `lifecycleId` is `lifecycle:<turnId>`; `
 is null until observed, and `backendRunId` is null until a backend root is
 actually recorded. It never owns tokens, costs, spans or rollups. Inference
 aggregation continues to read backend rollups exactly once.
+The whole envelope is host-only: `query_activity` never includes it in a
+provider-facing tool result, including on recent, full, pruned or lifecycle-only
+run queries. The owner-facing Activity API and stream retain the envelope.
 
 `acceptedAt` is the observed host acceptance time, before routing/admission.
 Queued requests retain their observed queue acceptance and `dequeuedAt`;
@@ -658,6 +661,13 @@ system/init. The installed SDK exposes connection state without per-server
 start/end marks. Unknown marks have no timed step; an empty list does not
 claim complete runtime coverage. These observations stay in host storage and
 never enter provider history.
+Names are sampled from the first Claude system/init frame only: at most 32
+server names, each at most 240 UTF-8 bytes, with
+`mcp_connect:additional_servers_omitted` when that sample is incomplete.
+The lifecycle retains at most 63 distinct missing-evidence names of at most
+256 UTF-8 bytes each, plus `additional_missing_evidence_omitted` on overflow.
+Omitted names are not retained for deduplication. Continuation init frames do
+not expand the sample; missing evidence remains explicit when a limit is hit.
 
 Historical records may omit either timing array; neither is backfilled.
 
