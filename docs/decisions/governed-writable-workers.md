@@ -1601,7 +1601,7 @@ queues the capture
 (`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:291-312`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
-`packages/ui-server/src/brain/turn-scope.ts:176-184`). Pi's agent loop runs in
+`packages/ui-server/src/brain/turn-scope.ts:191-199`). Pi's agent loop runs in
 its worker, so a frozen worker cannot send its next provider request until the
 resume. On the native fixture the gap between a result and the next request
 tracked the hold, not the bridge call.
