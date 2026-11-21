@@ -229,7 +229,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       // underlying POOLED ArrayBuffer (byteOffset/byteLength discarded), so a
       // binary frame cannot be decoded correctly here. The protocol is JSON
       // text; reject anything else rather than parse a slab.
-      // Full payload/schema parsing stays metered. A bounded 4 KiB lexical
+      // Full payload/schema parsing stays metered. A bounded lexical
       // discriminator probe puts optional receipts on a separate bucket;
       // they cannot consume voice/chat credit or trigger voice gap handling.
       const receipt = isClientReceipt(evt.data);
@@ -373,6 +373,8 @@ export function createWsUpgrade(host: WsHost): MiddlewareHandler<AppEnv> {
 /** Routing only, never schema acceptance: the full parser still validates it.
  * Unidentifiable/oversized frames retain the conservative general guard. */
 function isClientReceipt(raw: unknown): boolean {
+  // This bounds lexical work in UTF-16 units; parseClientMessage separately
+  // enforces the receipt acceptance limit in encoded bytes, after metering.
   if (typeof raw !== "string" || raw.length > MAX_CLIENT_TURN_RECEIPT_BYTES) return false;
   // Scan only top-level string tokens. Never JSON-decode unmetered input;
   // nested or quoted type text cannot borrow the receipt bucket. The full
