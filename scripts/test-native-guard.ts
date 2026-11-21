@@ -390,7 +390,7 @@ export function startNativeTestRelay(upstream: string | undefined) {
 
 function expectedNativeExec(command: string, args: readonly string[], options: SpawnContext): string[] {
   const native = executableCandidates(command, args, options).filter(value => isNativeClaude(value, [], options));
-  return [...new Set((native.length ? native : [command]).flatMap(value => [resolve(options.cwd ?? process.cwd(), value), resolveExecutable(value, options)]))];
+  return [...new Set(native.flatMap(value => [resolve(options.cwd ?? process.cwd(), value), resolveExecutable(value, options)]))];
 }
 
 /** Direct SDK launch: empty filesystem, fresh PID/network namespaces, one IPC. */
