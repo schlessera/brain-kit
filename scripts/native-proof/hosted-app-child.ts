@@ -1,3 +1,4 @@
+import { proveNativeMaintenancePacking } from "./maintenance-packing.js";
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -318,7 +319,8 @@ try {
   const replayBegin = app.wsHost.failureReplay.begin.bind(app.wsHost.failureReplay);
   app.wsHost.failureReplay.begin = async (...args: any[]) => { const answer = await replayBegin(...args), finish = answer.finish.bind(answer); answer.finish = async (...values: any[]) => { const start = performance.now(); event("failure_replay_finish_start"); try { return await finish(...values); } finally { event("failure_replay_finish_end", { elapsedMs: performance.now() - start }); } }; return answer; };
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus admission", ttlSeconds: 3600 });
-  server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
+  server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request: Request, server: any) => new URL(request.url).pathname === "/native-proof/maintenance-packing"
+    ? proveNativeMaintenancePacking(app.wsHost.execution.boundary, source!, brain!).then(Response.json) : app.fetch(request, server), websocket: app.websocket });
   // Published by rename: the parent polls for ready.json and then parses it.
   writeFileSync(join(dir!, "ready.json.tmp"), JSON.stringify({
     rootWarnings: observability.logs.find({severity:"WARN"}).filter((log:any)=>String(log.body).includes("runs as root")).map((log:any)=>String(log.body)),

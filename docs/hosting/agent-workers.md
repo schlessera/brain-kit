@@ -929,6 +929,46 @@ bytes. Deleting a lower-only baseline file does not free writable capacity.
 No host-backed output overflow fallback exists. The agent's limits note states
 the same resolved output allowance.
 
+Hosted maintenance uses a **dedicated reserved packing stage**, following the
+maintainer's 2026-11-20 ruling on #4288. The normal `brain maintain` pass runs
+with `--no-git`, publishes its validated index/registry/scratch output, and
+then inspects Git inside a credential-free worker. Git never runs on the host.
+A separate worker packs and publishes only `.git`. The generic
+`BRAIN_UI_OUTPUT_STAGING_BYTES` default and its other consumers are unchanged.
+
+The plan reads raw Git object sizes, including packed objects, and page-rounds
+`3 × (sum(raw object bytes + 128 per object) + ref text bytes + 128 per ref) + 16 MiB`. This covers both
+non-destructive loose-object passes, indexes and auxiliary files with a safety
+margin while the old packs remain present. The dedicated stage adds another
+16 MiB for the frozen Git adapter and mount scaffolds, then doubles that sum
+for the image allowance so formatted filesystem metadata cannot consume Git's
+preflight headroom. Its hard bound is the
+managed volume's configured capacity minus the recovery reserve and the running
+turn's free-space floor (`max(5% of filesystem capacity, 2 GiB)`), divided by two
+for the image and publication copies. Before creating it, the native manager reserves all outstanding
+stage/tree allowances (including uncertain cleanup charges) plus this stage
+against observed free space, preserving that floor and recovery allocation.
+Packing uses an exclusively created, fully allocated fixed-size ext4 image on
+the managed store, mounted through an owned autoclear loop device. The image's
+capacity enforces the write quota; the sealed worker-identity ticket attests
+the exact usable filesystem capacity after ext4 metadata, bounded by the image.
+This avoids enabling Btrfs qgroups on the brain
+volume. Its reservation also covers one complete publication copy; later turn
+trees subtract that reservation and preserve the same floor. Ordinary stages
+keep their existing tmpfs budget. Memory headroom is not a packing skip condition.
+The stage stays charged until mount/device/image deletion is confirmed; an
+interrupted setup retains its durable intent and charge for recovery. The root
+broker needs trusted `mkfs.ext4` (e2fsprogs), ext4 support, `/dev/loop-control`
+and permission to create and use an available loop device. No new environment
+setting increases every turn's allowance.
+
+Insufficient or unknown headroom gives the named `skipped — packing_headroom`
+maintenance result before Git maintenance starts; the next run retries. A
+single object larger than the generic allowance can pack when the dedicated
+reservation fits. The existing 4 GiB per-file publication limit still applies.
+Git's own out-of-space refusal remains `FAILED — no space:` with the starting
+headroom and launcher-declared stage allowance.
+
 Git packing preflights the raw object/ref sizing rule
 `roundUpTo4096(3 * (sum(raw object bytes + 128 per object) + ref text bytes + 128 per ref) + 16 MiB)`.
 Insufficient or unknown capacity produces the named `packing_headroom` skip

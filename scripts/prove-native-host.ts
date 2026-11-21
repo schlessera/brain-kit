@@ -20,7 +20,7 @@ export function nativeHostDockerArgs(root: string, artifact: string, uid: string
         "--cap-drop=ALL", ...(uid === "0" ? ["--cap-add=SETFCAP"] : []), ...["SYS_ADMIN", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"].map(value => `--cap-add=${value}`),
         "--security-opt=no-new-privileges", `--security-opt=seccomp=${join(root, "scripts/native-proof/seccomp.json")}`,
         ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []),
-        "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
+        "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:* rwm",
         "--mount", `type=bind,source=${dirname(artifact)},target=/proof-runs`,
         "--mount", `type=bind,source=${bun},target=/usr/local/bin/bun,readonly`,
         "--mount", `type=bind,source=${root},target=/repo,readonly`,

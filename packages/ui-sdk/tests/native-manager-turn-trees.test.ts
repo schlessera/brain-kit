@@ -44,7 +44,7 @@ function fixture() {
     spyOn(fs, "existsSync").mockImplementation(path => path === join(stageRoot, id(2)) && inspectionError ? false : exists(path)),
     spyOn(fs, "lstatSync").mockImplementation(((path: string, options?: never) => {
       if (path === join(stageRoot, id(2)) && inspectionError) throw Object.assign(Error(inspectionError), { code: inspectionError });
-      const value = lstat(path, options); value.uid = 0;
+      const value = lstat(path, options); if (!value) return value; value.uid = 0;
       if (!path.startsWith(root)) value.mode &= ~0o022;
       return value;
     }) as typeof fs.lstatSync),
@@ -57,6 +57,7 @@ function fixture() {
       return stat(path, options);
     }) as typeof fs.statSync),
     spyOn(fs, "readFileSync").mockImplementation(((path: string | number, options?: never) => {
+      if (path === "/proc/meminfo") return "MemAvailable: 0 kB\n";
       if (path === "/proc/self/mountinfo") return `41 25 0:38 / ${root} rw - btrfs ${config.devicePath} rw\n`;
       if (path === "/sys/dev/block/1:0/size") return String(config.capacityBytes / 512);
       if (path === `/sys/fs/btrfs/${config.fsid}/devices/device/dev`) return "1:0";
@@ -66,7 +67,7 @@ function fixture() {
     }) as typeof fs.readFileSync),
     spyOn(fs, "readdirSync").mockImplementation(((path: string, options?: never) =>
       path === `/sys/fs/btrfs/${config.fsid}/devices` ? ["device"] : path === "/proc" ? ["self", ...processes.keys()] : path === state ? list(path).sort() : list(path, options)) as typeof fs.readdirSync),
-    spyOn(fs, "statfsSync").mockImplementation((() => ({ type: 0x9123683e, bavail, bsize: 4096 })) as unknown as typeof fs.statfsSync),
+    spyOn(fs, "statfsSync").mockImplementation((() => ({ type: 0x9123683e, blocks: config.capacityBytes / 4096, bavail, bsize: 4096 })) as unknown as typeof fs.statfsSync),
     spyOn(inspection, "createNativeIdentityInspector").mockReturnValue({ launches: 0, async close() {}, async run(_program, path) {
       return { code: 0, errors: "", text: JSON.stringify({ fsid: config.fsid, devices: 1, uuid: path === join(root, "brain") ? config.brainUuid : "b".repeat(32),
         parentUuid: config.brainUuid, receivedUuid: "0".repeat(32), rootId: "256", transaction: "1", readOnly: path !== join(root, "brain") }) };
@@ -235,4 +236,38 @@ test("the reader census reads every process's mounts and refuses what it cannot 
   expect(nativeTurnTreeReaders("0:38", "/.brain-native/trees/a", proc), "CENSUS_MATCHES_ONLY_THIS_TREE").toEqual([11]);
   fs.mkdirSync(join(proc, "15")); fs.mkdirSync(join(proc, "15", "mountinfo"));
   expect(() => nativeTurnTreeReaders("0:38", "/.brain-native/trees/a", proc), "UNREADABLE_CENSUS_IS_NOT_EMPTY").toThrow();
+});
+
+test("packing preserves the turn floor and reservation with zero memory headroom",async()=>{
+ const f=fixture(),capacity=100*1024**3;
+ // Keep the privileged kernel doubles; exercise the real manager/intents.
+ f.config.capacityBytes=capacity;
+ const pages=(bytes:number)=>Math.floor(bytes/4096);
+ const manager=await f.manager({capacityBytes:capacity});
+ await manager.run({operation:"checkpoint",id:id(10)});
+ f.setAvailablePages(pages(4*1024**3));
+ await expect(manager.run({operation:"prepareStage",id:id(11),checkpointId:id(10),allowanceBytes:16*1024**2,packing:true}),"PACKING_MATCHES_FIVE_PERCENT_TURN_FLOOR").rejects.toMatchObject({code:"capacity"});
+ f.setAvailablePages(pages(6*1024**3));
+ await expect(manager.run({operation:"prepareStage",id:id(12),checkpointId:id(10),allowanceBytes:256*1024**2,packing:true}),"PACKING_REQUIRES_DISK_NOT_MEMORY").resolves.toBeInstanceOf(Response);
+ await expect(manager.run({operation:"prepareStage",id:id(14),checkpointId:id(10),allowanceBytes:4096}),"PACKING_PRESERVES_GENERIC_TMPFS_BUDGET").resolves.toBeInstanceOf(Response);
+ expect(f.prepared.find(stage=>stage.id===id(12)),"MANAGER_SELECTS_DISK_PACKING_STAGE").toHaveProperty("packing",true);
+ // With no disk stage this tree fits; the existing stage owns both the image
+ // and the publication copy, and neither allowance can be promised again.
+ await expect(manager.run({operation:"prepareTurnTree",id:id(13),allowanceBytes:768*1024**2}),"TURN_TREE_CANNOT_SPEND_PACKING_RESERVATION").rejects.toMatchObject({code:"capacity"});
+ await manager.run({operation:"releaseStage",id:id(12)});
+ expect((await (await manager.run({operation:"prepareTurnTree",id:id(13),allowanceBytes:768*1024**2})).json()).id).toBe(id(13));
+});
+
+test("interrupted disk-stage setup recovers only its protected owned image",async()=>{
+ const f=fixture(),capacity=100*1024**3;f.config.capacityBytes=capacity;f.setAvailablePages(6*1024**3/4096);
+ const manager=await f.manager({capacityBytes:capacity});await manager.run({operation:"checkpoint",id:id(10)});
+ await manager.run({operation:"prepareStage",id:id(12),checkpointId:id(10),allowanceBytes:16*1024**2,packing:true});
+ const path=join(f.stageRoot,id(12)),saved=path+"-saved",foreign=join(f.config.storePath,"foreign");
+ fs.mkdirSync(foreign);fs.writeFileSync(join(foreign,"packing.img"),"Athena's independent bytes");fs.renameSync(path,saved);fs.symlinkSync(foreign,path);
+ await expect(manager.run({operation:"releaseStage",id:id(12)}),"PACKING_RECOVERY_REFUSES_REPLACED_PARENT").rejects.toMatchObject({code:"unknown"});
+ expect(fs.readFileSync(join(foreign,"packing.img"),"utf8")).toBe("Athena's independent bytes");
+ fs.unlinkSync(path);fs.renameSync(saved,path);fs.writeFileSync(join(path,"packing.img"),Buffer.alloc(4096));
+ await manager.run({operation:"releaseStage",id:id(12)});
+ expect(fs.existsSync(path),"PACKING_RECOVERY_REMOVES_PARTIAL_OWNED_IMAGE").toBe(false);
+ expect(fs.existsSync(join(f.stageRoot,id(12)+".allowance"))).toBe(false);
 });

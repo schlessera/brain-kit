@@ -243,7 +243,7 @@ function walIndexEntry(root: string, rel: string): Entry | undefined {
 }
 function processStart(pid: number) { return Bun.file(`/proc/${pid}/stat`).text().then(t => t.replace(/^.*\) /s, "").split(" ")[19]); }
 /** Acquisition completes before any synchronous SDK spawn callback. No copy/userxattr fallback. */
-export async function prepareNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; folderPaths?: readonly string[]; signal?: AbortSignal }): Promise<PreparedWorkerOutput> {
+export async function prepareNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; folderPaths?: readonly string[]; signal?: AbortSignal; packingAllowanceBytes?: number }): Promise<PreparedWorkerOutput> {
   options.signal?.throwIfAborted();
   const retainedFolders = Object.freeze([...(options.folderPaths ?? [])]);
   if (retainedFolders.some(rel => !rel || rel.startsWith("/") || rel.startsWith("~") || /^[A-Za-z]:/.test(rel) || rel.includes("\\")
@@ -276,9 +276,20 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
   };
   try {
     let limits = hostOutputStagingLimits();
-    reservation = processStateLedger().reserve(undefined, undefined, limits);
+    if (options.packingAllowanceBytes !== undefined) {
+      const status = await native.manager.ready(options.signal);
+      const maximum = Math.floor((status.capacityBytes - status.recoveryReserveBytes - Math.max(status.capacityBytes * .05, 2 * 1024 ** 3)) / 2 / 4096) * 4096;
+      const bytes = options.packingAllowanceBytes;
+      if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes % 4096 || bytes > maximum)
+        throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy, "packing_headroom: dedicated packing stage exceeds the managed store's finite capacity above its floor");
+      limits = { allowanceBytes: bytes, budgetBytes: maximum };
+    }
+    // Disk packing is charged by the durable manager reservation, including
+    // publication copies. It must not spend the ordinary tmpfs memory budget.
+    reservation = options.packingAllowanceBytes === undefined ? processStateLedger().reserve(undefined, undefined, limits)
+      : { bytes: 0, turnTempBytes: 0, outputStagingBytes: limits.allowanceBytes, release() {} };
     stageRequested = true;
-    stage = await native.manager.prepareStage(id, native.checkpoint.id, reservation.outputStagingBytes, options.signal);
+    stage = await native.manager.prepareStage(id, native.checkpoint.id, reservation.outputStagingBytes, options.signal, options.packingAllowanceBytes !== undefined ? true : undefined);
     options.signal?.throwIfAborted();
     const expected = join(dirname(brain), ".brain-native", "stages", id);
     if (stage.id !== id || stage.path !== expected || stage.checkpointId !== native.checkpoint.id || stage.checkpointUuid !== native.checkpoint.uuid
@@ -473,6 +484,13 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         const directoryModes: { fd: number; mode: number; rel: string; parent: number; name: string; temporaryMode: number }[] = [];
         let publicationError: unknown, installedAll = false, replacedPackMetadata = false;
         const installedPackFiles: { fd: number; name: string; installed: boolean }[] = [];
+        let packingCopyBytes = 0;
+        const reservePackingCopy = (bytes: number) => {
+          if (options.packingAllowanceBytes === undefined) return;
+          packingCopyBytes += bytes;
+          if (!Number.isSafeInteger(packingCopyBytes) || packingCopyBytes > options.packingAllowanceBytes)
+            throw Error("Packing publication exceeds its reserved copy allowance; no output was installed");
+        };
         const finalizeDirectory = (directory: (typeof directoryModes)[number]) => {
           const held = fstatSync(directory.fd), visible = lstatSync(at(directory.parent,directory.name));
           if (!visible.isDirectory() || held.dev !== visible.dev || held.ino !== visible.ino || (held.mode & 0o7777) !== directory.temporaryMode) throw Error(`stale maintenance output: ${directory.rel}`);
@@ -489,8 +507,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               if (after.get(rel)!.stamp?.startsWith("worker:")) {
                 const beforeRead = await privateStat(true, rel);
                 if (`worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind}` !== after.get(rel)!.stamp) throw Error(`Native private output changed before copy: ${rel} (inspected ${after.get(rel)!.stamp}, found worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind})`);
+                reservePackingCopy(beforeRead!.bytes);
                 try {
-                  pending.at(-1)!.recovery = processStateLedger().reserve(undefined, undefined, { allowanceBytes: beforeRead!.bytes, budgetBytes: hostOutputStagingLimits().budgetBytes });
+                  if (options.packingAllowanceBytes === undefined) pending.at(-1)!.recovery = processStateLedger().reserve(undefined, undefined, { allowanceBytes: beforeRead!.bytes, budgetBytes: hostOutputStagingLimits().budgetBytes });
                 } catch { throw Error("Native private output recovery capacity unavailable; the turn already executed and its output was not published"); }
                 const target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode);
                 try {
@@ -515,6 +534,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               let target: Awaited<ReturnType<typeof open>> | undefined;
               try {
                 const inputInfo = await input.stat({ bigint: true });
+                reservePackingCopy(Number(inputInfo.size));
                 const found = stamp(inputInfo);
                 if (found !== after.get(rel)!.stamp) throw Error(`Native output changed before copy: ${rel} (inspected ${after.get(rel)!.stamp}, found ${found})`);
                 target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode);

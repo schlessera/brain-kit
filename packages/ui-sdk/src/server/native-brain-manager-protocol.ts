@@ -10,7 +10,7 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("release"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("delta"), from: nativeCheckpointId, to: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("listRecovery"), after: nativeCheckpointId.nullable() }).strict(),
-  z.object({ operation: z.literal("prepareStage"), id: nativeCheckpointId, checkpointId: nativeCheckpointId, allowanceBytes: z.number().int().positive() }).strict(),
+  z.object({ operation: z.literal("prepareStage"), id: nativeCheckpointId, checkpointId: nativeCheckpointId, allowanceBytes: z.number().int().positive(), packing: z.literal(true).optional() }).strict(),
   z.object({ operation: z.literal("attestStage"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("inspectStage"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("releaseStage"), id: nativeCheckpointId }).strict(),
@@ -103,7 +103,7 @@ export interface NativeRecoveryRecord {
   checkpoint?: NativeCheckpoint;
   kind?: "stage" | "tree";
   stage?: NativeStage;
-  stageRequest?: { checkpointId: string; checkpointUuid: string; allowanceBytes: number };
+  stageRequest?: { checkpointId: string; checkpointUuid: string; allowanceBytes: number; packing?: true };
   /** A turn data tree's admission charge (#2911). */
   treeRequest?: { allowanceBytes: number };
 }
