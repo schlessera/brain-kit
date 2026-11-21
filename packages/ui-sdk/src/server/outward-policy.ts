@@ -3,7 +3,7 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import type { BackendBridge, PermissionDecision } from "./backend.js";
-import { safetySnapshotRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafety, type AdmissionSafetySnapshot } from "./admission-safety.js";
+import { safetySnapshotRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafety, type AdmissionSafetySnapshot, outwardAdmissionRefusal } from "./admission-safety.js";
 import { bashCommand, type CompiledConfirmPattern } from "./confirm-patterns.js";
 import { runMaintenanceWorkerSync, type MaintenanceHost } from "./maintenance-worker.js";
 import { classifyOutwardCall, outwardTarget, type OutwardClassification, type VisibleOutwardAction } from "./outward-actions.js";
@@ -75,11 +75,19 @@ export function prepareOutwardPlan(options: {
 /** Recompute standing authority at the last host-controlled dispatch boundary.
  * A completed per-use outward card is authority for its exact input, not a rule. */
 export function commitOutwardPlan(plan: OutwardPlan, options: {
-  bridge?: BackendBridge | null; before?: AdmissionSafetySnapshot; approved: boolean; signal?: AbortSignal | null;
+  bridge?: BackendBridge | null; safety?: AdmissionSafety; before?: AdmissionSafetySnapshot; approved: boolean; signal?: AbortSignal | null;
 }): string | null {
   let now: AdmissionSafetySnapshot | undefined;
-  try { now = options.bridge?.admissionSafety?.read(); } catch { return STALE_SAFETY_ADMISSION; }
-  const unavailable = safetySnapshotRefusal(now, options.before);
+  try {
+    now=(options.safety??options.bridge?.admissionSafety)?.read();
+    // Own-input exclusion retains an exact owner-approved card only. A
+    // standing rule still sees the full, unexcluded recording/taint state.
+    if(!options.approved&&options.bridge?.admissionSafety){
+      const full=options.bridge.admissionSafety.read();
+      if(safetySnapshotRefusal(full,options.before)||full.restricted&&plan.classification.actions.length)return STALE_SAFETY_ADMISSION;
+    }
+  } catch { return STALE_SAFETY_ADMISSION; }
+  const unavailable = safetySnapshotRefusal(now, options.before)??(plan.classification.actions.length?outwardAdmissionRefusal(options.safety??options.bridge?.admissionSafety,options.before):null);
   if (unavailable || options.signal?.aborted) return unavailable ?? STALE_SAFETY_ADMISSION;
   // Remote resolution can itself block while another writer commits. The
   // final snapshot, not a taint read made before that lookup, decides.

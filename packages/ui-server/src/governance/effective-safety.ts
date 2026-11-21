@@ -5,6 +5,13 @@ import type { GovernanceWrites } from "./event-writes.js";
 import { safetyEvidenceSequence, safetyProjection, safetyScopeTurns } from "./safety-store.js";
 import { safetyQueue } from "./safety-queue.js";
 
+const causalReaders=new WeakMap<AdmissionSafety,(excluded:readonly string[])=>ReturnType<AdmissionSafety['read']>>();
+/** Only the concrete host facade can subtract a known own reservation. */
+export function readCausalRoot(root:AdmissionSafety,excluded:readonly string[]):{state:ReturnType<AdmissionSafety['read']>;externalRevision:string|null}{
+ const reader=causalReaders.get(root);if(reader)return {state:reader(excluded),externalRevision:null};
+ const state=root.read();return {state,externalRevision:state.evidenceRevision};
+}
+
 /** Concrete input from the host's future trust publisher, not a policy loader or matcher. */
 export interface LiveTrustRevision {
   revision(): string;
@@ -55,7 +62,7 @@ export function createEffectiveSafety(db: Database, options: {
         : !projection.reasons.some(reason => ["recording_pending", "recording_failed", "capacity"].includes(reason)),
       authorityCurrent: authority.current };
   };
-  return {
+  const facade:AdmissionSafety={
     read() {
       // Projection and immutable sequence must describe one SQLite snapshot.
       return db.inTransaction ? read() : Database.prototype.transaction.call(db, read).deferred() as ReturnType<AdmissionSafety["read"]>;
@@ -68,4 +75,6 @@ export function createEffectiveSafety(db: Database, options: {
       return () => { listeners.delete(changed); release?.(); options.signal?.removeEventListener("abort", changed); };
     },
   };
+  causalReaders.set(facade,excluded=>{const state=facade.read();return {...state,recordingAvailable:options.writes?.recordingAvailable?.(options.turnId,options.sessionId(),excluded)??state.recordingAvailable};});
+  return facade;
 }

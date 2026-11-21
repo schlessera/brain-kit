@@ -45,11 +45,11 @@ import {
   isCompletedAutonomousToolCall,
 } from "@schlessera/brain-ui-sdk/server";
 
-import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
+import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, toolAdmissionSafety, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import type { TurnContext } from "./turn-context.js";
 import { PI_BRAIN_UPDATE_TOOL_NAME } from "./tools.js";
-import { rememberPiAdmission } from "./tool-admission.js";
+import { rememberPiAdmission, revalidatePiAdmission } from "./tool-admission.js";
 
 export interface PermissionGateOptions {
   /** The session's turn holder — the gate reads the CURRENT turn's bridge. */
@@ -116,18 +116,29 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         // anything is decided (#3812).
         const safety = turn.bridge?.inputSafety;
         safety?.admitting?.(event.toolCallId, event.toolName);
-        const answer = await admit(event);
+        let answer:ToolCallEventResult|undefined;
+        try{answer=await admit(event);}catch(error){await safety?.refused?.(event.toolCallId,true);return {block:true,reason:error instanceof Error?error.message:'Host tool admission is unavailable.'};}
         // A block is this host's denial before the call runs. It refuses the
         // id at the collector, so nothing later under it is admitted or let
         // through, and for the id's only admission, never let through, it
         // discharges the call's result obligation.
         if (answer?.block) { await safety?.refused?.(event.toolCallId, true); return answer; }
-        // The collector's last check before the call runs: one it can no
-        // longer let run is blocked instead.
-        try { await safety?.allowed?.(event.toolCallId); }
-        catch (error) {
-          await safety?.refused?.(event.toolCallId, true);
-          return { block: true, reason: error instanceof Error ? error.message : "Safety recording refused this call." };
+        const validate=()=>{
+          turn.signal?.throwIfAborted();
+          const visible=prepareOutwardPlan({toolName:event.toolName,shellToolName:"bash",input:event.input,autonomous:!!turn.autonomous}).classification.actions.length>0;
+          return safetyAdmissionRefusal(turn.bridge?.admissionSafety)??(visible?revalidatePiAdmission(turn,event.toolName,event.toolCallId,event.input??{}):null);
+        };
+        let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
+        try{
+          const stale=validate();if(stale)throw new Error(stale);
+          ticket=event.toolName!=="bash"&&safety?.prepareDispatch?await safety.prepareDispatch(event.toolCallId):undefined;
+          if(event.toolName!=="bash"&&!ticket)await safety?.allowed?.(event.toolCallId,validate);
+          const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
+          ticket?.commit(validate);
+        }catch(error){
+          try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}
+          await safety?.refused?.(event.toolCallId,true);
+          return {block:true,reason:error instanceof Error?error.message:'Safety recording refused this call.'};
         }
         return answer;
       });
@@ -165,20 +176,26 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
 }
 
 /** Host admission shared by the native worker RPC and the in-process binding. */
-export async function decidePiToolPermission(options: PermissionGateOptions, toolName: string,
+export async function decidePiToolPermission(options:PermissionGateOptions,toolName:string,input:Record<string,unknown>,toolUseId:string):Promise<PermissionDecision>{
+  try{return await decidePiToolPermissionUnchecked(options,toolName,input,toolUseId);}
+  catch(error){return {behavior:"deny",message:error instanceof Error?error.message:"Host tool admission is unavailable."};}
+}
+
+async function decidePiToolPermissionUnchecked(options: PermissionGateOptions, toolName: string,
   input: Record<string, unknown>, toolUseId: string): Promise<PermissionDecision> {
   const { turn, allowedTools } = options;
   const unavailable = piToolAvailabilityRefusal(turn, toolName);
   if (unavailable) return { behavior: "deny", message: unavailable };
   const policy = compileWorkerCommandPolicy(turn.autonomous ? undefined : turn.commandPolicy);
+  const safety=toolAdmissionSafety(turn.bridge,toolUseId,toolName);
   const outward = (value: unknown) => prepareOutwardPlan({ toolName, shellToolName: "bash", input: value,
-    allow: turn.commandPolicy?.outwardAllow, taint: turn.commandPolicy?.taint, safety: turn.bridge?.admissionSafety, autonomous: Boolean(turn.autonomous), voice: turn.posture === "voice", configurationRoot: turn.configurationRoot, maintenance: turn.maintenance });
+    allow: turn.commandPolicy?.outwardAllow, taint: turn.commandPolicy?.taint, safety, autonomous: Boolean(turn.autonomous), voice: turn.posture === "voice", configurationRoot: turn.configurationRoot, maintenance: turn.maintenance });
   const observe = (value: unknown, decision: Parameters<typeof observeOutwardPlan>[1]["decision"]) => observeOutwardPlan(outward(value), { bridge: turn.bridge, toolName, input: value, toolUseId, decision });
   const denied = denyWorkerCommand(policy, { bridge: turn.bridge, toolName, shellToolName: "bash", input, toolUseId });
   if (denied) { observeOutwardPlan(prepareOutwardPlan({ toolName, shellToolName: "bash", input, taint: turn.commandPolicy?.taint, autonomous: Boolean(turn.autonomous) }), { bridge: turn.bridge, toolName, input, toolUseId, decision: "refused" }); return { behavior: "deny", message: denied }; }
   if (turn.signal?.aborted) return { behavior: "deny", message: "Turn cancelled before tool admission." };
   const outwardPlan = outward(input);
-  const snapshot = turn.bridge?.admissionSafety?.read();
+  const snapshot = safety?.read();
   let outwardApproved = false;
   const confirmPatterns = [...options.confirmPatterns, ...policy.confirm, ...(outwardPlan.pattern ? [outwardPlan.pattern] : [])];
   if (outwardPlan.voiceRefusal) { observe(input, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
@@ -196,7 +213,7 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
     const original = effective;
     const request = createToolPermissionRequest({ toolUseId, toolName, input: original, description: approval.reason,
       approval, outsideEnforcedAllowlist: turn.enforceAllowedTools && approval.kind === "tool" });
-    const decision = await requestPolicyPermission(policy, { bridge: turn.bridge, request, shellToolName: "bash",
+    const decision = await requestPolicyPermission(policy, { bridge: turn.bridge?{...turn.bridge,admissionSafety:safety}:turn.bridge, request, shellToolName: "bash",
       permission: { noGrantSurface: turn.noGrantSurface }, signal: turn.signal });
     if (decision.behavior === "deny") { observe(original, decision); return decision; }
     if (approval.kind === "command" && outwardPlan.needsApproval) outwardApproved = true;
@@ -222,9 +239,9 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
   try{await turn.bridge?.inputSafety?.begin(toolUseId,toolName,effective);}
   catch(error){return {behavior:"deny",message:error instanceof Error?error.message:"Safety collection unavailable"};}
   const finalPlan = outward(effective);
-  const stale = commitOutwardPlan(finalPlan, { bridge: turn.bridge, before: snapshot, approved: outwardApproved, signal: turn.signal });
+  const stale = commitOutwardPlan(finalPlan, { bridge: turn.bridge, safety, before: snapshot, approved: outwardApproved, signal: turn.signal });
   observeOutwardPlan(finalPlan, { bridge: turn.bridge, toolName, input: effective, toolUseId, decision: stale ? "refused" : { behavior: "allow" } });
   if (stale) return { behavior: "deny", message: stale };
-  rememberPiAdmission(turn, toolName, toolUseId, effective, snapshot, outwardApproved);
+  rememberPiAdmission(turn, toolName, toolUseId, effective, snapshot, outwardApproved, safety);
   return effective === input ? { behavior: "allow" } : { behavior: "allow", updatedInput: effective };
 }

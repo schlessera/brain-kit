@@ -193,3 +193,13 @@ test("host A/C and explicit empty override ambient B for both Pi spawn tools (#1
     expect(readFileSync(c.argvLog, "utf8")).toBe(readFileSync(a.argvLog, "utf8"));
   } finally { brain.cleanup(); }
 });
+
+for(const name of ['bash','grep'] as const)for(const cancel of ['tool','turn'] as const)test(`${name}: an already cancelled ${cancel} signal never starts its wrapper`,async()=>{
+ const brain=await makeEmptyBrain(),{path,argvLog}=writeWrapper('cancelled-tool-wrapper.sh'),controller=new AbortController();controller.abort();
+ const turn=createTurnContext();if(cancel==='turn')turn.signal=controller.signal;
+ const tool=createBrainTools({brain:createBrainAccess(brain.root),exec:{wrapper:path},turn,lock:toolLockFromKeyed(createKeyedLock())}).find(tool=>tool.name===name)!;
+ try{
+  await expect(tool.execute('cancelled',name==='bash'?{command:'printf Ithaca'}:{pattern:'Ithaca'},cancel==='tool'?controller.signal:undefined,undefined,CTX)).rejects.toMatchObject({name:'AbortError'});
+  expect(existsSync(argvLog),'CANCELLED_SIGNAL_PRECEDES_WRAPPER_EXECUTION').toBe(false);
+ }finally{await brain.cleanup();}
+});

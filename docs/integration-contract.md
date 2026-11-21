@@ -1901,3 +1901,12 @@ archived discussion. Optional negotiated history paging/provenance fields are
 additive; the retention/privacy meaning change is a pre-1.0 breaking minor.
 See [durable dialogue](integration-contract/wire.md#durable-live-dialogue-breaking-retention-supersession-3177).
 Historical provider input remains separate #3178 work.
+
+
+## Causal tool admission view (additive, 0.45.0, #4271)
+
+The SDK's optional host-owned causal view distinguishes an outward tool's own
+input and its exact pending reservations from independent evidence during
+final dispatch waits. Optional host-owned dispatch tickets separate asynchronous
+preparation from the synchronous final allowance. See
+[the package API contract](integration-contract/package-api.md#causal-tool-admission-view-additive-0450-4271).

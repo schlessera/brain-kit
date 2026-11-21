@@ -8,7 +8,7 @@ import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/gover
 import type { BackendActivityEvent, BackendBridge, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { MUTATING_TOOL_MATCHER } from "../../ui-backend-claude/src/tool-policy";
-import { decidePiToolPermission } from "../../ui-backend-pi/src/permission-gate";
+import { createPermissionGate } from "../../ui-backend-pi/src/permission-gate";
 import { createTurnContext } from "../../ui-backend-pi/src/turn-context";
 import { createBrainAccess } from "../../ui-backend-pi/src/brain-access";
 import { createBrainToolKit } from "../../ui-backend-pi/src/tool-kit";
@@ -20,8 +20,9 @@ import { createPrincipal } from "../src/db/principals";
 import { openSqliteWriter } from "../src/db/write-worker";
 import { createGovernanceWrites } from "../src/governance/event-writes";
 import { createEffectiveSafety } from "../src/governance/effective-safety";
+import {safetyQueue} from "../src/governance/safety-queue";
 import { createSafetyCollector } from "../src/governance/safety-collector";
-import { safetyCatalogCreated, safetyRecords } from "../src/governance/safety-store";
+import { safetyCatalogCreated, safetyRecords, beginSafetyCollection, reserveSafetyWrite, releaseSafetyWrite } from "../src/governance/safety-store";
 import { occurrence } from "../src/governance/occurrence";
 import { queryGovernanceEvents } from "../src/governance/events";
 import { prepareTurnEgress } from "../src/brain/turn-egress";
@@ -38,23 +39,27 @@ import { requestToolPermission } from "@schlessera/brain-ui-sdk/server";
 import { NativeFileVersions } from "@schlessera/brain-ui-sdk/internal";
 import { handleToolApproval, handleToolDenial } from "../src/ws/handlers/tool-permission";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import {createPermissions} from "../src/ws/bridge-capabilities/permissions";
+import {createBridgeContext} from "../src/ws/bridge-capabilities/context";
+import type {RunningTurn} from "../src/ws/turns";
 import { createSettingsWrites } from "../src/db/settings-writes";
 import { getAutoAllowedTools } from "../src/db/settings";
 import { retireChat, resolveChat } from "../src/ws/chat-lifecycle";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture";
 import { createTurnJournal } from "../src/brain/turn-journal";
 
-async function fixture() {
+async function fixture(shellProxied = true, restricted = false) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-live-safety-")), db = createUiDb(join(root, "ui.db"));
   const writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer), bindingId = crypto.randomUUID();
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
-  await writes.safetyBegin({ turnId: "voyage", bindingId, sessionId: null, principalId: principal.id, backendId: "claude", at: 0 });
+  const collection={turnId:"voyage",bindingId,sessionId:null,principalId:principal.id,backendId:"claude",at:0,restricted};
+  if(restricted)beginSafetyCollection(db,collection);else await writes.safetyBegin(collection);
   db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('ithaca',0,0,'claude')").run();
   db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca',?,0)").run(principal.id);
   safetyCatalogCreated(db, "ithaca", principal.id, "voyage"); await writes.bind("voyage", "ithaca");
   const controller = new AbortController();
   const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, sessionId: () => "ithaca", backendId: "claude",
-    signal: controller.signal, shellProxied: () => true, brainPath: root });
+    signal: controller.signal, shellProxied: () => shellProxied, brainPath: root });
   await collector.ready("claude", 1);
   const state = () => writes.safety("voyage", "ithaca");
   const actor = { principalId: principal.id, channel: "owner_history" as const };
@@ -85,7 +90,7 @@ const command = "git push https://github.com/odysseus/voyage.git main";
 const allow = [{ command: "^git push ", remotes: ["github.com/odysseus/*"], index: 0 }];
 type Binding = "claude-hook" | "claude-callback" | "pi";
 async function execute(f: Fixture, binding: Binding, options: {
-  phase?: "approval" | "input" | "index" | "lock"; interleave?: () => Promise<unknown>; explicit?: boolean;
+  phase?: "approval" | "input" | "index" | "lock" | "allowed"; interleave?: () => Promise<unknown>; explicit?: boolean; legacyAllowed?: boolean; freshFacade?: boolean; afterPreparation?:boolean;
 }) {
   let interleaved = false;
   const pause = async (phase: typeof options.phase) => {
@@ -95,16 +100,19 @@ async function execute(f: Fixture, binding: Binding, options: {
   const bridge: BackendBridge = { emit() {}, admissionSafety: f.safety, activity: e => { events.push(e); },
     async requestPermission(req) { requests.push(req); await pause("approval"); return { behavior: "allow" }; },
     async awaitIndex() { await pause("index"); },
-    inputSafety: { ...f.collector, async begin(id, tool, input) { await f.collector.begin(id, tool, input); await pause("input"); } } };
+    inputSafety: { ...f.collector,prepareDispatch:options.legacyAllowed?undefined:async id=>{const ticket=options.afterPreparation?await f.collector.prepareDispatch!(id):undefined;await pause("allowed");return ticket??await f.collector.prepareDispatch!(id);}, ...(options.freshFacade?{forAdmission: (_id:string,_tool:string,root:typeof f.safety)=>{const base=f.collector.forAdmission!(_id,_tool,root);let previous=base.read().evidenceRevision,revision=0;return {read(){const state=base.read();if(state.evidenceRevision!==previous){revision++;previous=state.evidenceRevision;}return {...state,evidenceRevision:String(revision)};},subscribe:base.subscribe};}}:{}), async begin(id, tool, input) { await f.collector.begin(id, tool, input); await pause("input"); }, async allowed(id,validate) {await pause("allowed");await f.collector.allowed!(id,options.legacyAllowed?undefined:validate);} } };
   const policy = { hash: null, deny: [], confirm: options.phase === "approval" && binding === "claude-hook" && !options.explicit
     ? [{ pattern: "^git push ", reason: "Review this command", index: 0 }] : [], outwardAllow: options.explicit ? [] : allow,
     taint: () => f.writes.taint("voyage", "ithaca") };
   const id = crypto.randomUUID(), input = { command };
-  let allowed = false;
+  let allowed = false,piRun:(()=>Promise<unknown>)|undefined;
   if (binding === "pi") {
-    const decision = await decidePiToolPermission({ turn: { ...createTurnContext(), bridge, signal: f.controller.signal, commandPolicy: policy },
-      allowedTools: new Set(options.phase === "approval" && !options.explicit ? [] : ["bash"]), confirmPatterns: [] }, "bash", input, id);
-    allowed = decision.behavior === "allow";
+    const turn={...createTurnContext(),bridge,signal:f.controller.signal,commandPolicy:policy};
+    piRun=()=>bashTool(createBrainToolKit({brain:createBrainAccess(f.root),turn,exec:{},lock:{withKey:async(_key,body)=>body()}})).execute(id,input,f.controller.signal,undefined,{} as never);
+    const gate=createPermissionGate({turn,allowedTools:new Set(options.phase==="approval"&&!options.explicit?[]:["bash"]),confirmPatterns:[]});
+    let handler:((event:unknown)=>Promise<{block?:boolean}|undefined>)|undefined;
+    (typeof gate==='function'?gate:gate.factory)({on:(name:string,callback:unknown)=>{if(name==='tool_call')handler=callback as typeof handler;}} as never);
+    allowed=!(await handler!({toolName:'bash',toolCallId:id,input}))?.block;
   } else {
     const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca", bridge, signal: f.controller.signal,
       workerSandbox: { brain: f.root, profile: "governed", commandPolicy: policy } as never }, allowedTools: ["Bash"], confirmPatterns: [], brainPath: f.root,
@@ -123,15 +131,18 @@ async function execute(f: Fixture, binding: Binding, options: {
   const bin = join(f.root, "bin"), marker = join(f.root, "executed"); mkdirSync(bin, { recursive: true });
   writeFileSync(join(bin, "git"), `#!/bin/sh\nprintf 'Ithaca\\n' >> '${marker}'\n`, { mode: 0o755 });
   const before = existsSync(marker) ? readFileSync(marker, "utf8") : "";
-  if (allowed) {
-    const child = Bun.spawn(["/bin/sh", "-c", command], { cwd: f.root, env: { PATH: bin }, stdout: "pipe", stderr: "pipe" });
-    expect(await child.exited, await new Response(child.stderr).text()).toBe(0);
+  if(allowed&&piRun){
+    const saved=Object.getOwnPropertyDescriptor(process.env,"PATH");process.env.PATH=`${bin}:/usr/bin:/bin`;
+    try{await piRun();}catch{allowed=false;}finally{if(saved)Object.defineProperty(process.env,"PATH",saved);else delete process.env.PATH;}
+  }else if(allowed){
+    const child=Bun.spawn(["/bin/sh","-c",command],{cwd:f.root,env:{PATH:bin},stdout:"pipe",stderr:"pipe"});
+    expect(await child.exited,await new Response(child.stderr).text()).toBe(0);
   }
   return { allowed, requests, events, interleaved, executed: (existsSync(marker) ? readFileSync(marker, "utf8") : "") !== before };
 }
 
 for (const mode of ["in-process-lock", "rpc-lock", "rpc-final"] as const) for (const explicit of [false, true]) {
-  test(`Pi ${mode}: final post-permission admission preserves ${explicit ? "per-use approval" : "standing-rule restrictions"}`, async () => {
+  test(`Pi ${mode}: final post-permission admission fences ${explicit ? "per-use approval" : "standing authority"} after independent evidence`, async () => {
     const f = await fixture(), bin = join(f.root, "bin"), marker = join(f.root, "effect"); mkdirSync(bin);
     writeFileSync(join(bin, "git"), `#!/bin/sh\nprintf 'Ithaca\\n' >> '${marker}'\n`, { mode: 0o755 });
     const saved = Object.getOwnPropertyDescriptor(process.env, "PATH"); process.env.PATH = `${bin}:/usr/bin:/bin`;
@@ -142,7 +153,10 @@ for (const mode of ["in-process-lock", "rpc-lock", "rpc-final"] as const) for (c
     const interleave = () => f.add("post-gate-input");
     try {
       if (mode === "in-process-lock") {
-        expect((await decidePiToolPermission({ turn, allowedTools: new Set(["bash"]), confirmPatterns: [] }, "bash", input, id)).behavior).toBe("allow");
+        const gate=createPermissionGate({turn,allowedTools:new Set(["bash"]),confirmPatterns:[]});
+        let handler:((event:unknown)=>Promise<unknown>)|undefined;
+        (typeof gate==='function'?gate:gate.factory)({on(name:string,callback:unknown){if(name==='tool_call')handler=callback as typeof handler;}} as never);
+        expect(await handler!({toolName:'bash',toolCallId:id,input})).toBeUndefined();
         const tool = bashTool(createBrainToolKit({ brain: createBrainAccess(f.root), turn, exec: {}, lock: { async withKey(_key, body) { await interleave(); return body(); } } }));
         try { await tool.execute(id, input, f.controller.signal, undefined, {} as never); } catch (error) { refused = error; }
       } else {
@@ -163,8 +177,9 @@ for (const mode of ["in-process-lock", "rpc-lock", "rpc-final"] as const) for (c
         } catch (error) { refused = error; }
         for (const release of context.releases.values()) release();
       }
-      expect(existsSync(marker), "LIVE_PI_POST_GATE_WAITS_REVALIDATE_BEFORE_PROCESS_EFFECT").toBe(explicit);
-      if (explicit) expect(refused).toBeUndefined(); else expect(String(refused)).toContain("Safety or authority changed");
+      expect(existsSync(marker), "LIVE_PI_POST_GATE_WAITS_REVALIDATE_BEFORE_PROCESS_EFFECT").toBe(false);
+      expect(String(refused)).toContain("Safety or authority changed");
+      expect(f.db.query("SELECT COUNT(*) n FROM safety_obligations").get(),"STALE_UNUSED_BASH_TICKET_IS_NOT_A_LOST_RESULT").toEqual({n:0});
     } finally {
       if (saved) Object.defineProperty(process.env, "PATH", saved); else delete process.env.PATH;
       await f.close();
@@ -209,11 +224,11 @@ for (const binding of ["claude-hook", "claude-callback", "pi"] as const) {
       expect(result.executed, "LIVE_APPROVAL_WAITS_RECHECK_REVISION_AND_AUTHORITY").toBe(false);
     } finally { await f.close(); }
   });
-  test(`${binding}: a completed explicit outward approval stays distinct from a removed standing rule`, async () => {
+  test(`${binding}: a completed explicit outward approval expires when trust changes`, async () => {
     const f = await fixture(); try {
       const result = await execute(f, binding, { explicit: true, phase: "input", interleave: async () => { f.remove(); } });
-      expect(result.executed, "LIVE_COMPLETED_PER_USE_IS_NOT_STANDING_AUTHORITY").toBe(true);
-      expect(result.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { decision: "approved", rule: null } });
+      expect(result.executed, "LIVE_COMPLETED_PER_USE_RECHECKS_TRUST_REVISION").toBe(false);
+      expect(result.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { decision: "refused", rule: null } });
     } finally { await f.close(); }
   });
   test(`${binding}: another facade's recorder loss during the last input wait fences dispatch`, async () => {
@@ -619,4 +634,423 @@ test("withdrawal receipt storage failure explicitly terminates and stops the bac
   } finally {
     host.close(); await run; origin.stop(true); await f.close();
   }
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: an independent trigger during post-card input collection invalidates the card`,async()=>{
+ const f=await fixture();try{
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:()=>f.add('independent_post_card')});
+  expect(result.interleaved,'POST_CARD_REPRO_REACHES_REAL_INPUT_WAIT').toBe(true);
+  expect(result.requests.some(r=>r.kind==='command'),'POST_CARD_REPRO_OBTAINS_EXACT_OUTWARD_APPROVAL').toBe(true);
+  expect(result.executed,'POST_CARD_INDEPENDENT_TRIGGER_CANNOT_REUSE_APPROVAL').toBe(false);
+ }finally{await f.close();}
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: an approved call survives only its own unproxied input collection`,async()=>{
+ const f=await fixture(false);try{
+  const before=f.safety.read();
+  const result=await execute(f,binding,{explicit:true});
+  expect(f.safety.read().evidenceRevision).not.toBe(before.evidenceRevision);
+  expect(result.executed,'EXACT_OWN_INPUT_DOES_NOT_INVALIDATE_ITS_APPROVAL').toBe(true);
+ }finally{await f.close();}
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: trust changes during post-card input collection invalidate the card`,async()=>{
+ const f=await fixture();try{
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:async()=>f.remove()});
+  expect(result.interleaved).toBe(true);expect(result.executed,'POST_CARD_TRUST_CHANGE_CANNOT_REUSE_APPROVAL').toBe(false);
+ }finally{await f.close();}
+});
+for(const binding of ['claude-callback','pi'] as const)for(const change of ['healthy','evidence','trust'] as const)test(`${binding}: final allowed wait fences ${change}`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{explicit:true,phase:'allowed',interleave:async()=>{if(change==='evidence')await f.add('post_allowed');if(change==='trust')f.remove();}});
+  expect(result.interleaved,'FINAL_ALLOWANCE_WAIT_IS_REACHED').toBe(true);
+  expect(result.executed,'FINAL_ALLOWANCE_WAIT_CANNOT_DISPATCH_STALE_AUTHORITY').toBe(change==='healthy');
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'REFUSED_BEFORE_DISPATCH_HAS_NO_FALSE_RESULT_OBLIGATION').toEqual({n:change==='healthy'?1:0});
+ }finally{await f.close();}
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: another call with identical input cannot borrow the own-input exclusion`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:()=>f.collector.begin('independent_identical',binding==='pi'?'bash':'Bash',{command})});
+  expect(result.interleaved).toBe(true);
+  expect(result.executed,'IDENTICAL_INPUT_UNDER_ANOTHER_ID_IS_INDEPENDENT_EVIDENCE').toBe(false);
+ }finally{await f.close();}
+});
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: a refused review of unfinalized own input creates no evidence change`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:async()=>{
+   const id=safetyRecords(f.db,'ithaca').filter(record=>record.kind==='occurrence').at(-1)!.id;
+   expect(await f.review(id)).toMatchObject({stage:"refused",reason:"not_finalized"});
+  }});
+  expect(result.interleaved).toBe(true);
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_decisions').get()).toEqual({n:0});
+  expect(result.executed,'REFUSED_REVIEW_CREATES_NO_INDEPENDENT_REVISION').toBe(true);
+ }finally{await f.close();}
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: a committed review during the input wait invalidates prior approval`,async()=>{
+ const f=await fixture(false);try{
+  const reviewed=await f.add('reviewed_before_card');
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:async()=>{
+   expect(await f.review(reviewed),'REVIEW_PREMISE_IS_ACTUALLY_COMMITTED').toMatchObject({stage:'verdict_committed'});
+  }});
+  expect(result.executed,'REVIEW_DECISIONS_REMAIN_IN_THE_CAUSAL_VIEW').toBe(false);
+ }finally{await f.close();}
+});
+
+for(const change of ['evidence','trust'] as const)test(`Claude hook approval keeps its original snapshot across callback handoff: ${change}`,async()=>{
+ const f=await fixture(false);try{
+  const requests:PermissionRequest[]=[];
+  const bridge:BackendBridge={emit(){},admissionSafety:f.safety,inputSafety:f.collector,requestPermission:async request=>{requests.push(request);return {behavior:'allow'};}};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',bridge,signal:f.controller.signal,workerSandbox:{brain:f.root,profile:'governed',commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[],taint:()=>f.writes.taint('voyage','ithaca')}} as never},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
+  const id='handoff',input={command};
+  const hook=wiring.hooks!.PreToolUse!.find(group=>group.matcher===MUTATING_TOOL_MATCHER)!.hooks[0]!;
+  const result=await hook({hook_event_name:'PreToolUse',tool_name:'Bash',tool_input:input,tool_use_id:id} as never,id,{signal:f.controller.signal});
+  expect(result).toMatchObject({continue:true});expect(requests.filter(request=>request.kind==='command')).toHaveLength(1);
+  if(change==='evidence')await f.add('between_hook_and_callback');else f.remove();
+  const answer=await wiring.canUseTool!('Bash',input,{toolUseID:id,signal:f.controller.signal} as never);
+  expect(answer,'HOOK_APPROVAL_CANNOT_RESET_ITS_REVISION_BASELINE').toMatchObject({behavior:'deny'});
+  expect(requests,'STALE_HOOK_CARD_DOES_NOT_ASK_FOR_AN_UNUSABLE_TOOL_GRANT').toHaveLength(1);
+ }finally{await f.close();}
+});
+for(const binding of ['hook','callback'] as const)for(const why of ['identity','capacity'] as const)test(`Claude ${binding} turns causal view ${why} errors into explicit refusal`,async()=>{
+ const f=await fixture();try{
+  if(why==='capacity')for(let i=0;i<2000;i++)f.collector.forAdmission!(`view_${i}`,'Read',f.safety);
+  else f.collector.forAdmission!('view_failure','Read',f.safety);
+  const releases:string[]=[],refusals:string[]=[];const original=f.collector.refused;
+  f.collector.refused=async(id,denied)=>{refusals.push(id);await original!(id,denied);};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge:{emit(){},admissionSafety:f.safety,inputSafety:f.collector,requestPermission:async()=>({behavior:'allow'})}},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(id:string){releases.push(id);}} as never,childEnv:{},log(){}});
+  if(binding==='callback')expect(await wiring.canUseTool!('Bash',{command},{toolUseID:'view_failure',signal:f.controller.signal} as never)).toMatchObject({behavior:'deny'});
+  else{
+   const hook=wiring.hooks!.PreToolUse!.find(group=>group.matcher===MUTATING_TOOL_MATCHER)!.hooks[0]!;
+   expect(await hook({hook_event_name:'PreToolUse',tool_name:'Bash',tool_input:{command},tool_use_id:'view_failure'} as never,'view_failure',{signal:f.controller.signal})).toMatchObject({hookSpecificOutput:{permissionDecision:'deny'}});
+  }
+  expect(releases,'CAUSAL_VIEW_ERROR_RELEASES_ANY_HELD_LOCK').toContain('view_failure');
+  expect(refusals,'CAUSAL_VIEW_ERROR_RECORDS_THE_REFUSAL').toContain('view_failure');
+ }finally{await f.close();}
+});
+
+test('causal view capacity in one turn leaves a fresh turn usable',async()=>{
+ const f=await fixture();try{
+  for(let i=0;i<2000;i++)f.collector.forAdmission!(`view_${i}`,'Read',f.safety);
+  expect(()=>f.collector.forAdmission!('full','Bash',f.safety)).toThrow('capacity');
+  const bindingId=crypto.randomUUID();
+  await f.writes.safetyBegin({turnId:'fresh-voyage',bindingId,sessionId:null,principalId:f.principal.id,backendId:'claude',at:0});
+  await f.writes.bind('fresh-voyage','ithaca');
+  const collector=createSafetyCollector(f.db,f.writes,{turnId:'fresh-voyage',bindingId,sessionId:()=> 'ithaca',backendId:'claude',brainPath:f.root,shellProxied:()=>true,signal:f.controller.signal});
+  await collector.ready('claude',1);
+  const result=await execute({...f,collector},'claude-callback',{explicit:true});
+  expect(result.executed,'CAUSAL_CAPACITY_FAILURE_IS_LOCAL_TO_ITS_TURN').toBe(true);
+ }finally{await f.close();}
+});
+
+for(const route of ['gate','rpc'] as const)test(`Pi ${route} returns a denial when the causal view identity changed`,async()=>{
+ const f=await fixture();try{
+  f.collector.forAdmission!('view_failure','read_file',f.safety);
+  const refusals:string[]=[],original=f.collector.refused;
+  f.collector.refused=async(id,denied)=>{refusals.push(id);await original!(id,denied);};
+  const turn={...createTurnContext(),bridge:{emit(){},admissionSafety:f.safety,inputSafety:f.collector,requestPermission:async()=>({behavior:'allow' as const})},signal:f.controller.signal};
+  if(route==='rpc'){
+   const dispatch=createPiWorkerRpcDispatcher({turn,live(){},brainPath:f.root,grants:new Map(),releases:new Map(),admitTool(){},autonomous:false,allowedTools:new Set(['bash']),confirmPatterns:[]} as unknown as PiWorkerRpcContext);
+   expect(await dispatch({type:'rpc',id:1,method:'permission',toolName:'bash',toolCallId:'view_failure',input:{command}})).toMatchObject({behavior:'deny'});
+  }else{
+   const gate=createPermissionGate({turn,allowedTools:new Set(['bash']),confirmPatterns:[]});let handler:((event:unknown)=>Promise<unknown>)|undefined;
+   (typeof gate==='function'?gate:gate.factory)({on(name:string,callback:unknown){if(name==='tool_call')handler=callback as typeof handler;}} as never);
+   expect(await handler!({toolName:'bash',toolCallId:'view_failure',input:{command}})).toMatchObject({block:true});
+  }
+  expect(refusals).toContain('view_failure');
+ }finally{await f.close();}
+});
+
+test('Claude callback returns an explicit denial when unavailable-state diagnostics also fail',async()=>{
+ const f=await fixture();try{
+  const unavailable={read(){throw new Error('Causal state is unavailable.');},subscribe(){return ()=>{};}};
+  const releases:string[]=[];
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge:{emit(){},admissionSafety:unavailable,inputSafety:f.collector,requestPermission:async()=>({behavior:'allow'})}},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(id:string){releases.push(id);}} as never,childEnv:{},log(){}});
+  expect(await wiring.canUseTool!('Bash',{command},{toolUseID:'unavailable',signal:f.controller.signal} as never)).toMatchObject({behavior:'deny',message:'Causal state is unavailable.'});
+  expect(releases).toContain('unavailable');
+ }finally{await f.close();}
+});
+
+
+for(const legacy of [false,true])test(`Pi final RPC allowance queue rechecks revisions before recording allowance (legacy=${legacy})`,async()=>{
+ const f=await fixture(false);let release=()=>{};let pending:Promise<Error|null>|undefined;try{
+  const entered=Promise.withResolvers<void>(),gate=Promise.withResolvers<void>();release=()=>gate.resolve();let finalAdmission=false;
+  const safety={...f.collector,prepareDispatch:legacy?undefined:async(id:string)=>{if(!finalAdmission)throw new Error("Bash preparation preceded final admission");const ticket=await f.collector.prepareDispatch!(id);entered.resolve();await gate.promise;return ticket;},async allowed(id:string,validate?:()=>string|null){if(!finalAdmission)throw new Error("Bash allowance preceded final admission");entered.resolve();await gate.promise;await f.collector.allowed!(id,legacy?undefined:validate);}};
+  const turn={...createTurnContext(),bridge:{emit(){},admissionSafety:f.safety,inputSafety:safety,requestPermission:async()=>({behavior:'allow' as const})},signal:f.controller.signal,commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[]}};
+  const context={brainPath:f.root,turn,live(){},grants:new Map(),releases:new Map(),admitTool(){},autonomous:false,allowedTools:new Set(['bash']),confirmPatterns:[],workerLock:{async acquire(){return ()=>{};}},executed:()=>({name:'bash',lock:false,host:false,phases:new Set()})} as unknown as PiWorkerRpcContext;
+  const dispatch=createPiWorkerRpcDispatcher(context),id='rpc-queued';
+  const message=(n:number,method:'permission'|'lock'|'admission',input:Record<string,unknown>)=>({type:'rpc' as const,id:n,method,toolName:'bash',toolCallId:id,input});
+  expect(await dispatch(message(1,'permission',{command}))).toMatchObject({behavior:'allow'});
+  await dispatch(message(2,'lock',{key:bashLockKey(command)}));
+  finalAdmission=true;
+  pending=dispatch(message(3,'admission',{command})).then(()=>null,error=>error as Error);
+  await Promise.race([entered.promise,pending.then(()=>{throw new Error('Final RPC did not reach its allowance wait');})]);await f.add('during_final_rpc_queue');gate.resolve();
+  expect(String(await pending),'RPC_QUEUE_CANNOT_AUTHORIZE_STALE_DISPATCH').toContain('Safety or authority changed');
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'RPC_QUEUE_REFUSAL_PRECEDES_ALLOWED_STATE_WHEN_SUPPORTED').toEqual({n:legacy?1:0});
+  expect(context.grants.has(id)).toBe(false);
+  for(const unlock of context.releases.values())unlock();
+ }finally{release();await pending;await f.close();}
+});
+
+for(const binding of ['claude-callback','pi'] as const)for(const change of ['healthy','evidence','trust'] as const)test(`${binding}: legacy allowance cannot skip the final ${change} check`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{explicit:true,legacyAllowed:true,phase:'allowed',interleave:async()=>{if(change==='evidence')await f.add('legacy_wait');if(change==='trust')f.remove();}});
+  expect(result.interleaved,'LEGACY_ALLOWANCE_WAIT_REACHED').toBe(true);
+  expect(result.executed,'LEGACY_COLLECTOR_CANNOT_AUTHORIZE_STALE_DISPATCH').toBe(change==='healthy');
+ }finally{await f.close();}
+});
+test('Pi retains the approval-time facade when the host creates fresh local revision views',async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,'pi',{explicit:true,freshFacade:true,phase:'allowed',interleave:()=>f.add('fresh_facade_change')});
+  expect(result.interleaved).toBe(true);expect(result.executed,'APPROVAL_FACADE_IDENTITY_SURVIVES_COMMIT').toBe(false);
+ }finally{await f.close();}
+});
+
+for(const route of ['gate','rpc'] as const)test(`Pi non-Bash ${route} rechecks revocation after legacy allowance`,async()=>{
+ const f=await fixture();try{
+  let waited=false;
+  const bridge:BackendBridge={emit(){},admissionSafety:f.safety,inputSafety:{...f.collector,prepareDispatch:undefined,async allowed(id){await f.collector.allowed!(id);waited=true;f.revoke();}},requestPermission:async()=>({behavior:'allow'})};
+  const turn={...createTurnContext(),bridge,signal:f.controller.signal};
+  const input={path:'notes/loom.md'};
+  if(route==='gate'){
+   const gate=createPermissionGate({turn,allowedTools:new Set(['read_file']),confirmPatterns:[]});let handler:((event:unknown)=>Promise<{block?:boolean}|undefined>)|undefined;
+   (typeof gate==='function'?gate:gate.factory)({on(name:string,callback:unknown){if(name==='tool_call')handler=callback as typeof handler;}} as never);
+   expect(await handler!({toolName:'read_file',toolCallId:'legacy_read',input}),'NON_BASH_GATE_RECHECKS_AFTER_ALLOWED').toMatchObject({block:true});
+  }else{
+   const context={brainPath:f.root,turn,live(){},grants:new Map(),releases:new Map(),admitTool(){},autonomous:false,allowedTools:new Set(['read_file']),confirmPatterns:[],executed:()=>({name:'read_file',lock:false,host:false,phases:new Set()})} as unknown as PiWorkerRpcContext;
+   expect(await createPiWorkerRpcDispatcher(context)({type:'rpc',id:1,method:'permission',toolName:'read_file',toolCallId:'legacy_read',input}),'NON_BASH_RPC_RECHECKS_AFTER_ALLOWED').toMatchObject({behavior:'deny'});
+   expect(context.grants.size).toBe(0);
+  }
+  expect(waited,'LEGACY_NON_BASH_ALLOWANCE_WAS_REACHED').toBe(true);
+ }finally{await f.close();}
+});
+
+for(const route of ['allowed','rpc'] as const)test(`Pi tool-only cancellation during ${route} admission never spawns Bash`,async()=>{
+ const f=await fixture(),tool=new AbortController();try{
+  let waited=false;
+  const bridge:BackendBridge={emit(){},inputSafety:{...f.collector,async prepareDispatch(id){waited=true;const ticket=await f.collector.prepareDispatch!(id);tool.abort();return ticket;},async allowed(id,validate){waited=true;await f.collector.allowed!(id,validate);tool.abort();}},requestPermission:async()=>({behavior:'allow'})};
+  const turn={...createTurnContext(),bridge,signal:f.controller.signal};
+  if(route==='rpc')bridge.commitToolAdmission=async()=>{waited=true;await Promise.resolve();tool.abort();};
+  const marker=join(f.root,'cancelled-tool-spawned');
+  let denied=false;try{await bashTool(createBrainToolKit({brain:createBrainAccess(f.root),turn,exec:{},lock:{withKey:async(_key,body)=>body()}})).execute('cancel-tool',{command:`printf Ithaca > '${marker}'`},tool.signal,undefined,{} as never);}catch{denied=true;}
+  expect(waited,'TOOL_CANCEL_HAPPENS_IN_THE_FINAL_WAIT').toBe(true);
+  expect(denied,'CANCELLED_TOOL_MUST_REFUSE_DISPATCH').toBe(true);
+  expect(existsSync(marker),'CANCELLED_TOOL_HAS_NO_PROCESS_EFFECT').toBe(false);
+  expect(f.controller.signal.aborted,'TURN_STAYS_LIVE_DURING_TOOL_ONLY_ABORT').toBe(false);
+ }finally{await f.close();}
+});
+for(const failure of ['configuration','root'] as const)test(`Claude final hook fence turns ${failure} recomputation failure into a recorded denial`,async()=>{
+ const f=await fixture();try{
+  let final=false;const released:string[]=[],refused:string[]=[];
+  const safety={read(){if(final&&failure==='root')throw new Error('Final root unavailable');return f.safety.read();},subscribe:f.safety.subscribe};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),admissionSafety:safety,inputSafety:{...f.collector,forAdmission:(...args)=>f.collector.forAdmission!(...args),async refused(id,denied){refused.push(id);await f.collector.refused!(id,denied);}}}},allowedTools:['Read'],confirmPatterns:[],brainPath:f.root,configurationRoot(){if(final){if(failure==='configuration')throw new Error('Final configuration unavailable');safety.read();}return f.root;},turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(id:string){released.push(id);}} as never,childEnv:{},log(){}});
+  const group=wiring.hooks!.PreToolUse!.find(group=>group.matcher==='^Read$')!;
+  // The native-read hook itself completes; the outer fence recomputes next.
+  const original=f.collector.forAdmission!;
+  f.collector.forAdmission=(_id,_tool,root)=>{const view=original(_id,_tool,failure==='root'?f.safety:root);return {read(){const state=view.read();final=true;return state;},subscribe:view.subscribe};};
+  expect(await group.hooks[0]!({hook_event_name:'PreToolUse',tool_name:'Read',tool_input:{file_path:'notes/loom.md'},tool_use_id:'final-fence'} as never,'final-fence',{signal:f.controller.signal}),'FINAL_FENCE_FAILURE_IS_AN_EXPLICIT_DENIAL').toMatchObject({hookSpecificOutput:{permissionDecision:'deny'}});
+  expect(released).toContain('final-fence');expect(refused).toContain('final-fence');
+ }finally{await f.close();}
+});
+
+for(const cancelled of ['tool','turn'] as const)for(const legacy of [false,true])test(`Claude callback cancellation during allowance: ${cancelled}, legacy=${legacy}`,async()=>{
+ const f=await fixture(),tool=new AbortController();try{
+  let waited=false;const releases:string[]=[],refusals:string[]=[];
+  const bridge:BackendBridge={emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:{...f.collector,prepareDispatch:legacy?undefined:async id=>{waited=true;const ticket=await f.collector.prepareDispatch!(id);(cancelled==='tool'?tool:f.controller).abort();return ticket;},async allowed(id,validate){waited=true;(cancelled==='tool'?tool:f.controller).abort();await f.collector.allowed!(id,legacy?undefined:validate);},async refused(id,denied){refusals.push(id);await f.collector.refused!(id,denied);}}};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(id:string){releases.push(id);}} as never,childEnv:{},log(){}});
+  const result=await wiring.canUseTool!('Bash',{command:'printf Ithaca'},{toolUseID:'cancel-final',signal:tool.signal} as never);
+  expect(waited,'CALLBACK_CANCELLATION_REACHES_ALLOWANCE').toBe(true);
+  expect(result,'CANCELLED_CALLBACK_NEVER_RETURNS_ALLOW').toMatchObject({behavior:'deny'});
+  expect(releases).toContain('cancel-final');expect(refusals).toContain('cancel-final');
+ }finally{await f.close();}
+});
+test('causal revision includes independent pending identities and trust on a permanently restricted turn',async()=>{
+ const f=await fixture(true,true);try{
+  f.collector.admitting!('card','Bash');await f.collector.begin('card','Bash',{command});
+  const view=f.collector.forAdmission!('card','Bash',f.safety);
+  reserveSafetyWrite(f.db,'voyage','pending_one',100);
+  const before=view.read();expect(before.recordingAvailable,'RESTRICTED_TURN_CONTINUES_WHILE_RECORDING_PENDING').toBe(true);
+  expect(f.state().pendingCount).toBe(1);
+  reserveSafetyWrite(f.db,'voyage','pending_two',100);
+  const next=view.read();expect(next.evidenceRevision,'SECOND_PENDING_TRIGGER_INVALIDATES_THE_CARD').not.toBe(before.evidenceRevision);
+  releaseSafetyWrite(f.db,'pending_one');reserveSafetyWrite(f.db,'voyage','pending_three',100);
+  const replaced=view.read();expect(f.state().pendingCount).toBe(2);
+  expect(replaced.evidenceRevision,'REPLACEMENT_PENDING_ID_CANNOT_REUSE_THE_GENERATION').not.toBe(next.evidenceRevision);
+  const queue=safetyQueue(f.db),pending={turnId:'voyage',sessionId:'ithaca',source:'web_fetch' as const,bytes:1};
+  queue.pending.add(pending);const local=view.read();queue.pending.delete(pending);const replacement={...pending};queue.pending.add(replacement);
+  try{expect(view.read().evidenceRevision,'LOCAL_PENDING_REPLACEMENT_ADVANCES_THE_GENERATION').not.toBe(local.evidenceRevision);}finally{queue.pending.delete(replacement);}
+  const trustBefore=view.read();f.remove();expect(view.read().evidenceRevision,'TRUST_ADVANCES_THE_CAUSAL_GENERATION').not.toBe(trustBefore.evidenceRevision);
+ }finally{for(const id of ['pending_one','pending_two','pending_three'])if(f.db.query('SELECT 1 FROM safety_pending WHERE id=?').get(id))releaseSafetyWrite(f.db,id);await f.close();}
+});
+
+for(const independent of [false,true])test(`parallel Claude hooks exclude only their own in-flight input reservation (independent=${independent})`,async()=>{
+ const f=await fixture(false),entered=new Int32Array(new SharedArrayBuffer(4)),release=new Int32Array(new SharedArrayBuffer(4));
+ let held:Promise<unknown>|undefined,primary:Promise<unknown>|undefined,sibling:Promise<unknown>|undefined,other:Promise<unknown>|undefined;
+ try{
+  const channel=f.writer.channel(probe,{table:'odysseus_parallel'});await channel.ready;
+  held=channel.call('gate',entered,release);
+  while(Atomics.load(entered,0)===0)await Atomics.waitAsync(entered,0,0).value;
+  const id='parallel-card',view=f.collector.forAdmission!(id,'Bash',f.safety),before=view.read(),pending=Promise.withResolvers<void>();
+  const queue=safetyQueue(f.db),notify=()=>{if([...queue.pending].some(item=>item.occurrenceId))pending.resolve();};queue.listeners.add(notify);
+  let mid=false;const reads:ReturnType<typeof view.read>[]=[],requests:PermissionRequest[]=[];
+  const shared={read(){const state=view.read();if(mid)reads.push(state);return state;},subscribe:view.subscribe};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge:{emit(){},admissionSafety:f.safety,inputSafety:{...f.collector,forAdmission:()=>shared},requestPermission:async request=>{requests.push(request);return {behavior:'allow'};}},workerSandbox:{brain:f.root,profile:'governed',commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[],taint:()=>f.writes.taint('voyage','ithaca')}} as never},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
+  const args=[{hook_event_name:'PreToolUse',tool_name:'Bash',tool_input:{command},tool_use_id:id},id,{signal:f.controller.signal}] as const;
+  primary=wiring.hooks!.PreToolUse!.find(group=>group.matcher===MUTATING_TOOL_MATCHER)!.hooks[0]!(args[0] as never,id,args[2]);
+  await pending.promise;queue.listeners.delete(notify);
+  expect(requests.filter(request=>request.kind==='command'),'APPROVAL_PRECEDES_THE_HELD_INPUT').toHaveLength(1);
+  if(independent){const ready=Promise.withResolvers<void>(),changed=()=>{if(queue.pending.size>1)ready.resolve();};queue.listeners.add(changed);other=f.collector.begin('independent_parallel','WebFetch',{url:'https://ithaca.invalid/notice'});await ready.promise;queue.listeners.delete(changed);}
+  mid=true;sibling=wiring.hooks!.PreToolUse!.find(group=>group.matcher==='^Bash$')!.hooks[0]!(args[0] as never,id,args[2]);
+  expect(reads.length,'A_REAL_SIBLING_FENCE_READS_DURING_BEGIN').toBeGreaterThan(0);
+  expect(reads[0]!.evidenceRevision===before.evidenceRevision,'ONLY_INDEPENDENT_PENDING_ADVANCES_THE_SHARED_VIEW').toBe(!independent);
+  expect(reads[0]!.recordingAvailable,'OWN_PENDING_IS_EXCLUDED_FROM_AVAILABILITY').toBe(!independent);
+  expect(reads[0]!.restricted,'ONLY_INDEPENDENT_PENDING_RESTRICTS_THE_CAUSAL_VIEW').toBe(independent);
+  Atomics.store(release,0,1);Atomics.notify(release,0);await held;await Promise.all([primary,sibling,other]);
+  const result=await wiring.canUseTool!('Bash',{command},{toolUseID:id,signal:f.controller.signal} as never);
+  expect(result?.behavior,JSON.stringify({result,before,after:view.read(),reads})).toBe(independent?'deny':'allow');
+ }finally{Atomics.store(release,0,1);Atomics.notify(release,0);await Promise.allSettled([held,primary,sibling,other].filter(Boolean));if(f.db.query('SELECT 1 FROM safety_pending WHERE id=?').get('independent_reservation'))releaseSafetyWrite(f.db,'independent_reservation');await f.close();}
+});
+for(const exit of ['refuse','cancel','abort','invalid','commit'] as const)test(`single-use dispatch ticket: ${exit}`,async()=>{
+ const f=await fixture();try{
+  f.collector.admitting!('ticket','Bash');await f.collector.begin('ticket','Bash',{command});
+  const ticket=await f.collector.prepareDispatch!('ticket');
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:1});
+  if(exit==='commit'){ticket.commit();expect(()=>ticket.commit()).toThrow('consumed');await ticket.cancel();await f.collector.refused!('ticket',true);}
+  else if(exit==='refuse')await f.collector.refused!('ticket',true);
+  else {if(exit==='abort')f.controller.abort();if(exit==='invalid')expect(()=>ticket.commit(()=> 'stale')).toThrow('stale');await ticket.cancel();}
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'UNUSED_TICKETS_NEVER_CREATE_A_DISPATCH_GAP').toEqual({n:exit==='commit'?1:0});
+  if(exit!=='commit')expect(()=>ticket.commit()).toThrow();
+ }finally{await f.close();}
+});
+
+for(const binding of ['claude-callback','pi'] as const)test(`${binding}: a changed revision after ticket preparation leaves no false result gap`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{explicit:true,afterPreparation:true,phase:'allowed',interleave:()=>f.add('after_ticket')});
+  expect(result.interleaved).toBe(true);expect(result.executed,'PREPARED_IS_NOT_DISPATCHED').toBe(false);
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'UNCONSUMED_PREPARATION_DISCHARGES_CLEANLY').toEqual({n:0});
+ }finally{await f.close();}
+});
+
+for(const cancel of [false,true])test(`Pi rejected RPC lock discharges its never-dispatched Bash obligation (cancel=${cancel})`,async()=>{
+ const f=await fixture(false);try{
+  const turn={...createTurnContext(),bridge:{emit(){},admissionSafety:f.safety,inputSafety:f.collector,requestPermission:async()=>({behavior:'allow' as const})},signal:f.controller.signal,commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[]}};
+  const context={brainPath:f.root,turn,live(){},grants:new Map(),releases:new Map(),admitTool(){},autonomous:false,allowedTools:new Set(['bash']),confirmPatterns:[],workerLock:{async acquire(){if(cancel)f.controller.abort();throw new Error('Lock acquisition refused');}},executed:()=>({name:'bash',lock:false,host:false,phases:new Set()})} as unknown as PiWorkerRpcContext;
+  const dispatch=createPiWorkerRpcDispatcher(context),id='rpc-lock-reject';
+  expect(await dispatch({type:'rpc',id:1,method:'permission',toolName:'bash',toolCallId:id,input:{command}})).toMatchObject({behavior:'allow'});
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:1});
+  const refusal=await dispatch({type:'rpc',id:2,method:'lock',toolName:'bash',toolCallId:id,input:{key:bashLockKey(command)}}).then(()=>null,error=>error);expect(refusal).toBeInstanceOf(Error);expect(refusal.message).toBe('Lock acquisition refused');
+  expect(context.grants.has(id),'FAILED_LOCK_REVOKES_GRANT').toBe(false);
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'FAILED_LOCK_NEVER_DISPATCHED').toEqual({n:0});
+ }finally{await f.close();}
+});
+test('causal view retains evidence revisions supplied by an external root facade',async()=>{
+ const f=await fixture(false);try{
+  let generation='1';const root={read:()=>({...f.safety.read(),evidenceRevision:generation}),subscribe:f.safety.subscribe};
+  const view=f.collector.forAdmission!('external-root','Bash',root),before=view.read();generation='2';
+  expect(view.read().evidenceRevision,'EXTERNAL_ROOT_EVIDENCE_REMAINS_CAUSAL').not.toBe(before.evidenceRevision);
+ }finally{await f.close();}
+});
+test('Pi rejected in-process lock discharges its never-dispatched Bash obligation',async()=>{
+ const f=await fixture(false);try{
+  const id='in-process-lock-reject',turn={...createTurnContext(),bridge:{emit(){},inputSafety:f.collector,requestPermission:async()=>({behavior:'allow' as const})},signal:f.controller.signal};
+  f.collector.admitting!(id,'bash');await f.collector.begin(id,'bash',{command});
+  const kit=createBrainToolKit({brain:createBrainAccess(f.root),turn,exec:{},lock:{async withKey(){throw new Error('Lock acquisition refused');}}});
+  const refusal=await bashTool(kit).execute(id,{command},f.controller.signal,undefined,{} as never).then(()=>null,error=>error);expect(refusal).toBeInstanceOf(Error);expect(refusal.message).toBe('Lock acquisition refused');
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'IN_PROCESS_FAILED_LOCK_NEVER_DISPATCHED').toEqual({n:0});
+ }finally{await f.close();}
+});
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: approval-time checks exclude the exact call recorded by a parallel binding`,async()=>{
+ const f=await fixture(false);try{
+  await f.add('prior_card_evidence');
+  const id='approval-own-input',input={command};let sibling:()=>Promise<unknown>,cards=0;
+  const bridge:BackendBridge={emit(){},admissionSafety:f.safety,inputSafety:f.collector,async requestPermission(){cards++;await sibling();return {behavior:'allow'};}};
+  if(binding==='pi'){
+   const turn={...createTurnContext(),bridge,signal:f.controller.signal,commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[]}};
+   sibling=()=>f.collector.begin(id,'bash',input);
+   const gate=createPermissionGate({turn,allowedTools:new Set(['bash']),confirmPatterns:[]});let handler:((event:unknown)=>Promise<{block?:boolean}|undefined>)|undefined;
+   (typeof gate==='function'?gate:gate.factory)({on:(name:string,callback:unknown)=>{if(name==='tool_call')handler=callback as typeof handler;}} as never);
+   const answer=await handler!({toolName:'bash',toolCallId:id,input});expect(answer?.block,'OWN_INPUT_DOES_NOT_INVALIDATE_THE_OPEN_CARD '+JSON.stringify(answer)).not.toBe(true);
+  }else{
+   const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',bridge,signal:f.controller.signal,workerSandbox:{brain:f.root,profile:'governed',commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[]}} as never},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
+   const args=[{hook_event_name:'PreToolUse',tool_name:'Bash',tool_input:input,tool_use_id:id},id,{signal:f.controller.signal}] as const;
+   sibling=async()=>{await wiring.hooks!.PreToolUse!.find(group=>group.matcher==='^Bash$')!.hooks[0]!(args[0] as never,id,args[2]);await f.collector.begin(id,'Bash',input);};
+   if(binding==='claude-callback')expect((await wiring.canUseTool!('Bash',input,{toolUseID:id,signal:f.controller.signal} as never))?.behavior,'OWN_INPUT_DOES_NOT_INVALIDATE_THE_OPEN_CARD').toBe('allow');
+   else{const result=await wiring.hooks!.PreToolUse!.find(group=>group.matcher===MUTATING_TOOL_MATCHER)!.hooks[0]!(args[0] as never,id,args[2]);expect('hookSpecificOutput' in result&&result.hookSpecificOutput?.hookEventName==='PreToolUse'&&result.hookSpecificOutput.permissionDecision==='deny','OWN_INPUT_DOES_NOT_INVALIDATE_THE_OPEN_CARD').toBe(false);}
+  }
+  expect(cards).toBe(1);
+ }finally{await f.close();}
+});
+for(const pending of [false,true])for(const revise of [false,true])test(`dispatch tickets bind an immutable begin generation (revise=${revise},pending=${pending})`,async()=>{
+ const f=await fixture(false);try{
+  const id='generation';f.collector.admitting!(id,'Bash');await f.collector.begin(id,'Bash',{command});const ticket=await f.collector.prepareDispatch!(id);
+  const begun=f.collector.begin(id,'Bash',{command:revise?command+' --dry-run':command});if(!pending)await begun;
+  try{expect(()=>ticket.commit(),'ANY_LATER_BEGIN_INVALIDATES_PREPARATION').toThrow('current');}finally{await begun;}await ticket.cancel();
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+for(const seeded of [false,true])for(const independent of [false,true])for(const legacy of [false,true])test(`host card retains exact causal view (independent=${independent},legacy=${legacy},seeded=${seeded})`,async()=>{
+ const f=await fixture(false),raised=Promise.withResolvers<void>();
+ const store=createActivityStore(f.db),host=new WsHost({brainPath:f.root,registry:createStaticBackendRegistry([makeFakeBackend({id:'claude'})],'claude'),catalog:createSessionCatalog(()=>f.db),isPrincipalAuthorized:id=>id===f.principal.id,activity:{store,stream:createActivityStream(store),governanceDb:f.db,governanceWrites:f.writes}});
+ const authorization=host.coordinator.openAuthorization({principalId:f.principal.id,valid:true,expiresAt:Number.MAX_SAFE_INTEGER});
+ const turn={turnId:'voyage',principalId:f.principal.id,authorization,startedAt:1,sessionId:'ithaca',abortController:f.controller,queue:[]} as unknown as RunningTurn;
+ const ws={send(text:string){if(JSON.parse(text).type==='tool_approval_request')raised.resolve();}};host.clients.add(ws,f.principal.id);
+ const bridge={emit(){},inputSafety:f.collector,admissionSafety:f.safety} as unknown as BackendBridge;Object.assign(bridge,createPermissions(createBridgeContext(host,turn,{promptText:'Return to Ithaca',backendId:'claude'}),()=>bridge));
+ let work:Promise<unknown>|undefined;
+ try{
+  if(seeded)await f.add('before_host_card');const id='host-causal-card';f.collector.admitting!(id,'Bash');
+  const causal=f.collector.forAdmission!(id,'Bash',f.safety),request={toolUseId:id,toolName:'Bash',kind:'command' as const,input:{command},description:'Review the outward command'};
+  if(legacy&&seeded){const stale=f.safety.read();await f.add('before_current_host_receipt');expect(await bridge.requestPermission({...request,admissionSnapshot:stale}),'STALE_ROOT_METADATA_CANNOT_SELECT_A_FRESH_BASELINE').toMatchObject({behavior:'deny'});}
+  const hostSnapshot=f.safety.read();
+  work=legacy?bridge.requestPermission({...request,admissionSnapshot:f.safety.read()}):requestToolPermission({...bridge,admissionSafety:causal},request);
+  await Promise.race([raised.promise,work.then(result=>{throw new Error('HOST_CARD_MUST_ACCEPT_THE_CURRENT_SNAPSHOT '+JSON.stringify(result));})]);
+  const before=causal.read();await f.collector.begin(id,'Bash',{command});
+  expect(f.safety.read().restricted,'OWN_INPUT_IS_A_REAL_UNRESOLVED_OCCURRENCE').toBe(true);
+  expect(causal.read(),'OWN_INPUT_ALONE_PRESERVES_EVERY_ADMISSION_FIELD').toEqual(before);
+  if(independent)await f.add('independent_host_card');
+  if(!independent)await handleToolApproval({host,ws,requireEcho:true,connection:{principal:f.principal,authorization}} as never,{type:'tool_approval',toolUseId:id,turnId:'voyage',channel:'card'});
+  expect(await work,'HOST_OWNER_RESPONSE_USES_THE_RETAINED_CAUSAL_VIEW').toMatchObject({behavior:independent?'deny':'allow'});
+  if(independent){const events=queryGovernanceEvents(f.db,{kinds:['safety_admission_expired'],limit:20});expect(events.at(-1)?.payload).toMatchObject({evidenceRevision:hostSnapshot.evidenceRevision,trustRevision:hostSnapshot.trustRevision,authorityEpoch:hostSnapshot.authorityEpoch});}
+ }finally{authorization.release();host.close();await work;await f.close();}
+});
+for(const perUse of [false,true])for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: first own input admission (perUse=${perUse})`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{phase:'input',explicit:perUse});
+  expect(result.requests.filter(request=>request.kind==='command')).toHaveLength(perUse?1:0);
+  expect(f.safety.read().restricted,'FIRST_OWN_INPUT_REALLY_RESTRICTS_THE_ROOT').toBe(true);
+  expect(result.executed,'ONLY_EXACT_PER_USE_APPROVAL_RETAINS_OWN_INPUT_EXCLUSION').toBe(perUse);
+ }finally{await f.close();}
+});
+
+test('queued dispatch preparation captures the generation at invocation time',async()=>{
+ const f=await fixture(false);try{
+  const id='prepare-generation';f.collector.admitting!(id,'Bash');await f.collector.begin(id,'Bash',{command});
+  const preparing=f.collector.prepareDispatch!(id),beginning=f.collector.begin(id,'Bash',{command:command+' --dry-run'});
+  const ticket=await preparing;await beginning;
+  expect(()=>ticket.commit(),'QUEUED_PREPARATION_CANNOT_REBASE_ON_A_LATER_BEGIN').toThrow('current');await ticket.cancel();
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+test('refusal synchronously invalidates a ticket before queued discharge',async()=>{
+ const f=await fixture(false);try{
+  const id='immediate-refusal';f.collector.admitting!(id,'Bash');await f.collector.begin(id,'Bash',{command});const ticket=await f.collector.prepareDispatch!(id);
+  const refusing=f.collector.refused!(id,true);let error:unknown;
+  try{ticket.commit();}catch(cause){error=cause;}await refusing;
+  expect(error,'REFUSAL_INVALIDATES_BEFORE_ITS_PROMISE_SETTLES').toBeInstanceOf(Error);
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'REFUSED_UNDISPATCHED_CALL_DISCHARGES').toEqual({n:0});
+ }finally{await f.close();}
+});
+test('host-routed preparation still refuses synchronously before input collection',async()=>{
+ const f=await fixture(false);try{
+  const ticket=await f.collector.prepareDispatch!('host-route-refusal'),refusing=f.collector.refused!('host-route-refusal',true);let error:unknown;
+  try{ticket.commit();}catch(cause){error=cause;}await refusing;
+  expect(error,'HOST_ROUTED_TICKET_REFUSAL_IS_IMMEDIATE').toBeInstanceOf(Error);
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+test('Claude preserves host-routed permission before host-owned input collection',async()=>{
+ const f=await fixture(false);try{
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),applyBrain:async()=>({ok:true,message:"Host route",changes:[]}),admissionSafety:f.safety,inputSafety:f.collector}},allowedTools:['mcp__brain-ui__brain_add'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
+  expect((await wiring.canUseTool!('mcp__brain-ui__brain_add',{title:'Voyage'},{toolUseID:'host-owned',signal:f.controller.signal} as never))?.behavior,'HOST_ROUTE_HAS_ITS_OWN_LATER_INPUT_BOUNDARY').toBe('allow');
+ }finally{await f.close();}
 });
