@@ -7,6 +7,7 @@
 #include <linux/seccomp.h>
 #include <stddef.h>
 #include <poll.h>
+#include <netinet/in.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -172,7 +173,8 @@ static int run(int pinned,const char *allowed,char **command,int probe,const cha
       if(fd<0 || connect(fd,(struct sockaddr *)&target,sizeof(target))!=-1 || errno!=EPERM) _exit(122);
       close(fd);
       fd=socket(AF_INET,SOCK_STREAM,0);
-      if(fd<0 || connect(fd,(struct sockaddr *)&target,sizeof(target))!=-1 || errno!=EPERM) _exit(123);
+      struct sockaddr_in tcp={.sin_family=AF_INET,.sin_port=htons(9),.sin_addr={.s_addr=htonl(INADDR_LOOPBACK)}};
+      if(fd<0 || connect(fd,(struct sockaddr *)&tcp,sizeof(tcp))!=-1 || errno!=EPERM) _exit(123);
       close(fd);
       fd=socket(AF_UNIX,SOCK_DGRAM,0);
       if(fd<0 || bind(fd,(struct sockaddr *)&target,sizeof(target))!=-1 || errno!=EPERM) _exit(124);

@@ -1,6 +1,6 @@
 import { inheritNativeReceipts, withoutNativeReceipts, nativeReceipt, flushNativeReceipts } from "./native-test-receipts.ts";
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { recordNativeGuardChild, isGuardedNativePlan, guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, nativeTestHead, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
+import { prepareNativeBootstrapDiagnostics, recordNativeGuardChild, isGuardedNativePlan, guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, nativeTestHead, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
 import { basename, join } from "node:path";
 import { Server as HttpServer } from "node:http";
 import { isIP, Socket } from "node:net";
@@ -190,15 +190,18 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         const channel=inheritNativeReceipts(inherited,actual,defaultStderr);inherited=channel.options;
         args[0]=Array.isArray(first)?channel.argv:{...args[0] as object,cmd:channel.argv};
       }else inherited=withoutNativeReceipts(inherited);
+      const bootstrap = key === "spawn" && pipeOnly && Boolean(options.env?.BRAIN_WORKER_LAUNCH);
+      const bootstrapDiagnostics = bootstrap ? prepareNativeBootstrapDiagnostics(inherited) : undefined;
+      if (bootstrapDiagnostics) inherited=bootstrapDiagnostics.options as typeof inherited;
       if (Array.isArray(first)) args[1] = inherited;
       else args[0] = { ...inherited, cmd: (args[0] as { cmd: string[] }).cmd };
       try {
         boundary?.beforeLaunch(); workerBoundary?.beforeLaunch();
         const result = Reflect.apply(native, Bun, args);
-        if (key === "spawn") { recordNativeGuardChild(result,pipeOnly&&Boolean(options.env?.BRAIN_WORKER_LAUNCH)); void result.exited.finally(() => { boundary?.dispose(); workerBoundary?.dispose();flushNativeReceipts(); }); }
+        if (key === "spawn") { recordNativeGuardChild(result,bootstrap,bootstrapDiagnostics?.attach(result)); void result.exited.finally(() => { boundary?.dispose(); workerBoundary?.dispose();flushNativeReceipts(); }); }
         else {workerBoundary?.dispose();flushNativeReceipts();}
         return result;
-      } catch (error) { boundary?.dispose(); workerBoundary?.dispose(); throw error; }
+      } catch (error) { bootstrapDiagnostics?.dispose(); boundary?.dispose(); workerBoundary?.dispose(); throw error; }
     }) as typeof Bun.spawn & typeof Bun.spawnSync;
   }
 

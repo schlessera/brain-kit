@@ -38,6 +38,7 @@ for (const allowChild of [false, true]) {
     const approvals: unknown[] = [];
     let mainSent = false, childSent = false, version: string | undefined, terminal: string | undefined, isError: boolean | undefined;
     const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
+        if(new URL(req.url).pathname===witness.path)return witness.fetch(req);
             if (new URL(req.url).pathname !== "/v1/messages")
                 return Response.json({});
             const body = await req.json() as {

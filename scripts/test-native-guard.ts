@@ -1,6 +1,8 @@
 import { nativeReceipt } from "./native-test-receipts.ts";
 /** Test-only OS boundary for installed native Claude processes (#4313). */
-import { cpSync, fstatSync, statfsSync, chmodSync, closeSync, mkdirSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { constants, createWriteStream, cpSync, fstatSync, statfsSync, chmodSync, closeSync, mkdirSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -353,19 +355,35 @@ function auditAcl(operation: "set" | "check", uid: number, directory: string, lo
 }
 
 /** Fixture-only tail: no syscall buffers, exec arguments or environment survive. */
-export function scrubNativeStartupTrace(trace: string): string {
+export function scrubNativeStartupTrace(trace: string, fixtureRoots: readonly string[] = []): string {
   try {
   const {createRedactor,redactCredentials,redactProviderMessage}=diagnosticRedactors();
   let tail = trace.slice(-65536);
   if (trace.length > tail.length) tail = tail.includes("\n") ? tail.slice(tail.indexOf("\n") + 1) : "";
-  tail = tail.split("\n").map(line => line.replace(/\bexecve(?:at)?\(.*$/, "execve([arguments omitted])")).join("\n");
+  const labels=new Map<string,string>();
+  tail = tail.split("\n").map(line => {
+    line=line.replace(/\bexecve(?:at)?\(.*$/, "execve([arguments omitted])");
+    if(!/^\s*(?:[0-9]+\s+)?open(?:at2?|)?\(/.test(line)||!/= -1 [A-Z]+\b/.test(line))return line;
+    return line.replace(/"(?:\\.|[^"\\])*"/,quoted=>{
+      let path:string;try{path=JSON.parse(quoted);}catch{return '"other-absolute"';}
+      const root=fixtureRoots.find(root=>path.startsWith("/")&&within(resolve(root),resolve(path)));
+      let label=root?`fixture-${fixtureRoots.indexOf(root)}:${resolve(path).slice(resolve(root).length).replace(/^\//,"")||"."}`:
+        !path.startsWith("/")?"relative":within("/proc",path)?"proc":within("/sys",path)?"sys":within("/dev",path)?"dev":within("/etc",path)?"etc":
+        [ROOT,...SYSTEM].some(root=>within(root,path))?"runtime-root":["/home","/root",process.env.HOME].some(root=>root&&root!=="/"&&within(root,path))?"home-outside-fixture":"other-absolute";
+      label=label.replace(/[\u0000-\u001f\u007f]/g,"?");
+      const key=`NATIVEOPENLABEL${labels.size}END`;labels.set(key,label);return JSON.stringify(key);
+    });
+  }).join("\n");
   const redactor = createRedactor(undefined);
   for (const [key, secret] of Object.entries(process.env)) if (/secret|token|password|credential|api.?key/i.test(key) && secret) redactor.add(secret);
-  return redactProviderMessage(redactCredentials(redactor.text(tail))).slice(-65536);
+  let safe=redactProviderMessage(redactCredentials(redactor.text(tail)));
+  for(const [key,label] of labels)safe=safe.replaceAll(key,label);
+  return safe.slice(-65536);
   } catch { return "[diagnostic redaction unavailable]"; }
 }
 
 export function auditNativeLaunch(argv: string[], expected: readonly string[], cleanup: () => void, workerUid?: number) {
+  const diagnosticFixtureRoots=[...(scriptedRoute.getStore()?.fixtureRoots??[])];
   const diagnosticRoot = workerUid === undefined ? undefined : process.argv.find(value => value.startsWith("--native-identity-startup-audit="))?.slice("--native-identity-startup-audit=".length);
   if (diagnosticRoot) {
     const info = lstatSync(diagnosticRoot);
@@ -401,7 +419,7 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       try { trace = readFileSync(log, "utf8"); } catch { /* Missing evidence is a failed receipt. */ }
       if (diagnosticRoot) {
         try { writeFileSync(join(diagnosticRoot, `native-startup-audit-${directoryStamp.ino}.json`),
-          JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace) }), { flag: "wx", mode: 0o600 }); }
+          JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace,diagnosticFixtureRoots) }), { flag: "wx", mode: 0o600 }); }
         catch { nativeReceipt({kind:"native-fixture-startup-audit-failure",head:nativeTestHead(),success:false,reason:"startup audit snapshot unavailable"}); }
       }
       // Wider diagnostics may contain syscall-looking filenames; only actual
@@ -786,12 +804,46 @@ const bootstrapDiagnostics=new Map<number,{readonly exitCode:number|null;readonl
 export function nativeBootstrapStatus(pid:number){return bootstrapDiagnostics.get(pid);}
 const fixtureKeepers = new Map<number, KeeperInspection & { live(): boolean; dispose(): void }>();
 function processStart(pid: number): string { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!; }
-/** Called only by the installed test spawn interceptor, never by product code. */
-export function recordNativeGuardChild(child: { pid: number; exited: Promise<number>;exitCode?:number|null;signalCode?:string|number|null },bootstrap=false): void {
+/** Keep short named credentials out of test-only diagnostic records. */
+export function redactNativeDiagnosticAssignments(text:string):string {
+  return text.replace(/["']?([A-Za-z_$][\w$.-]*)["']?\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/g,
+    (entry,name:string)=>/(?:key|token|secret|password|auth)[\w$.-]*$/i.test(name)?"[redacted credential]":entry);
+}
+interface BootstrapEvidence { snapshot():string; drained:Promise<void> }
+/** Tee only the trusted bootstrap's FIFO, preserving its bytes for the launcher. */
+export function prepareNativeBootstrapDiagnostics(options:Record<string,any>):{options:Record<string,any>;attach(child:{stderr:ReadableStream<Uint8Array>}):BootstrapEvidence;dispose():void}|undefined {
+  const destination=options.stdio?.[2]??options.stderr;
+  if(typeof destination!=="number")return;
+  let fd:number|undefined;
+  try{fd=openSync(`/proc/self/fd/${destination}`,constants.O_WRONLY);}catch{return;}
+  let pipes:ReturnType<typeof import("../packages/ui-sdk/src/server/worker-pipes").createWorkerPipes>;
+  let fifoStream:typeof import("../packages/ui-sdk/src/server/worker-pipes").fifoStream;
+  try{const helper=createRequire(import.meta.url)("../packages/ui-sdk/src/server/worker-pipes.ts") as typeof import("../packages/ui-sdk/src/server/worker-pipes");pipes=helper.createWorkerPipes();fifoStream=helper.fifoStream;}
+  catch{closeSync(fd);return;}
+  const changed=options.stdio?{...options,stdio:options.stdio.map((value:unknown,index:number)=>index===2?pipes.child[2]:value)}:{...options,stderr:pipes.child[2]};
+  return {options:changed,dispose(){pipes.cleanup();if(fd!==undefined){closeSync(fd);fd=undefined;}},attach(_child){
+    let first=Buffer.alloc(0),tail=Buffer.alloc(0),observed=0;
+    pipes.closeChild();const ends=pipes.take();closeSync(ends.stdin);closeSync(ends.stdout);
+    const source=Readable.fromWeb(fifoStream(ends.stderr) as any),sink=createWriteStream("",{fd:fd!,autoClose:true});fd=undefined;
+    source.on("data",(chunk:Buffer)=>{observed+=chunk.length;const keep=Math.min(chunk.length,4096-first.length);if(keep>0)first=Buffer.concat([first,chunk.subarray(0,keep)]);tail=Buffer.concat([tail,chunk.subarray(-4096)]).subarray(-4096);});
+    const drained=pipeline(source,sink).then(()=>{},()=>{});
+    return {drained,snapshot(){let prefix=first.toString("utf8"),suffix=tail.toString("utf8");if(observed>first.length)prefix=prefix.slice(0,Math.max(0,prefix.lastIndexOf("\n")));if(observed>tail.length)suffix=suffix.slice(suffix.indexOf("\n")<0?suffix.length:suffix.indexOf("\n")+1);return observed<=first.length?prefix:prefix+"\n"+suffix;}};
+  }};
+}
+export function recordNativeGuardChild(child: { pid: number; exited: Promise<number>;exitCode?:number|null;signalCode?:string|number|null },bootstrap=false,evidence?:BootstrapEvidence): void {
   if(bootstrap){
     bootstrapDiagnostics.set(child.pid,{get exitCode(){return child.exitCode??null;},get signalCode(){return child.signalCode??null;}});
     if(bootstrapDiagnostics.size>256)bootstrapDiagnostics.delete(bootstrapDiagnostics.keys().next().value!);
-    void child.exited.then(code=>nativeReceipt({kind:"native-offline-bootstrap-exit",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null}),()=>nativeReceipt({kind:"native-offline-bootstrap-exit",head:nativeTestHead(),exitCode:null,signal:child.signalCode??null}));
+    const report=async(code:number|null)=>{
+      nativeReceipt({kind:"native-offline-bootstrap-exit",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null});
+      if(code===0&&!child.signalCode)return;
+      if(evidence){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([evidence.drained,new Promise<void>(resolve=>{timer=setTimeout(resolve,2000);timer.unref();})]);clearTimeout(timer);}
+      const text=evidence?.snapshot()??"";
+      const safe=compilerDiagnostic(redactNativeDiagnosticAssignments(text.replace(/^[ \t]*(?:Args|Arguments|argv|Env|Environment):[^\n]*(?:\n|$)/gim,"[redacted startup metadata]\n")));
+      nativeReceipt({kind:"native-offline-bootstrap-failure",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null,
+        reason:safe||"worker bootstrap exited nonzero; stderr reason unavailable"});
+    };
+    void child.exited.then(report,()=>report(null));
   }
   let start: string; try { start = processStart(child.pid); } catch { return; }
   guardedChildren.set(child.pid, start);

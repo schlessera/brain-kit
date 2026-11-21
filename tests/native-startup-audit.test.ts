@@ -44,3 +44,14 @@ for(const writeFailure of [false,true]) test(`identity audit snapshots sanitized
   else {expect(snapshots[0].text).toContain("EAGAIN");expect(snapshots[0].text).not.toContain("SIRENS_PRIVATE_PROMPT");expect(snapshots[0].text).not.toContain("sk-ant-");}
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
+
+
+test("failed-open labels retain fixture-relative names and remove every outside path segment",()=>{
+ const paths=["/fixture/voyage/loom.env","/home/secret-captain/My Secret/config","/root/private","/proc/self/exe","/sys/kernel/private","/dev/secret-device","/etc/secret-settings","/usr/lib/secret-runtime","/outside/secret-owner/file"];
+ const trace=paths.map(path=>`9 openat(AT_FDCWD, ${JSON.stringify(path)}, O_RDONLY) = -1 EACCES`).join("\n");
+ const text=scrubNativeStartupTrace(trace,["/fixture/voyage"]);
+ expect(text,"FIXTURE_FAILED_OPEN_IS_IDENTIFIED").toContain("fixture-0:loom.env");
+ for(const category of ["home-outside-fixture","proc","sys","dev","etc","runtime-root","other-absolute"])expect(text).toContain(`"${category}"`);
+ for(const hidden of ["secret-captain","My Secret","secret-owner","secret-runtime","secret-device","/home/","/fixture/","/root/","/outside/"])expect(text,"FAILED_OPEN_HOST_PATH_IS_OMITTED").not.toContain(hidden);
+ expect(text).toContain("EACCES");
+});

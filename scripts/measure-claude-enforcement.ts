@@ -62,7 +62,7 @@ try {
       Object.assign(process.env, { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), PATH: scenario === "rtk-rewrite"
         ? "/usr/local/bin:/usr/bin:/bin" : `${bin}:/usr/bin:/bin` });
       resetRtkProbe();
-      const log = model.plan({ name: "Bash", input: { command } });
+      const log = model.plan({ name: "Bash", input: { command } }, witness);
       const hookCalls: Array<{ index: string; input: unknown; output: HookJSONOutput }> = [];
       const callbackCalls: Array<{ input: unknown; output: unknown }> = [];
       const requests: PermissionRequest[] = [];

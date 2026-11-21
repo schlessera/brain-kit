@@ -1,3 +1,4 @@
+import { selectedNativePid } from "../helpers/native-process-observation";
 import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
@@ -131,8 +132,9 @@ try {
     try {
       accounts.push((await runtime.initializationResult()).account);
       if (!nativeChild?.pid) throw new Error("The native CLI did not start.");
-      nativeBinaryMatches &&= readlinkSync(`/proc/${nativeChild.pid}/exe`) === expectedExecutable;
-      nativeEnvironments.push(readFileSync(`/proc/${nativeChild.pid}/environ`, "utf8"));
+      const pid = selectedNativePid(nativeChild.pid, expectedExecutable);
+      nativeBinaryMatches &&= readlinkSync(`/proc/${pid}/exe`) === expectedExecutable;
+      nativeEnvironments.push(readFileSync(`/proc/${pid}/environ`, "utf8"));
       release();
       if (turn === 3) {
         await bounded(refreshEntered);

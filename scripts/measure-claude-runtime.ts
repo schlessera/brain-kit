@@ -1,3 +1,4 @@
+import type { createWorkerEffectWitness } from "./worker-effect-witness";
 import "./measurement-entry-preload.ts";
 import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // Re-measures the Claude Code runtime behaviours the permission design rests
@@ -144,10 +145,11 @@ export function resultText(content: unknown): string {
 /** A loopback Messages API that plays one planned tool call per turn. */
 export function scriptedModel(): {
   url: string;
-  plan(call: PlannedCall | null): ModelLog;
+  plan(call: PlannedCall | null, witness?: ReturnType<typeof createWorkerEffectWitness>): ModelLog;
   stop(): void;
 } {
   let call: PlannedCall | null = null;
+  let effects: ReturnType<typeof createWorkerEffectWitness> | undefined;
   let log: ModelLog = freshLog();
   function freshLog(): ModelLog {
     return { mainRequests: 0, callSent: false, auth: [], offered: [], deferred: [] };
@@ -157,6 +159,7 @@ export function scriptedModel(): {
     port: 0,
     async fetch(req) {
       const path = new URL(req.url).pathname;
+      if (effects && path === effects.path) return effects.fetch(req);
       if (path !== "/v1/messages") return Response.json({});
       log.auth.push({
         xApiKey: req.headers.get("x-api-key"),
@@ -180,7 +183,8 @@ export function scriptedModel(): {
 nativeScriptedService(server.url.origin);
   return {
     url: `http://127.0.0.1:${server.port}`,
-    plan(next) {
+    plan(next, witness) {
+      effects = witness;
       call = next;
       log = freshLog();
       return log;
