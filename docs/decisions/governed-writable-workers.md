@@ -1642,39 +1642,52 @@ required observation, its attribution, its durability and its terminal
 accounting are preserved. One inference request may therefore be sent before
 the observation's scope verdict is known.
 
-The implementation arms only one result boundary, with one 50 ms fallback
-from that result. Dispatch, the deadline, a new tool or worker, another hold,
-the periodic tick, finish, abort and shutdown claim that same boundary
-synchronously; another result never coalesces with it
-(`deferredObservation`, `packages/ui-server/src/brain/deferred-observation.ts:4-21`). Eligibility requires a
-single active turn and worker, no pending calls globally, no peer unproven
-producer, and no in-flight relay request at the result. Only a streaming
-Messages request whose final assistant call and sole final user tool result
-match that boundary can overlap. Token counts, tool-free titles, parallel
-arrivals, unsupported request shapes and unknown transport state keep the
-prior-verdict fence (`followsToolResult`,
-`packages/ui-server/src/brain/deferred-observation.ts:24-36`). Admission still
-checks both fences and the session binding.
+The implementation arms one result boundary with one 50 ms fallback. Dispatch,
+the elapsed deadline, a new tool or worker, another hold, the periodic tick,
+finish, abort and shutdown claim that same boundary synchronously; another
+result never coalesces with it (`deferredObservation`,
+`packages/ui-server/src/brain/deferred-observation.ts:4-22`). One synchronous
+predicate runs both when arming and at dispatch. Eligibility requires known
+complete journal/scope coverage, a relay serving `/v1/messages`, a single active
+turn and worker, no globally pending calls or peer unproven producer, and no
+inference operation at the result. An ambiguous call identity or a second
+inference operation after arming permanently selects the immediate schedule
+for that turn, even after the call entry is deleted or the second request
+closes. Operation creation supplies this evidence; an in-flight count cannot
+recover uniqueness. Unsupported transports never arm. Expired deadlines take
+the immediate path even before their timer callbacks run.
 
-A synchronous control receipt, independent of diagnostic hold/timing marks,
-confirms every stopped worker before upstream dispatch. A failed or legacy
-void stop acknowledgement refuses dispatch and retains a partial journal
-cause. The relay also holds response headers and body until the observation
-and its scope writes commit. A scope refusal discards the in-flight upstream
-response and records the connection as refused; the scope receipt remains
-paused and the worker stays stopped for the existing authorized decision.
-Files changed, observed turn bytes, index capacity, wall minutes and free
-space can be discovered by this deferred observation after one request has
-left. The tool-call cap is still checked at launch. No cap, credential,
-recording or authority failure authorizes another request. These host facts
-never enter provider history.
+Only a streaming Messages request whose final assistant call and sole final
+user tool result match that boundary can overlap (`followsToolResult`,
+`packages/ui-server/src/brain/deferred-observation.ts:25-37`). Token counts,
+tool-free titles, unsupported shapes and unknown evidence keep the prior-verdict
+fence. Both inference admission fences and the session-binding wait remain.
+
+A synchronous control receipt, independent of diagnostic timing marks, confirms
+the stop before speculative dispatch. A false or legacy void acknowledgement
+falls back to today's immediate held observation; it does not add a turn-abort
+path. After that observation commits, ordinary admission may proceed as before.
+Only a confirmed deferred stop waits for the scope writes to commit. Immediate,
+periodic, finish and admission holds keep their existing schedule, and an
+ordinary inference never joins unrelated work on the global journal queue.
+
+Every answer for a request associated with an armed or claimed result boundary
+passes one observation gate, including admission, size, byte-cap and credential
+refusals. Its observation verdict is latched for that request when the
+observation commits. A cap discards the in-flight upstream response even if the
+owner chooses Continue before upstream headers arrive; later requests use their
+own verdict. The existing cap receipt and authorized continuation remain.
+Files changed, observed turn bytes, index capacity, wall minutes and free space
+may be discovered after one request has left. The tool-call cap stays checked at
+launch. No existing egress, credential, recording or authority fence is removed.
+These host facts never enter provider history.
 
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:273`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:322-366`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:341-385`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before(hold?: JournalHold)`,
 `packages/ui-server/src/brain/turn-scope.ts:256-273`). Pi's agent loop runs in
@@ -1686,7 +1699,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:717-742`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:756-780`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 

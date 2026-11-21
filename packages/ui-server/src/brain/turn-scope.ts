@@ -258,13 +258,13 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       if (observationHolds++ > 0) { timing(() => recordStops(hold)); return; }
       observationFailed = false;
       for (const [turnId, turn] of active) {
-        if (turn.summary.receipts.some(receipt => receipt.state === "paused")) continue;
+        if (!turn.current() || turn.summary.receipts.some(receipt => receipt.state === "paused")) continue;
         const held: Worker[] = []; periodicHeld.set(turnId, { turn, workers: held });
-        if (hold?.requireConfirmedStop && !turn.workers.size) throw new Error("Deferred observation has no worker to stop");
+        if (hold?.requireConfirmedStop && !turn.workers.size) hold.requireConfirmedStop = false;
         for (const worker of turn.workers) {
           held.push(worker);
           freeze(worker);
-          if (hold?.requireConfirmedStop && !confirmed(worker)) throw new Error("Deferred worker stop was not confirmed");
+          if (hold?.requireConfirmedStop && !confirmed(worker)) hold.requireConfirmedStop = false;
         }
         if (hold) timing(() => recordStop(hold, turnId, held.filter(confirmed)));
       }
@@ -350,7 +350,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     },
     canDefer(turnId: string): boolean {
       const turn = active.get(turnId);
-      return !!turn && turn.current() && !turn.unrecorded && turn.workers.size === 1 && !observationHolds
+      return !!turn && turn.current() && !turn.unrecorded && turn.summary.changedPaths !== null && turn.summary.observedBytes !== null && turn.workers.size === 1 && !observationHolds
         && !turn.summary.receipts.some(receipt => receipt.state === "paused");
     },
     responseAllowed(turnId: string): boolean {

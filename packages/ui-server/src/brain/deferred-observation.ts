@@ -2,6 +2,7 @@
 const DEFERRED_OBSERVATION_MS = 50;
 
 export function deferredObservation(start: (confirmed?: { stopped: boolean }) => Promise<void>) {
+  const deadline = performance.now() + DEFERRED_OBSERVATION_MS;
   const done = Promise.withResolvers<void>();
   let claimed = false;
   const timer = setTimeout(() => claim(), DEFERRED_OBSERVATION_MS);
@@ -17,7 +18,7 @@ export function deferredObservation(start: (confirmed?: { stopped: boolean }) =>
     }
     return done.promise;
   }
-  return { done: done.promise, claim };
+  return { done: done.promise, claim, expired: () => performance.now() >= deadline };
 }
 
 /** Exact single-call Messages continuation. Unknown protocols keep the prior verdict fence. */

@@ -307,14 +307,33 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const calls = new Map<string, { turnId: string; name: string | null; started: boolean; path?: ToolExecutionPath }>();
   const lasting = new Set<string>();
   const callKey = (turnId: string, toolUseId: string) => JSON.stringify([turnId, toolUseId]);
-  const relays = new Map<string, { inFlight(): number; eligible(): boolean }>();
-  let deferred: { turnId: string; toolUseId: string; observation: ReturnType<typeof deferredObservation> } | undefined;
+  const relays = new Map<string, { messages: boolean; generation: number; operations: Set<object>; eligible(): boolean; allowed(): boolean }>();
+  const immediateOnly = new Set<string>();
+  type Boundary = { turnId: string; toolUseId: string; generation: number; claimed: boolean; settled: boolean; observation: ReturnType<typeof deferredObservation>; verdict: Promise<boolean> };
+  const claimed = new Map<string, Boundary>();
+  let deferred: Boundary | undefined;
   /** @internal */
   function flushDeferred(): Promise<void> {
     const pending = deferred;
     if (!pending) return Promise.resolve();
-    deferred = undefined;
-    return pending.observation.claim();
+    return claimBoundary(pending);
+  }
+  function claimBoundary(boundary: Boundary, confirmed?: { stopped: boolean }): Promise<void> {
+    if (deferred === boundary) deferred = undefined;
+    if (!boundary.claimed) { boundary.claimed = true; claimed.set(boundary.turnId, boundary); }
+    return boundary.observation.claim(confirmed);
+  }
+  /** One control predicate, used at arming and at the synchronous dispatch boundary. */
+  function mayDefer(turnId: string, boundary?: Boundary, operation?: object): boolean {
+    const relay = relays.get(turnId);
+    if (failures.has(turnId) || summary(turnId).state !== "recording") immediateOnly.add(turnId);
+    if (!relay || !relay.messages || immediateOnly.has(turnId)) return false;
+    if (boundary && (boundary.observation.expired() || relay.generation !== boundary.generation + 1)) {
+      immediateOnly.add(turnId); return false;
+    }
+    return !closing && !holds && active.size === 1 && active.has(turnId) && !calls.size
+      && ![...lasting].some(id => id !== turnId) && relay.eligible()
+      && (operation ? relay.operations.size === 1 && relay.operations.has(operation) : relay.operations.size === 0);
   }
   let holds = 0;
   let observationFailures = 0;
@@ -345,14 +364,14 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     let acquired = 0;
     try { for (const holder of holders) { acquired++; holder.before(interval); } }
     catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false, interval); return Promise.reject(error); }
-    if (confirmed) confirmed.stopped = holders.length > 0;
+    if (confirmed) confirmed.stopped = holders.length > 0 && interval.requireConfirmedStop === true;
     return serialize(async () => {
       waited?.();
       currentHold = interval;
       let completed = false;
       const failedBefore = observationFailures;
       try { const result = await operation(timing);
-        await inference.settleScope?.();
+        if (confirmed?.stopped) await inference.settleScope?.();
         completed = true; return result; }
       finally {
         // A cancelled/refused new admission made no worker writes. Existing
@@ -575,37 +594,57 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }
   }
   const inference: Parameters<typeof retainJournalInference>[1] = {
-    /** @internal Concrete turn relay lifecycle; absence always uses immediate observations. */
-    relayStarted(turnId: string, transport: { inFlight(): number; eligible(): boolean }, signal: AbortSignal) {
+    relayStarted(turnId, transport, signal) {
       void flushDeferred().catch(() => {});
-      relays.set(turnId, transport);
-      const abort = () => { void flushDeferred().catch(() => {}); if (relays.get(turnId) === transport) relays.delete(turnId); };
+      const relay = { ...transport, messages: false, generation: 0, operations: new Set<object>() };
+      relays.set(turnId, relay);
+      const abort = () => { void flushDeferred().catch(() => {}); if (relays.get(turnId) === relay) relays.delete(turnId); };
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
       return () => { signal.removeEventListener("abort", abort); abort(); };
     },
-    /** @internal */
-    flushDeferred,
-    /** @internal Fully read request only. Ambiguous traffic keeps the prior-verdict boundary. */
-    async prepareInference(turnId: string, path: string, body: Uint8Array): Promise<boolean> {
-      const relay = relays.get(turnId);
-      if (deferred?.turnId === turnId && relay?.eligible() && relay.inFlight() === 1
-        && followsToolResult(path, body, deferred.toolUseId)) return true;
-      await flushDeferred();
-      await tail;
-      return !failures.has(turnId);
+    routes(turnId, paths) {
+      const relay = relays.get(turnId); if (!relay) return;
+      relay.messages = paths.includes("/v1/messages");
+      if (!relay.messages) { immediateOnly.add(turnId); void flushDeferred().catch(() => {}); }
     },
-    /** @internal No await between the confirmed stop and the relay's fetch. */
-    dispatchInference(turnId: string): { stopped: boolean; ready: Promise<void> } {
-      const pending = deferred;
-      if (pending?.turnId !== turnId) return { stopped: !holds && !failures.has(turnId), ready: tail.then(() => {}) };
-      deferred = undefined;
-      const confirmed = { stopped: false };
-      const relay = relays.get(turnId);
-      // Parallel arrivals after arming invalidate the one-request attribution.
-      if (!relay?.eligible() || relay.inFlight() !== 1) return { stopped: false, ready: pending.observation.claim() };
-      const ready = pending.observation.claim(confirmed);
-      return { stopped: confirmed.stopped, ready };
+    flushDeferred,
+    requestStarted(turnId) {
+      const relay = relays.get(turnId), operation = {};
+      const boundary = deferred?.turnId === turnId ? deferred : claimed.get(turnId);
+      if (relay) {
+        relay.operations.add(operation); relay.generation++;
+        if (boundary && relay.generation > boundary.generation + 1) {
+          immediateOnly.add(turnId); void claimBoundary(boundary).catch(() => {});
+        }
+      }
+      let matched = false;
+      return {
+        async prepare(path, body) {
+          matched = !!boundary && mayDefer(turnId, boundary, operation) && followsToolResult(path, body, boundary.toolUseId);
+          if (matched && !boundary!.claimed) return true;
+          // Join only this request's result boundary, never unrelated journal work.
+          if (boundary) await claimBoundary(boundary);
+          return true;
+        },
+        dispatch() {
+          if (!boundary) return true;
+          if (boundary.claimed) return boundary.settled;
+          if (!matched || !mayDefer(turnId, boundary, operation)) {
+            void claimBoundary(boundary).catch(() => {}); return false;
+          }
+          const confirmed = { stopped: false };
+          void claimBoundary(boundary, confirmed).catch(() => {});
+          if (!confirmed.stopped) immediateOnly.add(turnId);
+          return confirmed.stopped;
+        },
+        async responseReady() {
+          if (!boundary) return true;
+          try { await claimBoundary(boundary); return await boundary.verdict; }
+          catch { return false; }
+        },
+        close() { relay?.operations.delete(operation); },
+      };
     },
   };
   const journal = {
@@ -701,7 +740,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (!active.has(turnId)) return;
       const key = callKey(turnId, toolUseId), call = calls.get(key);
       if (!call) { calls.set(key, { turnId, name, started: start }); return; }
-      if (call.name !== name || start && call.started) call.name = null;
+      if (call.name !== name || start && call.started) { call.name = null; immediateOnly.add(turnId); }
       call.started ||= start;
     },
     /** @internal The backend's evidence of where the call actually ran (`StartTurnRequest.toolExecution`). */
@@ -723,17 +762,15 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (effect === "read" && !lasting.size && !calls.size) return Promise.resolve();
       const start = (confirmed?: { stopped: boolean }) => held(timing => observe(false, timing), false,
         traceFor("tool", turnId, toolUseId), undefined, { kind: "tool", turnId, toolUseId }, confirmed);
-      const relay = relays.get(turnId);
-      // A sibling, parent, peer producer or unknown transport keeps the immediate schedule.
-      if (!closing && !holds && active.size === 1 && active.has(turnId) && call?.started && call.name !== null
-        && !calls.size && ![...lasting].some(id => id !== turnId) && relay?.eligible() && relay.inFlight() === 0) {
-        const pending = { turnId, toolUseId, observation: deferredObservation(confirmed => {
-          if (deferred === pending) deferred = undefined;
-          return start(confirmed).catch(async error => {
-            await fail(turnId, error);
-            throw error;
-          });
-        }) };
+      if (call?.started && call.name !== null && mayDefer(turnId)) {
+        const pending: Boundary = { turnId, toolUseId, generation: relays.get(turnId)!.generation, claimed: false, settled: false,
+          observation: deferredObservation(confirmed => {
+            if (deferred === pending) deferred = undefined;
+            pending.claimed = true; claimed.set(turnId, pending);
+            return start(confirmed);
+          }), verdict: Promise.resolve(false) };
+        pending.verdict = pending.observation.done.then(() => { pending.settled = true; return relays.get(turnId)?.allowed() === true; });
+        void pending.verdict.finally(() => { if (claimed.get(turnId) === pending) claimed.delete(turnId); }).catch(() => {});
         deferred = pending;
         return pending.observation.done;
       }
@@ -833,7 +870,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }
       try { const end = bothTimers(lifecycle)?.("final_observation"); await observe(false, timing); end?.(); }
       finally {
-        active.delete(turnId); counters.delete(turnId); lasting.delete(turnId);
+        active.delete(turnId); counters.delete(turnId); lasting.delete(turnId); immediateOnly.delete(turnId);
         for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
         let step = [...worktrees.values()].some(root => root.turnId === turnId) ? timing?.("finish_worktrees") : undefined;
         if (await dropWorktrees(turnId)) step?.();

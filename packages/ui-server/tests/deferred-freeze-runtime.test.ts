@@ -8,6 +8,7 @@ import { watchdogMs } from "../../../scripts/test-deadlines";
 // mode: controlled time and a fake worker cannot exercise kernel backpressure.
 // Ten seconds is the issue's observation window, not a readiness sleep.
 test("a real stopped worker receives an 8 MiB stream only after its ten-second observation commits", async () => {
+  const realNow = performance.now.bind(performance);
   const child = Bun.spawn([process.execPath, "-e", `
     import { request } from "node:http";
     const reader = Bun.stdin.stream().getReader();
@@ -18,18 +19,18 @@ test("a real stopped worker receives an 8 MiB stream only after its ten-second o
       res.on("end", () => { console.log(JSON.stringify({ status: res.statusCode, bytes })); process.exit(0); });
     }); req.on("error", error => { console.error(String(error)); process.exit(1); }); req.end(body);
   `], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  let stopped = false, committed = false;
+  let stopped = false, committed = false, earlyResume: unknown;
   const freeze = () => {
     child.kill("SIGSTOP");
-    const deadline = performance.now() + watchdogMs(5000);
+    const deadline = realNow() + watchdogMs(5000);
     for (;;) {
       const state = readFileSync(`/proc/${child.pid}/stat`, "utf8").replace(/^.*\) /s, "")[0];
       if (state === "T") { stopped = true; return true; }
-      if (performance.now() > deadline) throw new Error("Owned worker did not stop");
+      if (realNow() > deadline) throw new Error("Owned worker did not stop");
       Bun.sleepSync(1);
     }
   };
-  const f = await fixture(100, { freeze, resume() { expect(committed, "PROCESS_CANNOT_RESUME_BEFORE_COMMIT").toBe(true); child.kill("SIGCONT"); stopped = false; return true; }, kill(signal) { child.kill(signal); return true; }, exited: child.exited });
+  const f = await fixture(100, { freeze, resume() { try { expect(committed, "PROCESS_CANNOT_RESUME_BEFORE_COMMIT").toBe(true); } catch (error) { earlyResume = error; throw error; } child.kill("SIGCONT"); stopped = false; return true; }, kill(signal) { child.kill(signal); return true; }, exited: child.exited });
   const checkpoint = f.native.manager.checkpoint, dispatched = Promise.withResolvers<void>();
   let produced = 0;
   const total = 8 * 1024 * 1024;
@@ -44,16 +45,17 @@ test("a real stopped worker receives an 8 MiB stream only after its ten-second o
   try {
     let captureStarted = 0;
     f.native.manager.checkpoint = async (...args) => {
-      captureStarted = performance.now(); await Bun.sleep(10_000);
+      captureStarted = realNow(); await Bun.sleep(10_000);
       return checkpoint(...args);
     };
-    f.journal.onObservation(() => { committed = true; });
+    f.afterNativeCommit(() => { committed = true; });
     const observed = f.result();
     child.stdin.write(JSON.stringify({ socketPath: relay.socketPath, body: body() })); child.stdin.end();
     await dispatched.promise;
     expect(stopped).toBe(true);
     await observed;
-    expect(performance.now() - captureStarted, "TEN_SECOND_OBSERVATION_WAS_EXERCISED").toBeGreaterThanOrEqual(10_000);
+    if (earlyResume) throw earlyResume;
+    expect(realNow() - captureStarted, "TEN_SECOND_OBSERVATION_WAS_EXERCISED").toBeGreaterThanOrEqual(10_000);
     expect(await child.exited).toBe(0);
     expect(JSON.parse(await new Response(child.stdout).text())).toEqual({ status: 200, bytes: total });
     expect(await new Response(child.stderr).text()).toBe("");

@@ -56,7 +56,7 @@ for (const boundary of ["deadline", "new tool", "new worker", "periodic", "abort
       else if (boundary === "abort") f.controller.abort();
       else if (boundary === "finish") terminal = f.journal.finish("voyage");
       else terminal = f.journal.close();
-      expect(f.frozen, "INTERRUPTION_SYNCHRONOUSLY_TAKES_HOLD").toBe(true);
+      expect(f.frozen, "INTERRUPTION_RETAINS_BASE_HOLD_POLICY").toBe(boundary !== "abort");
       await observed; await terminal;
       expect(observations, "RESULT_IS_NEVER_COALESCED_WITH_ANOTHER_BOUNDARY").toBe(boundary === "periodic" || boundary === "finish" ? 2 : 1);
       expect(f.deadlines.filter(item => !item.cancelled)).toHaveLength(0);
@@ -106,19 +106,19 @@ for (const requestKind of ["token count", "title", "wrong result", "parallel res
 }
 
 for (const ack of [false, undefined] as const) {
-  test(`a ${String(ack)} stop receipt refuses speculative dispatch`, async () => {
+  test(`a ${String(ack)} stop receipt falls back to the base immediate hold`, async () => {
     const f = await fixture(); let upstream = 0;
     const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { upstream++; return new Response("Ithaca"); } });
     const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: {}, egress: f.proxy });
     try {
       f.ack(ack);
       const observed = f.result();
-      const refusedObservation = observed.then(() => false, () => true);
-      expect((await send(relay.socketPath)).status, "UNCONFIRMED_STOP_REFUSES_DISPATCH").toBe(403);
-      expect(await refusedObservation).toBe(true);
-      expect(upstream).toBe(0);
-      expect(f.controller.signal.aborted).toBe(true);
-      expect(f.journal.summary("voyage").state, "FAILED_STOP_IS_DURABLY_PARTIAL").toBe("partial");
+      let committed = false; void observed.then(() => { committed = true; }, () => {});
+      expect((await send(relay.socketPath)).status, "UNCONFIRMED_STOP_FALLS_BACK_WITHOUT_NEW_REFUSAL").toBe(200);
+      await observed; expect(committed).toBe(true);
+      expect(upstream).toBe(1);
+      expect(f.controller.signal.aborted).toBe(false);
+      expect(f.journal.summary("voyage").state, "LEGACY_STOP_RETAINS_BASE_JOURNAL_BEHAVIOR").toBe("recording");
     } finally { relay.stop(); origin.stop(true); await f.close(); }
   });
 }

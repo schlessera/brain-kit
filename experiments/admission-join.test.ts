@@ -8,11 +8,13 @@ test("admission measurement retains both fences and every hold/delay cell with r
   const root = mkdtempSync(join(tmpdir(), "odysseus-admission-measure-"));
   try {
     const measured = await measureAdmissionJoin(root, 1);
+    expect(measured.journalAttached).toBe(true);
     expect(measured.rows.map(row => [row.hold, row.delayMs, row.queuedCommits, row.fences])).toEqual([
       ["drained", 10, 20, 2], ["drained", 50, 20, 2], ["drained", 500, 20, 2],
       ["removed", 10, 20, 2], ["removed", 50, 20, 2], ["removed", 500, 20, 2],
     ]);
     for (const row of measured.rows) {
+      expect(row.dispatchAfterResultMs).toBeGreaterThanOrEqual(row.requestAfterResultMs);
       expect(row.admissionFencesMs).toHaveLength(2);
       expect(row.requestAfterResultMs).toBeGreaterThanOrEqual(0);
       expect(row.admitMs).toBeGreaterThanOrEqual(0);

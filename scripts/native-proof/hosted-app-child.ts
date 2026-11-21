@@ -338,7 +338,7 @@ try {
     // Fixture-only endpoint; no product route or provider request is added.
     if (OBSERVATION_TIMING && new URL(request.url).pathname === "/__native_admission_join") {
       const { measureAdmissionJoin } = await import("./admission-join.js");
-      admissionJoin ??= measureAdmissionJoin(dir!);
+      admissionJoin ??= measureAdmissionJoin(dir!, 5, { journal: app.wsHost.journal, scope: app.wsHost.scope, db: app.db, writes: app.wsHost.activity.governanceWrites });
       try { return Response.json(await admissionJoin); } catch (error) { return Response.json({ error: String(error) }, { status: 500 }); }
     }
     if (OBSERVATION_TIMING && new URL(request.url).pathname === "/__native_observation_path_matrix") {
