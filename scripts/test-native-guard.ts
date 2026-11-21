@@ -1,4 +1,4 @@
-import { nativeDeviceMetadata, nativeDeviceMetadataCommand, nativeStartupOpenStages } from "./native-device-diagnostics";
+import { nativeDeviceMetadata, nativeDeviceMetadataCommand, nativeStartupOpenStages, nativeSeparateUidAuditCommand } from "./native-device-diagnostics";
 import { nativeReceipt } from "./native-test-receipts.ts";
 /** Test-only OS boundary for installed native Claude processes (#4313). */
 import { constants, createWriteStream, cpSync, fstatSync, statfsSync, chmodSync, closeSync, mkdirSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -476,7 +476,7 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
         for(const failure of nativeStartupOpenStages(trace,expected,process.execPath))nativeReceipt({kind:"native-fixture-startup-open",head:nativeTestHead(),...failure});
         for(const metadata of nativeDeviceMetadata(trace))nativeReceipt({kind:"native-fixture-device-metadata",head:nativeTestHead(),...metadata});
         try { writeFileSync(join(diagnosticRoot, `native-startup-audit-${directoryStamp.ino}.json`),
-          JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace,diagnosticFixtureRoots) }), { flag: "wx", mode: 0o600 }); }
+          JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace,diagnosticFixtureRoots),deviceMetadata:nativeDeviceMetadata(trace),failedOpenStages:nativeStartupOpenStages(trace,expected,process.execPath) }), { flag: "wx", mode: 0o600 }); }
         catch { nativeReceipt({kind:"native-fixture-startup-audit-failure",head:nativeTestHead(),success:false,reason:"startup audit snapshot unavailable"}); }
       }
       // Wider diagnostics may contain syscall-looking filenames; only actual
@@ -549,10 +549,11 @@ export const WORKER_TURN_PROXY="/run/brain-egress/proxy.sock";
 /** Raw fixture tunnel only to the explicitly registered loopback turn proxy. */
 export function startNativeTurnProxyTunnel(origin:string,directory:string){
   const target=new URL(origin),socket=join(directory,"turn-proxy.sock");
-  if(target.protocol!=="http:"||target.hostname!=="127.0.0.1"||!target.port)refuse("invalid scripted turn proxy");
+  if(target.protocol!=="http:"||!["127.0.0.1","localhost","[::1]"].includes(target.hostname)||!target.port||target.username||target.password||target.pathname!=="/"||target.search||target.hash)refuse("invalid scripted turn proxy");
+  const host=target.hostname==="[::1]"?"::1":"127.0.0.1";
   const net=createRequire(import.meta.url)("node:net") as typeof import("node:net");
   const server=net.createServer(peer=>{
-    const upstream=net.connect({host:"127.0.0.1",port:Number(target.port)});
+    const upstream=net.connect({host,port:Number(target.port)});
     peer.on("error",()=>upstream.destroy());upstream.on("error",()=>peer.destroy());
     peer.on("close",()=>upstream.destroy());upstream.on("close",()=>peer.destroy());
     peer.pipe(upstream);upstream.pipe(peer);
@@ -586,7 +587,7 @@ export function nativeDirectTransportCommand(command:readonly string[]):string[]
 }
 
 /** Direct SDK launch: empty filesystem, fresh PID/network namespaces, one IPC. */
-export function nativeClaudeBoundary(command: string, args: string[], options: { cwd?: string; env?: Record<string, string | undefined>; managedSettings?: string }): Boundary {
+export function nativeClaudeBoundary(command: string, args: string[], options: { cwd?: string; env?: Record<string, string | undefined> }): Boundary {
   qualify();
   const env = options.env ?? process.env;
   const route = scriptedRoute.getStore();
@@ -603,8 +604,9 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   if (inheritedSocket && !inheritedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (inheritedOrigin && (!scriptedRoute.getStore() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(scriptedRoute.getStore()!.origin))) refuse("native relay did not match scripted authority");
   const bridge = startNativeTestRelay(route.origin);
-  const direct=!inheritedOrigin;
-  const turnProxy=direct||route.turnProxy?startNativeTurnProxyTunnel(route.origin,bridge.directory):undefined;
+  const authStatus=args.some((value,index)=>value==="auth"&&args[index+1]==="status");
+  const direct=!inheritedOrigin&&!authStatus;
+  const turnProxy=!authStatus&&(direct||route.turnProxy)?startNativeTurnProxyTunnel(route.origin,bridge.directory):undefined;
   try {
     const tools = fixtureToolView(env, cwd, home);
     command = resolveExecutable(command, options);
@@ -617,7 +619,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...(inheritedSocket && inheritedOrigin ? ["--ro-bind", inheritedSocket, "/tmp/native-relay/relay.sock", "--ro-bind", inheritedSocket, inheritedSocket] : []),
-      ...(options.managedSettings ? ["--ro-bind", options.managedSettings, "/etc/claude-code"] : []),...nativeFixtureManagedSettingsMounts(bridge.directory),
+      ...nativeFixtureFileMounts(bridge.directory),
       ...(turnProxy?["--dir","/run/brain-egress","--ro-bind",turnProxy.socket,WORKER_TURN_PROXY]:[]),];
     const beforeLaunch = () => assertNativeMountSockets(mounts, route.origin);
     beforeLaunch();
@@ -633,7 +635,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     Object.assign(childEnv, syntheticCredentials(env));
     if (["0", "1"].includes(env.USE_BUILTIN_RIPGREP ?? "")) childEnv.USE_BUILTIN_RIPGREP = env.USE_BUILTIN_RIPGREP!;
     if (inheritedOrigin) Object.assign(childEnv, relayCredentialPlaceholders(env));
-    if (args.some((value, index) => value === "auth" && args[index + 1] === "status")) {
+    if (authStatus) {
       // Auth status inspects the isolated fixture login; injecting an API key
       // would change the very authentication method the fixture is testing.
       for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_UNIX_SOCKET"]) delete childEnv[key];
@@ -648,11 +650,11 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   } catch (error) { turnProxy?.dispose();bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); throw error; }
 }
 
-interface ScriptedAuthority { origin: string; fixtureRoots: readonly string[]; fixtureRootStamps: ReadonlyMap<string,{dev:bigint;ino:bigint}>; fixtureFiles: ReadonlyMap<string, Uint8Array>; managedSettings?: Uint8Array; turnProxy?: boolean }
+interface ScriptedAuthority { origin: string; fixtureRoots: readonly string[]; fixtureRootStamps: ReadonlyMap<string,{dev:bigint;ino:bigint}>; fixtureFiles: ReadonlyMap<string, {bytes:Uint8Array;mode:number}>; turnProxy?: boolean }
 const scriptedRoute = new AsyncLocalStorage<ScriptedAuthority | undefined>();
 
 /** Test code pins its scripted service before building a restricted turn. */
-export function nativeScriptedService(origin: string, fixture?: { fixtureRoots?: readonly string[]; fixtureFiles?: readonly string[]; managedSettingsFile?: string; turnProxy?: boolean }): () => void {
+export function nativeScriptedService(origin: string, fixture?: { fixtureRoots?: readonly string[]; fixtureFiles?: readonly string[]; turnProxy?: boolean }): () => void {
   const previous = scriptedRoute.getStore();
   scriptedRoute.enterWith(undefined);
   let target:URL;try{target=new URL(origin);}catch{refuse("invalid scripted route authority");}
@@ -667,29 +669,27 @@ export function nativeScriptedService(origin: string, fixture?: { fixtureRoots?:
   }) ?? prior?.fixtureRoots ?? [];
   const fixtureRootStamps = fixture?.fixtureRoots ? new Map(fixtureRoots.map(path=>{const info=lstatSync(path,{bigint:true});return [path,{dev:info.dev,ino:info.ino}] as const;})) : prior?.fixtureRootStamps ?? new Map<string,{dev:bigint;ino:bigint}>();
   const fixtureFiles = fixture?.fixtureFiles ? new Map(fixture.fixtureFiles.map(path => {
-    let real:string;try{real=realpathSync(path);}catch{refuse("fixture file registration is unavailable");}
-    if (!lstatSync(path).isFile()) refuse("fixture file registration requires a regular file");
-    return [real, new Uint8Array(readFileSync(real))] as const;
-  })) : prior?.fixtureFiles ?? new Map<string, Uint8Array>();
-  let managedSettings:Uint8Array|undefined;
-  if(fixture?.managedSettingsFile!==undefined){
-    const path=resolve(fixture.managedSettingsFile),info=lstatSync(path);
-    const created=[...createdFixtureRoots].some(([root,stamp])=>{try{const current=lstatSync(root,{bigint:true});return current.dev===stamp.dev&&current.ino===stamp.ino&&within(root,path);}catch{return false;}});
-    if(!info.isFile()||info.nlink!==1||realpathSync(path)!==path||!created)refuse("managed settings require an unlinked fixture-created regular file");
-    managedSettings=new Uint8Array(readFileSync(path));
-  }else if(!fixture)managedSettings=prior?.managedSettings;
-  authority = Object.freeze({ origin: target.origin, fixtureRoots, fixtureRootStamps, fixtureFiles,managedSettings,turnProxy:fixture?fixture.turnProxy===true:prior?.turnProxy });
+    // Keep the spelling as well as realpath: normalization must not bless aliases.
+    let real:string,info:ReturnType<typeof lstatSync>;
+    try{real=realpathSync(path);info=lstatSync(path);}catch{return refuse("fixture files require a canonical unlinked regular file under a declared root");}
+    const declared=fixtureRoots.some(root=>within(root,path));
+    if(!path.startsWith("/")||resolve(path)!==path||real!==path||!info.isFile()||info.nlink!==1||!declared||basename(path)===".credentials.json")refuse("fixture files require a canonical unlinked regular file under a declared root");
+    return [path,{bytes:new Uint8Array(readFileSync(path)),mode:(info.mode&0o111)?0o555:0o444}] as const;
+  })) : prior?.fixtureFiles ?? new Map<string,{bytes:Uint8Array;mode:number}>();
+  authority = Object.freeze({ origin: target.origin, fixtureRoots, fixtureRootStamps, fixtureFiles,turnProxy:fixture?fixture.turnProxy===true:prior?.turnProxy });
   } catch(error) { if(String(error).includes("Offline native Claude refused before launch:"))throw error;refuse("fixture registration is unavailable"); }
   scriptedRoute.enterWith(authority);
   return () => { if(scriptedRoute.getStore()===authority)scriptedRoute.enterWith(previous); };
 }
 
-/** Only explicitly captured fixture bytes enter this fixed managed-settings target. */
-export function nativeFixtureManagedSettingsMounts(directory:string):string[] {
-  const bytes=scriptedRoute.getStore()?.managedSettings;
-  if(!bytes)return [];
-  const file=join(directory,"fixture-managed-settings.json");writeFileSync(file,bytes,{flag:"wx",mode:0o444});chmodSync(file,0o444);
-  return ["--ro-bind",file,"/etc/claude-code/managed-settings.json"];
+/** Snapshot only individually declared files; siblings and directories never enter. */
+export function nativeFixtureFileMounts(directory:string):string[] {
+  const mounts:string[]=[];let index=0;
+  for(const [target,file] of scriptedRoute.getStore()?.fixtureFiles??[]){
+    const staged=join(directory,`fixture-file-${index++}`);writeFileSync(staged,file.bytes,{flag:"wx",mode:file.mode});chmodSync(staged,file.mode);
+    mounts.push("--ro-bind",staged,target);
+  }
+  return mounts;
 }
 
 /** Keep fixture authority at the SDK's existing spawn hook, across its async work. */
@@ -935,9 +935,7 @@ const nativeFixtureRtkSpawns=new Map<number,NativeFixtureRtkSpawn>();
 export function observeNativeFixtureRtkSpawn(pid:number,launch:import("../packages/ui-sdk/src/server/worker-launcher").WorkerLaunch,expected:readonly string[],liveExecs:()=>ReadonlyMap<number,string>):void {
   const start=guardedChildren.get(pid);
   if(!start||processStart(pid)!==start)throw Error("native fixture RTK spawn is unregistered");
-  const selected=[...new Set(expected.map(path=>realpathSync(path)))];
-  if(selected.length!==1)throw Error("native fixture RTK runtime selection ambiguous");
-  nativeFixtureRtkSpawns.set(pid,{start,launch:structuredClone(launch),expected:selected,liveExecs});
+  nativeFixtureRtkSpawns.set(pid,{start,launch:structuredClone(launch),expected:[...expected],liveExecs});
   if(nativeFixtureRtkSpawns.size>256)nativeFixtureRtkSpawns.delete(nativeFixtureRtkSpawns.keys().next().value!);
 }
 /** Re-register only the kernel/audit-proven payload view hidden by our broker. */
@@ -945,6 +943,8 @@ export function registerNativeFixtureRtk(worker:import("../packages/ui-sdk/src/s
   const record=nativeFixtureRtkSpawns.get(worker.pid);
   if(!record)throw Error("native fixture RTK spawn is unregistered");
   if(processStart(worker.pid)!==record.start)throw Error("native fixture RTK root identity changed");
+  const expected=[...new Set(record.expected.map(path=>{try{return realpathSync(path);}catch{throw Error("native fixture RTK executable unavailable",{cause:"unavailable"});}}))];
+  if(expected.length!==1)throw Error("native fixture RTK runtime selection ambiguous");
   const owned=new Map<number,string>(),pending=[worker.pid];
   while(pending.length){
     const pid=pending.pop()!;if(owned.has(pid))continue;if(owned.size>=512)throw Error("native fixture RTK ancestry bound");
@@ -955,7 +955,7 @@ export function registerNativeFixtureRtk(worker:import("../packages/ui-sdk/src/s
     const start=owned.get(pid);if(!start)continue;
     if(start!==auditedStart)throw Error("native fixture RTK audited identity changed");
     let executable:string;try{executable=realpathSync(`/proc/${pid}/exe`);}catch{throw Error("native fixture RTK executable unavailable",{cause:"unavailable"});}
-    if(!record.expected.includes(executable))throw Error("native fixture RTK executable changed",{cause:record.expected.some(path=>basename(path)===basename(executable))?"basename-equal-but-path-differs":"different-basename"});
+    if(!expected.includes(executable))throw Error("native fixture RTK executable changed",{cause:expected.some(path=>basename(path)===basename(executable))?"basename-equal-but-path-differs":"different-basename"});
     if(processStart(pid)!==start)throw Error("native fixture RTK payload identity changed");selected.push(pid);
   }
   if(selected.length!==1)throw Error(selected.length===0?"native fixture RTK payload missing":"native fixture RTK payload ambiguous");
@@ -999,7 +999,7 @@ export function recordNativeGuardChild(child: { pid: number; exited: Promise<num
     const kill=child.kill?.bind(child);
     if(kill&&!observedBootstrapKills.has(child)){
       observedBootstrapKills.add(child);
-      Object.defineProperty(child,"kill",{configurable:true,value:(signal?:NodeJS.Signals|number)=>{
+      Object.defineProperty(child,"kill",{configurable:true,writable:true,value:(signal?:NodeJS.Signals|number)=>{
         const terminating=signal===undefined||["SIGTERM","SIGKILL","SIGINT",15,9,2].includes(signal);
         if(terminating)parentTerminatedBootstraps.add(child);
         try{return kill(signal);}catch(error){if(terminating)parentTerminatedBootstraps.delete(child);throw error;}
@@ -1114,10 +1114,10 @@ function stageWorkerFixtureBinds(argv: string[], bwrap: number, route: ScriptedA
       try{resolver=source===realpathSync("/etc/resolv.conf")&&lstatSync(source).isFile();}catch{if(resolve(argv[i+2]!)==="/etc/resolv.conf")refuse("native resolver source is unavailable");}
       if(resolver&&!["--ro-bind","--ro-bind-try"].includes(argv[i]!))refuse("native resolver bind must be read-only");
     }
-    const explicit = resolver ? Buffer.from("nameserver 127.0.0.1\noptions attempts:1 timeout:1\n") : route.fixtureFiles.get(source);
+    const explicit = resolver ? {bytes:Buffer.from("nameserver 127.0.0.1\noptions attempts:1 timeout:1\n"),mode:0o444} : route.fixtureFiles.get(source);
     if (explicit) {
       mkdirSync(staging, {recursive:true,mode:0o755});chmodSync(staging,0o755);
-      const copy=join(staging,String(staged++));writeFileSync(copy,explicit,{mode:0o444});chmodSync(copy,0o444);
+      const copy=join(staging,String(staged++));writeFileSync(copy,explicit.bytes,{mode:explicit.mode});chmodSync(copy,explicit.mode);
       argv[i]="--ro-bind";argv[i+1]=copy;
     } else if (!workerSourceAllowed(source, route, guardRoot)) {
       const info=lstatSync(source);
@@ -1292,7 +1292,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     workerArgv.splice(separator, 0, ...systemMounts(), ...testRuntimeMounts(), ...tools.mounts,
       "--ro-bind", process.execPath, process.execPath, "--ro-bind", compileSocketPolicy(), compileSocketPolicy(),
       "--ro-bind", bridge.directory, "/tmp/native-relay",
-      "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",...nativeFixtureManagedSettingsMounts(bridge.directory),
+      "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",...nativeFixtureFileMounts(bridge.directory),
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
     const keeper=workerKeeper(workerArgv,bwrap);
     try { stageWorkerFixtureBinds(workerArgv,bwrap,route,bridge.directory,keeper); }
@@ -1318,8 +1318,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       const { verifiedWorkerIdentity } = createRequire(import.meta.url)("../packages/ui-sdk/src/server/worker-launcher.ts") as typeof import("../packages/ui-sdk/src/server/worker-launcher");
       const identity = launch.brainPath && verifiedWorkerIdentity(launch.brainPath);
       if (!identity || identity.workerUid === process.getuid?.()) refuse("native worker audit lacks a verified separate UID");
-      audited = auditNativeLaunch([bwrapExecutable, "--die-with-parent", "--unshare-user", "--unshare-pid", "--unshare-net", "--cap-drop", "ALL",
-        "--bind", "/", "/", "--proc", "/proc", "--tmpfs", "AUDIT_STORAGE", "--", ...payload], expected, bridge.dispose, identity.workerUid);
+      audited = auditNativeLaunch(nativeSeparateUidAuditCommand(bwrapExecutable,payload,"AUDIT_STORAGE"), expected, bridge.dispose, identity.workerUid);
       const log = audited.argv[audited.argv.indexOf("-o") + 1]!, directory = dirname(log);
       audited.argv[audited.argv.indexOf("AUDIT_STORAGE")] = directory;
       // Only the outer tracer sees this mount; the native process sees tmpfs.

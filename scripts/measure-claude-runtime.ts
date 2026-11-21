@@ -868,13 +868,11 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
       r.auth.every((a) => a.xApiKey === API_KEY && !a.authorization)
         ? null
         : "expected x-api-key only"],
-    // The installed native Unix transport selects explicit OAuth. This
-    // qualified receipt makes no claim about ordinary TCP auth precedence.
-    ["both (isolated Unix transport)", { CLAUDE_CODE_OAUTH_TOKEN: OAUTH, ANTHROPIC_API_KEY: API_KEY }, (r) =>
+    ["both (raw CLI)", { CLAUDE_CODE_OAUTH_TOKEN: OAUTH, ANTHROPIC_API_KEY: API_KEY }, (r) =>
       r.tokenSource === "CLAUDE_CODE_OAUTH_TOKEN" && r.apiKeySource === "ANTHROPIC_API_KEY" && sent(r) &&
-      r.auth.every((a) => a.authorization === `Bearer ${OAUTH}` && !a.xApiKey)
+      r.auth.every((a) => a.xApiKey === API_KEY && !a.authorization)
         ? null
-        : "the isolated Unix transport did not select its explicit OAuth token"],
+        : "the raw CLI no longer prefers the API key — #253's reason changed"],
     ["neither", {}, (r) =>
       r.tokenSource === "none" && !sent(r) && /Not logged in/.test(r.ending)
         ? null

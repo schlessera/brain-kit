@@ -31,7 +31,10 @@ try{
  const outcomes=[];
  function refuses(label,fn){let refused=false;try{fn();}catch{refused=true;}if(!refused)throw Error(label);outcomes.push(label);}
  refuses("UNREGISTERED_ROOT",()=>observeNativeFixtureRtkSpawn(process.pid,launch,[python],()=>new Map()));
- refuses("AMBIGUOUS_SELECTED_RUNTIME",()=>observeNativeFixtureRtkSpawn(child.pid,launch,[python,"/usr/bin/true"],()=>new Map()));
+ try{observeNativeFixtureRtkSpawn(child.pid,launch,[python,"/usr/bin/true"],()=>new Map());}catch{throw Error("ADAPTER_SELECTION_DEFERRED_UNTIL_REQUESTED");}
+ refuses("AMBIGUOUS_SELECTED_RUNTIME",()=>registerNativeFixtureRtk(worker));
+ try{observeNativeFixtureRtkSpawn(child.pid,launch,["missing-bare-runtime"],()=>new Map());}catch{throw Error("ADAPTER_SELECTION_DEFERRED_UNTIL_REQUESTED");}
+ refuses("UNAVAILABLE_SELECTED_RUNTIME",()=>registerNativeFixtureRtk(worker));
  observeNativeFixtureRtkSpawn(child.pid,launch,[python],()=>new Map());
  refuses("MISSING_PAYLOAD",()=>registerNativeFixtureRtk(worker));
  observeNativeFixtureRtkSpawn(child.pid,launch,[python],()=>new Map(pids.map(pid=>[pid,start(pid)])));
@@ -57,6 +60,6 @@ try{
   const child=Bun.spawn([process.execPath,script],{env:{PATH:"/usr/bin:/bin"},stdout:"pipe",stderr:"pipe",timeout:watchdogMs(20000)});
   const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
   expect(code,"OWNED_RTK_ADAPTER "+err).toBe(0);
-  expect(JSON.parse(out.trim())).toEqual(["UNREGISTERED_ROOT","AMBIGUOUS_SELECTED_RUNTIME","MISSING_PAYLOAD","AMBIGUOUS_PAYLOAD_NOT_FIRST_DESCENDANT","WRONG_EXECUTABLE","REUSED_PAYLOAD","REUSED_ROOT","BROKER_STAYS_NONDUMPABLE","OWNED_PAYLOAD_REWRITES_WITH_ORIGINAL_LAUNCH"]);
+  expect(JSON.parse(out.trim())).toEqual(["UNREGISTERED_ROOT","AMBIGUOUS_SELECTED_RUNTIME","UNAVAILABLE_SELECTED_RUNTIME","MISSING_PAYLOAD","AMBIGUOUS_PAYLOAD_NOT_FIRST_DESCENDANT","WRONG_EXECUTABLE","REUSED_PAYLOAD","REUSED_ROOT","BROKER_STAYS_NONDUMPABLE","OWNED_PAYLOAD_REWRITES_WITH_ORIGINAL_LAUNCH"]);
  }finally{rmSync(directory,{recursive:true,force:true});}
 },watchdogMs(30000));

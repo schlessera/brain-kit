@@ -26,3 +26,23 @@ test("direct pinned transport delivers native headers unchanged through private 
   expect(exit,"DIRECT_HEADERS_UNCHANGED "+err).toBe(0);expect(out).toContain("DIRECT_HEADERS_UNCHANGED");expect(seen).toEqual([{key:"odysseus-helper-key",auth:"Bearer odysseus-oauth",path:"/v1/messages"}]);
  }finally{tunnel.dispose();leave();recorder.stop(true);rmSync(root,{recursive:true,force:true});}
 });
+
+test("scripted tunnel accepts default Bun localhost and explicit IPv6 listener origins only",async()=>{
+ for(const hostname of [undefined,"::1"]){
+  const root=mkdtempSync(join(tmpdir(),"odysseus-loopback-origin-"));
+  const server=Bun.serve({...(hostname?{hostname}:{}),port:0,fetch:()=>new Response("Ithaca")});
+  const leave=nativeScriptedService(server.url.origin,{fixtureRoots:[root]});
+  const tunnel=startNativeTurnProxyTunnel(server.url.origin,root);
+  try{
+   const response=await fetch("http://localhost/v1/messages",{unix:tunnel.socket});
+   expect(await response.text(),"REGISTERED_DEFAULT_AND_V6_LISTENER_REACHED").toBe("Ithaca");
+  }finally{tunnel.dispose();leave();server.stop(true);rmSync(root,{recursive:true,force:true});}
+ }
+});
+
+test("direct transport shim refuses noncanonical or foreign forwarder environments",async()=>{
+ for(const proxy of ["http://127.0.0.2:1234","http://0.0.0.0:1234","http://[::1]:1234","https://127.0.0.1:1234","http://user@127.0.0.1:1234","http://127.0.0.1:1234/path","http://127.0.0.1:1234?query","http://127.0.0.1:1234#hash"]){
+  const child=Bun.spawn(nativeDirectTransportCommand(["/usr/bin/true"]),{env:{PATH:"/usr/bin:/bin",HTTP_PROXY:proxy},stdout:"pipe",stderr:"pipe"});
+  const [exit,err]=await Promise.all([child.exited,new Response(child.stderr).text()]);expect(exit,"DIRECT_SHIM_REJECTS_FOREIGN_FORWARDER "+proxy+err).not.toBe(0);
+ }
+});

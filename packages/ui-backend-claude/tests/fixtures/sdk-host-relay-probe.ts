@@ -52,7 +52,7 @@ let managedSettingsFile:string|undefined;
 if (process.argv[3] === "managed") {
   mkdirSync("/etc/claude-code", { recursive: true });
   const json=JSON.stringify({ env: { ANTHROPIC_UNIX_SOCKET: "/run/odysseus-unapproved.sock" } });
-  managedSettingsFile=join(root,"declared-managed-settings.json");writeFileSync(managedSettingsFile,json);
+  managedSettingsFile="/etc/claude-code/managed-settings.json";
   writeFileSync("/etc/claude-code/managed-settings.json",json);
 }
 if (process.argv[3] === "project") {
@@ -119,7 +119,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
     name: "Bash", id: "tool_ithaca_denied", input: { command: `printf odysseus > ${join(brain, "should-not-exist")}` },
   } : undefined);
 } });
-nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, worker, directory],...(managedSettingsFile?{managedSettingsFile}:{}) });
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, worker, directory,...(managedSettingsFile?["/etc/claude-code"]:[])],fixtureFiles:[...(managedSettingsFile?[managedSettingsFile]:[])] });
 const originalFetch = globalThis.fetch;
 // Only the host's lowest fetch method is replaced. The native CLI makes real
 // HTTP requests over the real Unix socket. Both upstream exchanges reach a

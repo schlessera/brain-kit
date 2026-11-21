@@ -69,7 +69,7 @@ let managedSettingsFile:string|undefined;
 if (mode === "managed-custom") {
   mkdirSync("/etc/claude-code");
   const json=JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } });
-  managedSettingsFile=join(root,"declared-managed-settings.json");writeFileSync(managedSettingsFile,json);
+  managedSettingsFile="/etc/claude-code/managed-settings.json";
   writeFileSync("/etc/claude-code/managed-settings.json",json);
 }
 if (mode === "api-key-project-credential") {
@@ -131,7 +131,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   requests.push({ credential: tokens.indexOf(request.headers.get("authorization")?.replace("Bearer ", "") ?? ""), model: body.model, history: body.messages.length });
   return nativeModelReply();
 } });
-nativeScriptedService(provider.url.origin, { fixtureRoots: [brainPath, home],...(managedSettingsFile?{managedSettingsFile}:{}) });
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brainPath, home,...(managedSettingsFile?["/etc/claude-code"]:[])],fixtureFiles:[...(managedSettingsFile?[managedSettingsFile]:[]),...(mode === "outside-masks"?[join(config,"visible.json")]:[])] });
 const nativeFetch = globalThis.fetch;
 globalThis.fetch = (async (input, init) => {
   const target = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);

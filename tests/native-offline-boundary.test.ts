@@ -248,6 +248,7 @@ test("wrapper exec and auth inspection cannot fabricate native launch or injecte
       if(boundary.argv[0]!=="/synthetic/strace")throw Error("audit executable was not resolved");
       const broker=boundary.argv.findIndex((arg,i)=>arg.endsWith("/native-connect")&&boundary.argv[i+1]==="--head");
       if(broker<0||!boundary.argv.includes("--device")||!boundary.argv.includes("--inode")||boundary.argv[broker+10]!=="/tmp/native-relay/relay.sock")throw Error("kernel lifetime socket policy was omitted");
+      if(boundary.argv.some(arg=>arg.includes("HTTP_PROXY")||arg.includes("nativeDirectTransportCommand")||arg.endsWith("/egress-worker-entry.ts")))throw Error("AUTH_STATUS_FULL_ARGV_HAS_NO_ROUTE_OVERRIDE");
       const setup=boundary.argv.slice(0,boundary.argv.lastIndexOf("--"));
       for(let i=0;i<setup.length;i++)if(setup[i]==="--setenv"&&["ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","ANTHROPIC_BASE_URL","ANTHROPIC_UNIX_SOCKET"].includes(setup[i+1]))throw Error("auth inspection received credential or route overrides");
       writeFileSync(boundary.argv[boundary.argv.indexOf("-o")+1],${JSON.stringify('1 execve('+JSON.stringify(observed)+', [], 0x1) = 0')});
@@ -273,12 +274,17 @@ test("isolated plans preserve synthetic credential precedence and an unauthentic
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
       Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
-      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";const recorder=Bun.serve({port:0,fetch:()=>new Response("Ithaca")});registerScriptedService(recorder.url.origin);
       const key="sk-ant-api03-"+"k".repeat(95)+"AA",token="sk-ant-oat01-"+"o".repeat(95)+"AA",bearer="sk-ant-declared-"+"t".repeat(60);
-      const leave=nativeScriptedService("http://127.0.0.1:1");
+      const leave=nativeScriptedService(recorder.url.origin);
       for(const creds of [{},{ANTHROPIC_API_KEY:key},{CLAUDE_CODE_OAUTH_TOKEN:token},{ANTHROPIC_API_KEY:key,CLAUDE_CODE_OAUTH_TOKEN:token},{ANTHROPIC_AUTH_TOKEN:bearer}]){
         const boundary=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_BASE_URL:"http://127.0.0.1:1",ANTHROPIC_UNIX_SOCKET:"",...creds}});
+        const entry=boundary.argv.findIndex(arg=>arg.endsWith("/egress-worker-entry.ts"));
+        if(entry<0||boundary.argv[entry+1]!=="--direct-loopback")throw Error("REAL_DIRECT_PLAN_TRUSTED_LOOPBACK_FORWARDER");
+        const broker=boundary.argv.findIndex((arg,i)=>arg.endsWith("/native-connect")&&boundary.argv[i+1]==="--head"),payload=boundary.argv.indexOf("--",broker)+1;
+        if(boundary.argv[payload]!=="/usr/bin/python3"||!boundary.argv[payload+4]?.includes('os.environ["ANTHROPIC_BASE_URL"]=os.environ["HTTP_PROXY"]'))throw Error("REAL_DIRECT_PLAN_ROUTE_SHIM");
         const injected={};for(let i=0;i<boundary.argv.length;i++)if(boundary.argv[i]==="--setenv")injected[boundary.argv[i+1]]=boundary.argv[i+2];
+        if(injected.ANTHROPIC_UNIX_SOCKET!==undefined||injected.ANTHROPIC_BASE_URL!=="http://127.0.0.1")throw Error("REAL_DIRECT_PLAN_PRESERVES_AUTH_ENV");
         if(injected.ANTHROPIC_API_KEY!==creds.ANTHROPIC_API_KEY||injected.CLAUDE_CODE_OAUTH_TOKEN!==creds.CLAUDE_CODE_OAUTH_TOKEN||injected.ANTHROPIC_AUTH_TOKEN!==creds.ANTHROPIC_AUTH_TOKEN)throw Error("synthetic credential row changed");
         writeFileSync(boundary.argv[boundary.argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});boundary.dispose();
         const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_UNIX_SOCKET:"",...creds},argv:["bwrap","--setenv","ODYSSEUS_OTHER_KEY","synthetic-outside-key","--setenv","LD_PRELOAD","synthetic-loader","--",${JSON.stringify(runtime)}]})});
@@ -287,7 +293,7 @@ test("isolated plans preserve synthetic credential precedence and an unauthentic
         for(let i=0;i<argv.length;i++)if(argv[i]==="--setenv")workerEnv[argv[i+1]]=argv[i+2];
         if(workerEnv.ANTHROPIC_API_KEY!==(creds.ANTHROPIC_API_KEY??"")||workerEnv.CLAUDE_CODE_OAUTH_TOKEN!==(creds.CLAUDE_CODE_OAUTH_TOKEN??"")||workerEnv.ANTHROPIC_AUTH_TOKEN!==(creds.ANTHROPIC_AUTH_TOKEN??""))throw Error("synthetic worker credential row changed");
         writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});worker.dispose();
-      }leave();`, scratch);
+      }leave();recorder.stop(true);`, scratch);
     expect(result.code, result.output).toBe(0);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }, watchdogMs(120_000));
@@ -332,12 +338,12 @@ test("guard worker binds follow every covering mount", async()=>{
    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
    process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
    const managedRoot=nativeFixtureDirectory("odysseus-plan-managed-");writeFileSync(managedRoot+"/managed.json",'{"env":{"ANTHROPIC_BASE_URL":"https://ithaca.invalid"}}');
-   nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(scratch)}],managedSettingsFile:managedRoot+"/managed.json"});
+   nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(scratch)},managedRoot],fixtureFiles:[managedRoot+"/managed.json"]});
    const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},PATH:"/usr/local/bin:/usr/bin:/bin"},argv:["bwrap",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--remount-ro","/etc","--",process.execPath,${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"))},"--direct-loopback",${JSON.stringify(runtime)}]})});
    if(plan.native!==true)throw Error("ADMITTED_NATIVE_PLAN_CLASSIFIED");
    const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv,bwrap=argv.indexOf("--",argv.indexOf("-o"))+1,split=argv.indexOf("--",bwrap);
    const mounts=argv.slice(bwrap+1,split);assertGuardMountOrder(mounts,["/","/etc"]);
-   if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+2]==="/etc/claude-code/managed-settings.json"))throw Error("DECLARED_MANAGED_SETTINGS_IN_WORKER_PLAN");
+   if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+2]===managedRoot+"/managed.json"))throw Error("DECLARED_MANAGED_SETTINGS_IN_WORKER_PLAN");
    if(!mounts.some((arg,i)=>arg==="--setenv"&&mounts[i+1]==="PATH"&&mounts[i+2]==="/usr/local/bin:/usr/bin:/bin"))throw Error("GUARD_PLAN_PRESERVES_READONLY_SYSTEM_PATH");
    const payload=argv.slice(split+1);if(payload[1]!==${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"))}||payload[2]!=="--direct-loopback"||!payload[3]?.endsWith("/native-connect"))throw Error("PRODUCTION_TRANSPORT_OUTSIDE_PAYLOAD_FILTER");
    if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+1]?.endsWith("/native-connect"))||!mounts.includes("/tmp/native-relay"))throw Error("guard input missing from plan");
@@ -666,10 +672,10 @@ test("registered same-origin Unix relays forward successfully", async () => {
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
-test("all direct bind sources reject unowned sockets, including PATH, managed settings and late additions", async () => {
+test("all direct bind sources reject unowned sockets, including PATH and late additions", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-mounted-socket-"));
   try {
-    for (const mode of ["home", "cwd", "late", "path", "managed"]) {
+    for (const mode of ["home", "cwd", "late", "path"]) {
       const result = await probe(`${imports}
         import {mkdirSync,writeFileSync} from "node:fs";
         const spawnSync=Bun.spawnSync,which=Bun.which;
@@ -684,7 +690,7 @@ test("all direct bind sources reject unowned sockets, including PATH, managed se
         let foreign,plan;
         if(${JSON.stringify(mode)}!=="late")foreign=Bun.serve({unix:socket,fetch:()=>new Response("foreign")});
         const leave=registerScriptedService("http://127.0.0.1:1");
-        try{plan=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd,env:{HOME:home,PATH:bin},managedSettings:managed});
+        try{plan=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd,env:{HOME:home,PATH:bin}});
           if(${JSON.stringify(mode)}==="late"){leave();foreign=Bun.serve({unix:socket,fetch:()=>new Response("late")});}
           plan.beforeLaunch();
         }finally{foreign?.stop(true);if(plan){writeFileSync(plan.argv[plan.argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();}}`, scratch);
@@ -763,14 +769,14 @@ test("hostile managed helper and native descendants cannot read an outside crede
     }));
     let requests = 0;
     const service = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { requests++; return new Response("Ithaca"); } });
-    nativeScriptedService(service.url.origin);
+    nativeScriptedService(service.url.origin,{fixtureRoots:[managed],fixtureFiles:[join(managed,"managed-settings.json")]});
     // Synthetic native reader exercises the OS boundary independently of SDK
     // settings precedence. The real installed runtime is covered by native
     // backend/provider-history cells under the same preload.
     const executable = join(brain, "odysseus-native-probe");
     writeFileSync(executable, `#!/usr/bin/python3
 import http.client,json,os,socket,subprocess,time
-settings=json.load(open('/etc/claude-code/managed-settings.json'))
+settings=json.load(open(${JSON.stringify(join(managed,'managed-settings.json'))}))
 helper=subprocess.run(settings['apiKeyHelper'],shell=True,capture_output=True)
 assert helper.returncode != 0 and not helper.stdout, 'outside credential escaped'
 assert os.environ.get('USE_BUILTIN_RIPGREP') == '0'
@@ -797,9 +803,9 @@ else:
  raise RuntimeError('late host socket escaped')
 finally:
  late.close()
-connection=http.client.HTTPConnection('localhost')
-connection.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
-connection.sock.connect(os.environ['ANTHROPIC_UNIX_SOCKET'])
+import urllib.parse
+route=urllib.parse.urlsplit(os.environ['ANTHROPIC_BASE_URL'])
+connection=http.client.HTTPConnection(route.hostname,route.port)
 connection.request('GET','/v1/messages')
 assert connection.getresponse().read() == b'Ithaca'
 print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
@@ -809,7 +815,7 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
     let lateServer: import("node:net").Server | undefined;
     let lateConnections=0;
     try {
-      boundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
+      boundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin } });
       const child = spawnGuardFixture(boundary.argv, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
       const output=Promise.all([child.exited,new Response(child.stdout).text(),child.guardOutput()]);
       const deadline=Date.now()+watchdogMs(10000);
@@ -832,7 +838,7 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
       expect(existsSync(toolSeen)).toBe(true);
       // Restored mutation: re-expose only the synthetic outside credential.
       // The same runtime assertion must now reject the managed helper escape.
-      const mutationBoundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
+      const mutationBoundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin } });
       const mutant = [...mutationBoundary.argv];
       mutant.splice(mutant.indexOf("--clearenv"), 0, "--ro-bind", sentinel, sentinel);
       const broken = spawnGuardFixture(mutant, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
@@ -954,7 +960,7 @@ test("worker outside-HOME regular files require explicit fixture snapshots",asyn
     Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
     Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
     process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
-    nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(home)}],fixtureFiles:${admitted?JSON.stringify([sentinel]):"[]"}});
+    nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(home)},...${admitted?JSON.stringify([outside]):"[]"}],fixtureFiles:${admitted?JSON.stringify([sentinel]):"[]"}});
     const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(home)},env:{HOME:${JSON.stringify(home)}},argv:["bwrap","--ro-bind",${JSON.stringify(sentinel)},"/tmp/sentinel","--",${JSON.stringify(runtime)}]})});
     const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
     try { const at=argv.indexOf("/tmp/sentinel"),source=argv[at-1];
