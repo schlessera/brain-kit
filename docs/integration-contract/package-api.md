@@ -4749,6 +4749,12 @@ and returns `NativePoolGrowth`:
 - `omitted` counts comparisons, groups or flags left out to keep one reply
   within the 64 KiB control bound. Unflagged detail goes first.
 
+The private request parser has a separate 512 KiB bound for worst-case escaped
+stat paths. It does not change the 64 KiB control reply, intent-file, stage-row
+or paginated-list limits. Metadata read operations return a small fixed-reader
+ticket over HTTP; stat/list data travels over the existing separately bounded
+reader stream, rather than being embedded in a control reply.
+
 The status is read-only. It neither reconciles, deletes, resets nor reserves
 anything, and nothing in it forecasts savings or freed capacity. It is
 unavailable in these cases:

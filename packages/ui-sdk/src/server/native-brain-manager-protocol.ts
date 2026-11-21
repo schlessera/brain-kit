@@ -282,7 +282,8 @@ export interface NativePoolGrowth {
 }
 /** The privileged helper inspects only its bounded upper layer after the worker exits. */
 export interface NativeStageChange { pathHex: string; kind: "entry" | "whiteout" | "opaque" }
-export const NATIVE_CONTROL_BYTES = NATIVE_REQUEST_BYTES;
+/** Control replies, intents and stage rows retain their independent 64 KiB bound. */
+export const NATIVE_CONTROL_BYTES = 64 * 1024;
 export const NATIVE_DATA_CHUNK_BYTES = 64 * 1024;
 /** Transport work bounds, configurable; neither is a history/object/change quota. */
 export const NATIVE_MANAGER_OPERATION_TIMEOUT_MS = 30_000;
