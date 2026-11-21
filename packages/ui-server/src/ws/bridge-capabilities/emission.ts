@@ -65,6 +65,11 @@ function captureFrameFields(ctx: BridgeContext) {
 function normalizeFrame(ctx: BridgeContext, thinkingLevel: ReturnType<typeof captureFrameFields>["thinkingLevel"], message: Frame): Frame {
   const { host, turn, turnId, requestId, backendId, signal } = ctx;
   let msg = message;
+  if (msg.type === "status") {
+    // A backend cannot attest host teardown, even if it supplies this field.
+    const { hostTurnComplete: _hostTurnComplete, ...backendStatus } = msg;
+    msg = backendStatus;
+  }
   // Pi preserves a bare acquisition error for direct SDK callers without
   // inventing a session. The hosted request has its own cancellation and
   // correlation, so preserve that terminal UI state only for this exact
