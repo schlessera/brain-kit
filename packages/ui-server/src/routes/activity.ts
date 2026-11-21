@@ -255,8 +255,10 @@ export function createActivityRoutes(deps: {
         // A legacy store may use another SQLite connection. Without its own
         // atomic read we can return the record, but cannot claim a sequence.
         const lifecycleSnapshot = store.lifecycleSnapshot?.(runId);
-        const lifecycle = lifecycleSnapshot ? lifecycleSnapshot.lifecycle : store.lifecycle(runId) ?? undefined;
-        const lifecycleSeq = lifecycleSnapshot?.highWaterSeq;
+        const scoped = lifecycleSnapshot ? undefined : store.snapshotLifecycles?.({ turnId: runId });
+        const lifecycle = lifecycleSnapshot ? lifecycleSnapshot.lifecycle
+          : scoped ? scoped.lifecycles[0] : store.lifecycle(runId) ?? undefined;
+        const lifecycleSeq = lifecycleSnapshot?.highWaterSeq ?? (lifecycle ? scoped?.highWaterSeq[lifecycle.lifecycleId] : undefined);
         if (snapshot) {
           // Tool payload events (up to 16 KB each) dominate a run's byte
           // size, and the history list opens details eagerly — so the REST

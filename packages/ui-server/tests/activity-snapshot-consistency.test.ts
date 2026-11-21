@@ -90,11 +90,34 @@ test("a 420000-byte span still arrives in full through the existing wire shape",
   } finally { client.close(); db.close(); }
 });
 
+test("REST uses the scoped atomic reader when the single lifecycle reader is unavailable", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ithaca-scoped-rest-")), path = join(dir, "ui.db");
+  const routeDb = createUiDb(path), storeDb = createUiDb(path), store = createActivityStore(storeDb);
+  const life = createTurnLifecycle(store, "ithaca-rest-scoped", "ithaca", 1000, () => {}, () => 1200);
+  life.finish("success");
+  let scopedReads = 0;
+  const view = { ...store, lifecycleSnapshot: undefined,
+    snapshotLifecycles(scope: Parameters<NonNullable<typeof store.snapshotLifecycles>>[0]) {
+      scopedReads++; expect(scope).toEqual({ turnId: "ithaca-rest-scoped" });
+      return store.snapshotLifecycles!(scope);
+    },
+    lifecycle() { throw new Error("REST must use the available atomic reader"); },
+  };
+  try {
+    const response = await createActivityRoutes({ db: routeDb, store: view }).request("/activity/runs/ithaca-rest-scoped");
+    const detail = await response.json();
+    expect(response.status, "REST_SCOPED_ATOMIC_FALLBACK_SUCCEEDS").toBe(200);
+    expect(scopedReads).toBe(1);
+    expect(detail.lifecycle.outcome).toBe("success");
+    expect(detail.lifecycleSeq, "REST_SCOPED_ATOMIC_FALLBACK_PRESERVES_SEQUENCE").toBe(2);
+  } finally { routeDb.close(); storeDb.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("legacy REST reads through a second SQLite connection do not claim a lifecycle sequence", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ithaca-lifecycle-connections-")), path = join(dir, "ui.db");
   const routeDb = createUiDb(path), storeDb = createUiDb(path), store = createActivityStore(storeDb);
   const life = createTurnLifecycle(store, "ithaca-rest-race", "ithaca", 1000, () => {}, () => 1200);
-  const legacy = { ...store, lifecycleSnapshot: undefined, lifecycle(id: string) { const row = store.lifecycle(id); life.finish("success"); return row; } };
+  const legacy = { ...store, lifecycleSnapshot: undefined, snapshotLifecycles: undefined, lifecycle(id: string) { const row = store.lifecycle(id); life.finish("success"); return row; } };
   try {
     const response = await createActivityRoutes({ db: routeDb, store: legacy }).request("/activity/runs/ithaca-rest-race");
     const detail = await response.json();
@@ -107,7 +130,7 @@ test("legacy REST reads through a second SQLite connection do not claim a lifecy
 test("a lifecycle watermark cannot overtake its record when a writer commits during subscription", () => {
   const db = createUiDb(":memory:"), store = createActivityStore(db);
   const life = createTurnLifecycle(store, "ithaca-race", "ithaca", 1000, () => {}, () => 1100);
-  const view = { ...store, lifecycles(...args: Parameters<typeof store.lifecycles>) {
+  const view = { ...store, snapshotLifecycles: undefined, lifecycles(...args: Parameters<typeof store.lifecycles>) {
     const rows = store.lifecycles(...args);
     life.recordHostEvent("follow_up", "odysseus");
     return rows;
@@ -188,7 +211,7 @@ test("index reconnect after a live child delta accepts root updates already pass
 test("legacy lifecycle reconnect after a live delta accepts the terminal state already passed by the pump", () => {
   const db = createUiDb(":memory:"), store = createActivityStore(db);
   let now = 1000; const life = createTurnLifecycle(store, "ithaca-legacy-reconnect", "ithaca", now, () => {}, () => now);
-  const legacy = { ...store, lifecycleSnapshot: undefined }, stream = createActivityStream(legacy);
+  const legacy = { ...store, lifecycleSnapshot: undefined, snapshotLifecycles: undefined }, stream = createActivityStream(legacy);
   const first = connection(legacy, stream), other = connection(legacy, stream);
   try {
     for (const client of [first, other]) stream.handleSubscribe(client.ws, { type: "activity_subscribe", view: "index" }, "odysseus");
@@ -206,7 +229,7 @@ test("legacy lifecycle reconnect after a live delta accepts the terminal state a
 test("legacy reconnect reads its sequence before a row that can race with terminal commit", () => {
   const db = createUiDb(":memory:"), store = createActivityStore(db), life = createTurnLifecycle(store, "ithaca-legacy-race", "ithaca", 1000, () => {}, () => 1200);
   let completeOnRead = false;
-  const legacy = { ...store, lifecycleSnapshot: undefined, lifecycle(id: string) {
+  const legacy = { ...store, lifecycleSnapshot: undefined, snapshotLifecycles: undefined, lifecycle(id: string) {
     const row = store.lifecycle(id); if (completeOnRead) { completeOnRead = false; life.finish("success"); } return row;
   } };
   const stream = createActivityStream(legacy), first = connection(legacy, stream), other = connection(legacy, stream);

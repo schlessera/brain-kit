@@ -327,10 +327,14 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
     }
     for (const span of spans) noteSpan(span);
 
-    const lifecycles = sub.view === "run" && sub.runId
+    // Keep every lifecycle and floor in the scope in one database view.
+    const scoped = store.snapshotLifecycles?.(sub.view === "run" && sub.runId
+      ? { turnId: sub.runId } : sub.view === "session" ? { sessionId: sub.sessionId } : {});
+    const lifecycles = scoped ? [] : sub.view === "run" && sub.runId
       ? [store.lifecycle(sub.runId)].filter((x): x is NonNullable<typeof x> => x !== null)
       : store.lifecycles(sub.view === "session" ? sub.sessionId : undefined);
-    const consistent = lifecycles.flatMap(record => {
+    if (scoped) Object.assign(highWater, scoped.highWaterSeq);
+    const consistent = scoped?.lifecycles ?? lifecycles.flatMap(record => {
       const snapshot = store.lifecycleSnapshot?.(record.turnId);
       // Legacy reads share no atomic pair: sequence first, then row. A
       // concurrent write can make the row newer, never make its floor newer.
