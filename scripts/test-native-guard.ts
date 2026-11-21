@@ -196,19 +196,30 @@ function diagnosticRedactors() {
   return {
     createRedactor: (require("../packages/compute-boat/src/redact.ts") as typeof import("../packages/compute-boat/src/redact")).createRedactor,
     redactCredentials: (require("../packages/ui-server/src/activity/runtime-status.ts") as typeof import("../packages/ui-server/src/activity/runtime-status")).redactCredentials,
-    redactProviderMessage: (require("../packages/ui-react/src/lib/turn-failure.ts") as typeof import("../packages/ui-react/src/lib/turn-failure")).redactProviderMessage,
   };
 }
 function compilerDiagnostic(value: string): string {
   try {
-  const {createRedactor,redactCredentials,redactProviderMessage}=diagnosticRedactors();
+  const {createRedactor,redactCredentials}=diagnosticRedactors();
   const redactor = createRedactor(undefined);
   for (const [key, secret] of Object.entries(process.env)) if (/secret|token|password|credential|api.?key/i.test(key) && secret) redactor.add(secret);
   let text = Buffer.from(value).subarray(0, 4096).toString("utf8");
   if (Buffer.byteLength(value) > 4096) text = text.slice(0, Math.max(0, text.lastIndexOf("\n")));
-  return redactProviderMessage(redactCredentials(redactor.text(text))).slice(0, 4096);
+  return redactNativeDiagnosticMessage(redactCredentials(redactor.text(text))).slice(0, 4096);
   } catch { return "[diagnostic redaction unavailable]"; }
 }
+/** Test-only source diagnostics preserve member expressions and file basenames. */
+export function redactNativeDiagnosticMessage(text:string):string {
+  return text
+    .replace(/https?:\/\/[^\s<>]+/gi,"[redacted URL]")
+    .replace(/\b(?:Bearer\s+|sk-[\w-]*|(?:api[_-]?key|token|password|secret)\s*[=:]\s*)[^\s,;]+/gi,"[redacted credential]")
+    .replace(/\b(?:cookie|authorization)\s*[:=]\s*[^\n]+/gi,"[redacted credential]")
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b|\[(?:[a-f0-9]*:){2,}[a-f0-9]*\]|\blocalhost(?::\d+)?\b/gi,"[redacted host]")
+    .replace(/\b(?:[a-z0-9-]+\.)+(?:com|net|org|edu|gov|mil|int|io|dev|app|ai|co|uk|de|fr|us|ca|au|test|invalid|example|local)\b(?![\w.-])/gi,"[redacted host]")
+    .replace(/(?:\/[\w.-]+){2,}/g,"[redacted path]")
+    .replace(/\b[A-Z]:\\[^\s<>]+/gi,"[redacted path]");
+}
+
 /** Prepare before a fixture hides compiler inputs such as /etc/alternatives. */
 export function nativeNamespacePolicy(): { mounts: string[]; args: string[] } {
   const policy = compileSocketPolicy();
@@ -274,7 +285,7 @@ function testRuntimeMounts(): string[] {
 }
 
 /** Read-only fixture tool directories, without exposing their sibling storage. */
-function fixtureToolView(env: Record<string, string | undefined>, cwd: string, home?: string): { mounts: string[]; path: string } {
+export function fixtureToolView(env: Record<string, string | undefined>, cwd: string, home?: string): { mounts: string[]; path: string } {
   const roots = new Set<string>(), storage = new Set<string>();
   for (const input of [cwd, home]) {
     if (!input) continue;
@@ -301,8 +312,19 @@ function fixtureToolView(env: Record<string, string | undefined>, cwd: string, h
       if (source || temporary) directories.add(path);
     } catch { /* Missing PATH entries do not grant filesystem authority. */ }
   }
+  const parts=env.PATH?.split(":")??[];
+  const preserve=parts.length>0&&new Set(parts).size===parts.length&&parts.every(input=>{
+    if(!input.startsWith("/")||resolve(input)!==input)return false;
+    try {
+      const path=realpathSync(input);if(!statSync(path).isDirectory())return false;
+      // Only declared distro aliases may differ from their resolved spelling.
+      if(path!==input&&!SYSTEM.includes(input))return false;
+      const system=SYSTEM.some(root=>{try{return within(realpathSync(root),path);}catch{return false;}});
+      return system||directories.has(path)&&!storage.has(path);
+    }catch{return false;}
+  });
   return { mounts: [...directories].filter(path => !storage.has(path)).flatMap(path => ["--ro-bind", path, path]),
-    path: [...new Set([...directories, dirname(process.execPath), "/usr/bin", "/bin"])].join(":") };
+    path: preserve?env.PATH!:[...new Set([...directories, dirname(process.execPath), "/usr/bin", "/bin"])].join(":") };
 }
 
 interface AuditReceipt { kind: "native-offline-audit"; head: string; nativeLaunched: boolean; success: boolean; reason?: string; deniedConnects: number }
@@ -376,7 +398,7 @@ export function deferNativeReadOnlyRemounts(argv:string[],bwrap:number):string[]
 /** Fixture-only tail: no syscall buffers, exec arguments or environment survive. */
 export function scrubNativeStartupTrace(trace: string, fixtureRoots: readonly string[] = []): string {
   try {
-  const {createRedactor,redactCredentials,redactProviderMessage}=diagnosticRedactors();
+  const {createRedactor,redactCredentials}=diagnosticRedactors();
   let tail = trace.slice(-65536);
   if (trace.length > tail.length) tail = tail.includes("\n") ? tail.slice(tail.indexOf("\n") + 1) : "";
   const labels=new Map<string,string>();
@@ -391,7 +413,7 @@ export function scrubNativeStartupTrace(trace: string, fixtureRoots: readonly st
   }).join("\n");
   const redactor = createRedactor(undefined);
   for (const [key, secret] of Object.entries(process.env)) if (/secret|token|password|credential|api.?key/i.test(key) && secret) redactor.add(secret);
-  let safe=redactProviderMessage(redactCredentials(redactor.text(tail)));
+  let safe=redactNativeDiagnosticMessage(redactCredentials(redactor.text(tail)));
   for(const [key,label] of labels)safe=safe.replaceAll(key,label);
   return safe.slice(-65536);
   } catch { return "[diagnostic redaction unavailable]"; }
@@ -821,7 +843,7 @@ const fixtureKeepers = new Map<number, KeeperInspection & { live(): boolean; dis
 function processStart(pid: number): string { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!; }
 /** Keep short named credentials out of test-only diagnostic records. */
 export function redactNativeDiagnosticAssignments(text:string):string {
-  return text.replace(/(?<![\w$.-])["']?((?:[A-Za-z_$][\w$.-]*?)?(?:key|token|secret|password|auth)[\w$.-]*)["']?\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)/gi,
+  return text.replace(/(?<![\w$.-])["']?((?:[\w$][\w$.-]*?)?(?:key|token|secret|password|auth)[\w$.-]*)["']?\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)/gi,
     "[redacted credential]");
 }
 interface BootstrapEvidence { snapshot():string; drained:Promise<void> }
@@ -1033,6 +1055,27 @@ function nativeBwrapIndex(argv: readonly string[]): number {
   return -1;
 }
 
+/** Keep only the pinned transport and fixed launcher gates outside the payload filter. */
+export function nativeWorkerPayloadCommand(payload:string[],command:string[],protect:(argv:string[])=>string[]):string[] {
+  const same=(value:string|undefined,expected:string)=>{try{return !!value&&realpathSync(value)===realpathSync(expected);}catch{return false;}};
+  let at=0;
+  if(same(payload[at],"/usr/bin/prlimit")) {
+    at++;const start=at;
+    while(/^--(?:data|fsize|nofile|nproc)=\d+:\d+$/.test(payload[at]??""))at++;
+    if(at===start||payload[at++]!=="--")return protect(payload);
+  }
+  if(same(payload[at],"/bin/sh")) {
+    const gate=payload.slice(at,at+4);
+    if(gate[1]!=="-c"||!(gate[2]==='IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"'&&gate[3]==="brain-worker-state-gate"||gate[2]==='IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"'&&gate[3]==="brain-worker-start-gate"))return protect(payload);
+    at+=4;
+  }
+  const entry=join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts");
+  if(!same(payload[at],process.execPath)||payload[at+1]!==entry||!same(payload[at+1],entry))return protect(payload);
+  at+=2;if(payload[at]==="--direct-loopback")at++;
+  if(payload.length-at!==command.length||!command.every((value,index)=>payload[at+index]===value))return protect(payload);
+  return [...payload.slice(0,at),...protect(payload.slice(at))];
+}
+
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */
 export function nativeWorkerBoundary(env: Record<string, string | undefined>): { env: Record<string, string | undefined>; dispose(): void; beforeLaunch(): void } {
   const unchanged = { env, dispose() {}, beforeLaunch() {} };
@@ -1112,7 +1155,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     catch(error) { if (String(error).includes("Offline native Claude refused before launch:")) throw error; refuse("worker fixture provenance is unavailable"); }
     const payloadIndex = workerArgv.indexOf("--", bwrap) + 1;
     const nativePayload = workerArgv.splice(payloadIndex);
-    workerArgv.push(...nativeSocketCommand(nativePayload, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET));
+    workerArgv.push(...nativeWorkerPayloadCommand(nativePayload,command,argv=>nativeSocketCommand(argv, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET)));
     const nativeMounts = workerArgv.slice(bwrap + 1, workerArgv.indexOf("--", bwrap));
     const beforeLaunch = () => {
       try { keeper?.refresh(); assertWorkerFixtureBinds(nativeMounts, route, bridge.directory,keeper); assertNativeMountSockets(nativeMounts, route.origin,keeper); }

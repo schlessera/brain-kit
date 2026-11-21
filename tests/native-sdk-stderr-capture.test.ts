@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
+import { redactNativeDiagnosticAssignments } from "../scripts/test-native-guard";
 import { SDK_STDERR_WINDOW_BYTES } from "../packages/ui-sdk/tests/fixtures/native-sdk-stderr-capture";
 
 const helper = join(import.meta.dir, "../packages/ui-sdk/tests/fixtures/native-sdk-stderr-capture.ts");
@@ -62,13 +63,34 @@ for(const edge of ["first","tail"] as const)test(`SDK stderr drops a token split
 
 
 for(const [label,text,secret] of [
+ ["digit-leading-token","2FA_TOKEN=digit-token-value","digit-token-value"],
+ ["digit-leading-secret","1PASSWORD_SECRET=digit-secret-value","digit-secret-value"],
+ ["digit-token","9token=digit-short-value","digit-short-value"],
+ ["digit-dotted-key","3rd.api.key: digit-dotted-value","digit-dotted-value"],
  ["error-prefix","Error: ANTHROPIC_AUTH_TOKEN=error-auth-value","error-auth-value"],
  ["failure-prefix","failed: MY_PASSWORD=failure-password-value","failure-password-value"],
  ["nested-env",'{"env":{"apiKey":"nested-api-value"}}',"nested-api-value"],
  ["nested-header",'headers: {"x-api-key":"nested-header-value"}',"nested-header-value"],
  ["nested-config",'config={"token":"nested-config-value"}',"nested-config-value"],
 ] as const)test(`SDK credential matching ignores non-credential wrappers: ${label}`,async()=>{
+ expect(redactNativeDiagnosticAssignments(text),"NAMED_CREDENTIAL_MATCHER_REDACTED").not.toContain(secret);
  const child=spawnGuardFixture([process.execPath,"-e",`import {captureNativeSdkStderr} from ${JSON.stringify(helper)};const capture=captureNativeSdkStderr([]);capture.stderr(${JSON.stringify(text+"\n")});capture.flush();`],{env:{PATH:"/usr/bin:/bin"}});
  const [code,output]=await Promise.all([child.exited,child.guardOutput()]);expect(code,output).toBe(0);
  expect(output,"NESTED_NAMED_CREDENTIAL_REDACTED").not.toContain(secret);
+});
+
+test("native diagnostic source context preserves JS members and basenames while hiding network addresses",async()=>{
+ const child=spawnGuardFixture([process.execPath,"-e",`
+  import {captureNativeSdkStderr} from ${JSON.stringify(helper)};
+  import {recordNativeGuardChild} from ${JSON.stringify(join(import.meta.dir,"../scripts/test-native-guard.ts"))};
+  const source='const upstream={pipe(){throw Error("egress-worker-entry.ts egress-worker-entry.test.ts api.ithaca.test 127.0.0.1 localhost:8123 [::1]")}}; const peer={}; const server={on(){upstream.pipe(peer)}}; server.on("error");';
+  const failed=Bun.spawn([process.execPath,"-e",source],{env:{PATH:"/usr/bin:/bin"},stdout:"ignore",stderr:"pipe"});
+  const text=await new Response(failed.stderr).text();await failed.exited;
+  const capture=captureNativeSdkStderr([]);capture.stderr(text);capture.flush();
+  await recordNativeGuardChild(failed,true,{drained:Promise.resolve(),snapshot:()=>text});
+ `],{env:{PATH:"/usr/bin:/bin"}});
+ const [code,output]=await Promise.all([child.exited,child.guardOutput()]);expect(code,output).toBe(0);
+ const records=output.split("\n").filter(line=>line.startsWith('{"kind":"native-fixture-sdk-stderr"')||line.startsWith('{"kind":"native-offline-bootstrap-failure"')).map(line=>JSON.parse(line));
+ expect(records).toHaveLength(2);
+ for(const record of records){const text=record.reason??record.first;for(const member of ["server.on","upstream.pipe","egress-worker-entry.ts","egress-worker-entry.test.ts"])expect(text,"SOURCE_CONTEXT_REMAINS_READABLE").toContain(member);for(const address of ["api.ithaca.test","127.0.0.1","localhost","[::1]"])expect(text,"DIAGNOSTIC_HOST_REDACTED").not.toContain(address);}
 });

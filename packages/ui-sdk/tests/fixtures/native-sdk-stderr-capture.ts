@@ -1,16 +1,15 @@
 /** Fixture-only SDK stderr evidence, including failures before workerStarted. */
 import { nativeReceipt } from "../../../../scripts/native-test-receipts";
-import { nativeTestHead, redactNativeDiagnosticAssignments } from "../../../../scripts/test-native-guard";
+import { nativeTestHead, redactNativeDiagnosticAssignments, redactNativeDiagnosticMessage } from "../../../../scripts/test-native-guard";
 import { createRedactor } from "../../../compute-boat/src/redact";
 import { redactCredentials } from "../../../ui-server/src/activity/runtime-status";
-import { redactProviderMessage } from "../../../ui-react/src/lib/turn-failure";
 
 export const SDK_STDERR_WINDOW_BYTES = 16 * 1024;
 export function captureNativeSdkStderr(secrets: readonly string[]) {
   const redactor = createRedactor(undefined);
   for (const secret of secrets) redactor.add(secret);
   let first = Buffer.alloc(0), tail = Buffer.alloc(0), observedBytes = 0, flushed = false;
-  const scrub = (value: string) => redactProviderMessage(redactCredentials(redactNativeDiagnosticAssignments(redactor.text(value.replace(/^[ \t]*(?:Args|Arguments|argv|Env|Environment):[^\n]*(?:\n|$)/gim, "[redacted startup metadata]\n")))))
+  const scrub = (value: string) => redactNativeDiagnosticMessage(redactCredentials(redactNativeDiagnosticAssignments(redactor.text(value.replace(/^[ \t]*(?:Args|Arguments|argv|Env|Environment):[^\n]*(?:\n|$)/gim, "[redacted startup metadata]\n")))))
     .replace(/https?:\/\/[^\s"'<>]+/gi, "[redacted URL]")
     .replace(/(?:~\/|\/)[^\s"'<>),;]*/g, "[redacted path]");
   return {

@@ -25,7 +25,7 @@ const imports = `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "
 
 // Check one bwrap scope at a time: the nested native view deliberately hides
 // the trace directory, while its outer tracer must retain that mount.
-const guardMountOrderCheck = `function assertGuardMountOrder(mounts) {
+const guardMountOrderCheck = `function assertGuardMountOrder(mounts,expectedRemounts=[]) {
   const operations=[],remounts=[];
   for(let i=0;i<mounts.length;i++) {
     const flag=mounts[i];
@@ -34,6 +34,8 @@ const guardMountOrderCheck = `function assertGuardMountOrder(mounts) {
     else if(flag==="--remount-ro")remounts.push({at:i,target:mounts[++i]});
     else if(flag.startsWith("--overlay"))throw Error("unsupported overlay reached native plan");
   }
+  const lastBind=Math.max(...operations.filter(op=>op.bind).map(op=>op.at));
+  for(const target of expectedRemounts)if(!remounts.some(op=>op.target===target&&op.at>lastBind))throw Error("ORIGINAL_READONLY_REMOUNT_PRESERVED "+target);
   for(const bind of operations.filter(op=>op.bind))for(const earlier of remounts)if(earlier.at<bind.at&&(earlier.target==="/"||bind.target===earlier.target||bind.target.startsWith(earlier.target+"/")))throw Error("GUARD_MOUNT_FOLLOWS_READONLY_PARENT");
   for(const bind of operations.filter(op=>op.bind))for(const later of operations) {
     if(later.at>bind.at && (later.target==="/" || bind.target===later.target || bind.target.startsWith(later.target+"/")))throw Error("GUARD_BIND_HIDDEN_BY_LATER_MOUNT");
@@ -329,9 +331,11 @@ test("guard worker binds follow every covering mount", async()=>{
    Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
    process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
-   const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)}},argv:["bwrap",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--",${JSON.stringify(runtime)}]})});
+   const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},PATH:"/usr/local/bin:/usr/bin:/bin"},argv:["bwrap",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--remount-ro","/etc","--",process.execPath,${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"))},"--direct-loopback",${JSON.stringify(runtime)}]})});
    const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv,bwrap=argv.indexOf("--",argv.indexOf("-o"))+1,split=argv.indexOf("--",bwrap);
-   const mounts=argv.slice(bwrap+1,split);assertGuardMountOrder(mounts);
+   const mounts=argv.slice(bwrap+1,split);assertGuardMountOrder(mounts,["/","/etc"]);
+   if(!mounts.some((arg,i)=>arg==="--setenv"&&mounts[i+1]==="PATH"&&mounts[i+2]==="/usr/local/bin:/usr/bin:/bin"))throw Error("GUARD_PLAN_PRESERVES_READONLY_SYSTEM_PATH");
+   const payload=argv.slice(split+1);if(payload[1]!==${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"))}||payload[2]!=="--direct-loopback"||!payload[3]?.endsWith("/native-connect"))throw Error("PRODUCTION_TRANSPORT_OUTSIDE_PAYLOAD_FILTER");
    if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+1]?.endsWith("/native-connect"))||!mounts.includes("/tmp/native-relay"))throw Error("guard input missing from plan");
    plan.beforeLaunch();writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();`,scratch);
   expect(result.code,result.output).toBe(0);
@@ -360,14 +364,14 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       const leave=nativeScriptedService("http://127.0.0.1:1");
       const launch={command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_API_KEY:"offline-fixture"},
-        argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
+        argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--remount-ro","/etc","--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
       const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(launch)});
       const outer=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv;
       if(realpathSync(outer[0])!==realpathSync("/usr/bin/python3"))throw Error("tracer wrapped the coordinator instead of the payload");
       const config=JSON.parse(outer[5]),args=config.argv,split=args.indexOf("--"),trace=args.slice(split+1);
       if(trace[0]!=="/synthetic/strace")throw Error("native broker payload was not traced");
       const log=trace[trace.indexOf("-o")+1],directory=dirname(log);
-      assertGuardMountOrder(args.slice(1,split));
+      assertGuardMountOrder(args.slice(1,split),["/","/etc"]);
       if(!args.slice(0,split).some((arg,i)=>arg==="--bind"&&args[i+1]===directory&&args[i+2]===directory))throw Error("guard trace directory bind missing");
       const inner=trace.slice(trace.indexOf("--")+1);
       if(!inner.some((arg,i)=>arg==="--tmpfs"&&inner[i+1]===directory)||!inner.includes("--unshare-pid")||!inner.includes("--unshare-net"))throw Error("native child can see audit storage or tracer PID");
