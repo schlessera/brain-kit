@@ -1,4 +1,5 @@
 import {gitIgnoreEnvironment} from "../config/env.js";
+import {isWithin} from "@schlessera/brain-common/internal/safe-path";
 /**
  * Which paths under a brain git ignores, asked in fixed-size batches.
  *
@@ -47,7 +48,7 @@ function gitList(dir: string, args: string[], stdin?:Buffer): string[] | null {
 function collectIgnored(dir: string, prefix: string, files: Set<string>, dirs: Set<string>, depth: number, candidates?: readonly string[]): boolean {
   const local=candidates?.filter(path=>path.startsWith(prefix)).map(path=>path.slice(prefix.length));
   if(local && !local.length)return true;
-  const modules=submodulePaths(dir).filter(path=>(!local||local.some(file=>file.startsWith(path+"/")))&&existsSync(join(dir,path,".git")));
+  const modules=submodulePaths(dir).filter(path=>(!local||local.some(file=>isWithin(path,file,{includeRoot:false})))&&existsSync(join(dir,path,".git")));
   if(local){
     // Ignore checking's index lookup treats wildcard names as pathspecs. Read
     // tracked names separately, then query literal stdin paths with --no-index.
@@ -63,7 +64,7 @@ function collectIgnored(dir: string, prefix: string, files: Set<string>, dirs: S
     };
     const queries=new Map<string,string>();
     for(const path of local){
-      if(trackedNames.has(path)||modules.some(module=>path===module||path.startsWith(module+"/")))continue;
+      if(trackedNames.has(path)||modules.some(module=>isWithin(module,path)))continue;
       const slash=path.lastIndexOf("/"),nested=boundary(slash<0?"":path.slice(0,slash));
       queries.set(path,nested?`${nested}/`:path);
     }
