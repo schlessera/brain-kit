@@ -82,14 +82,22 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
         path = raw.decode("utf8", "strict")
         parts = path.split("/")
         if any(p in ["", ".", "..", ".git"] for p in parts): fail("Invalid checkout path")
-        parent = root
+        parent, absent = root, False
         for part in parts[:-1]:
             parent = os.path.join(parent, part)
             try: info = os.lstat(parent)
-            except FileNotFoundError: break
+            except FileNotFoundError:
+                absent = True; break
+            if stat.S_ISREG(info.st_mode):
+                absent = True; break
             if not stat.S_ISDIR(info.st_mode): fail("Checkout path has a non-directory parent")
         absolute = os.path.join(root, path)
-        try: info = os.lstat(absolute)
+        try:
+            if absent: raise FileNotFoundError()
+            info = os.lstat(absolute)
+            # A tracked leaf replaced by a directory is deleted; ls-files
+            # supplies that directory's new leaves as separate candidates.
+            if stat.S_ISDIR(info.st_mode): raise FileNotFoundError()
         except FileNotFoundError:
             entries.append(b"0 " + b"0" * len(commit) + b"\t" + raw + b"\0")
             continue
@@ -120,6 +128,8 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
             except FileExistsError: pass
             known_blobs.add(blob.encode())
         entries.append(mode.encode() + b" " + blob.encode() + b"\t" + raw + b"\0")
+    # Remove old leaves before adding their new parent/children.
+    entries.sort(key=lambda entry: not entry.startswith(b"0 "))
     git("update-index", "-z", "--index-info", data=b"".join(entries))
     tree_after = oid(git("write-tree").decode().strip())
     paths, changed_bytes = [], 0
@@ -151,8 +161,7 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
             meta, raw = line.split(b"\t", 1)
             mode, kind, blob = meta.split()
             desired[raw.decode("utf8")] = (mode, blob.decode())
-        for change in paths:
-            path = change["path"]
+        def parent_fd(path, create=False):
             parts = path.split("/")
             if any(p in ["", ".", "..", ".git"] for p in parts): fail("Invalid restore path")
             parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -160,28 +169,55 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
                 for part in parts[:-1]:
                     try: child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
                     except FileNotFoundError:
-                        if path not in desired: break
+                        if not create: raise
                         os.mkdir(part, 0o755, dir_fd=parent)
                         child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
                     os.close(parent); parent = child
-                name = parts[-1]
-                if path not in desired:
-                    os.unlink(name, dir_fd=parent)
-                else:
-                    mode, blob = desired[path]
-                    data = git("cat-file", "blob", blob)
-                    temporary = ".code-restore-" + os.urandom(16).hex()
-                    try:
-                        if mode == b"120000": os.symlink(os.fsdecode(data), temporary, dir_fd=parent)
-                        elif mode in [b"100644", b"100755"]:
-                            fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=parent)
-                            with os.fdopen(fd, "wb") as file:
-                                file.write(data); file.flush(); os.fchmod(file.fileno(), 0o755 if mode == b"100755" else 0o644); os.fsync(file.fileno())
-                        else: fail("Unsupported restore mode")
-                        os.rename(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
-                    finally:
-                        try: os.unlink(temporary, dir_fd=parent)
-                        except FileNotFoundError: pass
+                return parent, parts[-1]
+            except BaseException:
+                os.close(parent); raise
+        # Remove endpoint leaves first, then only the empty directories that
+        # obstruct a desired leaf. Nonempty directories (including ignored
+        # content) refuse structural replacement instead of losing that content.
+        directories = set()
+        for change in sorted(paths, key=lambda change: change["path"].count("/"), reverse=True):
+            path = change["path"]
+            if path in desired: continue
+            try: parent, name = parent_fd(path)
+            except FileNotFoundError: continue
+            try:
+                os.unlink(name, dir_fd=parent); os.fsync(parent)
+            finally: os.close(parent)
+            parts = path.split("/")
+            blocking = next((count for count in range(1, len(parts)) if "/".join(parts[:count]) in desired), len(parts))
+            for count in range(blocking, len(parts)): directories.add("/".join(parts[:count]))
+        for directory in sorted(directories, key=lambda path: path.count("/"), reverse=True):
+            parent, name = parent_fd(directory)
+            try:
+                os.rmdir(name, dir_fd=parent); os.fsync(parent)
+            finally: os.close(parent)
+        for change in paths:
+            path = change["path"]
+            if path not in desired: continue
+            parent, name = parent_fd(path, create=True)
+            try:
+                try: existing = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                except FileNotFoundError: existing = None
+                if existing is not None and stat.S_ISDIR(existing.st_mode): os.rmdir(name, dir_fd=parent)
+                mode, blob = desired[path]
+                data = git("cat-file", "blob", blob)
+                temporary = ".code-restore-" + os.urandom(16).hex()
+                try:
+                    if mode == b"120000": os.symlink(os.fsdecode(data), temporary, dir_fd=parent)
+                    elif mode in [b"100644", b"100755"]:
+                        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+                        with os.fdopen(fd, "wb") as file:
+                            file.write(data); file.flush(); os.fchmod(file.fileno(), 0o755 if mode == b"100755" else 0o644); os.fsync(file.fileno())
+                    else: fail("Unsupported restore mode")
+                    os.rename(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
+                finally:
+                    try: os.unlink(temporary, dir_fd=parent)
+                    except FileNotFoundError: pass
                 os.fsync(parent)
             finally: os.close(parent)
         print(json.dumps({"status": "restored", "tree_before": tree_before, "tree_after": tree_after}))

@@ -2,6 +2,7 @@
 import type { CodeChangeReceipt, JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import { JournalObservationCounters } from "./journal-observation-counters.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
@@ -256,7 +257,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         host, signal, maximum), signal);
       const { pack, ...facts } = result;
       const receipt: CodeChangeReceipt = { ...facts, checkout, state: final ? "complete" : "recording" };
-      const hash = await retain(() => objects.putBytes(Buffer.from(pack, "base64")));
+      const hash = await retain(() => objects.putBytes(Buffer.from(pack, "base64"), [turnId]));
       // FULL commit pins the self-contained endpoint pack before coverage can
       // exclude a path or the source checkpoint can be released. A crash before
       // this commit retains file coverage; one after leaves a partial receipt.
@@ -271,7 +272,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     } catch (error) {
       const cause = { checkout, at: now(), callSite: "captureCheckout", errorClass: error instanceof Error ? error.name : "UnknownError", message: String(error).slice(0, 2000) };
       options.log?.emit({ severityText: "ERROR", body: "Checkout receipt capture failed", attributes: { "turn.id": turnId, "checkout": checkout, "error.type": cause.errorClass } });
-      try { await write([statement("INSERT INTO turn_journal_code_failures VALUES (?,?,?) ON CONFLICT(turn_id,checkout) DO UPDATE SET cause=excluded.cause", turnId, checkout, JSON.stringify(cause))]); } catch { /* The preallocated turn failure slot remains authoritative. */ }
+      try { await write([
+        statement("INSERT INTO turn_journal_code_failures VALUES (?,?,?) ON CONFLICT(turn_id,checkout) DO UPDATE SET cause=excluded.cause", turnId, checkout, JSON.stringify(cause)),
+        statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND checkout=?", turnId, checkout),
+      ]); } catch { /* The preallocated turn failure slot remains authoritative. */ }
       throw error;
     } finally { await releaseCodeCheckpoint(checkpointId, manager); }
   }
@@ -735,7 +739,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       return held(async () => {
         const checkout = referenceWorktreeJournalPath(worktreeId, "");
         const root = checkouts.get(checkoutKey(turnId, checkout));
-        if (root) await captureCheckout(turnId, checkout, root.manager, "");
+        if (root) {
+          try { await captureCheckout(turnId, checkout, root.manager, ""); }
+          catch (error) { await fail(turnId, error); }
+        }
       });
     },
     /** Worktrees an active turn's journal observes. */
@@ -812,15 +819,14 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     finish(turnId: string) { return held(async timing => {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }
       try {
-        let codeFailure: unknown;
         for (const root of [...checkouts.values()].filter(root => root.turnId === turnId)) {
           try { await captureCheckout(turnId, root.checkout, root.manager, root.relative, undefined, true); }
-          catch (error) { await fail(turnId, error); codeFailure ??= error; }
+          catch (error) { await fail(turnId, error); }
         }
         // A checkout-local capture failure must not discard final note versions
-        // or another checkout's independently recoverable endpoint.
+        // or another checkout's independently recoverable endpoint. A successful
+        // shared observation must resume other turns' held workers.
         await observe(false, timing);
-        if (codeFailure) throw codeFailure;
       }
       catch (error) { await fail(turnId, error); throw error; }
       finally {

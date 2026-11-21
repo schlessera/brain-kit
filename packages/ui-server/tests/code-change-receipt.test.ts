@@ -161,6 +161,7 @@ for (const phase of ["before", "after"] as const) test(`process crash ${phase} r
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "helpers/code-receipt-crash.ts"), f.root, phase], { env: { ...process.env }, stdout: "pipe", stderr: "pipe" });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, stderr).not.toBe(0);
+    if (phase === "after") expect(stdout, "EXCLUSION_REQUIRES_COMMITTED_RECEIPT_AND_PINNED_PACK").toContain("EXCLUSION_HAS_COMMITTED_RECEIPT_AND_PINNED_PACK");
     expect(child.signalCode, "RECEIPT_CRASH_IS_SIGKILL").toBe("SIGKILL");
     expect(stdout, "RECEIPT_CRASH_REACHED_EXACT_BARRIER").toContain(`CRASH_POINT ${phase}`);
     const db = createUiDb(dbPath), native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain);
@@ -263,7 +264,9 @@ test("receipt endpoint objects use the checkout's Git object format", () => {
   } finally { f.close(); }
 });
 
-test("a final checkout capture failure still retains final note before-images and other turns", async () => {
+import { createTurnScope } from "../src/brain/turn-scope.js";
+import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+for (const boundary of ["release", "finish"] as const) test(`checkout ${boundary} failure preserves the shared hold and other turns' workers`, async () => {
   const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db"); mkdirSync(brain); writeFileSync(join(brain, "note.md"), "Ithaca\n");
   const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
   const pool = referencePoolDouble(join(f.root, "pool")), source = await pool.poolCreate(crypto.randomUUID(), "source", null, 1024 * 1024);
@@ -274,15 +277,78 @@ test("a final checkout capture failure still retains final note before-images an
     ...pool, poolCheckpoint: (...args) => pool.poolCheckpoint(...args), poolReadCheckpoint: unsupported, poolStatCheckpoint: unsupported, poolListCheckpoint: unsupported,
   } });
   const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile: "governed" as const, policyHash: null, workspaceReadOnly: true };
+  db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
+  // Register the production periodic observer: its after(false) kills every
+  // temporarily held worker, even when that worker belongs to another turn.
+  const scope = createTurnScope(db, { brainPath: brain, journal, connected: () => true, changed: () => {}, space: () => ({ total: 1e12, free: 1e12 }) });
+  const workerEvents: string[] = [], exited = Promise.withResolvers<number>();
   try {
     await journal.begin("sail", metadata, () => {}); await journal.begin("other", metadata, () => {}); await journal.attachWorktree("sail", tree.id);
+    for (const id of ["sail", "other"]) await scope.begin(id, { sessionId: "ithaca", principalId: "athena", origin: "interactive", profile: "governed",
+      policy: resolveGovernancePolicy({ schema_version: 1 }), source: "policy", hardTimeoutMs: 3600_000, current: () => true, stop: () => {} });
+    scope.workerStarted("other", { exited: exited.promise, freeze: () => { workerEvents.push("freeze"); }, resume: () => { workerEvents.push("resume"); }, kill: () => { workerEvents.push("kill"); } } as Parameters<typeof scope.workerStarted>[1]);
     writeFileSync(join(tree.path!, "chart.md"), "Scheria\n"); writeFileSync(join(brain, "note.md"), "Return to Ithaca\n");
     pool.poolCheckpoint = async () => { throw Error("Checkout checkpoint refused"); };
-    await expectRejection(journal.finish("sail"), "Checkout checkpoint refused");
+    const error = await (boundary === "finish" ? journal.finish("sail") : journal.releaseWorktree("sail", tree.id)).then(() => undefined, error => error);
+    expect(workerEvents, "CHECKOUT_FAILURE_RESUMES_OTHER_TURNS_WORKER").toEqual(["freeze", "resume"]);
+    expect(error, "CHECKOUT_LOCAL_FAILURE_DOES_NOT_FAIL_SHARED_HOLD").toBeUndefined();
+    expect(journal.summary("sail").state, "CHECKOUT_FAILURE_IMMEDIATELY_MARKS_TURN_PARTIAL").toBe("partial");
+    expect(journal.details("ithaca", "sail")!.codeChanges![0]!.state, "CHECKOUT_FAILURE_IMMEDIATELY_MARKS_RECEIPT_PARTIAL").toBe("partial");
+    if (boundary === "release") await journal.finish("sail");
     const details = journal.details("ithaca", "sail")!;
     expect(details.changes.map(item => item.path), "CODE_FAILURE_KEEPS_FINAL_NOTE_OBSERVATION").toEqual(["note.md"]);
     expect(details.changes[0]!.before?.hash, "CODE_FAILURE_KEEPS_NOTE_BEFORE_IMAGE").toBeString();
     expect(details.summary.state).toBe("partial"); expect(details.codeChanges![0]!.state).toBe("partial");
+    expect(details.missing, "CHECKOUT_FAILURE_CAUSE_IS_DURABLE").toContainEqual(expect.objectContaining({ reason: expect.stringContaining("Checkout checkpoint refused") }));
     await journal.finish("other"); expect(journal.summary("other").state, "CODE_FAILURE_DOES_NOT_STOP_OTHER_TURN").toBe("complete");
-  } finally { await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); }
+  } finally { exited.resolve(0); await scope.finish("sail"); await scope.finish("other"); scope.close(); await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); }
+});
+
+for (const direction of ["file to directory", "directory to file"] as const) test(`receipt captures and restores ${direction} replacements`, () => {
+  const f = fixture(), path = join(f.checkout, "chart.md"), nested = join(path, "route", "raft.md");
+  try {
+    if (direction === "directory to file") {
+      unlinkSync(path); mkdirSync(join(path, "route"), { recursive: true }); writeFileSync(nested, "Ithaca\n");
+      git(f.checkout, "add", "."); git(f.checkout, "commit", "-qm", "Chart the route");
+      rmSync(path, { recursive: true }); writeFileSync(path, "Scheria\n");
+    } else {
+      unlinkSync(path); mkdirSync(join(path, "route"), { recursive: true }); writeFileSync(nested, "Scheria\n");
+    }
+    const receipt = capture(f.checkout);
+    expect(receipt.paths, "STRUCTURAL_REPLACEMENT_IS_DELETION_AND_ADDITION").toEqual([
+      { path: "chart.md", kind: direction === "file to directory" ? "deleted" : "added", untracked: direction === "directory to file" },
+      { path: "chart.md/route/raft.md", kind: direction === "file to directory" ? "added" : "deleted", untracked: direction === "file to directory" },
+    ]);
+    expect(capture(f.checkout, { ...receipt, operation: "revert", expected_tree: receipt.tree_after }).status).toBe("restored");
+    expect(readFileSync(direction === "file to directory" ? path : nested, "utf8"), "STRUCTURAL_REPLACEMENT_RESTORES_ORIGINAL_BYTES").toBe("Ithaca\n");
+    expect(capture(f.checkout).tree_after, "STRUCTURAL_REPLACEMENT_RESTORES_ORIGINAL_TREE").toBe(receipt.tree_before);
+  } finally { f.close(); }
+});
+
+test("restoring a file replaced by a directory refuses to remove unrelated directory content", () => {
+  const f = fixture(), path = join(f.checkout, "chart.md");
+  try {
+    unlinkSync(path); mkdirSync(path); writeFileSync(join(path, "raft.md"), "Scheria\n");
+    const receipt = capture(f.checkout);
+    writeFileSync(join(f.checkout, ".git", "info", "exclude"), "chart.md/cargo.bin\n");
+    writeFileSync(join(path, "cargo.bin"), "Keep the cargo\n");
+    const result = Bun.spawnSync(["python3", "-I", "-S", "-c", CODE_CHANGE_PROGRAM, f.checkout, String(16 * 1024 * 1024)], {
+      env, stdin: Buffer.from(JSON.stringify({ ...receipt, operation: "revert", expected_tree: receipt.tree_after })),
+    });
+    expect(result.exitCode, "NONEMPTY_STRUCTURAL_DIRECTORY_REFUSES_REPLACEMENT").not.toBe(0);
+    expect(result.stderr.toString()).toContain("Directory not empty");
+    expect(readFileSync(join(path, "cargo.bin"), "utf8"), "STRUCTURAL_RESTORE_PRESERVES_UNRELATED_BYTES").toBe("Keep the cargo\n");
+  } finally { f.close(); }
+});
+
+test("receipt restores a file over an empty replacement directory", () => {
+  const f = fixture(), path = join(f.checkout, "chart.md");
+  try {
+    unlinkSync(path); mkdirSync(path);
+    const receipt = capture(f.checkout);
+    expect(receipt.paths).toEqual([{ path: "chart.md", kind: "deleted", untracked: false }]);
+    expect(capture(f.checkout, { ...receipt, operation: "revert", expected_tree: receipt.tree_after }).status).toBe("restored");
+    expect(readFileSync(path, "utf8"), "EMPTY_DIRECTORY_REPLACEMENT_RESTORES_ORIGINAL_FILE").toBe("Ithaca\n");
+    expect(capture(f.checkout).tree_after).toBe(receipt.tree_before);
+  } finally { f.close(); }
 });
