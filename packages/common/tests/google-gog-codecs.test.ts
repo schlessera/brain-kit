@@ -338,8 +338,9 @@ describe("strictness of what gog 0.48.1 can emit", () => {
     const draft = await decodeGogDraft({ draft: { id: "r-1234567890123456789", message: null } }).then(() => null, (error: unknown) => error);
     expect(draft instanceof GogShapeError ? draft.path : draft).toBe("$.draft.message");
     // gog writes these two from a Go slice that may be nil (gmail_labels.go:304-306, gmail_thread.go:90-93).
+    expect(shapeError(() => decodeGogLabels({ labels: null }))).toBeNull();
     expect(decodeGogLabels({ labels: null })).toEqual([]);
-    expect(decodeGogThread({ ...fixture("thread-hall.json"), downloaded: null }).messages).toHaveLength(2);
+    expect(shapeError(() => decodeGogThread({ ...fixture("thread-hall.json"), downloaded: null }))).toBeNull();
   });
 });
 
