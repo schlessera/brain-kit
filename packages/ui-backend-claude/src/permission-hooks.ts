@@ -1,3 +1,4 @@
+import { workspaceWriteRefusal } from "@schlessera/brain-ui-sdk/internal";
 import { toolAvailabilityRefusal } from "./tool-availability.js";
 import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
@@ -753,8 +754,13 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
       try { await req.bridge.inputSafety.result(input.tool_use_id,input.tool_name,typeof response==="string"?response:JSON.stringify(response)??"",true,parts); }
       catch { return {continue:false,stopReason:"Safety input recording failed; stop before another provider request."}; }
     }
-    return {continue:true};
+    if (input.hook_event_name !== "PostToolUseFailure" && input.hook_event_name !== "PostToolUse") return { continue: true };
+    const failure = input.hook_event_name === "PostToolUseFailure" ? input.error : (input.tool_response as { isError?: boolean; exitCode?: number; exit_code?: number } | null);
+    if (input.hook_event_name === "PostToolUse" && !(failure && typeof failure === "object" && (failure.isError || failure.exitCode || failure.exit_code))) return { continue: true };
+    const note = workspaceWriteRefusal(req.workerSandbox, input.tool_name, input.tool_input, input.cwd, failure);
+    return note ? { continue: true, hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: note } } : { continue: true };
   };
+
 
   return {
     canUseTool,
@@ -773,7 +779,7 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
         ...(!req.autonomous ? [{ matcher: "^Read$", hooks: [fence(beginNativeRead)] }] : []),
         ...(!enforced && (!req.autonomous || req.bridge.inputSafety) ? [{ hooks: [fence(enforcementHook)] }] : []),
       ],
-      ...(!req.autonomous || req.bridge.inputSafety ? {
+      ...(!req.autonomous || req.bridge.inputSafety || req.autonomous.allowedTools.length > 0 && req.workerSandbox?.areas.some(area => area.name === "workspaces" && !area.mount.writable && !area.mount.missing) ? {
         PostToolUse: [...(!req.autonomous ? [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }] : []),{ hooks: [safetyResult] }],
         PostToolUseFailure: [...(!req.autonomous ? [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }] : []),{ hooks: [safetyResult] }],
       } : {}),

@@ -226,7 +226,7 @@ export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<La
     const limits = launchLimits({});
     sandboxNote = [workerSandboxNote(sandbox, { ...(identity ? { identity } : {}), ...(hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
-      outputStagingLimit()] }), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), env.autonomous ? "" : workerOutwardNote(Boolean(hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
+      outputStagingLimit()] }, env.autonomous?.persistence === "none" && !env.autonomous.containment && env.autonomous.allowedTools.every(name => ["read_file", "grep", "find", "ls"].includes(name))), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), env.autonomous ? "" : workerOutwardNote(Boolean(hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
       sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
     }

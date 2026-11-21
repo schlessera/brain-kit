@@ -98,7 +98,7 @@ export async function openTurnBridge(
     promptLabel: () => current.label,
     applicationPolicy: backend.brainApplicationPolicy?.({ profileId,
       ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) }),
-    protectedPaths: governedHold ? [...protectedPaths(governedHold.policy.policy), ...(governedHold.sandbox.areas.some(area => area.name === "workspaces" && (area.mount.writable || area.mount.missing)) ? [] : ["workspaces"])] : undefined,
+    protectedPaths: governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
     workspaceReadOnly: governedHold ? !governedHold.sandbox.areas.some(area => area.name === "workspaces" && (area.mount.writable || area.mount.missing)) : undefined,
     workerProfile: governedHold ? { origin, actualProfile: heldProfile(run),
       ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined,

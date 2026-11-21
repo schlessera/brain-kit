@@ -224,55 +224,22 @@ describe("native edit versions", () => {
   });
 });
 
-test.each([false, true])("an attempted workspace install returns both write remedies in the actual tool admission refusal (autonomous=%s)", async autonomous => {
-  const { ctx } = contextFor({ allowedTools: ["Bash", "Read"] });
-  ctx.req.workerSandbox = { brain: "/srv/odysseus-brain", profile: "governed", restricted: false, codeChanges: false,
-    scratchAliasesRemoved: [], areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: false, readOnlyPath: "/srv/odysseus-brain/workspaces", reason: "inspection" } }] };
-  if (autonomous) ctx.req.autonomous = { origin: "autonomous", persistence: "none", allowedTools: ["Bash"], systemPromptAppend: "" };
-  const hook = enforcementHookFor(ctx);
-  for (const command of ["cd workspaces/ithaca && npm install", "cd workspaces/ithaca && npm i", "npm install --prefix /tmp/brain-reference/public/ithaca"]) {
-  const result = await hook(...hookCall("Bash", { command }));
-  expect(result, "INSTALL_TOOL_RESULT_IS_A_REFUSAL").toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
-  expect(JSON.stringify(result)).toContain("code-changes switch");
-  expect(JSON.stringify(result)).toContain("managed worktree");
-  }
-  for (const command of ["cat workspaces/ithaca/package.json", "cp workspaces/ithaca/README.md /tmp/readme.md", "cat workspaces/ithaca/README.md > /tmp/readme.md", "cd workspaces/ithaca && cat README.md > /tmp/readme.md"])
-    expect(await hook(...hookCall("Bash", { command })), "CHECKOUT_READS_ARE_NOT_WRITES").toEqual({ continue: true });
-});
-
-
-test.each(["cp workspaces/ithaca/README.md /tmp/readme.md", "cat workspaces/ithaca/README.md > /tmp/readme.md"])("checkout source-only shell commands remain usable: %s", async command => {
-  const { ctx } = contextFor({ allowedTools: ["Bash"] });
-  ctx.req.workerSandbox = { brain: "/srv/odysseus-brain", profile: "governed", restricted: false, scratchAliasesRemoved: [],
-    areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: false, readOnlyPath: "/srv/odysseus-brain/workspaces", reason: "inspection" } }] };
-  expect(await enforcementHookFor(ctx)(...hookCall("Bash", { command })), "CHECKOUT_SOURCE_IS_NOT_A_WRITE_DESTINATION").toEqual({ continue: true });
-});
-
-test("reference source install refusal names both remedies even in code-change mode", async () => {
-  const { ctx } = contextFor({ allowedTools: ["Bash"] });
-  ctx.req.workerSandbox = { brain: "/srv/odysseus-brain", profile: "governed", restricted: false, scratchAliasesRemoved: [], codeChanges: true, areas: [], references: { public: "/srv/ithaca-source" } };
-  const answer = await enforcementHookFor(ctx)(...hookCall("Bash", { command: "cd /tmp/brain-reference/public/ithaca && npm install" }));
-  expect(answer, "REFERENCE_INSTALL_IS_ACTIONABLY_REFUSED").toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
-  expect(JSON.stringify(answer)).toContain("code-changes switch");
-  expect(JSON.stringify(answer)).toContain("managed worktree");
-});
-
-
-test("package command grammar distinguishes subcommands from read-only operands", async () => {
+test.each([false,true])("inspection commands run before filesystem failures receive remedies (autonomous=%s)", async autonomous => {
   const {ctx}=contextFor({allowedTools:["Bash"]});
   ctx.req.workerSandbox={brain:"/srv/odysseus-brain",profile:"governed",restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces",rel:"workspaces",mount:{writable:false,readOnlyPath:"/srv/odysseus-brain/workspaces",reason:"inspection"}}]};
-  const hook=enforcementHookFor(ctx);
-  for(const command of ["npm help install","npm ls build","npm view install","npm outdated","pnpm help install","pnpm list build","yarn help add","yarn info build","bun help install","bun outdated"])
-    expect(await hook(...hookCall("Bash",{command:`cd workspaces/ithaca && ${command}`})),`READ_ONLY_PACKAGE_COMMAND_${command}`).toEqual({continue:true});
- });
-
-test("mutating package subcommands and documented aliases are refused", async () => {
-  const {ctx}=contextFor({allowedTools:["Bash"]});
-  ctx.req.workerSandbox={brain:"/srv/odysseus-brain",profile:"governed",restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces",rel:"workspaces",mount:{writable:false,readOnlyPath:"/srv/odysseus-brain/workspaces",reason:"inspection"}}]};
-  const hook=enforcementHookFor(ctx);
-  for(const command of ["npm install","npm i","npm ci","npm clean-install","npm install-clean","npm ic","npm add","npm update","npm run build","npm run build -- --help","npm run build -- --prefix /tmp","npm run-script build","npm build","pnpm install","pnpm add","pnpm update","pnpm run build","yarn install","yarn add","yarn up","yarn run build","bun install","bun i","bun add","bun update","bun build index.ts","bun run build"]){
-    const result=await hook(...hookCall("Bash",{command:`cd workspaces/ithaca && ${command}`}));
-    expect(result,`MUTATING_PACKAGE_COMMAND_${command}`).toMatchObject({hookSpecificOutput:{permissionDecision:"deny"}});
-    expect(JSON.stringify(result)).toContain("code-changes switch");expect(JSON.stringify(result)).toContain("managed worktree");
+  if(autonomous)ctx.req.autonomous={origin:"autonomous",persistence:"none",allowedTools:["Bash"],systemPromptAppend:""};
+  const {hooks}=createPermissionWiring({req:ctx.req,allowedTools:["Bash"],confirmPatterns:[],brainPath:"/srv/odysseus-brain",turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{},log(){}});
+  const post=hooks!.PostToolUseFailure!.flatMap(group=>group.hooks).at(-1)!;
+  for(const command of ["npm install --dry-run","bun test","npm help install","npm ls build","npm install","npm i","npm ci","npm clean-install","pnpm add ithaca","yarn run build","bun run build"]){
+    const tool_input={command:`cd workspaces/ithaca && ${command}`};
+    expect(await enforcementHookFor(ctx)(...hookCall("Bash",tool_input)),`EXECUTION_REACHES_KERNEL_${command}`).toEqual({continue:true});
+    const failure={hook_event_name:"PostToolUseFailure",tool_name:"Bash",tool_input,tool_use_id:"oar-1",cwd:"/srv/odysseus-brain",error:"EROFS: Read-only file system"};
+    const answer=await post(failure as never,undefined,{signal:new AbortController().signal});
+    expect(JSON.stringify(answer),`FAILED_CHECKOUT_NAMES_REMEDIES_${command}`).toContain("code-changes switch");
+    expect(JSON.stringify(answer)).toContain("managed worktree");
+    expect(await post({...failure,error:"test assertion failed"} as never,undefined,{signal:new AbortController().signal}),"ORDINARY_TEST_FAILURE_HAS_NO_PERMISSION_NOTE").toEqual({continue:true});
   }
+  const success=hooks!.PostToolUse!.flatMap(group=>group.hooks).at(-1)!;
+  expect(await success({hook_event_name:"PostToolUse",tool_name:"Bash",tool_use_id:"oar-1",tool_input:{command:"cd workspaces/ithaca && bun test"},tool_response:{stdout:"pass",exitCode:0}} as never,undefined,{signal:new AbortController().signal})).toEqual({continue:true});
+  expect(await post({hook_event_name:"PostToolUseFailure",tool_name:"Bash",tool_use_id:"oar-1",tool_input:{command:"cd /tmp/brain-reference/public/ithaca && npm install"},error:"EACCES",cwd:"/srv/odysseus-brain"} as never,undefined,{signal:new AbortController().signal})).toMatchObject({hookSpecificOutput:{additionalContext:expect.stringContaining("managed worktree")}});
 });

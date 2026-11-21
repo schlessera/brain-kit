@@ -348,10 +348,9 @@ function prepareSandboxNote(
   // This rendering plan never becomes the launched sandbox or a write grant.
   const legacySummary = req.autonomous?.persistence === "none" && !req.autonomous.containment
     && req.autonomous.allowedTools.every(name => ["Read", "Glob", "Grep"].includes(name));
-  const noteSandbox = legacySummary ? { ...prepareWorkerSandbox(backend.brainPath, { maintenance: backend.maintenance, codeChanges: true }), codeChanges: undefined } : sandbox;
-  const sandboxNote = [workerSandboxNote(noteSandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
+  const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
-    outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
+    outputStagingLimit()] }, legacySummary), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
   return { sandbox, limits, stateLimits, turnTempLimits, sandboxNote };
 }
 

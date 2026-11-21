@@ -54,7 +54,12 @@ brain's frozen root ignore rules. The next default
 turn binds the new directory read-only. Status describes the same default
 qualification, including an unqualified workspace root or unenforceable policy-protected
 parent selecting strict. An unqualified workspace symlink protects only its
-namespace; it never makes unrelated note destinations protected.
+namespace; it never makes unrelated note destinations protected. Explicit
+owner protections still cover their symlink destinations. Status inspection
+never creates protection prerequisites on the live brain. Captured versions
+remain per turn through storage, so one participant’s retained hash never
+replaces another participant’s ignored metadata. Superseded checkpoint
+accounting includes excluded checkout bytes until release succeeds.
 
 **Additive API:** authenticated `GET` and `PUT`
 `/api/sessions/:id/code-changes` and `/api/drafts/:id/code-changes` return
@@ -76,9 +81,13 @@ alias scan, per-file journaling and byte charges. The saved switch is intent:
 host application writes remain protected unless admission actually qualifies
 a writable mount. Mode changes reach the worker through append-only new-turn context, without altering tools, the
 system prompt or earlier messages. The refusal note names both writable
-alternatives: the session's code-changes switch and a managed worktree. Visible
-workspace installs and native writes are denied by existing tool permission
-responses with those remedies; opaque commands still meet the read-only mount.
+alternatives: the session's code-changes switch and a managed worktree.
+Commands execute against the read-only mount; filesystem permission failures
+inside an inspected checkout receive these remedies after execution.
+Verification and dry runs are never denied by command name. Strict Pi tools
+keep repo-relative checkout reads through a sealed source overlay beneath
+provider masks. Privileged host applications enforce inspection even without
+a governed admission service.
 This adds no value to an existing wire/HTTP enum or required response field.
 
 <a id="untrusted-file-marks-additive-2673"></a>

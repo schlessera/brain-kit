@@ -455,12 +455,14 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       // A send update may name only an excluded alias of an ordinary note.
       // Recover its inode from both sealed roots before dropping the namespace.
       let aliasEntries = 0;
+      const excludedBefore = new Map<string, NativeJournalMetadata>(), excludedAfter = new Map<string, NativeJournalMetadata>();
       if (excludedAliases.size) for (const checkpoint of [before, after]) {
         const aliases = await RootMetadataReader.create(checkpoint, active, native, workerUid);
         try {
           for (const path of excludedAliases) {
             const entry = await aliases.get(path, true);
             if (entry === undefined) unavailable("Excluded alias metadata is unavailable for note attribution.");
+            if (entry?.kind === "file") (checkpoint === before ? excludedBefore : excludedAfter).set(path, entry);
             if (entry?.kind === "file") for (const alias of index.inodes.get(entry.inode) ?? [])
               if (!isWithin("workspaces", alias)) paths.add(alias);
           }
@@ -521,8 +523,10 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       }
       const next = after;
       // Content the previous root alone keeps once this observation commits.
-      let replacedBytes = 0;
-      for (const change of changes) if (change.before?.kind === "file" && change.before.stamp !== change.after?.stamp) replacedBytes += change.before.bytes;
+      const replaced = new Map<string, number>();
+      for (const [path, entry] of excludedBefore) if (entry.stamp !== excludedAfter.get(path)?.stamp) replaced.set(entry.inode, entry.bytes);
+      for (const change of changes) if (change.before?.kind === "file" && change.before.stamp !== change.after?.stamp) replaced.set(change.before.inode, change.before.bytes);
+      const replacedBytes = [...replaced.values()].reduce((sum, bytes) => sum + bytes, 0);
       let state: "pending" | "committed" | "aborted" = "pending";
       const observation: NativeJournalObservation = {
         beforeRoot: before, afterRoot: next, changes, stats: { ...reader.stats, readEntries: reader.stats.readEntries + aliasEntries }, unreadable: [...reader.unreadable.values()],

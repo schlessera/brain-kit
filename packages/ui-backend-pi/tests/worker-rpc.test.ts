@@ -250,34 +250,31 @@ test("an allow the collector's last check refuses is denied, and its grant never
   expect(refused, "PI_UNCHECKED_ALLOW_IS_REFUSED").toEqual([["call-refused", true]]);
 });
 
-test("workspace installs refuse through the real permission dispatcher with both remedies", async () => {
-  const refused: string[] = [];
-  const { context, dispatch } = harness({ workerSandbox: { brain: root, restricted: false, profile: "governed", codeChanges: false, scratchAliasesRemoved: [],
-    areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: false, readOnlyPath: join(root, "workspaces"), reason: "inspection" } }] } }, { inputSafety: { ready: async () => {}, begin: async () => {}, allowed: async () => {}, refused: async (id: string) => { refused.push(id); } } as never });
-  context.grants.set("call-1", { name: "bash", input: JSON.stringify({ command: "echo Ithaca" }) });
-  const result = await dispatch(rpc("permission", "bash", { command: "npm install --prefix workspaces/ithaca" }));
-  expect(result, "PI_INSTALL_TOOL_RESULT_IS_A_REFUSAL").toMatchObject({ behavior: "deny" });
-  expect(JSON.stringify(result)).toContain("code-changes switch");
-  expect(JSON.stringify(result)).toContain("managed worktree");
-  for (const command of ["cd workspaces/ithaca && npm i", "npm install --prefix /tmp/brain-reference/public/ithaca"]) {
-    const denied = await dispatch(rpc("permission", "bash", { command }, command));
-    expect(denied, "PI_INSTALL_ALIASES_AND_REFERENCE_SOURCE_REFUSE").toMatchObject({ behavior: "deny", message: expect.stringContaining("managed worktree") });
+test.each([true,false])("post-failure remedies use the resolved Pi sandbox (host supplied=%s)", async supplied => {
+  const sandbox={brain:root,profile:"governed" as const,restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces" as const,rel:"workspaces",mount:{writable:false as const,readOnlyPath:join(root,"workspaces"),reason:"inspection"}}]};
+  const recorded:string[]=[];
+  const {dispatch}=harness({sandbox,workerSandbox:supplied?sandbox:undefined},{inputSafety:{ready:async()=>{},begin:async()=>{},allowed:async()=>{},result:async(_id:string,_name:string,output:string)=>{recorded.push(output);}} as never});
+  for(const command of ["npm install --dry-run","bun test","npm help install","npm ls build","npm install","npm i","npm ci","npm clean-install","pnpm add ithaca","yarn run build","bun run build"]){
+    const id=command;
+    expect(await dispatch(rpc("permission","bash",{command:`cd workspaces/ithaca && ${command}`},id)),"PI_VERIFICATION_RUNS_BEFORE_ANY_REFUSAL").toMatchObject({behavior:"allow"});
+    const answer=await dispatch(rpc("safetyResult","bash",{output:"EROFS: Read-only file system",failed:true},id));
+    expect(answer,"SELF_RESOLVED_SANDBOX_HAS_BOTH_REMEDIES").toMatchObject({workspaceNote:expect.stringContaining("managed worktree")});
+    expect(recorded.at(-1),"NOTE_RECORDED_BEFORE_DELIVERY").toContain("code-changes switch");
+    expect(await dispatch(rpc("safetyResult","bash",{output:"all tests passed"},id)),"SUCCESSFUL_VERIFICATION_HAS_NO_REFUSAL").toEqual({ok:true});
+    expect(await dispatch(rpc("safetyResult","bash",{output:"assertion failed",failed:true},id)),"NORMAL_TEST_FAILURE_HAS_NO_REFUSAL").toEqual({ok:true});
   }
-  expect(context.grants.has("call-1"), "WORKSPACE_DENIAL_CLEARS_OLD_GRANT").toBe(false);
-  expect(refused, "WORKSPACE_DENIAL_IS_RECORDED_BY_COLLECTOR").toEqual(["call-1", "cd workspaces/ithaca && npm i", "npm install --prefix /tmp/brain-reference/public/ithaca"]);
-  expect(await dispatch(rpc("permission", "read_file", { path: "notes/ithaca.md" }, "call-read")), "OTHER_SCOPE_REMAINS_USABLE").toMatchObject({ behavior: "allow" });
-  for (const command of ["cp workspaces/ithaca/README.md /tmp/readme.md", "cat workspaces/ithaca/README.md > /tmp/readme.md"]) {
-    expect(await dispatch(rpc("permission", "bash", { command }, command)), "PI_CHECKOUT_SOURCE_READS_REMAIN_USABLE").toMatchObject({ behavior: "allow" });
-  }
-  context.workerSandbox = { ...context.workerSandbox!, codeChanges: true, areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: true, path: join(root, "workspaces") } }] };
-  expect(await dispatch(rpc("permission", "bash", { command: "npm install --prefix workspaces/ithaca" }, "call-writer")), "OPTED_IN_WRITER_REMAINS_USABLE").toMatchObject({ behavior: "allow" });
 });
 
 
-test("package read commands and clean-install use the Pi permission grammar", async () => {
-  const {dispatch}=harness({workerSandbox:{brain:root,profile:"governed",restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces",rel:"workspaces",mount:{writable:false,readOnlyPath:join(root,"workspaces"),reason:"inspection"}}]}});
-  for(const command of ["npm help install","npm ls build","npm view install","npm outdated"])
-    expect(await dispatch(rpc("permission","bash",{command:`cd workspaces/ithaca && ${command}`},command)),"PI_PACKAGE_READ_REMAINS_USABLE").toMatchObject({behavior:"allow"});
-  const answer=await dispatch(rpc("permission","bash",{command:"cd workspaces/ithaca && npm clean-install"},"clean-install"));
-  expect(answer,"PI_CLEAN_INSTALL_REFUSES").toMatchObject({behavior:"deny"});expect(JSON.stringify(answer)).toContain("code-changes switch");expect(JSON.stringify(answer)).toContain("managed worktree");
+test("Pi's installed Agent hook appends and records the post-failure remedy once",async()=>{
+ const {Agent}=await import("@earendil-works/pi-agent-core"),{installPiToolSafety}=await import("../src/tool-safety.js"),{safetyResultInput}=await import("../src/worker-protocol.js");
+ const sandbox={brain:root,profile:"strict" as const,restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces" as const,rel:"workspaces",mount:{writable:false as const,readOnlyPath:join(root,"workspaces"),reason:"inspection"}}]};
+ const recorded:string[]=[];const {dispatch}=harness({sandbox},{inputSafety:{begin:async()=>{},allowed:async()=>{},result:async(_id:string,_name:string,output:string)=>{recorded.push(output);}} as never});
+ const agent=new Agent({streamFn:()=>{throw new Error("No inference in this hook test");}});
+ installPiToolSafety(agent,{permission:(name,id,input)=>dispatch(rpc("permission",name,input,id)) as never,result:async(name,id,content,complete,failed)=>{const answer=await dispatch(rpc("safetyResult",name,safetyResultInput(name,content,complete,failed),id)) as {workspaceNote?:string};return answer.workspaceNote;},stop(){}},()=>false);
+ const context={toolCall:{id:"verify",name:"bash"},args:{command:"cd workspaces/ithaca && bun test"},result:{content:[{type:"text",text:"EACCES: permission denied"}]},isError:true} as never;
+ expect(await agent.beforeToolCall!(context),"INSTALLED_AGENT_ADMITS_VERIFICATION").toBeUndefined();
+ const answer=await agent.afterToolCall!(context);
+ expect(answer!.content,"INSTALLED_AGENT_DELIVERS_REMEDY_AFTER_KERNEL_FAILURE").toEqual([{type:"text",text:"EACCES: permission denied"},{type:"text",text:expect.stringContaining("code-changes switch")}]);
+ expect(recorded).toHaveLength(1);expect(recorded[0]).toContain("managed worktree");
 });

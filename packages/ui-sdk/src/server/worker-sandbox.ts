@@ -624,7 +624,9 @@ function turnTempPlaces(): string {
  * to. Both backends inject this text unchanged. The restricted (autonomous)
  * variant is the envelope's own and keeps its wording.
  */
-export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts = {}): string {
+export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts = {}, legacyWorkspace = false): string {
+  if (legacyWorkspace) sandbox = { ...sandbox, codeChanges: undefined, areas: sandbox.areas.map(area => area.name === "workspaces" && !area.mount.writable && area.mount.readOnlyPath
+    ? { ...area, mount: { writable: true, path: area.mount.readOnlyPath } } : area) };
   const lines: string[] = [];
   const resolvedFacts = { ...sandbox.noteFacts, ...facts };
   const profile = workerProfile(sandbox);

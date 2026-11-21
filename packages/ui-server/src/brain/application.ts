@@ -276,12 +276,15 @@ export function createBrainApplication(options: {
   beforeCommit?: () => void;
 }) {
   const root = realpathSync(options.root);
+  // Direct/approved host applications also need a frozen default when no
+  // governed bridge supplied mount facts. Absence stays ordinary this turn.
+  const workspaceReadOnly = options.workspaceReadOnly ?? Boolean(lstatSync(join(root, "workspaces"), { throwIfNoEntry: false }));
   // A protected path that is a link protects where it leads (#2876); a target
   // reached through a link refuses as an alias where it is opened.
   const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, options.protectedPaths, { links: "refused" }) : undefined;
   const validateTarget = (path: string): void => {
     validatePath(path);
-    if (options.workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_READ_ONLY_REASON);
+    if (workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_READ_ONLY_REASON);
     if (isProtected?.(path)) refuse("policy_denied", PROTECTED_TARGET_REFUSAL);
   };
   const planner = options.planner ?? boundaryPlanner(createHostBoundary({ brainPath: root }));

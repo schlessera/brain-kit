@@ -61,6 +61,8 @@ export function resolveWorkerProtection(brain: string, options: {
   paths?: readonly string[]; appeared?: readonly string[]; folderPaths?: readonly string[];
   /** Do not create protected ancestors inside an inspection mount. */
   readOnlyRoots?: readonly string[];
+  /** Inspect status without preparing any path on the live brain. */
+  prepare?: boolean;
 } = {}): { protection: WorkerProtection; reason?: string } {
   const paths: ProtectedWorkerPath[] = [];
   const ancestors = new Set<string>();
@@ -79,7 +81,7 @@ export function resolveWorkerProtection(brain: string, options: {
         throw new Error(scan.unverified ?? (scan.outside.length ? `the brain has hardlinks outside it: ${scan.outside.slice(0, 3).join(", ")}` : "the brain's aliases could not be verified"));
       }
     }
-    for (const rel of names) {
+    protectedName: for (const rel of names) {
       if (!rel || rel.startsWith("/") || rel.split("/").some(part => !part || part === "." || part === "..")) throw new Error("invalid protected path");
       const segments = rel.split("/");
       let fd = openDirectory(at(root, "."));
@@ -90,6 +92,10 @@ export function resolveWorkerProtection(brain: string, options: {
             const ancestor = segments.slice(0, i + 1).join("/");
             if (options.readOnlyRoots?.some(area => isWithin(area, ancestor)))
               throw new Error(`${ancestor} is read-only; cannot create a protected-path ancestor`);
+            if (options.prepare === false) {
+              paths.push({ rel, mode: "absent", reason: "protected path is absent; prepared at admission" });
+              continue protectedName;
+            }
             mkdirSync(path, { mode: 0o755 });
           }
           const next = openDirectory(path);
@@ -98,7 +104,7 @@ export function resolveWorkerProtection(brain: string, options: {
         }
         const path = at(fd, segments.at(-1)!);
         let info = lstatSync(path, { throwIfNoEntry: false });
-        if (!info && DIRECTORIES.has(rel)) { mkdirSync(path, { mode: 0o755 }); info = lstatSync(path); }
+        if (!info && DIRECTORIES.has(rel) && options.prepare !== false) { mkdirSync(path, { mode: 0o755 }); info = lstatSync(path); }
         let mode: ProtectedWorkerPath["mode"] = "absent";
         if (info) {
           if (appeared.has(rel)) mode = info.isDirectory() ? "mask_directory" : "mask_file";
@@ -313,7 +319,7 @@ const outsideOf = (dir: string, path: string) => !isWithin(dir, path) && !isWith
  * reads as empty: the legacy root-level caches under any provider rule, and
  * `.brain-cache/` while any folder is masked (#2725).
  */
-export function dataTreeMounts(brain: string, target: string, tree: WorkerDataTree): string[] {
+export function dataTreeMounts(brain: string, target: string, tree: WorkerDataTree, workspaceSource?: string): string[] {
   for (const dir of [tree.root, tree.index]) {
     const info = lstatSync(dir, { throwIfNoEntry: false });
     if (!isAbsolute(dir) || normalize(dir) !== dir || !info?.isDirectory() || info.isSymbolicLink() || !outsideOf(brain, dir) || !outsideOf(dir, target))
@@ -323,6 +329,7 @@ export function dataTreeMounts(brain: string, target: string, tree: WorkerDataTr
   const index = lstatSync(join(tree.root, INDEX_DIR), { throwIfNoEntry: false });
   if (!index?.isDirectory() || index.isSymbolicLink()) throw new Error(`${INDEX_DIR} is missing from the turn's data tree`);
   const argv = ["--ro-bind", tree.root, target, tree.indexWritable ? "--bind" : "--ro-bind", tree.index, join(target, INDEX_DIR)];
+  if (workspaceSource) argv.push("--ro-bind", workspaceSource, join(target, "workspaces"));
   for (const name of PROVIDER_CACHE_FILES) {
     const info = lstatSync(join(tree.root, name), { throwIfNoEntry: false });
     if (info && tree.masked) argv.push("--ro-bind", "/dev/null", join(target, name));
@@ -332,7 +339,8 @@ export function dataTreeMounts(brain: string, target: string, tree: WorkerDataTr
     ? ["--tmpfs", join(target, CACHE_DIR), "--remount-ro", join(target, CACHE_DIR)] : ["--ro-bind", "/dev/null", join(target, CACHE_DIR)]));
   for (const rel of [...new Set(tree.masked ?? [])].sort()) {
     if (invalidFolder(rel) || isWithin(INDEX_DIR, rel)) throw new Error("invalid provider mask folder");
-    const info = lstatSync(join(tree.root, rel), { throwIfNoEntry: false });
+    const source = workspaceSource && isWithin("workspaces", rel) ? join(workspaceSource, rel.slice("workspaces".length)) : join(tree.root, rel);
+    const info = lstatSync(source, { throwIfNoEntry: false });
     if (info?.isDirectory() && !info.isSymbolicLink()) argv.push("--tmpfs", join(target, rel), "--remount-ro", join(target, rel));
     else if (info) argv.push("--ro-bind", "/dev/null", join(target, rel));
   }

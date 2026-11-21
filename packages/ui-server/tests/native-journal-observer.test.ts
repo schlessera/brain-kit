@@ -365,3 +365,16 @@ test("warm inspection commits never iterate the whole brain metadata index", asy
     expect([...observer.entries()].length,"THE_LARGE_NOTE_BASELINE_REMAINS_INTACT").toBe(601);
   }finally{await observer.close();await native.close();rmSync(root,{recursive:true,force:true});}
 });
+
+
+test("inspection excludes journal rows but charges superseded checkout checkpoints",async()=>{
+ const f=releaseFixture();mkdirSync(join(f.brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(f.brain,"workspaces/ithaca/source.ts"),"x".repeat(8192));
+ try{
+  await f.observer.initialize(undefined,{workspaces:false});
+  writeFileSync(join(f.brain,"workspaces/ithaca/source.ts"),"Athena after");
+  const observation=await f.observer.observe(undefined,undefined,{workspaces:false});
+  expect(observation.changes.filter(change=>change.path.startsWith("workspaces/"))).toEqual([]);
+  await observation.commit();(await f.next()).settle(new Error("Odysseus checkpoint remains pinned"));await f.observer.releasesSettled();
+  expect(f.observer.releases(),"CHECKPOINT_BYTES_ARE_INDEPENDENT_OF_JOURNAL_COVERAGE").toEqual({pending:0,failed:1,retainedBytes:8192});
+ }finally{await f.close();}
+});

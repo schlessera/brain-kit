@@ -409,7 +409,11 @@ Default governed and strict turns inspect an existing `workspaces/` read-only. T
 its paths from journal content capture, retained rows, ignore-policy reads and
 observed-byte charges. The exclusion belongs to each turn, so a concurrent
 session with code changes enabled keeps its own workspace retention and byte
-accounting. Previously retained workspace history remains readable.
+accounting. Captured versions remain per turn through storage: an overlapping
+writer cannot replace another turn’s ignored metadata with retained bytes.
+Previously retained workspace history remains readable. Checkpoint-release
+accounting is independent of journal coverage: excluded checkout predecessors
+still count while a superseded checkpoint remains retained.
 
 **Absent optional area (clarified during #4295 review):** if `workspaces/`
 is absent at launch, keep the ordinary governed writable brain. Create no
@@ -443,11 +447,19 @@ it retains the existing alias scan and per-file journaling; the Git receipt
 transition is separate work. The worker's sandbox note names the mode and both
 ways to obtain writable checkout access: the session's code-changes switch or
 a managed worktree. Arbitrary tools still return the kernel's read-only error;
-the note supplies the actionable alternative. Inspecting source never writes,
+failed tool results add both remedies after an actual `EROFS` or `EACCES`.
+No package command is refused pre-emptively: verification and dry runs may
+succeed without writes. The kernel enforces the mount. Inspecting source never writes,
 including dependency installation and builds. This information travels once
 in new-turn context when it first applies or changes, using the existing
 append-only prompt context; tools, fixed system append and earlier messages
-are never rewritten.
+are never rewritten. Nonpersistent read-only handoffs retain legacy prompt
+rendering using the already resolved sandbox, without preparing it again or
+granting writes. Strict data trees omit checkout copies and overlay the sealed
+source at the repo-relative read path, then repeat provider masks. Explicit
+owner protections keep both their configured names and symlink destinations;
+the implicit inspection guard covers only its namespace. Status inspection
+never prepares or creates paths on the live brain.
 
 ## State boundaries and root dependencies — 2026-11-20
 

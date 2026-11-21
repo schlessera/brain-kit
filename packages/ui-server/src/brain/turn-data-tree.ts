@@ -453,6 +453,8 @@ export async function createTurnDataTree(options: {
       throw error;
     }
     copy.finish();
+    // A mountpoint on this private copy preserves repo-relative tool reads.
+    if (options.inspectWorkspaces && options.mount) mkdirSync(join(root, "workspaces"), { mode: 0o755 });
     settleIndex(index, separateIdentity);
   } catch (error) {
     await placed.remove();

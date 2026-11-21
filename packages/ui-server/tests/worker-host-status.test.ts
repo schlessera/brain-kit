@@ -5,7 +5,7 @@
  * re-records the outcome (worker-host-gate.test.ts proves the turn half).
  */
 import { dirname, join } from "node:path";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { prepareWorkerSandbox } from "../../ui-sdk/src/server/worker-launcher.js";
 import { mockQualifiedIdentityHelper } from "./helpers/qualified-identity-helper";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -362,4 +362,14 @@ test("status includes policy protected paths when workspace parents are absent",
 test("status honours the ordinary interactive policy profile", async () => {
   probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),"---\nschema_version: 1\nprofiles: {interactive: strict, voice: governed}\n---\nAthena selects inspection.\n");}});
   try{expect((await workerHostOf(await t.fetch("/api/status")))?.governed).toMatchObject({profile:"strict",configurationView:"startup"});}finally{await t.teardown();}
+});
+
+
+test.each(["governed","strict"] as const)("status reads never create protected parents (interactive=%s)",async profile=>{
+ probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),`---\nschema_version: 1\nprofiles: {interactive: ${profile}, voice: governed}\nprotect: [uncreated/ithaca/protected.md]\n---\nAthena protects notes.\n`);}});
+ try{
+  expect(existsSync(join(t.brainPath,"uncreated")),"STATUS_IS_A_PURE_READ_OF_LIVE_CONTENT").toBe(false);
+  for(let i=0;i<3;i++)expect((await t.fetch("/api/status")).status).toBe(200);
+  expect(existsSync(join(t.brainPath,"uncreated")),"STATUS_IS_A_PURE_READ_OF_LIVE_CONTENT").toBe(false);
+ }finally{await t.teardown();}
 });

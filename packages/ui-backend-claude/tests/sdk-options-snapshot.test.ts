@@ -1,8 +1,9 @@
+import * as worker from "@schlessera/brain-ui-sdk/internal";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareClaudeTurnSandbox } from "../src/sdk-options.js";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { installTestHome } from "../../../scripts/test-home";
 
 import expected from "./fixtures/sdk-options-snapshot.json" with { type: "json" };
@@ -79,4 +80,10 @@ test("direct interactive assembly without a host grant describes inspection", as
   expect(JSON.stringify(snapshot.systemPrompt),"HOSTLESS_ASSEMBLY_HAS_NO_WRITABLE_WORKSPACE").not.toContain("is writable: clone, fetch and commit");
   expect(JSON.stringify(snapshot.contextTail)).toContain("code-changes switch");
   expect(JSON.stringify(snapshot.contextTail),"HOSTLESS_CONTEXT_USES_THE_READ_ONLY_MOUNT").not.toContain("is writable: clone, fetch and commit");
+});
+
+
+test("prepared handoff rendering never prepares the worker synchronously again",async()=>{
+ const preparation=spyOn(worker,"prepareWorkerSandbox");
+ try{const snapshot=await sdkOptionsSnapshot("autonomous-summary",{populatedWorkspace:true,prepareSandbox:true});expect(JSON.stringify(snapshot.systemPrompt)).toContain("is writable: clone, fetch and commit");expect(preparation,"HANDOFF_REUSES_THE_PREPARED_SANDBOX").not.toHaveBeenCalled();}finally{preparation.mockRestore();}
 });

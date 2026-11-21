@@ -708,7 +708,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
       ? providerMaskMounts(brain, input.startupView?.root ?? brain, input.sandbox.providerMasks) : []),
     // The turn's data tree: brain tools read documents and the index there,
     // configuration from the frozen view above (#2848).
-    ...(dataTree ? dataTreeMounts(brain, WORKER_DATA_ROOT, dataTree) : []),
+    ...(dataTree ? dataTreeMounts(brain, WORKER_DATA_ROOT, dataTree, input.startupView && input.sandbox?.areas.some(area => area.name === "workspaces" && !area.mount.writable && area.mount.readOnlyPath) ? join(input.startupView.root, "workspaces") : undefined) : []),
     "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a
   // secret over an earlier mask. The masks are about reads, not writes.

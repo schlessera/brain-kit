@@ -6,7 +6,7 @@ import {PiInputSafetyUnavailableError} from "./worker-protocol.js";
 type Content = import("@earendil-works/pi-agent-core").AfterToolCallContext["result"]["content"];
 export interface PiToolSafety {
   permission(name:string,id:string,input:Record<string,unknown>):Promise<PermissionDecision>;
-  result(name:string,id:string,content:Content,complete?:boolean):Promise<void>;
+  result(name:string,id:string,content:Content,complete?:boolean,failed?:boolean):Promise<void|string>;
   unavailable?():Promise<void>;
   stop():void;
 }
@@ -70,9 +70,10 @@ export function installPiToolSafety(agent:Agent,safety:PiToolSafety,hasUnqualifi
   // Structured payloads are programmatic output, outside this text-only wire.
   const structured=final?.structuredContent??(final?.content?undefined:context.result.structuredContent);
   const complete=!failure&&!(final?.isError??context.isError)&&structured===undefined;
-  try{await safety.result(context.toolCall.name,context.toolCall.id,final?.content??context.result.content,complete);}
+  let workspaceNote: void | string;
+  try{workspaceNote=await safety.result(context.toolCall.name,context.toolCall.id,final?.content??context.result.content,complete,final?.isError??context.isError);}
   catch(error){stop();throw error;}
   if(failure){stop();throw failure.error;}
-  return final;
+  return workspaceNote ? { ...final, content: [...(final?.content??context.result.content), {type:"text" as const,text:workspaceNote}] } : final;
  };
 }

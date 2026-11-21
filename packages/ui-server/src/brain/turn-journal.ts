@@ -432,7 +432,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     await releaseReads();
     released?.();
     const overlaps = [...active.keys()];
-    const changed = new Map<string, { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }>();
+    const changedPaths = new Set<string>();
     const stopActive = async (error: unknown) => {
       const recorded: Promise<void>[] = [];
       for (const [id, turn] of active) {
@@ -466,8 +466,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     try {
       for (const changes of observation.changes.values()) for (const item of changes) {
         if (identity(item.before) === identity(item.after)) continue;
-        const value = { path: item.path, scope: item.after?.scope ?? item.before?.scope ?? "", before: version(item.before), after: version(item.after) };
-        changed.set(JSON.stringify(value), value);
+        changedPaths.add(item.path);
       }
       const steering = observation.steering;
       for (const [turnId, turn] of active) {
@@ -478,8 +477,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
           .map(item => ({ ...item, path: referenceWorktreeJournalPath(root.worktreeId, item.path === "." ? "" : item.path) })))];
         let step = timing?.("observe_record");
         turn.sequence = await retain(() => call<number>("recordObservation", {
-          turnId, sequence: turn.sequence, at: now(), userPolicy, changed: [...changed.values()].filter(item => !turn.policy.excluded(item.path)), steeringPaths: [...steering.paths].filter(path => !turn.policy.excluded(path)),
-          overlaps, pathObservers: Object.fromEntries([...changed.values()].map(item => [item.path, [...active].filter(([, peer]) => !peer.policy.excluded(item.path)).map(([id]) => id)])),
+          turnId, sequence: turn.sequence, at: now(), userPolicy, changed: (observation.changes.get(turnId) ?? []).filter(item => identity(item.before) !== identity(item.after)).map(item => ({ path: item.path, scope: item.after?.scope ?? item.before?.scope ?? "", before: version(item.before), after: version(item.after) })), steeringPaths: [...steering.paths].filter(path => !turn.policy.excluded(path)),
+          overlaps, pathObservers: Object.fromEntries([...changedPaths].map(path => [path, [...active].filter(([, peer]) => !peer.policy.excluded(path)).map(([id]) => id)])),
           worktree, steeringUnavailable: [...steering.unavailable].filter(path => !turn.policy.excluded(path)), steeringInventoried: steering.inventoried === true, unreadable: unreadable.filter(item => !turn.policy.excluded(item.path)),
         }));
         step?.(); step = timing?.("observe_publish");

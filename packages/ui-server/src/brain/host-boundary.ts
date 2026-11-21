@@ -612,7 +612,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         ? { identity: "separate_uid" as const, workerUid: ordinary.workerUid }
         : configuredIdentity ? {} : { identity: "shared_uid" as const };
       const policy = policyReader.load();
-      const protection = resolveWorkerProtection(brain, { paths: protectedPaths(policy.policy), readOnlyRoots: ["workspaces"] });
+      const protection = resolveWorkerProtection(brain, { paths: protectedPaths(policy.policy), readOnlyRoots: ["workspaces"], prepare: false });
       let workspaceFallback: string | undefined;
       try {
         const workspace = resolveWorkspacesMount(brain);

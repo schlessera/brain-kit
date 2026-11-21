@@ -88,3 +88,16 @@ test("the sandbox note names the data path, and a masked turn's index is read-on
   expect(note, "NOTE_SAYS_THE_PRIVATE_INDEX_IS_READ_ONLY").toContain("It is read-only: the host adds this turn's own applications to it");
   expect(note).not.toContain("write to it");
 });
+
+
+test("strict data-tree launch overlays inspected source before its provider masks",()=>{
+ const {brain,tree,index}=layout();mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(brain,"workspaces/ithaca/README.md"),"Athena inspects Ithaca.");mkdirSync(join(tree,"workspaces"),{recursive:true});
+ const view=createFixtureWorkerStartupView(brain);
+ try{
+  const sandbox={...prepareWorkerSandbox(brain,{profile:"strict",codeChanges:false}),dataTree:{root:tree,index,masked:["workspaces/ithaca"]}};
+  const argv=workerCommand({brainPath:brain,startupView:view,sandbox,env:{},command:["/bin/true"]});
+  const text=argv.join(" "),overlay=`--ro-bind ${join(view.root,"workspaces")} ${WORKER_DATA_ROOT}/workspaces`,mask=`--tmpfs ${WORKER_DATA_ROOT}/workspaces/ithaca`;
+  expect(text,"PI_REPO_RELATIVE_READS_REACH_THE_SEALED_CHECKOUT").toContain(overlay);
+  expect(text.indexOf(mask),"PROVIDER_MASKS_OVERRIDE_THE_INSPECTION_OVERLAY").toBeGreaterThan(text.indexOf(overlay));
+ }finally{view.cleanup();}
+});

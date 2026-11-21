@@ -951,3 +951,19 @@ test("an absent workspace uses the ordinary brain's frozen root ignore rules", a
     await f.journal.finish("ordinary");
   }finally{await f.close();}
 });
+
+
+test("overlapping ordinary and writer policies keep their own ignored versions",async()=>{
+ const f=fixture();writeFileSync(join(f.brain,".gitignore"),"private.md\n");
+ try{
+  await f.journal.begin("ordinary",{sessionId:"ordinary",actor:"interactive",model:null,profile:"governed",policyHash:null,workspaceMissing:true},()=>{});
+  mkdirSync(join(f.brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(f.brain,"workspaces/ithaca/private.md"),"Athena before");
+  await f.journal.begin("writer",{sessionId:"writer",actor:"interactive",model:null,profile:"governed",policyHash:null,workspaceReadOnly:false},()=>{});
+  writeFileSync(join(f.brain,"workspaces/ithaca/private.md"),"Athena after");await f.journal.observe();
+  for(const id of ["ordinary","writer"]){
+   const rows=f.db.query("SELECT after_json FROM turn_journal_changes WHERE turn_id=? AND path='workspaces/ithaca/private.md'").all(id) as {after_json:string}[];
+   expect(rows.length,"ONE_VERSION_PER_TURN_PER_EDIT").toBe(id==="ordinary"?2:1);
+   for(const row of rows){const value=JSON.parse(row.after_json);expect(value.ignored,"PER_TURN_IGNORE_NEVER_MERGES").toBe(id==="ordinary");expect(Boolean(value.hash),"IGNORED_TURN_NEVER_RETAINS_WRITER_HASH").toBe(id==="writer");}
+  }
+ }finally{await f.close();}
+});

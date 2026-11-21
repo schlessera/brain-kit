@@ -594,3 +594,17 @@ test("Pi reports a stranded launch charge once without scheduling an impossible 
       bytes: 0, turnTempBytes: ledger.turnTempHeld, errorClass: "Error", message: String(failure) });
   } finally { cleanup.close(); stderr.mockRestore(); owner.mockRestore(); ledgerSpy.mockRestore(); }
 });
+
+
+test("Pi handoff preparation keeps its legacy provider append without granting code writes",async()=>{
+ mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});
+ const autonomous={origin:"autonomous" as const,persistence:"none" as const,allowedTools:[],systemPromptAppend:"Summarise the voyage so far."};
+ await createPiBackend({brainPath:brain,sessionDir,loadExtensions:false}).startTurn({prompt:"Summarise Ithaca.",signal:new AbortController().signal,autonomous,enforceAllowedTools:true,noGrantSurface:true,bridge:{emit(){},checkpointPermission(){},requestPermission:async()=>({behavior:"deny",message:"no tools"})}});
+ expect(receivedInit.sandboxNote,"PI_HANDOFF_PRESERVES_LEGACY_AREA_TEXT").toContain("is writable: clone, fetch and commit");
+ expect(receivedInit.sandboxNote).not.toContain("code-changes switch");
+ expect(launch.mock.calls.at(-1)![0].sandbox.areas.find((area:any)=>area.name==="workspaces").mount.writable,"RENDERING_COMPATIBILITY_CANNOT_GRANT_WRITES").toBe(false);
+ const {createSessionResources}=await import("../src/session-resources.js"),{createBrainAccess}=await import("../src/brain-access.js"),{toolLockFromKeyed}=await import("../src/tools.js"),{createKeyedLock}=await import("@schlessera/brain-ui-sdk/server");
+ const caps=receivedInit.env.caps,resources=createSessionResources({backend:{brainPath:brain,loadExtensions:false},brain:createBrainAccess(brain),lock:toolLockFromKeyed(createKeyedLock()),allowedTools:new Set(),confirmPatterns:[],loadExtensions:false,sandboxNote:receivedInit.sandboxNote});
+ const {loader}=await resources.build(resources.buildToolkit(caps),{caps,autonomous});
+ expect(loader.getAppendSystemPrompt(),"PI_REAL_RESOURCE_LOADER_KEEPS_HANDOFF_PROMPT").toContain(`${autonomous.systemPromptAppend}\n\n${receivedInit.sandboxNote}`);
+});

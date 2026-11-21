@@ -34,7 +34,10 @@ tracked changes and untracked files Git does not ignore are protected; ignored
 install/build output is neither recorded nor restored because it can be
 regenerated. The initial workspace opt-in retains per-file journaling until
 that separate Git receipt transition. A default turn's read-only note names
-both routes to writable checkout access.
+both routes to writable checkout access. Commands run against the read-only
+mount, so verification and dry runs that leave it unchanged remain usable. A
+filesystem permission failure inside the inspected checkout receives these
+remedies after execution; command names alone do not deny a call.
 
 ## Authority and credential isolation
 

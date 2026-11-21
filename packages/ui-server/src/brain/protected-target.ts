@@ -61,16 +61,11 @@ function places(brain: string, path: string): string[] {
  * path as named and where its links lead, and the same for each `.env*` name
  * at the brain root, which is protected by prefix rather than listed.
  */
-export function protectedPlaces(root: string, protectedPaths: readonly string[]): string[] {
+export function protectedPlaces(root: string, protectedPaths: readonly string[], workspaceReadOnly = false): string[] {
   const brain = realpathSync(root);
   let env: string[] = [];
   try { env = readdirSync(brain).filter(isEnvName); } catch { /* An unreadable root lists no names. */ }
-  return [...protectedPaths, ...env].flatMap(path => {
-    // An unqualified optional workspace is a protected namespace, not a grant
-    // to protect whichever unrelated destination its symlink names.
-    if (path === "workspaces" && lstatSync(join(brain, path), { throwIfNoEntry: false })?.isSymbolicLink()) return [join(brain, path)];
-    return places(brain, path);
-  });
+  return [...protectedPaths, ...env].flatMap(path => places(brain, path)).concat(workspaceReadOnly ? [join(brain, "workspaces")] : []);
 }
 
 /**
@@ -87,12 +82,12 @@ export function protectedPlaces(root: string, protectedPaths: readonly string[])
  * that refusal for it.
  */
 export function createProtectedTargetCheck(root: string, protectedPaths: readonly string[],
-  { links = "followed" }: { links?: "followed" | "refused" } = {}): (path: string) => boolean {
+  { links = "followed", workspaceReadOnly = false }: { links?: "followed" | "refused"; workspaceReadOnly?: boolean } = {}): (path: string) => boolean {
   const brain = realpathSync(root), admitted = [...protectedPaths];
   return path => {
     const targets = links === "followed" ? places(brain, path) : [join(brain, path)];
     if (targets.some(target => within(target, brain) && isEnvName(relative(brain, target).split(sep)[0]!))) return true;
-    const covered = protectedPlaces(brain, admitted);
+    const covered = protectedPlaces(brain, admitted, workspaceReadOnly);
     return targets.some(target => covered.some(place => within(target, place) || within(place, target)));
   };
 }
