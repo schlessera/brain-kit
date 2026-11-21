@@ -934,7 +934,8 @@ Git packing preflights the raw object/ref sizing rule
 Insufficient or unknown capacity produces the named `packing_headroom` skip
 before Git maintenance starts. Hosted maintenance keeps its existing bounded
 output stage; dedicated disk-backed packing is tracked separately in #4288.
-No new hosted CLI flags or command interception are required by this guard.
+Routine maintain uses the existing `--json` flag for its host-side result;
+other commands retain their existing execution and publication behavior.
 
 A failed or incomplete pack publishes **nothing under `.git`**. Newly created
 temporary pack files are removed from the failed stage; outside a declared
@@ -942,10 +943,19 @@ private stage, new names are conservatively left alone because another Git
 writer may own them. Historical garbage is
 never removed. For routine `brain maintain`, the host selects Git output only
 when the command exits zero and its complete JSON result contains a successful
-Git step. Malformed, skipped, nonzero, human-only, oversized or unavailable
-reports discard the whole Git portion while other validated output publishes.
-Streaming launch never waits for unread stdout before deciding: if its bounded
-report has not completed by process exit, it conservatively discards Git.
+Git step. The host explicitly requests machine output, preserving JSON callers
+and reproducing the CLI formatter for explicit `--human` callers. The shipped
+`brain maintain` cron argv therefore needs no flag change. Streaming launch
+drains stdout independently of its caller into one fixed 1 MiB buffer. It waits
+for EOF after process exit, allowing up to five seconds for that barrier; neither
+exit-time scheduling nor an unread display stream decides publication. Oversized,
+unreadable, malformed, incomplete, skipped or nonzero reports discard the whole
+Git portion while other validated output publishes. Cron durably records the
+host-owned `git_publication` event and `maintenance.git_publication` span
+attribute. Discards carry a named reason; a missing/unusable report also marks
+the maintenance Activity result as error and prints the named diagnostic, while
+the command exit code stays unchanged. No report body or new enum value is put
+in an existing parsed field.
 Successful output uses the existing publisher; this guard adds no pack exchange,
 transaction directory or writable-stage receipt. Pack/index/loose ordering and
 crash safety of successful publication are separate follow-up work.
