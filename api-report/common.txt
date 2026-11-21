@@ -171,6 +171,151 @@ export "./internal/frontmatter-block" (./src/frontmatter-block.ts)
   frontmatterBlock
   frontmatterLength
 
+export "./internal/google-operations" (./src/google/index.ts)
+  GMAIL_DRAFT_ACTIONS
+  GMAIL_DRAFT_ID_PATTERN
+  GMAIL_DRAFT_INPUT
+  GMAIL_LABEL_NAME_ESCAPED_MAX
+  GMAIL_LABEL_TYPES
+  GMAIL_LIMITS
+  GMAIL_MESSAGE_ID_PATTERN
+  GMAIL_MODIFY_INPUT
+  GMAIL_OPERATIONS
+  GMAIL_RAW_DRAFT_LIMITS
+  GMAIL_RAW_DRAFT_PROBLEMS
+  GMAIL_READ_INPUT
+  GMAIL_READ_TARGETS
+  GMAIL_REVERSIBLE_SYSTEM_LABELS
+  GMAIL_SEARCH_INPUT
+  GMAIL_SEND_INPUT
+  GMAIL_SIZE_BUCKETS
+  GMAIL_SYSTEM_LABELS
+  GMAIL_SYSTEM_LABEL_ID_PATTERN
+  GMAIL_THREAD_ID_PATTERN
+  GMAIL_TOOL_NAMES
+  GMAIL_TRASH_INPUT
+  GMAIL_USER_LABEL_ID_PATTERN
+  GOOGLE_ADDRESS_LIST_MAX_CHARS
+  GOOGLE_ADDRESS_REFUSALS
+  GOOGLE_APPROVAL_ENTITIES
+  GOOGLE_DIGEST_PATTERN
+  GOOGLE_EFFECT_CLASSES
+  GOOGLE_ERROR_CODES
+  GOOGLE_HOST_CURSOR_PATTERN
+  GOOGLE_HOST_CURSOR_PREFIX
+  GOOGLE_INPUT_SCHEMAS
+  GOOGLE_MAILBOX_MAX_CHARS
+  GOOGLE_OPERATIONS
+  GOOGLE_OPERATION_SPECS
+  GOOGLE_SERVICES
+  GOOGLE_TOOL_NAMES
+  GOOGLE_VIEWS
+  type GmailAttachmentRecord
+  type GmailCallFacts
+  type GmailContentDraft
+  type GmailContentMessage
+  type GmailContentMessageResult
+  type GmailContentSearch
+  type GmailContentSearchHit
+  type GmailContentThread
+  type GmailDraftAction
+  type GmailDraftFacts
+  type GmailDraftInput
+  type GmailDraftRecord
+  type GmailLabelDirectory
+  type GmailLabelKind
+  type GmailLabelRecord
+  type GmailLabelType
+  type GmailMessageRecord
+  type GmailModifyInput
+  type GmailOperation
+  type GmailProjectionContext
+  type GmailRawDraft
+  type GmailRawDraftProblem
+  type GmailReadInput
+  type GmailReadTarget
+  type GmailSearchHitRecord
+  type GmailSearchInput
+  type GmailSearchPageRecord
+  type GmailSearchProjectionContext
+  type GmailSendInput
+  type GmailSizeBucket
+  type GmailStructuredDraft
+  type GmailStructuredLabel
+  type GmailStructuredLabelEntry
+  type GmailStructuredLabelList
+  type GmailStructuredMessage
+  type GmailStructuredMessageResult
+  type GmailStructuredSearch
+  type GmailStructuredSearchHit
+  type GmailStructuredThread
+  type GmailSystemLabel
+  type GmailThreadRecord
+  type GmailToolName
+  type GmailTrashInput
+  type GmailUntrustedAttachment
+  type GmailUntrustedMessage
+  type GmailUntrustedSearchHit
+  type GoogleAddressRefusal
+  type GoogleAllowListEntry
+  type GoogleAllowListEntryResult
+  type GoogleAllowListMatch
+  type GoogleApprovalEntity
+  type GoogleCallFacts
+  type GoogleDomainResult
+  type GoogleEffectClass
+  type GoogleError
+  type GoogleErrorCode
+  type GoogleMailbox
+  type GoogleMailboxListResult
+  type GoogleMailboxResult
+  type GoogleOperation
+  type GoogleOperationSpec
+  type GoogleService
+  type GoogleToolCall
+  type GoogleToolCallResult
+  type GoogleToolInput
+  type GoogleToolName
+  type GoogleView
+  classifyGoogleCall
+  contentGmailDraft
+  contentGmailMessage
+  contentGmailMessageResult
+  contentGmailSearch
+  contentGmailThread
+  escalateGoogleEffect
+  escapeGmailLabelName
+  gmailLabelDirectory
+  gmailLabelKind
+  gmailModifyActions
+  gmailSizeBucket
+  googleOperationOf
+  isGmailDraftId
+  isGmailLabelId
+  isGmailMessageId
+  isGmailThreadId
+  isGoogleDigest
+  isGoogleHostCursor
+  isGoogleOperation
+  isGoogleToolName
+  isKnownGmailLabelId
+  isNonNegativeInteger
+  isRfc3339Timestamp
+  matchGoogleAllowList
+  matchesAllowList
+  normalizeGoogleDomain
+  parseGmailRawDraft
+  parseGoogleAllowListEntry
+  parseGoogleMailbox
+  parseGoogleMailboxList
+  parseGoogleToolCall
+  structuredGmailDraft
+  structuredGmailLabels
+  structuredGmailMessage
+  structuredGmailMessageResult
+  structuredGmailSearch
+  structuredGmailThread
+
 export "./internal/governance-policy" (./src/governance-policy.ts)
   APIFY_LIMIT_BOUNDS
   APIFY_MAX_ACTOR_GRANTS
