@@ -1,7 +1,10 @@
 import { admissionTimingSample } from "./admission-timing.js";
 import { seedObservationTree, observationTreeWatchdog, observationRunTimeout, type ObservationTree } from "./observation-tree.js";
 import { backendStartupSamples } from "./lifecycle-timing.js";
+import { observationWindowTrace, type RecordedTrace } from "./observation-recording.js";
+import { observationMatrixRequest } from "./observation-hold.js";
 import { afterAll, expect, test } from "bun:test";
+import { watchdogMs } from "../test-deadlines.js";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -12,7 +15,7 @@ import { nativeReleaseObservations } from "./native-release-observation.js";
 import { Database } from "bun:sqlite";
 import { NativeEventLog } from "./event-log.js";
 import { proveRecoveryInventory } from "./recovery-inventory.js";
-import { observationPhases, summarizePhases, median as phaseMedian, type ManagerSpan, type ObservationTrace, type PhaseSample } from "./observation-phases.js";
+import { observationPhases, summarizePhases, median as phaseMedian, type ManagerSpan, type PhaseSample } from "./observation-phases.js";
 
 const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
@@ -339,6 +342,19 @@ print(json.dumps(result))`;
     }
     if (OBSERVATION_TIMING) {
       const load = () => readFileSync("/proc/loadavg", "utf8").trim(), loadBefore = load(), timingStart = performance.now();
+      // Isolate the path cells from automatic updates of the preceding turns.
+      await until(() => {
+        const events = eventLog.read("path-matrix-index-settlement");
+        return events.filter(row => row.kind === "automatic_index_started").every(start =>
+          events.some(end => ["automatic_index_finished", "automatic_index_failed"].includes(end.kind) && end.ordinal === start.ordinal));
+      }, 120000);
+      const matrixResponse = await observationMatrixRequest(origin + "/__native_observation_path_matrix", AbortSignal.timeout(watchdogMs(3_600_000)));
+      const pathMatrix = await matrixResponse.json() as { turnId: string; samples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[]; admission: { name: string; ms: number }[]; historyRows: number; rejectedSamples: { changedPaths: number; requestedPaths: number; toolUseId: string; sharedHold: boolean }[]; loadedSamples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[] };
+      expect(matrixResponse.status, `OBSERVATION_PATH_MATRIX_SUCCEEDED ${JSON.stringify(pathMatrix)}`).toBe(200);
+      expect(pathMatrix.samples).toHaveLength(48);
+      expect(pathMatrix.historyRows, "OBSERVATION_MATRIX_HAS_TEN_THOUSAND_ROWS").toBeGreaterThanOrEqual(10000);
+      expect(pathMatrix.loadedSamples).toHaveLength(12);
+
       const median = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]! : null;
       const p95 = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]! : null;
       const turn = async (text: string, requestId: string, sessionId: string | undefined, deadline: number) => {
@@ -444,8 +460,8 @@ print(json.dumps(result))`;
         .map(row => ({ ...row, totalMs: row.beginMs !== null && row.finishMs !== null ? row.beginMs + row.finishMs : null }));
       const total = (field: "beginMs" | "finishMs" | "totalMs") => beginFinish.map(row => row[field]).filter((value): value is number => value !== null);
       // #2915: each writer's hold and each harbour turn's begin and finish, attributed to its steps.
-      const traces: ObservationTrace[] = eventLog.read("observation-trace").filter(row => row.kind === "observation_trace")
-        .map(row => ({ kind: row.traceKind, turnId: row.turnId, ...(row.toolUseId ? { toolUseId: row.toolUseId } : {}), steps: row.steps }));
+      const traces: RecordedTrace[] = eventLog.read("observation-trace").filter(row => row.kind === "observation_trace")
+        .map(row => ({ kind: row.traceKind, turnId: row.turnId, ...(row.toolUseId ? { toolUseId: row.toolUseId } : {}), steps: row.steps, observations: row.observations }));
       writeFileSync(join(ARTIFACTS, "observation-traces.json"), JSON.stringify({ traces, managerSpans }));
       const WRITERS = ["write_file", "edit_file", "bash write"];
       const writers = (timeline?.calls ?? []).filter(call => WRITERS.includes(call.label)).flatMap(call => {
@@ -471,8 +487,24 @@ print(json.dumps(result))`;
       const stepMedians = Object.fromEntries(steps.map(name => [name, median(warm.map(row => row?.steps[name]).filter((n): n is number => typeof n === "number"))]));
       writeFileSync(join(ARTIFACTS, "observation-holds.json"), JSON.stringify(lifecycles().map(record => ({ turnId: record.turnId, holds: record.holds ?? [],
         closing: (record.openSubPhases ?? []).filter((step: any) => step.phase === "closing"), recorderSettledAt: record.recorderSettledAt ?? null, idleEmittedAt: record.idleEmittedAt ?? null })), null, 2));
+      const pathCells = [0, 1, 20, 200].map(changedPaths => {
+        const samples = pathMatrix.samples.filter(sample => sample.changedPaths === changedPaths);
+        const attributed = samples.map(sample => {
+          const trace = observationWindowTrace(traces, pathMatrix.turnId, sample);
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
+        });
+        return { changedPaths, samples: samples.length, sharedHolds: samples.filter(sample => sample.sharedHold).length, medianMs: median(samples.map(sample => sample.frozenMs)), physicalHoldMedianMs: median(samples.map(sample => sample.frozenMs)), p95Ms: p95(samples.map(sample => sample.frozenMs)), phases: summarizePhases(attributed) };
+      });
+      const warmOnePath = pathMatrix.samples.filter(sample => sample.changedPaths === 1).map(sample => sample.frozenMs);
+      const loadedOnePath = pathMatrix.loadedSamples.map(sample => sample.frozenMs);
+      const onePathHistory = { historyRows: pathMatrix.historyRows, warmMedianMs: median(warmOnePath), loadedMedianMs: median(loadedOnePath),
+        addedMedianMs: loadedOnePath.length && warmOnePath.length ? median(loadedOnePath)! - median(warmOnePath)! : null, loadedP95Ms: p95(loadedOnePath),
+        phases: summarizePhases(pathMatrix.loadedSamples.map(sample => {
+          const trace = observationWindowTrace(traces, pathMatrix.turnId, sample);
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
+        })) };
       const result = { ...(tree ? { tree: { ...tree, warmTurns: warm.length, stepMedians,
-        observerBootstrap: eventLog.read("observer-bootstrap").filter(row => row.kind === "observer_bootstrap").map(row => ({ elapsedMs: row.elapsedMs, outcome: row.outcome })) } } : {}), backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
+        observerBootstrap: eventLog.read("observer-bootstrap").filter(row => row.kind === "observer_bootstrap").map(row => ({ elapsedMs: row.elapsedMs, outcome: row.outcome })) } } : {}), backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds, pathMatrix: { ...pathMatrix, cells: pathCells, onePathHistory },
         tools: timeline?.tools ?? null, admission, backendStartup, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));
@@ -619,6 +651,7 @@ print(json.dumps(result))`;
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
   // The #2848 timing turn first waits for the earlier turns' index refresh.
+// Includes the merged path matrix baseline; Bun scales this test timeout once.
 }, OBSERVATION_TIMING ? observationRunTimeout(TREE_SIZES) : APPLY_TIMING ? 240000 : 120000);
 
 // One fixed backend/UID cell owns this backend-independent root-lifetime control.

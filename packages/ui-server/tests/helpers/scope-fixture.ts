@@ -18,14 +18,14 @@ export function scopeFixture(overrides: { max_tool_calls?: number; max_files_cha
   const scope = createTurnScope(db, { brainPath: brain, journal, connected: () => connected, changed: () => {}, ...(clock ? { now: clock } : {}) });
   const policy = resolveGovernancePolicy({ schema_version: 1, scope: overrides });
   async function begin(origin: "interactive" | "voice" = "interactive") {
-    await journal.begin("voyage", { sessionId: "ithaca", actor: origin, model: null, profile: "governed", policyHash: null }, error => { current = false; stopped = error.message; });
+    await journal.begin("voyage", { sessionId: "ithaca", actor: origin, model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, error => { current = false; stopped = error.message; });
     scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin, profile: "governed", policy, source: "policy", hardTimeoutMs: 60 * 60_000,
       current: () => current, stop: reason => { current = false; stopped = reason; } });
   }
   const receipt = (): ScopeCapReceipt => journal.summary("voyage").scope!.receipts.at(-1)!;
   const message = (action: ClientScopeDecision["action"], submissionId = "athena-decision"): ClientScopeDecision => ({ type: "scope_decision", turnId: "voyage", sessionId: "ithaca", eventId: receipt().eventId, submissionId, action });
   function worker(command: string) {
-    const child = launchAgentWorker({ brainPath: brain, sandbox: prepareWorkerSandbox(brain, { profile: "governed", areas: [] }),
+    const child = launchAgentWorker({ brainPath: brain, sandbox: prepareWorkerSandbox(brain, { profile: "governed", areas: ["workspaces"], codeChanges: true }),
       command: ["/bin/sh", "-c", command], env: { PATH: "/usr/bin:/bin" } });
     child.stdout.resume(); child.stderr.resume(); child.stdin.end(); scope.workerStarted("voyage", child); return child;
   }

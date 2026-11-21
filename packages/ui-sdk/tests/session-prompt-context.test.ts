@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sessionPromptContext, stripHostContextFromTitle } from "../src/server/session-prompt-context.js";
+import { sessionPromptContext, sessionPromptContextLocation, SESSION_PROMPT_CONTEXT_MAX_BYTES, stripHostContextFromTitle } from "../src/server/session-prompt-context.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -82,4 +82,15 @@ test("title cleanup removes only a complete trailing block and preserves origina
   expect(stripHostContextFromTitle(original)).toBe(original);
   const nested = store().prepare(wire, { device: "phone" }).text;
   expect(stripHostContextFromTitle(nested)).toBe(wire);
+});
+
+
+test("all prompt-context writes check encoded size before replacing readable state", () => {
+  const { root, brain, store } = fixture();
+  store().retainAppend("Odysseus checks Ithaca.");
+  const location = sessionPromptContextLocation(join(root, "host"), brain, "odysseus-session"), path = join(location.dir, location.name);
+  const before = readFileSync(path, "utf8");
+  const facts = { device: "\u03bb".repeat(SESSION_PROMPT_CONTEXT_MAX_BYTES / 2) };
+  expect(() => { store().prepare("Continue", facts); }, "SHARED_WRITER_NEVER_EXCEEDS_ITS_READ_BOUND").toThrow("storage limit");
+  expect(readFileSync(path, "utf8")).toBe(before);
 });

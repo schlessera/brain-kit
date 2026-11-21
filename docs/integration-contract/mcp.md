@@ -1,5 +1,14 @@
 # Integration contract — MCP tools
 
+The core definitions for `brain_search`, `brain_context`, `brain_read`,
+`brain_list` and `brain_read_many` include additive metadata
+`_meta: { "anthropic/alwaysLoad": true }`. This is the server's metadata
+guarantee. Whether those definitions are inline in a particular provider request
+depends on the client's support for the hint and when it loads the server;
+non-blocking startup can send a request before loading them. Names, input
+schemas, annotations and result envelopes are unchanged; other clients may
+ignore the metadata.
+
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 

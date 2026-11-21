@@ -89,5 +89,5 @@ function treeWatchdogBase(sizes: ObservationTree): number {
 }
 /** Bun's registrar applies the load factor once to this per-test timeout. */
 export function observationRunTimeout(sizes?: ObservationTree): number {
-  return Math.max(1_500_000, sizes ? treeWatchdogBase(sizes) * 15 : 0);
+  return Math.max(5_100_000, sizes ? treeWatchdogBase(sizes) * 15 : 0);
 }

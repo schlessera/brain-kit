@@ -104,6 +104,6 @@ print(namespace["HOSTED_TIMEOUT"])`;
     expect(child.exitCode, child.stderr.toString()).toBe(0);
     const outerMs = Number(child.stdout.toString()) * 1000;
     expect(outerMs, "OUTER_NATIVE_WATCHDOG_CANNOT_PREEMPT_INNER").toBeGreaterThanOrEqual(observationRunTimeout(sizes) * factor + 120000);
-    if (!sizes && factor === 1) expect(outerMs).toBe(1800000);
+    if (!sizes && factor === 1) expect(outerMs).toBe(5400000);
   }
 });

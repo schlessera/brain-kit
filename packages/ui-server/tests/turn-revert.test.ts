@@ -15,10 +15,10 @@ function fixture() {
  writeFileSync(join(brain,"fleet.bin"),Buffer.from([0,255,10]));
  const native=createNativeJournalFixture(brain,root);
  const db=createUiDb(path),journal=createTurnJournal(db,{nativeManager:native.manager,brainPath:brain,dbPath:path,objectsRoot:join(root,"objects")}),gate=createWriterGate(db,brain,{pollMs:1});
- let authorized=true,refreshes=0;
- const reverts=createTurnReverts(db,{brainPath:brain,journal,gate,lock:createKeyedLock(),isAuthorized:id=>authorized&&id==="odysseus",refresh:()=>{refreshes++;}});
+ let authorized=true,refreshes=0; const refreshedTurns: string[] = [];
+ const reverts=createTurnReverts(db,{brainPath:brain,journal,gate,lock:createKeyedLock(),isAuthorized:id=>authorized&&id==="odysseus",refresh:turnId=>{refreshes++;refreshedTurns.push(turnId);}});
  async function turn(id:string,actor:"interactive"|"voice"="interactive") {await journal.begin(id,{sessionId:"ithaca",actor,model:null,profile:"governed",policyHash:null},error=>{throw error;});writeFileSync(join(brain,"fleet.bin"),Buffer.from([0,254,13]));writeFileSync(join(brain,"new.bin"),Buffer.from([0,253]));await journal.finish(id);}
- return {root,brain,db,journal,gate,reverts,turn,get refreshes(){return refreshes;},revoke(){authorized=false;},async close(){await journal.close();await native.close();db.close();rmSync(root,{recursive:true,force:true});}};
+ return {root,brain,db,journal,gate,reverts,turn,refreshedTurns,get refreshes(){return refreshes;},revoke(){authorized=false;},async close(){await journal.close();await native.close();db.close();rmSync(root,{recursive:true,force:true});}};
 }
 test("whole-turn revert journals the user action; Undo replays its observed bytes without invoking Git",async()=>{
  const f=fixture();try {await f.turn("return");await expectRejection(f.reverts.start("odysseus","ithaca","return",{id:"odysseus_empty_0001",path:""}), "No retained eligible paths", "REVERT_EMPTY_PATH_NEVER_BROADENS_SELECTION");const receipt=await f.reverts.start("odysseus","ithaca","return",{id:"odysseus_revert_001"});await f.reverts.idle(receipt.id);
@@ -26,7 +26,7 @@ test("whole-turn revert journals the user action; Undo replays its observed byte
  expect(readFileSync(join(f.brain,"fleet.bin")),"REVERT_ORIGINAL_RAW_BYTES").toEqual(Buffer.from([0,255,10]));expect(existsSync(join(f.brain,"new.bin"))).toBe(false);
  const own=f.journal.details("ithaca",receipt.journalTurnId)!;expect(own.summary).toMatchObject({actor:"user",kind:"revert",sourceTurnId:"return",state:"complete"});expect(own.changes.every(item=>item.actor==="user")).toBe(true);
  const undo=await f.reverts.start("odysseus","ithaca",receipt.journalTurnId,{id:"odysseus_undo_0001"});await f.reverts.idle(undo.id);
- expect(readFileSync(join(f.brain,"fleet.bin"))).toEqual(Buffer.from([0,254,13]));expect(readFileSync(join(f.brain,"new.bin"))).toEqual(Buffer.from([0,253]));expect(f.refreshes).toBe(2);
+ expect(readFileSync(join(f.brain,"fleet.bin"))).toEqual(Buffer.from([0,254,13]));expect(readFileSync(join(f.brain,"new.bin"))).toEqual(Buffer.from([0,253]));expect(f.refreshes).toBe(2); expect(f.refreshedTurns, "REVERT_AND_UNDO_REFRESH_CAUSING_TURN").toEqual([receipt.journalTurnId, undo.journalTurnId]);
  }finally{await f.close();}
 });
 test("later bytes conflict while another path restores; original request identity never performs a second effect",async()=>{
@@ -140,4 +140,21 @@ test("keep-both explicitly covers its final sibling under ignored names and Undo
     const undo=await f.reverts.start("odysseus","ithaca",receipt.journalTurnId,{id:"odysseus_ignored_undo"});await f.reverts.idle(undo.id);
     expect(existsSync(join(f.brain,"fleet.bin-remote"))).toBe(false);
   } finally {await f.close();}
+});
+
+for (const action of ["keep_version", "keep_both"] as const) test(`solo version after overlapping conflict remains reviewable: ${action}`, async () => {
+ const f = fixture(), metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile: "governed" as const, policyHash: null };
+ try {
+  await f.journal.begin("survivor", metadata, error => { throw error; }); await f.journal.begin("peer", metadata, error => { throw error; });
+  writeFileSync(join(f.brain, "fleet.bin"), "Odysseus"); await f.journal.observe();
+  writeFileSync(join(f.brain, "fleet.bin"), "Athena"); await f.journal.observe(); await f.journal.finish("peer");
+  writeFileSync(join(f.brain, "fleet.bin"), "Penelope"); await f.journal.observe(); await f.journal.finish("survivor");
+  const latest = f.journal.details("ithaca", "survivor")!.changes.at(-1)!;
+  expect(latest.conflict, "SOLO_LATEST_RETAINS_CONFLICT").toBeDefined();
+  expect(latest.conflict!.versions, "SOLO_LATEST_IS_SELECTABLE").toContainEqual(latest.conflict!.latest);
+  const receipt = await f.reverts.start("odysseus", "ithaca", "survivor", { id: `odysseus_solo_${action}`, path: "fleet.bin", action, version: latest.conflict!.latest, expected: latest.conflict!.latest,
+    ...(action === "keep_both" ? { otherVersion: latest.conflict!.versions[0] } : {}) });
+  await f.reverts.idle(receipt.id);
+  expect(f.reverts.receipt(receipt.id, "odysseus", "ithaca", "survivor")!.state, "SOLO_CONFLICT_ACTION_ACCEPTS_CURRENT_REFERENCE").toBe("complete");
+ } finally { await f.close(); }
 });

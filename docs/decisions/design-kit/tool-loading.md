@@ -405,3 +405,29 @@ startup wait set — is now the `d44-always-load-reaches-the-model` case of
 `MEASURED_RUNTIME` names. The latency and rate halves still need a live
 model: `bun scripts/measure-show-block.ts --both-arms` runs both load modes in
 one invocation and records the Claude Code version of every turn.
+
+## 2026-11-20 — Core reads and relayed discovery (#4306)
+
+The five common brain reads (`brain_search`, `brain_context`, `brain_read`,
+`brain_list`, `brain_read_many`) carry `_meta["anthropic/alwaysLoad"] = true`,
+just as the bridge tools do. They are needed without paying a discovery step.
+Other core definitions remain eligible for native deferral.
+
+The relay replaces the runtime's first-party base URL with a local transport.
+Features gated on that URL need explicit qualification and pins, both in the
+inference environment and the flag-settings overlay, limited to a selected
+first-party upstream. SDK 0.3.293 / CLI 2.1.293 demonstrates deferral with
+`ENABLE_TOOL_SEARCH=true`, including a successful tool-reference round trip.
+Its discovery inserts definitions into a sorted group. The maintainer permits
+that insertion only for definitions actually referenced by a successful tool
+search, with every earlier definition's bytes and relative order preserved.
+Nothing is removed or edited; ordinary tool round trips require exact equality,
+as do system and earlier-message bytes. Production non-blocking project MCP startup fails this rule: its first request
+omits the core reads and a graph-only discovery adds all six core definitions.
+Search therefore stays off for new interactive sessions on every route, in env
+and flag settings. The prompt gate checks native effective settings and refuses
+managed-policy overrides. Legacy sessions retain their original SDK input,
+including an inherited tool-search value, without adding a flag pin. The [provider-history rule](../provider-history.md#2026-11-20--referenced-deferred-discovery-4306)
+and keyless capture guard the first discovery and every subsequent transition.
+Insertion shortens the unchanged tool-array byte prefix versus append; keyless
+captures cannot establish actual provider cache hits or cost.

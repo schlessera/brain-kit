@@ -1,14 +1,17 @@
+import * as startupViews from "../../ui-sdk/src/server/worker-startup-view.js";
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { Hono } from "hono";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import type { AppEnv } from "../src/app-env";
 import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createSessionProfiles } from "../src/ws/session-profiles";
 import { createSessionProfileRoutes } from "../src/routes/session-profiles";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
@@ -520,4 +523,205 @@ test("a strict turn's policy record has committed when admission settles, and a 
   await manifests.end("ithaca-close");
   expect((f.db.query("SELECT ended_at FROM governed_turn_manifests WHERE turn_id = 'ithaca-close'").get() as { ended_at: number | null }).ended_at, "MANIFEST_CLOSE_SETTLES_AFTER_ITS_RECORD").not.toBeNull();
   await slow;
+});
+
+test("code changes API persists a session preference without changing an admitted worker", async () => {
+  const f = fixture();
+  mkdirSync(join(f.brain, "workspaces/ithaca"), { recursive: true });
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("ithaca-code", "Odysseus inspects source.", "claude", "claude", principal.id);
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const app = new Hono<AppEnv>().use("*", (c, next) => { c.set("principal", principal); return next(); }).route("/api", createSessionProfileRoutes(profiles));
+  const path = "/api/sessions/ithaca-code/code-changes";
+  expect(await (await app.request(path)).json(), "CODE_CHANGES_DEFAULT_OFF").toEqual({ enabled: false });
+  const observations: boolean[] = [];
+  const inboxProtections: { protectedPaths?: readonly string[]; workspaceReadOnly?: boolean }[] = [];
+  let refusedWrite: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult | undefined;
+  const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
+    observations.push(request.workerSandbox!.areas.find(area => area.name === "workspaces")!.mount.writable);
+    if (observations.length === 1 || observations.length === 3) {
+      refusedWrite = await request.bridge.applyBrain!({ operation: "write", path: "workspaces/ithaca/readme.md", content: "Athena changes source.", expectedBaseHash: null });
+      const saved = await app.request(path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: true }) });
+      expect(saved.status).toBe(200);
+      expect(request.workerSandbox!.areas.find(area => area.name === "workspaces")!.mount.writable, "RUNNING_MOUNT_STAYS_FROZEN").toBe(false);
+    }
+    request.bridge.emit({ type: "session_info", sessionId: "ithaca-code", isNew: false });
+    request.bridge.emit({ type: "result", sessionId: "ithaca-code", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  backend.brainApplicationPolicy = () => ({ autoAllowed: ["write"], available: ["write"], lock: createKeyedLock() });
+  const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, sessionProfiles: profiles, catalog, isPrincipalAuthorized: id => id === principal.id,
+    inboxTools: { forTurn(context: { protectedPaths?: readonly string[]; workspaceReadOnly?: boolean }) { inboxProtections.push({ protectedPaths: context.protectedPaths, workspaceReadOnly: context.workspaceReadOnly }); return {}; } } as never,
+    registry: createStaticBackendRegistry([backend], backend.id) });
+  host.clients.add({ send() {} }, principal.id);
+  try {
+    const input = { authorization: testAuthorization(principal.id), sessionId: "ithaca-code", text: "Odysseus inspects the source.", attachments: [] };
+    await runSession(host, input); await runSession(host, input);
+    expect(refusedWrite?.code, "INSPECT_SESSION_BRIDGE_REFUSES_CHECKOUT_WRITE").toBe("policy_denied");
+    expect(refusedWrite?.message).toContain("switch on code changes for this session");
+    expect(observations, "NEXT_ADMISSION_USES_SAVED_CODE_MODE").toEqual([false, true]);
+    expect(inboxProtections[0]?.workspaceReadOnly, "INSPECT_INBOX_INTAKE_GETS_WORKSPACE_PROTECTION").toBe(true);
+    expect(inboxProtections[0]?.protectedPaths, "IMPLICIT_INSPECTION_IS_NOT_AN_EXPLICIT_OWNER_PROTECTION").not.toContain("workspaces");
+    expect(inboxProtections[1]?.workspaceReadOnly, "WRITER_INBOX_INTAKE_KEEPS_EXISTING_POLICY").toBe(false);
+    expect(inboxProtections[1]?.protectedPaths).toEqual(inboxProtections[0]?.protectedPaths);
+    const begin = f.turns.begin.bind(f.turns);
+    f.turns.begin = async (...args) => {
+      const hold = await begin(...args);
+      return { ...hold, sandbox: { ...hold.sandbox, areas: hold.sandbox.areas.map(area => area.name === "workspaces"
+        ? { ...area, mount: { writable: false as const, reason: "over-limit scan", readOnlyPath: join(f.brain, "workspaces") } } : area) } };
+    };
+    await runSession(host, input);
+    expect(refusedWrite?.code, "REFUSED_WRITABLE_MOUNT_KEEPS_HOST_WRITE_GUARD").toBe("policy_denied");
+    expect(inboxProtections[2]?.workspaceReadOnly, "REFUSED_WRITABLE_MOUNT_KEEPS_ALL_HOST_GUARDS").toBe(true);
+    const reloaded = createSessionProfiles(f.db, f.turns);
+    expect(reloaded.codeChanges(principal.id, "ithaca-code"), "CODE_MODE_SURVIVES_RESUME").toBe(true);
+    catalog.persistSessionStub("troy-code", "Athena inspects source.", "claude", "claude", principal.id);
+    expect(reloaded.codeChanges(principal.id, "troy-code"), "CODE_MODE_IS_SESSION_LOCAL").toBe(false);
+    revokePrincipal(f.db, principal.id, Date.now());
+    expect((await app.request(path)).status, "CODE_MODE_RECHECKS_AUTH").toBe(401);
+  } finally { host.close(); }
+});
+
+test("draft code changes are principal scoped, bind to a new session, and preserve independent profile saves", async () => {
+  const f = fixture();
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const other = createPrincipal(f.db, { authMethod: "password", label: "Penelope device", ttlSeconds: 3600 });
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const app = new Hono<AppEnv>().use("*", (c, next) => { c.set("principal", principal); return next(); }).route("/api", createSessionProfileRoutes(profiles));
+  const save = (body: unknown) => app.request("/api/drafts/ithaca-draft/code-changes", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  for (const body of [null, [], {}, { enabled: "true" }, { enabled: true, profile: "governed" }])
+    expect((await save(body)).status, "CODE_MODE_REJECTS_MALFORMED_INPUT").toBe(400);
+  expect(await (await save({ enabled: true })).json()).toEqual({ enabled: true });
+  await profiles.save(principal.id, "draft", "ithaca-draft", "strict");
+  expect(profiles.codeChanges(principal.id, undefined, "ithaca-draft"), "PROFILE_SAVE_PRESERVES_CODE_MODE").toBe(true);
+  expect(profiles.readCodeChanges(other.id, "draft", "ithaca-draft"), "FOREIGN_DRAFT_HAS_NO_CODE_GRANT").toEqual({ enabled: false });
+  const catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("ithaca-bound", "Odysseus changes source.", "claude", "claude", principal.id);
+  await profiles.bind(principal.id, "ithaca-draft", "ithaca-bound");
+  expect(profiles.codeChanges(principal.id, "ithaca-bound"), "DRAFT_CODE_MODE_BINDS_TO_SESSION").toBe(true);
+  expect(profiles.read(principal.id, "session", "ithaca-bound").preference).toBe("strict");
+  await profiles.saveCodeChanges(principal.id, "session", "ithaca-bound", false);
+  expect(profiles.read(principal.id, "session", "ithaca-bound").preference, "CODE_SAVE_PRESERVES_PROFILE").toBe("strict");
+  expect(profiles.readCodeChanges(principal.id, "draft", "ithaca-draft")).toEqual({ enabled: false });
+});
+
+test("code changes require proven chat ownership for saves, reads, draft binds and admission", async () => {
+  const f = fixture();
+  const owner = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const otherLogin = createPrincipal(f.db, { authMethod: "password", label: "Athena tablet", ttlSeconds: 3600 });
+  f.db.query("INSERT INTO principals(id,kind,auth_method,label,created_at,expires_at) VALUES ('telemachus','agent','delegated','Telemachus',0,?)").run(Date.now() + 3600_000);
+  const profiles = createSessionProfiles(f.db, f.turns), catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("owned-source", "Odysseus inspects source.", "claude", "claude", owner.id);
+  catalog.persistSessionStub("legacy-source", "Ithaca source.", "claude", "claude");
+  await expect(profiles.saveCodeChanges("telemachus", "session", "owned-source", true)).rejects.toThrow("not available");
+  await expect(profiles.saveCodeChanges(owner.id, "session", "legacy-source", true)).rejects.toThrow("not available");
+  expect(() => profiles.readCodeChanges("telemachus", "session", "owned-source")).toThrow("not available");
+  await profiles.saveCodeChanges(owner.id, "session", "owned-source", true);
+  expect(profiles.codeChanges("telemachus", "owned-source"), "FOREIGN_ADMISSION_CANNOT_INHERIT_WRITE_GRANT").toBe(false);
+  expect(profiles.codeChanges(otherLogin.id, "owned-source"), "SAME_ACCOUNT_RESUME_KEEPS_WRITE_GRANT").toBe(true);
+  await profiles.saveCodeChanges("telemachus", "draft", "foreign-draft", true);
+  await expect(profiles.bind("telemachus", "foreign-draft", "owned-source")).rejects.toThrow("not available");
+});
+
+
+test("resume code-change checks never resolve task deletion inventories", async () => {
+  const f = fixture();
+  const owner = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const catalog = createSessionCatalog(() => f.db), profiles = createSessionProfiles(f.db, f.turns);
+  catalog.persistSessionStub("resume-source", "Ithaca source.", "claude", "claude", owner.id);
+  f.db.query("INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,updated_at) VALUES(?,?,NULL,1,?,0)").run("resume-epoch", owner.id, "resume-source");
+  const query = f.db.query.bind(f.db);
+  const reads: string[] = [];
+  let refuseTasks = false;
+  const spy = spyOn(f.db, "query").mockImplementation((sql: string) => {
+    reads.push(sql);
+    if (refuseTasks && sql.includes("conversation_tasks")) throw new Error("Deletion inventory must not run on admission");
+    return query(sql);
+  });
+  try {
+    expect(profiles.codeChanges(owner.id, "resume-source")).toBe(false);
+    expect(reads.some(sql => sql.includes("dialogue_owners")), "DEFAULT_RESUME_READS_ONLY_ITS_SAVED_SWITCH").toBe(false);
+    await profiles.saveCodeChanges(owner.id, "session", "resume-source", true);
+    reads.length = 0; refuseTasks = true;
+    expect(profiles.codeChanges(owner.id, "resume-source"), "ENABLED_RESUME_PROVES_OWNERSHIP_WITHOUT_TASK_INVENTORY").toBe(true);
+    expect(reads.some(sql => sql.includes("conversation_tasks"))).toBe(false);
+  } finally { spy.mockRestore(); }
+});
+
+
+test("an absent-area admission permits ordinary host writes before the next turn seals the workspace", async () => {
+  const f = fixture();
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("absent-source", "Ithaca source.", "claude", "claude", principal.id);
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const results: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult[] = [];
+  const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
+    if (!results.length) mkdirSync(join(f.brain, "workspaces/ithaca"), { recursive: true });
+    results.push(await request.bridge.applyBrain!({ operation: "write", path: `workspaces/ithaca/${results.length ? "second" : "first"}.md`, content: "Athena inspects source.", expectedBaseHash: null }));
+    request.bridge.emit({ type: "session_info", sessionId: "absent-source", isNew: false });
+    request.bridge.emit({ type: "result", sessionId: "absent-source", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  backend.brainApplicationPolicy = () => ({ autoAllowed: ["write"], available: ["write"], lock: createKeyedLock() });
+  const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, sessionProfiles: profiles, catalog, isPrincipalAuthorized: id => id === principal.id,
+    registry: createStaticBackendRegistry([backend], backend.id) });
+  host.clients.add({ send() {} }, principal.id);
+  try {
+    const input = { authorization: testAuthorization(principal.id), sessionId: "absent-source", text: "Odysseus inspects source.", attachments: [] };
+    await runSession(host, input); await runSession(host, input);
+    expect(results[0], "ABSENT_AREA_HOST_WRITE_IS_ORDINARY_CONTENT").toMatchObject({ ok: true });
+    expect(results[1], "NEXT_ADMISSION_HOST_WRITE_MEETS_READ_ONLY_MOUNT").toMatchObject({ ok: false, code: "policy_denied" });
+  } finally { host.close(); }
+});
+
+
+test("a workspace symlink cannot protect unrelated ordinary Markdown applications", async () => {
+  const f = fixture();
+  mkdirSync(join(f.brain, "notes")); symlinkSync(f.brain, join(f.brain, "workspaces"));
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("symlink-source", "Ithaca source.", "claude", "claude", principal.id);
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const results: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult[] = [];
+  const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
+    results.push(await request.bridge.applyBrain!({ operation: "write", path: results.length ? "workspaces/notes/raft.md" : "notes/raft.md", content: "Athena inspects source.", expectedBaseHash: null }));
+    request.bridge.emit({ type: "session_info", sessionId: "symlink-source", isNew: false });
+    request.bridge.emit({ type: "result", sessionId: "symlink-source", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  backend.brainApplicationPolicy = () => ({ autoAllowed: ["write"], available: ["write"], lock: createKeyedLock() });
+  const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, sessionProfiles: profiles, catalog, isPrincipalAuthorized: id => id === principal.id,
+    registry: createStaticBackendRegistry([backend], backend.id) });
+  host.clients.add({ send() {} }, principal.id);
+  try {
+    const input = { authorization: testAuthorization(principal.id), sessionId: "symlink-source", text: "Odysseus inspects source.", attachments: [] };
+    await runSession(host, input); await runSession(host, input);
+    expect(results[0], "WORKSPACE_LINK_DOES_NOT_PROTECT_THE_WHOLE_BRAIN").toMatchObject({ ok: true });
+    expect(results[1], "WORKSPACE_NAMESPACE_STILL_REFUSES_WRITES").toMatchObject({ ok: false, code: "policy_denied" });
+  } finally { host.close(); }
+});
+
+
+test("an owner explicitly protecting the workspace symlink also protects its destination",async()=>{
+ const f=fixture();mkdirSync(join(f.brain,"notes"));symlinkSync(f.brain,join(f.brain,"workspaces"));f.write("protect: [workspaces]");
+ const principal=createPrincipal(f.db,{authMethod:"password",label:"Athena device",ttlSeconds:3600});const catalog=createSessionCatalog(()=>f.db);catalog.persistSessionStub("owner-source","Ithaca source.","claude","claude",principal.id);
+ let result:unknown;const backend=makeFakeBackend({id:"claude",startTurn:async request=>{result=await request.bridge.applyBrain!({operation:"write",path:"notes/raft.md",content:"Athena protects this destination.",expectedBaseHash:null});request.bridge.emit({type:"result",sessionId:"owner-source",durationMs:1,numTurns:1,isError:false});}});
+ backend.brainApplicationPolicy=()=>({autoAllowed:["write"],available:["write"],lock:createKeyedLock()});
+ const host=new WsHost({brainPath:f.brain,governedTurns:f.turns,catalog,isPrincipalAuthorized:id=>id===principal.id,registry:createStaticBackendRegistry([backend],backend.id)});host.clients.add({send(){}},principal.id);
+ try{await runSession(host,{authorization:testAuthorization(principal.id),sessionId:"owner-source",text:"Inspect the raft.",attachments:[]});expect(result,"EXPLICIT_OWNER_PROTECTION_RETAINS_SYMLINK_DESTINATION").toMatchObject({ok:false,code:"policy_denied"});expect(existsSync(join(f.brain,"notes/raft.md"))).toBe(false);}finally{host.close();}
+});
+
+test("a host without governedTurns still seals privileged checkout applications",async()=>{
+ const f=fixture();mkdirSync(join(f.brain,"notes"));mkdirSync(join(f.brain,"workspaces/ithaca"),{recursive:true});
+ const principal=createPrincipal(f.db,{authMethod:"password",label:"Athena device",ttlSeconds:3600});const catalog=createSessionCatalog(()=>f.db);catalog.persistSessionStub("hostless-source","Ithaca source.","claude","claude",principal.id);
+ const results:unknown[]=[];const backend=makeFakeBackend({id:"claude",startTurn:async request=>{for(const path of ["notes/raft.md","workspaces/ithaca/source.md"])results.push(await request.bridge.applyBrain!({operation:"write",path,content:"Athena inspects.",expectedBaseHash:null}));request.bridge.emit({type:"result",sessionId:"hostless-source",durationMs:1,numTurns:1,isError:false});}});
+ backend.brainApplicationPolicy=()=>({autoAllowed:["write"],available:["write"],lock:createKeyedLock()});
+ const host=new WsHost({brainPath:f.brain,catalog,isPrincipalAuthorized:id=>id===principal.id,registry:createStaticBackendRegistry([backend],backend.id)});host.clients.add({send(){}},principal.id);
+ try{await runSession(host,{authorization:testAuthorization(principal.id),sessionId:"hostless-source",text:"Inspect the raft.",attachments:[]});expect(results[0],"HOSTLESS_NOTES_STAY_USABLE").toMatchObject({ok:true});expect(results[1],"HOSTLESS_APPLICATION_CANNOT_BYPASS_INSPECTION").toMatchObject({ok:false,code:"policy_denied",message:expect.stringContaining("switch on code changes for this session")});expect(existsSync(join(f.brain,"workspaces/ithaca/source.md"))).toBe(false);}finally{host.close();}
+});
+
+
+test.each(["absent","symlink"])("admission refreshes an inspected %s checkpoint source",async state=>{
+ const f=fixture();f.write("profiles: {interactive: strict}");mkdirSync(join(f.brain,"workspaces/ithaca"),{recursive:true});mkdirSync(join(f.brain,"notes"));mkdirSync(join(f.brain,".brain/scratch"),{recursive:true});let checkpoints=0;
+ const acquisition=spyOn(startupViews,"prepareNativeWorkerStartupView").mockImplementation(async brain=>{const view=createFixtureWorkerStartupView(brain);if(++checkpoints===1){rmSync(join(view.root,"workspaces"),{recursive:true});if(state==="symlink")symlinkSync(join(view.root,"notes"),join(view.root,"workspaces"));}return view;});
+ try{const hold=await f.turns.begin("stale-inspection",new AbortController().signal);try{expect(checkpoints,"INSPECTION_REFRESHES_THE_SOURCE_IT_ACTUALLY_MOUNTS").toBe(2);expect(hold.startupView).toBeDefined();expect(hold.sandbox.areas.find(area=>area.name==="workspaces")!.mount.writable).toBe(false);}finally{await hold.end();}}finally{acquisition.mockRestore();}
 });

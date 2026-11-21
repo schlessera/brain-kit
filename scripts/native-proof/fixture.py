@@ -9,6 +9,7 @@ if APP_UID not in ("0", "1000"): raise RuntimeError("Unknown native app UID proo
 os.environ["BRAIN_NATIVE_PROOF_APP_UID"] = APP_UID
 # The #2834 observation cell makes 220 model requests; the #2848 timing cell
 # waits for the earlier turns' index refresh before its turn.
+# The observation matrix also retains 10,000 real changed versions.
 limits_spec = importlib.util.spec_from_file_location("timing_limits", pathlib.Path(__file__).with_name("timing_limits.py"))
 limits = importlib.util.module_from_spec(limits_spec)
 limits_spec.loader.exec_module(limits)

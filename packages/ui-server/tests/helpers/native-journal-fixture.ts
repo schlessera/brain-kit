@@ -42,11 +42,16 @@ export function inventory(root: string): Map<string, Entry> {
 }
 
 /** A send stream between two copied inventories, in the native framing the product parser verifies. */
-export function fixtureDelta(before: { uuid: string; transaction: string; entries: Map<string, Entry> }, after: { uuid: string; transaction: string; entries: Map<string, Entry> }, to: string) {
+export function fixtureDelta(before: { uuid: string; transaction: string; entries: Map<string, Entry> }, after: { uuid: string; transaction: string; entries: Map<string, Entry> }, to: string, renames: readonly {from:string;to:string}[] = []) {
   const records: Buffer[] = [command(2, [[15, bytes(to)], [1, Buffer.from(after.uuid, "hex")], [2, u64(BigInt(after.transaction))],
     [20, Buffer.from(before.uuid, "hex")], [21, u64(BigInt(before.transaction))]])];
-  for (const path of [...new Set([...before.entries.keys(), ...after.entries.keys()])].sort()) {
-    const old = before.entries.get(path), current = after.entries.get(path);
+  const previous = new Map(before.entries);
+  for (const rename of renames) {
+    records.push(command(9,[[15,bytes(rename.from)],[16,bytes(rename.to)]]));
+    for (const [path,entry] of [...previous]) if (path===rename.from || path.startsWith(rename.from+"/")) {previous.delete(path);previous.set(rename.to+path.slice(rename.from.length),entry);}
+  }
+  for (const path of [...new Set([...previous.keys(), ...after.entries.keys()])].sort()) {
+    const old = previous.get(path), current = after.entries.get(path);
     if (old?.identity === current?.identity) continue;
     if (!current) records.push(command(old?.kind === "directory" ? 12 : 11, [[15, bytes(path)]]));
     else if (!old) {

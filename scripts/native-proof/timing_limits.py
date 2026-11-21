@@ -14,8 +14,8 @@ def hosted_timeout_seconds(env):
     sizes = json.loads(raw) if raw else None
     entries = sum(sizes[key] for key in ("workspaceEntries", "dependencyEntries", "journalObjects")) + 4 * sizes["checkouts"] if sizes else 0
     # Bun scales its per-test timeout once; leave two minutes for setup/cleanup.
-    inner_ms = max(1500000, (120000 + 2 * entries) * 15 if sizes else 0) * factor
-    return max(1800, math.ceil(inner_ms / 1000) + 120)
+    inner_ms = max(5100000, (120000 + 2 * entries) * 15 if sizes else 0) * factor
+    return max(5400, math.ceil(inner_ms / 1000) + 120)
 
 
 

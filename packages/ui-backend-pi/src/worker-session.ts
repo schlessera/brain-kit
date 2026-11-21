@@ -21,7 +21,7 @@ import { discoversPiExtensions } from "./extension-inspection.js";
 export { savedModel } from "./worker-launch.js";
 
 /** What the host saw one call do: the RPCs it made, under the name it ran as (#2834). */
-export type CallExecution = { name: string; host: boolean; lock: boolean; phases: Set<string> };
+export type CallExecution = { name: string; host: boolean; lock: boolean; phases: Set<string>; input?: Record<string, unknown> };
 /**
  * The execution path one completed call proved, from the host's own record of
  * its RPCs. Only an extension-free worker's calls are ever passed here: its

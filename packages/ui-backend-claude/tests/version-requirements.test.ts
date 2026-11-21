@@ -62,7 +62,7 @@ function harness(init: () => Promise<unknown> = async () => ({}), version = "2.1
   const frames: ServerMessage[] = [];
   const queryFn = ((params: { prompt: string | AsyncIterable<SDKUserMessage>; options: unknown }) => {
     calls.push(params.options);
-    return { initializationResult: init, getSettings: async () => ({ effective: {}, sources: [] }), async *[Symbol.asyncIterator]() {
+    return { initializationResult: init, getSettings: async () => ({ effective: { env: { ENABLE_TOOL_SEARCH: "false" } }, sources: [] }), async *[Symbol.asyncIterator]() {
       if (typeof params.prompt === "string") released.push({ message: { content: params.prompt } } as SDKUserMessage);
       else {
         // The first message only: the turn's input stays open for follow-ups.

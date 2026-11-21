@@ -84,6 +84,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/brain/stats/history` | `mounted supported handler: GET /api/brain/stats/history` | B |
 | `POST /api/brain/sync` | `mounted supported handler: POST /api/brain/sync` | B, Y |
 | `GET /api/drafts` | `mounted supported handler: GET /api/drafts` | X |
+| `GET /api/drafts/:id/code-changes` | `mounted supported handler: GET /api/drafts/:id/code-changes` | S |
+| `PUT /api/drafts/:id/code-changes` | `mounted supported handler: PUT /api/drafts/:id/code-changes` | S |
 | `GET /api/drafts/:id/profile` | `mounted supported handler: GET /api/drafts/:id/profile` | X |
 | `PUT /api/drafts/:id/profile` | `mounted supported handler: PUT /api/drafts/:id/profile` | X |
 | `GET /api/drafts/:draftId` | `mounted supported handler: GET /api/drafts/:draftId` | X |
@@ -113,6 +115,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/push/unsubscribe` | `mounted supported handler: POST /api/push/unsubscribe` | U |
 | `POST /api/render` | `mounted supported handler: POST /api/render` | E |
 | `GET /api/sessions` | `mounted supported handler: GET /api/sessions` | S |
+| `GET /api/sessions/:id/code-changes` | `mounted supported handler: GET /api/sessions/:id/code-changes` | S |
+| `PUT /api/sessions/:id/code-changes` | `mounted supported handler: PUT /api/sessions/:id/code-changes` | S |
 | `GET /api/sessions/:id/profile` | `mounted supported handler: GET /api/sessions/:id/profile` | S |
 | `PUT /api/sessions/:id/profile` | `mounted supported handler: PUT /api/sessions/:id/profile` | S |
 | `GET /api/sessions/:id` | `mounted supported handler: GET /api/sessions/:id` | S |

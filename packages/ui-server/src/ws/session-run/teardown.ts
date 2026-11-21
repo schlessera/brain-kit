@@ -84,7 +84,7 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
       reconcileEnd?.();
     }
     catch (error) { host.log.emit({ severityText: "ERROR", body: `governed reconciliation failed: ${String(error)}` }); }
-    if (governedHold?.sandbox.profile === "governed") host.governedTurns?.refresh(host.workerLock);
+    if (governedHold?.sandbox.profile === "governed") host.governedTurns?.refresh(host.workerLock, turn.turnId);
     // The recorder has written the terminal: from here on the Activity
     // record, not this slot, answers for the request (#964).
     await host.inboxTools?.shares?.end(turn.turnId);

@@ -4,7 +4,9 @@
  * boot, and nothing here admits a turn: every turn runs its own probe, which
  * re-records the outcome (worker-host-gate.test.ts proves the turn half).
  */
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { prepareWorkerSandbox } from "../../ui-sdk/src/server/worker-launcher.js";
 import { mockQualifiedIdentityHelper } from "./helpers/qualified-identity-helper";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -330,4 +332,56 @@ test("invalid helper configuration stays a recorded refusal rather than crashing
     expect((await workerHostOf(await t.fetch("/api/status")))?.ordinary).toMatchObject({ available: false });
     expect(observed).not.toHaveBeenCalled();
   } finally { await t.teardown(); }
+});
+
+
+test.each(["absent", "existing", "unqualified"] as const)("status and default admission agree for %s workspaces", async state => {
+  probeAnswers({ ok: true });
+  const t = await createTestApp({ prepare(brain) {
+    if (state === "existing") mkdirSync(join(brain, "workspaces"));
+    if (state === "unqualified") symlinkSync(brain, join(brain, "workspaces"));
+  } });
+  try {
+    const profile = state === "unqualified" ? "strict" : "governed";
+    const admitted = prepareWorkerSandbox(t.brainPath, { profile: "governed", codeChanges: false });
+    expect(admitted.profile, "DEFAULT_ADMISSION_PROFILE").toBe(profile);
+    expect((await workerHostOf(await t.fetch("/api/status")))?.governed, "STATUS_DESCRIBES_THE_SAME_DEFAULT").toMatchObject({ profile, configurationView: profile === "governed" ? "live" : "startup" });
+  } finally { await t.teardown(); }
+});
+
+
+test("status includes policy protected paths when workspace parents are absent", async () => {
+  probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),"---\nschema_version: 1\nprotect: [workspaces/ithaca/protected.md]\n---\nAthena protects source.\n");}});
+  try{
+    const admitted=prepareWorkerSandbox(t.brainPath,{profile:"governed",codeChanges:false,protectedPaths:["workspaces/ithaca/protected.md"]});
+    expect(admitted.profile).toBe("strict");expect((await workerHostOf(await t.fetch("/api/status")))?.governed,"STATUS_USES_POLICY_PROTECTED_PATHS").toMatchObject({profile:"strict",configurationView:"startup"});
+  }finally{await t.teardown();}
+});
+
+
+test("status honours the ordinary interactive policy profile", async () => {
+  probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),"---\nschema_version: 1\nprofiles: {interactive: strict, voice: governed}\n---\nAthena selects inspection.\n");}});
+  try{expect((await workerHostOf(await t.fetch("/api/status")))?.governed).toMatchObject({profile:"strict",configurationView:"startup"});}finally{await t.teardown();}
+});
+
+
+test.each(["governed","strict"] as const)("status reads never create protected parents (interactive=%s)",async profile=>{
+ probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),`---\nschema_version: 1\nprofiles: {interactive: ${profile}, voice: governed}\nprotect: [uncreated/ithaca/protected.md]\n---\nAthena protects notes.\n`);}});
+ try{
+  expect(existsSync(join(t.brainPath,"uncreated")),"STATUS_IS_A_PURE_READ_OF_LIVE_CONTENT").toBe(false);
+  for(let i=0;i<3;i++)expect((await t.fetch("/api/status")).status).toBe(200);
+  expect(existsSync(join(t.brainPath,"uncreated")),"STATUS_IS_A_PURE_READ_OF_LIVE_CONTENT").toBe(false);
+ }finally{await t.teardown();}
+});
+
+
+test("status includes required provider folder pins without preparing live paths",async()=>{
+ probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"workspaces"));mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),"---\nschema_version: 1\nproviders: [{paths: [workspaces/ithaca/**], allow: [anthropic]}]\n---\nAthena protects source.\n");}});
+ try{const admitted=prepareWorkerSandbox(t.brainPath,{profile:"governed",codeChanges:false,folderPaths:["workspaces/ithaca"]});expect(admitted.profile).toBe("strict");const status=(await workerHostOf(await t.fetch("/api/status")))?.governed;expect(status,"STATUS_CANNOT_OMIT_REQUIRED_PROVIDER_PINS").toMatchObject({profile:"strict",configurationView:"startup"});expect(existsSync(join(t.brainPath,"workspaces/ithaca"))).toBe(false);}finally{await t.teardown();}
+});
+
+
+test("status leaves a type-dependent profile unknown until checkpoint taxonomy qualification",async()=>{
+ probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),"---\nschema_version: 1\nproviders: [{types: [identity], allow: [anthropic]}]\n---\nAthena protects identity.\n");}});
+ try{const status=(await workerHostOf(await t.fetch("/api/status")))?.governed;expect(status,"STATUS_DOES_NOT_INVENT_TYPE_QUALIFICATION").toBeDefined();expect(status?.profile).toBeUndefined();expect(status?.configurationView).toBeUndefined();expect(status?.profileFallback).toContain("unresolved");}finally{await t.teardown();}
 });
