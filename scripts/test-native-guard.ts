@@ -518,8 +518,10 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
 /** Validate the same bind-source inventory used to construct the native view. */
 function assertNativeMountSockets(mounts: readonly string[], origin: string): void {
   const roots: string[] = [];
-  for (let i = 0; i < mounts.length - 2; i++) {
-    if (["--bind", "--ro-bind"].includes(mounts[i]!)) {
+  for (let i = 0; i < mounts.length; i++) {
+    const flag = mounts[i]!;
+    if (flag.startsWith("--overlay") || flag.includes("bind-fd")) refuse("unsupported native mount source");
+    if (["--bind", "--ro-bind", "--dev-bind", "--bind-try", "--ro-bind-try", "--dev-bind-try"].includes(flag)) {
       try { const source = realpathSync(mounts[i + 1]!); if (source === "/") refuse("native mount exposes the host root"); roots.push(source); } catch { refuse("native mount source is unavailable"); }
       i += 2;
     }

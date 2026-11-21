@@ -555,6 +555,27 @@ test("all direct bind sources reject unowned sockets, including PATH, managed se
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("worker device-bind sources cannot expose an unregistered Unix socket", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-device-bind-"));
+  try {
+    const result = await probe(`${imports}
+      import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      import {writeFileSync} from "node:fs";
+      const spawnSync=Bun.spawnSync,which=Bun.which;
+      Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      const socket=${JSON.stringify(join(scratch,"foreign.sock"))};
+      const server=Bun.serve({unix:socket,fetch:()=>new Response("foreign")});
+      registerScriptedService("http://127.0.0.1:1");
+      try{const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],argv:["bwrap","--dev-bind",socket,"/tmp/foreign.sock","--",${JSON.stringify(runtime)}]})});
+        const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();
+      }finally{server.stop(true);}`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"reason":"fixture storage contains an unowned Unix socket or directory alias"');
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("audit receipts reject writable evidence and replaced trace inodes", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-audit-integrity-"));
   try {
