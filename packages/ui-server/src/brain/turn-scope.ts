@@ -1,3 +1,4 @@
+import { journalInference } from "./journal-inference.js";
 /** Concrete per-turn scope monitor; shared journal observations drive filesystem and lifetime checks. */
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
@@ -310,6 +311,8 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     turn.summary.coverage = facts.partial ? "partial" : "observed_versions";
     turn.summary.observedAt = now(); check(turnId, turn, { toolUseId: facts.observationToolUseId, changedPaths: facts.observationChangedPaths });
   }, periodic);
+  const inference = journalInference(options.journal);
+  if (inference) inference.settleScope = periodic.settled;
   return {
     begin(turnId: string, input: { sessionId: string | null; principalId: string; origin: Live["origin"]; profile: Live["profile"];
       policy: EffectiveGovernancePolicy; source: Live["source"]; liveIndexWritable?: boolean; hardTimeoutMs: number; current: () => boolean; model?: () => string | null; stop: Live["stop"] }) {
@@ -325,7 +328,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       });
     },
     workerStarted(turnId: string, worker: Worker) {
-      void options.journal.flushDeferred?.().catch(() => {});
+      void journalInference(options.journal)?.flushDeferred().catch(() => {});
       const turn = active.get(turnId); if (!turn || !turn.current()) { worker.kill("SIGKILL"); return; }
       turn.workers.add(worker);
       void worker.exited.finally(() => { turn.workers.delete(worker); confirmedStops.delete(worker); }).catch(() => {});
@@ -379,7 +382,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       scopeCapRecords.delete(turnId);
       return Promise.all([saved, ended]).then(results => results.every(Boolean));
     },
-    close() { unsubscribe(); for (const [id, turn] of active) { for (const worker of turn.workers) worker.kill("SIGKILL"); turn.stop("Host closed; the turn was interrupted."); this.finish(id); } },
+    close() { unsubscribe(); if (inference?.settleScope === periodic.settled) delete inference.settleScope; for (const [id, turn] of active) { for (const worker of turn.workers) worker.kill("SIGKILL"); turn.stop("Host closed; the turn was interrupted."); this.finish(id); } },
   };
   /** A decision, synchronous from its read of the committed row through the writes it submits. */
   function decideCommitted(msg: ClientScopeDecision): ServerScopeDecisionReceipt {

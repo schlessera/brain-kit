@@ -1,3 +1,4 @@
+import { journalInference } from "./journal-inference.js";
 /** One admitted turn's concrete proxy, approval surface and durable records. */
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
@@ -267,7 +268,8 @@ export async function prepareTurnEgress(options: {
     },
   });
   const original = options.bridge;
-  const releaseJournalRelay = options.journal && options.scope ? options.journal.relayStarted(options.turnId,
+  const inference = options.journal && journalInference(options.journal);
+  const releaseJournalRelay = inference && options.scope ? inference.relayStarted(options.turnId,
     { inFlight: proxy.inferenceCount, eligible: () => options.scope!.canDefer(options.turnId) }, options.controller.signal) : undefined;
   /** The bridge the backend receives, so its classifications and results open and close each call. */
   const bridge: BackendBridge = { ...original,
@@ -288,16 +290,16 @@ export async function prepareTurnEgress(options: {
   const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal) => {
     const operation = proxy[kind](method, target, signal);
     const settledOperation = settleOperation(operation);
-    if (kind !== "inference" || !options.journal || !options.scope) return settledOperation;
+    if (kind !== "inference" || !inference || !options.scope) return settledOperation;
     let observation: Promise<void> | undefined;
     return { ...settledOperation,
       async prepareDispatch(body: Uint8Array) {
-        try { return await options.journal!.prepareInference(options.turnId, target.pathname, body) && options.scope!.responseAllowed(options.turnId); }
+        try { return await inference.prepareInference(options.turnId, target.pathname, body) && options.scope!.responseAllowed(options.turnId); }
         catch { return false; }
       },
       dispatch() {
         if (!operation.commit()) return false;
-        const receipt = options.journal!.dispatchInference(options.turnId);
+        const receipt = inference.dispatchInference(options.turnId);
         observation = receipt.ready;
         return receipt.stopped;
       },

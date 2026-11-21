@@ -1,3 +1,4 @@
+import { retainJournalInference } from "./journal-inference.js";
 import { deferredObservation, followsToolResult } from "./deferred-observation.js";
 import type { ActivityTurnHold } from "@schlessera/brain-ui-sdk/protocol";
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
@@ -106,7 +107,7 @@ export interface TurnJournalOptions {
 }
 /** Internal shared interval; scope records each turn's control acknowledgements. */
 export interface JournalHold {
-  /** Control receipt required for speculative inference dispatch; never diagnostic. */
+  /** @internal Control receipt required for speculative inference dispatch; never diagnostic. */
   requireConfirmedStop?: boolean;
   records: Map<string, ActivityTurnHold>;
   stoppedTurns: Set<string>;
@@ -291,7 +292,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       catch (error) { if (!(error instanceof JournalCapacityError) || !await collectOne()) throw error; }
     }
   }
-  const periodicObservers = new Set<{ before(hold?: JournalHold): void; after(completed: boolean, hold?: JournalHold): void; settled?(): Promise<void> }>();
+  const periodicObservers = new Set<{ before(hold?: JournalHold): void; after(completed: boolean, hold?: JournalHold): void }>();
   const evidence = new Map<string, { record: (hold: ActivityTurnHold) => void; inference: () => boolean }>();
   let currentHold: JournalHold | undefined;
   const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean; observationChangedPaths?: number; observationToolUseId?: string }) => void>();
@@ -308,6 +309,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const callKey = (turnId: string, toolUseId: string) => JSON.stringify([turnId, toolUseId]);
   const relays = new Map<string, { inFlight(): number; eligible(): boolean }>();
   let deferred: { turnId: string; toolUseId: string; observation: ReturnType<typeof deferredObservation> } | undefined;
+  /** @internal */
   function flushDeferred(): Promise<void> {
     const pending = deferred;
     if (!pending) return Promise.resolve();
@@ -350,7 +352,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       let completed = false;
       const failedBefore = observationFailures;
       try { const result = await operation(timing);
-        for (const holder of holders) await holder.settled?.();
+        await inference.settleScope?.();
         completed = true; return result; }
       finally {
         // A cancelled/refused new admission made no worker writes. Existing
@@ -572,7 +574,41 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       throw failure;
     }
   }
-  return {
+  const inference: Parameters<typeof retainJournalInference>[1] = {
+    /** @internal Concrete turn relay lifecycle; absence always uses immediate observations. */
+    relayStarted(turnId: string, transport: { inFlight(): number; eligible(): boolean }, signal: AbortSignal) {
+      void flushDeferred().catch(() => {});
+      relays.set(turnId, transport);
+      const abort = () => { void flushDeferred().catch(() => {}); if (relays.get(turnId) === transport) relays.delete(turnId); };
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      return () => { signal.removeEventListener("abort", abort); abort(); };
+    },
+    /** @internal */
+    flushDeferred,
+    /** @internal Fully read request only. Ambiguous traffic keeps the prior-verdict boundary. */
+    async prepareInference(turnId: string, path: string, body: Uint8Array): Promise<boolean> {
+      const relay = relays.get(turnId);
+      if (deferred?.turnId === turnId && relay?.eligible() && relay.inFlight() === 1
+        && followsToolResult(path, body, deferred.toolUseId)) return true;
+      await flushDeferred();
+      await tail;
+      return !failures.has(turnId);
+    },
+    /** @internal No await between the confirmed stop and the relay's fetch. */
+    dispatchInference(turnId: string): { stopped: boolean; ready: Promise<void> } {
+      const pending = deferred;
+      if (pending?.turnId !== turnId) return { stopped: !holds && !failures.has(turnId), ready: tail.then(() => {}) };
+      deferred = undefined;
+      const confirmed = { stopped: false };
+      const relay = relays.get(turnId);
+      // Parallel arrivals after arming invalidate the one-request attribution.
+      if (!relay?.eligible() || relay.inFlight() !== 1) return { stopped: false, ready: pending.observation.claim() };
+      const ready = pending.observation.claim(confirmed);
+      return { stopped: confirmed.stopped, ready };
+    },
+  };
+  const journal = {
     /**
      * @internal Host scope monitor consumes this same observation window.
      * `changedPaths` counts every changed path; `workspacePaths` counts paths
@@ -589,7 +625,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     evidence(turnId: string, record?: (hold: ActivityTurnHold) => void, inference: () => boolean = () => false) {
       if (record) evidence.set(turnId, { record, inference }); else evidence.delete(turnId);
     },
-    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean; observationChangedPaths?: number; observationToolUseId?: string }) => void, periodic?: { before(hold?: JournalHold): void; after(completed: boolean, hold?: JournalHold): void; settled?(): Promise<void> }) {
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean; observationChangedPaths?: number; observationToolUseId?: string }) => void, periodic?: { before(hold?: JournalHold): void; after(completed: boolean, hold?: JournalHold): void }) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
@@ -702,37 +738,6 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         return pending.observation.done;
       }
       return start();
-    },
-    /** Concrete turn relay lifecycle; absence always uses immediate observations. */
-    relayStarted(turnId: string, transport: { inFlight(): number; eligible(): boolean }, signal: AbortSignal) {
-      void flushDeferred().catch(() => {});
-      relays.set(turnId, transport);
-      const abort = () => { void flushDeferred().catch(() => {}); if (relays.get(turnId) === transport) relays.delete(turnId); };
-      signal.addEventListener("abort", abort, { once: true });
-      if (signal.aborted) abort();
-      return () => { signal.removeEventListener("abort", abort); abort(); };
-    },
-    flushDeferred,
-    /** Fully read request only. Ambiguous traffic keeps the prior-verdict boundary. */
-    async prepareInference(turnId: string, path: string, body: Uint8Array): Promise<boolean> {
-      const relay = relays.get(turnId);
-      if (deferred?.turnId === turnId && relay?.eligible() && relay.inFlight() === 1
-        && followsToolResult(path, body, deferred.toolUseId)) return true;
-      await flushDeferred();
-      await tail;
-      return !failures.has(turnId);
-    },
-    /** No await between the confirmed stop and the relay's fetch. */
-    dispatchInference(turnId: string): { stopped: boolean; ready: Promise<void> } {
-      const pending = deferred;
-      if (pending?.turnId !== turnId) return { stopped: !holds && !failures.has(turnId), ready: tail.then(() => {}) };
-      deferred = undefined;
-      const confirmed = { stopped: false };
-      const relay = relays.get(turnId);
-      // Parallel arrivals after arming invalidate the one-request attribution.
-      if (!relay?.eligible() || relay.inFlight() !== 1) return { stopped: false, ready: pending.observation.claim() };
-      const ready = pending.observation.claim(confirmed);
-      return { stopped: confirmed.stopped, ready };
     },
     /**
      * Cover one managed worktree (#2430) for an active turn before any of its
@@ -1028,6 +1033,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       finally { await Promise.allSettled([...unserialized]); objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
     },
   };
+  retainJournalInference(journal, inference);
+  return journal;
 }
 
 export type TurnJournal = ReturnType<typeof createTurnJournal>;

@@ -1674,10 +1674,10 @@ starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:273`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:320-364`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:322-366`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before(hold?: JournalHold)`,
-`packages/ui-server/src/brain/turn-scope.ts:255-272`). Pi's agent loop runs in
+`packages/ui-server/src/brain/turn-scope.ts:256-273`). Pi's agent loop runs in
 its worker, so a frozen worker cannot send its next provider request until the
 resume. On the native fixture the gap between a result and the next request
 tracked the hold, not the bridge call.
@@ -1686,7 +1686,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:681-703`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:717-742`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
