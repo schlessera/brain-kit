@@ -72,7 +72,7 @@ async function maintain(allowance: number, publish = false) {
   const host = createHostBoundary({ brainPath: brain, dbPath: join(state, "ui.db"), exec: {},
     nativeManager: createNativeBrainManagerClient(native.nativeBrain) });
   const result = await host.run({ argv: [process.execPath, BRAIN_CLI, "maintain", "--json"],
-    env: { PATH: "/usr/bin:/bin", BRAIN_ROOT: brain }, credentials: true, gate: "exclusive", purpose: "Odysseus maintenance cron", publish });
+    env: { PATH: "/usr/bin:/bin", BRAIN_ROOT: brain }, credentials: true, gate: "exclusive", purpose: "Odysseus maintenance cron", ...(publish?{}:{publish:false as const}) });
   const report = JSON.parse(result.stdout) as Array<{ step: string; result: string }>;
   return { result, git: report.find(step => step.step === "git")?.result ?? "" };
 }
