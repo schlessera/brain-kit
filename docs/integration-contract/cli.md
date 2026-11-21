@@ -1478,7 +1478,13 @@ and deferred cases; usage/configuration errors retain exit 1.
 
 Hosted routine maintenance selects Git output conservatively: only a zero exit
 and a complete JSON report with one successful Git step permit publication.
-Failed, skipped, malformed, oversized, human-only or unavailable reports discard
-all `.git/` output while other validated maintenance areas publish. A streaming
-caller whose report is not fully observed at process exit also discards Git.
+The host requests JSON itself for routine maintain and preserves explicit human
+output using the CLI rendering. It drains at most 1 MiB into its result buffer,
+independently of the caller, and allows five seconds after exit for stdout EOF.
+Failed, skipped, malformed, oversized, unreadable or incomplete reports discard
+all `.git/` output while other validated maintenance areas publish. Cron records
+the host-owned publication result and named discard reason in maintenance
+Activity; missing or unusable reports use the existing error outcome. Ordinary
+non-maintenance commands retain coupled Git/worktree publication on nonzero
+exit.
 The successful-output publisher is unchanged by this selection rule.
