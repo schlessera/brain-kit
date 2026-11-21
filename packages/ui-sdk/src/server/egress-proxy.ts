@@ -385,7 +385,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       return granted;
     };
     const refuseSafety = (current: AdmissionSafetySnapshot | undefined, before?: AdmissionSafetySnapshot) => {
-      const reason = current && !current.recordingAvailable ? "unavailable" : safetySnapshotRefusal(current,before) ? "safety_changed" : undefined;
+      const reason = current && !current.recordingAvailable && current.operationRecordingAvailable !== true ? "unavailable" : safetySnapshotRefusal(current,before) ? "safety_changed" : undefined;
       if (!reason) return false;
       finish("denied",egressChargeRefusal({ok:false,reason},"Network").reason); return true;
     };

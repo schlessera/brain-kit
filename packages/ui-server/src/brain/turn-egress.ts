@@ -141,6 +141,7 @@ export async function prepareTurnEgress(options: {
   const contacted = new Set(db ? contactedHosts(db, options.sessionId()) : []);
   const collectionEpoch = (db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId) as {id:string}|null)?.id??crypto.randomUUID();
   const exposures = new Map<string, Occurrence>();
+  const ownCollectionStarts = new Map<string,string>();
   const exposureCommits = new Map<string, Promise<unknown>>();
   const normalBefore = new Set<string>();
   const standingRecipients = new Map<string, Pick<TrustMatch, "ruleId" | "policyHash" | "trustRevision" | "collectionRevision">>();
@@ -176,7 +177,7 @@ export async function prepareTurnEgress(options: {
   const releaseConnection = (connectionId?: string) => {
     if (!connectionId) return;
     trustedInputs.delete(connectionId);standingRecipients.delete(connectionId);
-    exposures.delete(connectionId);exposureCommits.delete(connectionId);normalBefore.delete(connectionId);
+    exposures.delete(connectionId);ownCollectionStarts.delete(connectionId);exposureCommits.delete(connectionId);normalBefore.delete(connectionId);
     approvalMarkers.delete(`${connectionId}:network`);approvalMarkers.delete(`${connectionId}:outward`);
   };
   const report = (record: EgressRecord): void => {
@@ -242,7 +243,11 @@ export async function prepareTurnEgress(options: {
       const key = `${connectionId ?? "global"}:${kind}`, version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString(),callGeneration]);
       const cached = approvalMarkers.get(key); if (cached?.version === version) return cached.marker;
       const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
-      const marker = JSON.stringify([state.pendingCount, state.coverage.state, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), connectionId ? exposures.get(connectionId)?.id ?? null : null),
+      const ownStart=connectionId?ownCollectionStarts.get(connectionId):undefined;
+      // An uninstrumented turn was already unknown before its first record.
+      // Creating its sole incomplete epoch is metadata of this same input.
+      const coverage=ownStart&&state.coverage.epochs.length===1&&state.coverage.epochs[0]?.id===ownStart&&state.coverage.state==="incomplete"?"unknown":state.coverage.state;
+      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), connectionId ? exposures.get(connectionId)?.id ?? null : null,connectionId?ownCollectionStarts.get(connectionId)??null:null),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
         writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable,callGeneration]);
       approvalMarkers.set(key,{version,marker}); return marker;
@@ -324,6 +329,7 @@ export async function prepareTurnEgress(options: {
       : { trusted: false, policyHash: trustSnapshot ? trustSnapshot.policyHash : options.policyHash ?? null, trustRevision: trustSnapshot?.revision ?? "0" };
     exposure.provenance=provenance;
     exposures.set(destination.connectionId, exposure);
+    const hadCollection=db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId);
     try {
       const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
         detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } });
@@ -335,6 +341,10 @@ export async function prepareTurnEgress(options: {
       throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
     }
     finally { exposureCommits.delete(destination.connectionId); }
+    if(db&&!hadCollection){
+      const created=db.query("SELECT c.id FROM safety_collections c WHERE c.turn_id=? AND (SELECT r.id FROM safety_records r WHERE r.collection_id=c.id AND r.kind='occurrence' ORDER BY length(r.sequence),r.sequence LIMIT 1)=?").get(options.turnId,exposure.id) as {id:string}|null;
+      if(created)ownCollectionStarts.set(destination.connectionId,created.id);
+    }
     if(match)trustedInputs.set(destination.connectionId,{destination,revision:match.trustRevision,ruleId:match.ruleId,instance:instance!});
     if (match && !inputCurrent(destination.connectionId)) throw new EgressAdmissionRefused("Source trust changed before dispatch","source_trust_changed");
   };

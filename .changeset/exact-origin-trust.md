@@ -63,3 +63,5 @@ Meter relay worker request headers before filtering and cover upstream credentia
 Add remainingBytes as an optional SDK route reader, preserving older operation-only routes with a documented 32 MiB per-request compatibility ceiling; host builders require it internally. Meter informational HTTP response heads before the final response.
 
 Require a confirmed durable occurrence before trusted dispatch; false or failed source writes refuse the affected operation as recording unavailable, including permanently restricted turns and legacy recorder adapters.
+
+Keep an approved connection valid across only its own occurrence and initial collection write. Restore safety-changed 403 for peer recorder loss or independent pending input while preserving operation-specific recorder-unavailable 503.

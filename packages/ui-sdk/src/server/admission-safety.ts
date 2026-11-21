@@ -7,6 +7,8 @@ export interface AdmissionSafetySnapshot {
   readonly policyHash: string | null;
   readonly restricted: boolean;
   readonly recordingAvailable: boolean;
+  /** False only for this turn recorder; true distinguishes shared safety changes. */
+  readonly operationRecordingAvailable?: boolean;
   readonly authorityCurrent: boolean;
 }
 
@@ -21,7 +23,7 @@ export const STALE_SAFETY_ADMISSION = "Safety or authority changed before admiss
 export function sameSafetyAdmission(a: AdmissionSafetySnapshot, b: AdmissionSafetySnapshot): boolean {
   return a.evidenceRevision === b.evidenceRevision && a.trustRevision === b.trustRevision && a.authorityEpoch === b.authorityEpoch
     && a.scope === b.scope && a.policyHash === b.policyHash && a.restricted === b.restricted
-    && a.recordingAvailable === b.recordingAvailable && a.authorityCurrent === b.authorityCurrent;
+    && a.operationRecordingAvailable === b.operationRecordingAvailable && a.recordingAvailable === b.recordingAvailable && a.authorityCurrent === b.authorityCurrent;
 }
 
 /** Call in the dispatching continuation, after its last await. */

@@ -6126,3 +6126,15 @@ durable commit. A false result or failed write refuses that operation with
 available. No trusted source fact or terminal exposure is published for a
 missing occurrence. Legacy recorder adapters await their write result; an
 otherwise unacknowledged trusted write must be present in the safety ledger.
+
+Network approval markers exclude only the approved operation’s own occurrence
+and, when it creates the turn’s first collection, that same collection-start
+metadata. Independent inputs, pending writes, failures, bindings and authority
+changes still invalidate the decision. An unknown collection does not become
+clean through this exclusion.
+
+An operation-specific recorder failure is 503 egress_unavailable. A different
+recorder’s loss or an independent pending input changes the safety context and
+refuses with 403 safety_changed. The internal optional
+AdmissionSafetySnapshot.operationRecordingAvailable distinguishes the two;
+legacy snapshots without that detail retain conservative unavailable behavior.

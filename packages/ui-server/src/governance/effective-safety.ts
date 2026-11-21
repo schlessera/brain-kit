@@ -55,6 +55,8 @@ export function createEffectiveSafety(db: Database, options: {
       // covers anything it loses, so it runs under its tainted policy (#3812).
       recordingAvailable: options.writes?.recordingAvailable ? options.writes.recordingAvailable(options.turnId, sessionId)
         : !projection.reasons.some(reason => ["recording_pending", "recording_failed", "capacity"].includes(reason)),
+      operationRecordingAvailable: !safetyQueue(db).lostTurns.has(options.turnId) &&
+        !db.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND failure IS NOT NULL AND ended=0").get(options.turnId),
       authorityCurrent: authority.current };
     if (cacheAllowed) cached = { key, value }; return value;
   };
