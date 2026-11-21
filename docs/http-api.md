@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 196 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 199 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -165,6 +165,9 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Authenticated principal of the history owner's account (#3952); immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | POST | `/api/sessions/:id/safety/reviews/prepare` | S | Prepare review of one finalized safety occurrence | Live password-mode human owner, exact Origin and bounded JSON; host-issued body/brain/principal/generation-bound handle (#3603). |
 | POST | `/api/sessions/:id/safety/reviews/:requestId/commit` | S | Commit or read back one individual safe verdict | Live owner rechecked on the acquired FULL transaction and final response; immutable receipt plus fresh aggregate, no bulk clear or standing rule (#3603). |
+| POST | `/api/sessions/:id/safety/reviews/future/prepare` | S | Prepare one selected verdict and optional future source rule | Live password-mode human owner, exact Origin and bounded JSON; host-attested origin/tunnel and exact evidence revision; no publication or verdict yet (#3611). |
+| POST | `/api/sessions/:id/safety/reviews/future/commit` | S | Publish the reviewed rule then commit its original selected verdict | Same live owner/session authority; exact review ID and reviewed-bytes hash; durable publication proof precedes verdict; retries never republish (#3611). |
+| POST | `/api/sessions/:id/safety/reviews/future/status` | S | Read retained combined completion and current rule presence | Same live owner, exact Origin and bounded JSON session/occurrence; read-only, redacted uncommitted verdict handles, JSON null for unretained receipts (#3611). |
 | GET | `/api/sessions/:id/github/:owner/:repo/:number/:part` | I | Page one part of a GitHub object a session's GitHub tool result returned | Chat GitHub components (#3796, #3795); owner account only, display data never provider context, no compatibility guarantee. |
 | GET | `/api/sessions/:id/github/avatars/:login` | I | Serve the avatar of a login in a session's GitHub results from this origin | Chat GitHub components (#3796, #3795); owner account only, magic-byte image check, bounded in-memory cache, every failure 404. |
 | GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
@@ -229,7 +232,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 196 declared endpoints are mounted regardless of backend, renderer or
+All 199 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -2439,3 +2442,19 @@ inferred from matching policy bytes. Owner-scope review explicitly covers
 future repositories currently in that namespace. Runtime trust remains disabled.
 Removal/readback remain available for existing rules. Revision exhaustion refuses
 before protected publication. No historical trigger is resolved by these routes.
+
+### Combined selected-trigger and future-source review
+
+The three supported POST endpoints under
+`/api/sessions/:id/safety/reviews/future/` use the individual review's live
+password-mode owner, exact Origin, JSON and session-generation fences.
+`prepare` binds one finalized host-attested origin or explicit tunnel to exact
+reviewed policy bytes and the original single-verdict request. `commit` requires
+the request ID, review ID and reviewed-bytes hash; publication proof precedes
+any verdict. `status` is a read-only POST accepting version, session and
+occurrence ID, not a GET endpoint. It returns retained operation completion,
+separate live restriction and current rule presence, or JSON null after receipt
+retention expires. Neither status nor retries republish a rule. Uncommitted
+verdict handles are redacted. The complete envelopes, partial/unknown semantics,
+legacy capability encoding and browser correlation requirements are specified in
+the [combined-review wire contract](integration-contract/wire.md#combined-single-trigger-and-future-source-review-3611).

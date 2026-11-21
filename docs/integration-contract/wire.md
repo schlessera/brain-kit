@@ -3363,6 +3363,11 @@ HTTP readers explicitly opt in with `admissions=1`; repeated/invalid query value
 
 ### Combined single-trigger and future-source review (#3611)
 
+All three combined-review endpoints are supported POST operations in the
+[classified HTTP inventory](../http-api.md#inventory-and-selection), with live
+password-mode owner, exact Origin and bounded JSON authority fences. Status is
+a read-only POST; it adds no GET or implicit HEAD endpoint.
+
 When `capabilities.sessionSafetyFutureRules` and `safetyCapabilities.review`
 are true, a password-mode owner may
 POST `/api/sessions/:id/safety/reviews/future/prepare` with the individual
