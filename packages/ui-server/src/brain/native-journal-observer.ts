@@ -79,11 +79,12 @@ class MetadataIndex {
   readonly entries = new Map<string, NativeJournalMetadata>();
   readonly children = new Map<string, Set<string>>();
   readonly inodes = new Map<string, Set<string>>();
+  readonly workspacePaths = new Set<string>();
   readonly ignoreInputs = new Map<string, NativeJournalMetadata>();
   readonly steeringInputs = new Map<string, NativeJournalMetadata>();
   remove(path: string): void {
     const entry = this.entries.get(path); if (!entry) return;
-    this.entries.delete(path); this.ignoreInputs.delete(path); this.steeringInputs.delete(path);
+    this.entries.delete(path); this.workspacePaths.delete(path); this.ignoreInputs.delete(path); this.steeringInputs.delete(path);
     const directory = parent(path), children = this.children.get(directory); children?.delete(path);
     if (!children?.size) this.children.delete(directory);
     const names = this.inodes.get(entry.inode); names?.delete(path);
@@ -91,6 +92,7 @@ class MetadataIndex {
   }
   put(entry: NativeJournalMetadata): void {
     this.remove(entry.path); this.entries.set(entry.path, entry);
+    if (isWithin("workspaces", entry.path)) this.workspacePaths.add(entry.path);
     if (entry.path.split("/").at(-1) === ".gitignore") this.ignoreInputs.set(entry.path, entry);
     if (isJournalSteeringPath(entry.path)) this.steeringInputs.set(entry.path, entry);
     const directory = parent(entry.path), children = this.children.get(directory) ?? new Set<string>();
@@ -138,31 +140,32 @@ class RootMetadataReader {
     try { return await this.manager.statCheckpoint(this.checkpointId, path, uid, this.signal); }
     catch (error) { if (nativeJournalPermissionDenied(error)) return this.markUnreadable(path, this.known(path), Math.max(0, Math.round(performance.now() - started))); throw error; }
   }
-  private async child(parentFd: number, name: string, path: string): Promise<NativeJournalMetadata> {
+  private async child(parentFd: number, name: string, path: string, bounded = true): Promise<NativeJournalMetadata> {
     this.signal.throwIfAborted(); this.stats.readEntries++;
     const info = await lstat(at(parentFd, name), { bigint: true });
-    if (info.isDirectory() && path.split("/").length > 256) unavailable("Native metadata directory depth exceeds the supported bound.");
+    if (bounded && info.isDirectory() && path.split("/").length > 256) unavailable("Native metadata directory depth exceeds the supported bound.");
     const target = info.isSymbolicLink() ? rawText(await readlink(at(parentFd, name), { encoding: "buffer" })) : undefined;
     this.signal.throwIfAborted(); return metadata(path, info, target);
   }
-  async get(path: string): Promise<NativeJournalMetadata | null | undefined> {
-    if (!this.workspaces && isWithin("workspaces", path)) return null;
+  async get(path: string, aliasProbe = false): Promise<NativeJournalMetadata | null | undefined> {
+    if (!aliasProbe && !this.workspaces && isWithin("workspaces", path)) return null;
     const parts = path.split("/");
     if (!path || parts.some(part => !part || part === "." || part === ".." || part.includes("\0"))) unavailable("Invalid native metadata path.");
-    if (parts.length > 257) unavailable("Native metadata directory depth exceeds the supported bound.");
+    if (!aliasProbe && parts.length > 257) unavailable("Native metadata directory depth exceeds the supported bound.");
     if (!this.root) {
       const uid = this.workerUid?.();
       if (uid === undefined || !this.manager.statCheckpoint) throw new NativeJournalObservationError("Private checkpoint metadata requires the qualified fixed worker-UID reader.");
       return this.privateStat(path, uid);
     }
-    const chain: FileHandle[] = [];
-    let fd = this.root.fd;
+    // A single path probe retains only one parent descriptor, including deep
+    // excluded aliases. It never inventories a checkout directory.
+    let cursor: FileHandle | undefined;
     try {
       for (const name of parts.slice(0, -1)) {
-        this.signal.throwIfAborted(); const child = await open(at(fd, name), DIRECTORY);
-        chain.push(child); fd = child.fd;
+        this.signal.throwIfAborted(); const child = await open(at(cursor?.fd ?? this.root.fd, name), DIRECTORY);
+        await cursor?.close(); cursor = child;
       }
-      return await this.child(fd, parts.at(-1)!, path);
+      return await this.child(cursor?.fd ?? this.root.fd, parts.at(-1)!, path, !aliasProbe);
     } catch (error) {
       if (missing(error)) return null;
       const uid = nativeJournalPermissionDenied(error) ? this.workerUid?.() : undefined;
@@ -170,7 +173,7 @@ class RootMetadataReader {
       if (!this.manager.statCheckpoint) unavailable("Private checkpoint metadata requires the fixed worker-UID reader.");
       return this.privateStat(path, uid);
     }
-    finally { for (const child of chain.reverse()) await child.close(); }
+    finally { await cursor?.close(); }
   }
   async *walk(path = ""): AsyncGenerator<NativeJournalMetadata> {
     if (!this.workspaces && isWithin("workspaces", path)) return;
@@ -430,13 +433,15 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       const job = await native.delta(before.id, after.id, active);
       // Observe an early transport failure without an unhandled rejection.
       void job.completed.catch(() => {});
-      const paths = new Set<string>(), prefixes = new Set<string>();
+      const paths = new Set<string>(), prefixes = new Set<string>(), excludedAliases = new Set<string>();
       try {
         for await (const candidate of parseNativeBrainDelta(job.stream, {
           before: { uuid: before.uuid, transaction: BigInt(before.transaction) },
           after: { uuid: after.uuid, transaction: BigInt(after.transaction) }, signal: active,
         })) {
-          for (const path of candidate.paths) if (workspaces || !isWithin("workspaces", path)) paths.add(path);
+          for (const path of candidate.paths) {
+            if (workspaces || !isWithin("workspaces", path)) paths.add(path); else excludedAliases.add(path);
+          }
           if (candidate.rename) for (const path of [candidate.rename.from, candidate.rename.to]) if (workspaces || !isWithin("workspaces", path)) prefixes.add(path);
         }
         const outcome = await job.completed;
@@ -447,6 +452,21 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         await job.completed.catch(() => {}); throw error;
       }
       end?.(); end = timing?.("observe_metadata");
+      // A send update may name only an excluded alias of an ordinary note.
+      // Recover its inode from both sealed roots before dropping the namespace.
+      let aliasEntries = 0;
+      if (excludedAliases.size) for (const checkpoint of [before, after]) {
+        const aliases = await RootMetadataReader.create(checkpoint, active, native, workerUid);
+        try {
+          for (const path of excludedAliases) {
+            const entry = await aliases.get(path, true);
+            if (entry === undefined) unavailable("Excluded alias metadata is unavailable for note attribution.");
+            if (entry?.kind === "file") for (const alias of index.inodes.get(entry.inode) ?? [])
+              if (!isWithin("workspaces", alias)) paths.add(alias);
+          }
+          aliasEntries += aliases.stats.readEntries;
+        } finally { await aliases.close(); }
+      }
       const patches = new Map<string, NativeJournalMetadata | null | undefined>();
       reader = await RootMetadataReader.create(after, active, native, workerUid,
         path => patches.has(path) ? patches.get(path) ?? undefined : index.entries.get(path), workspaces);
@@ -505,11 +525,11 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       for (const change of changes) if (change.before?.kind === "file" && change.before.stamp !== change.after?.stamp) replacedBytes += change.before.bytes;
       let state: "pending" | "committed" | "aborted" = "pending";
       const observation: NativeJournalObservation = {
-        beforeRoot: before, afterRoot: next, changes, stats: { ...reader.stats }, unreadable: [...reader.unreadable.values()],
+        beforeRoot: before, afterRoot: next, changes, stats: { ...reader.stats, readEntries: reader.stats.readEntries + aliasEntries }, unreadable: [...reader.unreadable.values()],
         async commit() {
           if (state === "aborted") unavailable("Native observation was already aborted.");
           if (state === "pending") {
-            if (!workspaces) for (const path of [...index.entries.keys()]) if (isWithin("workspaces", path)) index.remove(path);
+            if (!workspaces && inventoryWorkspaces) for (const path of index.workspacePaths) index.remove(path);
             inventoryWorkspaces = workspaces;
             for (const [path, entry] of patches) { if (entry) index.put(entry); else if (entry === null) index.remove(path); }
             missingInventory = new Map(reader!.unreadable);

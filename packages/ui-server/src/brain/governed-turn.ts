@@ -309,6 +309,7 @@ export function createGovernedTurns(options: {
         // index current from it (#2846). Built from this final checkpoint.
         if (workerProfile(resolved) !== "governed" || privateIndex) {
           dataTree = await step("data_tree", () => createTurnDataTree({ brainPath: options.brainPath, view: startupView!, maskPaths: options.maskPaths, mount: workerProfile(resolved) !== "governed", signal,
+            inspectWorkspaces: resolved.areas.some(area => area.name === "workspaces" && !area.mount.writable && Boolean(area.mount.readOnlyPath)),
             ...(privateIndex ? { index: privateIndex, masks: { folders: maskedFolders, buildFolders: privateIndexBuildFolders(maskedFolders, startupView!.root),
               types: providerDeniedTypes(policy.policy, recipient) } } : {}),
             // A recipient allowed every folder still never sees the generated-text caches.

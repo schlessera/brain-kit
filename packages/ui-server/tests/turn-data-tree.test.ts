@@ -1,3 +1,4 @@
+import { createPrivateIndexDirectory, removePrivateIndexDirectory } from "../src/brain/private-index.js";
 /**
  * A turn's own applications reach its worker's same-turn reads (#2848) and,
  * under provider rules, its private index without any masked byte (#2846).
@@ -554,4 +555,19 @@ test("an aborted admission stops the copy and leaves no tree or index behind", a
     expect(outcome, "AN_ABORTED_COPY_REFUSES").toBe("Odysseus cancels the voyage.");
     expect(left(), "AN_ABORTED_COPY_LEAVES_NOTHING").toEqual(before);
   } finally { await view.cleanup(); }
+});
+
+
+test.each([true,false])("inspection data-tree copy omits deep source with strict mount=%s", async mount => {
+  const root=mkdtempSync(join(tmpdir(),"odysseus-inspect-data-copy-")),brain=join(root,"brain");mkdirSync(join(brain,"notes"),{recursive:true});
+  writeFileSync(join(brain,"notes/raft.md"),NOTE("Raft","Odysseus sails."));
+  const view=createFixtureWorkerStartupView(brain), privateIndex=mount ? undefined : createPrivateIndexDirectory();
+  const deep=join(view.root,"workspaces/ithaca",...Array.from({length:260},()=>"x"));mkdirSync(deep,{recursive:true});writeFileSync(join(deep,"source.md"),"Athena");
+  try {
+    const tree=await createTurnDataTree({brainPath:brain,view,maskPaths:[],mount,index:privateIndex,inspectWorkspaces:true,providerRules:!mount,update:async()=>{}});
+    try {
+      if(mount){expect(existsSync(join(tree.mount!.root,"workspaces")),"INSPECT_CHECKOUT_NOT_COPIED").toBe(false);expect(readFileSync(join(tree.mount!.root,"notes/raft.md"),"utf8")).toContain("Odysseus sails");}
+      expect(readFileSync(join(deep,"source.md"),"utf8"),"SOURCE_REMAINS_READABLE_ON_ITS_CHECKPOINT").toBe("Athena");
+    }finally{await tree.close();}
+  }finally{await view.cleanup();if(privateIndex)removePrivateIndexDirectory(privateIndex);rmSync(root,{recursive:true,force:true});}
 });

@@ -69,7 +69,7 @@ function hooksShape(hooks: Options["hooks"]): Record<string, { matcher: string |
 const PINNED_WORKER_LIMITS = "data=4GiB,memory=4GiB";
 
 /** The normalised snapshot for one mode; the worker is finished before it returns. */
-export async function sdkOptionsSnapshot(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean } = {}): Promise<Record<string, unknown>> {
+export async function sdkOptionsSnapshot(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean; withoutHostSandbox?: boolean } = {}): Promise<Record<string, unknown>> {
   const previous = process.env.BRAIN_UI_WORKER_LIMITS;
   process.env.BRAIN_UI_WORKER_LIMITS = PINNED_WORKER_LIMITS;
   try { return await snapshotOnce(mode, inputs); } finally {
@@ -78,13 +78,15 @@ export async function sdkOptionsSnapshot(mode: SnapshotMode, inputs: { populated
   }
 }
 
-async function snapshotOnce(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean }): Promise<Record<string, unknown>> {
+async function snapshotOnce(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean; withoutHostSandbox?: boolean }): Promise<Record<string, unknown>> {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-sdk-options-"));
   if (inputs.populatedWorkspace) mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
   const restricted = mode === "restricted";
+  const request=requestFor(mode,brain);
+  if(inputs.withoutHostSandbox)delete request.workerSandbox;
   const options: Parameters<typeof createClaudeSdkTurn>[0] = {
     backend: { brainPath: brain } as never,
-    req: requestFor(mode, brain) as never,
+    req: request as never,
     ...(restricted ? {} : { turnEnvironment: {} }),
     ...(mode === "relayed" ? { hostInference: { proxyDir: brain, baseUrl: "http://localhost" } } : {}),
     profile: (restricted
@@ -125,6 +127,7 @@ async function snapshotOnce(mode: SnapshotMode, inputs: { populatedWorkspace?: b
       subscriptionOnly: turn.subscriptionOnly,
       pinnedSettingsEnv: turn.pinnedSettingsEnv ?? null,
       promptIsStream: typeof turn.prompt !== "string",
+      ...(inputs.withoutHostSandbox ? { contextTail: typeof turn.prompt === "string" ? turn.prompt : await Array.fromAsync(turn.prompt) } : {}),
     };
     return JSON.parse(JSON.stringify(snapshot).replaceAll(brain, "<brain>"));
   } finally {

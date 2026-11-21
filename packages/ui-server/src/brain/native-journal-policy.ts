@@ -49,15 +49,20 @@ export function journalPathScope(path: string): { scope: string; local: string; 
   return { scope, local, refs: true };
 }
 
-export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: (path: string, maximum: number) => Promise<Buffer>, covered: readonly string[] = [], options: { workspaces?: boolean } = {}) {
+export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: (path: string, maximum: number) => Promise<Buffer>, covered: readonly string[] = [], options: { workspaces?: boolean; ordinaryWorkspaces?: boolean; signal?: AbortSignal } = {}) {
   const excluded = (path: string) => options.workspaces === false && isWithin("workspaces", path);
   const rules = new Map<string, Rule[]>();
   const admitted = new Set(covered);
   // Metadata is already indexed. Only ignore files are read here; no baseline
   // content, object hashes or per-turn content manifest is produced.
+  const locationOf = (path: string) => {
+    const location = journalPathScope(path);
+    return location && options.ordinaryWorkspaces && isWithin("workspaces", path) ? { ...location, scope: "", local: path, refs: false } : location;
+  };
   for (const entry of entries) {
+    options.signal?.throwIfAborted();
     if (excluded(entry.path)) continue;
-    const location = journalPathScope(entry.path);
+    const location = locationOf(entry.path);
     if (!location || location.refs) continue;
     if (location.local.split("/").at(-1) !== ".gitignore") continue;
     if (entry.kind !== "file" || entry.bytes > 1024 * 1024) throw new Error("Native journal ignore rules require a bounded regular file.");
@@ -65,9 +70,10 @@ export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: 
     group.push({ directory: location.local.includes("/") ? location.local.slice(0, location.local.lastIndexOf("/")) : "", matcher: ignore().add((await read(entry.path, 1024 * 1024)).toString("utf8")) });
     rules.set(location.scope, group);
   }
+  options.signal?.throwIfAborted();
   for (const group of rules.values()) group.sort((a, b) => a.directory.split("/").length - b.directory.split("/").length || a.directory.localeCompare(b.directory));
   function ignored(path: string): boolean {
-    const location = journalPathScope(path);
+    const location = locationOf(path);
     if (!location) return true;
     if (location.refs || admitted.has(path)) return false;
     const components = location.local.split("/");

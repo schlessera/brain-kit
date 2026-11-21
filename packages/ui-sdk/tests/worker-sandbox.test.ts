@@ -699,3 +699,13 @@ test("a workspace created in an absent-area turn is read-only on the next defaul
     expect(await run(f.brain, next, 'const fs=require("node:fs");let error="";try{fs.writeFileSync("workspaces/ithaca/source.md","attack")}catch(e){error=e.code}console.log(JSON.stringify({read:fs.readFileSync("workspaces/ithaca/source.md","utf8"),error}));', f.home), "NEXT_TURN_SEALS_NEW_WORKSPACE").toEqual({ read: "Athena", error: "EROFS" });
   } finally { f.cleanup(); }
 });
+
+
+test("a saved code-change switch cannot create its missing workspace prerequisite", () => {
+  const f=fixture({workspaces:false});
+  try {
+    const sandbox=prepareFixtureWorkerSandbox(f.brain,{profile:"governed",codeChanges:true,protectedPaths:["workspaces/ithaca/protected.md"]});
+    expect(existsSync(join(f.brain,"workspaces")),"PROTECTION_NEVER_MINTS_A_WORKSPACE").toBe(false);
+    expect(sandbox.areas.find(area=>area.name==="workspaces")!.mount.writable,"MISSING_WORKSPACE_NEVER_BECOMES_WRITABLE").toBe(false);
+  }finally{f.cleanup();}
+});

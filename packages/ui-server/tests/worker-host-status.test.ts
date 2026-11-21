@@ -5,7 +5,7 @@
  * re-records the outcome (worker-host-gate.test.ts proves the turn half).
  */
 import { dirname, join } from "node:path";
-import { mkdirSync, symlinkSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { prepareWorkerSandbox } from "../../ui-sdk/src/server/worker-launcher.js";
 import { mockQualifiedIdentityHelper } from "./helpers/qualified-identity-helper";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -347,4 +347,19 @@ test.each(["absent", "existing", "unqualified"] as const)("status and default ad
     expect(admitted.profile, "DEFAULT_ADMISSION_PROFILE").toBe(profile);
     expect((await workerHostOf(await t.fetch("/api/status")))?.governed, "STATUS_DESCRIBES_THE_SAME_DEFAULT").toMatchObject({ profile, configurationView: profile === "governed" ? "live" : "startup" });
   } finally { await t.teardown(); }
+});
+
+
+test("status includes policy protected paths when workspace parents are absent", async () => {
+  probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),"---\nschema_version: 1\nprotect: [workspaces/ithaca/protected.md]\n---\nAthena protects source.\n");}});
+  try{
+    const admitted=prepareWorkerSandbox(t.brainPath,{profile:"governed",codeChanges:false,protectedPaths:["workspaces/ithaca/protected.md"]});
+    expect(admitted.profile).toBe("strict");expect((await workerHostOf(await t.fetch("/api/status")))?.governed,"STATUS_USES_POLICY_PROTECTED_PATHS").toMatchObject({profile:"strict",configurationView:"startup"});
+  }finally{await t.teardown();}
+});
+
+
+test("status honours the ordinary interactive policy profile", async () => {
+  probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),"---\nschema_version: 1\nprofiles: {interactive: strict, voice: governed}\n---\nAthena selects inspection.\n");}});
+  try{expect((await workerHostOf(await t.fetch("/api/status")))?.governed).toMatchObject({profile:"strict",configurationView:"startup"});}finally{await t.teardown();}
 });

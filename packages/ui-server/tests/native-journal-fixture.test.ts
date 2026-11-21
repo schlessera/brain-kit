@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as asyncFs from "node:fs/promises";
+import { expect, spyOn, test } from "bun:test";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNativeJournalCapture } from "../src/brain/native-journal-capture.js";
@@ -114,11 +115,35 @@ test("mounted workspace inspection never inventories a deep checkout, including 
     const result = await capture.observe(new Map([["inspect", inspect]]));
     expect(result.changes.get("inspect")!.map(change => change.path), "DEEP_CHECKOUT_CANNOT_STOP_NOTE_OBSERVATION").toEqual(["notes/voyage.md"]);
     expect(result.stats.walkedDirectories, "NO_NEW_CHECKOUT_SUBTREE_WALK").toBe(0);
-    expect(result.stats.readEntries, "CHECKOUT_METADATA_NOT_STAT_ED").toBeLessThan(10);
+    // Delta paths may receive bounded inode probes to recover ordinary aliases;
+    // they must never expand into a checkout inventory.
     await result.commit();
     await expect(capture.policy([], { workspaces: true })).rejects.toThrow("depth");
     const healthy = await capture.observe(new Map([["inspect", inspect]]));
     expect(healthy.changes.get("inspect"), "FAILED_WRITER_BASELINE_LEAVES_INSPECT_USABLE").toEqual([]);
     await healthy.commit();
   } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("cancelled writer inventory releases inspection to observe its next note", async () => {
+  const root=mkdtempSync(join(tmpdir(),"odysseus-cancel-inventory-")),brain=join(root,"brain");
+  mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});
+  writeFileSync(join(brain,"notes/voyage.md"),"Before");writeFileSync(join(brain,"workspaces/ithaca/source.md"),"Source");
+  const native=createNativeJournalFixture(brain,root),capture=createNativeJournalCapture(native.manager,async fd=>readFileSync(fd,"utf8"));
+  const controller=new AbortController(),read=asyncFs.readdir;let entered=false;
+  try {
+    await capture.initialize(undefined,{workspaces:false});const inspect=await capture.policy([],{workspaces:false});
+    const spy=spyOn(asyncFs,"readdir").mockImplementation((async (...args: Parameters<typeof read>)=>{
+      const result=await Reflect.apply(read,asyncFs,args);
+      const match=String(args[0]).match(/^\/proc\/self\/fd\/(\d+)\/\.$/);
+      if(match&&readlinkSync(`/proc/self/fd/${match[1]}`).endsWith("/workspaces")){entered=true;controller.abort(new Error("Odysseus cancels inventory"));}
+      return result;
+    }) as typeof read);
+    try {await expect(capture.policy([],{workspaces:true},controller.signal)).rejects.toThrow("Odysseus cancels inventory");}
+    finally{spy.mockRestore();}
+    expect(entered,"WRITER_INVENTORY_REACHED_THE_REAL_DIRECTORY_READER").toBe(true);
+    writeFileSync(join(brain,"notes/voyage.md"),"After");const result=await capture.observe(new Map([["inspect",inspect]]));
+    expect(result.changes.get("inspect")!.map(change=>change.path),"CANCELLED_WRITER_DOES_NOT_BLOCK_INSPECTION").toEqual(["notes/voyage.md"]);await result.commit();
+  }finally{await capture.close();await native.close();rmSync(root,{recursive:true,force:true});}
 });

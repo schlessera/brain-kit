@@ -18,7 +18,7 @@ export function scopeFixture(overrides: { max_tool_calls?: number; max_files_cha
   const scope = createTurnScope(db, { brainPath: brain, journal, connected: () => connected, changed: () => {}, ...(clock ? { now: clock } : {}) });
   const policy = resolveGovernancePolicy({ schema_version: 1, scope: overrides });
   async function begin(origin: "interactive" | "voice" = "interactive") {
-    await journal.begin("voyage", { sessionId: "ithaca", actor: origin, model: null, profile: "governed", policyHash: null, codeChanges: true }, error => { current = false; stopped = error.message; });
+    await journal.begin("voyage", { sessionId: "ithaca", actor: origin, model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, error => { current = false; stopped = error.message; });
     scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin, profile: "governed", policy, source: "policy", hardTimeoutMs: 60 * 60_000,
       current: () => current, stop: reason => { current = false; stopped = reason; } });
   }

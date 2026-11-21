@@ -1000,9 +1000,13 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
       ...(options.restricted ? {} : { home: { mode: "xdg" } }) };
   }
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
+  // Freeze the existing-directory qualification before protection can prepare parents.
+  let workspaceMount: ReturnType<typeof resolveWorkspacesMount>;
+  try { workspaceMount = resolveWorkspacesMount(brain, undefined, options.codeChanges === true && (options.areas?.includes("workspaces") ?? true)); }
+  catch (error) { workspaceMount = { writable: false, reason: `workspaces/ could not be checked (${(error as Error).message})` }; }
   const resolved = options.profile === "governed" ? resolveWorkerProtection(brain, {
     paths: options.protectedPaths, appeared: options.appearedPaths, folderPaths: options.folderPaths,
-    readOnlyRoots: options.codeChanges === true && (options.areas?.includes("workspaces") ?? true) ? [] : ["workspaces"],
+    readOnlyRoots: workspaceMount.writable ? [] : ["workspaces"],
   }) : undefined;
   const areas: WorkerArea[] = [];
   let removed: string[] = [];
@@ -1019,7 +1023,7 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
         const scratch = yield* resolveScratchMountSteps(brain, options.maintenance);
         removed = scratch.removed;
         areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
-      } else areas.push({ name, rel: WORKER_AREAS[name], mount: resolveWorkspacesMount(brain, undefined, options.codeChanges === true && requestedAreas.includes("workspaces")) });
+      } else areas.push({ name, rel: WORKER_AREAS[name], mount: workspaceMount });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
       areas.push({ name, rel: WORKER_AREAS[name], mount: { writable: false, reason: `${WORKER_AREAS[name]}/ could not be checked (${code})` } });

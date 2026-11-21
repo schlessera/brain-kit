@@ -1,3 +1,7 @@
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { prepareClaudeTurnSandbox } from "../src/sdk-options.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { installTestHome } from "../../../scripts/test-home";
 
@@ -57,4 +61,22 @@ test("the real handoff preparation preserves its populated-workspace system prom
   expect(JSON.stringify(prepared.systemPrompt), "HANDOFF_STILL_DESCRIBES_THE_LEGACY_WRITABLE_AREA").toContain("is writable: clone, fetch and commit");
   expect(JSON.stringify(prepared.systemPrompt)).not.toContain("code-changes switch");
   expect(prepared.systemPrompt, "HANDOFF_PREPARATION_DOES_NOT_CHANGE_SYSTEM_PROMPT").toEqual(direct.systemPrompt);
+});
+
+
+test("an interactive caller without a host switch prepares inspection, never writable code", async () => {
+  const brain=mkdtempSync(join(tmpdir(),"odysseus-default-sandbox-"));mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});
+  try {
+    const own=await prepareClaudeTurnSandbox({backend:{brainPath:brain} as never,req:{prompt:"Read Ithaca source.",bridge:{emit(){}},signal:new AbortController().signal} as never,profile:{} as never,turnEnvironment:{}});
+    expect(own!.workerSandbox.areas.find(area=>area.name==="workspaces")!.mount.writable,"HOSTLESS_CALLER_CANNOT_GRANT_CODE_WRITES").toBe(false);
+    expect(own!.workerSandbox.codeChanges).toBe(false);
+  }finally{rmSync(brain,{recursive:true,force:true});}
+});
+
+
+test("direct interactive assembly without a host grant describes inspection", async () => {
+  const snapshot=await sdkOptionsSnapshot("hosted-typed",{populatedWorkspace:true,withoutHostSandbox:true});
+  expect(JSON.stringify(snapshot.systemPrompt),"HOSTLESS_ASSEMBLY_HAS_NO_WRITABLE_WORKSPACE").not.toContain("is writable: clone, fetch and commit");
+  expect(JSON.stringify(snapshot.contextTail)).toContain("code-changes switch");
+  expect(JSON.stringify(snapshot.contextTail),"HOSTLESS_CONTEXT_USES_THE_READ_ONLY_MOUNT").not.toContain("is writable: clone, fetch and commit");
 });

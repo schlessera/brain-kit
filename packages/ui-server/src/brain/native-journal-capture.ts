@@ -41,10 +41,10 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
   const retained = (entry: JournalSnapshotEntry) => entry.kind === "file" && !entry.ignored && !entry.metadataOnly;
   return {
     async initialize(signal?: AbortSignal, options: { workspaces?: boolean } = {}) { await observer.initialize(signal, options); },
-    async policy(covered: readonly string[] = [], options: { workspaces?: boolean } = {}): Promise<NativeJournalPolicy> {
-      if (options.workspaces !== false) await observer.includeWorkspaces();
+    async policy(covered: readonly string[] = [], options: { workspaces?: boolean; ordinaryWorkspaces?: boolean } = {}, signal?: AbortSignal): Promise<NativeJournalPolicy> {
+      if (options.workspaces !== false) await observer.includeWorkspaces(signal);
       const root = observer.currentRoot();
-      return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum, context(root)), covered, options);
+      return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum, context(root, signal)), covered, { ...options, signal });
     },
     allowed(path: string, policy: NativeJournalPolicy): boolean { return !policy.excluded(path) && !!journalPathScope(path) && !policy.ignored(path) && !(rootScope.index && journalMetadataOnlyPath(path)); },
     eligible(path: string, policy: NativeJournalPolicy): boolean {

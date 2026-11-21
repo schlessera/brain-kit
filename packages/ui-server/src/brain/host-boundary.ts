@@ -1,3 +1,4 @@
+import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 /**
  * The host execution boundary (#1648; docs/decisions/governed-writable-workers.md,
  * "The host execution boundary").
@@ -35,7 +36,7 @@ import {
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
-import { createGovernancePolicyReader } from "./governance-policy.js";
+import { governancePolicyReaderFor } from "./governance-policy.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./module-repositories.js";
@@ -535,7 +536,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   // A gated host writer is refused inside its gate transaction. An ungated
   // one (`gate: none`, runSync) still checks every active writer's retained
   // plan when a gate exists; with no gate at all, only the policy is known.
-  const policyReader = createGovernancePolicyReader(brain);
+  const policyReader = governancePolicyReaderFor(brain);
   // Each settles once its check has committed (#2850); nothing spawns before.
   const admitHost = async (hold: GateHold | null) => {
     if (hold) return markUnpinnedHostWriter(hold);
@@ -610,14 +611,15 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       const identity = ordinary.ok && ordinary.identity === "separate_uid"
         ? { identity: "separate_uid" as const, workerUid: ordinary.workerUid }
         : configuredIdentity ? {} : { identity: "shared_uid" as const };
-      const protection = resolveWorkerProtection(brain, { readOnlyRoots: ["workspaces"] });
+      const policy = policyReader.load();
+      const protection = resolveWorkerProtection(brain, { paths: protectedPaths(policy.policy), readOnlyRoots: ["workspaces"] });
       let workspaceFallback: string | undefined;
       try {
         const workspace = resolveWorkspacesMount(brain);
         if (!workspace.writable && !workspace.missing && !workspace.readOnlyPath) workspaceFallback = workspace.reason;
       } catch { workspaceFallback = "workspaces/ could not be qualified"; }
       const fallback = protection.reason ?? workspaceFallback;
-      const profile = options.profile === "strict" || !availability.available || fallback ? "strict" : "governed";
+      const profile = options.profile === "strict" || policy.policy.profiles.interactive === "strict" || !availability.available || fallback ? "strict" : "governed";
       return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
         ...(fallback ? { profileFallback: fallback } : {}),

@@ -15,15 +15,15 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("inspectStage"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("releaseStage"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("readCheckpoint"), id: nativeCheckpointId,
-    action: z.enum(["file", "stat", "list"]), path: z.string().max(4096).refine(path => !path.startsWith("/") && !path.includes("\0") &&
-      (!path || path.split("/").length <= 256 && path.split("/").every(part => part && part !== "." && part !== ".."))),
+    action: z.enum(["file", "stat", "list"]), path: z.string().max(65535).refine(path => !path.startsWith("/") && !path.includes("\0") &&
+      (!path || path.split("/").length <= 32768 && path.split("/").every(part => part && part !== "." && part !== ".."))),
     maximum: z.number().int().nonnegative(),
-  }).strict(),
+  }).strict().refine(request => request.action === "stat" || request.path.length <= 4096 && request.path.split("/").length <= 256),
   z.object({ operation: z.literal("readStage"), id: nativeCheckpointId,
-    action: z.enum(["file", "stat", "list"]), path: z.string().max(4096).refine(path => !path.startsWith("/") && !path.includes("\0") &&
-      (!path || path.split("/").length <= 256 && path.split("/").every(part => part && part !== "." && part !== ".."))),
+    action: z.enum(["file", "stat", "list"]), path: z.string().max(65535).refine(path => !path.startsWith("/") && !path.includes("\0") &&
+      (!path || path.split("/").length <= 32768 && path.split("/").every(part => part && part !== "." && part !== ".."))),
     maximum: z.number().int().nonnegative(),
-  }).strict(),
+  }).strict().refine(request => request.action === "stat" || request.path.length <= 4096 && request.path.split("/").length <= 256),
   z.object({ operation: z.literal("cancelCheckpointRead"), id: nativeCheckpointId }).strict(),
   // Turn data trees (#2911): one app-owned directory per turn on the managed
   // volume, outside the live brain and every checkpoint. The manager alone
@@ -55,10 +55,10 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("poolCheckpoint"), id: nativeCheckpointId, from: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolDelta"), from: nativeCheckpointId, to: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolReadCheckpoint"), id: nativeCheckpointId,
-    action: z.enum(["file", "stat", "list"]), path: z.string().max(4096).refine(path => !path.startsWith("/") && !path.includes("\0") &&
-      (!path || path.split("/").length <= 256 && path.split("/").every(part => part && part !== "." && part !== ".."))),
+    action: z.enum(["file", "stat", "list"]), path: z.string().max(65535).refine(path => !path.startsWith("/") && !path.includes("\0") &&
+      (!path || path.split("/").length <= 32768 && path.split("/").every(part => part && part !== "." && part !== ".."))),
     maximum: z.number().int().nonnegative(),
-  }).strict(),
+  }).strict().refine(request => request.action === "stat" || request.path.length <= 4096 && request.path.split("/").length <= 256),
   z.object({ operation: z.literal("poolAccessOpen"), access: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolAccess"), id: nativeCheckpointId, access: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolPark"), id: nativeCheckpointId, expectedAccess: nativeCheckpointId.optional() }).strict(),

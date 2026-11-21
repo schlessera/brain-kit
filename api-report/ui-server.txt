@@ -2632,7 +2632,6 @@ signatures (every public export and the types it is made of)
         attachWorktree(turnId: string, worktreeId: string, signal?: AbortSignal): Promise<void>;
         begin(turnId: string, metadata: {
             actor: "interactive" | "user" | "voice";
-            codeChanges?: boolean;
             coveredPaths?: readonly string[];
             model: null | string;
             policyHash: null | string;

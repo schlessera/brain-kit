@@ -1375,7 +1375,9 @@ history. An absent optional workspace keeps the governed writable brain,
 without a workspace overlay or live mountpoint. Creation beneath that absent
 name remains ordinary retained and charged content for the whole turn; the
 next default admission seals it. Exclusion requires a qualified read-only
-workspace mount. Metadata readers omit that checkout before traversal. Workspace sealing precedes protected child masks, and its
+workspace mount. Metadata readers omit checkout inventories; bounded delta inode probes recover
+ordinary hard-link aliases before workspace exclusion. Strict and private-index
+data copies leave a qualified inspection workspace on its sealed source. Workspace sealing precedes protected child masks, and its
 ancestor pins remain read-only, preserving quarantine and provider masks.
 Host applications keep workspace protection until a writable mount qualifies,
 even when the saved switch requests one. Inspect participants do not change a

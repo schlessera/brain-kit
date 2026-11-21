@@ -272,3 +272,12 @@ test("workspace installs refuse through the real permission dispatcher with both
   context.workerSandbox = { ...context.workerSandbox!, codeChanges: true, areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: true, path: join(root, "workspaces") } }] };
   expect(await dispatch(rpc("permission", "bash", { command: "npm install --prefix workspaces/ithaca" }, "call-writer")), "OPTED_IN_WRITER_REMAINS_USABLE").toMatchObject({ behavior: "allow" });
 });
+
+
+test("package read commands and clean-install use the Pi permission grammar", async () => {
+  const {dispatch}=harness({workerSandbox:{brain:root,profile:"governed",restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces",rel:"workspaces",mount:{writable:false,readOnlyPath:join(root,"workspaces"),reason:"inspection"}}]}});
+  for(const command of ["npm help install","npm ls build","npm view install","npm outdated"])
+    expect(await dispatch(rpc("permission","bash",{command:`cd workspaces/ithaca && ${command}`},command)),"PI_PACKAGE_READ_REMAINS_USABLE").toMatchObject({behavior:"allow"});
+  const answer=await dispatch(rpc("permission","bash",{command:"cd workspaces/ithaca && npm clean-install"},"clean-install"));
+  expect(answer,"PI_CLEAN_INSTALL_REFUSES").toMatchObject({behavior:"deny"});expect(JSON.stringify(answer)).toContain("code-changes switch");expect(JSON.stringify(answer)).toContain("managed worktree");
+});

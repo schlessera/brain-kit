@@ -9,7 +9,7 @@ import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createSessionProfiles } from "../src/ws/session-profiles";
 import { createSessionProfileRoutes } from "../src/routes/session-profiles";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
@@ -667,5 +667,31 @@ test("an absent-area admission permits ordinary host writes before the next turn
     await runSession(host, input); await runSession(host, input);
     expect(results[0], "ABSENT_AREA_HOST_WRITE_IS_ORDINARY_CONTENT").toMatchObject({ ok: true });
     expect(results[1], "NEXT_ADMISSION_HOST_WRITE_MEETS_READ_ONLY_MOUNT").toMatchObject({ ok: false, code: "policy_denied" });
+  } finally { host.close(); }
+});
+
+
+test("a workspace symlink cannot protect unrelated ordinary Markdown applications", async () => {
+  const f = fixture();
+  mkdirSync(join(f.brain, "notes")); symlinkSync(f.brain, join(f.brain, "workspaces"));
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("symlink-source", "Ithaca source.", "claude", "claude", principal.id);
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const results: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult[] = [];
+  const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
+    results.push(await request.bridge.applyBrain!({ operation: "write", path: results.length ? "workspaces/notes/raft.md" : "notes/raft.md", content: "Athena inspects source.", expectedBaseHash: null }));
+    request.bridge.emit({ type: "session_info", sessionId: "symlink-source", isNew: false });
+    request.bridge.emit({ type: "result", sessionId: "symlink-source", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  backend.brainApplicationPolicy = () => ({ autoAllowed: ["write"], available: ["write"], lock: createKeyedLock() });
+  const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, sessionProfiles: profiles, catalog, isPrincipalAuthorized: id => id === principal.id,
+    registry: createStaticBackendRegistry([backend], backend.id) });
+  host.clients.add({ send() {} }, principal.id);
+  try {
+    const input = { authorization: testAuthorization(principal.id), sessionId: "symlink-source", text: "Odysseus inspects source.", attachments: [] };
+    await runSession(host, input); await runSession(host, input);
+    expect(results[0], "WORKSPACE_LINK_DOES_NOT_PROTECT_THE_WHOLE_BRAIN").toMatchObject({ ok: true });
+    expect(results[1], "WORKSPACE_NAMESPACE_STILL_REFUSES_WRITES").toMatchObject({ ok: false, code: "policy_denied" });
   } finally { host.close(); }
 });

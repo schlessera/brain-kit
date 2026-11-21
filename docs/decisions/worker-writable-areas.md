@@ -415,18 +415,26 @@ accounting. Previously retained workspace history remains readable.
 is absent at launch, keep the ordinary governed writable brain. Create no
 live mountpoint and install no workspace overlay. Exclusion is not in force
 for that turn: anything it creates beneath `workspaces/` is ordinary brain
-content, journaled with retained versions and charged bytes and paths. The
+content, using the brain's frozen root ignore rules and journaled with retained
+versions and charged bytes and paths. The
 next default turn sees the directory and binds it read-only. The switch alone
 permits a writable existing workspace. Journal exclusion keys the qualified
 read-only workspace mount, never the path name or the saved preference alone.
-If absence changes before launch, retry admission rather than using a stale
+The existing-directory qualification precedes protected-parent preparation,
+including with the switch enabled: preparation cannot mint its own writable
+workspace prerequisite. If absence changes before launch, retry admission rather than using a stale
 mount/coverage plan. An explicitly protected missing ancestor still needs the
 strict view when its protection cannot be enforced without creating content.
 
-Inspection metadata readers skip the mounted checkout before stat or descent,
-at initial inventory and at delta expansion. Shared observations include the
+Inspection metadata readers omit the mounted checkout from initial inventory
+and subtree expansion. Delta paths receive bounded single-path inode probes
+before exclusion, so an update reported through a workspace hard link cannot
+hide a change to its ordinary note alias. These probes never inventory the
+checkout. Shared observations include the
 checkout only while a participant covers it; a new writer inventories its
-baseline from the current sealed root. A failed writer-only inventory leaves
+baseline from the current sealed root with the admission cancellation signal.
+Only a transition from writer coverage removes indexed checkout entries;
+unchanged inspection commits never scan the whole brain index. A failed writer-only inventory leaves
 an inspection turn usable.
 
 The authenticated code-changes preference survives resume and applies at the

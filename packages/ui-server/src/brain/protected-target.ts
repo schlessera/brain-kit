@@ -65,7 +65,12 @@ export function protectedPlaces(root: string, protectedPaths: readonly string[])
   const brain = realpathSync(root);
   let env: string[] = [];
   try { env = readdirSync(brain).filter(isEnvName); } catch { /* An unreadable root lists no names. */ }
-  return [...protectedPaths, ...env].flatMap(path => places(brain, path));
+  return [...protectedPaths, ...env].flatMap(path => {
+    // An unqualified optional workspace is a protected namespace, not a grant
+    // to protect whichever unrelated destination its symlink names.
+    if (path === "workspaces" && lstatSync(join(brain, path), { throwIfNoEntry: false })?.isSymbolicLink()) return [join(brain, path)];
+    return places(brain, path);
+  });
 }
 
 /**

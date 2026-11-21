@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, linkSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -344,4 +344,24 @@ test("observer close cancels its slow retry even when shutdown release also fail
     expect(f.waiting, "OBSERVER_CLOSED_MANAGER_NOT_REVISITED").toEqual([]);
     expect(f.observer.releases()).toEqual({ pending: 0, failed: 1, retainedBytes: "Penelope waits at Ithaca.\n".length });
   } finally { await f.close(); timers.restore(); }
+});
+
+
+test("warm inspection commits never iterate the whole brain metadata index", async () => {
+  const root=mkdtempSync(join(tmpdir(),"odysseus-warm-index-")),brain=join(root,"brain");mkdirSync(join(brain,"notes"),{recursive:true});
+  for(let i=0;i<600;i++)writeFileSync(join(brain,`notes/note-${i}.md`),"Ithaca");
+  const native=createNativeJournalFixture(brain,root),observer=createNativeJournalObserver(native.manager);
+  try {
+    await observer.initialize(undefined,{workspaces:false});
+    for(let i=0;i<2;i++){
+      const result=await observer.observe(undefined,undefined,{workspaces:false});
+      const original=Map.prototype.keys;
+      const spy=spyOn(Map.prototype,"keys").mockImplementation(function(this:Map<unknown,unknown>){
+        if(this.size>500)throw new Error("Warm commit enumerated the whole brain");
+        return Reflect.apply(original,this,[]);
+      });
+      try{await result.commit();}finally{spy.mockRestore();}
+    }
+    expect([...observer.entries()].length,"THE_LARGE_NOTE_BASELINE_REMAINS_INTACT").toBe(601);
+  }finally{await observer.close();await native.close();rmSync(root,{recursive:true,force:true});}
 });

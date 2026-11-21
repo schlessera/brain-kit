@@ -333,7 +333,7 @@ function prepareSandboxNote(
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
     ...(req.workerProviderMasks ? { providerMasks: req.workerProviderMasks } : {}), ...(req.workerDataTree ? { dataTree: req.workerDataTree } : {}) }
-    : req.workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { maintenance: backend.maintenance, codeChanges: true });
+    : req.workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { maintenance: backend.maintenance, codeChanges: false });
   for (const warning of workerSandboxWarnings(sandbox)) log("warn", warning);
   // The same for its resource limits (#1660).
   const limits = launchLimits({});
@@ -342,7 +342,12 @@ function prepareSandboxNote(
   const stateLimits = resolveWorkerStateLimits(backend.workerState ?? {});
   // And so is turn temp's, next to the tool that frees it (#1703).
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
-  const sandboxNote = [workerSandboxNote(!req.workerSandbox && !envelope ? { ...sandbox, codeChanges: undefined } : sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
+  // Only the nonpersistent read-only summary keeps its historical prompt text.
+  // This rendering plan never becomes the launched sandbox or a write grant.
+  const legacySummary = req.autonomous?.persistence === "none" && !req.autonomous.containment
+    && req.autonomous.allowedTools.every(name => ["Read", "Glob", "Grep"].includes(name));
+  const noteSandbox = legacySummary ? { ...prepareWorkerSandbox(backend.brainPath, { maintenance: backend.maintenance, codeChanges: true }), codeChanges: undefined } : sandbox;
+  const sandboxNote = [workerSandboxNote(noteSandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
     outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
   return { sandbox, limits, stateLimits, turnTempLimits, sandboxNote };
@@ -750,5 +755,5 @@ export async function prepareClaudeTurnSandbox(options: Pick<ClaudeSdkTurnOption
   const { backend, req } = options;
   if (req.workerSandbox || options.hostInference || req.autonomous?.containment === "restricted") return undefined;
   const turnEnvironment = options.turnEnvironment ?? turnEnv(options.profile);
-  return { turnEnvironment, workerSandbox: { ...await prepareWorkerSandboxAsync(backend.brainPath, { maintenance: backend.maintenance, codeChanges: true }), codeChanges: undefined } };
+  return { turnEnvironment, workerSandbox: await prepareWorkerSandboxAsync(backend.brainPath, { maintenance: backend.maintenance, codeChanges: false }) };
 }

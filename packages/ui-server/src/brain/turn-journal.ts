@@ -532,7 +532,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
-    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[]; codeChanges?: boolean; workspaceReadOnly?: boolean; workspaceMissing?: boolean }, stop: (error: Error) => void, signal?: AbortSignal,
+    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[]; workspaceReadOnly?: boolean; workspaceMissing?: boolean }, stop: (error: Error) => void, signal?: AbortSignal,
       /** Each step of the admission (#3355); a failed step is left unended. */ timing?: PhaseTimer) {
       return held(async steps => {
       signal?.throwIfAborted();
@@ -553,7 +553,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       end?.();
       try {
       end = steps?.("policy");
-      const policy = await capture.policy(metadata.coveredPaths, { workspaces: metadata.workspaceReadOnly !== true || metadata.actor === "user" });
+      const policy = await capture.policy(metadata.coveredPaths, { workspaces: metadata.workspaceReadOnly !== true || metadata.actor === "user", ordinaryWorkspaces: metadata.workspaceMissing === true }, signal);
       end?.();
       signal?.throwIfAborted();
       active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId, ordinaryWorkspaces: metadata.workspaceMissing === true }); publish(turnId);
@@ -633,7 +633,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId, options.referenceCheckpoints), retainVersion, {}, readIdentity, { steering: false, index: false }, releaseFailed);
       try {
         await root.initialize(signal);
-        const policy = await root.policy();
+        const policy = await root.policy([], {}, signal);
         signal?.throwIfAborted();
         worktrees.set(worktreeId, { turnId, capture: root, policy });
       } catch (error) { await retireWorktree(root); throw signal?.aborted ? error : storageError(error); }

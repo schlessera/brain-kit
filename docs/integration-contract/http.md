@@ -49,9 +49,12 @@ observations with an opted-in writer. Retained history from earlier turns
 remains readable with its existing routes and shapes. If the optional area
 is absent at launch, governed note writes stay live, no mountpoint is created,
 and workspace exclusion does not apply: new content under that name is
-retained and charged as ordinary brain content for that turn. The next default
+retained and charged as ordinary brain content for that turn, including the
+brain's frozen root ignore rules. The next default
 turn binds the new directory read-only. Status describes the same default
-qualification, including an unqualified workspace root selecting strict.
+qualification, including an unqualified workspace root or unenforceable policy-protected
+parent selecting strict. An unqualified workspace symlink protects only its
+namespace; it never makes unrelated note destinations protected.
 
 **Additive API:** authenticated `GET` and `PUT`
 `/api/sessions/:id/code-changes` and `/api/drafts/:id/code-changes` return

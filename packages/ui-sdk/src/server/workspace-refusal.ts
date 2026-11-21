@@ -28,13 +28,32 @@ export function workspaceWriteRefusal(sandbox: WorkerSandbox | undefined, toolNa
       const [name, ...args] = words;
       if (name === "cd") { const path = args.find(arg => !arg.startsWith("-")); if (path) directory = resolve(directory, path); }
       else if (["npm", "pnpm", "yarn", "bun"].includes(name ?? "")) {
-        const install = args.some(arg => ["install", "i", "ci", "add", "build"].includes(arg)) || name === "yarn" && args.length === 0;
+        // Command grammar: options precede a subcommand; operands never
+        // become commands (for example `npm help install` and `npm ls build`).
+        const valueFlags = new Set(["--prefix", "--cwd", "--dir", "-C", "--cache", "--registry", "--userconfig", "--loglevel", "--filter", "-F", "--workspace", "-w"]);
+        const operands: string[] = [];
+        const separator = args.indexOf("--"), optionArgs = separator < 0 ? args : args.slice(0, separator);
         let destination = ".";
         for (let i = 0; i < args.length; i++) {
           const flag = args[i]!;
-          if (["--prefix", "--cwd", "--dir", "-C"].includes(flag) && args[i + 1]) destination = args[++i]!;
+          if (flag === "--") { operands.push(...args.slice(i + 1)); break; }
+          if (["--prefix", "--cwd", "--dir", "-C"].includes(flag) && args[i + 1]) destination = args[i + 1]!;
           else if (/^--(?:prefix|cwd|dir)=/u.test(flag)) destination = flag.slice(flag.indexOf("=") + 1);
+          if (valueFlags.has(flag)) { i++; continue; }
+          if (!flag.startsWith("-")) operands.push(flag);
         }
+        const [verb, ...parameters] = operands;
+        const mutating: Record<string, readonly string[]> = {
+          npm: ["install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall", "add", "ci", "clean-install", "ic", "install-clean", "isntall-clean", "install-test", "it", "install-ci-test", "cit", "clean-install-test", "sit", "update", "up", "upgrade", "udpate", "uninstall", "un", "remove", "rm", "r", "unlink", "rebuild", "rb", "dedupe", "ddp", "prune", "shrinkwrap", "link", "ln", "build", "test", "t", "tst", "start", "stop", "restart", "exec", "x", "init", "create", "innit", "pack"],
+          pnpm: ["install", "i", "add", "update", "up", "upgrade", "remove", "rm", "uninstall", "un", "prune", "rebuild", "rb", "import", "link", "unlink", "dedupe", "exec", "dlx", "deploy", "patch", "patch-commit", "build", "test", "start", "dev", "init", "create", "pack"],
+          yarn: ["install", "add", "remove", "upgrade", "upgrade-interactive", "up", "dedupe", "rebuild", "exec", "dlx", "create", "init", "link", "unlink", "pack", "patch", "patch-commit", "build", "test", "start", "dev"],
+          bun: ["install", "i", "add", "a", "remove", "rm", "r", "update", "dedupe", "prune", "build", "test", "check", "fmt", "exec", "x", "init", "create", "link", "unlink"],
+        };
+        const script = ["run", "run-script", "rum", "urn"].includes(verb ?? "") && parameters.length > 0;
+        const nested = verb === "audit" && parameters[0] === "fix" || verb === "pkg" && ["set", "delete", "fix"].includes(parameters[0] ?? "")
+          || verb === "version" && parameters.length > 0 || name === "bun" && verb === "pm" && ["trust", "migrate"].includes(parameters[0] ?? "");
+        const install = !optionArgs.some(arg => ["--help", "-h", "--version", "-v"].includes(arg))
+          && (mutating[name!]!.includes(verb ?? "") || script || nested || name === "yarn" && !verb);
         if (install && target(destination)) writes = true;
       } else if (name === "cp" || name === "mv") {
         const operands = args.filter(arg => !arg.startsWith("-"));

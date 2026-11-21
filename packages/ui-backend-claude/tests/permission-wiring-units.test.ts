@@ -256,3 +256,23 @@ test("reference source install refusal names both remedies even in code-change m
   expect(JSON.stringify(answer)).toContain("code-changes switch");
   expect(JSON.stringify(answer)).toContain("managed worktree");
 });
+
+
+test("package command grammar distinguishes subcommands from read-only operands", async () => {
+  const {ctx}=contextFor({allowedTools:["Bash"]});
+  ctx.req.workerSandbox={brain:"/srv/odysseus-brain",profile:"governed",restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces",rel:"workspaces",mount:{writable:false,readOnlyPath:"/srv/odysseus-brain/workspaces",reason:"inspection"}}]};
+  const hook=enforcementHookFor(ctx);
+  for(const command of ["npm help install","npm ls build","npm view install","npm outdated","pnpm help install","pnpm list build","yarn help add","yarn info build","bun help install","bun outdated"])
+    expect(await hook(...hookCall("Bash",{command:`cd workspaces/ithaca && ${command}`})),`READ_ONLY_PACKAGE_COMMAND_${command}`).toEqual({continue:true});
+ });
+
+test("mutating package subcommands and documented aliases are refused", async () => {
+  const {ctx}=contextFor({allowedTools:["Bash"]});
+  ctx.req.workerSandbox={brain:"/srv/odysseus-brain",profile:"governed",restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces",rel:"workspaces",mount:{writable:false,readOnlyPath:"/srv/odysseus-brain/workspaces",reason:"inspection"}}]};
+  const hook=enforcementHookFor(ctx);
+  for(const command of ["npm install","npm i","npm ci","npm clean-install","npm install-clean","npm ic","npm add","npm update","npm run build","npm run build -- --help","npm run build -- --prefix /tmp","npm run-script build","npm build","pnpm install","pnpm add","pnpm update","pnpm run build","yarn install","yarn add","yarn up","yarn run build","bun install","bun i","bun add","bun update","bun build index.ts","bun run build"]){
+    const result=await hook(...hookCall("Bash",{command:`cd workspaces/ithaca && ${command}`}));
+    expect(result,`MUTATING_PACKAGE_COMMAND_${command}`).toMatchObject({hookSpecificOutput:{permissionDecision:"deny"}});
+    expect(JSON.stringify(result)).toContain("code-changes switch");expect(JSON.stringify(result)).toContain("managed worktree");
+  }
+});

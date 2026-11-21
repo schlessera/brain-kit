@@ -1,10 +1,10 @@
-import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { createNativeJournalFixture, fixtureDelta, inventory } from "./helpers/native-journal-fixture.js";
 import { connectedSafetySession } from "./helpers/connected-safety.js";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import { expectRejection } from "./helpers/expect-rejection.js";
-import { closeSync, fstatSync, mkdtempSync, mkdirSync, openSync, rmSync, writeFileSync, readFileSync, statSync, existsSync } from "node:fs";
+import { cpSync, linkSync, unlinkSync, closeSync, fstatSync, mkdtempSync, mkdirSync, openSync, rmSync, writeFileSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createActivityStore } from "../src/activity/store.js";
@@ -902,4 +902,52 @@ test("an absent workspace stays ordinary retained content until the next mounted
     expect(f.journal.details("ithaca", "mounted")!.changes, "NEXT_INSPECT_TURN_EXCLUDES_MOUNTED_WORKSPACE").toEqual([]);
     await f.journal.finish("mounted");
   } finally { await f.close(); }
+});
+
+
+test("an excluded workspace delta alias still retains and charges its ordinary hard-linked note", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-alias-delta-")), brain = join(root, "brain");
+  mkdirSync(join(brain, "notes"), {recursive:true}); mkdirSync(join(brain, "workspaces/ithaca"), {recursive:true});
+  const note = "notes/raft.md", alias = "workspaces/ithaca/alias.md";
+  writeFileSync(join(brain,note), "Before"); linkSync(join(brain,note),join(brain,alias));
+  let prior: string | undefined;
+  const native = createNativeJournalFixture(brain,root,(from,to) => {
+    cpSync(from,to,{recursive:true,preserveTimestamps:true});
+    if(prior && readFileSync(join(prior,note)).equals(readFileSync(join(to,note)))){unlinkSync(join(to,note));linkSync(join(prior,note),join(to,note));}
+    unlinkSync(join(to,alias)); linkSync(join(to,note),join(to,alias)); prior=to;
+  });
+  const checkpoints = new Map<string, Awaited<ReturnType<typeof native.manager.checkpoint>>>();
+  const checkpoint = native.manager.checkpoint.bind(native.manager);
+  native.manager.checkpoint = async (...args) => { const value = await checkpoint(...args); checkpoints.set(value.id,value); return value; };
+  native.manager.delta = async (from,to) => {
+    const before=checkpoints.get(from)!,after=checkpoints.get(to)!;
+    return fixtureDelta({...before,entries:new Map([[alias,inventory(before.path).get(alias)!]])}, {...after,entries:new Map([[alias,inventory(after.path).get(alias)!]])},to);
+  };
+  const path=join(root,"ui.db"),db=createUiDb(path),journal=createTurnJournal(db,{brainPath:brain,dbPath:path,objectsRoot:join(root,"objects"),nativeManager:native.manager});
+  let charged=0;journal.onObservation((_id,facts)=>{charged=facts.observedBytes;});
+  try {
+    await journal.begin("voyage",{sessionId:"ithaca",actor:"interactive",model:null,profile:"governed",policyHash:null,workspaceReadOnly:true},error=>{throw error;});
+    writeFileSync(join(brain,note),"After");await journal.observe();
+    const changes=journal.details("ithaca","voyage")!.changes;
+    expect(changes.map(c=>c.path),"EXCLUDED_ALIAS_RECOVERS_ORDINARY_NOTE").toEqual([note]);
+    expect(journal.version("ithaca","voyage",changes[0]!.sequence,"before")!.bytes(1024).toString()).toBe("Before");
+    expect(journal.version("ithaca","voyage",changes[0]!.sequence,"after")!.bytes(1024).toString()).toBe("After");
+    expect(charged,"ALIASED_NOTE_BYTES_STILL_CHARGED").toBe(5); await journal.finish("voyage");
+  } finally {await journal.close();await native.close();db.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test("an absent workspace uses the ordinary brain's frozen root ignore rules", async () => {
+  const f=fixture();writeFileSync(join(f.brain,".gitignore"),"private.md\n");
+  try {
+    await f.journal.begin("ordinary",{sessionId:"ithaca",actor:"interactive",model:null,profile:"governed",policyHash:null,workspaceMissing:true,workspaceReadOnly:false},error=>{throw error;});
+    mkdirSync(join(f.brain,"workspaces/ithaca"),{recursive:true});
+    for(const path of ["notes/private.md","workspaces/ithaca/private.md"])writeFileSync(join(f.brain,path),"Athena's private notes");
+    await f.journal.observe();
+    for(const path of ["notes/private.md","workspaces/ithaca/private.md"]){
+      const row=f.db.query("SELECT after_json AS value FROM turn_journal_changes WHERE turn_id='ordinary' AND path=?").get(path) as {value:string};
+      expect(JSON.parse(row.value),"ORDINARY_ROOT_IGNORE_APPLIES_EQUALLY").toMatchObject({ignored:true});
+      expect(JSON.parse(row.value).hash,"IGNORED_ORDINARY_CONTENT_NOT_RETAINED").toBeUndefined();
+    }
+    await f.journal.finish("ordinary");
+  }finally{await f.close();}
 });

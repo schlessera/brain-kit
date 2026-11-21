@@ -67,7 +67,7 @@ def read_child(output):
  root_mount=mount_identity(3)
  def parts(value):
   result=value.split("/") if value else []
-  if value.startswith("/") or "\0" in value or len(result)>256 or any(p in ("",".","..") for p in result):raise ValueError("invalid relative checkpoint path")
+  if value.startswith("/") or "\0" in value or len(result)>(32768 if action=="stat" else 256) or any(p in ("",".","..") for p in result):raise ValueError("invalid relative checkpoint path")
   return result
  def directory(names):
   fd=os.dup(3)
