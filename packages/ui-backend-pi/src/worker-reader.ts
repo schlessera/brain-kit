@@ -7,7 +7,7 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
-import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { LaunchedWorker, NativeFileVersions, sessionPromptContext, WorkerResourceLimitError } from "@schlessera/brain-ui-sdk/internal";
 
 import type { CreatePiBackendOptions, SessionEnv } from "./backend-options.js";
@@ -34,6 +34,7 @@ export interface PiWorkerTurnState {
 }
 
 export interface PiWorkerReader {
+  startupTiming?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["startupTiming"];
   child: LaunchedWorker;
   state: PiWorkerTurnState;
   ready: PromiseWithResolvers<void>;
@@ -64,8 +65,12 @@ export interface PiWorkerReader {
 
 /** Reads the worker's frames until its protocol closes; throws when it ends without completing. */
 export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void> {
+  const startupTiming = safeStartupTiming(reader.startupTiming);
   const { child, state, ready, done, sessionId, backend, startupStarted, promptContext, sessionBudgetLimits, autonomous, resumed,
     turnContext, nativeVersions, receipts, resumedIds, listeners, proof, toolExecution, dispatch, send, fail, reportLimitHits, limitEnded, diagnostic } = reader;
+  // Startup diagnostics carry no authority. Retain at most the first of each
+  // of the protocol's four phases, and none once initialization is complete.
+  const startupPhases = new Set<string>();
   for await (const raw of pipeMessages(child.stdout)) {
     let msg: PiWorkerMessage;
     try {
@@ -81,6 +86,9 @@ export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void
       throw error;
     }
     if (msg.type === "startup_timing") {
+      if (state.initialized || startupPhases.has(msg.phase)) continue;
+      startupPhases.add(msg.phase);
+      startupTiming?.worker(msg.phase === "worker_started" ? "bootstrap_imports" : msg.phase, msg.durationMs);
       backend.log?.("debug", "Pi startup phase", { phase: msg.phase, durationMs: msg.durationMs, elapsedMs: performance.now() - startupStarted });
     } else if (msg.type === "ready") {
       backend.log?.("debug", "Pi startup ready", { elapsedMs: performance.now() - startupStarted });

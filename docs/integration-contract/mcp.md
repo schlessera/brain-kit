@@ -580,6 +580,12 @@ browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
 `run` | `rollups` | `inbox` | `roadblocks` (additive in 0.42.0); results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
+Host turn lifecycle envelopes are excluded from every `query_activity` result:
+their milestones, phase arrays, host events and missing-evidence diagnostics
+remain on the owner-facing Activity API and stream. A lifecycle-only run query
+returns its `runId` without the envelope. This also removes the pre-existing
+admission/journal lifecycle fields from recent, full and pruned run queries;
+already recorded provider messages are never rewritten.
 The `roadblocks` scope reads retained governance episodes rather than prunable
 Activity details. Optional `hoursBack` is an integer from 1 to 2160 (default
 24), and `limit` is an integer from 1 to 100 (default 20), applied separately

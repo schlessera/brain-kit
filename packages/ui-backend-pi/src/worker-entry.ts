@@ -40,7 +40,8 @@ interface Init {
   /** Present for a governed or strict turn on the turn proxy: the host holds the credential (#1665). */
   relayed?: PiRelayedInference;
 }
-sendPipe(process.stdout, { type: "startup_timing", phase: "worker_started", durationMs: 0 });
+// performance.now() is relative to this process's timeOrigin, including static imports.
+sendPipe(process.stdout, { type: "startup_timing", phase: "worker_started", durationMs: performance.now() });
 let session: PiSessionLike | undefined;
 let initialized=false;
 let manager: SessionManager | undefined;
