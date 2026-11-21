@@ -108,7 +108,8 @@ for(const source of sources)for(const caller of callers)test(`refusal matrix: ${
   const record=records.at(-1);
   if(exemption){expect(status,'HOST_RELAYS_RETAIN_G5_EXEMPTION').toBe(200);expect(record?.failureReason).toBeUndefined();}
   else{
-   if(caller!=='reference')expect(status,'CALLER_PRESERVES_REFUSAL_STATUS').toBe((source.category==='cancelled'||source.name==='recording abort')&&['HTTP','CONNECT'].includes(caller)?0:source.category==='unavailable'?503:source.category==='cancelled'?499:403);
+   if(caller==='cleanup')expect(status,'RECEIPT_HAS_NO_UPSTREAM_STATUS_BEFORE_RESPONSE').toBe(0);
+   else if(caller!=='reference')expect(status,'CALLER_PRESERVES_REFUSAL_STATUS').toBe((source.category==='cancelled'||source.name==='recording abort')&&['HTTP','CONNECT'].includes(caller)?0:source.category==='unavailable'?503:source.category==='cancelled'?499:403);
    expect(record,'CALLER_PRESERVES_TERMINAL_AUDIT').toMatchObject({reason:source.detail,failureReason:source.category,outcome:source.category==='cancelled'||source.name==='source removal'?'cancelled':source.name==='host error'?'failed':'denied'});
    expect(hits,'REFUSED_OPERATION_NEVER_DISPATCHES').toBe(0);
   }

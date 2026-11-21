@@ -6037,3 +6037,9 @@ and `error.reason`. Dispatch observers run before a final typed send fence;
 a synchronous authority or recording change refuses the upstream request.
 Files cleanup responses charge their headers against the same turn ceiling as
 ordinary provider responses, with a budget refusal if those headers exceed it.
+
+Provider receipt `status` is exclusively the observed upstream HTTP status,
+including cancellation and cleanup; it stays 0 until a response arrives.
+Local refusal status remains in the caller response. Governed buffered Files
+answers and streaming scrubber tails revalidate safety at EOF before exposing
+held bytes or registering upload URLs and handles.

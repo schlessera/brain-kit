@@ -519,35 +519,37 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
     const attemptId = crypto.randomUUID();
     let reported = false;
-    const observe = (outcome: ProviderRelayReceipt["outcome"], status: number, usage: ProviderUsage | null): void => {
-      try { options.observe?.({ attemptId, family, operation: route.operation, origin, key, model, outcome, status, usage, inlineMedia }); }
+    let upstreamStatus=0;
+    const observe = (outcome: ProviderRelayReceipt["outcome"], usage: ProviderUsage | null): void => {
+      try { options.observe?.({ attemptId, family, operation: route.operation, origin, key, model, outcome, status:upstreamStatus, usage, inlineMedia }); }
       catch { /* The host's own accounting reports its failure; the worker's answer is unaffected. */ }
     };
-    const report = (outcome: Exclude<ProviderRelayReceipt["outcome"], "dispatched">, status: number, usage: ProviderUsage | null): void => {
+    const report = (outcome: Exclude<ProviderRelayReceipt["outcome"], "dispatched">, usage: ProviderUsage | null): void => {
       if (reported) return;
       reported = true;
-      observe(outcome, status, usage);
+      observe(outcome, usage);
       done();
     };
-    observe("dispatched", 0, null);
+    observe("dispatched", null);
     let response: Response;
     try {
       // Never follow a redirect: the upstream must not choose another host.
       const finalFailure=chargeFailure(0) ?? captureEgressFailure(signal).failure;
-      if(finalFailure){report("cancelled",egressChargeRefusal(finalFailure,"Provider").status,null);return chargeDenied(finalFailure);}
+      if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       response = await fetch(target, { method: request.method, headers, ...(request.method === "POST" ? { body } : {}), redirect: "manual", signal });
+      upstreamStatus=response.status;
     } catch {
       const cause=captureEgressFailure(signal,operation);
       operation?.finish(cause.outcome,"upstream_unreachable");
       // No upstream HTTP status or usage was observed for a transport failure.
-      report(cause.outcome,cause.failure?cause.status:0,null);
+      report(cause.outcome,null);
       return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider upstream unreachable");
     }
     free();
     if (response.status >= 300 && response.status < 400) {
       operation?.finish("failed", "upstream_redirected");
       await response.body?.cancel().catch(() => {});
-      report("failed", response.status, null);
+      report("failed", null);
       return refuse(502, "upstream_redirected", "Provider upstream redirected; redirects are not followed");
     }
     const out = new Headers();
@@ -560,7 +562,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const responseChargeFailure = chargeFailure(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers));
     if (responseChargeFailure) {
       await response.body?.cancel().catch(() => {});
-      report("cancelled", response.status, null);
+      report("cancelled", null);
       return chargeDenied(responseChargeFailure);
     }
     if (files) {
@@ -581,21 +583,22 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
         const cause=readCause??captureEgressFailure(signal,operation);
         await response.body?.cancel().catch(() => {});
         if (typeof failure === "object") {
-          report("cancelled", response.status, null);
+          report("cancelled", null);
           return chargeDenied(failure);
         }
         operation?.finish(cause.outcome,"upstream_response_failed");
-        report(cause.outcome,response.status,null);
+        report(cause.outcome,null);
         return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider response interrupted");
       }
-      operation?.finish("completed");
-      report(response.ok ? "completed" : "failed", response.status, null);
+      const finalFailure=chargeFailure(0);
+      if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       const answer = Buffer.concat(chunks);
       if (files.step === "start" && response.ok) {
         let issued: URL | undefined;
         try { issued = new URL(response.headers.get("x-goog-upload-url") ?? ""); } catch { issued = undefined; }
         // Only the authorized origin's own upload path, with no credentials of its own.
         if (!issued || issued.origin !== target.origin || !issued.pathname.startsWith("/upload/") || issued.username || issued.password) {
+          operation?.finish("failed","upload_url_rejected");report("failed",null);
           return refuse(502, "upload_url_rejected", "The provider named an upload URL the relay does not send bytes to");
         }
         const token = crypto.randomUUID();
@@ -611,7 +614,10 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
         if (response.ok && typeof name === "string" && FILE_HANDLE.test(`/v1beta/${name}`)) owned.set(ownedId(key, name), { key, origin, name });
       }
       if (files.step === "delete" && (response.ok || response.status === 404)) owned.delete(ownedId(key, files.name));
-      return new Response(scrub(new Uint8Array(answer), true) as Uint8Array<ArrayBuffer>, { status: response.status, headers: out });
+      const result=new Response(scrub(new Uint8Array(answer), true) as Uint8Array<ArrayBuffer>, { status: response.status, headers: out });
+      operation?.finish("completed");
+      report(response.ok ? "completed" : "failed", null);
+      return result;
     }
     const json = /\bjson\b/i.test(response.headers.get("content-type") ?? "");
     const captured: Uint8Array[] = [];
@@ -622,9 +628,11 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
         try { usage = providerUsage(family, route.operation, JSON.parse(Buffer.concat(captured).toString("utf8"))); }
         catch { usage = null; }
       }
-      report(response.ok ? "completed" : "failed", response.status, usage);
+      report(response.ok ? "completed" : "failed", usage);
     };
     if (!response.body) {
+      const finalFailure=chargeFailure(0);
+      if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       operation?.finish("completed");
       settle();
       return new Response(null, { status: response.status, headers: out });
@@ -642,18 +650,19 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
           catch {
             const cause=captureEgressFailure(signal,operation);
             operation?.finish(cause.outcome,"upstream_response_failed");
-            report(cause.outcome,response.status,null);
+            report(cause.outcome,null);
             release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Provider").message:"Provider response interrupted"));return;
           }
           if (next.done) {
-            operation?.finish("completed"); settle(); release();
+            const failure=chargeFailure(0);
+            if(failure){report("cancelled",null);release();controller.error(new Error(egressChargeRefusal(failure,"Provider").message));return;}
             const tail = scrub(new Uint8Array(0), true);
             if (tail.byteLength) controller.enqueue(tail);
-            controller.close(); return;
+            controller.close();operation?.finish("completed");settle();release();return;
           }
           const failure = chargeFailure(next.value.byteLength + 16);
           if (failure) {
-            report("cancelled", response.status, null);
+            report("cancelled", null);
             await upstreamReader.cancel().catch(() => {}); release();
             controller.error(new Error(egressChargeRefusal(failure,"Provider").message));
             return;
@@ -668,7 +677,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       },
       async cancel() {
         operation?.finish("cancelled", "client_disconnected");
-        report("cancelled", response.status, null);
+        report("cancelled", null);
         await upstreamReader.cancel().catch(() => {}); release();
       },
     });
@@ -687,33 +696,37 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const operation = options.egress?.relayed("DELETE", target, timeout);
     const signal=operation?AbortSignal.any([timeout,operation.signal]):timeout;
     const attemptId = crypto.randomUUID();
-    const observe = (outcome: ProviderRelayReceipt["outcome"], status: number): void => {
-      try { options.observe?.({ attemptId, family: "gemini", operation: "files", origin: entry.origin, key: entry.key, model: null, outcome, status, usage: null, inlineMedia: false }); }
+    let upstreamStatus=0;
+    const observe = (outcome: ProviderRelayReceipt["outcome"]): void => {
+      try { options.observe?.({ attemptId, family: "gemini", operation: "files", origin: entry.origin, key: entry.key, model: null, outcome, status:upstreamStatus, usage: null, inlineMedia: false }); }
       catch { /* The host's own accounting reports its failure. */ }
     };
     if (operation && !await operation.admit()) {
-      observe("cancelled",egressChargeRefusal(operation.failure() ?? {ok:false,reason:"unavailable"},"Provider").status); return;
+      observe("cancelled"); return;
     }
     const headers = new Headers(PLACEMENT.gemini(secret));
     const cleanupCharge = operation?.charge(headerBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));
-    if (cleanupCharge && !cleanupCharge.ok) { observe("cancelled",egressChargeRefusal(cleanupCharge,"Provider").status); return; }
+    if (cleanupCharge && !cleanupCharge.ok) { observe("cancelled"); return; }
     const cleanupDecision = operation?.commit();
-    if (cleanupDecision && !cleanupDecision.ok) { observe("cancelled",egressChargeRefusal(cleanupDecision,"Provider").status); return; }
-    observe("dispatched", 0);
+    if (cleanupDecision && !cleanupDecision.ok) { observe("cancelled"); return; }
+    observe("dispatched");
     try {
       const finalDecision=operation?.charge(0);
       const finalFailure=finalDecision&&!finalDecision.ok?finalDecision:captureEgressFailure(signal).failure;
-      if(finalFailure){observe("cancelled",egressChargeRefusal(finalFailure,"Provider").status);return;}
+      if(finalFailure){observe("cancelled");return;}
       const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
+      upstreamStatus=response.status;
       const responseDecision=operation?.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`,response.headers));
       await response.body?.cancel().catch(() => {});
-      if(responseDecision&&!responseDecision.ok){observe("cancelled",egressChargeRefusal(responseDecision,"Provider").status);return;}
+      if(responseDecision&&!responseDecision.ok){observe("cancelled");return;}
+      const terminalDecision=operation?.charge(0);
+      if(terminalDecision&&!terminalDecision.ok){observe("cancelled");return;}
       operation?.finish("completed");
-      observe(response.ok ? "completed" : "failed", response.status);
+      observe(response.ok ? "completed" : "failed");
     } catch {
       const cause=captureEgressFailure(signal,operation);
       operation?.finish(cause.outcome,"upstream_unreachable");
-      observe(cause.outcome,cause.failure?cause.status:0);
+      observe(cause.outcome);
     }
   }
   chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);

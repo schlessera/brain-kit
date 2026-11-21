@@ -64,7 +64,8 @@ for(const path of paths)for(const cause of causes)test(`failure cause: ${cause} 
    expect(inference.at(-1)).toMatchObject({outcome:'refused',status,reason:detail});
   }
   const outcome=typed?'cancelled':'failed';
-  if(!isInference)expect(receipts.at(-1),'FINISH_ABORT_CANNOT_RECLASSIFY_THE_PROVIDER_RECEIPT').toMatchObject({outcome,status:streaming||path==='Files response'?200:typed?status:0});
+  // HTTP contract: docs/integration-contract/http.md:1412-1413 — status is upstream evidence, never the local refusal.
+  if(!isInference)expect(receipts.at(-1),'FINISH_ABORT_CANNOT_RECLASSIFY_THE_PROVIDER_RECEIPT').toMatchObject({outcome,status:streaming||path==='Files response'?200:0});
   else expect(inference.at(-1)).toMatchObject({outcome:streaming?'forwarded':'refused',status:streaming?200:status});
   expect(audits.at(-1),'TERMINAL_AUDIT_PRESERVES_THE_ACTUAL_CAUSE').toMatchObject({outcome:cause==='upstream'?'failed':cause==='cancelled'?'cancelled':'denied',failureReason:typed?cause:'unavailable'});
   if(cause==='upstream'){
@@ -84,4 +85,14 @@ for(const kind of ['inference','relayed','managedReference'] as const)for(const 
 for(const kind of ['inference','relayed','managedReference'] as const)test(`review19: commit observer cannot bypass final fence (${kind})`,async()=>{
  let current=true;const rows:EgressRecord[]=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe:r=>rows.push(r),committed:()=>{current=false;},admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:true,authorityCurrent:current}),subscribe:()=>()=>{}}});
  try{const op=kind==='managedReference'?proxy.managedReference(new URL('https://github.com/'),new AbortController().signal):proxy[kind]('POST',new URL(origin),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.commit(),'COMMIT_OBSERVER_MUST_NOT_BYPASS_FINAL_FENCE').toEqual({ok:false,reason:'safety_changed'});expect(rows.at(-1)).toMatchObject({outcome:'denied',failureReason:'safety_changed'});}finally{proxy.stop();}
+});
+
+for(const files of [false,true])for(const unavailable of [false,true])test(`review20: EOF fences held bytes and handles (Files ${files}, unavailable ${unavailable})`,async()=>{
+ let current=true,reads=0;let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});const receipts:ProviderRelayReceipt[]=[],rows:EgressRecord[]=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe:r=>rows.push(r),admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:unavailable?current:true,authorityCurrent:unavailable?true:current}),subscribe:()=>()=>{}}});
+ const original=globalThis.fetch;const fetchSpy=spyOn(globalThis,'fetch').mockImplementation(Object.assign(async()=>new Response(new ReadableStream<Uint8Array>({async pull(controller){if(reads++===0)controller.enqueue(new TextEncoder().encode(files?'{}':'Ithaca '.repeat(16)+'Troy'));else{if(!files)await gate;current=false;controller.close();}}},{highWaterMark:0}),{headers:files?{'x-goog-upload-url':`${origin}/upload/v1beta/files?upload_id=ithaca`}:{}}),{preconnect:original.preconnect}));
+ const relay=startProviderRelay({origins:new Map([['ANTHROPIC_API_KEY',[origin]],['GEMINI_API_KEY',[origin]]]),credential:()=> 'odysseus-key',egress:proxy,observe:r=>receipts.push(r)});
+ try{const answer=await send(relay.socketPath,files?'/upload/v1beta/files':'/v1/messages','{}',files?{'x-brain-provider':'gemini','x-brain-provider-key':'GEMINI_API_KEY','x-brain-provider-origin':origin,'x-goog-upload-protocol':'resumable','x-goog-upload-command':'start','x-goog-upload-header-content-length':'5','x-goog-upload-header-content-type':'video/mp4'}:{'x-brain-provider':'anthropic','x-brain-provider-key':'ANTHROPIC_API_KEY','x-brain-provider-origin':origin},release);
+  expect(answer.status,'EOF_MUST_REVALIDATE_BEFORE_RELEASING_HELD_BYTES').toBe(files?(unavailable?503:403):200);if(files)expect(answer.headers['x-goog-upload-url'],'REVOKED_RESPONSE_CANNOT_REGISTER_UPLOAD').toBeUndefined();else{expect(answer.interrupted).toBe(true);expect(answer.body,'SCRUBBER_TAIL_NEVER_ESCAPES_REVOKED_AUTHORITY').toBe(('Ithaca '.repeat(16)+'Troy').slice(0,-11));}
+  expect(receipts.at(-1)).toMatchObject({outcome:'cancelled',status:200});expect(rows.at(-1)).toMatchObject({outcome:'denied',failureReason:unavailable?'unavailable':'safety_changed'});
+ }finally{release();await relay.stop();proxy.stop();fetchSpy.mockRestore();}
 });

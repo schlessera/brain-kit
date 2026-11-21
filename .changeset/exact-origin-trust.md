@@ -39,3 +39,5 @@ Validate destination provenance through the wire schema before durable writes, c
 Capture relay error causes before terminal signal cleanup, preserve failed versus cancelled receipts and statuses across every response path, and release caller listeners from every operation termination path.
 
 Preserve provider cancellation reasons, fence sends after dispatch observers, and meter Files cleanup response headers.
+
+Keep provider receipt status as upstream evidence and fence buffered response release at EOF.
