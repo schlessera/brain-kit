@@ -36,10 +36,13 @@ regenerated. The initial workspace opt-in retains per-file journaling until
 that separate Git receipt transition. A default turn's read-only note names
 both routes to writable checkout access. Commands run against the read-only
 mount, so verification and dry runs that leave it unchanged remain usable. A
-filesystem permission failure inside the inspected checkout receives these
-remedies after execution; command names alone do not deny a call. The reported
-failing destination must be inside that checkout: reading a checkout file while
-a write fails elsewhere supplies no workspace advice. Reading a source image
+read-only failure in a turn with an inspected workspace receives a fixed
+conditional remedy after execution; command names alone do not deny a call.
+The result makes no path attribution and may advise an outside write too:
+
+> If this write was under workspaces/, the checkout is read-only in this turn: switch on code changes for this session (applies from the next message) or use a managed worktree.
+
+Reading a source image
 for a scratch markup layer likewise requires no workspace write grant.
 
 ## Authority and credential isolation

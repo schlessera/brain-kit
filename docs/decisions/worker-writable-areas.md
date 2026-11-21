@@ -83,7 +83,7 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and per-turn XDG layout once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:1006-1073`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:1015-1082`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
 note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:625-690`).
@@ -91,7 +91,7 @@ The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain. The backend selects runtime HOME separately.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:907-948`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:916-957`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -158,7 +158,7 @@ through the roadblock path. This is a worker write boundary, not an immutable
 view: host-side changes to that directory remain visible. A backend may select a different runtime HOME
 as described below; it does not make the host home writable. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1006-1073`). Host-backed overlay
+`packages/ui-sdk/src/server/worker-launcher.ts:1015-1082`). Host-backed overlay
 uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
@@ -448,9 +448,13 @@ it retains the existing alias scan and per-file journaling; the Git receipt
 transition is separate work. The worker's sandbox note names the mode and both
 ways to obtain writable checkout access: the session's code-changes switch or
 a managed worktree. Arbitrary tools still return the kernel's read-only error;
-failed tool results add both remedies after an actual `EROFS` or `EACCES`
-whose reported failing path is inside the inspected checkout. A checkout read
-operand or earlier directory visit does not attribute an outside failure.
+failed tool results carrying `EROFS` or a read-only diagnostic receive the
+fixed conditional sentence below whenever the turn has an inspected workspace.
+There is no path, operand or shell-directory attribution; the sentence may also
+appear for a failure outside the checkout.
+
+> If this write was under workspaces/, the checkout is read-only in this turn: switch on code changes for this session (applies from the next message) or use a managed worktree.
+
 Pi bash failures use the tool's actual nonzero exit-code details.
 No package command is refused pre-emptively: verification and dry runs may
 succeed without writes. The kernel enforces the mount. Inspecting source never writes,
@@ -464,7 +468,9 @@ granting writes. Async preparation resolves those legacy facts off the host
 event loop. Writable qualification follows scratch alias cleanup. Strict data
 trees omit checkout copies, qualify the actual sealed source and overlay it
 at the repo-relative read path. Every read alias repeats secret targets and
-provider masks; a second mount cannot restore anything excluded from the copy. Explicit
+provider masks; a second mount cannot restore anything excluded from the copy.
+Strict staged writable area aliases repeat every overlapping provider folder
+mask as well, including a provider mask covering the entire area. Explicit
 owner protections keep both their configured names and symlink destinations;
 the implicit inspection guard covers only its namespace. Status inspection
 never prepares or creates paths on the live brain. It includes required literal

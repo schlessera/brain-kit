@@ -2780,8 +2780,8 @@ host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
 `packages/ui-sdk/src/server/worker-launcher.ts:667-673`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:694-733`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:695-713`).
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:702-741`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:703-721`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive

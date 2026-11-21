@@ -254,20 +254,27 @@ test.each([true,false])("post-failure remedies use the resolved Pi sandbox (host
   const sandbox={brain:root,profile:"governed" as const,restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces" as const,rel:"workspaces",mount:{writable:false as const,readOnlyPath:join(root,"workspaces"),reason:"inspection"}}]};
   const recorded:string[]=[];
   const {dispatch}=harness({sandbox,workerSandbox:supplied?sandbox:undefined},{inputSafety:{ready:async()=>{},begin:async()=>{},allowed:async()=>{},result:async(_id:string,_name:string,output:string)=>{recorded.push(output);}} as never});
-  for(const command of ["npm install --dry-run","bun test","npm help install","npm ls build","npm install","npm i","npm ci","npm clean-install","pnpm add ithaca","yarn run build","bun run build"]){
+  for(const command of ["npm install --dry-run","bun test","npm help install","npm ls build","npm install","npm i","npm ci","npm clean-install","mkdir workspaces/ithaca/build","mkdir -p workspaces/ithaca/build","git add raft.md","pnpm add ithaca","yarn run build","bun run build"]){
     const id=command;
     expect(await dispatch(rpc("permission","bash",{command:`cd workspaces/ithaca && ${command}`},id)),"PI_VERIFICATION_RUNS_BEFORE_ANY_REFUSAL").toMatchObject({behavior:"allow"});
     const answer=await dispatch(rpc("safetyResult","bash",{output:`EROFS: Read-only file system, open '${root}/workspaces/ithaca/package-lock.json'`,failed:true},id));
     expect(answer,"SELF_RESOLVED_SANDBOX_HAS_BOTH_REMEDIES").toMatchObject({workspaceNote:expect.stringContaining("managed worktree")});
-    expect(recorded.at(-1),"NOTE_RECORDED_BEFORE_DELIVERY").toContain("code-changes switch");
-    expect(await dispatch(rpc("safetyResult","bash",{output:`open '${root}/workspaces/ithaca/README.md'\n/bin/bash: /tmp/readonly/raft.md: Permission denied`,failed:true},id)),"PI_OUTSIDE_DESTINATION_HAS_NO_CHECKOUT_REMEDY").toEqual({ok:true});
+    expect(await dispatch(rpc("safetyResult","bash",{output:"mkdir: cannot create directory '/outside/raft': Read-only file system",failed:true},id)),"PI_OUTSIDE_READ_ONLY_FAILURE_HAS_CONDITIONAL_ADVICE").toMatchObject({workspaceNote:"If this write was under workspaces/, the checkout is read-only in this turn: switch on code changes for this session (applies from the next message) or use a managed worktree."});
+    expect(recorded.at(-1),"NOTE_RECORDED_BEFORE_DELIVERY").toContain("switch on code changes for this session");
+    expect(await dispatch(rpc("safetyResult","bash",{output:`open '${root}/workspaces/ithaca/README.md'\n/bin/bash: /tmp/readonly/raft.md: Permission denied`,failed:true},id)),"PLAIN_PERMISSION_FAILURE_IS_NOT_A_READ_ONLY_DIAGNOSTIC").toEqual({ok:true});
     expect(await dispatch(rpc("safetyResult","bash",{output:"all tests passed"},id)),"SUCCESSFUL_VERIFICATION_HAS_NO_REFUSAL").toEqual({ok:true});
     expect(await dispatch(rpc("safetyResult","bash",{output:"assertion failed",failed:true},id)),"NORMAL_TEST_FAILURE_HAS_NO_REFUSAL").toEqual({ok:true});
   }
 });
 
 
-test("Pi's installed Agent hook appends and records the post-failure remedy once",async()=>{
+test.each([
+ ["mkdir", "mkdir: cannot create directory 'workspaces/ithaca/build': Read-only file system"],
+ ["mkdir -p", "mkdir: cannot create directory 'workspaces/ithaca/build': Read-only file system"],
+ ["git add", "fatal: Unable to create 'workspaces/ithaca/.git/index.lock': Read-only file system"],
+ ["npm install", "npm error code EROFS"],
+ ["outside write", "touch: cannot touch '/outside/raft': Read-only file system"],
+])("Pi's installed Agent hook appends and records the post-failure remedy once: %s",async(_command,diagnostic)=>{
  const {Agent}=await import("@earendil-works/pi-agent-core"),{installPiToolSafety}=await import("../src/tool-safety.js"),{safetyResultInput}=await import("../src/worker-protocol.js");
  const sandbox={brain:root,profile:"strict" as const,restricted:false,scratchAliasesRemoved:[],areas:[{name:"workspaces" as const,rel:"workspaces",mount:{writable:false as const,readOnlyPath:join(root,"workspaces"),reason:"inspection"}}]};
  const recorded:string[]=[];const {dispatch}=harness({sandbox},{inputSafety:{begin:async()=>{},allowed:async()=>{},result:async(_id:string,_name:string,output:string)=>{recorded.push(output);}} as never});
@@ -276,12 +283,12 @@ test("Pi's installed Agent hook appends and records the post-failure remedy once
  const {createBrainToolKit}=await import("../src/tool-kit.js"),{createBrainAccess}=await import("../src/brain-access.js"),{bashTool}=await import("../src/file-tools.js"),{toolLockFromKeyed}=await import("../src/tools.js"),{createKeyedLock}=await import("@schlessera/brain-ui-sdk/server");
  mkdirSync(join(root,"workspaces/ithaca"),{recursive:true});
  const kit=createBrainToolKit({brain:createBrainAccess(root),turn:createTurnContext(),lock:toolLockFromKeyed(createKeyedLock()),exec:{}});
- const args={command:`cd workspaces/ithaca && printf 'EROFS: Read-only file system, open "${root}/workspaces/ithaca/package-lock.json"' >&2; exit 1`};
+ const args={command:`printf %s ${"'"+diagnostic.replaceAll("'", "'\"'\"'")+"'"} >&2; exit 1`};
  const result=await bashTool(kit).execute("verify",args,undefined,undefined,{} as never);
  expect((result.details as {exitCode: number}).exitCode,"REAL_BASH_USES_EXIT_CODE_DETAILS").toBe(1);
  const context={toolCall:{id:"verify",name:"bash"},args,result,isError:false} as never;
  expect(await agent.beforeToolCall!(context),"INSTALLED_AGENT_ADMITS_VERIFICATION").toBeUndefined();
  const answer=await agent.afterToolCall!(context);
- expect(answer!.content,"INSTALLED_AGENT_DELIVERS_REMEDY_AFTER_BASH_EXIT_FAILURE").toEqual([...result.content,{type:"text",text:expect.stringContaining("code-changes switch")}]);
+ expect(answer!.content,"INSTALLED_AGENT_DELIVERS_REMEDY_AFTER_BASH_EXIT_FAILURE").toEqual([...result.content,{type:"text",text:expect.stringContaining("switch on code changes for this session")}]);
  expect(recorded).toHaveLength(1);expect(recorded[0]).toContain("managed worktree");
 });

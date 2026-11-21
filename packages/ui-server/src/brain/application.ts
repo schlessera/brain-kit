@@ -1,6 +1,6 @@
 /** One privileged Markdown application boundary, owned by the server. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
-import { WORKSPACES_READ_ONLY_REASON } from "@schlessera/brain-common/internal/worker-areas";
+import { WORKSPACES_WRITE_REFUSAL } from "@schlessera/brain-common/internal/worker-areas";
 import {
   closeSync, constants, existsSync, fchmodSync, fstatSync, fsyncSync, linkSync, lstatSync,
   mkdirSync, rmdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync,
@@ -284,7 +284,7 @@ export function createBrainApplication(options: {
   const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, options.protectedPaths, { links: "refused" }) : undefined;
   const validateTarget = (path: string): void => {
     validatePath(path);
-    if (workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_READ_ONLY_REASON);
+    if (workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_WRITE_REFUSAL);
     if (isProtected?.(path)) refuse("policy_denied", PROTECTED_TARGET_REFUSAL);
   };
   const planner = options.planner ?? boundaryPlanner(createHostBoundary({ brainPath: root }));

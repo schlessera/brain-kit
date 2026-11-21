@@ -87,9 +87,13 @@ alias scan, per-file journaling and byte charges. The saved switch is intent:
 host application writes remain protected unless admission actually qualifies
 a writable mount. Mode changes reach the worker through append-only new-turn context, without altering tools, the
 system prompt or earlier messages. The refusal note names both writable
-alternatives: the session's code-changes switch and a managed worktree.
-Commands execute against the read-only mount; filesystem permission failures
-inside an inspected checkout receive these remedies after execution.
+alternatives: the session's code-changes switch and a managed worktree. Read-only tool failures in
+an inspected turn receive the fixed conditional sentence quoted in the
+[workspace decision](../decisions/worker-writable-areas.md#workspace-inspection-amendment-2026-11-20-4295-4298),
+without path attribution. Explicit host workspace refusals use that same text.
+Result codes, record fields and closed HTTP/WS enums remain unchanged.
+Commands execute against the read-only mount; read-only failures receive the
+conditional remedy after execution, including failures outside the checkout.
 Verification and dry runs are never denied by command name. Strict Pi tools
 keep repo-relative checkout reads through a sealed source overlay beneath
 provider masks. Privileged host applications enforce inspection even without

@@ -229,7 +229,7 @@ test("workspace inspection protection refuses the host mask write", async () => 
   writeFileSync(join(root, imagePath), png);
   const result = await app(undefined,true)({ principalId: "odysseus", turnId: "raft-turn",
     base: readMaskBase(root, imagePath), input: { imagePath, maskPath, png } });
-  expect(result.message,"IMPLICIT_INSPECTION_WRITE_NAMES_REMEDIES").toContain("code-changes switch");expect(result.message).toContain("managed worktree");
+  expect(result.message,"IMPLICIT_INSPECTION_WRITE_NAMES_REMEDIES").toContain("switch on code changes for this session");expect(result.message).toContain("managed worktree");
   expect(result.code, "INSPECT_HOST_MASK_REFUSED").toBe("policy_denied");
   expect(result.changes).toEqual([]);
   expect(existsSync(join(root, maskPath)), "INSPECT_HOST_MASK_HAS_NO_BYTES").toBe(false);

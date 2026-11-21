@@ -9,7 +9,7 @@
  * never replaces an earlier one: each submission takes the first free name.
  */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
-import { WORKSPACES_READ_ONLY_REASON } from "@schlessera/brain-common/internal/worker-areas";
+import { WORKSPACES_WRITE_REFUSAL } from "@schlessera/brain-common/internal/worker-areas";
 import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import { join } from "node:path";
@@ -260,7 +260,7 @@ export function createMarkupApplication(options: {
   const isProtected = (options.protectedPaths || options.workspaceReadOnly) ? createProtectedTargetCheck(root, protectedPaths, { links: "refused" }) : undefined;
   const validateTarget = (path: string, what: "image" | "layer"): void => {
     validatePath(path, what);
-    if (what === "layer" && options.workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_READ_ONLY_REASON);
+    if (what === "layer" && options.workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_WRITE_REFUSAL);
     if (isProtected?.(path)) refuse("policy_denied", "This markup target is protected by the policy admitted for this turn; no change was applied.");
   };
   const authority = (principalId: string, turnId: string) => {

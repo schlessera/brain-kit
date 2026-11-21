@@ -5,12 +5,12 @@
  * configuration stays at the frozen brain path.
  */
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dataTreeMounts } from "../src/server/worker-protection";
 import { prepareWorkerSandbox, workerCommand } from "../src/server/worker-launcher";
-import { WORKER_DATA_ROOT, workerSandboxNote, type WorkerDataTree } from "../src/server/worker-sandbox";
+import { WORKER_AREA_ROOT, WORKER_DATA_ROOT, workerSandboxNote, type WorkerDataTree } from "../src/server/worker-sandbox";
 import { createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture";
 
 const roots: string[] = [];
@@ -108,4 +108,16 @@ test.each(["absent","symlink"])("strict overlay refuses an unqualified %s checkp
  mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});mkdirSync(join(tree,"workspaces"));
  if(state==="symlink")symlinkSync(join(view.root,"notes"),join(view.root,"workspaces"));
  try{const sandbox={...prepareWorkerSandbox(brain,{profile:"strict",codeChanges:false}),dataTree:{root:tree,index}};expect(()=>workerCommand({brainPath:brain,startupView:view,sandbox,env:{},command:["/bin/true"]}),"LIVE_QUALIFICATION_CANNOT_AUTHORIZE_A_STALE_SOURCE").toThrow("immutable workspace source");}finally{view.cleanup();}
+});
+
+
+test.each([["strict","workspaces/ithaca/private"],["strict","workspaces"],[undefined,"workspaces/ithaca/private"],[undefined,"workspaces"]] as const)("strict staged writable areas repeat provider masks through every alias (profile=%s, mask=%s)",(profile,folder)=>{
+ const {root,brain,tree,index}=layout();mkdirSync(join(brain,".brain-index"));mkdirSync(join(brain,"workspaces/ithaca/private"),{recursive:true});writeFileSync(join(brain,"workspaces/ithaca/private/secret.md"),"ATHENA_PROVIDER_MASK_CONTROL\n");writeFileSync(join(brain,"workspaces/ithaca/public.md"),"Odysseus inspects.");writeFileSync(join(brain,"workspaces/ithaca/private/env-secret.md"),"ATHENA_ENV_MASK_CONTROL");symlinkSync("workspaces/ithaca/private/env-secret.md",join(brain,".env.athena"));
+ const sandbox=prepareWorkerSandbox(brain,{profile,areas:["workspaces"],codeChanges:true});expect(sandbox.areas[0]!.mount.writable,"CONTROL_HAS_A_REAL_WRITABLE_GRANT").toBe(true);
+ const view=createFixtureWorkerStartupView(brain),stage=join(root,"stage");cpSync(join(view.root,"workspaces"),join(stage,"workspaces"),{recursive:true});cpSync(join(view.root,"workspaces"),join(tree,"workspaces"),{recursive:true});
+ const roots=[join(brain,"workspaces"),join(WORKER_DATA_ROOT,"workspaces"),join(WORKER_AREA_ROOT,"workspaces")];
+ const command=["/bin/sh","-c",roots.map(path=>`if test -r '${path}/ithaca/private/secret.md'; then IFS= read -r bytes < '${path}/ithaca/private/secret.md'; echo "$bytes"; echo 'STAGED_PROVIDER_MASK_LEAK: ${path}'; exit 41; fi; test -d '${path}' || exit 42`).join("; ")+`; printf 'Odysseus writes.' > '${WORKER_AREA_ROOT}/workspaces/public-write.md'`];
+ // A whole-workspace policy mask also hides this otherwise writable destination.
+ if(folder==="workspaces")command[2]=command[2]!.replace(/; printf.*$/u,"");
+ try{const run=Bun.spawnSync(workerCommand({brainPath:brain,startupView:view,sandbox:{...sandbox,providerMasks:{folders:[folder],index},dataTree:{root:tree,index}},areaOutput:{source:stage},env:{},command}),{env:{},stdout:"pipe",stderr:"pipe"});expect(run.exitCode,`ALL_WORKSPACE_ALIASES_KEEP_PROVIDER_MASKS: ${run.stdout} ${run.stderr}`).toBe(0);}finally{view.cleanup();}
 });

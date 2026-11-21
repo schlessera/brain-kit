@@ -49,3 +49,5 @@ export const READ_ONLY_BRAIN_RULE =
 
 /** Inspection never writes source, including installs/builds (#4295, #4298). */
 export const WORKSPACES_READ_ONLY_REASON = "inspect mode; enable this session’s code-changes switch or request a managed worktree to write, install or build";
+/** Conditional tool-result advice; it deliberately makes no path attribution. */
+export const WORKSPACES_WRITE_REFUSAL = "If this write was under workspaces/, the checkout is read-only in this turn: switch on code changes for this session (applies from the next message) or use a managed worktree.";

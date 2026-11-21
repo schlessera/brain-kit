@@ -667,6 +667,14 @@ export function workerCommand(input: WorkerLaunch): string[] {
     validateRuntimePlacement(path, reservedRuntimePaths);
   }
   const writable = sandboxMounts(input, brain, scratch, input.stateBytes !== undefined ? WORKER_STATE : undefined);
+  // A strict writer has a second alias for every staged writable area. Repeat
+  // folder masks there too, including a mask that covers the whole area.
+  const stagedProviderMaskRoots = input.areaOutput && input.sandbox && workerProfile(input.sandbox) === "strict"
+    ? [...new Set(input.sandbox.areas.filter(area => area.mount.writable).flatMap(area => {
+      const target = `${WORKER_AREA_ROOT}/${area.name}`;
+      return (input.sandbox?.providerMasks?.folders ?? []).flatMap(folder => isWithin(folder, area.rel) ? [target]
+        : isWithin(area.rel, folder) ? [join(target, folder.slice(area.rel.length + 1))] : []);
+    }))].filter((path, _at, roots) => !roots.some(other => other !== path && isWithin(other, path))) : [];
   const runtimeViewMounts = [
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
@@ -717,6 +725,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
       writable.workspaceReadOnly ? ["workspaces"] : []) : []),
     ...(input.sandbox?.providerMasks && !maintenance && !transport
       ? providerMaskMounts(brain, input.startupView?.root ?? brain, input.sandbox.providerMasks) : []),
+    ...stagedProviderMaskRoots.flatMap(path => ["--tmpfs", path, "--remount-ro", path]),
     // The turn's data tree: brain tools read documents and the index there,
     // configuration from the frozen view above (#2848).
     ...(dataTree ? dataTreeMounts(brain, WORKER_DATA_ROOT, dataTree, workspaceSource) : []),
@@ -725,7 +734,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   // secret over an earlier mask. The masks are about reads, not writes.
   if (!maintenance) {
     const clear = argv.pop();
-    const copies = input.areaOutput && input.sandbox?.profile === "strict"
+    const copies = input.areaOutput && input.sandbox && workerProfile(input.sandbox) === "strict"
       ? input.sandbox.areas.filter(area => area.mount.writable).map(area => ({ from: join(brain, area.rel), to: `${WORKER_AREA_ROOT}/${area.name}` })) : [];
     if (workspaceSource) copies.push({ from: join(brain, "workspaces"), to: join(WORKER_DATA_ROOT, "workspaces") });
     // An agent worker's host view covers the host files too (#4259); a restricted or transport root has none of them.
@@ -733,7 +742,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
       try { return statSync(path).isFile() ? ["--ro-bind", "/dev/null", path] : []; } catch { return []; }
     });
     const envMasks = maintenanceEnvMasks(input.startupView?.root ?? brain, brain, copies);
-    const hidden = [...(input.sandbox?.providerMasks?.folders ?? []).map(rel => join(brain, rel)),
+    const hidden = [...stagedProviderMaskRoots, ...(input.sandbox?.providerMasks?.folders ?? []).map(rel => join(brain, rel)),
       ...(dataTree?.masked ?? []).map(rel => join(WORKER_DATA_ROOT, rel))];
     // A provider mask already hides the target. Do not create a secret-mask
     // mountpoint inside its empty read-only tree; every other alias is masked.

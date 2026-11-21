@@ -1,6 +1,6 @@
 /** Server-owned PNG mask application. No worker-selected binary kind or command. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
-import { WORKSPACES_READ_ONLY_REASON } from "@schlessera/brain-common/internal/worker-areas";
+import { WORKSPACES_WRITE_REFUSAL } from "@schlessera/brain-common/internal/worker-areas";
 import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -126,7 +126,7 @@ export function createMaskApplication(options: {
   const isProtected = (options.protectedPaths || options.workspaceReadOnly) ? createProtectedTargetCheck(root, protectedPaths, { links: "refused" }) : undefined;
   const validateTarget = (path: string): void => {
     validatePath(path);
-    if (options.workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_READ_ONLY_REASON);
+    if (options.workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_WRITE_REFUSAL);
     if (isProtected?.(path)) refuse("policy_denied", "This mask target is protected by the policy admitted for this turn; no change was applied.");
   };
   const authority = (principalId: string, turnId: string) => {

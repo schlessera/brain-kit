@@ -558,7 +558,7 @@ test("code changes API persists a session preference without changing an admitte
     const input = { authorization: testAuthorization(principal.id), sessionId: "ithaca-code", text: "Odysseus inspects the source.", attachments: [] };
     await runSession(host, input); await runSession(host, input);
     expect(refusedWrite?.code, "INSPECT_SESSION_BRIDGE_REFUSES_CHECKOUT_WRITE").toBe("policy_denied");
-    expect(refusedWrite?.message).toContain("code-changes switch");
+    expect(refusedWrite?.message).toContain("switch on code changes for this session");
     expect(observations, "NEXT_ADMISSION_USES_SAVED_CODE_MODE").toEqual([false, true]);
     expect(inboxProtections[0]?.workspaceReadOnly, "INSPECT_INBOX_INTAKE_GETS_WORKSPACE_PROTECTION").toBe(true);
     expect(inboxProtections[0]?.protectedPaths, "IMPLICIT_INSPECTION_IS_NOT_AN_EXPLICIT_OWNER_PROTECTION").not.toContain("workspaces");
@@ -716,7 +716,7 @@ test("a host without governedTurns still seals privileged checkout applications"
  const results:unknown[]=[];const backend=makeFakeBackend({id:"claude",startTurn:async request=>{for(const path of ["notes/raft.md","workspaces/ithaca/source.md"])results.push(await request.bridge.applyBrain!({operation:"write",path,content:"Athena inspects.",expectedBaseHash:null}));request.bridge.emit({type:"result",sessionId:"hostless-source",durationMs:1,numTurns:1,isError:false});}});
  backend.brainApplicationPolicy=()=>({autoAllowed:["write"],available:["write"],lock:createKeyedLock()});
  const host=new WsHost({brainPath:f.brain,catalog,isPrincipalAuthorized:id=>id===principal.id,registry:createStaticBackendRegistry([backend],backend.id)});host.clients.add({send(){}},principal.id);
- try{await runSession(host,{authorization:testAuthorization(principal.id),sessionId:"hostless-source",text:"Inspect the raft.",attachments:[]});expect(results[0],"HOSTLESS_NOTES_STAY_USABLE").toMatchObject({ok:true});expect(results[1],"HOSTLESS_APPLICATION_CANNOT_BYPASS_INSPECTION").toMatchObject({ok:false,code:"policy_denied",message:expect.stringContaining("code-changes switch")});expect(existsSync(join(f.brain,"workspaces/ithaca/source.md"))).toBe(false);}finally{host.close();}
+ try{await runSession(host,{authorization:testAuthorization(principal.id),sessionId:"hostless-source",text:"Inspect the raft.",attachments:[]});expect(results[0],"HOSTLESS_NOTES_STAY_USABLE").toMatchObject({ok:true});expect(results[1],"HOSTLESS_APPLICATION_CANNOT_BYPASS_INSPECTION").toMatchObject({ok:false,code:"policy_denied",message:expect.stringContaining("switch on code changes for this session")});expect(existsSync(join(f.brain,"workspaces/ithaca/source.md"))).toBe(false);}finally{host.close();}
 });
 
 
