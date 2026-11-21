@@ -15,7 +15,8 @@ function sources(dir: string): string[] {
   });
 }
 
-const files = sources(MODULE);
+// The gog transport (gog/, #4205) is its own Bun-only entry point; nothing here imports it.
+const files = sources(MODULE).filter(file => !file.startsWith(join(MODULE, "gog") + "/"));
 
 describe("@schlessera/brain-common/internal/google-operations is pure", () => {
   test("it has the files of the module", () => {

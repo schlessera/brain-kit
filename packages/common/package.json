@@ -96,6 +96,11 @@
       "types": "./dist/google/index.d.ts",
       "default": "./dist/google/index.js"
     },
+    "./internal/google-gog": {
+      "bun": "./src/google/gog/index.ts",
+      "types": "./dist/google/gog/index.d.ts",
+      "default": "./dist/google/gog/index.js"
+    },
     "./internal/claude-subscription": {
       "bun": "./src/claude-subscription.ts",
       "types": "./dist/claude-subscription.d.ts",
