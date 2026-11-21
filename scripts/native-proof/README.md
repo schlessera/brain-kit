@@ -58,6 +58,16 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+The timing run also writes `admission-join.json` (#4293): five samples at
+10, 50 and 500 ms after a synthetic result, each with the audit queue drained
+and with the hold removed. Twenty prior inference records load the actual
+FULL writer; each sample retains `admitMs`, credential-to-dispatch elapsed
+time and the two admission fences. This isolates the join with a real Unix
+relay and write worker. It does not measure Claude runtime request assembly:
+the existing Claude hosted fixture uses a mock query. Standalone local
+measurement uses `bun scripts/native-proof/admission-join.ts <private-dir>`;
+its filesystem is the directory supplied, and it makes no native-storage claim.
+
 `--tree=large` adds deterministic empty workspace/dependency files and tiny
 content-addressed journal objects before the app starts. Defaults:
 `--workspace-entries=80000 --dependency-entries=19000 --journal-objects=30000
