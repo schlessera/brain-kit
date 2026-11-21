@@ -41,7 +41,7 @@ import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./module-repositories.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { operationalStateMasks, operationalStateRefusal, createOperationalStateProof, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
+import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
 import { createScratchIgnoreQuery } from "./scratch-mask-query.js";
 
@@ -213,14 +213,14 @@ export const within = (dir: string, path: string) => isWithin(dir, path, { trail
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
 /** Whether `governed` can run for this server and brain, and if not, why. */
-function governedAvailability(input: OperationalStateLayout & { stateProof?: ReturnType<typeof createOperationalStateProof>; workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
+function governedAvailability(input: OperationalStateLayout & { workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
   const brain = real(input.brainPath);
   const cwd = real(hostExecution.cwd());
   if (within(brain, cwd)) {
     return { available: false, reason: "server_cwd_in_brain",
       detail: `the server's working directory ${cwd} is inside the brain, so Bun loaded the brain's bunfig.toml and .env into the server itself; start the server from a directory outside the brain` };
   }
-  const refusal = (input.stateProof ?? operationalStateRefusal)(input);
+  const refusal = operationalStateRefusal(input);
   if (refusal) return refusal;
   const probe = input.workerHost();
   if (!probe.ok) return { available: false, reason: "worker_host_unavailable", detail: probe.requirement };
@@ -255,10 +255,6 @@ export interface HostBoundary {
 }
 
 export interface HostBoundaryOptions {
-  /** Shared mutable mask list used by every hosted turn and maintenance worker. */
-  workerMaskPaths?: string[];
-  /** Owner-visible durable admission proof mode, supplied by the hosted owner. */
-  recordStateProof?: (proof: import("./operational-state.js").OperationalStateProof) => void;
   /** @internal Trusted server-state placement passed by the autonomous owner. */
   identitySentinelDirectory?: string;
   /** Trusted shared host credential state; omitted server/cron instances use the per-UID domain. */
@@ -436,18 +432,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     }
     return maintenance.probe;
   };
-  const stateLayout = { brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths };
-  const maskPaths = options.workerMaskPaths ?? operationalStateMasks(stateLayout);
-  for (const path of options.nativeMaskPaths ?? []) if (!maskPaths.includes(path)) maskPaths.push(path);
-  let stateBoundary: import("./operational-state.js").OperationalStateProof | undefined;
-  const stateProof = createOperationalStateProof(proof => { stateBoundary = proof; options.recordStateProof?.(proof); }, maskPaths);
-  const governed = (startupView?: WorkerStartupView) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, stateProof, workerHost: () => workerHost(startupView) });
-  const assertStatePlacement = () => {
-    const refusal = stateProof(stateLayout);
-    if (refusal) throw Object.assign(new Error(refusal.detail), { name: "OperationalStateBoundaryError", status: refusal });
-  };
+  const governed = (startupView?: WorkerStartupView) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, workerHost: () => workerHost(startupView) });
   const prepareInput = (signal?: AbortSignal) => {
-    assertStatePlacement();
     if (!options.nativeManager) throw new Error("Maintenance execution requires the configured native managed-storage manager; full-copy fallback is unavailable.");
     return prepareNativeWorkerStartupView(brain, options.nativeManager, signal);
   };
@@ -460,9 +446,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     if (options.nativeManager) return true;
     if (options.history?.() === true) return true;
     const availability = governed();
-    return availability.available || availability.reason === "database_in_brain" || availability.reason === "private_state_in_brain" || (availability.reason === "worker_host_unavailable" && (maintenanceResourceRefused || workerHostProven(brain)));
+    return availability.available || (availability.reason === "worker_host_unavailable" && (maintenanceResourceRefused || workerHostProven(brain)));
   };
 
+  const maskPaths = [...operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths }), ...(options.nativeMaskPaths ?? [])];
   /**
    * A credentialed run's own CLI provider relay (#1673), where the host relays
    * providers; the caller stops it once the worker has exited.
@@ -483,7 +470,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const runCredential = (execution: Pick<BrainExecution, "env">, name: string): string | undefined =>
     execution.env[name] || (relayedProviderKeys().includes(name) ? undefined : hostProviderCredential(name));
   const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0], startupView?: WorkerStartupView, relay?: ProviderRelay): MaintenanceCommand => {
-    assertStatePlacement();
     const path = brainWorkerPath(brain, execution.env.PATH);
     const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
       : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]]));
@@ -588,7 +574,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     isolated,
     governed,
     async prepare(signal, preparedView) {
-      assertStatePlacement();
       signal?.throwIfAborted();
       // Capability proof is already complete. A maintenance output operation
       // has its own lease and must not delay this cached admission fact.
@@ -628,7 +613,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       const protection = resolveWorkerProtection(brain);
       const profile = options.profile === "strict" || !availability.available || protection.reason ? "strict" : "governed";
       return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
-        ...(stateBoundary ? { stateBoundary } : {}),
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
         ...(protection.reason ? { profileFallback: protection.reason } : {}),
         ...identity, configurationView: profile === "governed" ? "live" : "startup",
@@ -637,7 +621,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     withGate,
     async run(execution) {
-      assertStatePlacement();
       const admissionSignal = execution.admissionSignal
         ? execution.signal ? AbortSignal.any([execution.signal, execution.admissionSignal]) : execution.admissionSignal
         : execution.signal;
@@ -708,7 +691,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       });
     },
     async launch(execution) {
-      assertStatePlacement();
       execution.signal?.throwIfAborted();
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
       let hostFallback: boolean;
@@ -812,7 +794,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, kill }, credential);
     },
     async runSync(execution) {
-      assertStatePlacement();
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");
       if (!isolated()) {
         if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");

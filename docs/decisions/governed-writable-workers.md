@@ -543,7 +543,7 @@ maintenance worker no longer receives the keys the provider relay carries
 (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
 lists for it), and the brain's `.env*` files are masked as they are for a
 credential-free worker. Its `brain` CLI reaches those providers through its own
-relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:470-477`).
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:441-448`).
 What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay. Since
@@ -2603,7 +2603,7 @@ by default, but only on a host with managed native storage
 The relay needs the startup view that the native manager acquired with its
 stage operations; a turn admitted without one keeps its current network
 (`isManagedWorkerStartupView`,
-`packages/ui-sdk/src/server/worker-startup-view.ts:38-42`). Worker-host status
+`packages/ui-sdk/src/server/worker-startup-view.ts:37-41`). Worker-host status
 reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
@@ -2866,9 +2866,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:380-389`;
+`packages/ui-sdk/src/server/worker-protection.ts:379-388`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:392-433`).
+`packages/ui-sdk/src/server/worker-protection.ts:391-432`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -3455,7 +3455,7 @@ that runs in it can rewrite that account. The load set is therefore not
 computed. It is enforced by what the worker can see: the brain path is an
 empty tmpfs with only the policy's protected paths bound back read-only
 (`WorkerProviderMasks.visible`; `if (masks.visible)`,
-`packages/ui-sdk/src/server/worker-protection.ts:217-237`). An import, a
+`packages/ui-sdk/src/server/worker-protection.ts:216-236`). An import, a
 local module, a `tsconfig.json` alias or a data file outside them is simply
 absent, so the configuration loads only from what no governed turn can
 change, or does not load, and its own error, which names the file, becomes
@@ -4727,7 +4727,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:660-694`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:566-577`).
+  `packages/ui-server/src/brain/host-boundary.ts:535-546`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal

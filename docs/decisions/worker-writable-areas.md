@@ -400,35 +400,47 @@ in the [governed-writable-workers record](governed-writable-workers.md), under "
 
 ## State boundaries and root dependencies — 2026-11-20
 
-Operational state is proven separate by current filesystem identities where
-that boundary exists, and by the existing alias walk where it does not.
-Admission reads the brain and state roots' current filesystem/subvolume
-identities and one mount table. It retains the path, ownership and symlink
-checks. A different Linux `st_dev` separates filesystems and Btrfs subvolumes;
-Btrfs supplies a distinct anonymous device identity for each subvolume.
-A mount at the state root is its filesystem boundary, not a nested mount.
-Descendant mounts under state storage or the brain require requalification.
-A known unmasked alias in the worker's host view is refused; walking only the
-brain cannot discharge that exposure. Every execution entry checks it before
-launch or host fallback, and removing the alias permits the next attempt. The full guard runs at boot and whenever identities, topology or
-store configuration change. Unreadable evidence selects the full walk on
-that admission. The mode and cause are retained in the owner setting
-`worker.stateBoundary`, exposed in authenticated status, and emitted as a
-structured log. Turn and maintenance launchers share one mask list. Admission
-extends that actual list with current canonical state targets before identity
-qualification, including when identity reading fails. Old masks are retained,
-so a symlink retarget cannot restore former private paths.
+A filesystem boundary may replace an alias walk only when current evidence
+proves what the final worker namespace can reach. Different filesystem or
+subvolume identities alone are insufficient: a mount can expose private bytes
+under another name. The existing operational-state guard remains in force;
+there is no filesystem-identity fast path or module-store activation.
+
+A future boundary proof must read current filesystem/subvolume identities and
+mount topology once per worker admission. A mount at the state root is not a
+descendant mount. Descendant and stacked mounts must be resolved against the
+visible backing tree, including aliases outside the brain. The proof must
+account for the launcher's final binds, restored credentialed HOME and private
+`/tmp`, rather than treating a host mask list as a namespace description.
+Unreadable topology is unknown; a brain-only inode walk cannot discharge an
+unknown external exposure. The full guard must cover that exposure before
+any boundary can qualify. Path, ownership and symlink checks remain required.
+
+Every worker launch needs the same proof, including delayed compute helpers,
+autonomous inbox helpers and credentialed maintenance. Live database handles
+keep their original files private after a configured symlink changes; validating
+only the new target is insufficient. Mask updates must validate placement
+before publication so a refused temporary path cannot poison later workers.
+An unsafe-state refusal must not become ordinary governed unavailability that
+selects strict execution. Recoverable topology failures restrict execution,
+allow authenticated diagnostics, record their cause through the hosted writer
+and clear mechanically after fresh safe evidence. Owner status must reflect
+the current cause without a synchronous SQLite commit on admission.
 
 A passed verdict on a shared filesystem is never a substitute for this proof,
 whether cached by elapsed time or another token. A bare Btrfs subvolume
 transaction generation is also rejected: without sync it missed 16 of 16
 writes, and after sync it advanced on 16 of 16 plain reads. Banning new links
 cannot repair an alias that already exists. These shortcuts must not return.
+Native qualification must use sibling Btrfs subvolumes on the same filesystem,
+keep private state out of artifact aliases, and retain the measured receipts.
+A comparison with an unrelated `/tmp` filesystem cannot establish that claim.
 
 “Ignored files get no protection” applies inside a checkout: dependencies and
 build output there can be regenerated. The brain's own root dependencies are
 code executed by later turns and maintenance, so their read-only protection
 continues even when git ignores them. The root dependency tree keeps its
-existing admission walk. A host-owned
-module store must not replace it until bounded installation, provider masks,
-worker ownership and crash recovery are proven together.
+existing admission walk. A host-owned module store must not replace it until
+bounded installation, provider masks, worker ownership and crash recovery are
+proven together. A broken store must fall back to in-brain dependencies and
+remain repairable by scheduled maintenance.

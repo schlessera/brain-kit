@@ -330,11 +330,7 @@ try {
   let closing = false;
   process.on("SIGTERM", async () => {
     if (closing) return; closing = true;
-    try {
-      server.stop(true); await app.close();
-      const { proveStateModuleBoundaries } = await import("./state-module-boundaries.js");
-      await proveStateModuleBoundaries(brain, join(dir!, "state-module-boundaries.json"));
-      inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
+    try { server.stop(true); await app.close(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
     catch (error) { event("close_error", { error: String(error) }); process.exit(1); }
   });
 } catch (error) {

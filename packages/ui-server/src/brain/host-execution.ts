@@ -13,7 +13,6 @@ import type { Logger } from "@opentelemetry/api-logs";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import type { WorkerHostProbe, WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { assertOperationalStateOutsideBrain, type OperationalStateLayout } from "./operational-state.js";
-import { setSetting } from "../db/settings.js";
 import { createUiDb } from "../db/client.js";
 import { createHostBoundary, type HostBoundary } from "./host-boundary.js";
 import { assertReconciled, createGovernedManifests, type GovernedManifests, type Reconciliation } from "./governed-manifest.js";
@@ -72,7 +71,6 @@ export interface HostExecution {
 export function createHostExecution(options: { brainPath: string; dbPath: string; exec?: ExecWrapperConfig; home?: string; log?: Logger;
   nativeManager?: import("./host-boundary.js").HostBoundaryOptions["nativeManager"];
   nativeMaskPaths?: readonly string[];
-  workerMaskPaths?: string[];
   /** The CLI provider relay for credentialed maintenance (#1673); only with `nativeManager`. */
   providerRelay?: import("./host-boundary.js").HostBoundaryOptions["providerRelay"];
   maintenanceTemp?: WorkerStateLimits;
@@ -82,16 +80,10 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
   let manifests: GovernedManifests | null = null;
   let history = false;
   let early: Database | undefined;
-  let proofDb: Database | undefined;
-  let proofRecord: import("./operational-state.js").OperationalStateProof | undefined;
   let quarantineDir: string | undefined;
   const open = (db: Database, writer?: SqliteWriter) => createGovernedManifests(db, { brainPath: options.brainPath,
     quarantineDir: quarantineDir ??= quarantineDirFor(options.dbPath), ...(options.log ? { log: options.log } : {}), ...(writer ? { writer } : {}) });
-  const boundary = createHostBoundary({ recordStateProof: proof => {
-    proofRecord = proof;
-    if (proofDb ?? early) setSetting((proofDb ?? early)!, "worker.stateBoundary", proof);
-    options.log?.emit({ severityText: "INFO", body: "operational state proof mode", attributes: { mode: proof.mode, cause: proof.cause } });
-  }, workerMaskPaths: options.workerMaskPaths, profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths,
+  const boundary = createHostBoundary({ profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths,
     ...(options.nativeManager ? { nativeManager: options.nativeManager } : {}),
     ...(options.nativeManager && options.providerRelay ? { providerRelay: options.providerRelay } : {}),
     ...(options.nativeMaskPaths ? { nativeMaskPaths: options.nativeMaskPaths } : {}),
@@ -121,8 +113,6 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
       } catch (error) { db.close(); throw error; }
     },
     attach(db, writer) {
-      proofDb = db;
-      if (proofRecord) setSetting(db, "worker.stateBoundary", proofRecord);
       // Reconciled first: a failure refuses before the gate exists, so no
       // gated maintenance can start on a brain still holding such a path.
       // A turn's manifest records commit on the write worker (#2850).
@@ -138,7 +128,6 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
       return results;
     },
     release() {
-      proofDb = undefined;
       early?.close();
       early = undefined;
     },

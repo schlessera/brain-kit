@@ -1742,17 +1742,11 @@ and the host-side admission/receipt design needed before activation. Existing
 CLI JSON envelopes and ordinary backend defaults remain unchanged.
 
 
-### Operational-state proof
+### Root dependency protection
 
 Root dependencies continue to use the protected in-brain `node_modules` and
 its existing alias walk. No module-store installation, activation, generation
 binding or collection is enabled. Ignored dependencies inside a checkout are
 disposable; root dependencies remain protected because later turns use them.
-
-Operational-state admission selects filesystem identity proof only when
-current identities and mount topology prove separation. Otherwise the full
-alias walk remains in force. The durable `worker.stateBoundary` owner setting
-records the selected mode and cause; the server logs each transition. A
-retargeted configured path updates the same masks used by turn and maintenance
-workers. An unmasked state alias refuses execution until the topology is safe;
-ordinary authenticated diagnostics remain available.
+Operational state retains the existing path and alias guard; no filesystem
+identity fast path or proof-mode status field is enabled.

@@ -35,7 +35,7 @@ Brain-kit source was read at `a62db8f27a22fd2df744308e9b1ee12bc50f3da2`.
   (`export function createInboxBudget`, `packages/ui-server/src/inbox/budget.ts:149-154`).
 - Host operational state lives beside the server database and is masked from
   workers (`export interface OperationalStateLayout`,
-  `packages/ui-server/src/brain/operational-state.ts:106-110`). Core has no
+  `packages/ui-server/src/brain/operational-state.ts:102-106`). Core has no
   state directory outside the brain checkout today.
 - [apify-capability.md](apify-capability.md) is the nearest precedent: a paid
   remote executor with host-held credentials, durable dispatch intent, opaque
