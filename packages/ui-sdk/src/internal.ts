@@ -28,7 +28,7 @@ export { hostProviderCredential, hostComputeCredential } from "./config/env.js";
 export type { EgressDestinationPolicy, EgressRecord, EgressRefusal } from "./server/egress-proxy.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "./server/worker-launcher.js";
-export { workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
+export { resolveWorkspacesMount, workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
 export type { WorkerSandbox, WorkerNoteFacts, WorkerNoteLimit, WorkerProviderMasks, WorkerDataTree } from "./server/worker-sandbox.js";
 export { createLimitTracker, limitFailureMessage, mergeLimitReports, workerLimitsPlan, workerLimitsStatus, workerNoteLimits } from "./server/worker-limits.js";
 export type { WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";
@@ -101,3 +101,5 @@ export { nativeObservationIdentity } from "./server/native-observation-storage.j
 
 export { createCleanupReconciler, processCleanupReconciler, CLEANUP_RETRY_ATTEMPTS, CLEANUP_RETRY_BASE_MS, CLEANUP_RETRY_MAX_MS } from "./server/cleanup-reconciler.js";
 export type { CleanupNotice, CleanupReconciler, CleanupReconcilerOptions, RetainedCleanup } from "./server/cleanup-reconciler.js";
+
+export { workspaceWriteRefusal } from "./server/workspace-refusal.js";

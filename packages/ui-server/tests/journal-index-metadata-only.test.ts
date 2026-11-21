@@ -36,7 +36,7 @@ function fixture() {
   for (const path of INDEX) writeFileSync(join(brain, path), "initial index");
   const native = createNativeJournalFixture(brain, root);
   const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: objects });
-  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, error => { throw error; });
   const reverts = createTurnReverts(db, { brainPath: brain, journal, gate: createWriterGate(db, brain, { pollMs: 1 }), lock: createKeyedLock(), isAuthorized: id => id === "odysseus", refresh() {} });
   /** Every content hash the journal could hold: its object rows, pins and stored object names. */
   const retained = () => {

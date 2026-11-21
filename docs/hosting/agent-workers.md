@@ -101,7 +101,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:580-595`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:599-614`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -420,7 +420,7 @@ write verified scratch/workspace copies through the aliases below.
 | Place | Paths | Lifetime | Link it for the reader? |
 | --- | --- | --- | --- |
 | Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and a host-owned display mapping makes history show the promoted link; runtime transcript bytes stay unchanged. |
-| Persistent scratch/workspaces | Governed: `.brain/scratch/` and `workspaces/`; strict: `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces` | Governed writes persist directly; strict writes persist after validated publication. Scratch is pruned after 7 days, oldest first past 1 GB | Yes: link the canonical brain destinations, not the strict aliases |
+| Persistent scratch/workspaces | Governed: `.brain/scratch/` and `workspaces/`; strict: `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces` | Existing workspace writes require the session code-changes switch. Governed writes persist directly; strict writes persist after validated publication. Scratch is pruned after 7 days, oldest first past 1 GB | Yes: link the canonical brain destinations, not the strict aliases |
 | The brain | Everything else | Canonical | Yes, as documents |
 
 - **The brain** is writable under `governed`, except the resolved protected
@@ -456,16 +456,22 @@ write verified scratch/workspace copies through the aliases below.
   and `brain scratch prune` work inside a turn, and the reader opens the path
   the command prints. The server never follows a symlink under `.brain/` when
   it serves, previews or lists a scratch path.
-- **`workspaces/`** is made writable only when it already exists as a real
-  directory in the brain root. Core always excludes it from the index.
-  Creating it outside a hosted turn is the opt-in; the name is fixed. Governed
-  uses its canonical path; strict uses a private copy at
-  `/tmp/brain-worker-areas/workspaces` with validated publication after exit. It
-  stays read-only for a turn when it holds a file hard-linked to something
-  outside it, sits on or contains a mount point, holds more than 200 000
-  entries, or holds a directory the server cannot read (scratch too); the
-  agent's note and the server log name the reason. Links wholly
-  inside it, such as local clones between workspace repositories, are fine.
+- **`workspaces/`** is read-only in default governed and strict turns when present at admission. An absent optional area leaves governed note writes live, creates no mountpoint, and any content created beneath that name is retained and charged as ordinary content for that turn. The next default turn seals it. Core
+  always excludes it from the index. The host checks its root, symlinks and
+  mount topology but skips the writable-alias walk. Inspecting source does
+  not capture checkout content, read checkout ignore policy, retain workspace
+  change rows or charge workspace bytes to that turn. A write, install or
+  build needs the session's code-changes switch or a managed worktree; the
+  worker's note names both alternatives. The preference is per session,
+  survives resume and applies at the next admission, leaving a running
+  worker unchanged. When enabled, the existing real directory gets the
+  previous writable mount, alias scan, per-file journal and byte accounting:
+  governed uses its canonical path; strict uses a private copy at
+  `/tmp/brain-worker-areas/workspaces` with validated publication after exit.
+  Writable qualification still refuses outside hard links, mount points,
+  unreadable directories or more than 200 000 entries. Contained links are
+  allowed. An overlapping default turn never inherits that writer's workspace
+  rows or byte charge.
 - **The real host home** is not a writable host escape. The resolved profile may mask its
   contents; only the selected runtime inputs restored by that layout are
   available. A write into a read-only home fails and is retained as a roadblock.
@@ -807,7 +813,8 @@ host timeout, resource limits and bounded storage still apply, including paused
 time; the picker and capabilities note state the actual enforced inputs.
 
 The shared raw journal observes each tool completion and every 15 seconds,
-including brain, scratch and workspaces, and the monitor reads `statfs` at each
+including brain and scratch, plus workspaces for sessions with code changes
+enabled, and the monitor reads `statfs` at each
 observation. It freezes a running worker on a reached cap or below free space
 max(5% of filesystem capacity, 2 GiB). A delegated cgroup confirms its freezer;
 otherwise the parent verifies the worker PID namespace and stops its process

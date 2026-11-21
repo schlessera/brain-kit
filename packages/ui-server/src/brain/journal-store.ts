@@ -89,6 +89,8 @@ export interface ObservationRecord {
   steeringPaths: string[];
   /** Every turn observing this window, this one included. */
   overlaps: string[];
+  /** Only turns whose frozen coverage includes this path participate in its conflicts. */
+  pathObservers?: Record<string, string[]>;
   /** Changes of this turn's managed worktrees, already in journal path form. */
   worktree: { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }[];
   steeringUnavailable: string[];
@@ -252,7 +254,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
           const actor = approvedPolicy || metadata.kind === "revert" ? "user" : "agent";
           const restricted = classification === "steering" && actor === "agent" && taint !== null;
           const source = restricted && taint!.eventId > 0 ? taint!.eventId : null;
-          const overlappingTurnIds = record.overlaps.filter(id => id !== turnId);
+          const overlappingTurnIds = (record.pathObservers?.[item.path] ?? record.overlaps).filter(id => id !== turnId);
           db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id,effective_taint) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
             .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, classification, actor, JSON.stringify(overlappingTurnIds), source, restricted ? 1 : 0);
           if (classification === "steering") recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId,

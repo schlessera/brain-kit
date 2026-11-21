@@ -148,6 +148,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
     throw new Error("A draft profile requires the matching first-send identity and correlation.");
   const preference = origin === "interactive"
     ? host.sessionProfiles?.preference(turn.principalId, resumeId, resumeId ? undefined : initial.profileDraftId) : undefined;
+  const codeChanges = host.sessionProfiles?.codeChanges(turn.principalId, resumeId, resumeId ? undefined : initial.profileDraftId) ?? false;
   if (host.governedTurns) lifecycle?.mark("governedStartedAt");
   else lifecycle?.skip("governed");
   // Only a backend whose turn runs on the host inference relay can name
@@ -162,7 +163,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
   abortController.signal.throwIfAborted();
   const handoffSource = !resumeId && turn.turnId === slot.firstTurnId ? initial.handoffHooks?.sourceSessionId : undefined;
   held.governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference, {
-    ...(inferenceOrigin ? { inferenceOrigin } : {}), ...(resumeId ? { sessionId: resumeId } : {}), ...(handoffSource ? { inherit: [handoffSource] } : {}) }, governedTimer);
+    codeChanges, ...(inferenceOrigin ? { inferenceOrigin } : {}), ...(resumeId ? { sessionId: resumeId } : {}), ...(handoffSource ? { inherit: [handoffSource] } : {}) }, governedTimer);
   const governedHold = held.governedHold;
   if (governedHold) lifecycle?.mark("governedAcquiredAt");
   if (!governedHold || !host.budgets) lifecycle?.skip("budget");
@@ -182,7 +183,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
     lifecycle?.mark("journalStartedAt");
     await host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
       actor: origin, model: run.mainModel,
-      profile: heldProfile(run), policyHash: governedHold.policy.hash },
+      profile: heldProfile(run), workspaceMissing: governedHold.sandbox.areas.some(area => area.name === "workspaces" && !area.mount.writable && area.mount.missing), workspaceReadOnly: governedHold.sandbox.areas.some(area => area.name === "workspaces" && !area.mount.writable && Boolean(area.mount.readOnlyPath)), policyHash: governedHold.policy.hash },
     error => {
       // A real timeout/cancel already won; never relabel that terminal.
       if (abortController.signal.aborted || turn.cancelled) return;

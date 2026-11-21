@@ -1394,6 +1394,7 @@ signatures (every public export and the types it is made of)
     }
   GovernedTurnRoute (packages/ui-server/src/brain/governed-turn.ts)
     export interface GovernedTurnRoute {
+        readonly codeChanges?: boolean;
         readonly inferenceOrigin?: string;
         readonly sessionId?: string;
         readonly inherit?: readonly string[];
@@ -2382,6 +2383,7 @@ signatures (every public export and the types it is made of)
         writable: false;
         reason: string;
         missing?: true;
+        readOnlyPath?: string;
     };
   WorkerOutwardRule (packages/ui-sdk/src/server/outward-policy.ts)
     export interface WorkerOutwardRule {
@@ -2406,6 +2408,7 @@ signatures (every public export and the types it is made of)
         };
         readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
         readonly brain: string;
+        readonly codeChanges?: boolean;
         readonly restricted: boolean;
         readonly profile?: WorkerProfile;
         readonly fallbackReason?: string;
@@ -2645,6 +2648,8 @@ signatures (every public export and the types it is made of)
             policyHash: null | string;
             profile: "governed" | "strict";
             sessionId: null | string;
+            workspaceMissing?: boolean;
+            workspaceReadOnly?: boolean;
         }, stop: (error: Error) => void, signal?: AbortSignal, timing?: PhaseTimer): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): Promise<void>;

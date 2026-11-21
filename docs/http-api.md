@@ -80,6 +80,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/brain/stats/history` | S | Read recorded corpus-stat series | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | POST | `/api/brain/sync` | S | Stream a serialized repository sync | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | GET | `/api/drafts` | S | List live session drafts | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| GET | `/api/drafts/:id/code-changes` | S | Read the durable next-admission workspace write preference | Authenticated session clients; defaults off, principal-scoped drafts (#4295). |
+| PUT | `/api/drafts/:id/code-changes` | S | Save `{ enabled: boolean }` for workspace changes | Durable before acknowledgement; no active-turn effect; preserves profile restrictions (#4295). |
 | GET | `/api/drafts/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/drafts/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/drafts/:draftId` | S | Read a draft's text and images | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
@@ -143,6 +145,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/push/unsubscribe` | S | Remove caller-owned subscription | SDK push renewal and custom PWA clients; preserve principal ownership and private-key exclusion. |
 | POST | `/api/render` | S | Render supplied document to PNG or PDF | Independent share/render clients; preserve RenderRequest, renderer seam and 501 without renderer. |
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
+| GET | `/api/sessions/:id/code-changes` | S | Read the durable next-admission workspace write preference | Authenticated session clients; defaults off, principal-scoped drafts (#4295). |
+| PUT | `/api/sessions/:id/code-changes` | S | Save `{ enabled: boolean }` for workspace changes | Durable before acknowledgement; no active-turn effect; preserves profile restrictions (#4295). |
 | GET | `/api/sessions/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/sessions/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
@@ -2439,3 +2443,13 @@ inferred from matching policy bytes. Owner-scope review explicitly covers
 future repositories currently in that namespace. Runtime trust remains disabled.
 Removal/readback remain available for existing rules. Revision exhaustion refuses
 before protected publication. No historical trigger is resolved by these routes.
+
+### Session code changes (#4295)
+
+The session/draft `code-changes` GET/PUT routes are specified in the
+[integration contract](integration-contract/http.md#default-workspace-inspection-and-code-changes-preference-4295).
+They use the same authenticated identity and principal-scoped draft binding as
+profile preferences. PUT accepts exactly `{ enabled: boolean }`; all replies
+are `Cache-Control: no-store`. Existing sessions default to false. Saves
+survive resume and apply only to the next admission; enabled sessions retain
+the existing writable-workspace protections and per-file journal.

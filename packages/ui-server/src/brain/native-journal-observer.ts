@@ -79,11 +79,12 @@ class MetadataIndex {
   readonly entries = new Map<string, NativeJournalMetadata>();
   readonly children = new Map<string, Set<string>>();
   readonly inodes = new Map<string, Set<string>>();
+  readonly workspacePaths = new Set<string>();
   readonly ignoreInputs = new Map<string, NativeJournalMetadata>();
   readonly steeringInputs = new Map<string, NativeJournalMetadata>();
   remove(path: string): void {
     const entry = this.entries.get(path); if (!entry) return;
-    this.entries.delete(path); this.ignoreInputs.delete(path); this.steeringInputs.delete(path);
+    this.entries.delete(path); this.workspacePaths.delete(path); this.ignoreInputs.delete(path); this.steeringInputs.delete(path);
     const directory = parent(path), children = this.children.get(directory); children?.delete(path);
     if (!children?.size) this.children.delete(directory);
     const names = this.inodes.get(entry.inode); names?.delete(path);
@@ -91,6 +92,7 @@ class MetadataIndex {
   }
   put(entry: NativeJournalMetadata): void {
     this.remove(entry.path); this.entries.set(entry.path, entry);
+    if (isWithin("workspaces", entry.path)) this.workspacePaths.add(entry.path);
     if (entry.path.split("/").at(-1) === ".gitignore") this.ignoreInputs.set(entry.path, entry);
     if (isJournalSteeringPath(entry.path)) this.steeringInputs.set(entry.path, entry);
     const directory = parent(entry.path), children = this.children.get(directory) ?? new Set<string>();
@@ -112,18 +114,19 @@ class RootMetadataReader {
   private constructor(private readonly root: FileHandle | undefined, private readonly signal: AbortSignal,
     private readonly checkpointId: string, private readonly manager: NativeJournalManager, private readonly workerUid?: () => number | undefined,
     private readonly known: (path: string) => NativeJournalMetadata | undefined = () => undefined,
+    private readonly workspaces = true,
     readonly stats = { readEntries: 0, walkedDirectories: 0 }) {}
   static async create(root: NativeJournalCheckpoint, signal: AbortSignal, manager: NativeJournalManager, workerUid?: () => number | undefined,
-    known?: (path: string) => NativeJournalMetadata | undefined) {
+    known?: (path: string) => NativeJournalMetadata | undefined, workspaces = true) {
     signal.throwIfAborted();
     if (root.readOnly !== true) unavailable("Native metadata requires a sealed checkpoint.");
     let descriptor: FileHandle;
     try { descriptor = await open(root.path, DIRECTORY); }
     catch (error) {
       if (!nativeJournalPermissionDenied(error) || workerUid?.() === undefined) throw error;
-      return new RootMetadataReader(undefined, signal, root.id, manager, workerUid, known);
+      return new RootMetadataReader(undefined, signal, root.id, manager, workerUid, known, workspaces);
     }
-    try { signal.throwIfAborted(); return new RootMetadataReader(descriptor, signal, root.id, manager, workerUid, known); }
+    try { signal.throwIfAborted(); return new RootMetadataReader(descriptor, signal, root.id, manager, workerUid, known, workspaces); }
     catch (error) { await descriptor.close(); throw error; }
   }
   private markUnreadable(path: string, known = this.known(path), ms = 0): undefined {
@@ -137,30 +140,32 @@ class RootMetadataReader {
     try { return await this.manager.statCheckpoint(this.checkpointId, path, uid, this.signal); }
     catch (error) { if (nativeJournalPermissionDenied(error)) return this.markUnreadable(path, this.known(path), Math.max(0, Math.round(performance.now() - started))); throw error; }
   }
-  private async child(parentFd: number, name: string, path: string): Promise<NativeJournalMetadata> {
+  private async child(parentFd: number, name: string, path: string, bounded = true): Promise<NativeJournalMetadata> {
     this.signal.throwIfAborted(); this.stats.readEntries++;
     const info = await lstat(at(parentFd, name), { bigint: true });
-    if (info.isDirectory() && path.split("/").length > 256) unavailable("Native metadata directory depth exceeds the supported bound.");
+    if (bounded && info.isDirectory() && path.split("/").length > 256) unavailable("Native metadata directory depth exceeds the supported bound.");
     const target = info.isSymbolicLink() ? rawText(await readlink(at(parentFd, name), { encoding: "buffer" })) : undefined;
     this.signal.throwIfAborted(); return metadata(path, info, target);
   }
-  async get(path: string): Promise<NativeJournalMetadata | null | undefined> {
+  async get(path: string, aliasProbe = false): Promise<NativeJournalMetadata | null | undefined> {
+    if (!aliasProbe && !this.workspaces && isWithin("workspaces", path)) return null;
     const parts = path.split("/");
     if (!path || parts.some(part => !part || part === "." || part === ".." || part.includes("\0"))) unavailable("Invalid native metadata path.");
-    if (parts.length > 257) unavailable("Native metadata directory depth exceeds the supported bound.");
+    if (!aliasProbe && parts.length > 257) unavailable("Native metadata directory depth exceeds the supported bound.");
     if (!this.root) {
       const uid = this.workerUid?.();
       if (uid === undefined || !this.manager.statCheckpoint) throw new NativeJournalObservationError("Private checkpoint metadata requires the qualified fixed worker-UID reader.");
       return this.privateStat(path, uid);
     }
-    const chain: FileHandle[] = [];
-    let fd = this.root.fd;
+    // A single path probe retains only one parent descriptor, including deep
+    // excluded aliases. It never inventories a checkout directory.
+    let cursor: FileHandle | undefined;
     try {
       for (const name of parts.slice(0, -1)) {
-        this.signal.throwIfAborted(); const child = await open(at(fd, name), DIRECTORY);
-        chain.push(child); fd = child.fd;
+        this.signal.throwIfAborted(); const child = await open(at(cursor?.fd ?? this.root.fd, name), DIRECTORY);
+        await cursor?.close(); cursor = child;
       }
-      return await this.child(fd, parts.at(-1)!, path);
+      return await this.child(cursor?.fd ?? this.root.fd, parts.at(-1)!, path, !aliasProbe);
     } catch (error) {
       if (missing(error)) return null;
       const uid = nativeJournalPermissionDenied(error) ? this.workerUid?.() : undefined;
@@ -168,9 +173,10 @@ class RootMetadataReader {
       if (!this.manager.statCheckpoint) unavailable("Private checkpoint metadata requires the fixed worker-UID reader.");
       return this.privateStat(path, uid);
     }
-    finally { for (const child of chain.reverse()) await child.close(); }
+    finally { await cursor?.close(); }
   }
   async *walk(path = ""): AsyncGenerator<NativeJournalMetadata> {
+    if (!this.workspaces && isWithin("workspaces", path)) return;
     const parts = path ? path.split("/") : [], chain: FileHandle[] = [];
     if (!this.root) {
       const uid = this.workerUid?.();
@@ -204,6 +210,7 @@ class RootMetadataReader {
       const name = rawText(bytes);
       if (!name || name.includes("/") || name.includes("\0") || name === "." || name === "..") unavailable("Invalid native directory entry.");
       const rel = path ? `${path}/${name}` : name;
+      if (!this.workspaces && isWithin("workspaces", rel)) continue;
       let entry: NativeJournalMetadata;
       try { entry = await this.child(fd, name, rel); }
       catch (error) {
@@ -234,6 +241,7 @@ class RootMetadataReader {
     try { entries = await this.manager.listCheckpoint(this.checkpointId, path, uid, this.signal); }
     catch (error) { if (nativeJournalPermissionDenied(error)) { this.markUnreadable(path, known, Math.max(0, Math.round(performance.now() - started))); return; } throw error; }
     for (const entry of entries) {
+      if (!this.workspaces && isWithin("workspaces", entry.path)) continue;
       this.signal.throwIfAborted(); this.stats.readEntries++;
       yield entry;
       if (entry.kind === "directory") yield* this.walkPrivate(entry.path, depth + 1, uid, true, entry);
@@ -281,6 +289,7 @@ export interface NativeJournalReleaseAccounting {
  * observation committed, outside the caller's hold.
  */
 export function createNativeJournalObserver(native: NativeJournalManager, workerUid?: () => number | undefined, releaseFailed?: (error: unknown, checkpointId: string) => void, releaseRetryMs = 30_000) {
+  let inventoryWorkspaces = true;
   let index = new MetadataIndex(), root: NativeJournalCheckpoint | undefined;
   let missingInventory = new Map<string, NativeJournalUnreadable>();
   const uncertain = (path: string) => {
@@ -374,7 +383,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     if (entry) entry.state = "pending"; else outstanding.set(id, { bytes, state: "pending" });
     releaseNext();
   }
-  async function initialize(signal?: AbortSignal): Promise<void> {
+  async function initialize(signal?: AbortSignal, options: { workspaces?: boolean } = {}): Promise<void> {
     if (closed) unavailable("Native observer is closed.");
     if (root) return;
     if (initializing) return initializing;
@@ -382,17 +391,35 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     initializing = (async () => {
       let captured: NativeJournalCheckpoint | undefined, reader: RootMetadataReader | undefined;
       try {
-        captured = await checkpoint(active); reader = await RootMetadataReader.create(captured, active, native, workerUid);
+        captured = await checkpoint(active); reader = await RootMetadataReader.create(captured, active, native, workerUid, undefined, options.workspaces !== false);
         const initial = new MetadataIndex();
         for await (const entry of reader.walk()) initial.put(entry);
-        active.throwIfAborted(); index = initial; root = captured; missingInventory = new Map(reader.unreadable);
+        active.throwIfAborted(); inventoryWorkspaces = options.workspaces !== false; index = initial; root = captured; missingInventory = new Map(reader.unreadable);
       } catch (error) { if (captured) await release(captured).catch(() => {}); throw error; }
       finally { await reader?.close(); initializing = undefined; }
     })();
     return initializing;
   }
-  async function prepare(signal?: AbortSignal, timing?: PhaseTimer): Promise<NativeJournalObservation> {
-    await initialize(signal);
+  // A newly admitted writer needs a baseline from the current sealed root;
+  // inspect-only turns never pay for this inventory.
+  async function includeWorkspaces(signal?: AbortSignal): Promise<void> {
+    if (!root || inventoryWorkspaces) return;
+    const active = signalFor(signal), reader = await RootMetadataReader.create(root, active, native, workerUid);
+    try {
+      const workspace = await reader.get("workspaces"), entries: NativeJournalMetadata[] = [];
+      if (workspace) {
+        entries.push(workspace);
+        if (workspace.kind === "directory") for await (const entry of reader.walk("workspaces")) entries.push(entry);
+      }
+      active.throwIfAborted();
+      for (const entry of entries) index.put(entry);
+      for (const [path, value] of reader.unreadable) missingInventory.set(path, value);
+      inventoryWorkspaces = true;
+    } finally { await reader.close(); }
+  }
+  async function prepare(signal?: AbortSignal, timing?: PhaseTimer, workspaces = true): Promise<NativeJournalObservation> {
+    await initialize(signal, { workspaces });
+    if (workspaces) await includeWorkspaces(signal);
     // The wait for room behind earlier releases (#2915), before any checkpoint.
     let end = timing?.("observe_reserve");
     await reserveRelease();
@@ -407,13 +434,19 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       // Observe an early transport failure without an unhandled rejection.
       void job.completed.catch(() => {});
       const paths = new Set<string>(), prefixes = new Set<string>();
+      const excludedAliases = new Map<string, {path: string; at: number}>();
+      const renames: { from: string; to: string }[] = [];
       try {
         for await (const candidate of parseNativeBrainDelta(job.stream, {
           before: { uuid: before.uuid, transaction: BigInt(before.transaction) },
           after: { uuid: after.uuid, transaction: BigInt(after.transaction) }, signal: active,
         })) {
-          for (const path of candidate.paths) paths.add(path);
-          if (candidate.rename) { prefixes.add(candidate.rename.from); prefixes.add(candidate.rename.to); }
+          for (const path of candidate.paths) {
+            if (workspaces || !isWithin("workspaces", path)) paths.add(path);
+            else { const at = renames.length + (candidate.rename?.to === path ? 1 : 0); excludedAliases.set(`${at}:${path}`, {path, at}); }
+          }
+          if (candidate.rename) renames.push(candidate.rename);
+          if (candidate.rename) for (const path of [candidate.rename.from, candidate.rename.to]) if (workspaces || !isWithin("workspaces", path)) prefixes.add(path);
         }
         const outcome = await job.completed;
         if (outcome.exitCode !== 0) unavailable("Native delta helper did not exit successfully.");
@@ -423,9 +456,32 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         await job.completed.catch(() => {}); throw error;
       }
       end?.(); end = timing?.("observe_metadata");
+      // A send update may name only an excluded alias of an ordinary note.
+      // Recover its inode from both sealed roots before dropping the namespace.
+      let aliasEntries = 0;
+      const excludedBefore = new Map<string, NativeJournalMetadata>(), excludedAfter = new Map<string, NativeJournalMetadata>();
+      if (excludedAliases.size) for (const checkpoint of [before, after]) {
+        const aliases = await RootMetadataReader.create(checkpoint, active, native, workerUid);
+        try {
+          for (const {path, at} of excludedAliases.values()) {
+            // Each name belongs to its stream operation's namespace, not the
+            // final tree. Preserve that point across reused names and cycles.
+            let original = path;
+            if (checkpoint === before) {
+              for (const rename of renames.slice(0, at).reverse()) if (isWithin(rename.to, original)) original = rename.from + original.slice(rename.to.length);
+            } else for (const rename of renames.slice(at)) if (isWithin(rename.from, original)) original = rename.to + original.slice(rename.from.length);
+            const entry = await aliases.get(original, true);
+            if (entry === undefined) unavailable("Excluded alias metadata is unavailable for note attribution.");
+            if (entry?.kind === "file") (checkpoint === before ? excludedBefore : excludedAfter).set(original, entry);
+            if (entry?.kind === "file") for (const alias of index.inodes.get(entry.inode) ?? [])
+              if (!isWithin("workspaces", alias)) paths.add(alias);
+          }
+          aliasEntries += aliases.stats.readEntries;
+        } finally { await aliases.close(); }
+      }
       const patches = new Map<string, NativeJournalMetadata | null | undefined>();
       reader = await RootMetadataReader.create(after, active, native, workerUid,
-        path => patches.has(path) ? patches.get(path) ?? undefined : index.entries.get(path));
+        path => patches.has(path) ? patches.get(path) ?? undefined : index.entries.get(path), workspaces);
       const read = async (path: string) => {
         if (!patches.has(path)) patches.set(path, await reader!.get(path));
         return patches.get(path)!;
@@ -445,6 +501,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         }
       }
       for (const missing of missingInventory.keys()) {
+        if (!workspaces && isWithin("workspaces", missing)) continue;
         if (missing === ".") { newDirectories.add(""); oldDirectories.add(""); continue; }
         const current = await read(missing);
         if (current?.kind === "directory") { newDirectories.add(missing); oldDirectories.add(missing); paths.add(missing); }
@@ -454,7 +511,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         if (index.entries.get(prefix)?.kind === "directory") oldDirectories.add(prefix);
         if ((await read(prefix))?.kind === "directory") newDirectories.add(prefix);
       }
-      for (const prefix of outerPrefixes(oldDirectories)) for (const path of index.descendants(prefix)) paths.add(path);
+      for (const prefix of outerPrefixes(oldDirectories)) for (const path of index.descendants(prefix)) if (workspaces || !isWithin("workspaces", path)) paths.add(path);
       for (const prefix of outerPrefixes(newDirectories)) {
         for await (const entry of reader.walk(prefix)) { paths.add(entry.path); patches.set(entry.path, entry); }
       }
@@ -463,7 +520,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       for (const path of paths) {
         const previous = index.entries.get(path), current = await read(path);
         for (const entry of [previous, current]) if (entry?.kind === "file") {
-          for (const alias of index.inodes.get(entry.inode) ?? []) paths.add(alias);
+          for (const alias of index.inodes.get(entry.inode) ?? []) if (workspaces || !isWithin("workspaces", alias)) paths.add(alias);
         }
       }
       active.throwIfAborted();
@@ -476,14 +533,19 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       }
       const next = after;
       // Content the previous root alone keeps once this observation commits.
-      let replacedBytes = 0;
-      for (const change of changes) if (change.before?.kind === "file" && change.before.stamp !== change.after?.stamp) replacedBytes += change.before.bytes;
+      const replaced = new Map<string, number>();
+      const excludedCurrentInodes = new Map([...excludedAfter.values()].map(entry => [entry.inode, entry]));
+      for (const entry of excludedBefore.values()) if (entry.stamp !== excludedCurrentInodes.get(entry.inode)?.stamp) replaced.set(entry.inode, entry.bytes);
+      for (const change of changes) if (change.before?.kind === "file" && change.before.stamp !== change.after?.stamp) replaced.set(change.before.inode, change.before.bytes);
+      const replacedBytes = [...replaced.values()].reduce((sum, bytes) => sum + bytes, 0);
       let state: "pending" | "committed" | "aborted" = "pending";
       const observation: NativeJournalObservation = {
-        beforeRoot: before, afterRoot: next, changes, stats: { ...reader.stats }, unreadable: [...reader.unreadable.values()],
+        beforeRoot: before, afterRoot: next, changes, stats: { ...reader.stats, readEntries: reader.stats.readEntries + aliasEntries }, unreadable: [...reader.unreadable.values()],
         async commit() {
           if (state === "aborted") unavailable("Native observation was already aborted.");
           if (state === "pending") {
+            if (!workspaces && inventoryWorkspaces) for (const path of index.workspacePaths) index.remove(path);
+            inventoryWorkspaces = workspaces;
             for (const [path, entry] of patches) { if (entry) index.put(entry); else if (entry === null) index.remove(path); }
             missingInventory = new Map(reader!.unreadable);
             root = next; state = "committed"; pending = undefined;
@@ -504,6 +566,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   }
   return {
     initialize,
+    includeWorkspaces,
     /** Borrowed until the next committed observation; never an independent lease. */
     currentRoot(): NativeJournalCheckpoint { if (closed || !root) return unavailable("Native observer is not initialized or is closed."); return root; },
     entries(): IterableIterator<NativeJournalMetadata> { if (closed) return unavailable("Native observer is closed."); return visible(index.entries.values()); },
@@ -511,9 +574,9 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     ignoreEntries(): IterableIterator<NativeJournalMetadata> { if (closed) return unavailable("Native observer is closed."); return visible(index.ignoreInputs.values()); },
     unreadableEntries(): NativeJournalUnreadable[] { return [...missingInventory.values()]; },
     get(path: string): NativeJournalMetadata | undefined { if (closed) return unavailable("Native observer is closed."); return uncertain(path) ? undefined : index.entries.get(path); },
-    async observe(signal?: AbortSignal, timing?: PhaseTimer): Promise<NativeJournalObservation> {
+    async observe(signal?: AbortSignal, timing?: PhaseTimer, options: { workspaces?: boolean } = {}): Promise<NativeJournalObservation> {
       if (closed || inFlight || pending) unavailable("Native observation must be serialized and reconciled.");
-      const operation = prepare(signal, timing); inFlight = operation;
+      const operation = prepare(signal, timing, options.workspaces !== false); inFlight = operation;
       try { return await operation; } finally { inFlight = undefined; }
     },
     /** Accounting of previous checkpoints whose release left the observation. */

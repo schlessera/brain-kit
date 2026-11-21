@@ -28,7 +28,7 @@ async function fixture() {
       poolReadCheckpoint: unsupported, poolStatCheckpoint: unsupported, poolListCheckpoint: unsupported } });
   const stopped = new Map<string, Error>(), facts = new Map<string, Facts>();
   journal.onObservation((turnId, value) => facts.set(turnId, value));
-  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { stopped.set(id, error); });
+  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, error => { stopped.set(id, error); });
   // Sealed shared source and one worktree snapshotted from it.
   const source = await pool.poolCreate(crypto.randomUUID(), "source", null, 4096);
   mkdirSync(join(source.path!, "odyssey"));
