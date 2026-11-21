@@ -46,6 +46,29 @@ rather than an additive public-contract feature.
 
 ## Tool execution evidence (internal #2834)
 
+The optional internal `StartTurnRequest.startupTiming` observer (#4285/#4286)
+offers `start(name)` (returns an end callback), `worker(name, durationMs)`,
+`missing(name)` and `received()`. Both first-party backends use the host-owned
+lifecycle timer, including startup before the first bridge frame. The observer
+is stripped from Pi's serialized init environment. It supplies no authority,
+never reaches provider inputs, and is optional for older hosts. The internal
+inference relay's optional `received(path)` notification runs after method and
+route checks, before admission/body reading; its exception is ignored.
+See [Host turn lifecycle](wire.md#host-turn-lifecycle-additive) for the persisted
+fields, clocks and missing-evidence semantics. New phases are persisted in
+`openSubPhases`; the legacy `subPhases` enum remains unchanged for older SDKs.
+
+The experimental toolkit helper `safeStartupTiming(observer)` preserves an
+optional observer's arguments and method receivers while suppressing exceptions
+from every method and returned step completion, including rejected promises
+and thenables. Diagnostic promises are consumed without awaiting them, so a
+pending sink cannot hold up observed work. Relay receipt and request-event
+diagnostics have the same boundary. Both first-party backends use
+it so unavailable diagnostics cannot refuse work or escape a worker's cleanup
+ownership. An initialization response observed before the deferred worker
+launch cannot start a later `runtime_to_sdk_init` interval; that stage is
+recorded as missing instead.
+
 `StartTurnRequest` adds optional `@internal toolExecution(toolUseId, path)`, a
 server-only callback a backend calls before a call's `tool_result` with where
 that call actually ran: `host_bridge` (its body ran in the host's handler for

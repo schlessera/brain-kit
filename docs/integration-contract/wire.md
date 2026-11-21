@@ -556,6 +556,9 @@ backend run and span tree. Its distinct `lifecycleId` is `lifecycle:<turnId>`; `
 is null until observed, and `backendRunId` is null until a backend root is
 actually recorded. It never owns tokens, costs, spans or rollups. Inference
 aggregation continues to read backend rollups exactly once.
+The whole envelope is host-only: `query_activity` never includes it in a
+provider-facing tool result, including on recent, full, pruned or lifecycle-only
+run queries. The owner-facing Activity API and stream retain the envelope.
 
 `acceptedAt` is the observed host acceptance time, before routing/admission.
 Queued requests retain their observed queue acceptance and `dequeuedAt`;
@@ -605,7 +608,71 @@ not apply to a turn is absent. The current names are:
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
 
-Records written before this field have no `subPhases`; nothing is backfilled.
+Optional `openSubPhases` (#4285/#4286) carries **all new phases**, using the
+same entry shape `{ phase, name, startedAt, endedAt, elapsedMs }` with an open
+string vocabulary for `phase` as well as `name`. Consumers must tolerate
+unknown phase names. The original `subPhases[].phase` enum is frozen at
+`governed` and `journal`: previously published SDKs reject a whole Activity
+snapshot or delta when that array contains an unknown phase. Their loose
+lifecycle object accepts the new optional field without dropping the frame.
+Never put a new phase into `subPhases`, or widen its enum.
+
+`openSubPhases` has the same pending, null, failure/interruption and persistence
+rules as `subPhases`. Each array is in nondecreasing `startedAt` order, keeping
+observation order for ties. A milestone interval learned after later-starting
+steps is inserted at its start position. The first-frame milestone and its
+step share one clock observation. Open steps are carried by the same milestone
+or terminal writes. The current open phase names are:
+
+- `backend` (#4285/#4286): host `host_probe`, Claude's separate
+  `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; Pi's
+  `preparation` and `worker_spawn`; worker-reported Pi `bootstrap_imports`,
+  `resources`, `session` and `initialize`; and host `first_backend_frame`
+  and `first_relay_request`. The last two measure from backend invocation
+  to the observed mark. `first_backend_frame` is absent if the first frame
+  follows relay receipt; the existing `backendStartupMs` still records it.
+
+The backend bracket ends at optional `firstRelayRequestAt` (host epoch
+milliseconds), the first model request received on an authorized inference
+relay route, before admission, body reading and dispatch. Token-count routes
+do not end it. Null means not observed; historical records omit the field.
+Backend steps start only after `backendInvokedAt`; new steps and completions
+after relay receipt are ignored. An unfinished backend step has a null
+`endedAt`; its elapsed value is bounded by relay receipt when observed,
+otherwise the same failure/interruption rule as other steps. The receipt
+persists a milestone; other startup observations add no writes of their own.
+
+For worker-reported open steps, `timeBase: "worker"` and `workerElapsedMs`
+are additive fields. `elapsedMs` is that observed worker duration, while
+both timestamps are the host's receipt time. They do **not** identify a
+worker start on the host clock. Worker `bootstrap_imports` is measured from
+the worker process's monotonic time origin to its entry after static imports.
+Pi `session` includes resource loading, and `initialize` includes both; steps
+can overlap and must not be summed as disjoint costs. A Pi worker contributes
+at most one observation per startup phase (four total), before readiness;
+duplicate and post-readiness reports are ignored in both timing and debug totals.
+
+Optional `backendMissingEvidence` lists unavailable SDK marks, rather than
+inventing durations: Claude `first_enqueue`, `prompt_recorded`, and
+`mcp_connect:<server-name>` for the in-process server and each server named by
+system/init. The installed SDK exposes connection state without per-server
+start/end marks. Unknown marks have no timed step; an empty list does not
+claim complete runtime coverage. These observations stay in host storage and
+never enter provider history.
+Names are sampled from the first Claude system/init frame only: at most 32
+server names, each at most 240 UTF-8 bytes, with
+`mcp_connect:additional_servers_omitted` when that sample is incomplete.
+The lifecycle retains at most 63 distinct missing-evidence names of at most
+256 UTF-8 bytes each, plus `additional_missing_evidence_omitted` on overflow.
+Omitted names are not retained for deduplication. Continuation init frames do
+not expand the sample; missing evidence remains explicit when a limit is hit.
+Malformed MCP diagnostic lists or entries also mark the sample incomplete.
+Null or absent lists are unavailable evidence; an explicit empty array is an
+observed empty list. These diagnostics cannot fail an otherwise usable stream.
+Without a timing observer, the
+backend does not read the MCP diagnostic list.
+
+Historical records may omit either timing array; neither is backfilled.
 
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
