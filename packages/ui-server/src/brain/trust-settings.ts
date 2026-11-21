@@ -227,8 +227,9 @@ export function createTrustSettings(options: {
       const row = options.db.query("SELECT selector,identity,proof FROM trust_settings_github_boundaries WHERE brain_id=? AND rule_id=?").get(brain, ruleId) as { selector: string; identity: string; proof: string } | null;
       return row && row.selector === JSON.stringify(rule.selector) ? { identity: JSON.parse(row.identity) as TrustGitHubIdentity, proof: JSON.parse(row.proof) as unknown } : null;
     }); },
-    async list(principal: string) { authority(principal); const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh); authority(principal);
-      return { ...p, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
+    async list(principal: string) { const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh);
+      const mutationAllowed = !!options.authority(principal);
+      return { ...p, mutationAllowed, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
     read,
     async prepare(principal: string, raw: unknown, signal?: AbortSignal) {
       const auth = authority(principal), input = TrustPrepareSchema.parse(raw);

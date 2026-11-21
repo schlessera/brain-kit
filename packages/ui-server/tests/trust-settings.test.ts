@@ -182,8 +182,14 @@ test("real HTTP login/owner/CSRF boundary rejects ambient, agent, forged-card an
   const preparedResponse = await request("/prepare", body); expect(preparedResponse.status).toBe(200);
   const draft = await preparedResponse.json() as Awaited<ReturnType<typeof f.prepare>>;
   const commit = { version: 1, requestId: draft.receipt.requestId, reviewId: draft.review.reviewId, reviewedBytesHash: draft.review.reviewedBytesHash };
-  mode = "none"; expect((await request("/commit", commit)).status).toBe(403); mode = "password";
-  f.db.exec("UPDATE principals SET kind='agent'"); expect((await request("/commit", commit)).status).toBe(403);
+  mode = "none";
+  const ambient = await request(""); expect(ambient.status).toBe(200); expect((await ambient.json() as { mutationAllowed: boolean }).mutationAllowed).toBe(false);
+  expect((await request("/ithaca-review")).status).toBe(403);
+  expect((await request("/commit", commit)).status).toBe(403); mode = "password";
+  f.db.exec("UPDATE principals SET kind='agent'");
+  const agentView = await request(""); expect(agentView.status).toBe(200); expect((await agentView.json() as { mutationAllowed: boolean }).mutationAllowed).toBe(false);
+  expect((await request("/prepare", body)).status).toBe(403);
+  expect((await request("/commit", commit)).status).toBe(403);
   f.db.exec("UPDATE principals SET kind='owner',revoked_at=1"); expect((await request("/commit", commit)).status).toBe(401);
   expect(readFileSync(f.path, "utf8")).toBe(initial); expect(p.policyHash).toBe(hash(initial));
 });
@@ -608,4 +614,13 @@ for(const transition of ['remove','disable','retarget'] as const)test(`review12:
  edit(source.selector.host);await publisher.live.refresh();
  }else{const retired=transition==='remove'?{action:'remove',ruleId:source.id}:{action:'edit',rule:{...source,incomingContent:false,recipientWhileRestricted:true}};expect((await publish(retired)).receipt.enforcement).toBe('enforced');expect((await publish({action:transition==='remove'?'create':'edit',rule:source})).receipt.enforcement).toBe('enforced');}expect(f.settings.live.read().ruleInstances[source.id],'RESTORED_SOURCE_IS_A_NEW_INSTANCE').not.toBe(birth);try{stream.enqueue(new TextEncoder().encode('second'));}catch{}expect(await Promise.race([later.then(()=>true),closed.then(()=>false)]),'RECREATED_ID_NEVER_RESUMES_OLD_SOURCE_INSTANCE').toBe(false);expect(controller.signal.aborted).toBe(false);expect(JSON.stringify(await publisher.list('odysseus'))).not.toContain('ruleInstances');
  }finally{proxy.stop();await closed;await proxy.settled();origin.stop(true);}
+});
+
+test("authenticated read-only callers can inspect sanitized trust lists without publication authority", async () => {
+  const f = await fixture();
+  const view = await f.settings.list("eumaeus");
+  expect(view.mutationAllowed).toBe(false);
+  expect(view.rules).toEqual([]);
+  expect((await f.settings.list("odysseus")).mutationAllowed).toBe(true);
+  await expect(f.settings.prepare("eumaeus", { version: 1, expectedTrustRevision: view.revision, expectedPolicyHash: view.policyHash, change: { action: "create", rule } })).rejects.toThrow("unauthorized");
 });

@@ -5631,7 +5631,19 @@ capability, HTTP endpoint, history DTO or provider conversation changes here.
 
 ### Human trust Settings publication
 
-The optional owner-only `/api/trust-settings` HTTP surface is a policy-publication
+Security Settings now consumes the protected trust publication surface. The
+list GET is available to authenticated callers and adds `mutationAllowed`;
+this reflects a live password/passkey owner at read time, never grants commit
+authority. It exposes only the current served brain's trust policy facts, not
+operation identities, review bytes, private grants or history. Prepare, commit
+and per-request receipt reads retain the live owner checks. Mixed-version hosts
+that omit `mutationAllowed` are read-only in the UI. Missing runtime capabilities
+never imply active trust; repository rows remain disabled/unverified while
+repository enforcement is unavailable. Settings edits are prospective and never
+commit historical safety verdicts. The SDK schemas entry point exposes the
+existing canonical trust parsers and rule/list validators for browser inputs.
+
+The optional `/api/trust-settings` HTTP surface is a policy-publication
 building block. `GET /api/trust-settings` reads the current trust-only revision,
 exact policy hash, `origins`, `repositories`, repository-identity availability,
 and independently advertised runtime enforcement capabilities. The composed host enables origin/recipient enforcement; repository enforcement remains unavailable.

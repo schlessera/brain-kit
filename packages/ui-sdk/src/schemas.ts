@@ -2293,3 +2293,6 @@ export const queueAddRequestSchema = z.strictObject({
 export const queueAddResultSchema = z.looseObject({
   queued: z.literal(true), created: z.boolean(), threadId: id, itemId: id, stagingId: id,
 }) satisfies z.ZodType<QueueAddResult>;
+
+/** Canonical Settings inputs, shared with the protected policy writer. */
+export { parseTrustOrigin, parseTrustTunnel, parseTrustGithub, TrustRuleSchema, TrustedSourcesSchema } from "@schlessera/brain-common/internal/taint-trust";
