@@ -175,6 +175,7 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
       command: Type.String({ description: "The bash command line to execute." }),
     }),
     async execute(_id: string, params: { command: string }, signal?: AbortSignal) {
+      try{
       signal = signal && turn.signal ? AbortSignal.any([signal, turn.signal]) : signal ?? turn.signal ?? undefined;
       // The tool_call gate has already confirmed a destructive-pattern match
       // by now (and may have edited the command via updatedInput). The rtk
@@ -191,7 +192,7 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
       // write path take a lock (shared bashLockKey policy) — builds, greps,
       // curls and other reads run in parallel, across sessions and across
       // sibling tool calls in one message.
-      return lock.withKey(bashLockKey(params.command), async () => {
+      return await lock.withKey(bashLockKey(params.command), async () => {
         if (signal?.aborted) throw new DOMException("Tool cancelled before subprocess execution", "AbortError");
         if (turn.bridge?.commitToolAdmission) await turn.bridge.commitToolAdmission(_id, "bash", params);
         else {
@@ -250,6 +251,11 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
         return textResult(output, { exitCode: code });
         }finally{signal?.removeEventListener("abort",onAbort);}
       });
+      }catch(error){
+        forgetPiAdmission(turn,"bash",_id);
+        await turn.bridge?.inputSafety?.refused?.(_id,true);
+        throw error;
+      }
     },
   } satisfies ToolDefinition;
 }

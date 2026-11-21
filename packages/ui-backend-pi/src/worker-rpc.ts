@@ -86,17 +86,20 @@ async function lock(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerRp
   const key = msg.toolName === "bash" ? bashLockKey(input.command)
     : fileTool ? target && `path:${target}` : BRAIN_LOCK_KEY;
   if (typeof key !== "string" || msg.input.key !== key || Object.keys(msg.input).length !== 1) throw new Error("Pi worker lock does not match the authorized operation");
-  const release = await workerLock.acquire(key, { signal: turnContext.signal ?? undefined });
+  let release:(()=>void)|undefined,transferred=false;
   try {
+    release=await workerLock.acquire(key,{signal:turnContext.signal??undefined});
     live();
-    const stale = revalidatePiAdmission(turnContext, msg.toolName, msg.toolCallId, input);
-    if (stale) { grants.delete(msg.toolCallId); throw new Error(stale); }
-  }catch(error){
-    release();
-    if(msg.toolName==="bash"){grants.delete(msg.toolCallId);forgetPiAdmission(turnContext,msg.toolName,msg.toolCallId);await bridge.inputSafety?.refused?.(msg.toolCallId,true);}
-    throw error;
+    const stale=revalidatePiAdmission(turnContext,msg.toolName,msg.toolCallId,input);
+    if(stale)throw new Error(stale);
+    const lockId=randomUUID();releases.set(lockId,release);executed(msg).lock=true;transferred=true;
+    return {lockId};
+  }finally{
+    if(!transferred){
+      release?.();grants.delete(msg.toolCallId);
+      if(msg.toolName==="bash"){forgetPiAdmission(turnContext,msg.toolName,msg.toolCallId);await bridge.inputSafety?.refused?.(msg.toolCallId,true);}
+    }
   }
-  const lockId = randomUUID(); releases.set(lockId, release); executed(msg).lock = true; return { lockId };
 }
 
 /** Records one phase of a granted native file read or write against the worker's file view. */

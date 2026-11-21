@@ -10,7 +10,7 @@ export function createCausalAdmissionSafety(db:Database,root:AdmissionSafety,opt
  writes:Pick<GovernanceWrites,'safety'>;own:()=>{ids:readonly string[];valid:boolean}}):AdmissionSafety {
  let observed:string|undefined,revision=0n,localGeneration=0n;const localIds=new WeakMap<object,string>();
  const read=()=>{
-  const session=options.sessionId(),own=options.own(),state=readCausalRoot(root,own.valid?own.ids:[]);
+  const session=options.sessionId(),own=options.own(),{state,externalRevision}=readCausalRoot(root,own.valid?own.ids:[]);
   const turns=[...safetyScopeTurns(db,options.turnId,session)].sort();
   // Exclude only these immutable input occurrence rows. Decisions, exposure
   // transitions and every binding/collection append remain independent.
@@ -37,7 +37,7 @@ export function createCausalAdmissionSafety(db:Database,root:AdmissionSafety,opt
   const localPending=independentLocal.map(item=>{
    let id=localIds.get(item);if(id===undefined){if(++localGeneration>18446744073709551615n)throw new Error('Causal pending generation exhausted');id=localGeneration.toString();localIds.set(item,id);}return id;
   }).sort();
-  const marker=JSON.stringify([sequence,turns,projection.session,projection.coverage,pendingCount,pending,localPending,state.trustRevision,state.authorityEpoch,state.scope,state.policyHash,state.recordingAvailable,state.authorityCurrent,projection.reasons.filter(reason=>reason!=='unresolved'&&(reason!=='recording_pending'||pendingCount>0)),own.valid]);
+  const marker=JSON.stringify([sequence,externalRevision,turns,projection.session,projection.coverage,pendingCount,pending,localPending,state.trustRevision,state.authorityEpoch,state.scope,state.policyHash,state.recordingAvailable,state.authorityCurrent,projection.reasons.filter(reason=>reason!=='unresolved'&&(reason!=='recording_pending'||pendingCount>0)),own.valid]);
   if(observed!==undefined&&observed!==marker){if(++revision>18446744073709551615n)throw new Error('Causal admission revision exhausted');}
   observed=marker;
   return {...state,evidenceRevision:revision.toString(),recordingAvailable:state.recordingAvailable&&own.valid};

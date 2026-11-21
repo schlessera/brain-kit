@@ -7,7 +7,10 @@ import { safetyQueue } from "./safety-queue.js";
 
 const causalReaders=new WeakMap<AdmissionSafety,(excluded:readonly string[])=>ReturnType<AdmissionSafety['read']>>();
 /** Only the concrete host facade can subtract a known own reservation. */
-export function readCausalRoot(root:AdmissionSafety,excluded:readonly string[]):ReturnType<AdmissionSafety['read']>{return causalReaders.get(root)?.(excluded)??root.read();}
+export function readCausalRoot(root:AdmissionSafety,excluded:readonly string[]):{state:ReturnType<AdmissionSafety['read']>;externalRevision:string|null}{
+ const reader=causalReaders.get(root);if(reader)return {state:reader(excluded),externalRevision:null};
+ const state=root.read();return {state,externalRevision:state.evidenceRevision};
+}
 
 /** Concrete input from the host's future trust publisher, not a policy loader or matcher. */
 export interface LiveTrustRevision {

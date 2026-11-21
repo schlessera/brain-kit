@@ -927,3 +927,32 @@ for(const binding of ['claude-callback','pi'] as const)test(`${binding}: a chang
   expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'UNCONSUMED_PREPARATION_DISCHARGES_CLEANLY').toEqual({n:0});
  }finally{await f.close();}
 });
+
+for(const cancel of [false,true])test(`Pi rejected RPC lock discharges its never-dispatched Bash obligation (cancel=${cancel})`,async()=>{
+ const f=await fixture(false);try{
+  const turn={...createTurnContext(),bridge:{emit(){},admissionSafety:f.safety,inputSafety:f.collector,requestPermission:async()=>({behavior:'allow' as const})},signal:f.controller.signal,commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[]}};
+  const context={brainPath:f.root,turn,live(){},grants:new Map(),releases:new Map(),admitTool(){},autonomous:false,allowedTools:new Set(['bash']),confirmPatterns:[],workerLock:{async acquire(){if(cancel)f.controller.abort();throw new Error('Lock acquisition refused');}},executed:()=>({name:'bash',lock:false,host:false,phases:new Set()})} as unknown as PiWorkerRpcContext;
+  const dispatch=createPiWorkerRpcDispatcher(context),id='rpc-lock-reject';
+  expect(await dispatch({type:'rpc',id:1,method:'permission',toolName:'bash',toolCallId:id,input:{command}})).toMatchObject({behavior:'allow'});
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:1});
+  const refusal=await dispatch({type:'rpc',id:2,method:'lock',toolName:'bash',toolCallId:id,input:{key:bashLockKey(command)}}).then(()=>null,error=>error);expect(refusal).toBeInstanceOf(Error);expect(refusal.message).toBe('Lock acquisition refused');
+  expect(context.grants.has(id),'FAILED_LOCK_REVOKES_GRANT').toBe(false);
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'FAILED_LOCK_NEVER_DISPATCHED').toEqual({n:0});
+ }finally{await f.close();}
+});
+test('causal view retains evidence revisions supplied by an external root facade',async()=>{
+ const f=await fixture(false);try{
+  let generation='1';const root={read:()=>({...f.safety.read(),evidenceRevision:generation}),subscribe:f.safety.subscribe};
+  const view=f.collector.forAdmission!('external-root','Bash',root),before=view.read();generation='2';
+  expect(view.read().evidenceRevision,'EXTERNAL_ROOT_EVIDENCE_REMAINS_CAUSAL').not.toBe(before.evidenceRevision);
+ }finally{await f.close();}
+});
+test('Pi rejected in-process lock discharges its never-dispatched Bash obligation',async()=>{
+ const f=await fixture(false);try{
+  const id='in-process-lock-reject',turn={...createTurnContext(),bridge:{emit(){},inputSafety:f.collector,requestPermission:async()=>({behavior:'allow' as const})},signal:f.controller.signal};
+  f.collector.admitting!(id,'bash');await f.collector.begin(id,'bash',{command});
+  const kit=createBrainToolKit({brain:createBrainAccess(f.root),turn,exec:{},lock:{async withKey(){throw new Error('Lock acquisition refused');}}});
+  const refusal=await bashTool(kit).execute(id,{command},f.controller.signal,undefined,{} as never).then(()=>null,error=>error);expect(refusal).toBeInstanceOf(Error);expect(refusal.message).toBe('Lock acquisition refused');
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'IN_PROCESS_FAILED_LOCK_NEVER_DISPATCHED').toEqual({n:0});
+ }finally{await f.close();}
+});
