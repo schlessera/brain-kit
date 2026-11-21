@@ -37,3 +37,5 @@ Guard the concrete proxy lifecycle through pending, admitted, dispatched and ter
 Validate destination provenance through the wire schema before durable writes, cancel every upstream cleanup/request with its operation and deadline, and preserve unavailable classifications through repeated inference admission.
 
 Capture relay error causes before terminal signal cleanup, preserve failed versus cancelled receipts and statuses across every response path, and release caller listeners from every operation termination path.
+
+Preserve provider cancellation reasons, fence sends after dispatch observers, and meter Files cleanup response headers.

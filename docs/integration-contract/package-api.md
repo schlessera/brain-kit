@@ -6031,3 +6031,9 @@ or safety refusal retains its typed status. Interrupted streams keep their
 already-sent HTTP status and terminate with failed or cancelled evidence.
 Caller-signal listeners belong to the operation lifecycle and are released
 by every terminal transition, including internal admit/charge/commit refusals.
+
+Provider relay cancellation preserves `cancelled` in both the refusal observer
+and `error.reason`. Dispatch observers run before a final typed send fence;
+a synchronous authority or recording change refuses the upstream request.
+Files cleanup responses charge their headers against the same turn ceiling as
+ordinary provider responses, with a budget refusal if those headers exceed it.

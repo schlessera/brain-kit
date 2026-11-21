@@ -4,20 +4,20 @@ import { getEventListeners } from 'node:events';
 import { request,type IncomingHttpHeaders } from 'node:http';
 import { startEgressProxy,type EgressRecord } from '../src/server/egress-proxy';
 import { startInferenceRelay,type InferenceRelayEvent } from '../src/server/inference-relay';
-import { startProviderRelay,type ProviderRelayReceipt } from '../src/server/provider-relay';
+import { startProviderRelay,type ProviderRelayRefusal,type ProviderRelayReceipt } from '../src/server/provider-relay';
 const origin='http://127.0.0.1:43107';
 const causes=['upstream','cancelled','safety_changed','policy_denied','unavailable','budget'] as const;
 const paths=['credentials','credentials return','inference fetch','inference stream','provider fetch','Files response','provider stream','cleanup'] as const;
 function send(socketPath:string,path:string,body:string,headers:Record<string,string>,onData:()=>void=()=>{}) {
- return new Promise<{status:number;interrupted:boolean;headers:IncomingHttpHeaders}>((resolve,reject)=>{
+ return new Promise<{status:number;interrupted:boolean;headers:IncomingHttpHeaders;body:string}>((resolve,reject)=>{
   const req=request({socketPath,path,method:'POST',headers:{'content-type':'application/json',...headers}},res=>{
-   const done=(interrupted:boolean)=>resolve({status:res.statusCode!,interrupted,headers:res.headers});res.on('data',()=>onData());res.once('end',()=>done(false));res.once('aborted',()=>done(true));res.once('error',()=>done(true));
+   const chunks:Buffer[]=[];const done=(interrupted:boolean)=>resolve({status:res.statusCode!,interrupted,headers:res.headers,body:Buffer.concat(chunks).toString()});res.on('data',chunk=>{chunks.push(chunk);onData();});res.once('end',()=>done(false));res.once('aborted',()=>done(true));res.once('error',()=>done(true));
   });req.once('error',reject);req.end(body);
  });
 }
 for(const path of paths)for(const cause of causes)test(`failure cause: ${cause} × ${path}`,async()=>{
  const root=new AbortController();let authority=true,recording=true,armed=path!=='cleanup',recovering=false;let release!:()=>void;
- const gate=new Promise<void>(r=>{release=r;});const audits:EgressRecord[]=[],receipts:ProviderRelayReceipt[]=[],inference:InferenceRelayEvent[]=[];
+ const gate=new Promise<void>(r=>{release=r;});const audits:EgressRecord[]=[],receipts:ProviderRelayReceipt[]=[],inference:InferenceRelayEvent[]=[],refusals:ProviderRelayRefusal[]=[];
  const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],signal:root.signal,observe:r=>audits.push(r),admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:recording,authorityCurrent:authority}),subscribe:()=>()=>{}}});
  const operations:Array<{op:ReturnType<typeof proxy.inference>;signal:AbortSignal;owned:Function[]}>=[];
  const capture=(kind:'inference'|'relayed',method:string,target:URL,signal:AbortSignal)=>{const before=getEventListeners(signal,'abort');const op=proxy[kind](method,target,signal);const owned=getEventListeners(signal,'abort').filter(f=>!before.includes(f));expect(owned).toHaveLength(1);operations.push({op,signal,owned});return op;};
@@ -34,10 +34,10 @@ for(const path of paths)for(const cause of causes)test(`failure cause: ${cause} 
   trigger();throw new Error('Odysseus upstream unavailable');
  },{preconnect:original.preconnect}));
  const isInference=path.startsWith('inference')||path.startsWith('credentials');
- const relay=isInference?startInferenceRelay({upstream:origin,routes:['/v1/messages'],egress,credentials:async()=>{if(path.startsWith('credentials')){trigger();if(path==='credentials')throw new Error('Odysseus credential resolver unavailable');}return {'x-api-key':'odysseus-key'};},observe:r=>inference.push(r)}):startProviderRelay({origins:new Map([['ANTHROPIC_API_KEY',[origin]],['GEMINI_API_KEY',[origin]]]),credential:()=> 'odysseus-key',get egress(){return path==='cleanup'&&!armed?undefined:egress;},observe:r=>receipts.push(r)});
+ const relay=isInference?startInferenceRelay({upstream:origin,routes:['/v1/messages'],egress,credentials:async()=>{if(path.startsWith('credentials')){trigger();if(path==='credentials')throw new Error('Odysseus credential resolver unavailable');}return {'x-api-key':'odysseus-key'};},observe:r=>inference.push(r)}):startProviderRelay({origins:new Map([['ANTHROPIC_API_KEY',[origin]],['GEMINI_API_KEY',[origin]]]),credential:()=> 'odysseus-key',get egress(){return path==='cleanup'&&!armed?undefined:egress;},observe:r=>receipts.push(r),refused:r=>refusals.push(r)});
  const gemini={'x-brain-provider':'gemini','x-brain-provider-key':'GEMINI_API_KEY','x-brain-provider-origin':origin};
  try{
-  let result:{status:number;interrupted:boolean}|undefined;
+  let result:{status:number;interrupted:boolean;body:string}|undefined;
   if(path==='cleanup'){
    const started=await send(relay.socketPath,'/upload/v1beta/files',JSON.stringify({file:{mimeType:'video/mp4'}}),{...gemini,'x-goog-upload-protocol':'resumable','x-goog-upload-command':'start','x-goog-upload-header-content-length':'5','x-goog-upload-header-content-type':'video/mp4'});
    expect(started.status).toBe(200);const upload=new URL(String(started.headers['x-goog-upload-url']));
@@ -49,6 +49,20 @@ for(const path of paths)for(const cause of causes)test(`failure cause: ${cause} 
   }
   const streaming=path.endsWith('stream'),typed=cause!=='upstream',status=cause==='cancelled'?499:cause==='unavailable'?503:typed?403:502;
   if(result){expect(result.status,'FAILURE_SITE_CAUSE_DETERMINES_STATUS').toBe(streaming?200:status);if(streaming)expect(result.interrupted).toBe(true);}
+  if(!isInference){
+   if(!streaming&&path!=='cleanup'){
+    const expected=cause==='cancelled'?'cancelled':cause==='upstream'?'upstream_unreachable':'egress_refused';
+    expect(refusals.at(-1),'CALLER_REFUSAL_CALLBACK_PRESERVES_REASON').toMatchObject({reason:expected,status});
+    const wireReason=cause==='policy_denied'?'not_allowlisted':cause==='budget'?'byte_cap':cause==='unavailable'?'egress_unavailable':cause==='safety_changed'?'safety_changed':expected;
+    expect(JSON.parse(result!.body).error.reason,'CALLER_ERROR_BODY_PRESERVES_REASON').toBe(wireReason);
+   }else expect(refusals,'NO_NEW_ERROR_ENVELOPE_AFTER_STREAM_OR_INTERNAL_CLEANUP').toEqual([]);
+  }
+  if(isInference&&!streaming){
+   const detail=cause==='cancelled'?'Inference request cancelled':cause==='safety_changed'?'Inference safety or authority changed':cause==='policy_denied'?'Inference network policy refused the request':cause==='unavailable'?'Inference egress unavailable':cause==='budget'?'Inference egress limit exceeded':path==='credentials'?'Inference credentials unavailable':'Inference upstream unreachable';
+   expect(JSON.parse(result!.body).error).toMatchObject({type:'brain_inference_refused',message:detail});
+   expect(JSON.parse(result!.body).error.reason).toBeUndefined();
+   expect(inference.at(-1)).toMatchObject({outcome:'refused',status,reason:detail});
+  }
   const outcome=typed?'cancelled':'failed';
   if(!isInference)expect(receipts.at(-1),'FINISH_ABORT_CANNOT_RECLASSIFY_THE_PROVIDER_RECEIPT').toMatchObject({outcome,status:streaming||path==='Files response'?200:typed?status:0});
   else expect(inference.at(-1)).toMatchObject({outcome:streaming?'forwarded':'refused',status:streaming?200:status});
@@ -65,4 +79,9 @@ for(const path of paths)for(const cause of causes)test(`failure cause: ${cause} 
 for(const kind of ['inference','relayed','managedReference'] as const)for(const terminal of ['admit','charge','commit','finish','caller abort','turn abort'])test(`listener owner: ${terminal} × ${kind}`,async()=>{
  const caller=new AbortController(),root=new AbortController();let current=true;const rows:EgressRecord[]=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:terminal==='admit'?['ithaca.example.org','github.com']:[],maxBytes:8,outwardHosts:[],signal:root.signal,observe:r=>rows.push(r),admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:true,authorityCurrent:current}),subscribe:()=>()=>{}}});
  try{const op=kind==='managedReference'?proxy.managedReference(new URL('https://github.com/'),caller.signal):proxy[kind]('GET',new URL('http://ithaca.example.org/'),caller.signal);expect(getEventListeners(caller.signal,'abort')).toHaveLength(1);const admitted=await op.admit();if(terminal==='admit')expect(admitted).toBe(false);else{expect(admitted).toBe(true);if(terminal==='charge')op.charge(9);else if(terminal==='commit'){current=false;op.commit();}else if(terminal==='finish'){op.commit();op.finish('completed');}else if(terminal==='caller abort')caller.abort();else root.abort();}expect(rows).toHaveLength(1);expect(getEventListeners(caller.signal,'abort'),'ALL_TERMINAL_TRANSITIONS_RELEASE_THE_CALLER').toHaveLength(0);}finally{caller.abort();proxy.stop();}
+});
+
+for(const kind of ['inference','relayed','managedReference'] as const)test(`review19: commit observer cannot bypass final fence (${kind})`,async()=>{
+ let current=true;const rows:EgressRecord[]=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe:r=>rows.push(r),committed:()=>{current=false;},admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:true,authorityCurrent:current}),subscribe:()=>()=>{}}});
+ try{const op=kind==='managedReference'?proxy.managedReference(new URL('https://github.com/'),new AbortController().signal):proxy[kind]('POST',new URL(origin),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.commit(),'COMMIT_OBSERVER_MUST_NOT_BYPASS_FINAL_FENCE').toEqual({ok:false,reason:'safety_changed'});expect(rows.at(-1)).toMatchObject({outcome:'denied',failureReason:'safety_changed'});}finally{proxy.stop();}
 });

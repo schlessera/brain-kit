@@ -429,7 +429,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const commit = (): EgressChargeResult => {
       try {
         return lifecycle.dispatch(options.maxBytes-usedBytes,() => maySendNow(0), () => options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted}))
-          ? {ok:true} : failure ?? {ok:false,reason:"cancelled"};
+          && maySendNow(0) ? {ok:true} : failure ?? {ok:false,reason:"cancelled"};
       } catch { finish("denied","egress_unavailable");return failure!; }
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */

@@ -436,7 +436,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const operation = options.egress?.relayed(request.method, target, request.signal);
     const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
     const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
-    const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Provider"); return refuse(detail.status,"egress_refused",detail.message,operation?.refusal()); };
+    const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Provider"); return refuse(detail.status,failure.reason==="cancelled"?"cancelled":"egress_refused",detail.message,operation?.refusal()); };
     if (operation && !await operation.admit()) return chargeDenied(operation.failure() ?? {ok:false,reason:"unavailable"});
     const initialDecision = operation?.charge(0);
     if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
@@ -533,10 +533,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     let response: Response;
     try {
       // Never follow a redirect: the upstream must not choose another host.
-      if (signal.aborted) {
-        const failure=operation?.failure() ?? {ok:false as const,reason:"cancelled" as const};
-        report("cancelled",egressChargeRefusal(failure,"Provider").status,null);return chargeDenied(failure);
-      }
+      const finalFailure=chargeFailure(0) ?? captureEgressFailure(signal).failure;
+      if(finalFailure){report("cancelled",egressChargeRefusal(finalFailure,"Provider").status,null);return chargeDenied(finalFailure);}
       response = await fetch(target, { method: request.method, headers, ...(request.method === "POST" ? { body } : {}), redirect: "manual", signal });
     } catch {
       const cause=captureEgressFailure(signal,operation);
@@ -703,9 +701,13 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     if (cleanupDecision && !cleanupDecision.ok) { observe("cancelled",egressChargeRefusal(cleanupDecision,"Provider").status); return; }
     observe("dispatched", 0);
     try {
-      if (signal.aborted) { observe("cancelled",egressChargeRefusal(operation?.failure() ?? {ok:false,reason:"cancelled"},"Provider").status);return; }
+      const finalDecision=operation?.charge(0);
+      const finalFailure=finalDecision&&!finalDecision.ok?finalDecision:captureEgressFailure(signal).failure;
+      if(finalFailure){observe("cancelled",egressChargeRefusal(finalFailure,"Provider").status);return;}
       const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
+      const responseDecision=operation?.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`,response.headers));
       await response.body?.cancel().catch(() => {});
+      if(responseDecision&&!responseDecision.ok){observe("cancelled",egressChargeRefusal(responseDecision,"Provider").status);return;}
       operation?.finish("completed");
       observe(response.ok ? "completed" : "failed", response.status);
     } catch {
