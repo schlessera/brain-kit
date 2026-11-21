@@ -1,3 +1,4 @@
+import { writePrivateProofArtifact } from "./private-proof-artifact.js";
 import { PRIVATE_FIXTURE_DIRECTORY_ACCESS } from "./private-fixture-directory-access.js";
 import { defaultIdentityPhase } from "./default-identity-phases.js";
 import { applicationQualificationScenario } from "./application-qualification.js";
@@ -190,6 +191,15 @@ if (process.argv[2] === "--index-child") {
   let foreignRequests = 0;
   const foreign = Bun.serve({ unix: "/identity-fixture/foreign-relay.sock", fetch() { foreignRequests++; return new Response("ithaca"); } });
   chownSync("/identity-fixture/foreign-relay.sock", 0, 21001); chmodSync("/identity-fixture/foreign-relay.sock", 0o660);
+  // Kernel access proof runs before the diagnostic-producing identity phase.
+  // Container root writes; only the runner-owned proof directory's UID may read.
+  const privateControl = writePrivateProofArtifact("/proof", `private-artifact-access-${process.pid}.txt`, "Odysseus private audit control");
+  const artifactOwner = lstatSync("/proof");
+  const accessProbe = "import errno,sys\ntry: data=open(sys.argv[1]).read()\nexcept OSError as error: sys.exit(0 if sys.argv[2]=='denied' and error.errno==errno.EACCES else 3)\nsys.exit(0 if sys.argv[2]=='allowed' and data=='Odysseus private audit control' else 4)";
+  for (const [uid, gid, admission] of [[artifactOwner.uid, artifactOwner.gid, "allowed"], [21002, 21001, "denied"]] as const) {
+    command(["/usr/bin/setpriv", `--reuid=${uid}`, `--regid=${gid}`, "--clear-groups", "/usr/bin/python3", "-I", "-S", "-c", accessProbe, privateControl, admission]);
+  }
+  console.log(JSON.stringify({ privateArtifactOwnership: "pass", mode: "0600", runnerReadable: true, workerDenied: true }));
   try {
     const phases = ordinaryIdentityPhases({ applicationScenario, applicationQualification, probeStatePlacement,
       sharedGit, privateGitInputs, indexControls: process.argv[2] === "--index-controls" });
@@ -213,7 +223,7 @@ if (process.argv[2] === "--index-child") {
         const auditRoot = "/identity-server-private/server-ws";
         if (existsSync(auditRoot)) for (const name of readdirSync(auditRoot).filter(name => /^native-startup-audit-[0-9]+\.json$/.test(name))) {
           // The guard already bounded/scrubbed this snapshot before raw audit cleanup.
-          writeFileSync(join("/proof", name), readFileSync(join(auditRoot, name)), { mode: 0o600 });
+          writePrivateProofArtifact("/proof", name, readFileSync(join(auditRoot, name)));
         }
       }
       const output = capturedOutput.text, errors = capturedErrors.text;
