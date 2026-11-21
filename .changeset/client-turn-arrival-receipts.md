@@ -11,3 +11,5 @@ Capture composer Send before snapshot-save waits, retain early lifecycle arrival
 Keep lifecycle timing persistence off the turn's idle path. Only the client that actually dispatches a request may report its saved Send timing. Correlate queue-start announcements before backend identity, read lifecycle snapshots with their sequence consistently, and validate the original stored receipt byte length. Older Activity store implementations remain supported.
 
 Determine receipt eligibility from in-memory cleanup state without lifecycle I/O on idle. Defer receipt storage behind the turn's persistence queue off the turn path so successful file-backed commits cannot lose their client report. Disqualify a shared request acknowledged before local dispatch, and enforce owner/duplicate and revocation checks while deferred.
+
+Keep consistent Activity read snapshots off the application writer turn, so even an empty stream pump remains responsive while a file-backed write is pending.

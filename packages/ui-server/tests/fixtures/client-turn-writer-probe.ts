@@ -3,6 +3,7 @@ export const url = import.meta.url;
 export function setup(db: Database) {
   db.exec("CREATE TABLE IF NOT EXISTS ithaca_receipt_barrier (value INTEGER)");
   return {
+    // An unrelated write: idle and read snapshots must finish before release.
     hold(gate: Int32Array, watchdogMs: number) {
       try {
         db.transaction(() => {

@@ -77,6 +77,7 @@ test("backend idle and result before delayed teardown cannot send the once-only 
   expect(ui!.connection.send({ type: "chat_message", text: "Delay host idle", requestId: "closing-voyage" })).toBe(true);
   await expect.poll(async () => (await read()).earlyIdleHeld).toBe(true);
   await expect.poll(() => ui!.stores.chat.getState().buffers.ithaca?.messages.at(-1)?.content).toContain("Sail at dawn");
+  await expect.poll(async () => (await read()).lifecycles[0]?.outcome).toBeNull();
   const before = await read();
   expect(before.lifecycles[0]?.outcome).toBeNull();
   expect(before.reportsReceived).toBe(0);
@@ -162,6 +163,8 @@ test("only the browser that dispatches a shared snapshot reports its receipt", a
   ui!.connection.send({ type: "ping", probeId: "observer-drained" });
   peer.connection.send({ type: "ping", probeId: "sender-drained" });
   await expect.poll(async () => (await read()).drained.sort()).toEqual(["observer-drained", "sender-drained"]);
+  // Socket FIFO proves receipt arrival, not the off-loop persistence commit.
+  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming).toBeDefined();
   const result = await read();
   expect(result.reportsReceived).toBe(1);
   expect(result.lifecycles[0]?.clientTiming).toBeDefined();

@@ -34,7 +34,7 @@ import { settleInboxBudgetRun } from "../inbox/budget.js";
  * on programmer error, because a silent half-written record is worse than a
  * loud one.
  */
-import type { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import {
   isBillingMode,
   isFailureOutcome,
@@ -433,6 +433,10 @@ export function createActivityStore(
   // bun:sqlite transactions: `.immediate` takes the write lock up front, so a
   // concurrent writer waits (busy_timeout) instead of failing mid-upgrade.
   const inWrite = <T>(fn: () => T): T => db.transaction(fn).immediate();
+  // Read-only WAL snapshots bypass the app writer turn. The instance's
+  // transaction wrapper serializes writes and can block in Atomics.wait.
+  const readSnapshot = <T>(read: () => T): T => db.inTransaction ? read()
+    : Database.prototype.transaction.call(db, read).deferred() as T;
 
   function nextSeq(runId: string): number {
     const row = db
@@ -661,7 +665,7 @@ export function createActivityStore(
       const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
       return row ? joinClient(JSON.parse(row.record)) : null;
     };
-    return db.inTransaction ? read() : db.transaction(read)();
+    return readSnapshot(read);
   };
   const lifecycles = (sessionId?: string, limit = 100): ActivityTurnLifecycle[] => {
     const read = () => {
@@ -670,7 +674,7 @@ export function createActivityStore(
         : db.query("SELECT record FROM activity_turn_lifecycles WHERE session_id = ? ORDER BY accepted_at DESC LIMIT ?").all(sessionId, limit);
       return (rows as { record: string }[]).map(row => joinClient(JSON.parse(row.record)));
     };
-    return db.inTransaction ? read() : db.transaction(read)();
+    return readSnapshot(read);
   };
   return {
     writer,
@@ -690,19 +694,19 @@ export function createActivityStore(
     lifecycle,
     lifecycles,
     snapshotLifecycles(scope) {
-      return db.transaction(() => {
+      return readSnapshot(() => {
         const records = scope.turnId ? [lifecycle(scope.turnId)].filter((record): record is ActivityTurnLifecycle => record !== null)
           : lifecycles(scope.sessionId, scope.limit);
         return { lifecycles: records, highWaterSeq: Object.fromEntries(records.map(record => [record.lifecycleId, runHighWaterSeqRaw(record.lifecycleId)])) };
-      })();
+      });
     },
     lifecycleChangesSince(cursor, limit = 500) {
-      return db.transaction(() => {
+      return readSnapshot(() => {
         const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record FROM activity_changes c
           JOIN activity_turn_lifecycles l ON l.turn_id = substr(c.run_id, 11) AND c.span_id = c.run_id
           WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(cursor, limit) as any[];
         return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:joinClient(JSON.parse(r.record))}));
-      })();
+      });
     },
     writeClientReceipt(turnId, principalId, timing) {
       // Strict projection at the storage boundary too: callers cannot smuggle
@@ -950,7 +954,7 @@ export function createActivityStore(
       // A read transaction so spans, events, high-water seq, and the global
       // cursor are one consistent picture — the poller baseline is pinned to
       // exactly this moment (no gap between snapshot and first delta).
-      return db.transaction(() => {
+      return readSnapshot(() => {
         const spans = (
           db
             .query(ACTIVITY_SQL.spansByRun)
@@ -972,7 +976,7 @@ export function createActivityStore(
           highWaterSeq: runHighWaterSeqRaw(runId),
           changeCursor: cursor.hi,
         };
-      })();
+      });
     },
 
     runHighWaterSeq: runHighWaterSeqRaw,
