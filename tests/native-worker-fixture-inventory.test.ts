@@ -1,7 +1,8 @@
 /** Composition checks only; positive installed-runtime proof stays in hosted CI. */
 import { expect, test } from "bun:test";
 import ts from "typescript";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 const root=join(import.meta.dir,"..");
 const read=(file:string)=>readFileSync(join(root,file),"utf8");
@@ -49,8 +50,8 @@ test("enforcement RTK re-entry declares every temporary worker input",()=>{
  expect(rtk).toContain('"--bind", "/tmp", "/tmp"');
 });
 
-for(const file of ["host-relay-native","ordinary-host-relay","native-route-qualification","sdk-host-relay","shell-startup"])test(`compiler-free native namespaces carry outer policy: ${file}`,()=>{
- const text=read(`packages/ui-backend-claude/tests/${file}.test.ts`);
+for(const [file,source] of fixtureSources(root))if(namespaceLaunches(source).length)test(`compiler-free native namespaces carry outer policy: ${file}`,()=>{
+ const text=source.text;
  const namespaces=[...text.matchAll(/\.\.\.nativeNamespaceEnvironment\(\)/g)].length;
  expect(namespaces).toBeGreaterThan(0);
  expect([...text.matchAll(/const policy = nativeNamespacePolicy\(\)/g)].length,"OUTER_POLICY_PREPARED").toBe(namespaces);
@@ -58,4 +59,52 @@ for(const file of ["host-relay-native","ordinary-host-relay","native-route-quali
  expect([...text.matchAll(/\.\.\.policy\.args/g)].length,"POLICY_DIGEST_ARGUMENT").toBe(namespaces);
  // Every policy bind follows the fixture masks, including /tmp and /etc.
  expect([...text.matchAll(/"--dev", "\/dev", \.\.\.policy\.mounts/g)].length,"POLICY_AFTER_MASKS").toBe(namespaces);
+});
+
+// The list comes from SDK imports/calls, dynamic SDK bindings and backend
+// constructors, including scripts and experiments. A new source enters it
+// without updating a filename list.
+import {fixtureSources,nativeSdkLauncher,namespaceLaunches} from "./helpers/native-launcher-inventory";
+const discoveredSources=fixtureSources(root);
+for(const [file,source] of discoveredSources)if(nativeSdkLauncher(source))test(`discovered native launcher has explicit fixture provenance: ${file}`,()=>{
+ const text=source.text;
+ // SDK protocol tests select a fixture executable instead of installed Claude.
+ if(text.includes("pathToClaudeCodeExecutable")&&text.includes("writeFileSync"))return;
+ if(text.includes('command: process.execPath, args: ["-e",'))return;
+ // History-only API tests do not call query; their startTurn controls refuse
+ // before a runtime is selected. Constructor discovery still inventories them.
+ if(!/\bquery\s*\(/.test(text)&&/getSessionMessages|listSessions/.test(text))return;
+ if(/createMeasurementWorkerFixture|createWorkerSpawn|createClaudeSdkTurn/.test(text)){
+  expect(/nativeFixtureDirectory|fixtureRoots/.test(text),`NATIVE_WORKER_INPUT_PROVENANCE ${file}`).toBe(true);
+ }else{
+  expect(/nativeScriptedService|nativeScriptedQuery|measurement-entry-preload|scriptedModel\(/.test(text)||text.includes("mock.module"),`NATIVE_SCRIPTED_AUTHORITY ${file}`).toBe(true);
+ }
+ if(text.includes('workerSandbox: { brain, profile:')&&/createClaudeSdkTurn|createClaudeBackend/.test(text)&&!text.includes("spawnClaudeCodeProcess: undefined")){
+  expect(text,"EXPLICIT_RESOLVER_SNAPSHOT").toContain('fixtureFiles: [realpathSync("/etc/resolv.conf")]');
+ }
+});
+
+test("launcher discovery finds new aliased and dynamic SDK callers and default backends",()=>{
+ for(const text of [
+  'import {query as run} from "@anthropic-ai/claude-agent-sdk"; run({});',
+  'const {query}=await import(entry) as typeof import("@anthropic-ai/claude-agent-sdk"); query({});',
+  'const backend=createClaudeBackend({brainPath:root}); backend.startTurn({});',
+  'import {createClaudeBackend as make} from "../backend"; const backend=make({brainPath:root}); backend.startTurn({});',
+  'import * as sdk from "@anthropic-ai/claude-agent-sdk"; sdk.query({});',
+  'const sdk=await import("@anthropic-ai/claude-agent-sdk"); sdk["query"]({});',
+ ])expect(nativeSdkLauncher(ts.createSourceFile("new-fixture.ts",text,ts.ScriptTarget.Latest,true))).toBe(true);
+ expect(nativeSdkLauncher(ts.createSourceFile("synthetic.ts",'import type {query} from "@anthropic-ai/claude-agent-sdk";',ts.ScriptTarget.Latest,true))).toBe(false);
+});
+
+
+test("inventory discovers a new launcher file without a filename registration",()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-launcher-inventory-"));
+ try{
+  const file="packages/ship/tests/new-launcher.test.ts";
+  mkdirSync(join(scratch,"packages/ship/tests"),{recursive:true});
+  writeFileSync(join(scratch,file),'import {query as run} from "@anthropic-ai/claude-agent-sdk"; run({});');
+  const sources=fixtureSources(scratch);
+  expect([...sources.keys()],"NEW_LAUNCHER_DISCOVERED").toContain(file);
+  expect(nativeSdkLauncher(sources.get(file)!)).toBe(true);
+ }finally{rmSync(scratch,{recursive:true,force:true});}
 });

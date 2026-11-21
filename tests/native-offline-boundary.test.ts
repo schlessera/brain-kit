@@ -1035,7 +1035,7 @@ test("a refused worker spawn rejects and closes the failed invocation promptly",
   const child=Bun.spawn([process.execPath,script],{env:{PATH:"/usr/bin:/bin",HOME:scratch},stdout:"pipe",stderr:"pipe",signal:AbortSignal.timeout(watchdogMs(5000))});
   const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
   expect(code,err).toBe(1);expect(out).toBe("");expect(err.split("\n")).toContain("SPAWN_PROMISE_REJECTED");
-  expect(err).toContain('"nativeLaunched":false');expect(err).not.toContain("attempted real network access");expect(err).toContain("native isolation refused");expect(existsSync(marker)).toBe(false);
+  expect(err).toContain('"nativeLaunched":false');expect(err).not.toContain("attempted real network access");expect(err).toContain("native isolation failed; see native-offline-* receipts");expect(existsSync(marker)).toBe(false);
  }finally{rmSync(scratch,{recursive:true,force:true});}
 },watchdogMs(15000));
 

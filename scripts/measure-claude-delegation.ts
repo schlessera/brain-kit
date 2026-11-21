@@ -1,11 +1,10 @@
 import "./measurement-entry-preload.ts";
-import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
+import { nativeFixtureDirectory, nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // #1213: production enforcement and foreground rewrite inherited by a real subagent.
 // Run with only loopback enabled. All credentials and commands are controlled fixtures.
 import assert from "node:assert/strict";
 import { createMeasurementWorkerFixture } from "./measurement-worker-fixture.js";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { createClaudeBackend, type InferenceProfile } from "../packages/ui-backend-claude/src/index";
@@ -16,7 +15,7 @@ const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta
 const { query } = await import(entry) as typeof import("@anthropic-ai/claude-agent-sdk");
 const rows: unknown[] = [];
 for (const allowChild of [false, true]) {
-    const root = mkdtempSync(join(tmpdir(), "delegation-probe-"));
+    const root = nativeFixtureDirectory("delegation-probe-");
     const cwd = join(root, "cwd"), home = join(root, "home"), marker = join(WORKER_SCRATCH, "marker");
     const witness = createWorkerEffectWitness({ marker });
     mkdirSync(cwd);

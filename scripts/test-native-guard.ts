@@ -183,6 +183,7 @@ function qualify(): void {
 }
 
 export const RTK_SOCKET_POLICY = "/usr/local/bin/brain-native-connect";
+export const NAMESPACE_SOCKET_POLICY = "/tmp/brain-native-policy/native-connect";
 // Isolated preload fixtures copy only the guard closure. Load the existing
 // receipt scrubbers only for diagnostics, and never fall back to raw text.
 function diagnosticRedactors() {
@@ -206,7 +207,7 @@ function compilerDiagnostic(value: string): string {
 /** Prepare before a fixture hides compiler inputs such as /etc/alternatives. */
 export function nativeNamespacePolicy(): { mounts: string[]; args: string[] } {
   const policy = compileSocketPolicy();
-  return { mounts: ["--ro-bind", policy, RTK_SOCKET_POLICY],
+  return { mounts: ["--dir", "/tmp/brain-native-policy", "--ro-bind", policy, NAMESPACE_SOCKET_POLICY],
     args: ["--native-policy-view", `--native-socket-policy-sha256=${fileHash(policy)}`] };
 }
 
@@ -214,12 +215,13 @@ export function nativeNamespacePolicy(): { mounts: string[]; args: string[] } {
 export function compileSocketPolicy(): string {
   if (socketPolicyExecutable) return socketPolicyExecutable;
   if (process.argv.includes("--native-rtk-view") || process.argv.includes("--native-policy-view")) {
+    const artifact = process.argv.includes("--native-policy-view") ? NAMESPACE_SOCKET_POLICY : RTK_SOCKET_POLICY;
     const digest = process.argv.find(value => value.startsWith("--native-socket-policy-sha256="))?.split("=")[1];
     try {
-      const info = lstatSync(RTK_SOCKET_POLICY);
-      if (!/^[0-9a-f]{64}$/.test(digest ?? "") || !info.isFile() || (info.mode & 0o222) || fileHash(RTK_SOCKET_POLICY) !== digest) throw Error("invalid artifact");
+      const info = lstatSync(artifact);
+      if (!/^[0-9a-f]{64}$/.test(digest ?? "") || !info.isFile() || (info.mode & 0o222) || fileHash(artifact) !== digest) throw Error("invalid artifact");
     } catch { return refuse("native socket policy artifact is unavailable or changed"); }
-    return socketPolicyExecutable = RTK_SOCKET_POLICY;
+    return socketPolicyExecutable = artifact;
   }
   const directory = mkdtempSync(join(tmpdir(), "odysseus-native-policy-"));
   const executable = join(directory, "native-connect");

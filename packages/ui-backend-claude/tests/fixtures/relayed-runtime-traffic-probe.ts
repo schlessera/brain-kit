@@ -24,7 +24,7 @@ const recorder = createServer((request, response) => { connections.push(`${reque
 recorder.on("connect", (request, socket) => { connections.push(`CONNECT ${request.url}`); socket.end("HTTP/1.1 403 Forbidden\r\n\r\n"); });
 await new Promise<void>(resolve => recorder.listen(0, "127.0.0.1", resolve));
 const proxyUrl = `http://127.0.0.1:${(recorder.address() as { port: number }).port}`;
-nativeScriptedService(proxyUrl);
+nativeScriptedService(proxyUrl, { fixtureRoots: [scratch] });
 let called = false;
 const relay = Bun.serve({ unix: join(WORKER_EGRESS_DIR, "inference.sock"), async fetch(request) {
   const body = await request.text();

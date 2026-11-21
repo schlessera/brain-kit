@@ -1,12 +1,11 @@
 import "./measurement-entry-preload.ts";
-import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard";
+import { nativeFixtureDirectory, nativeScriptedService, nativeScriptedQuery } from "./test-native-guard";
 // #1238: actual bundled runtime, production model assembly, fixture inference.
 // Run inside a network namespace with only loopback. No real credentials.
 import assert from "node:assert/strict";
 import { createMeasurementWorkerFixture } from "./measurement-worker-fixture.js";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { SDKMessage, query as QueryFunction } from "@anthropic-ai/claude-agent-sdk";
 import { createClaudeBackend } from "../packages/ui-backend-claude/src/backend";
@@ -19,7 +18,7 @@ const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta
 const { query } = await import(entry) as { query: typeof QueryFunction };
 const sdk = JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8"));
 const manifest = JSON.parse(readFileSync(join(dirname(entry), "manifest.json"), "utf8"));
-const root = mkdtempSync(join(tmpdir(), "haiku-native-"));
+const root = nativeFixtureDirectory("haiku-native-");
 const brainPath = join(root, "brain");
 mkdirSync(brainPath);
 const env = { ...CLEARED_API_CREDENTIALS, HOME: root, PATH: process.env.PATH ?? "/usr/bin:/bin",

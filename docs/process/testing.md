@@ -1187,7 +1187,9 @@ Hosted qualification must pass the real kernel-policy self-test before any
 installed runtime launches; missing compiler or kernel support emits a failed
 receipt. Fixture namespaces that hide compiler inputs compile once in their
 outer process, then bind the artifact read-only after all covering mounts and
-pass its digest to the inner guard. The inner guard verifies regular-file type,
+pass its digest to the inner guard. Relay fixture views create the mount target
+inside their own `/tmp` tmpfs, after covering mounts; real bubblewrap tests run
+all discovered launcher shapes with `/usr/bin/true`. The inner guard verifies regular-file type,
 non-writability and SHA-256 before using it; an absent or changed artifact
 refuses instead of falling back. Unit shards and determinism use the same
 fixture preparation as runtime proof. Local plan tests compile the helper but
@@ -1203,6 +1205,11 @@ synthetic executables. Hosted proof additionally exercises hostile managed
 settings, an outside-HOME sentinel credential, helper descendants, denied TCP,
 and the one permitted scripted service; the child silently swallows denied
 connections, so the audit count comes from the boundary rather than child output.
+The native launcher inventory discovers SDK calls and backend constructors in
+repository sources, including aliases and dynamic imports, instead of relying
+on a filename list. Networked-profile fixtures that restore an aliased resolver
+file declare that one regular file explicitly for copied staging; they never
+admit its containing service directory or a DNS route.
 The baseline retention fixture keeps its tool wrapper and runtime-rg alias
 together in a read-only tool directory and its invocation witness in HOME.
 Run installed-native backend and

@@ -2,7 +2,7 @@ import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Production SDK options and isolated worker, real CLI tools, scripted loopback inference. */
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type HookCallback, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createKeyedLock, type ServerMessage } from "@schlessera/brain-ui-sdk/server";
@@ -44,7 +44,10 @@ for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mo
     if (!call || !body.tools?.some(tool => tool.name === call.name)) return reply();
     sent++; return reply(call);
   } });
-  nativeScriptedService(server.url.origin);
+  // The production networked profile restores this one resolver file when
+  // its distro alias points into /run. Explicit registration snapshots that
+  // file only; the native child's network namespace still has no DNS route.
+  nativeScriptedService(server.url.origin, { fixtureRoots: [root], fixtureFiles: [realpathSync("/etc/resolv.conf")] });
   const lockState = { ended: false, pendingReleases: new Map<string, () => void>() };
   let lockHeldDuringWrite = false;
   const frames: ServerMessage[] = [], lock = createTurnLockBinding({ turn: lockState, writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {} });

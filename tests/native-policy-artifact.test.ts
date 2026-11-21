@@ -27,7 +27,7 @@ for(const view of ["rtk","policy"] as const)for(const mode of ["valid","changed"
  try{
   const file=join(root,"policy"),script=join(root,"probe.ts");writeFileSync(file,"Odysseus synthetic policy bytes");
   writeFileSync(script,`import * as fs from "node:fs";import {createHash} from "node:crypto";import {mock} from "bun:test";
-   const originalFs={...fs};const file=${JSON.stringify(file)},fixed="/usr/local/bin/brain-native-connect";
+   const originalFs={...fs};const file=${JSON.stringify(file)},fixed=${JSON.stringify(view==="rtk"?"/usr/local/bin/brain-native-connect":"/tmp/brain-native-policy/native-connect")};
    fs.chmodSync(file,${mode==="writable"?'0o755':'0o555'});
    const digest=createHash("sha256").update(fs.readFileSync(file)).digest("hex");
    mock.module("node:fs",()=>({...originalFs,statSync:(path,...args)=>originalFs.statSync(path===fixed?file:path,...args),openSync:(path,...args)=>originalFs.openSync(path===fixed?file:path,...args),lstatSync:(path,...args)=>originalFs.lstatSync(path===fixed?file:path,...args),readFileSync:(path,...args)=>originalFs.readFileSync(path===fixed?file:path,...args)}));
@@ -38,7 +38,7 @@ for(const view of ["rtk","policy"] as const)for(const mode of ["valid","changed"
   const child=Bun.spawn([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
   const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
   expect(code,err).toBe(mode==="valid"?0:1);expect(err).not.toContain("INNER_COMPILER_REACHED");
-  if(mode==="valid")expect(out.trim()).toBe("/usr/local/bin/brain-native-connect");else expect(err).toContain("native socket policy artifact is unavailable or changed");
+  if(mode==="valid")expect(out.trim()).toBe(view==="rtk"?"/usr/local/bin/brain-native-connect":"/tmp/brain-native-policy/native-connect");else expect(err).toContain("native socket policy artifact is unavailable or changed");
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 
@@ -67,9 +67,9 @@ test("namespace policy is compiled outside the compiler-free view and mounted re
  const {nativeNamespacePolicy}=await import("../scripts/test-native-guard.ts");
  const {createHash}=await import("node:crypto");const {readFileSync,statSync}=await import("node:fs");
  const policy=nativeNamespacePolicy();
- expect(policy.mounts[0]).toBe("--ro-bind");
- expect(policy.mounts[2]).toBe("/usr/local/bin/brain-native-connect");
- expect(statSync(policy.mounts[1]!).mode & 0o222).toBe(0);
- expect(policy.args).toEqual(["--native-policy-view","--native-socket-policy-sha256="+createHash("sha256").update(readFileSync(policy.mounts[1]!)).digest("hex")]);
+ expect(policy.mounts.slice(0,3)).toEqual(["--dir","/tmp/brain-native-policy","--ro-bind"]);
+ expect(policy.mounts[4]).toBe("/tmp/brain-native-policy/native-connect");
+ expect(statSync(policy.mounts[3]!).mode & 0o222).toBe(0);
+ expect(policy.args).toEqual(["--native-policy-view","--native-socket-policy-sha256="+createHash("sha256").update(readFileSync(policy.mounts[3]!)).digest("hex")]);
  expect(nativeNamespacePolicy()).toEqual(policy);
 });
