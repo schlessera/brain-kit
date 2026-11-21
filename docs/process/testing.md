@@ -694,6 +694,7 @@ pair with reason `other` through `scripts/ci-timings.ts record`
 | Variable | Meaning |
 | --- | --- |
 | `BRAIN_HOST_ADMISSION_LIMIT` | Concurrent heavy commands admitted on this host. Defaults to one per four CPUs, at least 1; anything but a positive integer is refused. |
+| `BRAIN_NATIVE_RECEIPT` | Internal descriptor and device/inode identity for guard-owned test receipts. The preload consumes it; native payloads and protocol-only worker bootstraps do not inherit it. |
 | `BRAIN_TEST_RESOURCE_ROOT` | Internal, one-generation launcher/preload handoff for process-lifetime test storage. The preload consumes and removes it before tests run; the launcher deletes the tree after the child group drains. |
 | `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test launcher (or standalone preload) gives each invocation a private ledger, which its descendants also find through their ancestry; a test exercising the host ledger names its own. |
 | `BRAIN_WORKER_ID`, `BRAIN_ORCHESTRATOR_ID` | Opaque worker and orchestrator IDs recorded with each slot. Without them a worker is `host-<pid>` and has no orchestrator; it still gets the admission limit. |
@@ -1132,12 +1133,16 @@ fixture mounts, fresh PID and network namespaces, and one Unix socket bridged
 to the exact scripted loopback service. They receive synthetic credentials or
 registered relay placeholders.
 Host account databases, managed settings, homes and credential storage are not
-mounted. The boundary traces native and descendant `connect` syscalls with
+mounted. The boundary traces native and descendant socket syscalls with
 raw arguments and `execve` with zero-length argument strings. The private trace
 contains executable paths but no decoded connect addresses or payloads. A
 successful native exec record is required: an empty or missing trace produces
 a failed receipt with `nativeLaunched: false`. The emitted `native-offline-audit`
-receipt contains only the exact head, launch evidence and denied-connect count.
+receipt contains only the exact head, launch evidence and aggregate denied-socket counts.
+Guard records use a private append-only receipt file and inherited descriptor,
+flushed by the owning test process to its own stderr. They never enter the
+payload's piped stderr. Protocol-only worker bootstraps and native payloads
+receive no receipt descriptor or locator.
 A missing namespace launcher or tracing capability refuses before launch.
 Managed settings supplied by a hostile fixture are synthetic. Workers receive
 a private network namespace and retain their concrete fixture mounts, while
@@ -1205,11 +1210,17 @@ synthetic executables. Hosted proof additionally exercises hostile managed
 settings, an outside-HOME sentinel credential, helper descendants, denied TCP,
 and the one permitted scripted service; the child silently swallows denied
 connections, so the audit count comes from the boundary rather than child output.
-The native launcher inventory discovers SDK calls and backend constructors in
-repository sources, including aliases and dynamic imports, instead of relying
-on a filename list. Networked-profile fixtures that restore an aliased resolver
-file declare that one regular file explicitly for copied staging; they never
-admit its containing service directory or a DNS route.
+The SDK fixture inventory discovers non-type references to `query` and
+`prewarm`, plus explicit Claude backend construction, including aliases,
+dynamic imports and APIs passed as values. Provider injection is classified
+per constructor call. Registry-selected backends and direct binary spawns
+without those source references are outside this syntax inventory; runtime
+admission still covers installed native executables independently of it.
+Worker plans restoring the canonical resolver file read-only receive a
+synthetic loopback resolver in guard-owned storage. The guard validates the
+regular-file source but reads no host DNS bytes, admits no containing service
+directory and provides no DNS route. An unrelated file or writable resolver
+bind still refuses.
 The baseline retention fixture keeps its tool wrapper and runtime-rg alias
 together in a read-only tool directory and its invocation witness in HOME.
 Run installed-native backend and

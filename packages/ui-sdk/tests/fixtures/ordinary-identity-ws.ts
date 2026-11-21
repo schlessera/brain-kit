@@ -1,3 +1,4 @@
+import { captureNativeReceipts } from "../../../../scripts/native-test-receipts.ts";
 import "../../../../scripts/test-network-child-preload.ts";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { defaultIdentityPhase } from "./default-identity-phases.js";
@@ -54,6 +55,7 @@ if (existsSync(privateRoot)) {
   const runtime=bundledClaudeBinary();if(!runtime)throw Error("installed SDK identity unavailable");
   // Plan only: no native process launches. The registered root is exercised by
   // the real turn below; the same accessible, unregistered root must refuse.
+  const refusalReceipts=captureNativeReceipts();
   const refused=Bun.spawnSync([process.execPath,"-e",`
     import {nativeWorkerBoundary,nativeScriptedService} from "/repo/scripts/test-native-guard.ts";
     const spawnSync=Bun.spawnSync,which=Bun.which;
@@ -62,10 +64,11 @@ if (existsSync(privateRoot)) {
     process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
     nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(home)}]});
     nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:["/usr/bin/true",${JSON.stringify(runtime)}],brainPath:${JSON.stringify(home)},env:{HOME:${JSON.stringify(home)}},argv:["bwrap","--ro-bind",${JSON.stringify(privateRoot)},"/tmp/odysseus-private","--","/usr/bin/true",${JSON.stringify(runtime)}]})});
-  `],{stdout:"pipe",stderr:"pipe"});
+  `],{env:{...process.env,...refusalReceipts.env},stdout:"pipe",stderr:"pipe"});
+  const refusalText=refused.stderr.toString()+refusalReceipts.read();refusalReceipts.dispose();
   expect(refused.exitCode,"PRIVATE_FIXTURE_UNREGISTERED_ROOT_REFUSES").not.toBe(0);
-  expect(refused.stderr.toString()).toContain("worker bind was not created or staged by the fixture");
-  expect(refused.stderr.toString()).toContain('"nativeLaunched":false');
+  expect(refusalText).toContain("worker bind was not created or staged by the fixture");
+  expect(refusalText).toContain('"nativeLaunched":false');
 }
 const requests: Array<{ model: string; history: number; apiCredential: boolean }> = [];
 // Native worker calls this loopback provider directly. The outer Docker network

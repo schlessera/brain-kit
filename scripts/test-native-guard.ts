@@ -1,3 +1,4 @@
+import { nativeReceipt } from "./native-test-receipts.ts";
 /** Test-only OS boundary for installed native Claude processes (#4313). */
 import { cpSync, fstatSync, statfsSync, chmodSync, closeSync, mkdirSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -21,6 +22,8 @@ const WORKER_RUNTIME_ENV = new Set(["HOME", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL
 const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
 let qualified = false;
 let bwrapExecutable = "bwrap", straceExecutable = "strace", socketPolicyExecutable = "";
+const guardedPlans=new WeakSet<readonly string[]>();
+export function isGuardedNativePlan(argv:readonly string[]):boolean{return guardedPlans.has(argv);}
 let denied = 0, reported = 0;
 export function nativeIsolationFailed(): boolean { return denied > 0; }
 export function assertNoNativeRefusals(): void {
@@ -146,7 +149,7 @@ function refuse(reason: string, mountEvidence?: Record<string, unknown>, compile
   setImmediate(() => process.exit(1));
   // Classifications and mount evidence omit arguments/settings/credentials.
   // Compiler diagnostics are bounded and scrubbed before reaching this receipt.
-  console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: nativeTestHead(), ...(mountEvidence ? { mountEvidence } : {}), ...(compilerStderr !== undefined ? { compilerStderr } : {}) }));
+  nativeReceipt({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: nativeTestHead(), ...(mountEvidence ? { mountEvidence } : {}), ...(compilerStderr !== undefined ? { compilerStderr } : {}) });
   throw new Error(`Offline native Claude refused before launch: ${reason}`);
 }
 
@@ -325,6 +328,11 @@ export function deniedNativeConnects(trace: string): number {
   return trace.split("\n").filter(line => /(?:connect\(|connect resumed>).*?= -1 (?:EACCES|EPERM|ENETUNREACH|EHOSTUNREACH|ECONNREFUSED|ENOENT)\b/.test(line)).length;
 }
 
+/** Socket failures come from raw kernel records, never the native stderr stream. */
+export function deniedNativeSocketOperations(trace:string):number {
+  return trace.split("\n").filter(line=>/^\s*(?:[0-9]+\s+)?(?:(?:connect|sendto|sendmsg|sendmmsg|bind|listen|accept|accept4)\(|<\.\.\. (?:connect|sendto|sendmsg|sendmmsg|bind|listen|accept|accept4) resumed>).*?= -1 (?:EACCES|EPERM|ENETUNREACH|EHOSTUNREACH|ECONNREFUSED|ENOENT)\b/.test(line)).length;
+}
+
 /** A successful exec trace for the expected program is the launch evidence. */
 export function nativeExecObserved(trace: string, paths: readonly string[]): boolean {
   return trace.split("\n").some(line => paths.some(path => line.includes(`execve(${JSON.stringify(path)},`)) && /\)\s+= 0$/.test(line.trim()));
@@ -387,29 +395,31 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       if (!storageIntact()) {
         denied++;
         receipt = { kind: "native-offline-audit", head: nativeTestHead(), nativeLaunched: false, success: false, reason: "native audit storage integrity failed", deniedConnects: 0 };
-        console.error(JSON.stringify(receipt)); return receipt;
+        nativeReceipt({...receipt}); return receipt;
       }
       let trace = "";
       try { trace = readFileSync(log, "utf8"); } catch { /* Missing evidence is a failed receipt. */ }
       if (diagnosticRoot) {
         try { writeFileSync(join(diagnosticRoot, `native-startup-audit-${directoryStamp.ino}.json`),
           JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace) }), { flag: "wx", mode: 0o600 }); }
-        catch { console.error(JSON.stringify({kind:"native-fixture-startup-audit-failure",head:nativeTestHead(),success:false,reason:"startup audit snapshot unavailable"})); }
+        catch { nativeReceipt({kind:"native-fixture-startup-audit-failure",head:nativeTestHead(),success:false,reason:"startup audit snapshot unavailable"}); }
       }
       // Wider diagnostics may contain syscall-looking filenames; only actual
       // connect/exec records participate in the security receipt.
-      const auditTrace = diagnosticRoot ? trace.split("\n").filter(line => /^\s*(?:[0-9]+\s+)?(?:execve\(|connect\(|<\.\.\. connect resumed>)/.test(line)).join("\n") : trace;
+      const auditTrace = diagnosticRoot ? trace.split("\n").filter(line => /^\s*(?:[0-9]+\s+)?(?:execve\(|(?:connect|sendto|sendmsg|sendmmsg|bind|listen|accept|accept4)\(|<\.\.\. (?:connect|sendto|sendmsg|sendmmsg|bind|listen|accept|accept4) resumed>)/.test(line)).join("\n") : trace;
       const nativeLaunched = nativeExecObserved(auditTrace, expected);
       if (!nativeLaunched) denied++;
       receipt = { kind: "native-offline-audit", head: nativeTestHead(), nativeLaunched, success: nativeLaunched,
         ...(!nativeLaunched ? { reason: "native exec was not observed" } : {}), deniedConnects: deniedNativeConnects(auditTrace) };
-      console.error(JSON.stringify(receipt));
+      const socketDenials=deniedNativeSocketOperations(auditTrace);
+      if(socketDenials)nativeReceipt({kind:"native-offline-socket-denial",head:nativeTestHead(),success:false,reason:"native socket operation denied",count:socketDenials});
+      nativeReceipt({...receipt});
       return receipt;
     } finally { cleanup(); rmSync(directory, { recursive: true, force: true }); }
   };
   // -o otherwise makes strace ignore SIGTERM; refusal/cancellation must kill
   // both the tracer and its entire traced sandbox, closing inherited pipes.
-  return { argv: [straceExecutable, "-I", "1", "--kill-on-exit", "-f", "-qq", "-s", "0", "-e", diagnosticRoot ? "trace=connect,%file,%process,mmap,mprotect,munmap,brk,prlimit64,getrlimit,prctl,io_uring_setup,pidfd_open,pidfd_getfd,rt_sigaction,rt_sigprocmask,sched_getaffinity,rseq,futex" : "trace=connect,execve", "-e", "raw=connect", "-o", log, "--", ...argv],
+  return { argv: [straceExecutable, "-I", "1", "--kill-on-exit", "-f", "-qq", "-s", "0", "-e", diagnosticRoot ? "trace=connect,%file,%process,mmap,mprotect,munmap,brk,prlimit64,getrlimit,prctl,io_uring_setup,pidfd_open,pidfd_getfd,rt_sigaction,rt_sigprocmask,sched_getaffinity,rseq,futex,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4" : "trace=connect,execve,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4", "-e", "raw=connect,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4", "-o", log, "--", ...argv],
     dispose() { finish(); }, receipt: finish };
 }
 
@@ -433,7 +443,7 @@ export function startNativeTestRelay(upstream: string | undefined) {
     if (url.origin !== "http://localhost" || !url.pathname.startsWith("/") || url.pathname.startsWith("//") ||
         url.pathname.includes("\\") || outbound.origin !== target.origin) {
       denied++;
-      console.error(JSON.stringify({ kind: "native-offline-route-denial", success: false, reason: "unintended native destination", head: nativeTestHead() }));
+      nativeReceipt({ kind: "native-offline-route-denial", success: false, reason: "unintended native destination", head: nativeTestHead() });
       return new Response("Offline native destination refused", { status: 403 });
     }
     // A redirect is returned to the isolated native process; it cannot make a
@@ -504,6 +514,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     argv.push("--chdir", cwd, "--", ...nativeSocketCommand([command, ...args], inheritedSocket && inheritedOrigin ? inheritedSocket : join(bridge.directory, "relay.sock"), "/tmp/native-relay/relay.sock"));
     const audited = auditNativeLaunch(argv, expectedNativeExec(command, args, options), () => { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); });
     beforeLaunch();
+    guardedPlans.add(audited.argv);
     return { ...audited, env: {}, beforeLaunch };
   } catch (error) { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); throw error; }
 }
@@ -608,7 +619,7 @@ export function assertNativeRelayDestination(url: URL): void {
   if (requested.hostname === "localhost") requested.hostname = "127.0.0.1";
   if (requested.origin === target.origin) return;
   denied++;
-  console.error(JSON.stringify({ kind: "native-offline-route-denial", success: false, reason: "unintended relay destination", head: nativeTestHead() }));
+  nativeReceipt({ kind: "native-offline-route-denial", success: false, reason: "unintended relay destination", head: nativeTestHead() });
   throw new Error("Native relay refused an unintended destination");
 }
 
@@ -771,12 +782,20 @@ export function nativeFixtureDirectory(prefix: string): string {
 interface FixtureKeeper { mount: string; namespacePid: number; namespaceStart: string; root: string }
 interface KeeperInspection { mount: string; snapshot: string; refresh(): void }
 const guardedChildren = new Map<number, string>();
+const bootstrapDiagnostics=new Map<number,{readonly exitCode:number|null;readonly signalCode:string|number|null}>();
+export function nativeBootstrapStatus(pid:number){return bootstrapDiagnostics.get(pid);}
 const fixtureKeepers = new Map<number, KeeperInspection & { live(): boolean; dispose(): void }>();
 function processStart(pid: number): string { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!; }
 /** Called only by the installed test spawn interceptor, never by product code. */
-export function recordNativeGuardChild(child: { pid: number; exited: Promise<number> }): void {
+export function recordNativeGuardChild(child: { pid: number; exited: Promise<number>;exitCode?:number|null;signalCode?:string|number|null },bootstrap=false): void {
+  if(bootstrap){
+    bootstrapDiagnostics.set(child.pid,{get exitCode(){return child.exitCode??null;},get signalCode(){return child.signalCode??null;}});
+    if(bootstrapDiagnostics.size>256)bootstrapDiagnostics.delete(bootstrapDiagnostics.keys().next().value!);
+    void child.exited.then(code=>nativeReceipt({kind:"native-offline-bootstrap-exit",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null}),()=>nativeReceipt({kind:"native-offline-bootstrap-exit",head:nativeTestHead(),exitCode:null,signal:child.signalCode??null}));
+  }
   let start: string; try { start = processStart(child.pid); } catch { return; }
   guardedChildren.set(child.pid, start);
+
   void child.exited.finally(() => { if (guardedChildren.get(child.pid) === start) guardedChildren.delete(child.pid); }).catch(() => {});
 }
 /** Fixture-owned output descriptor plus a live, guard-observed namespace; no path exemption. */
@@ -832,6 +851,12 @@ function inspectedWorkerSource(input: string, keeper?: KeeperInspection): string
 
 /** Only fixture-declared data, fixed runtime bytes and guard-created IPC enter a worker. */
 function workerSourceAllowed(source: string, route: ScriptedAuthority, guardRoot: string): boolean {
+  // The same fixed-runtime union was already admitted below. Check it before
+  // re-attesting unrelated fixture roots for every dependency file. Resolve
+  // the matching root afresh; there is no cross-launch authorization cache.
+  for(const root of [join(ROOT,"packages"),join(ROOT,"node_modules"),...SYSTEM]){
+    if(within(root,source)){try{if(within(realpathSync(root),source))return true;}catch{}}
+  }
   const created=[...createdFixtureRoots].filter(([path,stamp])=>{try{const now=lstatSync(path,{bigint:true});return now.dev===stamp.dev&&now.ino===stamp.ino;}catch{return false;}}).map(([path])=>path);
   const registered=route.fixtureRoots.filter(path=>{try{const stamp=route.fixtureRootStamps.get(path),now=lstatSync(path,{bigint:true});return Boolean(stamp&&stamp.dev===now.dev&&stamp.ino===now.ino);}catch{return false;}});
   const roots = [...registered, ...created, guardRoot,
@@ -850,7 +875,15 @@ function stageWorkerFixtureBinds(argv: string[], bwrap: number, route: ScriptedA
     let source: string;
     try { source = inspectedWorkerSource(argv[i + 1]!, keeper); } catch(error) { refuse("worker bind source is unavailable",mountInputEvidence(argv[i+1]!,argv[i+2]!,i,error,route.fixtureRoots)); }
     if (FORBIDDEN_BIND_ROOTS.has(source)) refuse("native bind exposes a forbidden host service root");
-    const explicit = route.fixtureFiles.get(source);
+    // The networked production profile can restore a distro resolver alias
+    // from masked /run. Its actual plan identifies this one input: retain no
+    // host DNS bytes or service directory, only a synthetic loopback resolver.
+    let resolver=false;
+    if(resolve(argv[i+2]!)==="/etc/resolv.conf"||resolve(argv[i+2]!)===source){
+      try{resolver=source===realpathSync("/etc/resolv.conf")&&lstatSync(source).isFile();}catch{if(resolve(argv[i+2]!)==="/etc/resolv.conf")refuse("native resolver source is unavailable");}
+      if(resolver&&!["--ro-bind","--ro-bind-try"].includes(argv[i]!))refuse("native resolver bind must be read-only");
+    }
+    const explicit = resolver ? Buffer.from("nameserver 127.0.0.1\noptions attempts:1 timeout:1\n") : route.fixtureFiles.get(source);
     if (explicit) {
       mkdirSync(staging, {recursive:true,mode:0o755});chmodSync(staging,0o755);
       const copy=join(staging,String(staged++));writeFileSync(copy,explicit,{mode:0o444});chmodSync(copy,0o444);
@@ -874,6 +907,9 @@ function stageWorkerFixtureBinds(argv: string[], bwrap: number, route: ScriptedA
 }
 
 function assertWorkerFixtureBinds(mounts: readonly string[], route: ScriptedAuthority, guardRoot: string, keeper?: KeeperInspection): void {
+  // Overlapping package binds share one walk within this validation only.
+  // A new beforeLaunch call gets a fresh set and checks the tree again.
+  const visited=new Set<string>();
   for(let i=0;i<mounts.length;i++) {
     if(!["--bind","--ro-bind","--dev-bind","--bind-try","--ro-bind-try","--dev-bind-try"].includes(mounts[i]!))continue;
     let source:string;try{source=inspectedWorkerSource(mounts[i+1]!,keeper);}catch{refuse("worker bind source is unavailable");}
@@ -882,13 +918,13 @@ function assertWorkerFixtureBinds(mounts: readonly string[], route: ScriptedAuth
       if(!(info.isSocket() && socketMatchesOrigin(source,route.origin)) && !(source === "/dev/null" && info.isCharacterDevice()))refuse("worker bind was not created or staged by the fixture",mountInputEvidence(source,mounts[i+2]!,i,{code:"UNREGISTERED"},route.fixtureRoots));
     }
     // A fixture symlink cannot turn a declared directory into outside data.
-    const visited=new Set<string>();let inspected=source;
+    let inspected=source;
     const visit=(path:string):void=>{
       inspected=path;
       const real=realpathSync(path),info=lstatSync(real);
       if(info.isFile() && !workerSourceAllowed(real,route,guardRoot))refuse("worker file was not created or staged by the fixture");
-      if(!info.isDirectory() || SYSTEM.some(root=>{try{return within(realpathSync(root),real);}catch{return false;}}) || visited.has(real))return;
-      visited.add(real);for(const name of readdirSync(real))visit(join(real,name));
+      if(!info.isDirectory() || SYSTEM.some(root=>{try{return within(realpathSync(root),real);}catch{return false;}}) || visited.has(`${info.dev}:${info.ino}`))return;
+      visited.add(`${info.dev}:${info.ino}`);for(const name of readdirSync(real))visit(join(real,name));
     };
     try { visit(source); } catch(error) {
       if(String(error).includes("Offline native Claude refused before launch:"))throw error;
@@ -983,7 +1019,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     assertNativeMountSockets(tools.mounts, route.origin);
     for (let i = bwrap + 1; i < workerArgv.indexOf("--", bwrap); i++) {
       if (workerArgv[i] === "--ro-bind" && workerArgv[i + 1] === "/" && workerArgv[i + 2] === "/") workerArgv.splice(i--, 3);
-      else if (workerArgv[i] === "--ro-bind" && ["/etc/alternatives", "/etc/resolv.conf", "/etc/ssl/certs"].includes(workerArgv[i + 2]!)) workerArgv.splice(i--, 3);
+      else if (workerArgv[i] === "--ro-bind" && ["/etc/alternatives", "/etc/ssl/certs"].includes(workerArgv[i + 2]!)) workerArgv.splice(i--, 3);
       else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
     }
     workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", "--unshare-pid");
@@ -1037,9 +1073,9 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       launch.argv = audited.argv;
     }
     const encoded=JSON.stringify(launch);
-    console.error(JSON.stringify({kind:"native-offline-worker-plan",head:nativeTestHead(),
+    nativeReceipt({kind:"native-offline-worker-plan",head:nativeTestHead(),
       bootstrapArgc:launch.argv!.length,bootstrapArgvBytes:Buffer.byteLength(JSON.stringify(launch.argv)),
-      sandboxArgc:workerArgv.length,sandboxArgvBytes:Buffer.byteLength(JSON.stringify(workerArgv)),metadataBytes:Buffer.byteLength(encoded)}));
+      sandboxArgc:workerArgv.length,sandboxArgvBytes:Buffer.byteLength(JSON.stringify(workerArgv)),metadataBytes:Buffer.byteLength(encoded)});
     return { env: { ...env, BRAIN_WORKER_LAUNCH: encoded }, dispose: audited.dispose, beforeLaunch };
   } catch (error) { bridge.dispose(); throw error; }
 }

@@ -1,3 +1,4 @@
+import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
 /** Local tests never execute the installed native runtime, including mutations. */
 import { expect, test } from "bun:test";
 import { watchdogMs } from "../scripts/test-deadlines";
@@ -13,8 +14,8 @@ if (!runtime) throw new Error("Native boundary proof requires the installed SDK 
 
 async function probe(script: string, home: string) {
   const path = join(home, "probe.ts"); writeFileSync(path, script);
-  const child = Bun.spawn([process.execPath, "--no-install", path], { env: { PATH: "/usr/bin:/bin", HOME: home }, stdout: "pipe", stderr: "pipe" });
-  const [code, output] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  const child = spawnGuardFixture([process.execPath, "--no-install", path], { env: { PATH: "/usr/bin:/bin", HOME: home }, stdout: "pipe", stderr: "pipe" });
+  const [code, output] = await Promise.all([child.exited, child.guardOutput()]);
   return { code, output };
 }
 const imports = `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "scripts/test-network-guard.ts"))};
@@ -584,6 +585,7 @@ test("workspace SDK discovery works without root resolution and fails closed for
     writeFileSync(join(scratch, "package.json"), JSON.stringify({ private: true }));
     writeFileSync(join(scratch, "packages/native/package.json"), JSON.stringify({ name: "odysseus-native", dependencies: { "@anthropic-ai/claude-agent-sdk": "*" } }));
     copyFileSync(join(ROOT, "scripts/test-native-guard.ts"), join(scratch, "scripts/test-native-guard.ts"));
+    copyFileSync(join(ROOT,"scripts/native-test-receipts.ts"),join(scratch,"scripts/native-test-receipts.ts"));
     const link = join(scratch, "packages/native/node_modules/@anthropic-ai/claude-agent-sdk");
     symlinkSync(dirname(sdk), link);
     const module = join(scratch, "scripts/test-native-guard.ts");
@@ -792,8 +794,8 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
     let lateConnections=0;
     try {
       boundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
-      const child = Bun.spawn(boundary.argv, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
-      const output=Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+      const child = spawnGuardFixture(boundary.argv, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
+      const output=Promise.all([child.exited,new Response(child.stdout).text(),child.guardOutput()]);
       const deadline=Date.now()+10000;
       while(!existsSync(join(home,"boundary-ready"))&&child.exitCode===null&&Date.now()<deadline)await Bun.sleep(10);
       if(!existsSync(join(home,"boundary-ready"))){child.kill();const failed=await output;throw Error("native policy failed before late socket proof: "+failed[2]);}
@@ -804,7 +806,7 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
       const [code,out,err]=await output;
       expect(code, err).toBe(0);
       expect(lateConnections).toBe(0);
-      expect(err).toContain('"kind":"native-offline-socket-denial"');
+      expect(err).not.toContain('"kind":"native-offline-');
       expect(boundary.receipt().deniedConnects).toBeGreaterThanOrEqual(3);
       await new Promise<void>(resolve=>lateServer!.close(()=>resolve()));lateServer=undefined;
       rmSync(join(home,"late-host.sock"),{force:true});
@@ -817,9 +819,9 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
       const mutationBoundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
       const mutant = [...mutationBoundary.argv];
       mutant.splice(mutant.indexOf("--clearenv"), 0, "--ro-bind", sentinel, sentinel);
-      const broken = Bun.spawn(mutant, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
+      const broken = spawnGuardFixture(mutant, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
       const [brokenCode, brokenOut, brokenErr] = await Promise.all([broken.exited,
-        new Response(broken.stdout).text(), new Response(broken.stderr).text()]);
+        new Response(broken.stdout).text(), broken.guardOutput()]);
       expect(brokenCode).not.toBe(0);
       expect(brokenErr).toContain("outside credential escaped");
       expect(brokenOut + brokenErr).not.toContain("odysseus-synthetic-credential");
@@ -1032,8 +1034,8 @@ test("a refused worker spawn rejects and closes the failed invocation promptly",
   writeFileSync(script,`${imports}
    await Promise.resolve().then(()=>Bun.spawn([${JSON.stringify(wrapper)},${JSON.stringify(runtime)}],{env:{BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(wrapper)},${JSON.stringify(runtime)}],argv:["bwrap","--",${JSON.stringify(wrapper)},${JSON.stringify(runtime)}]})}})).catch(()=>console.error("SPAWN_PROMISE_REJECTED"));
    setInterval(()=>{},1000);`);
-  const child=Bun.spawn([process.execPath,script],{env:{PATH:"/usr/bin:/bin",HOME:scratch},stdout:"pipe",stderr:"pipe",signal:AbortSignal.timeout(watchdogMs(5000))});
-  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  const child=spawnGuardFixture([process.execPath,script],{env:{PATH:"/usr/bin:/bin",HOME:scratch},stdout:"pipe",stderr:"pipe",signal:AbortSignal.timeout(watchdogMs(5000))});
+  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),child.guardOutput()]);
   expect(code,err).toBe(1);expect(out).toBe("");expect(err.split("\n")).toContain("SPAWN_PROMISE_REJECTED");
   expect(err).toContain('"nativeLaunched":false');expect(err).not.toContain("attempted real network access");expect(err).toContain("native isolation failed; see native-offline-* receipts");expect(existsSync(marker)).toBe(false);
  }finally{rmSync(scratch,{recursive:true,force:true});}
@@ -1074,4 +1076,67 @@ test("keeper output root requires a guarded child namespace and pinned fixture h
    }finally{unregister();child.stdin.end();child.kill("SIGKILL");fs.closeSync(fd);}`,scratch);
   expect(result.output.split("\n")).toContain('{"keeperRoot":"missing-mount-refused"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"admitted"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"unregistered-refused"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"escape-refused"}');expect(result.code).toBe(1);
  }finally{rmSync(scratch,{recursive:true,force:true});rmSync(keeperRoot,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});}
+});
+
+test("worker plans stage only their canonical read-only resolver with synthetic bytes",async()=>{
+ for(const mode of ["canonical","unregistered","writable"] as const){
+  const scratch=mkdtempSync(join(tmpdir(),"odysseus-resolver-plan-"));
+  try{
+   const resolver=join(scratch,"resolver"),other=join(scratch,"other");
+   writeFileSync(resolver,"SIRENS_PRIVATE_DNS_MUST_NOT_COPY");writeFileSync(other,"OUTSIDE_CREDENTIAL_SENTINEL");
+   const result=await probe(`import * as fs from "node:fs";import {mock} from "bun:test";
+    const original={...fs};
+    mock.module("node:fs",()=>({...original,realpathSync:(path,...args)=>path==="/etc/resolv.conf"?${JSON.stringify(resolver)}:original.realpathSync(path,...args),readFileSync:(path,...args)=>{if(path===${JSON.stringify(resolver)})throw Error("HOST_RESOLVER_BYTES_READ");return original.readFileSync(path,...args);}}));
+    const guard=await import(${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))});
+    const spawnSync=Bun.spawnSync,which=Bun.which;
+    Bun.which=((name,options)=>name==="strace"?"/synthetic/strace":which(name,options));
+    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+    process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+    guard.nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[]});
+    const plan=guard.nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],argv:["bwrap",${JSON.stringify(mode==="writable"?"--bind":"--ro-bind")},${JSON.stringify(mode==="unregistered"?other:resolver)},"/etc/resolv.conf","--",${JSON.stringify(runtime)}]})});
+    try{plan.beforeLaunch();const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
+     const at=argv.indexOf("/etc/resolv.conf"),copy=argv[at-1];
+     if(copy===${JSON.stringify(resolver)}||original.readFileSync(copy,"utf8")!=="nameserver 127.0.0.1\\noptions attempts:1 timeout:1\\n"||(original.statSync(copy).mode&0o777)!==0o444)throw Error("RESOLVER_PLAN_NOT_SYNTHETIC_READONLY");
+     fs.writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});console.error("RESOLVER_PLAN_SYNTHETIC");
+    }finally{plan.dispose();}`,scratch);
+   expect(result.output).not.toContain("HOST_RESOLVER_BYTES_READ");
+   if(mode==="canonical"){expect(result.code,result.output).toBe(0);expect(result.output.split("\n")).toContain("RESOLVER_PLAN_SYNTHETIC");}
+   else{expect(result.code).not.toBe(0);expect(result.output).toContain(mode==="writable"?"native resolver bind must be read-only":"worker bind was not created or staged by the fixture");}
+  }finally{rmSync(scratch,{recursive:true,force:true});}
+ }
+});
+
+
+test("socket denial audit records raw syscalls without trusting stderr or syscall-looking data",async()=>{
+ const {deniedNativeSocketOperations}=await import("../scripts/test-native-guard");
+ expect(deniedNativeSocketOperations('42 connect(0x3, 0x123, 0x20) = -1 EPERM\n42 sendmsg(0x3, 0x456, 0x0) = -1 EPERM\n42 <... bind resumed>) = -1 EACCES\n42 openat(3, "connect(3) = -1 EPERM", 0) = -1 ENOENT\n42 execve("sendto(3) = -1 EPERM", [], 0) = 0\nchild claimed connect(3) = -1 EPERM')).toBe(3);
+});
+
+test("runtime provenance rechecks walk entries without re-attesting fixtures for every runtime file",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-provenance-cost-"));
+ try{
+  const result=await probe(`import * as fs from "node:fs";import {mock} from "bun:test";
+   const ROOT=${JSON.stringify(ROOT)},backend=ROOT+"/packages/ui-backend-claude";let stamp="",stampChecks=0,runtimeFiles=0,backendTraversals=0;
+   const original={...fs};mock.module("node:fs",()=>({...original,
+    lstatSync:(path,...args)=>{const info=original.lstatSync(path,...args);if(path===stamp)stampChecks++;if(info.isFile()&&(String(path).startsWith(ROOT+"/packages/")||String(path).startsWith(ROOT+"/node_modules/")))runtimeFiles++;return info;},
+    readdirSync:(path,...args)=>{if(path===backend)backendTraversals++;return original.readdirSync(path,...args);}
+   }));
+   const guard=await import(${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))});
+   const spawnSync=Bun.spawnSync,which=Bun.which;Bun.which=((name,options)=>name==="strace"?"/synthetic/strace":which(name,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+   stamp=guard.nativeFixtureDirectory("odysseus-attestation-count-");guard.nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[]});
+   let plan;try{
+    plan=guard.nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],argv:["bwrap","--ro-bind",backend,"/tmp/odysseus-runtime-alias","--",${JSON.stringify(runtime)}]})});
+    const initial=backendTraversals;plan.beforeLaunch();
+    const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;fs.writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});
+    console.error(JSON.stringify({runtimeProvenanceCost:{stampChecks,runtimeFiles,backendTraversals,initial}}));
+   }finally{plan?.dispose();fs.rmSync(stamp,{recursive:true,force:true});}`,scratch);
+  expect(result.code,result.output).toBe(0);
+  const cost=JSON.parse(result.output.split("\n").find(line=>line.startsWith('{"runtimeProvenanceCost":'))!).runtimeProvenanceCost;
+  expect(cost.runtimeFiles,"RUNTIME_TREE_WAS_WALKED").toBeGreaterThan(100);
+  expect(cost.stampChecks,"FIXTURE_ATTESTATIONS_ARE_NOT_PER_RUNTIME_FILE").toBeLessThan(cost.runtimeFiles/5);
+  expect(cost.backendTraversals,"OVERLAPPING_MOUNTS_WALKED_ONCE_PER_VALIDATION").toBeLessThanOrEqual(4);
+  expect(cost.backendTraversals,"BEFORE_LAUNCH_RECHECK_IS_FRESH").toBeGreaterThan(cost.initial);
+ }finally{rmSync(scratch,{recursive:true,force:true});}
 });

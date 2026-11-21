@@ -1,3 +1,4 @@
+import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
 import { expect, test } from "bun:test";
 import { scrubNativeStartupTrace } from "../scripts/test-native-guard";
 
@@ -34,8 +35,8 @@ for(const writeFailure of [false,true]) test(`identity audit snapshots sanitized
    audit.dispose();
    if(!cleaned||fs.existsSync(raw))throw Error("RAW_AUDIT_NOT_CLEANED");
    console.log(JSON.stringify(fs.readdirSync(${JSON.stringify(root)}).filter(name=>name.startsWith("native-startup-audit-")).map(name=>JSON.parse(fs.readFileSync(${JSON.stringify(root)}+"/"+name,"utf8")))));`);
-  const child=Bun.spawn([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
-  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  const child=spawnGuardFixture([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
+  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),child.guardOutput()]);
   expect(code,err).toBe(0);
   const audit=JSON.parse(err.split("\n").find(line=>line.startsWith('{"kind":"native-offline-audit"'))!);expect(audit.deniedConnects).toBe(0);
   const snapshots=JSON.parse(out);expect(snapshots).toHaveLength(writeFailure?0:1);

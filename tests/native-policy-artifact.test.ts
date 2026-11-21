@@ -1,3 +1,4 @@
+import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
 /** Synthetic compiler outcomes only: no installed native runtime executes. */
 import { expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -13,8 +14,8 @@ for(const kind of ["stderr","throw","artifact"] as const)test(`native policy ${k
    ${kind==="artifact"?'process.argv.push("--native-rtk-view","--native-socket-policy-sha256="+"a".repeat(64));':''}
    const {compileSocketPolicy,nativeIsolationFailed}=await import(${JSON.stringify(guard+"?compiler-fixture")});
    try{compileSocketPolicy();}catch{}process.exit(nativeIsolationFailed()?1:0);`);
-  const child=Bun.spawn([process.execPath,script],{env:{...process.env,TEST_COMPILER_SECRET:secret},stdout:"pipe",stderr:"pipe"});
-  const [code,text]=await Promise.all([child.exited,new Response(child.stderr).text()]);expect(code).not.toBe(0);
+  const child=spawnGuardFixture([process.execPath,script],{env:{...process.env,TEST_COMPILER_SECRET:secret},stdout:"pipe",stderr:"pipe"});
+  const [code,text]=await Promise.all([child.exited,child.guardOutput()]);expect(code).not.toBe(0);
   const receipt=JSON.parse(text.split("\n").find(line=>line.startsWith('{"kind":"native-offline-boundary"'))!);
   expect(receipt.nativeLaunched).toBe(false);expect(text).not.toContain(secret);expect(text).not.toContain("/tmp/odysseus-private");
   if(kind==="artifact")expect(receipt.reason).toBe("native socket policy artifact is unavailable or changed");
@@ -35,8 +36,8 @@ for(const view of ["rtk","policy"] as const)for(const mode of ["valid","changed"
    const original=Bun.spawnSync;Bun.spawnSync=((argv,options)=>{if(argv[0]==="cc")throw Error("INNER_COMPILER_REACHED");return Reflect.apply(original,Bun,[argv,options]);});
    const {compileSocketPolicy}=await import(${JSON.stringify(guard+"?artifact-fixture")});
    console.log(compileSocketPolicy());`);
-  const child=Bun.spawn([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
-  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  const child=spawnGuardFixture([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
+  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),child.guardOutput()]);
   expect(code,err).toBe(mode==="valid"?0:1);expect(err).not.toContain("INNER_COMPILER_REACHED");
   if(mode==="valid")expect(out.trim()).toBe(view==="rtk"?"/usr/local/bin/brain-native-connect":"/tmp/brain-native-policy/native-connect");else expect(err).toContain("native socket policy artifact is unavailable or changed");
  }finally{rmSync(root,{recursive:true,force:true});}
@@ -46,15 +47,15 @@ test("an isolated preload without receipt libraries never prints raw diagnostic 
  const root=mkdtempSync(join(tmpdir(),"odysseus-isolated-diagnostic-"));
  try{
   mkdirSync(join(root,"scripts"));mkdirSync(join(root,"packages"));
-  writeFileSync(join(root,"package.json"),JSON.stringify({private:true}));copyFileSync(guard,join(root,"scripts/test-native-guard.ts"));
+  writeFileSync(join(root,"package.json"),JSON.stringify({private:true}));copyFileSync(guard,join(root,"scripts/test-native-guard.ts"));copyFileSync(join(import.meta.dir,"../scripts/native-test-receipts.ts"),join(root,"scripts/native-test-receipts.ts"));
   const script=join(root,"probe.ts"),secret="odysseus-private-diagnostic-material";
   writeFileSync(script,`const original=Bun.spawnSync;
    Bun.spawnSync=((argv,options)=>argv[0]==="cc"?{exitCode:1,stdout:Buffer.alloc(0),stderr:Buffer.from(process.env.TEST_DIAGNOSTIC_SECRET)}:Reflect.apply(original,Bun,[argv,options]));
    const {compileSocketPolicy,scrubNativeStartupTrace}=await import(${JSON.stringify(join(root,"scripts/test-native-guard.ts"))});
    console.log(JSON.stringify({text:scrubNativeStartupTrace(process.env.TEST_DIAGNOSTIC_SECRET)}));
    try{compileSocketPolicy();}catch{}process.exit(1);`);
-  const child=Bun.spawn([process.execPath,script],{env:{...process.env,TEST_DIAGNOSTIC_SECRET:secret},stdout:"pipe",stderr:"pipe"});
-  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  const child=spawnGuardFixture([process.execPath,script],{env:{...process.env,TEST_DIAGNOSTIC_SECRET:secret},stdout:"pipe",stderr:"pipe"});
+  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),child.guardOutput()]);
   expect(code).toBe(1);expect(out+err).not.toContain(secret);
   expect(JSON.parse(out).text).toBe("[diagnostic redaction unavailable]");
   const receipt=JSON.parse(err.split("\n").find(line=>line.startsWith('{"kind":"native-offline-boundary"'))!);

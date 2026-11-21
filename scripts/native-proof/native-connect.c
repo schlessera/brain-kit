@@ -148,7 +148,7 @@ static int connect_pinned(int listener,struct seccomp_notif *request,int pinned,
   if(!error && retain_cookie(socket)) error=ENOMEM;
   close(socket); return error;
 }
-static int run(int pinned,const char *allowed,const char *head,char **command,int probe,const char *foreign) {
+static int run(int pinned,const char *allowed,char **command,int probe,const char *foreign) {
   int ready[2],ack[2]; if(pipe2(ready,O_CLOEXEC)||pipe2(ack,O_CLOEXEC)) return 125;
   /* Native descendants cannot inspect or change their broker through /proc. */
   if(prctl(PR_SET_DUMPABLE,0)) return 125;
@@ -207,7 +207,6 @@ static int run(int pinned,const char *allowed,const char *head,char **command,in
       if(request->data.nr==SYS_connect) error=connect_pinned(listener,request,pinned,allowed);
       else if(request->data.nr==SYS_sendmsg) error=send_connected(listener,request,&value);
     }
-    if(error==EPERM) dprintf(STDERR_FILENO,"{\"kind\":\"native-offline-socket-denial\",\"head\":\"%s\",\"success\":false,\"reason\":\"native socket operation denied\"}\n",head);
     struct seccomp_notif_resp response={.id=request->id,.error=-error,.val=value,.flags=0};
     /* flags=0: SECCOMP_USER_NOTIF_FLAG_CONTINUE would permit a memory race. */
     (void)ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&response);
@@ -234,7 +233,7 @@ int main(int argc,char **argv) {
     if(pinned<0||fstat(pinned,&info)||!S_ISSOCK(info.st_mode)||info.st_dev!=strtoull(argv[6],NULL,10)||info.st_ino!=strtoull(argv[8],NULL,10)) return 125;
   }
   if(pinned<0 || strlen(allowed)>=108) return 125;
-  int result=run(pinned,allowed,head,probe?NULL:argv+12,probe,other); close(pinned);
+  int result=run(pinned,allowed,probe?NULL:argv+12,probe,other); close(pinned);
   if(probe) { close(server); unlink(source); rmdir(directory); if(result==0) puts("NATIVE_SOCKET_POLICY_HELD"); }
   return result;
 }

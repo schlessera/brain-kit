@@ -1,3 +1,4 @@
+import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
 /** Plan and harmless re-entry only: no namespace or installed native runtime executes. */
 import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -15,8 +16,8 @@ for(const mode of ["hosted","local","self-hosted"] as const) test(`cleared-env R
     Bun.spawnSync=(()=>({exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}));
     Bun.spawn=((argv,options)=>{writeFileSync(${JSON.stringify(planFile)},JSON.stringify({argv,env:options.env}));return {exited:Promise.resolve(0)};});
     await enterMeasurementRtkView();`);
-  const child=Bun.spawn([process.execPath,parent],{env:{PATH:"/usr/bin:/bin",HOME:scratch,GITHUB_ACTIONS:mode==="local"?"false":"true",RUNNER_ENVIRONMENT:mode==="hosted"?"github-hosted":mode},stdout:"pipe",stderr:"pipe"});
-  const [code,errors]=await Promise.all([child.exited,new Response(child.stderr).text()]);expect(code,errors).toBe(0);
+  const child=spawnGuardFixture([process.execPath,parent],{env:{PATH:"/usr/bin:/bin",HOME:scratch,GITHUB_ACTIONS:mode==="local"?"false":"true",RUNNER_ENVIRONMENT:mode==="hosted"?"github-hosted":mode},stdout:"pipe",stderr:"pipe"});
+  const [code,errors]=await Promise.all([child.exited,child.guardOutput()]);expect(code,errors).toBe(0);
   const plan=JSON.parse(readFileSync(planFile,"utf8")) as {argv:string[];env:Record<string,string>};
   expect(plan.env).toEqual({});
   let env:Record<string,string|undefined>={};
@@ -32,8 +33,8 @@ for(const mode of ["hosted","local","self-hosted"] as const) test(`cleared-env R
   writeFileSync(inner,`import {nativeClaudeBoundary} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};
     Bun.spawnSync=((argv)=>{if(argv[0]!=="bwrap")throw Error("unexpected qualification command");console.error("NAMESPACE_QUALIFIER_REACHED");return {exitCode:1,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)};});
     try{nativeClaudeBoundary("/usr/bin/true",[],{});}catch{}process.exit(0);`);
-  const reentry=Bun.spawn([process.execPath,inner],{env,stdout:"pipe",stderr:"pipe"});
-  const [status,receipt]=await Promise.all([reentry.exited,new Response(reentry.stderr).text()]);
+  const reentry=spawnGuardFixture([process.execPath,inner],{env,stdout:"pipe",stderr:"pipe"});
+  const [status,receipt]=await Promise.all([reentry.exited,reentry.guardOutput()]);
   expect(status).not.toBe(0);expect(receipt).toContain('"nativeLaunched":false');
   if(mode==="hosted") {
     expect(receipt).toContain("NAMESPACE_QUALIFIER_REACHED");expect(receipt).toContain("OS namespace setup failed");
@@ -54,8 +55,8 @@ test("RTK plan carries the outer compiled policy read-only without compiler moun
    Bun.spawn=((argv)=>{const target=argv.indexOf("/usr/local/bin/brain-native-connect"),source=argv[target-1];
     writeFileSync(${JSON.stringify(file)},JSON.stringify({argv,source,digest:createHash("sha256").update(readFileSync(source)).digest("hex")}));return {exited:Promise.resolve(0)};});
    await enterMeasurementRtkView();`);
-  const child=Bun.spawn([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
-  const [code,errors]=await Promise.all([child.exited,new Response(child.stderr).text()]);expect(code,errors).toBe(0);
+  const child=spawnGuardFixture([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
+  const [code,errors]=await Promise.all([child.exited,child.guardOutput()]);expect(code,errors).toBe(0);
   const {argv,source,digest}=JSON.parse(readFileSync(file,"utf8"));
   expect(source).toMatch(/odysseus-native-policy-[^/]+\/native-connect$/);
   const at=argv.indexOf("/usr/local/bin/brain-native-connect");expect(argv.slice(at-2,at+1)).toEqual(["--ro-bind",source,"/usr/local/bin/brain-native-connect"]);

@@ -1,8 +1,12 @@
+import { watchdogMs } from "../../../scripts/test-deadlines.ts";
+import { nativeBootstrapStatus } from "../../../scripts/test-native-guard.ts";
+import { observeNativeWorkerStartup } from "../../ui-sdk/tests/fixtures/native-worker-startup-diagnostics.js";
+import type { LaunchedWorker } from "../../ui-sdk/src/server/worker-launcher.js";
 import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Production SDK options and isolated worker, real CLI tools, scripted loopback inference. */
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type HookCallback, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createKeyedLock, type ServerMessage } from "@schlessera/brain-ui-sdk/server";
@@ -35,7 +39,7 @@ for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mo
     { name: toolName, input: toolName === "Write" ? { file_path: path, content: "Athena charts.\n" } : toolName === "NotebookEdit" ? { notebook_path: path, cell_id: "loom", new_source: "Athena charts.", edit_mode: "replace" } : { file_path: path, old_string: "Penelope", new_string: "Odysseus" }, id: "toolu_ithaca_write" }];
   if (reread) calls.splice(1, 0, { name: "Read", input: { file_path: path }, id: "toolu_ithaca_reread" });
   let roster: string | undefined, sent = 0, reads = 0, rereadContent: string | undefined, authorityDenial = false, nativeDenial = false, version: string | undefined;
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), watchdogMs(20_000));
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (new URL(request.url).pathname !== "/v1/messages") return Response.json({});
     const body = await request.json() as { tools?: { name: string }[] };
@@ -44,10 +48,7 @@ for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mo
     if (!call || !body.tools?.some(tool => tool.name === call.name)) return reply();
     sent++; return reply(call);
   } });
-  // The production networked profile restores this one resolver file when
-  // its distro alias points into /run. Explicit registration snapshots that
-  // file only; the native child's network namespace still has no DNS route.
-  nativeScriptedService(server.url.origin, { fixtureRoots: [root], fixtureFiles: [realpathSync("/etc/resolv.conf")] });
+  nativeScriptedService(server.url.origin, { fixtureRoots: [root] });
   const lockState = { ended: false, pendingReleases: new Map<string, () => void>() };
   let lockHeldDuringWrite = false;
   const frames: ServerMessage[] = [], lock = createTurnLockBinding({ turn: lockState, writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {} });
@@ -57,6 +58,7 @@ for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mo
     prompt: "Return to Ithaca.", signal: controller.signal,
     posture: mode === "voice" ? "voice" : undefined,
     workerStartupView: startupView,
+    workerStarted: (worker:LaunchedWorker)=>observeNativeWorkerStartup(worker,nativeBootstrapStatus(worker.pid)??{exitCode:null,signalCode:null},["odysseus-offline-only-key"]),
     workerSandbox: { brain, profile: mode === "strict" ? "strict" : "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
     bridge: { emit: () => {}, applyBrain: async () => ({}), requestPermission: async () => { cards++; return { behavior: "allow" }; } },
   } as never,

@@ -1,5 +1,6 @@
+import { inheritNativeReceipts, withoutNativeReceipts, nativeReceipt, flushNativeReceipts } from "./native-test-receipts.ts";
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { recordNativeGuardChild, guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, nativeTestHead, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
+import { recordNativeGuardChild, isGuardedNativePlan, guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, nativeTestHead, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
 import { basename, join } from "node:path";
 import { Server as HttpServer } from "node:http";
 import { isIP, Socket } from "node:net";
@@ -183,14 +184,19 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       const workerBoundary = boundary ? undefined : nativeWorkerBoundary(testGitEnvironment({ ...options.env ?? process.env,
         ...(options.env?.BRAIN_NATIVE_TEST_HEAD === undefined ? { BRAIN_NATIVE_TEST_HEAD: nativeTestHead() } : {}),
         ...(options.env?.GITHUB_ACTIONS === undefined && process.env.GITHUB_ACTIONS === "true" ? { GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: options.env?.RUNNER_ENVIRONMENT ?? process.env.RUNNER_ENVIRONMENT } : {}) }));
-      const inherited = inheritWorkspaceLease({ ...options, env: boundary?.env ?? workerBoundary!.env }, defaultStderr, pipeOnly);
+      let inherited = inheritWorkspaceLease({ ...options, env: boundary?.env ?? workerBoundary!.env }, defaultStderr, pipeOnly);
+      if(!boundary&&!pipeOnly&&!isGuardedNativePlan(cmd)){
+        const actual=Array.isArray(args[0])?args[0] as string[]:(args[0] as {cmd:string[]}).cmd;
+        const channel=inheritNativeReceipts(inherited,actual,defaultStderr);inherited=channel.options;
+        args[0]=Array.isArray(first)?channel.argv:{...args[0] as object,cmd:channel.argv};
+      }else inherited=withoutNativeReceipts(inherited);
       if (Array.isArray(first)) args[1] = inherited;
       else args[0] = { ...inherited, cmd: (args[0] as { cmd: string[] }).cmd };
       try {
         boundary?.beforeLaunch(); workerBoundary?.beforeLaunch();
         const result = Reflect.apply(native, Bun, args);
-        if (key === "spawn") { recordNativeGuardChild(result); void result.exited.finally(() => { boundary?.dispose(); workerBoundary?.dispose(); }); }
-        else workerBoundary?.dispose();
+        if (key === "spawn") { recordNativeGuardChild(result,pipeOnly&&Boolean(options.env?.BRAIN_WORKER_LAUNCH)); void result.exited.finally(() => { boundary?.dispose(); workerBoundary?.dispose();flushNativeReceipts(); }); }
+        else {workerBoundary?.dispose();flushNativeReceipts();}
         return result;
       } catch (error) { boundary?.dispose(); workerBoundary?.dispose(); throw error; }
     }) as typeof Bun.spawn & typeof Bun.spawnSync;
@@ -209,7 +215,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
   // followed by process.exit(0), must still make that process unsuccessful.
   process.on("exit", () => {
     if (escapes.length || nativeIsolationFailed()) {
-      console.error(escapes.length ? message() : "Offline test guard: native isolation failed; see native-offline-* receipts");
+      if(escapes.length)console.error(message());else nativeReceipt({kind:"native-offline-invocation-failed",head:nativeTestHead(),success:false,reason:"native isolation failed; see native-offline-* receipts"});
       process.exit(1);
     }
   });
