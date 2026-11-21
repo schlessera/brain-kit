@@ -24,13 +24,21 @@ test("undeclared managed settings do not add a worker mount",()=>{
  try{expect(nativeFixtureManagedSettingsMounts(root)).toEqual([]);}finally{leave();rmSync(root,{recursive:true,force:true});}
 });
 
-for(const mode of ["outside","symlink","hardlink"] as const)test(`managed settings refuse ${mode} registration`,async()=>{
+for(const mode of ["outside","symlink","parent-symlink","dotdot","hardlink"] as const)test(`managed settings refuse ${mode} registration`,async()=>{
  const child=spawnGuardFixture([process.execPath,"-e",`
   import {nativeFixtureDirectory,nativeScriptedService} from ${JSON.stringify(guard)};
-  import {mkdtempSync,writeFileSync,symlinkSync,linkSync,rmSync} from "node:fs";
+  import {mkdtempSync,writeFileSync,symlinkSync,linkSync,rmSync,statSync} from "node:fs";
+  const mode=${JSON.stringify(mode)};
   const root=nativeFixtureDirectory("odysseus-managed-negative-"),outside=mkdtempSync("/tmp/odysseus-unregistered-");
-  writeFileSync(root+"/managed.json","{}");writeFileSync(outside+"/managed.json","{}");symlinkSync(root+"/managed.json",root+"/alias");linkSync(outside+"/managed.json",root+"/hardlink");
-  try{nativeScriptedService("http://127.0.0.1:9",{fixtureRoots:[root],managedSettingsFile:${mode==="outside"?'outside+"/managed.json"':mode==="hardlink"?'root+"/hardlink"':'root+"/alias"'}});}catch{}finally{rmSync(root,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});}
+  writeFileSync(root+"/managed.json","{}");writeFileSync(outside+"/managed.json","{}");
+  let file;
+  if(mode==="hardlink"){linkSync(outside+"/managed.json",root+"/hardlink");file=root+"/hardlink";}
+  else if(mode==="symlink"){symlinkSync(root+"/managed.json",root+"/alias");file=root+"/alias";}
+  else if(mode==="parent-symlink"){symlinkSync(outside,root+"/linkdir");file=root+"/linkdir/managed.json";}
+  else if(mode==="dotdot")file=root+"/../"+outside.split("/").pop()+"/managed.json";
+  else file=outside+"/managed.json";
+  if(mode!=="hardlink"&&statSync(file).nlink!==1)throw Error("NEGATIVE_CASE_MUST_NOT_BORROW_HARDLINK_REFUSAL");
+  try{nativeScriptedService("http://127.0.0.1:9",{fixtureRoots:[root],managedSettingsFile:file});}catch{}finally{rmSync(root,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});}
  `],{env:{PATH:"/usr/bin:/bin"}});
- const [code,out]=await Promise.all([child.exited,child.guardOutput()]);expect(code).not.toBe(0);expect(out).toContain("managed settings require an unlinked fixture-created regular file");expect(out).toContain('"nativeLaunched":false');
+ const [code,out]=await Promise.all([child.exited,child.guardOutput()]);expect(code,`MANAGED_SETTINGS_${mode.toUpperCase()}_MUST_REFUSE`).not.toBe(0);expect(out).toContain("managed settings require an unlinked fixture-created regular file");expect(out).toContain('"nativeLaunched":false');
 });

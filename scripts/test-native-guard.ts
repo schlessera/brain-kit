@@ -338,7 +338,7 @@ export function fixtureToolView(env: Record<string, string | undefined>, cwd: st
 }
 
 interface AuditReceipt { kind: "native-offline-audit"; head: string; nativeLaunched: boolean; success: boolean; reason?: string; deniedConnects: number }
-interface Boundary { beforeLaunch(): void; argv: string[]; env: Record<string, string>; dispose(): void; receipt(): AuditReceipt }
+interface Boundary { nativeExecuted():boolean; beforeLaunch(): void; argv: string[]; env: Record<string, string>; dispose(): void; receipt(): AuditReceipt }
 
 const generatedCredentials = new Map<string, string>();
 /** Create and mark a clearly synthetic value; ambient strings cannot self-mark. */
@@ -493,6 +493,11 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
   // both the tracer and its entire traced sandbox, closing inherited pipes.
   return { argv: [straceExecutable, "-I", "1", "--kill-on-exit", "-f", "-qq", "-s", "0", "-e", diagnosticRoot ? "trace=connect,%file,%process,mmap,mprotect,munmap,brk,prlimit64,getrlimit,prctl,io_uring_setup,pidfd_open,pidfd_getfd,rt_sigaction,rt_sigprocmask,sched_getaffinity,rseq,futex,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4" : "trace=connect,execve,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4", "-e", "raw=connect,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4", "-o", log, "--", ...argv],
     dispose() { finish(); }, receipt: finish,
+    nativeExecuted(){
+      if(receipt)return receipt.nativeLaunched;
+      if(!storageIntact())return false;
+      try{const trace=readFileSync(log);return storageIntact()&&nativeExecObserved(trace.toString("utf8"),expected);}catch{return false;}
+    },
     liveExecs(){
       if(!storageIntact())throw Error("native fixture RTK audit integrity unavailable");
       const bytes=readFileSync(log);if(bytes.length>8*1024*1024||!storageIntact())throw Error("native fixture RTK audit unavailable");
@@ -558,6 +563,17 @@ function expectedNativeExec(command: string, args: readonly string[], options: S
   return [...new Set(native.flatMap(value => [resolve(options.cwd ?? process.cwd(), value), resolveExecutable(value, options)]))];
 }
 
+/** Retain only the admitted server's exact base path; authority remains local IPC. */
+export function nativeAdmittedRelayBaseUrl(value:string|undefined,admitted:boolean):string {
+  if(!admitted)return "http://localhost";
+  value??="http://localhost";
+  const match=/^https?:\/\/([^/?#]+)(\/[^?#]*)?$/.exec(value),path=match?.[2]??"";
+  if(!match||/[\\\s]/.test(value)||/%(?:2f|2e|5c)/i.test(path)||/(?:^|\/)\.{1,2}(?:\/|$)/.test(path)||path.endsWith("/"))refuse("admitted relay base path is not canonical");
+  let url:URL;try{url=new URL(value);}catch{return refuse("admitted relay base path is not canonical");}
+  if(url.username||url.password||url.pathname!==(path||"/"))refuse("admitted relay base path is not canonical");
+  return "http://localhost"+path;
+}
+
 /** Direct SDK launch: empty filesystem, fresh PID/network namespaces, one IPC. */
 export function nativeClaudeBoundary(command: string, args: string[], options: { cwd?: string; env?: Record<string, string | undefined>; managedSettings?: string }): Boundary {
   qualify();
@@ -596,7 +612,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     const argv = [bwrapExecutable, "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...mounts, "--clearenv"];
     const childEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: versionHome ?? env.CLAUDE_CONFIG_DIR ?? home,
       PATH: tools.path, LANG: "C.UTF-8",
-      ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
+      ANTHROPIC_BASE_URL: nativeAdmittedRelayBaseUrl(env.ANTHROPIC_BASE_URL,Boolean(inheritedOrigin)), ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
     // These are public model selectors, never ambient provider credentials.
     for (const key of ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "ENABLE_TOOL_SEARCH"]) {
@@ -962,7 +978,7 @@ export function prepareNativeBootstrapDiagnostics(options:Record<string,any>):{o
   }};
 }
 const parentTerminatedBootstraps=new WeakSet<object>(),observedBootstrapKills=new WeakSet<object>();
-export function recordNativeGuardChild(child: { pid: number; exited: Promise<number>;exitCode?:number|null;signalCode?:string|number|null;kill?(signal?:NodeJS.Signals|number):void },bootstrap=false,evidence?:BootstrapEvidence): Promise<void> {
+export function recordNativeGuardChild(child: { pid: number; exited: Promise<number>;exitCode?:number|null;signalCode?:string|number|null;kill?(signal?:NodeJS.Signals|number):void },bootstrap=false,evidence?:BootstrapEvidence,nativeExecuted?:()=>boolean): Promise<void> {
   let completion=Promise.resolve();
   const diagnosticRoots=[...(scriptedRoute.getStore()?.fixtureRoots??[])];
   if(bootstrap){
@@ -978,17 +994,18 @@ export function recordNativeGuardChild(child: { pid: number; exited: Promise<num
     bootstrapDiagnostics.set(child.pid,{get exitCode(){return child.exitCode??null;},get signalCode(){return child.signalCode??null;}});
     if(bootstrapDiagnostics.size>256)bootstrapDiagnostics.delete(bootstrapDiagnostics.keys().next().value!);
     const report=async(code:number|null)=>{
-      nativeReceipt({kind:"native-offline-bootstrap-exit",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null});
+      let executed=false;try{if(code!==0||child.signalCode)executed=nativeExecuted?.()===true;}catch{ /* Unproven exec remains a bootstrap failure. */ }
+      if(!executed||code===0&&!child.signalCode)nativeReceipt({kind:"native-offline-bootstrap-exit",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null});
       if(code===0&&!child.signalCode)return;
       if(["SIGTERM","SIGKILL","SIGINT",15,9,2].includes(child.signalCode??"")){
-        nativeReceipt({kind:"native-offline-bootstrap-termination",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null,
+        nativeReceipt({kind:executed?"native-offline-native-exit":"native-offline-bootstrap-termination",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null,
           reason:parentTerminatedBootstraps.has(child)?"terminated by parent signal":"terminated by signal"});return;
       }
       if(evidence){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([evidence.drained,new Promise<void>(resolve=>{timer=setTimeout(resolve,2000);timer.unref();})]);clearTimeout(timer);}
       const text=evidence?.snapshot()??"";
       const safe=compilerDiagnostic(redactNativeDiagnosticAssignments(labelNativeMountErrors(text,diagnosticRoots).replace(/^[ \t]*(?:Args|Arguments|argv|Env|Environment):[^\n]*(?:\n|$)/gim,"[redacted startup metadata]\n")));
-      nativeReceipt({kind:"native-offline-bootstrap-failure",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null,
-        reason:safe||"worker bootstrap exited nonzero; stderr reason unavailable"});
+      nativeReceipt({kind:executed?"native-offline-native-exit":"native-offline-bootstrap-failure",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null,
+        reason:safe||(executed?"native payload exited nonzero without stderr":"worker bootstrap exited nonzero; stderr reason unavailable")});
     };
     completion=child.exited.then(report,()=>report(null));
   }
@@ -1185,7 +1202,7 @@ export function nativeWorkerPayloadCommand(payload:string[],command:string[],pro
 }
 
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */
-export function nativeWorkerBoundary(env: Record<string, string | undefined>): { native: boolean; env: Record<string, string | undefined>; dispose(): void; beforeLaunch(): void; observe?(pid:number):void } {
+export function nativeWorkerBoundary(env: Record<string, string | undefined>): { native: boolean; env: Record<string, string | undefined>; dispose(): void; beforeLaunch(): void; observe?(pid:number):void; nativeExecuted?():boolean } {
   const unchanged = { native: false, env, dispose() {}, beforeLaunch() {} };
   if (!env.BRAIN_WORKER_LAUNCH) return unchanged;
   let launch: { command?: string[]; argv?: string[]; env?: Record<string, string>; brainPath?: string; hostHome?: string } | null;
@@ -1245,7 +1262,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
     }
     workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", "--unshare-pid");
-    const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
+    const pinned = { ANTHROPIC_BASE_URL: nativeAdmittedRelayBaseUrl(launch.env?.ANTHROPIC_BASE_URL,Boolean(ownedOrigin)), ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
       PATH: tools.path, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1",
       ...(["0", "1"].includes(launch.env?.USE_BUILTIN_RIPGREP ?? "") ? { USE_BUILTIN_RIPGREP: launch.env!.USE_BUILTIN_RIPGREP! } : {}),
       ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "",
@@ -1302,6 +1319,6 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     nativeReceipt({kind:"native-offline-worker-plan",head:nativeTestHead(),
       bootstrapArgc:launch.argv!.length,bootstrapArgvBytes:Buffer.byteLength(JSON.stringify(launch.argv)),
       sandboxArgc:workerArgv.length,sandboxArgvBytes:Buffer.byteLength(JSON.stringify(workerArgv)),metadataBytes:Buffer.byteLength(encoded)});
-    return { native: true, env: { ...env, BRAIN_WORKER_LAUNCH: encoded }, dispose: audited.dispose, beforeLaunch,observe(pid){observeNativeFixtureRtkSpawn(pid,originalLaunch,expected,audited.liveExecs);} };
+    return { native: true, env: { ...env, BRAIN_WORKER_LAUNCH: encoded }, dispose: audited.dispose, beforeLaunch,nativeExecuted:audited.nativeExecuted,observe(pid){observeNativeFixtureRtkSpawn(pid,originalLaunch,expected,audited.liveExecs);} };
   } catch (error) { bridge.dispose(); throw error; }
 }

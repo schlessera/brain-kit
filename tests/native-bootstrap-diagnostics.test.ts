@@ -105,3 +105,23 @@ for(const delay of [0,150])test(`cleanup kill after exit 1 preserves the bootstr
  expect(record?.reason).toContain("fixture child failed");
  expect(out).not.toContain('"kind":"native-offline-bootstrap-termination"');
 });
+
+for(const executed of [false,true])test(`nonzero synthetic child is labelled as ${executed?"native exit after exec":"bootstrap failure without exec"}`,async()=>{
+ const guard=join(import.meta.dir,"../scripts/test-native-guard.ts"),entry=join(import.meta.dir,"../packages/ui-sdk/src/server/worker-entry.ts"),pipes=join(import.meta.dir,"../packages/ui-sdk/src/server/worker-pipes.ts");
+ const child=spawnGuardFixture([process.execPath,"-e",`
+  import {mock} from "bun:test";
+  const guard={...await import(${JSON.stringify(guard)})};
+  const audit=guard.auditNativeLaunch(["/bin/sh","-c","exit 1"],${JSON.stringify(executed?["/bin/sh"]:["/usr/bin/true"])},()=>{});audit.argv[0]=${JSON.stringify(Bun.which("strace"))};
+  mock.module(${JSON.stringify(guard)},()=>({...guard,nativeWorkerBoundary(env){const plan=guard.nativeWorkerBoundary(env);if(!env.BRAIN_WORKER_LAUNCH)return plan;const launch=JSON.parse(env.BRAIN_WORKER_LAUNCH);return {...plan,native:true,env:{...env,BRAIN_WORKER_LAUNCH:JSON.stringify({...launch,argv:audit.argv})},nativeExecuted:audit.nativeExecuted,dispose:audit.dispose};}}));
+  const {createWorkerPipes}=await import(${JSON.stringify(pipes)});const p=createWorkerPipes(),streams=p.streams();streams.stderr.resume();streams.stdout.resume();
+  const boot=Bun.spawn([process.execPath,${JSON.stringify(entry)}],{env:{PATH:"/usr/bin:/bin",BRAIN_WORKER_LAUNCH:JSON.stringify({command:["/bin/sh","-c","exit 1"],argv:["/bin/sh","-c","exit 1"]})},stdin:p.child[0],stdout:p.child[1],stderr:p.child[2]});
+  p.closeChild();streams.stdin.end();await boot.exited;
+ `],{env:{PATH:"/usr/bin:/bin"}});
+ const [,out]=await Promise.all([child.exited,child.guardOutput()]);
+ const records=out.split("\n").filter(line=>line.startsWith('{"kind":"native-offline-')).map(line=>JSON.parse(line));
+ const kind=executed?"native-offline-native-exit":"native-offline-bootstrap-failure";
+ expect(records.find(record=>record.kind===kind),"POST_EXEC_EXIT_IS_NOT_BOOTSTRAP_FAILURE").toMatchObject({exitCode:1,signal:null});
+ expect(records.some(record=>record.kind===(executed?"native-offline-bootstrap-failure":"native-offline-native-exit"))).toBe(false);
+ expect(out).toContain(executed?"native payload exited nonzero without stderr":"worker bootstrap exited nonzero; stderr reason unavailable");
+ expect(records.find(record=>record.kind==="native-offline-audit")?.nativeLaunched).toBe(executed);
+});

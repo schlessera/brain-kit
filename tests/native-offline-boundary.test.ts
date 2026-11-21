@@ -1166,12 +1166,14 @@ test("direct and trusted worker plans admit only a registered turn-proxy endpoin
    const tunnel=guard.startNativeTurnProxyTunnel("http://127.0.0.1:9",root);await new Promise(resolve=>setImmediate(resolve));
    function finish(plan,argv){writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();}
    try{
-    const direct=guard.nativeClaudeBoundary(runtime,[],{cwd:root,env:{HOME:root,PATH:"/usr/bin:/bin"}});
+    const direct=guard.nativeClaudeBoundary(runtime,[],{cwd:root,env:{HOME:root,PATH:"/usr/bin:/bin",ANTHROPIC_UNIX_SOCKET:tunnel.socket,ANTHROPIC_BASE_URL:"http://localhost/anthropic"}});
+    if(!direct.argv.some((arg,i)=>arg==="--setenv"&&direct.argv[i+1]==="ANTHROPIC_BASE_URL"&&direct.argv[i+2]==="http://localhost/anthropic"))throw Error("DIRECT_ADMITTED_BASE_PATH_PRESERVED");
     if(!direct.argv.includes("--turn-proxy")||!direct.argv.includes(entry))throw Error("DIRECT_PROXY_REGISTRATION_MISSING");finish(direct,direct.argv);
     for(const [trusted,registered] of [[true,true],[true,false],[false,true]]){
      const command=[runtime],wrapper=trusted?[process.execPath,entry]:["/usr/bin/true"];
-     const argv=["bwrap",...(registered?["--ro-bind",tunnel.socket,guard.WORKER_TURN_PROXY]:[]),"--",...wrapper,...command];
-     const plan=guard.nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command,argv,brainPath:root,env:{HOME:root,PATH:"/usr/bin:/bin"}})}),actual=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
+     const argv=["bwrap","--ro-bind",tunnel.socket,"/run/brain-inference/relay.sock",...(registered?["--ro-bind",tunnel.socket,guard.WORKER_TURN_PROXY]:[]),"--",...wrapper,...command];
+     const plan=guard.nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command,argv,brainPath:root,env:{HOME:root,PATH:"/usr/bin:/bin",ANTHROPIC_UNIX_SOCKET:"/run/brain-inference/relay.sock",ANTHROPIC_BASE_URL:"http://localhost/anthropic"}})}),actual=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
+     if(!actual.some((arg,i)=>arg==="--setenv"&&actual[i+1]==="ANTHROPIC_BASE_URL"&&actual[i+2]==="http://localhost/anthropic"))throw Error("WORKER_ADMITTED_BASE_PATH_PRESERVED");
      if(actual.includes("--turn-proxy")!==(trusted&&registered))throw Error("WORKER_PROXY_REQUIRES_TRUSTED_WRAPPER_AND_REGISTRATION");finish(plan,actual);
     }
    }finally{tunnel.dispose();}`,scratch);

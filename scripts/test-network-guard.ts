@@ -202,7 +202,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         const result = Reflect.apply(native, Bun, args);
         if (key === "spawn") {
           const exited=result.exited,evidence=bootstrapDiagnostics?.attach(result);
-          const report=recordNativeGuardChild(result,bootstrap,evidence);
+          const report=recordNativeGuardChild(result,bootstrap,evidence,boundary?.nativeExecuted??workerBoundary?.nativeExecuted);
           workerBoundary?.observe?.(result.pid);
           const completed=exited.then(async(code:number)=>{
             await evidence?.drained;await report;
