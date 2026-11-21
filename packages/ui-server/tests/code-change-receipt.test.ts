@@ -651,3 +651,29 @@ test("failed checkout checkpoint releases remain visible and make final close fa
     f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true });
   }
 });
+
+test("startup skips malformed ended receipts, records their cause and lets retention continue", async () => {
+  const f = inBrainCodeJournal(); let journal = f.journal;
+  try {
+    await journal.begin("damaged", codeMetadata, () => {}); await journal.finish("damaged");
+    await journal.begin("healthy", codeMetadata, () => {}); await journal.finish("healthy");
+    await journal.writeOperation([{ sql: "UPDATE turn_journal_code_receipts SET receipt=? WHERE turn_id=?", params: ["{malformed", "damaged"] }]);
+    await journal.close();
+    journal = createTurnJournal(f.db, { nativeManager: f.native.manager, brainPath: f.brain, dbPath: f.dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance: f.maintenance },
+      log: { emit() { throw Error("Diagnostic sink unavailable"); }, enabled: () => true } });
+    const error = await journal.ready.then(() => undefined, error => error);
+    expect(error, "MALFORMED_HISTORICAL_RECEIPT_DOES_NOT_BLOCK_READY").toBeUndefined();
+    expect(journal.cleanupStatus().lastFailure, "MALFORMED_RECEIPT_CAUSE_IS_DURABLE_AND_OWNER_VISIBLE").toMatchObject({
+      kind: "code_receipt_invalid", scope: "retained_code_receipt", turnId: "damaged", checkout: "workspaces/argo", errorClass: "SyntaxError",
+      cause: "Retained checkout receipt contains malformed JSON.", callSite: "turn-journal.ready", invalidReceipts: 1, retrying: false,
+    });
+    expect(f.db.query("SELECT state,failure FROM turn_journal_turns WHERE turn_id='damaged'").get()).toEqual({ state: "partial", failure: "code_receipt_malformed" });
+    expect(journal.details("ithaca", "healthy")!.summary.state).toBe("complete");
+    await journal.writeOperation([{ sql: "UPDATE turn_journal_turns SET ended_at=1 WHERE turn_id IN ('damaged','healthy')", params: [] }]);
+    await journal.maintain();
+    expect(f.db.query("SELECT turn_id FROM turn_journal_turns WHERE turn_id IN ('damaged','healthy')").all(), "MALFORMED_RECEIPT_CANNOT_BLOCK_RETENTION_SWEEP").toEqual([]);
+    expect(journal.cleanupStatus().lastFailure).toMatchObject({ turnId: "damaged", kind: "code_receipt_invalid" });
+    await journal.begin("notes", { ...codeMetadata, workspaceReadOnly: true, workspacesWritable: false }, () => {}); await journal.finish("notes");
+    expect(journal.summary("notes").state, "RECOVERY_LEAVES_OTHER_TURNS_USABLE").toBe("complete");
+  } finally { await journal.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
+});

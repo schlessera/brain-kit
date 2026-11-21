@@ -149,8 +149,18 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const interrupted = (db.query("SELECT turn_id,pid,pid_start,missing FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string; missing: string }[])
       .filter(row => !processAlive(row.pid, row.pid_start));
     for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([...JSON.parse(row.missing), { path: ".", reason: "interrupted_observation" }]), row.turn_id)]);
+    const invalidReceipts = db.query(`SELECT c.turn_id,c.checkout FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
+      WHERE t.ended_at IS NOT NULL AND NOT json_valid(c.receipt) ORDER BY c.turn_id,c.checkout`).all() as { turn_id: string; checkout: string }[];
+    if (invalidReceipts.length) {
+      await ledger.call("statements", invalidReceipts.map(row => statement("UPDATE turn_journal_turns SET state='partial',failure=CASE WHEN trim(failure)='' THEN 'code_receipt_malformed' ELSE failure END WHERE turn_id=?", row.turn_id)));
+      const row = invalidReceipts[invalidReceipts.length - 1]!;
+      const notice = { kind: "code_receipt_invalid", scope: "retained_code_receipt", turnId: row.turn_id, checkout: row.checkout,
+        at: now(), errorClass: "SyntaxError", cause: "Retained checkout receipt contains malformed JSON.", callSite: "turn-journal.ready", invalidReceipts: invalidReceipts.length, retrying: false };
+      await createSettingsWrites(db, writer).setSetting("journal.cleanup.lastFailure", notice);
+      diagnostic(() => options.log?.emit({ severityText: "ERROR", body: "Malformed retained checkout receipt skipped during startup", attributes: { "turn.id": row.turn_id, "checkout": row.checkout, "error.type": notice.errorClass } }));
+    }
     await ledger.call("statements", [statement(`UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial')
-      WHERE json_extract(receipt,'$.state')='recording' AND turn_id IN (SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL)`)]);
+      WHERE CASE WHEN json_valid(receipt) THEN json_extract(receipt,'$.state') END='recording' AND turn_id IN (SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL)`)]);
     for (const row of db.query("SELECT id,pid,pid_start FROM turn_journal_code_reverts WHERE state='applying'").all() as { id: string; pid: number; pid_start: string }[]) {
       if (processAlive(row.pid, row.pid_start)) continue;
       await ledger.call("statements", [statement("UPDATE turn_journal_code_reverts SET state='unknown',result=? WHERE id=? AND state='applying'", JSON.stringify({ id: row.id, status: "unknown", error: "Interrupted checkout restoration; review partial work before another action.", at: now(), callSite: "turn-journal.recover" }), row.id)]);
@@ -530,7 +540,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     // A drained owner effect keeps its source and idempotency receipt until
     // completion; a dead owner is marked unknown by startup recovery above.
     if (db.query("SELECT 1 FROM turn_journal_code_reverts WHERE turn_id=? AND state='applying'").get(turnId)) return;
-    const before = summary(turnId);
+    // Retention deletes the whole turn and does not need to parse its raw receipts.
+    const before = removeSummary ? undefined : summary(turnId);
     await write([
       statement("DELETE FROM turn_journal_code_failures WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_code_receipts WHERE turn_id=?", turnId),
@@ -540,7 +551,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_object_refs WHERE turn_id=?", turnId),
       removeSummary ? statement("DELETE FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL", turnId)
-        : statement("UPDATE turn_journal_turns SET state='expired',summary=? WHERE turn_id=? AND ended_at IS NOT NULL", JSON.stringify({ changedFiles: before.changedFiles, steeringFiles: before.steeringFiles, keptFiles: before.keptFiles, sharedAttribution: before.sharedAttribution }), turnId),
+        : statement("UPDATE turn_journal_turns SET state='expired',summary=? WHERE turn_id=? AND ended_at IS NOT NULL", JSON.stringify({ changedFiles: before?.changedFiles, steeringFiles: before?.steeringFiles, keptFiles: before?.keptFiles, sharedAttribution: before?.sharedAttribution }), turnId),
     ]);
     failures.delete(turnId); counters.delete(turnId); await collectObjects(); publish(turnId);
   }
