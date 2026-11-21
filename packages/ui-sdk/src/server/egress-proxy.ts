@@ -341,7 +341,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const admit = !inference ? admitDestination : async () => {
       const first = inference && !firstAdmissionStarted;
       if (first) { firstAdmissionStarted = true; firstAdmissionPending = true; }
-      try { return await admitDestination(); }
+      try { return await admitDestination() && commit(); }
       finally {
         if (first) {
           marks.admitMs = Math.max(0, performance.now() - started);
@@ -496,7 +496,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
     return { observeUsage: op.observeUsage, mark: op.mark, charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
-      admit: async () => !op.signal.aborted && await op.admit() && op.commit(),
+      admit: async () => !op.signal.aborted && await op.admit() && (relay === "inference" || op.commit()),
       /** The concrete relay calls this again after its own final async waits. */
       commit: op.commit,
       finish(outcome: EgressRecord["outcome"], reason?: string) {

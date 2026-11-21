@@ -109,3 +109,22 @@ test("cancellation during an unresolved admission emits immediately without inve
     expect(records).toHaveLength(1); expect(records[0]!.admitMs).toBeUndefined();
   } finally { release.resolve(); await admitting; proxy.stop(); }
 });
+
+test("the first admission clock includes its final synchronous commit check", async () => {
+  let now = 1000, commits = 0;
+  const clock = spyOn(performance, "now").mockImplementation(() => now), records: EgressRecord[] = [];
+  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 100000,
+    committed() { if (++commits === 1) now += 250; }, observe: record => records.push(record) });
+  const relay = startInferenceRelay({ upstream: upstream.url.origin, routes: ["/v1/messages"], egress: proxy, credentials: {} });
+  try {
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ socketPath: relay.socketPath, method: "POST", path: "/v1/messages" }, res => {
+        let result = ""; res.on("data", chunk => { result += chunk; }); res.on("end", () => resolve(result)); res.on("error", reject);
+      }); req.on("error", reject); req.end("{}");
+    });
+    expect(body).toBe("Ithaca");
+    expect(records[0], "ADMISSION_CLOCK_INCLUDES_FINAL_COMMIT_CHECK").toMatchObject({ admitMs: 250, bodyMs: 250, dispatchMs: 250 });
+    expect(commits, "ADMISSION_CHECKS_ARE_NOT_DUPLICATED").toBe(3);
+  } finally { relay.stop(); proxy.stop(); await upstream.stop(true); clock.mockRestore(); }
+});

@@ -464,8 +464,7 @@ The additive `egress_connection` kind records the concrete turn proxy's host,
 port, visible HTTP method/path, bytes, accounting scope, duration and outcome.
 CONNECT records opaque bytes without a path or content claim; the inference
 tag comes only from the actual relay. Inference records may carry monotonic
-millisecond offsets from the operation start: `admitMs` (first admission
-returned), `bodyMs` (body read), `credentialMs` (credential resolved),
+millisecond offsets from the operation start: `admitMs` (first admission returned after its final synchronous commit check), `bodyMs` (body read), `credentialMs` (credential resolved),
 `dispatchMs` (immediately before upstream fetch), `headersMs` (fetch resolved)
 and `firstChunkMs` (first upstream read resolved). Reached offsets are
 nonnegative, ordered and bounded by `durationMs`. Unreached marks are absent,

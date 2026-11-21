@@ -1622,7 +1622,7 @@ const activitySpanEventSchema = z.looseObject({
 const activityTurnLifecycleSchema = z.looseObject({
   holds: z.array(z.looseObject({ holdId: id, cause: z.enum(["begin", "finish", "tool", "periodic", "scope"]), causeTurnId: id.nullable(),
     toolUseId: id.optional(), requestedAt: z.number(), stoppedAt: z.number().nullable(), resumedAt: z.number().nullable(),
-    changedPaths: z.number().nonnegative().nullable(), otherTurnsStopped: z.number().nonnegative(), inferenceInFlight: z.boolean() })).optional(),
+    changedPaths: z.number().nonnegative().nullable(), otherTurnsStopped: z.number().nonnegative(), inferenceInFlight: z.boolean().nullable() })).optional(),
   packageVersion: z.string().optional(), buildRevision: z.string().regex(/^[A-Za-z0-9._+-]{1,64}$/).optional(),
   runtimeVersion: z.string().optional(), recorderSettledAt: z.number().nullable().optional(), idleEmittedAt: z.number().nullable().optional(),
   hostEvents: z.array(z.looseObject({principalId: id, kind: z.enum(["turn_cancelled", "ask_user_cancelled", "principal_revoked", "follow_up"]), observedAt: z.number()})),

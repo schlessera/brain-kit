@@ -1103,11 +1103,9 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
   /** Resolves once no descriptor of this worker's stdio remains open in this process, once its streams have ended (#2862). */
   released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
-  /** Confirm control quiescence. True also proves a live stop; false means no live member; void means unavailable timing evidence. */
+  /** True means the existing worker control acknowledged the stop; void has no timing confirmation. */
   freeze(): boolean | void;
-  /** Best-effort current stop evidence, independent of output cleanup; unavailable reads return void and cannot gate control. */
-  frozen?(): boolean | void;
-  /** Send thaw regardless of timing evidence; true confirms a live member is no longer frozen. */
+  /** True means the existing worker control acknowledged the resume; void has no timing confirmation. */
   resume(): boolean | void;
   /** The resource limits this launch was given (#1660). */
   limits: WorkerLimitsPlan;
@@ -1500,11 +1498,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     const statusChannel = status, supervisor = child;
     void child.exited.finally(() => statusChannel?.close(supervisor));
     const freezer = identityBroker ? {
-      // The legacy helper acknowledges completion even for an empty tree;
-      // it supplies no live-process witness. Preserve control, not invented clocks.
-      freeze: () => { identityBroker!.request("signal", { signal: "STOP" }); },
-      resume: () => { identityBroker!.request("signal", { signal: "CONT" }); },
-      frozen: () => false,
+      freeze: () => { identityBroker!.request("signal", { signal: "STOP" }); return true; },
+      resume: () => { identityBroker!.request("signal", { signal: "CONT" }); return true; },
     } : createWorkerFreezer(pid);
     const openIdentityRoot = (name: "state" | "temp") => {
       const receipt = identityReady!.roots[name]!;
@@ -1616,7 +1611,6 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     });
     const launched = { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, released: pipes.released, limits: plan, limitReport: () => report(),
       freeze: () => cgroup ? cgroup.freeze() : freezer.freeze(),
-      frozen: () => cgroup ? cgroup.frozen() : freezer.frozen(),
       resume: () => cgroup ? cgroup.resume() : freezer.resume(),
       kill: (signal?: NodeJS.Signals) => { killed = true;
         if (identityBroker) identityBroker.request("signal", { signal: (signal ?? "SIGTERM").replace(/^SIG/, "") });

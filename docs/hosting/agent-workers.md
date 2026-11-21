@@ -132,13 +132,13 @@ qualification succeeds. Without a helper they disclose shared UID and mask-only
 server-state protection, including the configured database mask.
 
 TERM/KILL/INT retain their meaning; STOP/CONT operate on the verified worker
-tree, including nested PID namespaces, with completion receipts. A legacy
-helper completion does not distinguish an empty tree from a live signal, so
-host timing leaves physical stop/resume unknown for that path. Direct PID
-namespace and cgroup controls confirm live membership separately from output
-cleanup; timing rechecks that evidence for overlapping holds. These reads are best-effort
-and cannot fail a freeze or prevent a thaw. An explicit false result from
-every freeze control ends the scope as stopped; it never offers Continue. Supervisor
+tree, including nested PID namespaces, with completion receipts. Host hold
+timing records the existing worker control's stop/resume acknowledgements,
+including broker completion. It does not independently inspect kernel process
+state, add `/proc` or cgroup reads, or recheck stop evidence. A false or void
+control return leaves that clock unknown. Diagnostic failures cannot change
+freeze/thaw/kill behavior. An explicit false result from every freeze control
+ends the scope as stopped; it never offers Continue. Supervisor
 death has an independent kernel-bound termination path established after UID
 transition. Control loss, server death, cancellation and setup failure also
 terminate owned workers. Recovery never begins while a known owned writer

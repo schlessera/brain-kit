@@ -301,3 +301,25 @@ test("hold path counts distinguish the brain and every managed worktree namespac
       referenceWorktreeJournalPath(first.id, "README.md"), referenceWorktreeJournalPath(second.id, "README.md")].sort());
   } finally { await f.close(); }
 });
+
+test("finish_worktrees stays incomplete when retained checkpoint close fails", async () => {
+  const timers = cleanupTimers(), f = await fixture(), release = f.pool.poolRelease;
+  const steps: Array<{ name: string; ended: boolean }> = [];
+  try {
+    const tree = await f.worktree(); await f.begin("turn-ithaca"); await f.journal.attachWorktree("turn-ithaca", tree.id);
+    f.pool.poolRelease = async () => { throw Error("Odysseus checkpoint remains pinned"); };
+    await f.journal.finish("turn-ithaca", name => { const step = { name, ended: false }; steps.push(step); return () => { step.ended = true; }; });
+    expect(steps.find(step => step.name === "finish_worktrees"), "FAILED_WORKTREE_CLOSE_HAS_NO_COMPLETION").toEqual({ name: "finish_worktrees", ended: false });
+    expect(f.ledger.size).toBeGreaterThan(0);
+  } finally { f.pool.poolRelease = release; await f.close(); timers.restore(); }
+});
+
+test("finish_worktrees never attributes another active turn's worktree", async () => {
+  const f = await fixture(), steps: string[] = [];
+  try {
+    const tree = await f.worktree(); await f.begin("turn-ithaca"); await f.begin("turn-other"); await f.journal.attachWorktree("turn-other", tree.id);
+    await f.journal.finish("turn-ithaca", name => { steps.push(name); return () => {}; });
+    expect(steps, "OTHER_TURNS_WORKTREES_HAVE_NO_FINISH_STEP").not.toContain("finish_worktrees");
+    expect(f.journal.worktrees("turn-other")).toEqual([tree.id]);
+  } finally { await f.close(); }
+});

@@ -7,7 +7,7 @@ import { scopeFixture } from "./helpers/scope-fixture";
 import { createActivityStore } from "../src/activity/store";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle";
 
-test("three tool holds share exact physical stop and resume evidence across turns without another owner identity", async () => {
+test("three tool holds share exact control stop and resume acknowledgements across turns without another owner identity", async () => {
   let now = 1000;
   const clock = spyOn(Date, "now").mockImplementation(() => now);
   const f = scopeFixture({}, () => now);
@@ -261,12 +261,12 @@ test("nested holds do not reuse stop proof after a frozen worker exits", async (
   const checkpoint = f.native.manager.checkpoint; let live = true;
   try {
     await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
-    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return live; }, frozen() { return live; }, resume() { return live; }, kill() {} });
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return live; }, resume() { return live; }, kill() {} });
     f.native.manager.checkpoint = async (...args) => { entered.resolve(); await release.promise; return checkpoint(...args); };
     const first = f.journal.toolEnded("voyage", "shell-stop"); await entered.promise;
-    live = false; const second = f.journal.toolEnded("voyage", "shell-after-exit");
+    live = false; exited.resolve(0); await exited.promise; await Promise.resolve(); const second = f.journal.toolEnded("voyage", "shell-after-exit");
     expect(holds[0]!.stoppedAt).not.toBeNull();
-    expect(holds[1]!.stoppedAt, "NESTED_HOLD_RECHECKS_CURRENT_STOP_EVIDENCE").toBeNull();
+    expect(holds[1]!.stoppedAt, "EXITED_WORKER_IS_NO_LONGER_REGISTERED").toBeNull();
     release.resolve(); await Promise.all([first, second]);
     expect(holds[0]!.resumedAt).toBeNull();
   } finally { release.resolve(); exited.resolve(0); f.native.manager.checkpoint = checkpoint; await f.close(); }
@@ -288,7 +288,8 @@ test("a throwing timing probe never fails the hold or prevents its worker resume
   const f = scopeFixture(), exited = Promise.withResolvers<number>(); let kills = 0, resumes = 0;
   try {
     await f.begin();
-    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() {}, frozen() { throw Error("evidence denied"); }, resume() { resumes++; }, kill() { kills++; } });
+    f.journal.evidence("voyage", () => { throw Error("sink failed"); }, () => { throw Error("inference failed"); });
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() {}, resume() { resumes++; }, kill() { kills++; } });
     let captureError: unknown;
     try { await f.journal.toolEnded("voyage", "shell-evidence"); } catch (error) { captureError = error; }
     expect(captureError, "TIMING_PROBE_NEVER_CHANGES_HOLD_CONTROL").toBeUndefined();
@@ -338,6 +339,99 @@ test("a shared hold ends at its first owned productive resume, not a later worke
     for (let i = 0; i < 2; i++) f.scope.workerStarted("voyage", { exited: exited.promise,
       freeze() { now += 10; return true; }, resume() { now += 20; return true; }, kill() {} });
     await f.journal.toolEnded("voyage", "shell-shared");
-    expect(holds[0], "RESUME_CLOCK_IS_SAMPLED_AT_ITS_OWN_WORKER_BOUNDARY").toMatchObject({ stoppedAt: 1020, resumedAt: 1040 });
+    expect(holds[0], "RESUME_CLOCK_IS_SAMPLED_AT_ITS_OWN_WORKER_BOUNDARY").toMatchObject({ stoppedAt: 1010, resumedAt: 1040 });
   } finally { exited.resolve(0); await f.close(); clock.mockRestore(); }
+});
+
+test("throwing inference evidence cannot kill or strand a real child worker", async () => {
+  const f = scopeFixture(), holds: ActivityTurnHold[] = [];
+  const child = Bun.spawn([process.execPath, "-e", "for await (const chunk of Bun.stdin.stream()) await Bun.write(Bun.stdout, chunk);"], { stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+  let resumed = 0, killed = 0;
+  try {
+    await f.begin();
+    f.journal.evidence("voyage", hold => holds.push(hold), () => { throw Error("timing unavailable"); });
+    f.scope.workerStarted("voyage", { exited: child.exited, freeze() { process.kill(child.pid, "SIGSTOP"); return true; },
+      resume() { process.kill(child.pid, "SIGCONT"); resumed++; return true; }, kill() { killed++; child.kill(); } });
+    await f.journal.toolEnded("voyage", "shell-throwing-evidence");
+    expect([resumed, killed, child.exitCode, f.stopped], "THROWING_EVIDENCE_LEAVES_WORKER_THAWED_AND_ALIVE").toEqual([1, 0, null, ""]);
+    process.kill(child.pid, 0);
+    child.stdin.write("Ithaca resumed\n"); await child.stdin.flush();
+    const output = child.stdout.getReader();
+    try { expect(new TextDecoder().decode((await output.read()).value), "WORKER_ACKNOWLEDGES_INPUT_AFTER_THAW").toBe("Ithaca resumed\n"); } finally { output.releaseLock(); }
+    expect(holds[0]!.inferenceInFlight, "FAILED_SAMPLE_STAYS_UNKNOWN").toBeNull();
+    expect(() => f.journal.inferenceInFlight("voyage"), "INFERENCE_SAMPLE_NEVER_ESCAPES").not.toThrow();
+    expect(f.journal.inferenceInFlight("voyage")).toBeNull();
+    expect(holds[0]!.resumedAt).not.toBeNull();
+  } finally { child.stdin.end(); if (child.exitCode === null) { process.kill(child.pid, "SIGCONT"); child.kill(); } await child.exited; await f.close(); }
+});
+
+test("the first worker resume is retained when a later worker resume throws", async () => {
+  const f = scopeFixture(), holds: ActivityTurnHold[] = [], exited = Promise.withResolvers<number>();
+  try {
+    await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return true; }, resume() { return true; }, kill() {} });
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return true; }, resume() { throw Error("resume failed"); }, kill() {} });
+    await f.journal.toolEnded("voyage", "shell-partial-resume");
+    expect(holds[0]!.resumedAt, "EARLIER_RESUME_SURVIVES_LATER_CONTROL_FAILURE").not.toBeNull();
+    expect(f.stopped).toContain("could not resume");
+  } finally { exited.resolve(0); await f.close(); }
+});
+
+test("a turn admitted during an existing hold receives its shared interval", async () => {
+  const f = scopeFixture(), voyage: ActivityTurnHold[] = [], loom: ActivityTurnHold[] = [];
+  const exit = Promise.withResolvers<number>(), admitted = Promise.withResolvers<void>(), releaseAdmission = Promise.withResolvers<void>();
+  const enteredTool = Promise.withResolvers<void>(), releaseTool = Promise.withResolvers<void>();
+  const checkpoint = f.native.manager.checkpoint; let calls = 0;
+  const worker = () => ({ exited: exit.promise, freeze() { return true; }, resume() { return true; }, kill() {} });
+  let admission: Promise<void> | undefined, observation: Promise<void> | undefined;
+  try {
+    await f.begin(); f.journal.evidence("voyage", hold => voyage.push(hold)); f.journal.evidence("loom", hold => loom.push(hold));
+    f.scope.workerStarted("voyage", worker());
+    f.native.manager.checkpoint = async (...args) => {
+      if (++calls === 1) { admitted.resolve(); await releaseAdmission.promise; }
+      else if (calls === 2) { enteredTool.resolve(); await releaseTool.promise; }
+      return checkpoint(...args);
+    };
+    admission = f.journal.begin("loom", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, () => {});
+    await admitted.promise;
+    observation = f.journal.toolEnded("voyage", "shell-late-admission");
+    releaseAdmission.resolve(); await admission; await enteredTool.promise;
+    await f.scope.begin("loom", { sessionId: "ithaca", principalId: "penelope", origin: "interactive", profile: "governed", policy: f.policy,
+      source: "policy", hardTimeoutMs: 60000, current: () => true, stop() {} });
+    f.scope.workerStarted("loom", worker());
+    const cause = voyage.find(hold => hold.toolUseId === "shell-late-admission")!;
+    const participant = loom.find(hold => hold.holdId === cause.holdId);
+    expect(participant, "LATE_ADMISSION_JOINS_THE_EXISTING_HOLD").toMatchObject({ stoppedAt: expect.any(Number), otherTurnsStopped: 1 });
+    expect(cause.otherTurnsStopped).toBe(1);
+    releaseTool.resolve(); await observation;
+    expect(participant!.resumedAt).not.toBeNull();
+  } finally { releaseAdmission.resolve(); releaseTool.resolve(); exit.resolve(0); await admission; await observation; f.native.manager.checkpoint = checkpoint; await f.close(); }
+});
+
+for (const failure of ["factory", "start", "end"] as const) test(`throwing ${failure} trace callbacks cannot fail capture or skip thaw`, async () => {
+  const f = scopeFixture({}, undefined, undefined, () => {
+    if (failure === "factory") throw Error("trace factory failed");
+    return () => { if (failure === "start") throw Error("trace start failed"); return () => { if (failure === "end") throw Error("trace end failed"); }; };
+  });
+  const exited = Promise.withResolvers<number>(); let resumed = 0, killed = 0;
+  try {
+    let callbackError: unknown;
+    try {
+      await f.begin();
+      f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return true; }, resume() { resumed++; return true; }, kill() { killed++; } });
+      await f.journal.toolEnded("voyage", "shell-throwing-trace");
+    } catch (error) { callbackError = error; }
+    expect(callbackError, "TRACE_CALLBACK_MUST_NOT_ESCAPE").toBeUndefined();
+    expect([resumed, killed, f.stopped], "TRACE_FAILURE_LEAVES_CONTROL_UNCHANGED").toEqual([1, 0, ""]);
+  } finally { exited.resolve(0); await f.close(); }
+});
+
+test("void worker controls leave stop and resume acknowledgements unknown", async () => {
+  const f = scopeFixture(), holds: ActivityTurnHold[] = [], exited = Promise.withResolvers<number>();
+  try {
+    await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() {}, resume() {}, kill() {} });
+    await f.journal.toolEnded("voyage", "shell-unconfirmed");
+    expect([holds[0]!.stoppedAt, holds[0]!.resumedAt], "VOID_CONTROLS_PROVIDE_NO_TIMING_ACKNOWLEDGEMENT").toEqual([null, null]);
+  } finally { exited.resolve(0); await f.close(); }
 });

@@ -294,3 +294,46 @@ test("backend exit confirmation uses one clock read even across a ticking millis
     expect(step!.endedAt, "BACKEND_EXIT_IS_ONE_ZERO_WIDTH_OBSERVATION").toBe(step!.startedAt); expect(step!.elapsedMs).toBe(0);
   } finally { clock.mockRestore(); host.close(); stream.close(); db.close(); }
 });
+
+test("failed egress recording leaves settlement incomplete on success and backend-error paths", async () => {
+  const { WsHost } = await import("../src/ws/host"), { runSession } = await import("../src/ws/run-session");
+  const { createSessionCatalog } = await import("../src/ws/session-catalog"), { createStaticBackendRegistry } = await import("../src/agent/backend");
+  const { createActivityStream } = await import("../src/activity/stream"), { makeFakeBackend } = await import("./helpers/fake-backend");
+  const { testAuthorization } = await import("./helpers/principal"), entry = await import("../src/ws/session-run/backend-entry");
+  for (const backendError of [false, true]) {
+    const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store);
+    const prepare = spyOn(entry, "prepareRelayedEgress").mockImplementation(async run => {
+      run.held.turnEgress = { async settled() {}, stop() {}, recordingFailure() { return Error("egress audit failed"); } } as unknown as NonNullable<TurnRun["held"]["turnEgress"]>;
+    });
+    const backend = makeFakeBackend({ id: "pi", async startTurn() { if (backendError) throw Error("backend failed"); } });
+    const host = new WsHost({ registry: createStaticBackendRegistry([backend], "pi"), catalog: createSessionCatalog(() => db), activity: { store, stream } });
+    try {
+      await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
+      const steps = store.lifecycles()[0]!.openSubPhases!.filter(step => step.name === "egress_settle");
+      expect(steps.length).toBeGreaterThan(0);
+      expect(steps.every(step => step.endedAt === null), "FAILED_EGRESS_RECORDING_CANNOT_COMPLETE_SETTLEMENT").toBe(true);
+    } finally { prepare.mockRestore(); host.close(); stream.close(); db.close(); }
+  }
+});
+
+test("a throwing lifecycle clock leaves marks missing without escaping its callbacks", () => {
+  const f = fixture(); let fail = false;
+  try {
+    const lifecycle = createTurnLifecycle(f.store, "turn-loom", "ithaca", 1000, () => {}, () => { if (fail) throw Error("clock failed"); return 1000; });
+    const end = lifecycle.timer("closing")("unfinished"); fail = true;
+    expect(() => { end(); lifecycle.timer("closing")("missing"); lifecycle.backendExit(); lifecycle.mark("failureObservedAt"); lifecycle.finish("error"); }, "TIMING_CLOCK_FAILURE_NEVER_ESCAPES").not.toThrow();
+    fail = false; lifecycle.finish("error");
+    expect(f.store.lifecycle("turn-loom")!.openSubPhases).toEqual([{ phase: "closing", name: "unfinished", startedAt: 1000, endedAt: null, elapsedMs: 0 }]);
+  } finally { f.close(); }
+});
+
+test("a diagnostic-only egress failure probe cannot fail teardown", async () => {
+  const f = fixture();
+  f.run.held.turnEgress = { async settled() {}, stop() {}, recordingFailure() { throw Error("diagnostic unavailable"); } } as unknown as NonNullable<TurnRun["held"]["turnEgress"]>;
+  try {
+    let error: unknown;
+    try { await teardownTurn(f.run, outcome); } catch (caught) { error = caught; }
+    expect(error, "DIAGNOSTIC_EGRESS_PROBE_CANNOT_FAIL_TEARDOWN").toBeUndefined();
+    expect(f.store.lifecycle("turn-ithaca")!.openSubPhases!.find(step => step.name === "egress_settle")!.endedAt).toBeNull();
+  } finally { f.close(); }
+});

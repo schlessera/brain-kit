@@ -109,7 +109,7 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     held.turnEgress?.stop();
     // Every egress record commits, or fails the turn, before its outcome (#2850).
     await held.turnEgress?.settled();
-    egressEnd?.();
+    try { if (!held.turnEgress?.recordingFailure()) egressEnd?.(); } catch { /* A missing timing mark cannot fail cleanup. */ }
     const egressFailure = held.turnEgress?.recordingFailure();
     if (egressFailure) throw egressFailure;
     // Final observation is part of this host outcome, after worker writes
@@ -132,7 +132,7 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     await held.settleIndex?.();
     const egressEnd = held.turnEgress ? lifecycle?.timer("closing")("egress_settle") : undefined;
     await held.turnEgress?.settled();
-    egressEnd?.();
+    try { if (!held.turnEgress?.recordingFailure()) egressEnd?.(); } catch { /* A missing timing mark cannot fail cleanup. */ }
     await settleBudgetWrites(run);
     const failed = classifyFailedTurn({
       cancelled: turn.cancelled, aborted: abortController.signal.aborted, lastResult: turn.lastResult, stops,

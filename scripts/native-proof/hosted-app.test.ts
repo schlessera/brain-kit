@@ -1,6 +1,6 @@
 import { admissionTimingSample } from "./admission-timing.js";
 import { seedObservationTree, observationTreeWatchdog, observationRunTimeout, type ObservationTree } from "./observation-tree.js";
-import { backendStartupSamples, lifecycleTimingSample } from "./lifecycle-timing.js";
+import { backendStartupSamples } from "./lifecycle-timing.js";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -414,7 +414,7 @@ print(json.dumps(result))`;
       // (a) The process's first governed, journaled turn: the qualification's first admission.
       const firstAfterStart = phases(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null));
       const warm = harbour.slice(-5).map(lifecycleOf);
-      const startupSample = (record: Parameters<typeof lifecycleTimingSample>[0]) => lifecycleTimingSample(record, BACKEND === "claude" ? "claude_worker_fixture" : "native");
+      const startupSample = (record: Parameters<typeof admissionTimingSample>[0]) => admissionTimingSample(record, BACKEND === "claude" ? "claude_worker_fixture" : "native");
       const backendStartup = backendStartupSamples(BACKEND === "claude" ? "claude" : "pi",
         startupSample(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null)),
         harbour.slice(-5).map(turnId => startupSample(lifecycles().find(record => record.turnId === turnId))));

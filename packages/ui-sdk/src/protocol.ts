@@ -3915,7 +3915,7 @@ export interface ActivityTurnHold {
   resumedAt: number | null;
   changedPaths: number | null;
   otherTurnsStopped: number;
-  inferenceInFlight: boolean;
+  inferenceInFlight: boolean | null;
 }
 
 /** Host-owned envelope; never contributes inference usage or cost. */

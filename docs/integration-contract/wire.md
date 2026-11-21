@@ -720,22 +720,21 @@ record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),
 `causeTurnId` (this turn when it caused the hold, otherwise null), optional
 `toolUseId` (only on the causing turn), `requestedAt`, nullable `stoppedAt`
 and `resumedAt`, nullable `changedPaths`, `otherTurnsStopped` and
-`inferenceInFlight`. Stop/resume timestamps are taken only after the
-corresponding worker operations confirm; failed or inapplicable boundaries
-remain null. A resume requires at least one still-live worker and successful
-resume calls; exited workers never produce a resume receipt. Physical
-control returns true only when a live process confirms the operation; a
-void return or unreadable evidence is unconfirmed. Timing evidence is
-best-effort: a read failure cannot fail a confirmed freeze, kill a worker or
-prevent the thaw request. Resume evidence is sampled after that request;
-a still-frozen cgroup cannot produce a resume receipt. Pending output cleanup
-does not make an exited process live. Overlapping intervals recheck current stop evidence,
-and a completed interval can never acquire a later worker's stop. Nested
-observations share a physical resume boundary only for workers each interval
-actually stopped. A replacement worker cannot complete an earlier interval.
-The timestamp is the first successful resume of an owned worker, sampled at
-that operation. Late workers resample
-inference overlap at their confirmed stop and update every participant's
+nullable `inferenceInFlight`. Stop/resume mean **the host's worker control
+acknowledged the stop/resume** under that control's existing confirmation
+semantics (PID namespace, cgroup or broker). They do not independently prove
+kernel process state. A false or void return leaves the corresponding mark
+null. Timing adds no `/proc` or cgroup evidence reads and performs no stop-state
+rechecks. Diagnostic callbacks and clock failures are best-effort: a throw
+leaves a missing mark and cannot fail a freeze, kill a worker or prevent thaw.
+Each successful worker acknowledgement is stamped immediately, including a
+resume preceding another worker's failed resume. A completed interval cannot
+acquire a later worker's stop. Nested observations share the earlier stop
+acknowledgement for registered workers held across both intervals. Worker exit
+unregisters that worker; a replacement cannot complete its earlier interval.
+Late-admitted turns join the existing interval with its original `holdId` and
+`requestedAt`. Late workers resample inference overlap at their acknowledged
+stop and update every participant's
 `otherTurnsStopped` count. A scope cap and its ensuing shared observation use
 the same `holdId`, preserving the causing turn's `toolUseId`. Approved policy
 writes and targeted retention keep their known causing turn as well.
@@ -743,8 +742,8 @@ writes and targeted retention keep their known causing turn as well.
 operation's captures, including a managed worktree's qualified path, not the
 turn's cumulative scope count. A cap triggered by an observation retains that
 observation's count; subsequent quiet observations cannot overwrite it. Other turns' identities are never exposed.
-Inference overlap means a relay operation was in flight at stop,
-including request setup and response streaming. Evidence accumulates in
+Inference overlap includes request setup and response streaming at the stop
+acknowledgement; null means its callback failed. Evidence accumulates in
 memory and rides the next existing milestone/terminal write; it adds no
 awaited write before the hold or after a tool result. Evidence callbacks are
 unregistered even when teardown fails. A registered callback alone is not an
