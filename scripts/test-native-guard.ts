@@ -115,10 +115,15 @@ function resolveExecutable(command: string, options: SpawnContext): string {
   return realpathSync(candidate);
 }
 
+/** Every argv path remains a candidate, including the value after the first '='. */
+function nativeExecutableCandidates(command: string, args: readonly unknown[]): string[] {
+  return [command, ...args.flatMap(value => typeof value !== "string" ? [] :
+    !value.startsWith("-") ? [value] : value.includes("=") ? [value.slice(value.indexOf("=") + 1)] : [])];
+}
+
 export function isNativeClaude(command: string, args: readonly unknown[] = [], options: SpawnContext = {}): boolean {
   if (discoveryFailed) refuse("installed SDK runtime discovery failed");
-  for (const value of [command, ...args]) {
-    if (typeof value !== "string" || value.startsWith("-")) continue;
+  for (const value of nativeExecutableCandidates(command, args)) {
     let path: string;
     try { path = resolveExecutable(value, options); } catch { continue; }
     if (installedRuntimes.some(runtime => runtime.path === path)) return true;
@@ -371,7 +376,7 @@ export function startNativeTestRelay(upstream: string | undefined) {
 }
 
 function expectedNativeExec(command: string, args: readonly string[], options: SpawnContext): string[] {
-  const native = [command, ...args].filter(value => isNativeClaude(value, [], options));
+  const native = nativeExecutableCandidates(command, args).filter(value => isNativeClaude(value, [], options));
   return [...new Set(native.flatMap(value => [resolve(options.cwd ?? process.cwd(), value), resolveExecutable(value, options)]))];
 }
 
@@ -849,14 +854,18 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       else if (workerArgv[i] === "--ro-bind" && ["/etc/alternatives", "/etc/resolv.conf", "/etc/ssl/certs"].includes(workerArgv[i + 2]!)) workerArgv.splice(i--, 3);
       else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
     }
-    workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", "--unshare-pid", ...systemMounts(), ...testRuntimeMounts(), ...tools.mounts, "--ro-bind", process.execPath, process.execPath, "--ro-bind", compileSocketPolicy(), compileSocketPolicy());
+    workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", "--unshare-pid");
     const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
       PATH: tools.path, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1",
       ...(["0", "1"].includes(launch.env?.USE_BUILTIN_RIPGREP ?? "") ? { USE_BUILTIN_RIPGREP: launch.env!.USE_BUILTIN_RIPGREP! } : {}),
       ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "",
       ...(ownedOrigin ? relayCredentialPlaceholders(launch.env ?? {}) : syntheticCredentials(launch.env ?? {})) };
     const separator = workerArgv.indexOf("--", bwrap);
-    workerArgv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
+    // bwrap applies mounts in order. Install every guard-owned input after
+    // the launcher's tmpfs/masks, so no later covering mount hides it.
+    workerArgv.splice(separator, 0, ...systemMounts(), ...testRuntimeMounts(), ...tools.mounts,
+      "--ro-bind", process.execPath, process.execPath, "--ro-bind", compileSocketPolicy(), compileSocketPolicy(),
+      "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
     try { stageWorkerFixtureBinds(workerArgv,bwrap,route,bridge.directory); }

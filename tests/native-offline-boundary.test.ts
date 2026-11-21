@@ -22,6 +22,21 @@ const imports = `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "
   delete process.env.GITHUB_ACTIONS; delete process.env.RUNNER_ENVIRONMENT; installNetworkGuard();
   const registerScriptedService=(origin)=>registerService(origin,{fixtureRoots:[process.env.HOME]});`;
 
+// Check one bwrap scope at a time: the nested native view deliberately hides
+// the trace directory, while its outer tracer must retain that mount.
+const guardMountOrderCheck = `function assertGuardMountOrder(mounts) {
+  const operations=[];
+  for(let i=0;i<mounts.length;i++) {
+    const flag=mounts[i];
+    if(["--bind","--ro-bind","--dev-bind"].includes(flag)) {operations.push({at:i,bind:true,target:mounts[i+2]});i+=2;}
+    else if(["--tmpfs","--proc","--dev"].includes(flag)){operations.push({at:i,bind:false,target:mounts[++i]});}
+    else if(flag.startsWith("--overlay"))throw Error("unsupported overlay reached native plan");
+  }
+  for(const bind of operations.filter(op=>op.bind))for(const later of operations) {
+    if(later.at>bind.at && (later.target==="/" || bind.target===later.target || bind.target.startsWith(later.target+"/")))throw Error("GUARD_BIND_HIDDEN_BY_LATER_MOUNT");
+  }
+}`;
+
 test("a harmless fixture named claude runs without native admission", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-fixture-runtime-"));
   try {
@@ -42,6 +57,9 @@ test("native identity finds wrapped and flagged interpreter targets", () => {
     expect(isNativeClaude(process.execPath, [flag, "odysseus-fixture", runtime!])).toBe(true);
   }
   expect(isNativeClaude("/usr/bin/true", ["--conditions", "odysseus-fixture", runtime!])).toBe(true);
+  for (const flag of ["--require", "--preload"]) {
+    expect(isNativeClaude(process.execPath, [flag+"="+runtime])).toBe(true);
+  }
 });
 
 for (const worker of [false,true]) test(`wrapper-launched installed runtime refuses before ${worker ? "worker" : "direct"} bootstrap`, async () => {
@@ -109,6 +127,10 @@ test("runtime provenance follows a symlink and detects an arbitrarily named byte
   try {
     const linked = join(scratch, "odysseus-link"), copied = join(scratch, "odysseus-copy");
     symlinkSync(runtime!, linked); copyFileSync(runtime!, copied);
+    const equals = join(scratch,"odysseus=runtime");symlinkSync(runtime!,equals);
+    expect(isNativeClaude(process.execPath,["--require="+equals])).toBe(true);
+    symlinkSync(runtime!,join(scratch,"--odysseus-runtime"));
+    expect(isNativeClaude("--odysseus-runtime",[],{env:{PATH:scratch},cwd:scratch})).toBe(true);
     for (const path of [linked, copied]) {
       expect(isNativeClaude(path)).toBe(true);
       // Refusal planning is safe even under a broken guard: it never execs.
@@ -209,14 +231,14 @@ test("cleanup cannot claim native exec from an empty or launcher-only trace", as
 test("wrapper exec and auth inspection cannot fabricate native launch or injected credentials", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-wrapper-audit-"));
   try {
-    for (const observed of ["/usr/bin/unshare",runtime!]) {
+    for (const [observed,joined] of [["/usr/bin/unshare",false],[runtime!,false],[runtime!,true]] as const) {
     const result = await probe(`${imports}
       import {writeFileSync} from "node:fs";
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
-      const boundary=nativeClaudeBoundary("/usr/bin/unshare",["--user",${JSON.stringify(runtime)},"auth","status","--json"],
+      const boundary=nativeClaudeBoundary("/usr/bin/unshare",["--user",${JSON.stringify(joined ? "--preload="+runtime : runtime)},"auth","status","--json"],
         {cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_BASE_URL:"http://127.0.0.1:1"}});
       if(boundary.argv[0]!=="/synthetic/strace")throw Error("audit executable was not resolved");
       const broker=boundary.argv.findIndex((arg,i)=>arg.endsWith("/native-connect")&&boundary.argv[i+1]==="--head");
@@ -294,6 +316,25 @@ test("fixture PATH tools are mounted selectively without exposing sibling creden
   } finally { rmSync(scratch, { recursive: true, force: true }); rmSync(unrelated, { recursive: true, force: true }); }
 });
 
+test("guard worker binds follow every covering mount", async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-mount-order-"));
+ try {
+  const result=await probe(`${imports}
+   import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};import {writeFileSync} from "node:fs";
+   ${guardMountOrderCheck}
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
+   const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)}},argv:["bwrap",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--",${JSON.stringify(runtime)}]})});
+   const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv,bwrap=argv.indexOf("--",argv.indexOf("-o"))+1,split=argv.indexOf("--",bwrap);
+   const mounts=argv.slice(bwrap+1,split);assertGuardMountOrder(mounts);
+   if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+1]?.endsWith("/native-connect"))||!mounts.includes("/tmp/native-relay"))throw Error("guard input missing from plan");
+   plan.beforeLaunch();writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();`,scratch);
+  expect(result.code,result.output).toBe(0);
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+});
+
 test("separate-UID plans trace the broker payload outside its hidden native audit view", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-identity-plan-"));
   try {
@@ -305,19 +346,22 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
       import {spyOn} from "bun:test";
       import * as launcher from ${JSON.stringify(join(ROOT, "packages/ui-sdk/src/server/worker-launcher.ts"))};
       spyOn(launcher,"verifiedWorkerIdentity").mockReturnValue({identity:"separate_uid",workerUid:(process.getuid()||21000)+1});
+      ${guardMountOrderCheck}
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
       Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       const leave=nativeScriptedService("http://127.0.0.1:1");
       const launch={command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_API_KEY:"offline-fixture"},
-        argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/","--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
+        argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
       const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(launch)});
       const outer=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv;
       if(realpathSync(outer[0])!==realpathSync("/usr/bin/python3"))throw Error("tracer wrapped the coordinator instead of the payload");
       const config=JSON.parse(outer[5]),args=config.argv,split=args.indexOf("--"),trace=args.slice(split+1);
       if(trace[0]!=="/synthetic/strace")throw Error("native broker payload was not traced");
       const log=trace[trace.indexOf("-o")+1],directory=dirname(log);
+      assertGuardMountOrder(args.slice(1,split));
+      if(!args.slice(0,split).some((arg,i)=>arg==="--bind"&&args[i+1]===directory&&args[i+2]===directory))throw Error("guard trace directory bind missing");
       const inner=trace.slice(trace.indexOf("--")+1);
       if(!inner.some((arg,i)=>arg==="--tmpfs"&&inner[i+1]===directory)||!inner.includes("--unshare-pid")||!inner.includes("--unshare-net"))throw Error("native child can see audit storage or tracer PID");
       if(args.slice(0,split).some((arg,i)=>arg==="--ro-bind"&&args[i+1]==="/"))throw Error("host root remained mounted");
