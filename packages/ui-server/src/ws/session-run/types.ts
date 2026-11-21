@@ -120,6 +120,8 @@ export interface TurnRun {
   /** The turn's identity as it started; the slot re-mints it for the next request. */
   readonly turnId: string;
   readonly lifecycle: TurnLifecycle | undefined;
+  /** Host cleanup is complete; receipt persistence may still be pending. */
+  clientReceiptEligible?: boolean;
   readonly abortController: AbortController;
   readonly timeoutHandle: ReturnType<typeof setTimeout>;
   readonly billing: RunBilling;

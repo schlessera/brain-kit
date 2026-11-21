@@ -9,10 +9,10 @@
  * out as an `activity_delta` to matching subscribers, so ordering is the
  * change log's and a delta can never precede its commit (persist-then-emit).
  *
- * The subscribe handler answers with a snapshot whose per-run high-water seq
- * and pump baseline come from ONE store read transaction — there is no gap
- * window between snapshot and first delta, and no duplication the client's
- * seq-discard rule cannot handle.
+ * Run snapshots and joined lifecycle snapshots read their data and sequence
+ * together. Prior store implementations and the open-root index capture a
+ * conservative sequence floor before reading data: a racing change may be
+ * replayed, but cannot be discarded as already present in older data.
  *
  * This is deliberately the only place broadcast is per-connection filtered;
  * every other frame keeps the host's broadcast-to-all semantics.
@@ -294,18 +294,31 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
       }
     } else {
       // Index view: open roots only — history is the REST activity API's job.
+      const sequences = Object.fromEntries(store.openRootSpans().map(root => [root.runId, store.runHighWaterSeq(root.runId)]));
       for (const root of store.openRootSpans()) {
         if (!shown(root.runId)) continue;
         spans.push(root);
-        highWater[root.runId] = store.runHighWaterSeq(root.runId);
+        highWater[root.runId] = sequences[root.runId] ?? 0;
       }
     }
     for (const span of spans) noteSpan(span);
 
-    const lifecycles = sub.view === "run" && sub.runId
-      ? [store.lifecycle(sub.runId)].filter((x): x is NonNullable<typeof x> => x !== null)
-      : store.lifecycles(sub.view === "session" ? sub.sessionId : undefined);
-    for (const lifecycle of lifecycles) highWater[lifecycle.lifecycleId] = store.runHighWaterSeq(lifecycle.lifecycleId);
+    const scope = sub.view === "run" && sub.runId ? { turnId: sub.runId }
+      : sub.view === "session" ? { sessionId: sub.sessionId } : {};
+    const readLifecycles = () => "turnId" in scope && scope.turnId
+      ? [store.lifecycle(scope.turnId)].filter((record): record is NonNullable<typeof record> => record !== null)
+      : store.lifecycles("sessionId" in scope ? scope.sessionId : undefined);
+    const snapshot = store.snapshotLifecycles?.(scope) ?? (() => {
+      // Prior store implementations remain supported. Capture sequences
+      // before reading the data, so a racing change can only be replayed,
+      // never discarded as already included in an older snapshot.
+      const sequences = Object.fromEntries(readLifecycles().map(record => [record.lifecycleId, store.runHighWaterSeq(record.lifecycleId)]));
+      const records = readLifecycles();
+      for (const record of records) sequences[record.lifecycleId] ??= 0;
+      return { lifecycles: records, highWaterSeq: sequences };
+    })();
+    const lifecycles = snapshot.lifecycles;
+    Object.assign(highWater, snapshot.highWaterSeq);
     const base: Omit<ServerActivitySnapshot, "spans" | "events"> = {
       lifecycles,
       type: "activity_snapshot",
