@@ -141,3 +141,16 @@ test("pending retries and new candidates share one 64-entry work bound",()=>{
   expect(moved,"SCRUB_FAIR_BOUND_STILL_MAKES_PROGRESS").toBe(64);
  }finally{f.close();}
 });
+
+test("a corrupt pending quarantine copy cannot hide a recreated valid source",()=>{
+ const f=fixture();try{
+  writeFileSync(join(f.objects,sha("orphan")),"orphan");
+  f.db.exec("CREATE TEMP TRIGGER interrupt_copy BEFORE UPDATE ON journal.turn_journal_scrub_quarantine BEGIN SELECT RAISE(ABORT,'copy state interrupted'); END");
+  expect(()=>f.store.scrubObjects()).toThrow("copy state interrupted");f.db.exec("DROP TRIGGER interrupt_copy");
+  writeFileSync(join(f.objects,"quarantine",sha("orphan")),"broken");
+  writeFileSync(join(f.objects,sha("orphan")),"orphan");
+  expect(f.store.scrubObjects(),"SCRUB_CORRUPT_COPY_CANNOT_HIDE_RECREATED_SOURCE").toMatchObject({unaccounted:1,quarantined:1,pending:1,state:"partial"});
+  expect(f.db.query("SELECT sum(bytes) AS bytes FROM turn_journal_scrub_quarantine").get()).toEqual({bytes:12});
+  expect(existsSync(join(f.objects,sha("orphan")))).toBe(false);
+ }finally{f.close();}
+});

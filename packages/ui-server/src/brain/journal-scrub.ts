@@ -69,8 +69,14 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
             // Each physical copy owns its own charge and destination name.
             // An interrupted unmoved reservation already owns the source;
             // a moved copy must never hide a subsequently recreated source.
-            const prior=db.query("SELECT hash FROM turn_journal_scrub_quarantine WHERE substr(hash,1,64)=? AND state='reserved'").all(hash) as {hash:string}[];
-            if(prior.some(row=>verify(target,row.hash)===null)) continue;
+            // Only the newest reservation can own a still-unmoved source.
+            // Inspect at most one old copy per listed entry, even after many
+            // interrupted moves of this same hash.
+            const prior=db.query("SELECT hash FROM turn_journal_scrub_quarantine WHERE substr(hash,1,64)=? AND state='reserved' ORDER BY rowid DESC LIMIT 1").all(hash) as {hash:string}[];
+            if(prior.some(row=>{
+              const corruptBefore=result.corrupt;
+              return verify(target,row.hash)===null && result.corrupt===corruptBefore;
+            })) continue;
             const corruptBefore=result.corrupt,corruptBytesBefore=result.corruptBytes;
             const bytes=verify(source,hash);
             if(bytes===null) {
