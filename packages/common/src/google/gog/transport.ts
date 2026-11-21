@@ -25,10 +25,7 @@ import type { GmailLabelRecord, GmailMessageRecord, GmailSearchPageRecord, Gmail
 import {
   GOG_OPERATION_INPUTS, GOG_THREAD_INPUT, GogArgvError, gogArgv, gogInvocation, isGogAccountAlias, type GogInvocation, type GogOperationInput,
 } from "./argv.js";
-import {
-  decodeGogDraft, decodeGogLabels, decodeGogMessage, decodeGogSearchIds, decodeGogThread, GogShapeError, searchHitFromThread,
-  type GogDraftRead,
-} from "./codecs.js";
+import { GOG_READ_CODECS, GogShapeError, searchHitFromThread, type GogDraftRead } from "./codecs.js";
 import { GOG_COMMANDS } from "./commands.js";
 import { gogEnvironment, type GogEnvironment, type GogEnvironmentConfig } from "./environment.js";
 import { gogError, gogProcessError, type GogEffect } from "./errors.js";
@@ -257,14 +254,14 @@ export function createGogTransportInternals(options: GogTransportOptions & { pin
   }
 
   async function search(input: GogOperationInput<"gmail.search">): Promise<GogResult<GmailSearchPageRecord>> {
-    const page = await decoded("gmail.search", gogInvocation("gmail.search", input), decodeGogSearchIds);
+    const page = await decoded("gmail.search", gogInvocation("gmail.search", input), GOG_READ_CODECS["gmail.search"]);
     if (!page.ok) return page;
     // Ids go back into argv, so they pass the same validator as any input.
     if (!page.value.thread_ids.every(thread_id => GOG_THREAD_INPUT.safeParse({ thread_id }).success)) {
       return { ok: false, error: gogError("transport_incompatible", "unexpected_shape") };
     }
     const reads = await Promise.all(page.value.thread_ids.map(thread_id =>
-      decoded("gmail.search", gogInvocation("gmail.thread.get", { thread_id }), decodeGogThread)));
+      decoded("gmail.search", gogInvocation("gmail.thread.get", { thread_id }), GOG_READ_CODECS["gmail.thread.get"])));
     const hits = [];
     for (const [index, read] of reads.entries()) {
       // A thread that went away between the search and its read is not a hit.
@@ -292,14 +289,9 @@ export function createGogTransportInternals(options: GogTransportOptions & { pin
       if (error instanceof GogArgvError) return { ok: false, error: gogError("invalid_input", "argv") };
       throw error;
     }
-    let result: GogResult<unknown>;
-    switch (operation) {
-      case "gmail.search": result = await search(valid as GogOperationInput<"gmail.search">); break;
-      case "gmail.thread.get": result = await decoded(operation, call, decodeGogThread); break;
-      case "gmail.message.get": result = await decoded(operation, call, decodeGogMessage); break;
-      case "gmail.draft.get": result = await decoded(operation, call, decodeGogDraft); break;
-      default: result = await decoded(operation, call, decodeGogLabels); break;
-    }
+    const result: GogResult<unknown> = operation === "gmail.search"
+      ? await search(valid as GogOperationInput<"gmail.search">)
+      : await decoded<unknown>(operation, call, GOG_READ_CODECS[operation as GogReadOperation]);
     return result as GogResult<GogReadResults[O]>;
   }
 

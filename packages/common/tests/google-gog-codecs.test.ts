@@ -6,7 +6,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  contentGmailThread, gmailLabelDirectory, structuredGmailDraft, structuredGmailLabels, structuredGmailMessageResult,
+  contentGmailMessageResult, contentGmailThread, gmailLabelDirectory, structuredGmailDraft, structuredGmailLabels, structuredGmailMessageResult,
+  structuredGmailThread,
 } from "@schlessera/brain-common/internal/google-operations";
 import {
   decodeGogDraft, decodeGogLabels, decodeGogMessage, decodeGogSearchIds, decodeGogThread, GogShapeError, searchHitFromThread,
@@ -111,7 +112,7 @@ describe("strictness", () => {
     expect(shapeError(() => decodeGogThread({ thread: fixture("thread-hall.json").thread }))).toBe("$.downloaded");
     expect(shapeError(() => decodeGogMessage({ message: fixture("message-get.json").message }))).toBe("$.headers");
     expect(shapeError(() => decodeGogLabels({ labels: [], nextPageToken: "" }))).toBe("$.nextPageToken");
-    expect(shapeError(() => decodeGogSearchIds({ threads: [{ id: "19a0c3d2e4f50601", snippet: "x" }], nextPageToken: "" }))).toBe("$.threads[0].snippet");
+    expect(shapeError(() => decodeGogSearchIds({ threads: [{ id: "19a0c3d2e4f50601", snippet: "x" }], nextPageToken: "", count: 1, has_more: false }))).toBe("$.threads[0].snippet");
     expect(shapeError(() => decodeGogSearchIds({ threads: [] }))).toBe("$.nextPageToken");
     expect(shapeError(() => decodeGogThread([]))).toBe("$");
   });
@@ -154,6 +155,158 @@ describe("strictness", () => {
     await expect(decodeGogDraft(json)).rejects.toThrow(GogShapeError);
     delete json.draft.message.raw;
     await expect(decodeGogDraft(json)).rejects.toThrow(GogShapeError);
+  });
+});
+
+const RECORD_KEYS = [
+  "id", "thread_id", "label_ids", "internal_date", "size_estimate", "from", "to", "cc", "bcc", "reply_to", "subject", "date", "snippet", "body_text",
+  "attachments",
+];
+
+describe("the shapes gog 0.48.1 emits (the live round)", () => {
+  test("a newsletter read: unsubscribe is checked and reaches no record, an empty top-level body and headered parts decode", () => {
+    const json = fixture("message-herald.json");
+    expect(shapeError(() => decodeGogMessage(json))).toBeNull();
+    const message = decodeGogMessage(json);
+    expect(message).toEqual({
+      id: "19a0c3d2e4f50a01", thread_id: "19a0c3d2e4f50a01", label_ids: ["INBOX", "CATEGORY_UPDATES"],
+      internal_date: "2026-07-12T05:30:00.000Z", size_estimate: 6120,
+      from: "The Ithaca Herald <herald@example.com>", to: "Penelope <penelope@example.com>", cc: null, bcc: null, reply_to: null,
+      subject: "The Ithaca Herald: news from the hall", date: "Sun, 12 Jul 2026 05:30:00 +0000",
+      snippet: "News from the hall: the suitors feast on, and the shroud on the loom is still unfinished.",
+      body_text: "News from the hall: the suitors feast on, and the shroud on the loom is still unfinished.\nThe Ithaca Herald\n",
+      attachments: [],
+    });
+    expect(Object.keys(message)).toEqual(RECORD_KEYS);
+    // gog's extracted link is content: it reaches neither the record nor any view built from it.
+    const link = json.unsubscribe as string;
+    expect(link).toStartWith("https://example.com/");
+    for (const shown of [message, structuredGmailMessageResult(message), contentGmailMessageResult(message)]) {
+      expect(JSON.stringify(shown)).not.toContain(link);
+      expect(JSON.stringify(shown)).not.toContain("herald/leave");
+    }
+  });
+
+  test("a nested multipart/mixed read with gog's attachment list: headers at every depth, the text from the inner alternative", () => {
+    const json = fixture("message-ledger.json");
+    expect(shapeError(() => decodeGogMessage(json))).toBeNull();
+    expect(decodeGogMessage(json)).toMatchObject({
+      id: "19a0c3d2e4f50b01", from: "Eumaeus <eumaeus@example.com>", subject: "Herd ledger for July",
+      body_text: "Master,\nthe ledger for July is attached. Two sows farrowed; the herd stands at 960.\nEumaeus\n",
+      attachments: [{ filename: "ledger.pdf", mime_type: "application/pdf", size: 18432 }],
+    });
+  });
+
+  test("a thread whose messages all have an empty top-level body, and a header Go wrote without its empty value", () => {
+    const json = fixture("thread-pylos.json");
+    expect(shapeError(() => decodeGogThread(json))).toBeNull();
+    const thread = decodeGogThread(json);
+    expect(thread.messages.map(message => [message.id, message.subject, message.body_text])).toEqual([
+      ["19a0c3d2e4f50c01", "The ship for Pylos", "Take the swift ship and twenty oarsmen.\nCome home by the new moon.\n"],
+      ["19a0c3d2e4f50c02", "", "Mother, the oarsmen are ready. We sail at dusk.\n"],
+    ]);
+    expect(searchHitFromThread(thread)).toMatchObject({ message_count: 2, label_ids: ["SENT", "INBOX", "UNREAD"], subject: "", from: "Telemachus <telemachus@example.com>" });
+    expect(structuredGmailThread(thread)?.messages.map(message => message.unread)).toEqual([false, true]);
+  });
+
+  test("a search page from the full form carries its known keys, each with its type", () => {
+    const full = { count: 1, has_more: false, nextPageToken: "", threads: [{
+      id: "19a0c3d2e4f50601", date: "2026-07-12 09:40", internalDateIso: "2026-07-12T09:40:00Z", from: "Telemachus <telemachus@example.com>",
+      subject: "Re: Suitors at the hall", labels: ["INBOX", "UNREAD"], messageCount: 2,
+    }] };
+    expect(decodeGogSearchIds(full)).toEqual({ thread_ids: ["19a0c3d2e4f50601"], next_page_token: null });
+    const wrong: [string, unknown][] = [["date", 12], ["internalDateIso", null], ["from", ["x"]], ["subject", 7], ["labels", "INBOX"], ["messageCount", "2"]];
+    for (const [key, value] of wrong) {
+      const json = clone(full);
+      (json.threads[0] as Record<string, unknown>)[key] = value;
+      expect(shapeError(() => decodeGogSearchIds(json)), key).toStartWith(`$.threads[0].${key}`);
+    }
+  });
+});
+
+describe("strictness of what gog 0.48.1 can emit", () => {
+  test("a search always carries count and has_more, and a --count total is not one of its keys", () => {
+    expect(shapeError(() => decodeGogSearchIds({ threads: [], nextPageToken: "" }))).toBe("$.count");
+    expect(shapeError(() => decodeGogSearchIds({ threads: [], nextPageToken: "", count: 0 }))).toBe("$.has_more");
+    expect(shapeError(() => decodeGogSearchIds({ ...fixture("search-ids.json"), totalMatches: 2 }))).toBe("$.totalMatches");
+    expect(shapeError(() => decodeGogSearchIds({ ...fixture("search-ids.json"), count: "2" }))).toBe("$.count");
+    expect(shapeError(() => decodeGogSearchIds({ ...fixture("search-ids.json"), has_more: "true" }))).toBe("$.has_more");
+  });
+
+  test("gog's attachment list has exactly its keys, each with its type", () => {
+    const json = fixture("message-ledger.json");
+    const cases: [string, (item: Record<string, unknown>) => void][] = [
+      ["$.attachments[0].attachmentIndex", item => { item.attachmentIndex = 0; }],
+      ["$.attachments[0].sizeHuman", item => { delete item.sizeHuman; }],
+      ["$.attachments[0].attachmentId", item => { delete item.attachmentId; }],
+      ["$.attachments[0].filename", item => { item.filename = 7; }],
+      ["$.attachments[0].size", item => { item.size = "18432"; }],
+      ["$.attachments[0].mimeType", item => { item.mimeType = null; }],
+    ];
+    for (const [path, edit] of cases) {
+      const copy = clone(json);
+      edit(copy.attachments[0]);
+      expect(shapeError(() => decodeGogMessage(copy)), path).toBe(path);
+    }
+    expect(shapeError(() => decodeGogMessage({ ...json, attachments: [7] }))).toBe("$.attachments[0]");
+    expect(shapeError(() => decodeGogMessage({ ...json, attachments: { ledger: 1 } }))).toBe("$.attachments");
+  });
+
+  test("gog's body and unsubscribe are strings when present, and the flattened headers are exactly its ten", () => {
+    const json = fixture("message-herald.json");
+    expect(shapeError(() => decodeGogMessage({ ...json, unsubscribe: ["https://example.com/herald/leave"] }))).toBe("$.unsubscribe");
+    expect(shapeError(() => decodeGogMessage({ ...json, body: {} }))).toBe("$.body");
+    expect(shapeError(() => decodeGogMessage({ ...json, headers: { ...json.headers, list_unsubscribe: "" } }))).toBe("$.headers.list_unsubscribe");
+    const { unsubscribe: _unsubscribe, body: _body, ...bare } = json;
+    expect(shapeError(() => decodeGogMessage(bare))).toBeNull();
+  });
+
+  test("an empty body is accepted, and a body that is not an object, or a body field of the wrong type, is still refused", () => {
+    const json = fixture("thread-pylos.json");
+    const leaf = clone(json);
+    leaf.thread.messages[0].payload.parts[0].body = {};
+    expect(decodeGogThread(leaf).messages[0]!.body_text).toBe("Take the swift ship and twenty oarsmen.\nCome home by the new moon.");
+    const cases: [string, (payload: Record<string, unknown> & { parts: Record<string, unknown>[] }) => void][] = [
+      ["$.thread.messages[0].payload.body", payload => { payload.body = null; }],
+      ["$.thread.messages[0].payload.body", payload => { payload.body = ""; }],
+      ["$.thread.messages[0].payload.body", payload => { payload.body = []; }],
+      ["$.thread.messages[0].payload.parts[1].body", payload => { payload.parts[1]!.body = "PGRpdj4"; }],
+      ["$.thread.messages[0].payload.body.data", payload => { payload.body = { data: 7 }; }],
+      ["$.thread.messages[0].payload.body.size", payload => { payload.body = { size: -1 }; }],
+      ["$.thread.messages[0].payload.parts[0].body.attachmentId", payload => { (payload.parts[0]!.body as Record<string, unknown>).attachmentId = 7; }],
+    ];
+    for (const [path, edit] of cases) {
+      const copy = clone(json);
+      edit(copy.thread.messages[0].payload);
+      expect(shapeError(() => decodeGogThread(copy)), path).toBe(path);
+    }
+  });
+
+  test("a header Go wrote without a name or value is empty; a name or value of another type is refused", () => {
+    const json = fixture("thread-pylos.json");
+    const copy = clone(json);
+    copy.thread.messages[0].payload.headers.push({}, { value: "orphan" });
+    expect(decodeGogThread(copy).messages[0]!.subject).toBe("The ship for Pylos");
+    for (const [path, header] of [
+      ["$.thread.messages[0].payload.headers[0].name", { name: 7, value: "x" }],
+      ["$.thread.messages[0].payload.headers[0].value", { name: "Subject", value: null }],
+      ["$.thread.messages[0].payload.headers[0]", "Subject: x"],
+    ] as const) {
+      const bad = clone(json);
+      bad.thread.messages[0].payload.headers[0] = header;
+      expect(shapeError(() => decodeGogThread(bad)), path).toBe(path);
+    }
+  });
+
+  test("the thread envelope's indexed attachment list, and wrap-untrusted's externalContent, are not keys the transport's invocation gets", () => {
+    expect(shapeError(() => decodeGogThread({ ...fixture("thread-pylos.json"), attachments: [] }))).toBe("$.attachments");
+    expect(shapeError(() => decodeGogMessage({ ...fixture("message-herald.json"), externalContent: { untrusted: true } }))).toBe("$.externalContent");
+  });
+
+  test("an unknown envelope key is named in the error only when it is an identifier", () => {
+    expect(shapeError(() => decodeGogMessage({ ...fixture("message-get.json"), "penelope@example.com": 1 }))).toBe("$.<key>");
+    expect(shapeError(() => decodeGogLabels({ labels: [], "Suitors at the hall": [] }))).toBe("$.<key>");
+    expect(shapeError(() => decodeGogMessage({ ...fixture("message-get.json"), headers: { ...fixture("message-get.json").headers, "x.y": "" } }))).toBe("$.headers.<key>");
   });
 });
 

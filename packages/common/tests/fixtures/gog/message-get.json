@@ -26,7 +26,6 @@
         "data": "TW90aGVyLCBJIHdpbGwgc2FpbCB0byBQeWxvcyBmb3IgbmV3cyBvZiBoaW0uDQo",
         "size": 47
       },
-      "filename": "",
       "headers": [
         {
           "name": "From",
@@ -61,8 +60,7 @@
           "value": "text/plain; charset=\"UTF-8\""
         }
       ],
-      "mimeType": "text/plain",
-      "partId": ""
+      "mimeType": "text/plain"
     },
     "sizeEstimate": 2210,
     "snippet": "Mother, I will sail to Pylos for news of him.",

@@ -13,10 +13,7 @@
           "STARRED"
         ],
         "payload": {
-          "body": {
-            "size": 0
-          },
-          "filename": "",
+          "body": {},
           "headers": [
             {
               "name": "From",
@@ -40,14 +37,12 @@
             }
           ],
           "mimeType": "multipart/mixed",
-          "partId": "",
           "parts": [
             {
               "body": {
                 "data": "PGh0bWw-PGJvZHk-PHA-TWFzdGVyLDwvcD48cD5UaGUgaGVyZCBjb3VudHMgMzYwIGJvYXJzICZhbXA7IDYwMCBzb3dzLjwvcD48L2JvZHk-PC9odG1sPg",
                 "size": 88
               },
-              "filename": "",
               "headers": [
                 {
                   "name": "Content-Type",

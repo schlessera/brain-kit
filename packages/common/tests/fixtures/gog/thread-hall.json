@@ -13,10 +13,7 @@
           "CATEGORY_PERSONAL"
         ],
         "payload": {
-          "body": {
-            "size": 0
-          },
-          "filename": "",
+          "body": {},
           "headers": [
             {
               "name": "From",
@@ -48,14 +45,12 @@
             }
           ],
           "mimeType": "multipart/alternative",
-          "partId": "",
           "parts": [
             {
               "body": {
                 "data": "RGVhcmVzdCwgdGhlIHN1aXRvcnMgZmVhc3QgYWdhaW4gaW4gdGhlIGhhbGwuDQpJIHVucmF2ZWwgdGhlIHNocm91ZCBlYWNoIG5pZ2h0ICYgd2FpdC4NCg",
                 "size": 88
               },
-              "filename": "",
               "headers": [
                 {
                   "name": "Content-Type",
@@ -74,7 +69,6 @@
                 "data": "PGRpdj5EZWFyZXN0LCB0aGUgc3VpdG9ycyBmZWFzdCBhZ2FpbiBpbiB0aGUgaGFsbC48L2Rpdj48ZGl2PkkgdW5yYXZlbCB0aGUgc2hyb3VkIGVhY2ggbmlnaHQgJmFtcDsgd2FpdC48L2Rpdj4",
                 "size": 110
               },
-              "filename": "",
               "headers": [
                 {
                   "name": "Content-Type",
@@ -108,7 +102,6 @@
             "data": "TW90aGVyLCBJIHdpbGwgc2FpbCB0byBQeWxvcyBmb3IgbmV3cyBvZiBoaW0uDQo",
             "size": 47
           },
-          "filename": "",
           "headers": [
             {
               "name": "From",
@@ -143,8 +136,7 @@
               "value": "text/plain; charset=\"UTF-8\""
             }
           ],
-          "mimeType": "text/plain",
-          "partId": ""
+          "mimeType": "text/plain"
         },
         "sizeEstimate": 2210,
         "snippet": "Mother, I will sail to Pylos for news of him.",
