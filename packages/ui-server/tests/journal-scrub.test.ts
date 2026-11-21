@@ -125,3 +125,19 @@ test("a recreated unaccounted source is quarantined and charged separately",()=>
  }
  }finally{f.close();}
 });
+
+test("pending retries and new candidates share one 64-entry work bound",()=>{
+ const f=fixture();try{
+  for(let n=0;n<64;n++){
+   f.store.statements([{sql:"INSERT INTO turn_journal_scrub_quarantine VALUES (?,6,'reserved')",params:[sha(`missing ${n}`)]}]);
+   writeFileSync(join(f.objects,sha(`Ithaca ${n}`)),`Ithaca ${n}`);
+  }
+  let moved=0;
+  for(let n=0;n<4;n++){
+   const result=f.store.scrubObjects();
+   expect(result.listed,"SCRUB_RETRIES_SHARE_TOTAL_WORK_BOUND").toBeLessThanOrEqual(32);
+   expect(result.quarantined).toBeLessThanOrEqual(32);moved+=result.quarantined;
+  }
+  expect(moved,"SCRUB_FAIR_BOUND_STILL_MAKES_PROGRESS").toBe(64);
+ }finally{f.close();}
+});
