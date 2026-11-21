@@ -5971,7 +5971,9 @@ alongside every identifiable source. It is independent of the existing
 `finalized` exposure argument; incomplete evidence cannot prove a managed
 reference read. Pi carries the original tool status through its result hook
 and worker RPC. Exit 1 with empty stdout and no stderr is its only empty
-sentinel; exit 0 requires matches. Missing search status is restrictive.
+sentinel; exit 0 requires matches. The shipped tool records zero stdout bytes
+in host-only observation metadata; matching sentinel text is never that proof.
+Missing search status or zero-byte proof is restrictive.
 Every wrapper forwards the complete typed callback tuple. Extraction also
 withholds its relaxation when result evidence is incomplete. Status identity
 uses canonical key order, and host frames have an independent byte bound;

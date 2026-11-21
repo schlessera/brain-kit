@@ -84,12 +84,12 @@ test("the real recorder keeps independent sources and excludes a denied fetch", 
   const events = () => queryGovernanceEvents(db, { sessionId, kinds: ["taint"], limit: 10 });
   try {
     call("denied", "WebFetch", { url: "https://ithaca.invalid" }, "Denied", true);
-    call("clean", "Grep", { pattern: "Ithaca" }, JSON.stringify({numFiles:1,filenames:[`${brain}/notes/a.md`]}));
-    expect(events(), "G6_DENIED_FETCH_CLEAN").toHaveLength(0);
-    call("search", "Grep", { pattern: "Ithaca" }, JSON.stringify({numFiles:1,filenames:[`${brain}/workspaces/voyage/a.md`]}));
+    call("clean", "Grep", { pattern: "Ithaca" }, `${brain}/notes/a.md`);
+    expect(events().map(event=>event.payload.source), "G6_DISPLAY_ONLY_SEARCH_IS_UNKNOWN").toEqual(["legacy_unknown"]);
+    call("search", "Grep", { pattern: "Ithaca" }, `${brain}/workspaces/voyage/a.md`);
     call("fetch", "WebFetch", { url: "https://ithaca.invalid" }, "A fictional harbour notice.");
     expect(events().map(event => [event.payload.source, event.payload.tool, event.payload.detail]), "G6_RECORDER_EVERY_TOOL_SOURCE")
-      .toEqual([["workspace_read", "Grep", null], ["web_fetch", "WebFetch", null]]);
+      .toEqual([["legacy_unknown", "Grep", null], ["workspace_read", "Grep", null], ["legacy_unknown", "Grep", null], ["web_fetch", "WebFetch", null]]);
     recorder.finish("success");
   } finally { db.close(); }
 });
@@ -134,7 +134,7 @@ for(const filename of ['notes/voyage:2:home.md','notes/voyage\rhome.md'])test(`t
   recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'colon_grep',toolName:'Grep'});
   recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'colon_grep',toolName:'Grep',input:{path:'.',pattern:'sirens',output_mode:'files_with_matches'}});
   recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'colon_grep',isError:false,output:adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'colon_grep',content:[{type:'text',text:filename}]}]}} as never).find(frame=>frame.type==='tool_result')!.output});
-  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source),'RECORDER_PRESERVES_ADMITTED_SEARCH_FORMAT').toEqual(['user_marked']);
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source).sort(),'RECORDER_PRESERVES_ADMITTED_SEARCH_FORMAT').toEqual(['legacy_unknown','user_marked']);
  }finally{recorder.finish('success');db.close();}
 });
 
@@ -161,6 +161,6 @@ test('Claude display filenames preserve both workspace and mark evidence indepen
   recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'workspace_grep',toolName:'Grep'});
   recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'workspace_grep',toolName:'Grep',input:{pattern:'sirens',output_mode:'files_with_matches'}});
   for(const frame of frames)if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId});
-  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source).sort(),'DISPLAY_PATH_RETAINS_ALL_INDEPENDENT_SIGNALS').toEqual(['user_marked','workspace_read']);
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source).sort(),'DISPLAY_PATH_RETAINS_ALL_INDEPENDENT_SIGNALS').toEqual(['legacy_unknown','user_marked','workspace_read']);
  }finally{recorder.finish('success');db.close();}
 });

@@ -228,21 +228,26 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     if(mode==='content')content(fields.content,context?.lineNumbers!==false);
     if(mode==='count')for(const line of fields.content.split('\n')){const split=/:([1-9][0-9]*)$/.exec(line);if(split)add(line.slice(0,split.index));}
   };
-  let parsed:unknown;try{parsed=JSON.parse(output);}catch{/* Pi returns raw text; Claude requires its structured schema. */}
-  if(context?.displayOnly&&parsed===undefined&&(tool==='Glob'||tool==='Grep')){
-    // StreamAdapter flattens SDK tool_result text blocks. These are display
-    // rows, not the SDK's structured hook response or verified empty evidence.
-    const mode=tool==='Glob'?'files_with_matches':context.outputMode;
-    const lines=output.split('\n');
-    if(!output||output==='No matches.')unknown=true;
-    else if(mode==='content')content(output,context.lineNumbers!==false);
-    else if(mode==='files_with_matches')for(const line of lines){
-      if(!line||line.includes('\0'))unknown=true;
-      else add(line);
+  const display=context?.displayOnly&&(tool==='Glob'||tool==='Grep');
+  let parsed:unknown;if(!display)try{parsed=JSON.parse(output);}catch{/* Hook objects require a validated schema. */}
+  if(display){
+    // SDK display text has no filename framing. Never reinterpret a literal
+    // filename as JSON; preserve known paths and retain boundary uncertainty.
+    if(output.length){
+      unknown=true;
+      const lines=output.split('\n');
+      if(lines.length>256)throw new Error('Safety display candidate capacity exceeded');
+      for(const line of lines)if(line)add(line);
+      let candidates=0;
+      joins:for(let span=2;span<=lines.length;span++)for(let start=0;start+span<=lines.length;start++){
+          if(++candidates>4096)break joins;
+          const joined=lines.slice(start,start+span).join('\n');if(Buffer.byteLength(joined)>1024)continue;
+          const relative=brainRelative(joined,brainPath);
+          if(relative!==null&&marked?.(relative))add(joined);
+      }
+      if(context.outputMode==='content')content(output,context.lineNumbers!==false);
+      if(context.outputMode==='count')for(const line of lines){const split=/:([1-9][0-9]*)$/.exec(line);if(split)add(line.slice(0,split.index));}
     }
-    else if(mode==='count')for(const line of lines){const split=/:([1-9][0-9]*)$/.exec(line);if(split)add(line.slice(0,split.index));else unknown=true;}
-    else unknown=true;
-    if((context.offset??0)>0||(context.limit??250)>0&&lines.length>=(context.limit??250))unknown=true;
   }else if(tool==='grep'&&(context===undefined||context.backendId==='pi')){
     // `safetyResultInput` (packages/ui-backend-pi/src/worker-protocol.ts:92-99)
     // joins the shipped tool's text. No JSON envelope is part of this format.

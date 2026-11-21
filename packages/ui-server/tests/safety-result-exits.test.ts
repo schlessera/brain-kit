@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {createRequire} from "node:module";
+import type {BackendBridge} from "@schlessera/brain-ui-sdk/server";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { createEffectiveSafety } from "../src/governance/effective-safety";
 import { createUiDb } from "../src/db/client";
@@ -583,7 +584,7 @@ test('shipped Pi grep preserves a marked newline filename through the worker led
  }finally{await f.close();}
 });
 
-for(const mode of ['file','empty','regex','partial','warning'] as const)test(`Pi after-tool RPC preserves grep status: ${mode}`,async()=>{
+for(const mode of ['file','empty','sentinel','regex','partial','warning'] as const)test(`Pi after-tool RPC preserves grep status: ${mode}`,async()=>{
  const f=await voyage();try{
   const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
   mkdirSync(join(f.brain,'notes'));
@@ -591,12 +592,12 @@ for(const mode of ['file','empty','regex','partial','warning'] as const)test(`Pi
   if(mode==='partial'){
    untrustedMarkOperations(f.db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
   }
-  const wrapper=['warning','partial'].includes(mode)?join(f.brain,'grep-wrapper'):undefined;
-  if(wrapper)writeFileSync(wrapper,mode==='partial'?"#!/bin/sh\nprintf \"notes/loom.md\\0001:nymph_signal\\n\"\nprintf \"search error\\n\" >&2\nexit 2\n":"#!/bin/sh\nprintf \"search warning\\n\" >&2\nexec \"$@\"\n",{mode:0o755});
+  const wrapper=['warning','partial','sentinel'].includes(mode)?join(f.brain,'grep-wrapper'):undefined;
+  if(wrapper)writeFileSync(wrapper,mode==='sentinel'?"#!/bin/sh\nprintf 'No matches.'\nexit 1\n":mode==='partial'?"#!/bin/sh\nprintf \"notes/loom.md\\0001:nymph_signal\\n\"\nprintf \"search error\\n\" >&2\nexit 2\n":"#!/bin/sh\nprintf \"search warning\\n\" >&2\nexec \"$@\"\n",{mode:0o755});
   const input={pattern:mode==='regex'?'[':mode==='empty'?'no_cyclops_here':'nymph_signal',...(mode==='file'?{path:'notes/loom.md'}:{})},id='status_search';
   await f.collector.begin(id,'grep',input);
   const actual=await runSearchTool(f,id,input,wrapper);
-  const expectedCode=mode==='empty'?1:mode==='regex'||mode==='partial'?2:0;
+  const expectedCode=['empty','sentinel'].includes(mode)?1:mode==='regex'||mode==='partial'?2:0;
   expect((actual.details as {search:unknown}).search,'GREP_EXIT_STATUS_AND_STDERR_ARE_OBSERVED').toMatchObject({exitCode:expectedCode,stderr:['regex','partial','warning'].includes(mode),truncated:false});
   let stopped=false,forwarded:unknown;
   const agent={abort(){stopped=true;},streamFunction:async()=>{}} as unknown as Agent;
@@ -606,8 +607,8 @@ for(const mode of ['file','empty','regex','partial','warning'] as const)test(`Pi
    await dispatch(JSON.parse(JSON.stringify(report(1,toolId,converted))));
   }},()=>false);
   await agent.afterToolCall!({toolCall:{name:'grep',id},args:input,result:actual,isError:false} as never,f.controller.signal);
-  const incomplete=['regex','partial','warning'].includes(mode);
-  expect(forwarded,'GREP_STATUS_REACHES_WORKER_RPC').toEqual({complete:!incomplete,exitCode:expectedCode,stderr:incomplete,truncated:false});
+  const incomplete=['sentinel','regex','partial','warning'].includes(mode);
+  expect(forwarded,'GREP_STATUS_REACHES_WORKER_RPC').toEqual({complete:!incomplete,exitCode:expectedCode,stderr:mode!=='sentinel'&&incomplete,truncated:false});
   expect(stopped).toBe(false);
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(),'PARTIAL_GREP_KEEPS_KNOWN_MARKS_AND_AN_UNKNOWN_REMAINDER').toEqual(mode==='partial'?[
    {source:'user_marked',detector:'explicit_untrusted_input'},{source:'legacy_unknown',detector:'tool_search_output'}
@@ -717,5 +718,36 @@ for(const shape of ['truncated','malformed'] as const)test(`extraction withholds
   await wrapped.result('glob','Glob',output,true);
   await wrapped.begin('fetch','WebFetch',{url:'https://aeaea.invalid/notice'});
   expect(extraction.relaxes('aeaea.invalid'),'UNKNOWN_SIGNALS_WITHHOLD_EXTRACTION_RELAXATION').toBe(false);
+ }finally{await f.close();}
+});
+
+test('ready Claude collection records structured hook searches instead of ambiguous display text',async()=>{
+ const f=await voyage('claude');try{
+  const {createTurnRecorder}=await import('../src/activity/recorder');
+  const {createActivityStore}=await import('../src/activity/store');
+  const {recordGovernanceEvent}=await import('../src/governance/events');
+  const {adaptStreamEvent}=await import('../../ui-backend-claude/src/stream-adapter');
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  untrustedMarkOperations(f.db).mark('123',null,Date.UTC(2026,6,12));
+  let ready=false;
+  const recorder=createTurnRecorder({store:createActivityStore(f.db,{writer:'test'}),governanceDb:f.db,brainPath:f.brain,governance:event=>{recordGovernanceEvent(f.db,event);}},{turnId:'voyage',sessionId:'ithaca',profile:'governed'});
+  const bindingId=(f.db.query("SELECT id FROM safety_collections WHERE turn_id='voyage'").get() as {id:string}).id;
+  const collector=createSafetyCollector(f.db,f.writes,{turnId:'voyage',bindingId,backendId:'claude',sessionId:()=> 'ithaca',brainPath:f.brain,shellProxied:()=>true,signal:f.controller.signal,onReady(){ready=true;recorder.setSafetyHooked();}});
+  await collector.ready('claude',1);expect(ready).toBe(true);
+  const bridge:BackendBridge={emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:collector};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge},allowedTools:['Glob'],confirmPatterns:[],brainPath:f.brain,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
+  const id='structured_glob',input={pattern:'**/*'},response={durationMs:1,numFiles:2,filenames:['123','workspaces/voyage/raft.md'],truncated:false,totalMatches:2,countIsComplete:true};
+  await collector.begin(id,'Glob',input);
+  recorder.observeFrame({type:'tool_use_start',sessionId:'ithaca',toolUseId:id,toolName:'Glob'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId:'ithaca',toolUseId:id,toolName:'Glob',input});
+  // Installed sdk.d.ts:2662 exposes the exact structured tool_response;
+  // sdk.d.ts:6280-6293 separately exposes tool_use_result on user messages.
+  const post=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks[0]!;
+  await post({hook_event_name:'PostToolUse',tool_name:'Glob',tool_use_id:id,tool_input:input,tool_response:response} as never,id,{signal:f.controller.signal});
+  for(const frame of adaptStreamEvent({type:'user',tool_use_result:response,message:{content:[{type:'tool_result',tool_use_id:id,content:[{type:'text',text:'123\nworkspaces/voyage/raft.md'}]}]}} as never))if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId:'ithaca'});
+  await f.idle();
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY source").all(),'STRUCTURED_HOOK_PRESERVES_EXACT_FILENAMES_WITHOUT_DISPLAY_UNKNOWN').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'},{source:'workspace_read',detector:'tool_search_output'}]);
+  expect(f.chat().coverage.state).toBe('complete');
+  recorder.finish('success');
  }finally{await f.close();}
 });

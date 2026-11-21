@@ -78,7 +78,7 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       // Keep an unambiguous machine boundary in host-only result details.
       // POSIX filenames may contain newlines, colons and edge whitespace.
       // This changes result data only; provider tool definitions stay identical.
-      const empty=exitCode===1&&out.length===0&&!stderr;
+      const empty=exitCode===1&&outBytes.byteLength===0&&!stderr;
       const frame=empty?"No matches.":out.replaceAll("\0", ":\0")||"Search output unavailable.";
       const rawText=frame.replaceAll("\0", ""),text=rawText.trim();
       const visibleText=clip(text),displayTruncated=text.length>MAX_OUTPUT_BYTES;
@@ -96,7 +96,7 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       const bytes=Buffer.from(frame.slice(0,end)),frameClipped=bytes.length>1048576;
       // Leave room for a decoder replacement if the byte cut splits UTF-8.
       const framedOutput=frameClipped?bytes.subarray(0,1048573).toString('utf8'):frame.slice(0,end);
-      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr,truncated:displayTruncated||frameClipped,framedOutput,visibleText}});
+      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr,truncated:displayTruncated||frameClipped,stdoutEmpty:outBytes.byteLength===0,framedOutput,visibleText}});
     },
   } satisfies ToolDefinition;
 }

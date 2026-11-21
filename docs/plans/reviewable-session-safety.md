@@ -30,9 +30,13 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
   `packages/ui-server/src/activity/ingestion-taint.ts:157-174`;
-  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:198-317`).
+  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:198-320`).
   Workspace paths taint regardless of repository ownership. Awaited backend
-  hooks commit before tool dispatch/result delivery; display frames alone
+  hooks commit before tool dispatch/result delivery. Normal Claude collection
+  uses the SDK PostToolUse structured tool_response; collector readiness disables
+  the display recorder fallback. That fallback treats display filenames literally,
+  checks adjacent-line joins for marks, and retains unknown coverage for all
+  nonempty text because filename boundaries are unverified. Display frames alone
   never prove finalized delivery or complete coverage. Pi's shipped search
   preserves filename boundaries with GNU grep's NUL filename separator and a
   retained visible colon. New result data can therefore name POSIX filenames
