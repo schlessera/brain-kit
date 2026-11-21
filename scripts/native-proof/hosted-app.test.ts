@@ -1,5 +1,5 @@
 import { admissionTimingSample } from "./admission-timing.js";
-import { seedObservationTree, observationTreeWatchdog, type ObservationTree } from "./observation-tree.js";
+import { seedObservationTree, observationTreeWatchdog, observationRunTimeout, type ObservationTree } from "./observation-tree.js";
 import { backendStartupSamples, lifecycleTimingSample } from "./lifecycle-timing.js";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -409,7 +409,7 @@ print(json.dumps(result))`;
         try { return (ui.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at").all() as { record: string }[]).map(row => JSON.parse(row.record)); }
         finally { ui.close(); }
       };
-      const phases = admissionTimingSample;
+      const phases = (record: Parameters<typeof admissionTimingSample>[0]) => admissionTimingSample(record, BACKEND === "claude" ? "claude_worker_fixture" : "native");
       const lifecycleOf = (turnId: string) => phases(lifecycles().find(record => record.turnId === turnId));
       // (a) The process's first governed, journaled turn: the qualification's first admission.
       const firstAfterStart = phases(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null));
@@ -619,7 +619,7 @@ print(json.dumps(result))`;
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
   // The #2848 timing turn first waits for the earlier turns' index refresh.
-}, OBSERVATION_TIMING ? Math.max(1_500_000, (LARGE_TREE_WATCHDOG ?? 0) * 15) : APPLY_TIMING ? 240000 : 120000);
+}, OBSERVATION_TIMING ? observationRunTimeout(TREE_SIZES) : APPLY_TIMING ? 240000 : 120000);
 
 // One fixed backend/UID cell owns this backend-independent root-lifetime control.
 if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] as const) test(`a retained native checkpoint ${held} records the actual release interruption and reconciles the same root`, async () => {

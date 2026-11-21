@@ -486,7 +486,9 @@ missing or provider-null fields are not inferred as zero. A missing, malformed, 
 unreadable initial block leaves these fields absent. LF, CRLF and bare CR
 line endings are accepted across chunk boundaries. Comment and ping frames
 may precede the start; content, errors or another substantive frame end the
-initial-usage window. The event label (when supplied) and JSON type must both
+initial-usage window. The last `event:` field in a frame supplies its effective label. Parsing
+consumes each retained character once, without rescanning the prefix after
+each chunk. The event label (when supplied) and JSON type must both
 identify `message_start`. Inspection is bounded to
 the first 64 KiB, deferred outside the forwarding stack and never awaited; it
 reads only chunks already forwarded and never alters or delays a chunk. The

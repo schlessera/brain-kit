@@ -305,6 +305,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const interval: JournalHold = { records: new Map(), stoppedTurns: new Set(), paths: new Map(),
       inferenceInFlight: id => evidence.get(id)?.inference() ?? false }, holdId = cause.hold?.holdId ?? crypto.randomUUID(), requestedAt = Date.now();
     for (const [id, sink] of evidence) {
+      if (!active.has(id) && !(cause.kind === "begin" && cause.turnId === id)) continue;
       const record: ActivityTurnHold = cause.hold && cause.turnId === id ? cause.hold : { holdId, cause: cause.kind, causeTurnId: cause.turnId === id ? id : null,
         ...(cause.turnId === id && cause.toolUseId ? { toolUseId: cause.toolUseId } : {}), requestedAt,
         stoppedAt: null, resumedAt: null, changedPaths: null, otherTurnsStopped: 0, inferenceInFlight: false };
@@ -560,7 +561,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * of them lie below `workspaces/` (#3793).
      */
     scopeHold(turnId: string, requestedAt: number, toolUseId?: string, changedPaths: number | null = null): ActivityTurnHold | undefined {
-      const sink = evidence.get(turnId); if (!sink) return;
+      const sink = evidence.get(turnId); if (!sink || !active.has(turnId)) return;
       const record: ActivityTurnHold = { holdId: crypto.randomUUID(), cause: "scope", causeTurnId: turnId, requestedAt,
         ...(toolUseId ? { toolUseId } : {}), stoppedAt: null, resumedAt: null, changedPaths, otherTurnsStopped: 0, inferenceInFlight: false };
       sink.record(record); return record;

@@ -419,7 +419,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       catch (err) { reportWriteFailure(sessionId, err); return false; }
     },
     recordTurnFailure(sessionId, backendId, record) {
-      return submit("turnFailure", sessionId, backendId, record).then(() => true, err => { reportWriteFailure(sessionId, err); return false; });
+      return submit<boolean>("turnFailure", sessionId, backendId, record).then(stored => stored === true, err => { reportWriteFailure(sessionId, err); return false; });
     },
     attachTurnFailures(sessionId, messages) {
       try {
@@ -484,7 +484,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     latestWork,
     hasSession: hasRow,
     recordTurnBoundary(sessionId, backendId, boundary) {
-      return submit("turnBoundary", sessionId, backendId, boundary).then(() => true, err => { reportWriteFailure(sessionId, err); return false; });
+      return submit<boolean>("turnBoundary", sessionId, backendId, boundary).then(stored => stored === true, err => { reportWriteFailure(sessionId, err); return false; });
     },
     attachTurnBoundaries(sessionId, messages) {
       try {

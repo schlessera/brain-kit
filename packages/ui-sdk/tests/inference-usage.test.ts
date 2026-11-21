@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { request } from "node:http";
 import { inferenceUsageObserver, type InferenceUsage } from "../src/server/inference-usage";
 import { startEgressProxy, type EgressRecord } from "../src/server/egress-proxy";
@@ -11,6 +11,8 @@ for (const [name, first, expected] of [
   ["bare CR line endings", start({ input_tokens: 7, cache_read_input_tokens: 11, cache_creation_input_tokens: 13 }).replaceAll("\r\n", "\r"), { inputTokens: 7, cacheReadTokens: 11, cacheCreationTokens: 13 }],
   ["mismatched error frame", "event: message_start\ndata: " + JSON.stringify({ type: "error", message: { usage: { input_tokens: 7 } } }) + "\n\n", {}],
   ["late start after content", "event: content_block_delta\ndata: {\"type\":\"content_block_delta\"}\n\n" + start({ input_tokens: 7 }), {}],
+  ["last event field is error", start({ input_tokens: 7 }).replace("event: message_start", "event: message_start\r\nevent: error"), {}],
+  ["last event field is start", start({ input_tokens: 7 }).replace("event: message_start", "event: error\r\nevent: message_start"), { inputTokens: 7 }],
   ["malformed usage", start({ input_tokens: "17", cache_read_input_tokens: 19, cache_creation_input_tokens: 23 }), {}],
   ["malformed JSON", "event: message_start\ndata: {unreadable}\n\n", {}],
   ["missing", "event: ping\ndata: {}\n\n", {}],
@@ -80,4 +82,19 @@ for (const ending of ["\n", "\r\n", "\r"]) test(`usage supports every split of S
   for (const byte of Buffer.from(text)) observe(Uint8Array.of(byte));
   await Promise.resolve();
   expect(records, "ALL_SSE_LINE_ENDINGS_ACROSS_CHUNKS").toEqual([{ inputTokens: 7 }]);
+});
+
+
+test("one-byte initial frames require only linear delimiter scanning", async () => {
+  const records: InferenceUsage[] = [], observe = inferenceUsageObserver(value => records.push(value));
+  const text = "event: message_start\ndata: " + JSON.stringify({ type: "message_start", message: { usage: { input_tokens: 7 }, padding: "x".repeat(12000) } }) + "\n\n";
+  const bytes = Buffer.from(text), original = String.prototype.indexOf; let scanned = 0;
+  const search = spyOn(String.prototype, "indexOf").mockImplementation(function(this: string, needle: string, position?: number) {
+    if (needle === "\n\n" || needle === ":") scanned += String(this).length;
+    return Reflect.apply(original, this, [needle, position]);
+  });
+  try { for (const byte of bytes) observe(Uint8Array.of(byte)); await Promise.resolve(); }
+  finally { search.mockRestore(); }
+  expect(records).toEqual([{ inputTokens: 7 }]);
+  expect(scanned, "SSE_PREFIX_SCAN_WORK_IS_LINEAR").toBeLessThanOrEqual(bytes.length * 3);
 });

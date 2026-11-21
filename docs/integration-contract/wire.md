@@ -649,7 +649,10 @@ or terminal writes. The current open phase names are:
   before the existing lifecycle terminal. An unopened scope, failed write or
   pending write cannot complete that step. `index_settle` and
   `failure_recording` also stay unended when the flush, history read or catalog
-  write failed, or a catalog write remains unconfirmed. Logging or absorbing
+  write failed, or a catalog write remains unconfirmed. Catalog confirmation
+checks the stored turn and failure after an ignored insert conflict; an
+unrelated result-reader wait expiring does not invalidate a later successful
+recording. Logging or absorbing
   an error does not turn it into successful work. These clocks add no
   close-path wait. Closing steps record reached work on failure/cancellation too; they lie
   between backend exit (when a backend ran) and status emission.
@@ -722,10 +725,16 @@ corresponding worker operations confirm; failed or inapplicable boundaries
 remain null. A resume requires at least one still-live worker and successful
 resume calls; exited workers never produce a resume receipt. Physical
 control returns true only when a live process confirms the operation; a
-legacy void return is unconfirmed. Pending output cleanup does not make an
-exited process live. Overlapping intervals recheck current stop evidence,
+void return or unreadable evidence is unconfirmed. Timing evidence is
+best-effort: a read failure cannot fail a confirmed freeze, kill a worker or
+prevent the thaw request. Resume evidence is sampled after that request;
+a still-frozen cgroup cannot produce a resume receipt. Pending output cleanup
+does not make an exited process live. Overlapping intervals recheck current stop evidence,
 and a completed interval can never acquire a later worker's stop. Nested
-observations share the physical resume boundary. Late workers resample
+observations share a physical resume boundary only for workers each interval
+actually stopped. A replacement worker cannot complete an earlier interval.
+The timestamp is the first successful resume of an owned worker, sampled at
+that operation. Late workers resample
 inference overlap at their confirmed stop and update every participant's
 `otherTurnsStopped` count. A scope cap and its ensuing shared observation use
 the same `holdId`, preserving the causing turn's `toolUseId`. Approved policy
@@ -738,7 +747,8 @@ Inference overlap means a relay operation was in flight at stop,
 including request setup and response streaming. Evidence accumulates in
 memory and rides the next existing milestone/terminal write; it adds no
 awaited write before the hold or after a tool result. Evidence callbacks are
-unregistered even when teardown fails.
+unregistered even when teardown fails. A registered callback alone is not an
+observation window: finished journal participants receive no new hold records.
 
 
 The envelope terminates once with the existing outcome vocabulary: `success`,

@@ -271,3 +271,73 @@ test("nested holds do not reuse stop proof after a frozen worker exits", async (
     expect(holds[0]!.resumedAt).toBeNull();
   } finally { release.resolve(); exited.resolve(0); f.native.manager.checkpoint = checkpoint; await f.close(); }
 });
+
+
+test("a scope cap never offers Continue when every registered worker is already gone", async () => {
+  const f = scopeFixture({ max_tool_calls: 1 }), exited = Promise.withResolvers<number>();
+  try {
+    await f.begin();
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return false; }, resume() { return false; }, kill() {} });
+    f.scope.toolCall("voyage", "shell-gone");
+    expect(f.receipt(), "GONE_WORKERS_CANNOT_PRODUCE_A_PAUSED_SCOPE").toMatchObject({ frozen: false, state: "stopped" });
+    expect((await f.scope.decide(f.message("continue"), true)).state).not.toBe("accepted");
+  } finally { exited.resolve(0); await f.close(); }
+});
+
+test("a throwing timing probe never fails the hold or prevents its worker resume", async () => {
+  const f = scopeFixture(), exited = Promise.withResolvers<number>(); let kills = 0, resumes = 0;
+  try {
+    await f.begin();
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() {}, frozen() { throw Error("evidence denied"); }, resume() { resumes++; }, kill() { kills++; } });
+    let captureError: unknown;
+    try { await f.journal.toolEnded("voyage", "shell-evidence"); } catch (error) { captureError = error; }
+    expect(captureError, "TIMING_PROBE_NEVER_CHANGES_HOLD_CONTROL").toBeUndefined();
+    expect([kills, resumes, f.stopped], "TIMING_PROBE_NEVER_CHANGES_HOLD_CONTROL").toEqual([0, 1, ""]);
+  } finally { exited.resolve(0); await f.close(); }
+});
+
+test("a replacement worker cannot complete an earlier hold owned by the exited worker", async () => {
+  const f = scopeFixture(), holds: ActivityTurnHold[] = [];
+  const oldExit = Promise.withResolvers<number>(), newExit = Promise.withResolvers<number>();
+  const a = Promise.withResolvers<void>(), b = Promise.withResolvers<void>(), enteredA = Promise.withResolvers<void>(), enteredB = Promise.withResolvers<void>();
+  const checkpoint = f.native.manager.checkpoint; let calls = 0, resumedOld = 0, resumedNew = 0;
+  try {
+    await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
+    f.scope.workerStarted("voyage", { exited: oldExit.promise, freeze() { return true; }, resume() { resumedOld++; return true; }, kill() {} });
+    f.native.manager.checkpoint = async (...args) => { if (++calls === 1) { enteredA.resolve(); await a.promise; } else { enteredB.resolve(); await b.promise; } return checkpoint(...args); };
+    const first = f.journal.toolEnded("voyage", "shell-old"); await enteredA.promise;
+    const second = f.journal.toolEnded("voyage", "shell-new"); a.resolve(); await first; await enteredB.promise;
+    oldExit.resolve(0); await oldExit.promise; await Promise.resolve();
+    f.scope.workerStarted("voyage", { exited: newExit.promise, freeze() { return true; }, resume() { resumedNew++; return true; }, kill() {} });
+    b.resolve(); await second;
+    expect([resumedOld, resumedNew]).toEqual([0, 1]);
+    expect(holds[0]!.resumedAt, "RESUME_MUST_BELONG_TO_THIS_HOLDS_WORKER").toBeNull();
+    expect(holds[1]!.resumedAt).not.toBeNull();
+  } finally { a.resolve(); b.resolve(); oldExit.resolve(0); newExit.resolve(0); f.native.manager.checkpoint = checkpoint; await f.close(); }
+});
+
+test("finished journal participants receive no new holds during remaining teardown", async () => {
+  const f = scopeFixture(), first: ActivityTurnHold[] = [], second: ActivityTurnHold[] = [];
+  try {
+    await f.begin(); await addLoom(f);
+    f.journal.evidence("voyage", hold => first.push(hold)); f.journal.evidence("loom", hold => second.push(hold));
+    await f.journal.finish("voyage"); await f.scope.finish("voyage"); first.length = 0; second.length = 0;
+    expect(f.journal.scopeHold("voyage", Date.now()), "FINISHED_WINDOW_CANNOT_CREATE_SCOPE_HOLD").toBeUndefined();
+    writeFileSync(join(f.brain, "ithaca-after.md"), "Odysseus returns.\n");
+    await f.journal.toolEnded("loom", "shell-active");
+    expect(first, "FINISHED_PARTICIPANTS_CANNOT_ACQUIRE_NEW_HOLDS").toEqual([]);
+    expect(second).toHaveLength(1); expect(second[0]!.changedPaths).toBe(1);
+  } finally { await f.close(); }
+});
+
+test("a shared hold ends at its first owned productive resume, not a later worker call", async () => {
+  let now = 1000; const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const f = scopeFixture({}, () => now), holds: ActivityTurnHold[] = [], exited = Promise.withResolvers<number>();
+  try {
+    await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
+    for (let i = 0; i < 2; i++) f.scope.workerStarted("voyage", { exited: exited.promise,
+      freeze() { now += 10; return true; }, resume() { now += 20; return true; }, kill() {} });
+    await f.journal.toolEnded("voyage", "shell-shared");
+    expect(holds[0], "RESUME_CLOCK_IS_SAMPLED_AT_ITS_OWN_WORKER_BOUNDARY").toMatchObject({ stoppedAt: 1020, resumedAt: 1040 });
+  } finally { exited.resolve(0); await f.close(); clock.mockRestore(); }
+});

@@ -96,9 +96,22 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   }
   const scopeCapRecords = new Map<string, ActivityTurnHold>();
   const confirmedStops = new WeakSet<Worker>();
-  const confirmed = (worker: Worker) => worker.frozen?.() ?? confirmedStops.has(worker);
+  const stoppedWorkers = new WeakMap<ActivityTurnHold, Set<Worker>>();
+  const attachStopped = (record: ActivityTurnHold, workers: Worker[], at: number) => {
+    if (!workers.length) return;
+    record.stoppedAt ??= at;
+    const owned = stoppedWorkers.get(record) ?? new Set<Worker>();
+    for (const worker of workers) owned.add(worker);
+    stoppedWorkers.set(record, owned);
+  };
+  const confirmed = (worker: Worker) => {
+    try { return worker.frozen ? worker.frozen() === true : confirmedStops.has(worker); }
+    catch { return false; } // Evidence cannot fail a hold or prevent thaw.
+  };
   const freeze = (worker: Worker) => {
-    if (worker.freeze() === true) confirmedStops.add(worker); else confirmedStops.delete(worker);
+    const result = worker.freeze();
+    if (result === true) confirmedStops.add(worker); else confirmedStops.delete(worker);
+    return result !== false; // A legacy void return preserves its original control semantics.
   };
   function check(turnId: string, turn: Live, cause: { toolUseId?: string; changedPaths?: number } = {}) {
     if (!turn.current()) return;
@@ -130,7 +143,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       const hold = options.journal.scopeHold?.(turnId, now(), cause.toolUseId, cause.changedPaths ?? null);
       if (hold) scopeCapRecords.set(turnId, hold);
       let frozen = false, freezeFailure: string | undefined;
-      try { for (const worker of turn.workers) freeze(worker); frozen = turn.workers.size > 0; if (frozen && hold && [...turn.workers].some(confirmed)) { hold.stoppedAt = now(); hold.inferenceInFlight ||= options.journal.inferenceInFlight?.(turnId) ?? false; } }
+      try { const results = [...turn.workers].map(freeze); frozen = results.some(Boolean); if (frozen && hold && [...turn.workers].some(confirmed)) { attachStopped(hold, [...turn.workers].filter(confirmed), now()); hold.inferenceInFlight ||= options.journal.inferenceInFlight?.(turnId) ?? false; } }
       catch (error) { freezeFailure = `Scope freeze failed; the turn stopped: ${String(error)}`; for (const worker of turn.workers) worker.kill("SIGKILL"); }
       // No worker means no proven pause; fail closed, never claim nothing is running.
       // A periodic snapshot was already taken after our confirmed hold.
@@ -167,11 +180,12 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   let observationFailed = false;
   const holdRecords = new Map<string, ActivityTurnHold[]>();
   const intervals = new Set<JournalHold>();
-  function recordStop(hold: JournalHold, turnId: string, at = now()) {
+  function recordStop(hold: JournalHold, turnId: string, workers: Worker[], at = now()) {
+    if (!workers.length) return;
     hold.stoppedTurns.add(turnId);
     const record = hold.records.get(turnId);
     if (record) {
-      record.stoppedAt ??= at;
+      attachStopped(record, workers, at);
       record.inferenceInFlight ||= hold.inferenceInFlight(turnId);
       const records = holdRecords.get(turnId) ?? [];
       if (!records.includes(record)) records.push(record);
@@ -181,14 +195,20 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   }
   function recordStops(hold?: JournalHold) {
     if (!hold) return;
-    for (const [id, entry] of periodicHeld) if (entry.workers.some(worker => entry.turn.workers.has(worker) && confirmed(worker))) recordStop(hold, id);
+    for (const [id, entry] of periodicHeld) recordStop(hold, id, entry.workers.filter(worker => entry.turn.workers.has(worker) && confirmed(worker)));
   }
-  function resumed(turnId: string, workers: Worker[]) {
-    if (!workers.length) { holdRecords.delete(turnId); scopeCapRecords.delete(turnId); return; }
-    const at = now();
-    for (const record of holdRecords.get(turnId) ?? []) if (record.stoppedAt !== null) record.resumedAt ??= at;
-    const cap = scopeCapRecords.get(turnId);
-    if (cap?.stoppedAt != null) cap.resumedAt ??= at;
+  function resumeWorkers(workers: Worker[]): Map<Worker, number> {
+    const resumed = new Map<Worker, number>();
+    for (const worker of workers) if (worker.resume() === true) resumed.set(worker, now());
+    return resumed;
+  }
+  function resumed(turnId: string, workers: Map<Worker, number>) {
+    const records = new Set([...(holdRecords.get(turnId) ?? []), ...(scopeCapRecords.has(turnId) ? [scopeCapRecords.get(turnId)!] : [])]);
+    for (const record of records) {
+      const ownResumes = [...workers].filter(([worker]) => stoppedWorkers.get(record)?.has(worker)).map(([, at]) => at);
+      if (record.stoppedAt !== null && ownResumes.length) record.resumedAt ??= Math.min(...ownResumes);
+      stoppedWorkers.delete(record);
+    }
     holdRecords.delete(turnId); scopeCapRecords.delete(turnId);
   }
   const periodic = {
@@ -200,7 +220,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         if (!turn.current() || turn.summary.receipts.some(receipt => receipt.state === "paused")) continue;
         const held: Worker[] = []; periodicHeld.set(turnId, { turn, workers: held });
         for (const worker of turn.workers) { held.push(worker); freeze(worker); }
-        if (held.some(confirmed) && hold) recordStop(hold, turnId);
+        if (hold) recordStop(hold, turnId, held.filter(confirmed));
       }
     },
     after(completed: boolean, hold?: JournalHold) {
@@ -220,7 +240,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         if (!turn.current()) { for (const worker of workers) worker.kill("SIGKILL"); continue; }
         try {
           const live = workers.filter(worker => turn.workers.has(worker));
-          const resumedWorkers = live.filter(worker => worker.resume() === true);
+          const resumedWorkers = resumeWorkers(live);
           resumed(turnId, resumedWorkers);
         }
         catch (error) {
@@ -262,11 +282,11 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       if (turn.summary.receipts.some(receipt => receipt.state === "paused") || observationHolds > 0) {
         freeze(worker);
         const cap = scopeCapRecords.get(turnId);
-        if (cap && confirmed(worker)) { cap.stoppedAt ??= now(); cap.inferenceInFlight ||= options.journal.inferenceInFlight?.(turnId) ?? false; }
+        if (cap && confirmed(worker)) { attachStopped(cap, [worker], now()); cap.inferenceInFlight ||= options.journal.inferenceInFlight?.(turnId) ?? false; }
         if (observationHolds > 0) {
           const held = periodicHeld.get(turnId) ?? { turn, workers: [] };
           held.workers.push(worker); periodicHeld.set(turnId, held);
-          if (confirmed(worker)) for (const interval of intervals) recordStop(interval, turnId);
+          if (confirmed(worker)) for (const interval of intervals) recordStop(interval, turnId, [worker]);
         }
       }
     },
@@ -332,7 +352,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         liveReceipt.state = "continued"; liveReceipt.submissionId = msg.submissionId; save(msg.turnId, turn);
         if (observationHolds === 0) {
           const workers = [...turn.workers];
-          const resumedWorkers = workers.filter(worker => worker.resume() === true);
+          const resumedWorkers = resumeWorkers(workers);
           resumed(msg.turnId, resumedWorkers);
         }
       } else { liveReceipt.submissionId = msg.submissionId; stop(msg.turnId, turn, liveReceipt, "stopped", "You stopped the turn at its scope limit."); }

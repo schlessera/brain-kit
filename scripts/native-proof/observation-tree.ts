@@ -11,14 +11,18 @@ export interface ObservationTree {
   checkouts: number;
 }
 export function observationTreeOptions(args: string[]): ObservationTree | undefined {
-  const tree = args.find(arg => arg.startsWith("--tree="));
+  const trees = args.filter(arg => arg.startsWith("--tree="));
+  if (trees.length > 1) throw Error("Only one --tree selection is allowed");
+  const tree = trees[0];
   const fields = { workspaceEntries: "workspace-entries", dependencyEntries: "dependency-entries", journalObjects: "journal-objects", checkouts: "checkouts" };
   const sized = args.some(arg => Object.values(fields).some(name => arg.startsWith(`--${name}=`)));
   if (!tree && !sized) return;
   if (tree !== "--tree=large" || !args.includes("--observation-timing")) throw Error("--tree=large and its sizes require --observation-timing");
   const result: ObservationTree = { workspaceEntries: 80000, dependencyEntries: 19000, journalObjects: 30000, checkouts: 40 };
   for (const key of Object.keys(fields) as (keyof ObservationTree)[]) {
-    const raw = args.find(arg => arg.startsWith(`--${fields[key]}=`))?.split("=")[1];
+    const values = args.filter(arg => arg.startsWith(`--${fields[key]}=`));
+    if (values.length > 1) throw Error(`Only one --${fields[key]} size is allowed`);
+    const raw = values[0]?.slice(`--${fields[key]}=`.length);
     if (raw === undefined) continue;
     if (!/^(0|[1-9][0-9]*)$/.test(raw) || Number(raw) > 1000000 || key === "checkouts" && (Number(raw) < 1 || Number(raw) > 1000))
       throw Error(`Invalid --${fields[key]} size`);
@@ -78,5 +82,12 @@ export function traceObserverBootstrap<A extends unknown[], T>(initialize: (...a
 /** The large scenario measures slow walks; its limits are size-scaled watchdogs. */
 export function observationTreeWatchdog(sizes?: ObservationTree): number | undefined {
   if (!sizes) return;
-  return watchdogMs(120_000 + 2 * (sizes.workspaceEntries + sizes.dependencyEntries + sizes.journalObjects + 4 * sizes.checkouts));
+  return watchdogMs(treeWatchdogBase(sizes));
+}
+function treeWatchdogBase(sizes: ObservationTree): number {
+  return 120_000 + 2 * (sizes.workspaceEntries + sizes.dependencyEntries + sizes.journalObjects + 4 * sizes.checkouts);
+}
+/** Bun's registrar applies the load factor once to this per-test timeout. */
+export function observationRunTimeout(sizes?: ObservationTree): number {
+  return Math.max(1_500_000, sizes ? treeWatchdogBase(sizes) * 15 : 0);
 }

@@ -103,6 +103,11 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     hold(hold: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnHold) { if (record.endedAt === null) (record.holds ??= []).push(hold); },
     runtimeVersion(version: string) { if (record.endedAt === null) record.runtimeVersion = version; },
     timer: phaseTimer,
+    backendExit() {
+      if (record.endedAt !== null) return;
+      const at = clock();
+      addOpenStep({ phase: "closing", name: "backend_exit", startedAt: at, endedAt: at, elapsedMs: 0 });
+    },
     bindSession(id: string) { if (record.endedAt === null) { record.sessionId = id; persist(); } },
     linkBackend(id: string) { if (record.endedAt === null) { record.backendRunId = id; persist(); } },
     firstFrame(id: string | null) {

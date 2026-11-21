@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { SessionHistoryMessage, TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
@@ -34,10 +35,13 @@ export function prefixDigest(messages: SessionHistoryMessage[], end: number): st
   return hash.digest("hex");
 }
 
-export function saveTurnFailure(db: Database, sessionId: string, backendId: string, record: RecordedTurnFailure): void {
+export function saveTurnFailure(db: Database, sessionId: string, backendId: string, record: RecordedTurnFailure): boolean {
   db.prepare(`INSERT INTO turn_failures (session_id, backend_id, assistant_ordinal, turn_id, prefix_digest, failure_json)
     VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(session_id, backend_id, assistant_ordinal, prefix_digest) DO NOTHING`)
     .run(sessionId, backendId, record.assistantOrdinal, record.turnId, record.prefixDigest, JSON.stringify(record.failure));
+  const stored = db.query("SELECT turn_id,failure_json FROM turn_failures WHERE session_id=? AND backend_id=? AND assistant_ordinal=? AND prefix_digest=?")
+    .get(sessionId, backendId, record.assistantOrdinal, record.prefixDigest) as { turn_id: string; failure_json: string } | null;
+  return stored?.turn_id === record.turnId && isDeepStrictEqual(JSON.parse(stored.failure_json), JSON.parse(JSON.stringify(record.failure)));
 }
 
 export function attachTurnFailures(db: Database, sessionId: string, backendId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
@@ -189,7 +193,7 @@ export class FailureReplay {
         if (closed || held || before === null || !this.catalog.recordTurnBoundary) return;
         held = true;
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const hold = Promise.race([ended, new Promise<void>((resolve) => { timer = setTimeout(() => { complete = false; resolve(); }, this.boundaryReadMs); })])
+        const hold = Promise.race([ended, new Promise<void>((resolve) => { timer = setTimeout(resolve, this.boundaryReadMs); })])
           .finally(() => clearTimeout(timer));
         this.track(sid, hold);
       },

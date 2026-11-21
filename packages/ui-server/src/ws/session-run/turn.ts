@@ -100,7 +100,7 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     turn.backendStarted = true;
     lifecycle?.mark("backendInvokedAt");
     try { await backend.startTurn(turnRequest(run, prompt, bridge)); }
-    finally { lifecycle?.timer("closing")("backend_exit")(); }
+    finally { lifecycle?.backendExit(); }
     turn.backendStarted = false;
     await held.settleIndex?.();
     // Every relayed attempt reports before the turn's accounting closes.

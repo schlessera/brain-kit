@@ -72,3 +72,38 @@ test("large timing watchdogs scale with tree size while small qualification keep
   expect(source).toContain("toBeLessThan(LARGE_TREE_WATCHDOG ?? 15000)");
   expect(source).toContain("toBeLessThan(LARGE_TREE_WATCHDOG ?? 2000)");
 });
+
+
+test("malformed complete parameter values never select an unintended tree size", () => {
+  for (const option of ["--workspace-entries=40000=80000", "--dependency-entries=3=4", "--journal-objects=4=5", "--checkouts=2=3"]) {
+    expect(() => observationTreeOptions(["--observation-timing", "--tree=large", option]), "COMPLETE_TREE_PARAMETER_MUST_VALIDATE").toThrow();
+  }
+  for (const options of [["--workspace-entries=40000", "--workspace-entries=80000"], ["--tree=large"]])
+    expect(() => observationTreeOptions(["--observation-timing", "--tree=large", ...options]), "DUPLICATE_TREE_PARAMETERS_ARE_AMBIGUOUS").toThrow();
+});
+
+test("the fixture outer watchdog exceeds the effective inner timeout for every sized scenario", async () => {
+  const { observationRunTimeout } = await import("../scripts/native-proof/observation-tree");
+  const python = Bun.which("python3")!;
+  for (const sizes of [undefined, { workspaceEntries: 80000, dependencyEntries: 19000, journalObjects: 30000, checkouts: 40 },
+    { workspaceEntries: 1000000, dependencyEntries: 1000000, journalObjects: 1000000, checkouts: 1000 }]) for (const factor of [1, 3]) {
+    const env = { BRAIN_NATIVE_PROOF_OBSERVATION_TIMING: "1", BRAIN_TEST_DEADLINE_FACTOR: String(factor), ...(sizes ? { BRAIN_NATIVE_PROOF_TREE: JSON.stringify(sizes) } : {}) };
+    // Execute only the fixture's actual configuration prefix, before ROOT and
+    // all filesystem setup. This cannot open a loop device or run native proof.
+    const code = `import ast,json,os,pathlib,sys
+path=pathlib.Path(sys.argv[1]); os.environ.update(json.loads(sys.argv[2])); sys.argv=[str(path),"claude","1000"]
+nodes=[]
+for node in ast.parse(path.read_text()).body:
+    if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=="ROOT" for target in node.targets): break
+    nodes.append(node)
+else: raise RuntimeError("fixture configuration boundary missing")
+namespace={"__file__":str(path),"__name__":"fixture_configuration_test"}
+exec(compile(ast.Module(body=nodes,type_ignores=[]),str(path),"exec"),namespace)
+print(namespace["HOSTED_TIMEOUT"])`;
+    const child = Bun.spawnSync([python, "-I", "-S", "-B", "-c", code, new URL("../scripts/native-proof/fixture.py", import.meta.url).pathname, JSON.stringify(env)], { env: { PATH: process.env.PATH ?? "" }, stdout: "pipe", stderr: "pipe" });
+    expect(child.exitCode, child.stderr.toString()).toBe(0);
+    const outerMs = Number(child.stdout.toString()) * 1000;
+    expect(outerMs, "OUTER_NATIVE_WATCHDOG_CANNOT_PREEMPT_INNER").toBeGreaterThanOrEqual(observationRunTimeout(sizes) * factor + 120000);
+    if (!sizes && factor === 1) expect(outerMs).toBe(1800000);
+  }
+});

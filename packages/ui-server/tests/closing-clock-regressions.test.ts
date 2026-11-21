@@ -245,3 +245,52 @@ test("a disappeared scope row cannot produce successful finalization", async () 
     expect(await scope.scope.finish("voyage"), "MISSING_SCOPE_ROW_CANNOT_CONFIRM_FINAL_WRITES").toBe(false);
   } finally { await scope.close(); }
 });
+
+test("reader hold expiry does not poison later successful failure recording", async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  let boundaries = 0;
+  const replay = new FailureReplay({ recordTurnBoundary() { boundaries++; return true; } } as unknown as import("../src/ws/session-catalog").SessionCatalog,
+    { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger, 5);
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }]; } });
+  const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
+  recording.resulted("ithaca"); await replay.wait("ithaca");
+  expect(await recording.finish("ithaca"), "READER_HOLD_EXPIRY_IS_NOT_RECORDING_FAILURE").toBe(true);
+  expect(boundaries).toBe(1);
+});
+
+test("catalog confirmation proves the requested turn and failure survived an ignored conflict", async () => {
+  const { createSessionCatalog } = await import("../src/ws/session-catalog");
+  const db = createUiDb(":memory:"), catalog = createSessionCatalog(() => db);
+  db.exec("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)");
+  const boundary = { turnId: "turn-first", assistantOrdinal: 0, prefixDigest: "ithaca-digest" };
+  const failure = { message: "Odysseus cannot finish." } as import("@schlessera/brain-ui-sdk/protocol").TurnFailure;
+  try {
+    expect(await catalog.recordTurnBoundary?.("ithaca", "pi", boundary)).toBe(true);
+    expect(await catalog.recordTurnBoundary?.("ithaca", "pi", boundary)).toBe(true);
+    expect(await catalog.recordTurnBoundary?.("ithaca", "pi", { ...boundary, turnId: "turn-second" }), "CONFLICT_IS_NOT_THIS_TURNS_BOUNDARY").toBe(false);
+    expect(await catalog.recordTurnFailure?.("ithaca", "pi", { ...boundary, failure })).toBe(true);
+    expect(await catalog.recordTurnFailure?.("ithaca", "pi", { ...boundary, failure })).toBe(true);
+    expect(await catalog.recordTurnFailure?.("ithaca", "pi", { ...boundary, turnId: "turn-second", failure }), "CONFLICT_IS_NOT_THIS_TURNS_FAILURE").toBe(false);
+    expect(await catalog.recordTurnFailure?.("ithaca", "pi", { ...boundary, failure: { ...failure, message: "A different failure." } }), "IGNORED_FAILURE_PAYLOAD_IS_NOT_CONFIRMATION").toBe(false);
+  } finally { await catalog.settled?.(); db.close(); }
+});
+
+test("backend exit confirmation uses one clock read even across a ticking millisecond", async () => {
+  const { WsHost } = await import("../src/ws/host");
+  const { runSession } = await import("../src/ws/run-session");
+  const { createSessionCatalog } = await import("../src/ws/session-catalog");
+  const { createStaticBackendRegistry } = await import("../src/agent/backend");
+  const { createActivityStream } = await import("../src/activity/stream");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const { testAuthorization } = await import("./helpers/principal");
+  let now = 1000; const clock = spyOn(Date, "now").mockImplementation(() => ++now);
+  const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store);
+  const host = new WsHost({ registry: createStaticBackendRegistry([makeFakeBackend({ id: "pi" })], "pi"), catalog: createSessionCatalog(() => db), activity: { store, stream } });
+  try {
+    await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
+    const step = store.lifecycles()[0]!.openSubPhases?.find(step => step.name === "backend_exit");
+    expect(step, "BACKEND_EXIT_IS_ONE_ZERO_WIDTH_OBSERVATION").toBeDefined();
+    expect(step!.endedAt, "BACKEND_EXIT_IS_ONE_ZERO_WIDTH_OBSERVATION").toBe(step!.startedAt); expect(step!.elapsedMs).toBe(0);
+  } finally { clock.mockRestore(); host.close(); stream.close(); db.close(); }
+});

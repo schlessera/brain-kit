@@ -1103,11 +1103,11 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
   /** Resolves once no descriptor of this worker's stdio remains open in this process, once its streams have ended (#2862). */
   released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
-  /** Confirm frozen descendants; true proves at least one live process stopped. Void is unconfirmed legacy control. */
+  /** Confirm control quiescence. True also proves a live stop; false means no live member; void means unavailable timing evidence. */
   freeze(): boolean | void;
-  /** Current stop evidence, independent of output cleanup and the public exit promise. */
-  frozen?(): boolean;
-  /** True only when a live process was resumed; an exited worker returns false. */
+  /** Best-effort current stop evidence, independent of output cleanup; unavailable reads return void and cannot gate control. */
+  frozen?(): boolean | void;
+  /** Send thaw regardless of timing evidence; true confirms a live member is no longer frozen. */
   resume(): boolean | void;
   /** The resource limits this launch was given (#1660). */
   limits: WorkerLimitsPlan;

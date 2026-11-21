@@ -70,10 +70,15 @@ and a large run with `--workspace-entries=40000` on the same runner. The tenfold
 and proportional sensitivity criteria are qualification measurements, never
 shared-runner CI time budgets. Cold-cache evidence is explicitly unavailable:
 this harness cannot establish an isolated cache-drop condition and never
-mutates the shared runner cache. Default runs omit the `tree` section.
+mutates the shared runner cache. Default runs omit the `tree` section. Admission scenarios and warm samples
+retain the integration base's backend milestones, backend steps and missing
+evidence; closing steps remain in their sibling artifact. Parameter values
+are whole decimal integers and each size option may appear only once.
 Large-tree health, WebSocket, admission, Stop and settlement waits use a measurement
 watchdog sized as 120,000 ms plus 2 ms per configured leaf/object and four
-entries per checkout; the overall timeout scales with that watchdog. This is
+entries per checkout; the per-test timeout scales with that watchdog. The Python fixture derives
+its outer process timeout from the same size model and test load factor,
+leaving at least two minutes beyond the effective inner timeout. This is
 a hang bound, not a performance promise. The small qualification keeps its
 existing one-second health/WebSocket, ten-second admission and Stop assertions.
 
