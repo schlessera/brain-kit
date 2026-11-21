@@ -267,3 +267,10 @@ for(const second of [false,true])test(`review17: inference binding loss on ${sec
 for(const tunnel of [false,true])for(const valid of [false,true])test(`review17: server ${tunnel?'tunnel':'origin'} provenance uses UTF-8 bounds (valid ${valid})`,async()=>{
  const {OccurrenceSchema}=await import('../src/governance/occurrence');const input=occurrence('voyage','proxy_input','odysseus');const host='λ'.repeat(valid?126:127);input.provenance=tunnel?{kind:'tunnel_authority',authority:{host,port:443},verifiedBy:'host_proxy'}:{kind:'web_origin',origin:{scheme:'https',host,port:443},verifiedBy:'host_transport'};expect(OccurrenceSchema.safeParse(input).success,'SERVER_AND_WIRE_PROVENANCE_USE_IDENTICAL_BYTE_LIMITS').toBe(valid);
 });
+
+test('review28: recipient receipt uses final dispatch authority after preparation',async()=>{
+ const f=await fixture(true,{schema_version:1,taint:{egress:{allow:['github.com']}}});try{
+ f.t.publish([{id:'ithaca',label:'Ithaca',incomingContent:false,recipientWhileRestricted:true,selector:{kind:'web_origin',scheme:'https',host:'github.com',port:443}}]);await f.taint();
+ const op=f.proxy.managedReference(new URL('https://github.com/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.prepare()).toEqual({ok:true});f.t.remove();expect(op.dispatch(()=>{})).toEqual({ok:true});op.finish('completed');await f.proxy.settled();const payload=queryGovernanceEvents(f.db,{kinds:['egress_connection'],limit:10})[0]?.payload;expect(payload,'REMOVED_RECIPIENT_RULE_NEVER_APPEARS_IN_DISPATCH_RECEIPT').not.toHaveProperty('standingRecipient');expect(payload).not.toHaveProperty('recipientAdmission');
+ }finally{await f.close();}
+});

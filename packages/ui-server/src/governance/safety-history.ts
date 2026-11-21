@@ -125,7 +125,7 @@ export class SafetyHistory {
       // model text, prompt or page body cross this read boundary.
       return {...common,kind:"occurrence",epochId:o?.epochId??r.collection_id,detector:r.detector,source:r.source??"legacy_unknown",operationId:o?.operationId??null,
         signalId:o?.signalId??null,exposureId:o?.exposureId??null,exposure:r.state??"interrupted_unknown",summary:r.source==="egress_connection"?"Network input; operation attribution unavailable":"Recorded input exposure",
-        provenance:o?.provenance??null,...(admissions&&(o?.admission??p.admission)?{admission:o?.admission??p.admission}:{}),...(entries&&(o?.entry??p.entry)?{entry:o?.entry??p.entry}:{})} as SafetyRecord;
+        provenance:o?.provenance??p.provenance??null,...(admissions&&(o?.admission??p.admission)?{admission:o?.admission??p.admission}:{}),...(entries&&(o?.entry??p.entry)?{entry:o?.entry??p.entry}:{})} as SafetyRecord;
     });
   }
   private drop(id:string):void {

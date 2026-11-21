@@ -73,7 +73,7 @@ test('admission evidence is independently negotiated and pinned across pages, de
   ws.send({type:'safety_read',version:1,requestId:'admissions',target:{sessionId:'ithaca'},includeAdmissions:true});const frame=await ws.until(m=>m.type==='safety_history');if(frame.type!=='safety_history')throw new Error('Missing page');
   expect(frame.page.records[0]).toHaveProperty('admission.ruleId','ithaca-source');ws.send({type:'safety_subscribe',version:1,requestId:'admissions',identity:frame.page.identity,afterRevision:frame.page.highWater,snapshotId:frame.page.snapshotId});
   const id=await add();f.history.poll();const update=await ws.until(m=>m.type==='safety_update'&&m.update.records.some(r=>r.id===id));expect(update.type==='safety_update'&&update.update.records.some(r=>r.kind==='occurrence'&&r.admission?.trusted),'SUBSCRIPTION_PINS_ADMISSION_EVIDENCE').toBe(true);
-  pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);const page=await f.history.read(f.principal,{sessionId:'ithaca'},null,50,false,true);expect(page.records[0]).toHaveProperty('admission.ruleId','ithaca-source');
+  pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);const page=await f.history.read(f.principal,{sessionId:'ithaca'},null,50,false,true);expect(page.records[0]).toHaveProperty('admission.ruleId','ithaca-source');const {safetyRecordSchema}=await import('@schlessera/brain-ui-sdk/internal');for(const record of page.records)expect(safetyRecordSchema.safeParse(record).success,'PRUNED_TRUSTED_ADMISSION_RETAINS_VERIFIED_PROVENANCE').toBe(true);
   const http=await f.get('?admissions=1');expect(http.status).toBe(200);expect((await http.json() as any).records[0]).toHaveProperty('admission.trusted',true);expect((await f.get('?admissions=0')).status).toBe(400);
  }finally{await f.close();}
 });

@@ -5976,11 +5976,14 @@ same-commit API report records the additive types. See
 
 Safety occurrence DTOs add optional `admission` with `trusted`, `policyHash`
 and `trustRevision`; a true decision also carries `ruleId` and
-`collectionRevision`. It is host-owned historical evidence, never client
+`collectionRevision`. A trusted admission requires the proxy detector and verified
+HTTP-origin or tunnel provenance; both revisions are bounded unsigned 64-bit
+decimal strings. Recorder ingestion, projection and history share this schema.
+It is host-owned historical evidence, never client
 permission or a human verdict. Older payloads without it retain conservative
 interpretation. The aggregate excludes trusted admissions from unresolved
 counts while keeping unrelated occurrences, coverage gaps and recording failures
-restrictive. Pruning preserves these minimal admission facts. The UI names
+restrictive. Pruning preserves these minimal admission facts and their verified provenance. The UI names
 historical source trust separately and offers no safe-verdict action for it.
 Provider history remains byte-identical as an earlier prefix.
 
@@ -5996,6 +5999,9 @@ that already refused. `prepare()` runs preparation observers without publishing 
 dispatch fact. After charging, `dispatch(send)` runs the final typed fence and
 calls the synchronous transport handoff. Only after the transport constructor or fetch call returns successfully does
 it publish dispatched state and the committed/contacted notification, once.
+The final fence returns the recipient authority it used (the exact rule instance,
+explicit approval or independent allowance). Only that decision feeds the
+dispatch receipt; preparation never supplies recipient evidence.
 A refused preparation or fence never grants contacted-host access. A started
 send still counts if it later fails. Preparation observers may revoke; fact
 observers run after send and cannot erase bytes already handed to transport. A zero-byte terminal decision can complete at the exact byte ceiling while

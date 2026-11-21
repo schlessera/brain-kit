@@ -47,6 +47,7 @@ function terminalFailure(outcome: EgressRecord["outcome"], reason?: string): Egr
     : outcome === "cancelled" ? "cancelled" : "policy_denied";
   return Object.freeze({ok:false,reason:category});
 }
+export type EgressRecipientAuthority = {kind:"rule";admission:{ruleId:string;policyHash:string;trustRevision:string;collectionRevision:string;instance:string}} | {kind:"approval"|"allowance"};
 export interface EgressRecord {
   /** Host identity, shared with admission and terminal observation; never a tool correlation. */
   connectionId?: string;
@@ -100,7 +101,7 @@ export interface EgressProxyOptions {
   taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean; contacted(host: string): boolean;
     /** Immutable evidence/authority marker; may exclude only this admission's own recorded input. */
     approvalRevision?(connectionId?: string, kind?: "network" | "outward"): string;
-    recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean;
+    recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean | Extract<EgressRecipientAuthority,{kind:"rule"}>["admission"];
     approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal): Promise<boolean>;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
@@ -113,7 +114,7 @@ export interface EgressProxyOptions {
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?: string }): unknown;
   /** Synchronous notification only after final admission, immediately before dispatch. */
   preparing?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean }): void;
-  committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean }): void;
+  committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean; recipientAuthority: EgressRecipientAuthority }): void;
   signal?: AbortSignal;
   /**
    * Destination address policy (#3687). When set, the proxy resolves every
@@ -367,7 +368,15 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // Checked again after an approval wait, during which another connection may taint the session.
     // Inference/provider relays retain G5. Managed references retain ordinary
     // G6 recipient narrowing; repository trust never grants outbound authority.
-    const narrowed = (final = false) => !granted && !inference && !provider && options.taint?.tainted(final ? connectionId : undefined) && !matches(host, options.taint.allow) && !options.taint.contacted(host) && !options.taint.recipient?.(recipient);
+    const recipientDecision = (final = false): EgressRecipientAuthority | null => {
+      if(granted)return {kind:"approval"};
+      if(inference||provider)return {kind:"allowance"};
+      const rule=options.taint?.recipient?.(recipient);
+      if(rule)return typeof rule === "object" ? {kind:"rule",admission:rule} : {kind:"allowance"};
+      if(!options.taint?.tainted(final?connectionId:undefined)||matches(host,options.taint.allow)||options.taint.contacted(host))return {kind:"allowance"};
+      return null;
+    };
+    const narrowed = (final = false) => recipientDecision(final) === null;
     const narrowing = async () => {
       if (!narrowed()) return true;
       if (options.taint?.approve) { grantRevision = approvalRevision(); granted = await approval(options.taint.approve.bind(options.taint));
@@ -417,19 +426,20 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       return true;
     });
     // No await may intervene between this check and connect/request/fetch.
-    const maySendNow = (count: number) => {
+    const maySendNow = (count: number): EgressRecipientAuthority | null => {
       try {
-      if (!lifecycle.active() || stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
+      if (!lifecycle.active() || stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return null; }
       const stateRefusal=lifecycle.sendRefusal(count,options.maxBytes-usedBytes);
-      if (stateRefusal) { finish(stateRefusal==="turn_cancelled"?"cancelled":"denied",stateRefusal);return false; }
+      if (stateRefusal) { finish(stateRefusal==="turn_cancelled"?"cancelled":"denied",stateRefusal);return null; }
       const current = options.admissionSafety?.read();
-      if (refuseSafety(current,snapshot)) return false;
-      if (!grantCurrent(true)) { refuseStaleApproval(); return false; }
-      if (!inputCurrent(connectionId)) { revokeInput(); return false; }
-      if (narrowed(true)) { finish("denied", "taint_not_allowed"); return false; }
+      if (refuseSafety(current,snapshot)) return null;
+      if (!grantCurrent(true)) { refuseStaleApproval(); return null; }
+      if (!inputCurrent(connectionId)) { revokeInput(); return null; }
+      const authority=recipientDecision(true);
+      if (!authority) { finish("denied", "taint_not_allowed"); return null; }
       usedBytes += count; bytes += count;
-      return true;
-      } catch { finish("denied", "egress_unavailable"); return false; }
+      return authority;
+      } catch { finish("denied", "egress_unavailable"); return null; }
     };
     const prepare = (): EgressChargeResult => {
       try{return lifecycle.prepare(()=>options.preparing?.({...recipient,connectionId,inference,provider,recipientApproved:granted}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
@@ -437,7 +447,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     const dispatch = (send:()=>void): EgressChargeResult => {
       const prepared=prepare();if(!prepared.ok)return prepared;
-      try{return lifecycle.dispatch(options.maxBytes-usedBytes,()=>maySendNow(0),send,()=>options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
+      let authority:EgressRecipientAuthority|null=null;
+      try{return lifecycle.dispatch(options.maxBytes-usedBytes,()=>Boolean(authority=maySendNow(0)),send,()=>options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted,recipientAuthority:authority!}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
       catch(error){if(error instanceof TransportHandoffFailed)throw error;finish("failed","upstream_unreachable");throw new Error("Egress transport could not start");}
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */

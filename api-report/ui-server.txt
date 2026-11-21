@@ -703,6 +703,7 @@ signatures (every public export and the types it is made of)
                 reason: z.ZodOptional<z.ZodString>;
                 recipientAdmission: z.ZodOptional<z.ZodObject<{
                     collectionRevision: z.ZodString;
+                    instance: z.ZodOptional<z.ZodString>;
                     policyHash: z.ZodString;
                     ruleId: z.ZodString;
                     trustRevision: z.ZodString;

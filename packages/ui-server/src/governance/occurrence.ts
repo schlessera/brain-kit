@@ -1,9 +1,9 @@
 /** Host collection metadata. No trust matching or human verdict authority lives here. */
 import { z } from "zod";
-import { safetyRecordSchema } from "@schlessera/brain-ui-sdk/internal";
+import { safetyOccurrenceAdmissionSchema } from "@schlessera/brain-ui-sdk/internal";
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
-export const OccurrenceSchema = z.strictObject({
+export const OccurrenceSchema = safetyOccurrenceAdmissionSchema.safeExtend({
   id, epochId: id, operationId: id.nullable(), signalId: id, exposureId: id,
   /** Captured by the host collector, never inferred from display content. */
   entry: z.strictObject({kind:z.literal("tool"),toolUseId:id}).optional(),
@@ -11,12 +11,7 @@ export const OccurrenceSchema = z.strictObject({
     "compute_input", "unproxied_shell_input", "proxy_input", "explicit_untrusted_input"]),
   // Observation of a result is not proof that input delivery has ended.
   exposure: z.enum(["open", "finalized", "interrupted_unknown"]),
-  provenance: safetyRecordSchema.options[0].shape.provenance,
-  admission: z.discriminatedUnion("trusted", [
-    z.strictObject({trusted:z.literal(false),policyHash:z.string().regex(/^[a-f0-9]{64}$/).nullable(),trustRevision:z.string().regex(/^(0|[1-9][0-9]{0,19})$/)}),
-    z.strictObject({trusted:z.literal(true),ruleId:id,policyHash:z.string().regex(/^[a-f0-9]{64}$/),trustRevision:z.string().regex(/^(0|[1-9][0-9]{0,19})$/),collectionRevision:z.string().regex(/^(0|[1-9][0-9]{0,19})$/)}),
-  ]).optional(),
-});
+}).strict();
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
 
 export function occurrence(epochId: string, detector: Occurrence["detector"], operationId: string | null,

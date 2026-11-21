@@ -1,4 +1,4 @@
-export { safetyRecordSchema } from "./safety.js";
+export { safetyRecordSchema, safetyOccurrenceAdmissionSchema, safetyAdmissionSchema } from "./safety.js";
 /** First-party implementation sharing. No compatibility guarantee; use the same lockstep version. */
 export { BRAIN_INTERACTION_GUIDANCE, projectConversationGuidance, conversationOrientation, ORIENTATION_MAX_BYTES } from "./server/interaction-guidance.js";
 export { prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "./server/worker-identity-reader.js";

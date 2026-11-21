@@ -1590,6 +1590,8 @@ export "./internal" (./src/internal.ts)
   runMaintenanceWorker
   runMaintenanceWorkerSync
   safetyAdmissionRefusal
+  safetyAdmissionSchema
+  safetyOccurrenceAdmissionSchema
   safetyRecordSchema
   sameSafetyAdmission
   sessionPromptContext

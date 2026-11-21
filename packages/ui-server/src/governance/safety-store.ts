@@ -2,7 +2,7 @@
 import { Database } from "bun:sqlite";
 import { safetyQueue } from "./safety-queue.js";
 import { assertLive,ChatRetiredError } from "../ws/chat-lifecycle.js";
-import { occurrence, type Occurrence } from "./occurrence.js";
+import { occurrence, OccurrenceSchema, type Occurrence } from "./occurrence.js";
 import type { GovernanceEventRow } from "./events.js";
 import { principalAccount, sameAccount } from "../middleware/account-partition.js";
 
@@ -345,7 +345,7 @@ export function appendSafetyEvent(db:Database,row:GovernanceEventRow,reserved=fa
  }
  live(db,c,reserved);
  if(row.kind==="taint"){
-  const observed=payload.occurrence as Occurrence|undefined;
+  const observed=payload.occurrence === undefined ? undefined : OccurrenceSchema.parse(payload.occurrence);
   if(!observed)db.query("UPDATE safety_collections SET gap=COALESCE(gap,'uninstrumented_backend_input') WHERE id=?").run(c.id);
   if(observed&&JSON.parse(c.acknowledged).length&&observed.epochId!==c.id)throw new SafetyUnavailable("Safety occurrence epoch mismatch");
   const id=observed?.id??row.dedupeKey??crypto.randomUUID();
@@ -515,7 +515,7 @@ export function pruneSafetyDetail(db:Database,before:number):number {
    for(const row of rows){
      const original=JSON.parse(row.payload).occurrence;
      const entry=original?.entry, admission=original?.admission;
-     db.query("UPDATE safety_records SET payload=?,detail_pruned=1 WHERE id=?").run(JSON.stringify({sha256:new Bun.CryptoHasher("sha256").update(row.payload).digest("hex"),...(entry?{entry}:{}),...(admission?{admission}:{})}),row.id);
+     db.query("UPDATE safety_records SET payload=?,detail_pruned=1 WHERE id=?").run(JSON.stringify({sha256:new Bun.CryptoHasher("sha256").update(row.payload).digest("hex"),...(entry?{entry}:{}),...(admission?{admission,provenance:original.provenance}:{})}),row.id);
    }
    return rows.length;
  }).immediate();

@@ -55,3 +55,5 @@ Preserve ordinary upstream-failure classification for synchronous transport hand
 Meter raw proxy header pairs and all observable Fetch headers before forwarding filters; clarify the conservative HTTP wire bound.
 
 Publish dispatched exposure and contacted-host grants only after the transport constructor or fetch call returns successfully; synchronous construction failures remain upstream failures without granting recipient permission.
+
+Bind recipient receipts to the final dispatch authority and share verified, bounded admission validation between durable ingestion, projection and history, including retained provenance after pruning.

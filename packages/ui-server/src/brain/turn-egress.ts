@@ -1,5 +1,5 @@
 /** One admitted turn's concrete proxy, approval surface and durable records. */
-import { originTrustMatch, originTrustMatchSnapshot, type OriginTrust, type OriginDestination } from "./origin-trust.js";
+import { originTrustMatchSnapshot, type OriginTrust, type OriginDestination } from "./origin-trust.js";
 import type { EffectiveGovernancePolicy, TrustMatch } from "@schlessera/brain-common/internal/governance-policy";
 import { startEgressProxy, canonicalEgressHost, validatedEgressProvenance, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
@@ -259,7 +259,13 @@ export async function prepareTurnEgress(options: {
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
     approvalRevision,
-    recipient: (destination: OriginDestination) => originTrustMatch(options.trust, destination, "recipientWhileRestricted", "0") !== null,
+    recipient: (destination: OriginDestination) => {
+      const snapshot=options.trust?.read();
+      const match=originTrustMatchSnapshot(snapshot,destination,"recipientWhileRestricted",options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
+      if(!match||!snapshot?.ruleInstances[match.ruleId])return false;
+      const {ruleId,policyHash,trustRevision,collectionRevision}=match;
+      return {ruleId,policyHash,trustRevision,collectionRevision,instance:snapshot.ruleInstances[ruleId]!};
+    },
     tainted: (connectionId?: string) => {
       if (connectionId && normalBefore.has(connectionId)) {
         const projection = currentProjection();
@@ -325,13 +331,9 @@ export async function prepareTurnEgress(options: {
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
     inputCurrent,
-    preparing: destination => {
-      if (destination.inference || destination.provider) return;
-      const recipient = originTrustMatch(options.trust, destination, "recipientWhileRestricted", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
-      if (recipient) { const { ruleId, policyHash, trustRevision, collectionRevision } = recipient; standingRecipients.set(destination.connectionId, { ruleId, policyHash, trustRevision, collectionRevision }); }
-    },
     committed:destination=>{
       if(destination.inference||destination.provider)return;
+      if(destination.recipientAuthority.kind === "rule")standingRecipients.set(destination.connectionId,destination.recipientAuthority.admission);
       if (!destination.managedReference && (destination.recipientApproved || !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId))) contacted.add(destination.host);
     }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
