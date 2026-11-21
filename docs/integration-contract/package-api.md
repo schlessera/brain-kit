@@ -5637,7 +5637,14 @@ this reflects a live password/passkey owner at read time, never grants commit
 authority. It exposes only the current served brain's trust policy facts, not
 operation identities, review bytes, private grants or history. Prepare, commit
 and per-request receipt reads retain the live owner checks. Mixed-version hosts
-that omit `mutationAllowed` are read-only in the UI. Missing runtime capabilities
+that omit `mutationAllowed` are read-only in the UI. List reads recheck live
+principal usability after the brain-lock wait: a revoked or expired caller gets
+no policy facts. Losing owner availability invalidates private review bytes and
+pending mutation replies; a failed list refresh disables writes until a fresh
+successful read. Expired, uncommitted prepared reviews can be discarded without
+republishing, while unknown publication remains uncertain. Edit/remove drafts
+cannot refresh onto a changed trust revision: the owner must explicitly select
+the current rule again, including after ID reuse. Missing runtime capabilities
 never imply active trust; repository rows remain disabled/unverified while
 repository enforcement is unavailable. Settings edits are prospective and never
 commit historical safety verdicts. The SDK schemas entry point exposes the

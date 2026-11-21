@@ -618,9 +618,37 @@ for(const transition of ['remove','disable','retarget'] as const)test(`review12:
 
 test("authenticated read-only callers can inspect sanitized trust lists without publication authority", async () => {
   const f = await fixture();
-  const view = await f.settings.list("eumaeus");
+  const owner = createPrincipal(f.db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
+  const reader = createPrincipal(f.db, { authMethod: "delegated", label: "Eumaeus", createdBy: owner.id, ttlSeconds: 3600 });
+  const view = await f.settings.list(reader.id);
   expect(view.mutationAllowed).toBe(false);
   expect(view.rules).toEqual([]);
   expect((await f.settings.list("odysseus")).mutationAllowed).toBe(true);
-  await expect(f.settings.prepare("eumaeus", { version: 1, expectedTrustRevision: view.revision, expectedPolicyHash: view.policyHash, change: { action: "create", rule } })).rejects.toThrow("unauthorized");
+  await expect(f.settings.prepare(reader.id, { version: 1, expectedTrustRevision: view.revision, expectedPolicyHash: view.policyHash, change: { action: "create", rule } })).rejects.toThrow("unauthorized");
+});
+
+for (const transition of ["revoke-owner", "revoke-agent", "expire-owner", "delete-owner"] as const) test(`F1 list refuses ${transition} while waiting on the brain lock`, async () => {
+  const root = mkdtempSync(join(import.meta.dir, "../../../tmp/trust-settings-tests/read-race-"));
+  const db = createUiDb(":memory:"), lock = createKeyedLock();
+  cleanup.push(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
+  mkdirSync(join(root, "context/policies"), { recursive: true });
+  writeFileSync(join(root, "context/policies/governance.md"), `---\nschema_version: 1\ntaint: ${JSON.stringify({ trusted_sources: [rule] })}\n---\nThe voyage policy.\n`);
+  const owner = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
+  const reader = transition === "revoke-agent" ? createPrincipal(db, { authMethod: "delegated", label: "Eumaeus", createdBy: owner.id, ttlSeconds: 3600 }) : owner;
+  const settings = createTrustSettings({ root, db, lock, observe: async (_id, publish) => { await publish(); }, authority: id => {
+    const p = resolvePrincipal(db, id); return p?.kind === "owner" && isUsablePrincipal(p, Date.now()) ? p.id : null;
+  } });
+  expect((await settings.list(reader.id)).rules).toHaveLength(1);
+  const release = await lock.acquire(BRAIN_LOCK_KEY);
+  const pending = settings.list(reader.id);
+  try {
+    if (transition === "delete-owner") db.query("DELETE FROM principals WHERE id=?").run(reader.id);
+    else if (transition === "expire-owner") db.query("UPDATE principals SET expires_at=0 WHERE id=?").run(reader.id);
+    else expect(revokePrincipal(db, reader.id, Date.now())).toEqual([reader.id]);
+    const current = resolvePrincipal(db, reader.id);
+    expect(current !== null && isUsablePrincipal(current, Date.now())).toBe(false);
+  } finally { release(); }
+  let refusal: string | null = null;
+  try { await pending; } catch (error) { refusal = (error as Error).message; }
+  expect(refusal).toBe("unauthorized");
 });

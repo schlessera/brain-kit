@@ -27,6 +27,7 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
   const setOperation = (operation: TrustOperation | null) => session.setState({ operation });
   const setUncertain = (uncertain: boolean) => session.setState({ uncertain });
   const [error, setError] = useState("");
+  const [readError, setReadError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const readRequest = useRef(0);
@@ -34,21 +35,44 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
   const opener = useRef<HTMLElement | null>(null), heading = useRef<HTMLHeadingElement>(null), editor = useRef<HTMLDivElement>(null);
   const focusEditor = useRef(false), restoreFocus = useRef(false), focusReview = useRef(false);
   const current = useCallback((token: number) => token === generation.current && epoch.current === root.authLock.epoch() && !controller.current.signal.aborted, [root]);
+  const ownerMessage = "Read-only: a live password or passkey owner login is required to manage trust.";
+  const invalidateReview = useCallback(() => {
+    generation.current++; session.setState({ operation: null, uncertain: false });
+    setBusy(false); setError(""); setNotice("");
+  }, [session]);
+  function ownerRefused(err: unknown) {
+    if (!(err instanceof ApiRequestError) || ![401, 403].includes(err.status)) return false;
+    invalidateReview(); setRead(null); setReadError(ownerMessage); return true;
+  }
   const load = useCallback(async () => {
     const token = generation.current, request = ++readRequest.current;
-    try { const next = await api.trustSettings(controller.current.signal); if (current(token) && request === readRequest.current) { setRead(next); return next; } }
-    catch (err) { if (current(token) && request === readRequest.current) setError(err instanceof ApiRequestError && err.status === 403 ? "Read-only: a live password or passkey owner login is required to manage trust." : "Trust settings unavailable. No configured rule is confirmed active."); }
+    try {
+      const next = await api.trustSettings(controller.current.signal);
+      if (current(token) && request === readRequest.current) {
+        if (next.mutationAllowed !== true) {
+          // Drop owner-only bytes and fence every pending mutation continuation.
+          invalidateReview();
+        }
+        setRead(next); setReadError(""); return next;
+      }
+    } catch (err) {
+      if (current(token) && request === readRequest.current) {
+        setRead(null);
+        if (err instanceof ApiRequestError && [401, 403].includes(err.status)) { invalidateReview(); setReadError(ownerMessage); }
+        else { generation.current++; setBusy(false); setReadError("Trust settings unavailable. No configured rule is confirmed active."); }
+      }
+    }
     return null;
-  }, [api, current]);
+  }, [api, current, invalidateReview]);
   useEffect(() => {
     generation.current++; epoch.current = root.authLock.epoch(); const lifetime = new AbortController(); controller.current = lifetime;
-    setRead(null); setError(""); setNotice(""); setBusy(false);
+    setRead(null); setError(""); setReadError(""); setNotice(""); setBusy(false);
     if (!active) return () => lifetime.abort();
     void load();
     const refresh = () => { if (document.visibilityState === "visible") void load(); };
     const timer = setInterval(refresh, 30_000); window.addEventListener("focus", refresh);
     const stop = root.authLock.state.subscribe(state => {
-      if (state.phase !== "active") { generation.current++; lifetime.abort(); setRead(null); session.setState({ draft: null, operation: null, uncertain: false }); setError(""); setNotice(""); setBusy(false); opener.current = null; }
+      if (state.phase !== "active") { generation.current++; lifetime.abort(); setRead(null); session.setState({ draft: null, operation: null, uncertain: false }); setError(""); setReadError(""); setNotice(""); setBusy(false); opener.current = null; }
     });
     return () => { generation.current++; lifetime.abort(); clearInterval(timer); window.removeEventListener("focus", refresh); stop(); };
   }, [active, root, load, session]);
@@ -65,7 +89,7 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
     setDraft({ action, rule, kind: rule?.selector.kind ?? (repository ? "github_repository" : "web_origin"), providerId: "", target: rule ? trustTarget(rule.selector).replace(" · opaque tunnel", "") : "", label: rule?.label ?? "", incoming: rule?.incomingContent ?? true, recipient: rule?.recipientWhileRestricted ?? false, revision: read.revision, hash: read.policyHash });
   }
   async function prepare() {
-    if (!draft || !read || busy || !canMutate) return;
+    if (!draft || !read || busy || !canMutate || selectedChanged) return;
     let change: TrustChange;
     try {
       if (draft.action === "remove") change = { action: "remove", ruleId: draft.rule!.id };
@@ -88,12 +112,17 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
     } catch (err) { setError(err instanceof Error ? err.message.includes("Duplicate trust") ? "This canonical target already has a rule. Edit that rule instead." : err.message : "Check the fields."); return; }
     const token = generation.current; setBusy(true); setError("");
     try { const next = await api.trustPrepare(change, draft.revision, draft.hash, controller.current.signal); if (current(token)) { focusReview.current = true; setOperation(next); } }
-    catch (err) { if (current(token)) { setError(`Nothing saved. ${err instanceof Error ? err.message : "Review failed"}. Refresh the base and review again; your draft is kept.`); } }
+    catch (err) { if (current(token) && !ownerRefused(err)) { setError(`Nothing saved. ${err instanceof Error ? err.message : "Review failed"}. Refresh the base and review again; your draft is kept.`); } }
     finally { if (current(token)) setBusy(false); }
+  }
+  function expiredReview() {
+    setOperation(null); setUncertain(false);
+    setError("Review expired. Nothing was published. Refresh base and review again; your draft is kept.");
   }
   async function settle(next: TrustOperation) {
     setOperation(next);
     const receipt = next.receipt;
+    if (receipt.stage === "prepared" && receipt.publication === "not_published" && next.review.expiresAt < Date.now()) { expiredReview(); return; }
     if (receipt.stage === "prepared" || receipt.stage === "unknown" || receipt.stage === "file_published") { setUncertain(true); setNotice("Save is not confirmed. Check the same receipt; no automatic retry will publish again."); return; }
     if (receipt.publication === "proved") {
       setNotice(`Publication proved. ${receipt.enforcement === "enforced" ? "Future admissions updated." : "Runtime enforcement unavailable."} Current rule: ${receipt.currentRule}. Historical events are unchanged.`);
@@ -102,24 +131,44 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
     } else { setUncertain(true); setError(`Change not confirmed: ${receipt.reason ?? receipt.stage}. Your draft is kept.`); }
   }
   async function commit() {
-    if (!operation || busy || uncertain || !canMutate) return;
+    if (!operation || busy || uncertain || !canMutate || selectedChanged) return;
+    if (operation.receipt.stage === "prepared" && operation.receipt.publication === "not_published" && operation.review.expiresAt < Date.now()) { expiredReview(); return; }
     const token = generation.current; setBusy(true); setUncertain(true);
     try { const next = await api.trustCommit(operation, controller.current.signal); if (current(token)) await settle(next); }
-    catch { if (current(token)) { setUncertain(true); setError("Save outcome unknown. Check the receipt before making another change."); } }
+    catch (err) { if (current(token)) {
+      if (ownerRefused(err)) return;
+      if (err instanceof ApiRequestError && err.message === "request_expired") expiredReview();
+      else { setUncertain(true); setError("Save outcome unknown. Check the receipt before making another change."); }
+    } }
     finally { if (current(token)) setBusy(false); }
   }
   async function check() {
     if (!operation || busy) return; const token = generation.current; setBusy(true);
     try { const next = await api.trustReceipt(operation.receipt.requestId, controller.current.signal); if (current(token)) await settle(next); }
-    catch { if (current(token)) setError("Receipt unavailable. Save remains unconfirmed; your draft is kept."); }
+    catch (err) { if (current(token) && !ownerRefused(err)) setError("Receipt unavailable. Save remains unconfirmed; your draft is kept."); }
     finally { if (current(token)) setBusy(false); }
   }
   const canMutate = !!read && read.mutationAllowed === true && !read.error;
+  const conflict = "Trust rules changed. Your draft is kept; cancel and select the current rule before reviewing again.";
+  const selectedChanged = !!draft?.rule && !!read && (draft.revision !== read.revision || JSON.stringify(read.rules.find(rule => rule.id === draft.rule!.id)) !== JSON.stringify(draft.rule));
+  const message = readError || error || (selectedChanged ? conflict : "");
+  async function refreshBase() {
+    if (busy) return;
+    const token = generation.current; setBusy(true);
+    try {
+      const next = await load(), value = session.getState().draft;
+      if (!current(token) || !next || next.mutationAllowed !== true || next.error || !value) return;
+      // A trust revision can hide remove/recreate even when the bytes match.
+      // Re-select explicitly instead of applying stale grant/removal intent.
+      if (value.rule && (value.revision !== next.revision || JSON.stringify(next.rules.find(rule => rule.id === value.rule!.id)) !== JSON.stringify(value.rule))) { setError(conflict); return; }
+      setDraft({ ...value, revision: next.revision, hash: next.policyHash }); setError("");
+    } finally { if (current(token)) setBusy(false); }
+  }
   if (!active) return null;
   return <section data-trust-settings className="my-5 min-w-0 space-y-4" style={{ overflowWrap: "anywhere" }}>
     <h3 ref={heading} tabIndex={-1} className="text-sm font-semibold">Source trust and data sending</h3>
     <p className="text-xs">Rules apply to future input only. Settings never marks historical events safe or clears a chat's restrictions.</p>
-    {error && <div role="alert"><Callout tone="gold" variant="banner" text={error} /></div>}
+    {message && <div role="alert"><Callout tone="gold" variant="banner" text={message} /></div>}
     <p role="status" className="text-xs">{notice}</p>
     {!read ? <p className="text-xs">No trust policy loaded.</p> : <>
       {!canMutate && <p className="text-xs">Read-only. {read.error ? "Policy invalid or unavailable; last-valid rules (or empty defaults if none) are shown. No new rule can be saved." : "Only a live password or passkey owner can change these rules."}</p>}
@@ -154,11 +203,11 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
         <div role="group" aria-label="Independent trust permissions" className="space-y-4"><ChoiceOption multiple title="Trust future incoming content" selected={draft.incoming} disabled={busy || !!operation || draft.kind.startsWith("github_")} onClick={() => setDraft({ ...draft, incoming: !draft.incoming })} />
         <ChoiceOption multiple title="Allow sending data while restricted" subtitle="Allows data to be sent to this destination even when another trigger restricts the chat. Independent deny rules, byte limits and credential checks still apply." selected={draft.recipient} disabled={busy || !!operation || draft.kind.startsWith("github_") || !read?.capabilities.recipientRules} onClick={() => setDraft({ ...draft, recipient: !draft.recipient })} /></div>
       </>}
-      {operation && <div className="space-y-3"><h4 data-trust-review tabIndex={-1} className="text-sm font-semibold">Review exact policy change</h4><p className="text-xs">Source trust and recipient permission are independent. Review both in these exact bytes before Save. This does not resolve historical events.</p><pre tabIndex={0} className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs">{operation.review.diff}</pre></div>}
+      {operation && canMutate && <div className="space-y-3"><h4 data-trust-review tabIndex={-1} className="text-sm font-semibold">Review exact policy change</h4><p className="text-xs">Source trust and recipient permission are independent. Review both in these exact bytes before Save. This does not resolve historical events.</p><pre tabIndex={0} className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs">{operation.review.diff}</pre></div>}
       <div className="flex flex-wrap gap-4">
         <Button label="Cancel" reach block={false} disabled={busy || uncertain} onClick={close} />
-        {!operation ? <><Button label="Review change" reach block={false} disabled={busy || !canMutate} onClick={() => void prepare()} /><Button label="Refresh base" reach block={false} disabled={busy} onClick={async () => { const next = await load(); if (next) setDraft(value => value && { ...value, revision: next.revision, hash: next.policyHash }); }} /></>
-          : uncertain ? <Button label="Check save receipt" reach block={false} disabled={busy} onClick={() => void check()} /> : <Button label={draft.action === "remove" ? "Remove rule" : "Save rule"} reach block={false} disabled={busy || !canMutate} onClick={() => void commit()} />}
+        {!operation ? <><Button label="Review change" reach block={false} disabled={busy || !canMutate || selectedChanged} onClick={() => void prepare()} /><Button label="Refresh base" reach block={false} disabled={busy} onClick={() => void refreshBase()} /></>
+          : uncertain ? <Button label="Check save receipt" reach block={false} disabled={busy} onClick={() => void check()} /> : <Button label={draft.action === "remove" ? "Remove rule" : "Save rule"} reach block={false} disabled={busy || !canMutate || selectedChanged} onClick={() => void commit()} />}
       </div>
     </div>}
     <AgentPolicyGroup active={active} />
