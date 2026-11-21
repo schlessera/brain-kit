@@ -7,11 +7,11 @@ for(const [name,tool,input,output,expected] of [
  ['Pi bracket filename and independent later mark','grep',{},'[voyage]/log.md:\0'+'1:sirens\nnotes/voyage.md:\0'+'2:echo\n',['user_marked','user_marked']],
  ['Pi malformed line retains later mark','grep',{},'{malformed\nnotes/voyage.md:2:echo',['user_marked','legacy_unknown']],
  ['Grep at page limit without total','Grep',{},grep(['notes/loom.md'],{appliedLimit:1}),['legacy_unknown']],
- ['Grep known complete limit','Grep',{},grep(['notes/loom.md'],{appliedLimit:1,totalFiles:1}),[]],
+ ['Grep inconsistent reported limit','Grep',{},grep(['notes/loom.md'],{appliedLimit:1,totalFiles:1}),['legacy_unknown']],
  ['Grep input limit without metadata','Grep',{head_limit:1},grep(['notes/loom.md']),['legacy_unknown']],
  ['Grep empty count claims matches','Grep',{output_mode:'count'},grep([],{content:'',numMatches:3}),['legacy_unknown']],
  ['Grep wrong sum','Grep',{output_mode:'count'},grep([],{content:'notes/loom.md:2',numMatches:3}),['legacy_unknown']],
- ['Grep correct sum','Grep',{output_mode:'count'},grep(['notes/loom.md'],{content:'notes/loom.md:2',numMatches:2}),[]],
+ ['Grep correct sum','Grep',{output_mode:'count'},grep([],{numFiles:1,content:'notes/loom.md:2',numMatches:2}),[]],
  ['Grep empty content claims matches','Grep',{output_mode:'content'},grep([],{content:'',numMatches:3}),['legacy_unknown']],
  ['Grep empty files claims matches','Grep',{},grep([],{numMatches:3}),['legacy_unknown']],
  ['Grep files have missing content','Grep',{output_mode:'content'},grep(['notes/loom.md'],{content:''}),['legacy_unknown']],
@@ -28,8 +28,8 @@ for(const [name,tool,input,output,expected] of [
  ['Grep count at limit without total','Grep',{output_mode:'count'},grep([],{content:'notes/loom.md:2',appliedLimit:1}),['legacy_unknown']],
  ['Grep zero count entry','Grep',{output_mode:'count'},grep([],{content:'notes/loom.md:0',numMatches:0}),['legacy_unknown']],
  ['Grep wrong reported offset','Grep',{offset:1},grep([],{appliedOffset:0}),['legacy_unknown']],
- ['Grep unbounded limit','Grep',{head_limit:0},grep(['notes/loom.md'],{appliedLimit:0}),[]],
- ['Grep zero reported files with identified content','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:sirens'}),['legacy_unknown']],
+ ['Grep unbounded limit','Grep',{head_limit:0},grep(['notes/loom.md']),[]],
+ ['Grep content has no reported filename count','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:sirens'}),[]],
  ['Grep count mismatched filenames','Grep',{output_mode:'count'},grep(['notes/other.md'],{content:'notes/loom.md:1',numMatches:1}),['legacy_unknown']],
  ['Grep reported unlimited cannot hide input limit','Grep',{head_limit:1},grep(['notes/loom.md'],{appliedLimit:0}),['legacy_unknown']],
  ['Grep content count contradicts lines','Grep',{output_mode:'content'},grep(['notes/loom.md'],{content:'notes/loom.md:1:sirens',numMatches:2}),['legacy_unknown']],
@@ -72,14 +72,14 @@ for(const [name,tool,input,output,expected] of [
  ['mixed Pi sentinel','grep',{},'notes/voyage.md:1:sirens\nNo matches.',['user_marked','legacy_unknown']],
  ['Claude pagination','Grep',{},grep(['notes/loom.md'],{totalFiles:2}),['legacy_unknown']],
  ['arbitrary Pi JSON sentinel','grep',{},JSON.stringify({matches:'No matches.'}),['legacy_unknown']],
- ['clipped Glob JSON','Glob',{},'{"filenames":["notes/voyage.md"',['legacy_unknown']],
+ ['clipped Glob JSON','Glob',{},'{"filenames":["notes/voyage.md"',['user_marked','legacy_unknown']],
  ['Claude no line numbers','Grep',{output_mode:'content','-n':false},grep([],{content:'notes/voyage.md:signal:2:echo',numLines:1}),['user_marked','legacy_unknown']],
  ['marked exact Glob','Glob',{},glob(['notes/voyage:2:home.md']),['user_marked']],
  ['complete Glob','Glob',{},glob(['notes/loom.md']),[]],
  ['Glob literal omission filename','Glob',{},glob(['notes/omitted.md'],{countIsComplete:true,totalMatches:1}),[]],
  ['Glob literal truncation filename','Glob',{},glob(['notes/truncated.md'],{countIsComplete:true,totalMatches:1}),[]],
- ['Grep literal omission content','Grep',{output_mode:'content'},grep(['notes/loom.md'],{content:'notes/loom.md:1:omitted',numLines:1}),[]],
- ['Grep literal omission count path','Grep',{output_mode:'count'},grep(['notes/omitted.md'],{content:'notes/omitted.md:2',numMatches:2}),[]],
+ ['Grep literal omission content','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:omitted',numLines:1,totalLines:1}),[]],
+ ['Grep literal omission count path','Grep',{output_mode:'count'},grep([],{numFiles:1,content:'notes/omitted.md:2',numMatches:2}),[]],
  ['Pi exact literal omission path','grep',{},'notes/omitted.md:\0'+'1:sirens\n',[]],
  ['Glob total omitted','Glob',{},glob(['notes/loom.md'],{totalMatches:2}),['legacy_unknown']],
  ['Glob lower bound','Glob',{},glob(['notes/loom.md'],{countIsComplete:false}),['legacy_unknown']],
@@ -91,9 +91,9 @@ for(const [name,tool,input,output,expected] of [
  ['Grep wrong mode','Grep',{},grep([],{mode:'content'}),['legacy_unknown']],
  ['Grep omitted lines','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:sirens',numLines:1,totalLines:2}),['legacy_unknown']],
  ['Grep offset','Grep',{offset:1},grep([]),['legacy_unknown']],
- ['Grep count colon filename','Grep',{output_mode:'count'},grep(['notes/voyage:2'],{content:'notes/voyage:2:7'}),['user_marked']],
+ ['Grep count colon filename','Grep',{output_mode:'count'},grep([],{numFiles:1,content:'notes/voyage:2:7',numMatches:7}),['user_marked']],
  ['Grep mode mismatch salvages content','Grep',{output_mode:'files_with_matches'},grep([],{mode:'content',content:'notes/voyage.md:1:sirens',numLines:1}),['user_marked','legacy_unknown']],
- ['Grep numbered content','Grep',{output_mode:'content'},grep(['notes/voyage.md'],{content:'notes/voyage.md:1:sirens',numLines:1}),['user_marked']],
+ ['Grep numbered content','Grep',{output_mode:'content'},grep([],{content:'notes/voyage.md:1:sirens',numLines:1,totalLines:1}),['user_marked']],
  ['Grep ambiguous content','Grep',{output_mode:'content'},grep([],{content:'notes/voyage:2:7:sirens',numLines:1}),['user_marked','legacy_unknown']],
  ['Pi exact sentinel','grep',{},'No matches.',[]],
  ['Pi transport sentinel','grep',{},JSON.stringify([{type:'text',text:'No matches.'}]),['legacy_unknown']],
@@ -171,5 +171,33 @@ test('byte cutoff at every array position retains every complete filename elemen
   const expected=paths.filter((_,index)=>ends[index]!<=cut).flatMap(path=>[...(path.startsWith('workspaces/')?['workspace_read:'+path]:[]),'user_marked:'+path]);
   expected.push('legacy_unknown:unknown_remainder');
   expect(signals.map(signal=>signal.source+':'+signal.key).sort(),'ARRAY_BYTE_CUT_'+cut).toEqual(expected.sort());
+ }
+});
+
+for(const [name,input,output] of [
+ ['empty content',{output_mode:'content'},{mode:'content',numFiles:0,filenames:[],content:'',numLines:0,totalLines:0}],
+ ['empty count',{output_mode:'count'},{mode:'count',numFiles:0,filenames:[],content:'',numMatches:0}],
+ ['empty filenames',{}, {mode:'files_with_matches',numFiles:0,filenames:[],totalFiles:0}],
+ ['unnumbered context',{output_mode:'content','-n':false,context:1},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md-sails\nnotes/loom.md:sirens',numLines:2,totalLines:2}],
+ ['context group separator',{output_mode:'content',context:1},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md:1:sirens\n--\nnotes/raft.md:4:sirens',numLines:3,totalLines:3}],
+ ['content directory match',{output_mode:'content'},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md:1:sirens',numLines:1,totalLines:1}],
+ ['content context and match',{output_mode:'content',context:1},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md-12-sails\nnotes/loom.md:13:sirens',numLines:2,totalLines:2}],
+ ['content without numbers',{output_mode:'content','-n':false},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md:sirens',numLines:1,totalLines:1}],
+ ['count directory matches',{output_mode:'count'},{mode:'count',numFiles:2,filenames:[],content:'notes/loom.md:2\nnotes/raft.md:3',numMatches:5}],
+ ['count reaches known total',{output_mode:'count',head_limit:1},{mode:'count',numFiles:1,filenames:[],content:'notes/loom.md:2',numMatches:2}],
+ ['files with matches',{}, {mode:'files_with_matches',numFiles:2,filenames:['notes/loom.md','notes/raft.md'],totalFiles:2}],
+] as const)test(`installed Grep construction remains healthy: ${name}`,()=>{
+ expect(outputTaintSignals('Grep',JSON.stringify(output),undefined,()=>false,searchOutputContext('Grep',input))).toEqual([]);
+});
+test('a paginated numbered context row retains its marked filename',()=>{
+ const output={mode:'content',numFiles:0,filenames:[],content:'notes/loom.md-12-sails',numLines:1,totalLines:2,appliedOffset:1};
+ expect(outputTaintSignals('Grep',JSON.stringify(output),undefined,path=>path==='notes/loom.md',searchOutputContext('Grep',{output_mode:'content',context:1,head_limit:1,offset:1})).map(s=>s.source).sort()).toEqual(['legacy_unknown','user_marked']);
+});
+test('partial arrays below the byte budget retain every complete filename',()=>{
+ const paths=['workspaces/voyage/raft.md','notes/lo"om.md','notes/a\nb.md'],array=JSON.stringify(paths);let end=1;const ends=paths.map(path=>{end+=JSON.stringify(path).length;const result=end;end++;return result;});
+ for(let cut=0;cut<array.length;cut++){
+  const output='{"durationMs":1,"numFiles":3,"filenames":'+array.slice(0,cut);
+  const expected=paths.filter((_,i)=>ends[i]!<=cut).flatMap(path=>[...(path.startsWith('workspaces/')?['workspace_read:'+path]:[]),'user_marked:'+path]);expected.push('legacy_unknown:unknown_remainder');
+  expect(outputTaintSignals('Glob',output,undefined,path=>paths.includes(path),{backendId:'claude'}).map(s=>s.source+':'+s.key).sort(),'SMALL_ARRAY_CUT_'+cut).toEqual(expected.sort());
  }
 });

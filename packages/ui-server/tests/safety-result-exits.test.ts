@@ -474,7 +474,7 @@ async function claudeSearchRuns(f:Voyage){
  const child=Bun.spawn([rg,'--with-filename','-n','--no-heading','--color','never','sirens',path],{cwd:f.brain,env:{PATH:'/usr/bin:/bin'},stdout:'pipe',stderr:'pipe'});
  const [content,errors,code]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);
  expect(code,errors).toBe(0);
- return {mode:'content',numFiles:1,filenames:[path],content:content.trimEnd(),numLines:1};
+ return {mode:'content',numFiles:0,filenames:[],content:content.trimEnd(),numLines:1,totalLines:1};
 }
 
 for(const binding of ['pi','claude'] as const)test(`${binding}: two allowed searches reusing an ID cannot share one result discharge`,async()=>{

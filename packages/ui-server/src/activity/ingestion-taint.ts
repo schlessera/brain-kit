@@ -185,7 +185,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
 }
 
 /** Admitted format only. Invalid or incomplete output always retains unknown coverage. */
-interface SearchOutputContext { displayOnly?:boolean; backendId?: string; outputMode?: string; lineNumbers?: boolean; offset?: number; limit?: number; outputComplete?: boolean }
+interface SearchOutputContext { displayOnly?:boolean; backendId?: string; outputMode?: string; lineNumbers?: boolean; contextRows?:boolean; offset?: number; limit?: number; outputComplete?: boolean }
 // Installed SDK: GlobInput/GrepInput and GlobOutput/GrepOutput in
 // @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:905-983,3506-3545. Pi's shipped grep and text
 // envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:44-82)
@@ -258,12 +258,13 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
   };
   const content=(text:string,numbers:boolean)=>{
     for(const line of text.split('\n')){
+      if(line==='--'&&context?.contextRows)continue;
       if(!line){unknown=true;continue;}
       let count=0;
       // No line numbers: every colon could separate the filename and content.
       // With numbers: lookahead preserves overlapping `:2:7:` candidates.
-      for(const split of line.matchAll(numbers?/(?=:[1-9][0-9]*:)/g:/(?=:)/g)){
-        if(count++>=256){unknown=true;break;}const path=line.slice(0,split.index);contentPaths.add(path);add(path);
+      for(const split of line.matchAll(numbers?/(?=([:-])[1-9][0-9]*\1)/g:context?.contextRows?/(?=[:\-])/g:/(?=:)/g)){
+        if(count++>=256){unknown=true;break;}const path=line.slice(0,split.index);if(numbers&&split[1]==='-'&&!context?.contextRows)unknown=true;contentPaths.add(path);add(path);
       }
       if(count!==1)unknown=true;
     }
@@ -279,7 +280,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     if(mode==='count')for(const line of fields.content.split('\n')){const split=/:([1-9][0-9]*)$/.exec(line);if(split)add(line.slice(0,split.index));}
   };
   const display=context?.displayOnly&&(tool==='Glob'||tool==='Grep');
-  let parsed:unknown;if(!display)try{parsed=oversized?completeSearchFields(output):JSON.parse(output);}catch{/* Hook objects require a validated schema. */}
+  let parsed:unknown;if(!display&&(tool==='Glob'||tool==='Grep'))try{parsed=oversized?completeSearchFields(output):JSON.parse(output);}catch{parsed=completeSearchFields(output);unknown=true;}
   if(display){
     // SDK display text has no filename framing. Never reinterpret a literal
     // filename as JSON; preserve known paths and retain boundary uncertainty.
@@ -334,36 +335,39 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     if(!checked.success||!['files_with_matches','content','count'].includes(mode??'')){unknown=true;salvage(parsed,mode);if(parsed&&typeof parsed==='object'&&'mode' in parsed&&typeof parsed.mode==='string')salvage(parsed,parsed.mode);}
     else {const value=checked.data;for(const path of value.filenames)add(path);
       if(value.mode!==undefined&&value.mode!==mode)salvage(value,value.mode);
+      // Installed CLI 2.1.293, embedded `lno` Grep construction:
+      // @anthropic-ai/claude-agent-sdk-linux-x64/claude:1464467-1464477
+      // (content return at byte 0xcb4ffdf, count return at 0xcb50202).
+      // Content always reports numFiles=0/filenames=[]; count reports all
+      // matching files and match totals but leaves filenames empty. `lno`
+      // preserves both ':' match and '-' context separators from `pno`.
+      // `cDe` reports appliedLimit only when it omitted additional rows.
       const lines=mode==='files_with_matches'?value.filenames.length:value.content?value.content.split('\n').length:0;
-      const total=mode==='content'?value.totalLines:value.totalFiles;
+      const total=mode==='content'?value.totalLines:mode==='count'?value.numFiles:value.totalFiles;
       const limits=[value.appliedLimit??0,context?.limit??250];
-      // An optional total cannot be invented from a full page. Offset pages
-      // omit earlier sources even if their returned page is otherwise valid.
-      if(value.mode!==undefined&&value.mode!==mode||value.numFiles!==value.filenames.length||
-        new Set(value.filenames).size!==value.filenames.length||
-        value.totalFiles!==undefined&&value.totalFiles!==value.numFiles||
-        (value.appliedOffset??0)>0||(context?.offset??0)>0||
-        limits.some(limit=>limit>0&&(lines>limit||lines===limit&&total===undefined))||
-        value.numLines!==undefined&&value.numLines!==lines||value.totalLines!==undefined&&value.totalLines!==lines)unknown=true;
-      let matches=mode==='files_with_matches'?value.numFiles:lines;
-      if(mode==='files_with_matches'){if(value.content!==undefined&&value.content!==''){unknown=true;salvage(value,value.mode==='count'?'count':'content');}}
-      else if(value.content===undefined)unknown=true;
-      else {
-        if(!value.content&&value.numFiles>0)unknown=true;
-        if(mode==='content'){if(value.content)content(value.content,context?.lineNumbers!==false);}
-        else {
-          matches=0;
-          for(const line of value.content?value.content.split('\n'):[]){
-            const split=/:([1-9][0-9]*)$/.exec(line);
-            if(split){const path=line.slice(0,split.index);if(contentPaths.has(path))unknown=true;contentPaths.add(path);add(path);matches+=Number(split[1]);if(!Number.isSafeInteger(matches))unknown=true;}
-            else unknown=true;
-          }
+      if(value.mode!==undefined&&value.mode!==mode||new Set(value.filenames).size!==value.filenames.length||
+        value.appliedLimit!==undefined||(value.appliedOffset??0)>0||(context?.offset??0)>0||
+        limits.some(limit=>limit>0&&(lines>limit||lines===limit&&total===undefined)))unknown=true;
+      if(mode==='files_with_matches'){
+        if(value.numFiles!==value.filenames.length||value.totalFiles!==undefined&&value.totalFiles!==value.numFiles||
+          value.numLines!==undefined||value.totalLines!==undefined||value.numMatches!==undefined&&value.numMatches!==value.numFiles)unknown=true;
+        if(value.content!==undefined&&value.content!==''){unknown=true;salvage(value,value.mode==='count'?'count':'content');}
+      }else if(mode==='content'){
+        if(value.content===undefined||value.numFiles!==0||value.filenames.length!==0||
+          value.numLines!==undefined&&value.numLines!==lines||value.totalLines!==undefined&&value.totalLines!==lines||
+          value.numMatches!==undefined||value.totalFiles!==undefined)unknown=true;
+        if(value.content)content(value.content,context?.lineNumbers!==false);
+      }else{
+        let matches=0;
+        if(value.content===undefined||value.filenames.length!==0||value.numLines!==undefined||value.totalLines!==undefined)unknown=true;
+        for(const line of value.content?value.content.split('\n'):[]){
+          const split=/:([1-9][0-9]*)$/.exec(line);
+          if(split){const path=line.slice(0,split.index);if(contentPaths.has(path))unknown=true;contentPaths.add(path);add(path);matches+=Number(split[1]);if(!Number.isSafeInteger(matches))unknown=true;}
+          else unknown=true;
         }
+        if(value.numFiles!==contentPaths.size||value.numMatches!==undefined&&value.numMatches!==matches||
+          value.totalFiles!==undefined&&value.totalFiles!==value.numFiles)unknown=true;
       }
-      if(mode!=='files_with_matches'&&(value.numFiles!==contentPaths.size||value.filenames.some(path=>!contentPaths.has(path))))unknown=true;
-      // Only counts accounted for by the identified output can establish
-      // completeness; unsupported count semantics remain restrictive.
-      if(value.numMatches!==undefined&&value.numMatches!==matches)unknown=true;
     }
   }else unknown=true;
   }catch{unknown=true;}
@@ -375,6 +379,8 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
 export function searchOutputContext(tool:string,input:unknown,backendId=tool==='grep'?'pi':'claude'):SearchOutputContext {
   if(tool!=='Grep')return {backendId};
   const value=input&&typeof input==='object'?input as Record<string,unknown>:{};
+  const contextValid=['-A','-B','-C','context'].every(key=>value[key]===undefined||typeof value[key]==='number'&&Number.isSafeInteger(value[key])&&(value[key] as number)>=0);
+  const contextRows=['-A','-B','-C','context'].some(key=>typeof value[key]==='number'&&(value[key] as number)>0);
   const mode=value.output_mode===undefined?'files_with_matches':value.output_mode,numbers=value['-n']===undefined?true:value['-n'],offset=value.offset===undefined?0:value.offset,limit=value.head_limit===undefined?250:value.head_limit;
-  return {backendId,outputMode:typeof mode==='string'&&['content','files_with_matches','count'].includes(mode)&&typeof numbers==='boolean'&&Number.isSafeInteger(offset)&&Number(offset)>=0&&Number.isSafeInteger(limit)&&Number(limit)>=0?mode:'unknown',lineNumbers:numbers===true,offset:typeof offset==='number'?offset:0,limit:typeof limit==='number'?limit:250};
+  return {backendId,outputMode:contextValid&&typeof mode==='string'&&['content','files_with_matches','count'].includes(mode)&&typeof numbers==='boolean'&&Number.isSafeInteger(offset)&&Number(offset)>=0&&Number.isSafeInteger(limit)&&Number(limit)>=0?mode:'unknown',lineNumbers:numbers===true,contextRows,offset:typeof offset==='number'?offset:0,limit:typeof limit==='number'?limit:250};
 }
