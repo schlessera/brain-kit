@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines.ts";
 import { nativeNamespaceEnvironment, nativeNamespacePolicy } from "../../../scripts/test-native-guard.ts";
 /** Native commands need OS isolation: the entire fixture has only loopback networking. */
 import { expect, test } from "bun:test";
@@ -41,7 +42,7 @@ for (const shell of ["bash", "zsh"] as const) for (const [profile, startupEnv] o
         "--unshare-net", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--tmpfs", "/opt",
         "--bind", scratch, "/opt/odysseus-shell-fixture", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", ...policy.mounts,
         process.execPath, fixture, "/opt/odysseus-shell-fixture", branch, profile, startupEnv ? "startup-env" : "clean-env", shell, ...policy.args], {
-        env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: 30_000,
+        env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: watchdogMs(30_000),
       });
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect(exit, stderr || stdout).toBe(0);

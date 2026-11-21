@@ -121,3 +121,18 @@ test("hosted file-tool startup watchdog scales with repetition load",()=>{
  expect(source).toContain("setTimeout(() => controller.abort(), watchdogMs(20_000))");
  expect(source).toContain("workerStarted:");expect(source).toContain("observeNativeWorkerStartup");
 });
+
+test("native namespace subprocess watchdogs scale with CPU-load repetition",()=>{
+ let count=0;
+ for(const [file,source] of fixtureSources(root))for(const argv of namespaceLaunches(source)){
+  const call=argv.parent;
+  if(!ts.isCallExpression(call))continue;
+  const options=call.arguments[1];
+  expect(options&&ts.isObjectLiteralExpression(options),`NAMESPACE_SPAWN_OPTIONS ${file}`).toBe(true);
+  if(!options||!ts.isObjectLiteralExpression(options))continue;
+  const timeout=options.properties.find(prop=>ts.isPropertyAssignment(prop)&&prop.name.getText(source)==="timeout");
+  expect(timeout&&ts.isPropertyAssignment(timeout)&&ts.isCallExpression(timeout.initializer)&&timeout.initializer.expression.getText(source)==="watchdogMs",`NAMESPACE_SUBPROCESS_WATCHDOG ${file}`).toBe(true);
+  count++;
+ }
+ expect(count).toBeGreaterThanOrEqual(8);
+});
