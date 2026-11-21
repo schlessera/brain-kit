@@ -87,24 +87,28 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
     for await (const msg of inputs.stream) {
       if (startupTiming && msg.type === "system" && msg.subtype === "init" && !mcpInitObserved) {
         mcpInitObserved = true;
-        let omitted = false;
-        // Diagnostic metadata has no authority over an otherwise usable frame.
-        // Both list/property reads and individual entries may be malformed.
+        let omitted = 0, bytes = 2;
+        // Optional diagnostics are bounded before invoking the observer and
+        // never have authority over a usable stream.
         try {
           const servers = msg.mcp_servers;
-          if (!Array.isArray(servers)) omitted = true;
+          if (!Array.isArray(servers)) omitted = 1;
           else {
-            omitted = servers.length > 32;
-            for (const server of servers.slice(0, 32)) {
+            const length = servers.length;
+            if (!Number.isSafeInteger(length) || length < 0) throw Error("MCP diagnostics length unavailable");
+            omitted = Math.max(0, length - 8);
+            for (let index = 0; index < Math.min(8, length); index++) {
               try {
-                const name = server?.name;
-                if (typeof name !== "string" || name.length > 240 || Buffer.byteLength(name) > 240) { omitted = true; continue; }
-                startupTiming.missing(`mcp_connect:${name}`);
-              } catch { omitted = true; }
+                const name = servers[index]?.name;
+                if (typeof name !== "string" || name.length > 48 || Buffer.byteLength(name) > 48) { omitted++; continue; }
+                const diagnostic = `mcp_connect:${name}`, size = Buffer.byteLength(JSON.stringify(diagnostic)) + 1;
+                if (bytes + size > 192) { omitted++; continue; }
+                bytes += size; startupTiming.missing(diagnostic);
+              } catch { omitted++; }
             }
           }
-        } catch { omitted = true; }
-        if (omitted) startupTiming.missing("mcp_connect:additional_servers_omitted");
+        } catch { omitted++; }
+        if (omitted) startupTiming.missing("mcp_connect:additional_servers_omitted", omitted);
       }
       input.observe(msg);
       if (carried && CarriedResult.continues(msg)) carried.continued = true;

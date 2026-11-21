@@ -275,3 +275,16 @@ for (const defect of ["phase-prefix", "missing-milestones", "unfinished-steps"] 
   expect(() => requireAdmissionSteps(lifecycleTimingSample(source), "ithaca-invalid"), "NATIVE_ADMISSION_REQUIRES_EXACT_COMPLETED_EVIDENCE")
     .toThrow("OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED");
 });
+
+for (const phase of ["governed", "journal"] as const) for (const edge of ["before", "after", "extra-after"] as const) {
+  test(`native admission rejects ${phase} evidence ${edge} its enclosing phase`, () => {
+    const source = record(); source.journalStartedAt = 1100; source.journalBeganAt = 1200;
+    source.subPhases!.push({ phase: "journal", name: "begin", startedAt: 1100, endedAt: 1200, elapsedMs: null });
+    expect(() => requireAdmissionSteps(lifecycleTimingSample(source), "ithaca-control")).not.toThrow();
+    const step = source.subPhases!.find(step => step.phase === phase)!;
+    const invalid = { ...step, startedAt: edge === "before" ? step.startedAt - 1 : 2100, endedAt: edge === "before" ? step.endedAt : 2200 };
+    if (edge === "extra-after") source.subPhases!.push(invalid); else Object.assign(step, invalid);
+    expect(() => requireAdmissionSteps(lifecycleTimingSample(source), "ithaca-invalid"), "NATIVE_ADMISSION_STEPS_STAY_WITHIN_PHASE")
+      .toThrow("OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED");
+  });
+}

@@ -3819,10 +3819,6 @@ export interface ActivitySpanEvent {
  * carries open root spans only — history comes from the REST activity API.
  */
 export interface ServerActivitySnapshot {
-  /** More append frames follow; scope eviction waits for the last frame. */
-  more?: boolean;
-  /** Records omitted for size. Fetch full run detail over REST; no floor acknowledges them. */
-  refetch?: string[];
   lifecycles?: ActivityTurnLifecycle[];
   type: "activity_snapshot";
   view: ActivityView;
@@ -3928,6 +3924,8 @@ export interface ActivityTurnLifecycle {
   firstRelayRequestAt?: number | null;
   /** SDK stages unavailable to the host; never inferred from another mark. */
   backendMissingEvidence?: string[];
+  /** Backend step/diagnostic observations omitted by count or encoded-byte limits. */
+  backendEvidenceOmitted?: number;
   firstFrameAt: number | null;
   failureObservedAt: number | null;
   endedAt: number | null;

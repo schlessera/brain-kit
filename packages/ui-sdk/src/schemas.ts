@@ -1633,6 +1633,7 @@ const activityTurnLifecycleSchema = z.looseObject({
   journalBeganAt: z.number().nullable(),
   backendInvokedAt: z.number().nullable(),
   firstRelayRequestAt: z.number().nullable().optional(),
+  backendEvidenceOmitted: z.number().int().nonnegative().optional(),
   backendMissingEvidence: z.array(z.string()).optional(),
   firstFrameAt: z.number().nullable(),
   failureObservedAt: z.number().nullable(),
@@ -1652,8 +1653,6 @@ const activityTurnLifecycleSchema = z.looseObject({
 });
 
 export const serverActivitySnapshotSchema = z.looseObject({
-  more: z.boolean().optional(),
-  refetch: z.array(id).optional(),
   type: z.literal("activity_snapshot"),
   lifecycles: z.array(activityTurnLifecycleSchema).optional(),
   view: activityView,

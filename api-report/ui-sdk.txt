@@ -4503,6 +4503,7 @@ signatures (every public export and the types it is made of)
         backendInvokedAt: number | null;
         firstRelayRequestAt?: number | null;
         backendMissingEvidence?: string[];
+        backendEvidenceOmitted?: number;
         firstFrameAt: number | null;
         failureObservedAt: number | null;
         endedAt: number | null;
@@ -13506,8 +13507,6 @@ signatures (every public export and the types it is made of)
     }
   ServerActivitySnapshot (packages/ui-sdk/src/protocol.ts)
     export interface ServerActivitySnapshot {
-        more?: boolean;
-        refetch?: string[];
         lifecycles?: ActivityTurnLifecycle[];
         type: "activity_snapshot";
         view: ActivityView;
@@ -22072,6 +22071,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -22207,6 +22207,7 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -22275,8 +22276,6 @@ signatures (every public export and the types it is made of)
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;
         }, z.core.$loose>>>;
-        more: z.ZodOptional<z.ZodBoolean>;
-        refetch: z.ZodOptional<z.ZodArray<z.ZodString>>;
         runId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         spans: z.ZodArray<z.ZodObject<{
@@ -25224,6 +25223,7 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -25292,8 +25292,6 @@ signatures (every public export and the types it is made of)
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;
         }, z.core.$loose>>>;
-        more: z.ZodOptional<z.ZodBoolean>;
-        refetch: z.ZodOptional<z.ZodArray<z.ZodString>>;
         runId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         spans: z.ZodArray<z.ZodObject<{
@@ -25362,6 +25360,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;

@@ -252,11 +252,10 @@ export function createActivityRoutes(deps: {
         const row = db
           .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
           .get(runId) as any;
-        const lifecycleSnapshot = store.lifecycleSnapshot ? store.lifecycleSnapshot(runId) : db.transaction(() => {
-          const lifecycle = store.lifecycle(runId);
-          return lifecycle ? { lifecycle, highWaterSeq: store.runHighWaterSeq(lifecycle.lifecycleId) } : null;
-        })();
-        const lifecycle = lifecycleSnapshot?.lifecycle;
+        // A legacy store may use another SQLite connection. Without its own
+        // atomic read we can return the record, but cannot claim a sequence.
+        const lifecycleSnapshot = store.lifecycleSnapshot?.(runId);
+        const lifecycle = lifecycleSnapshot ? lifecycleSnapshot.lifecycle : store.lifecycle(runId) ?? undefined;
         const lifecycleSeq = lifecycleSnapshot?.highWaterSeq;
         if (snapshot) {
           // Tool payload events (up to 16 KB each) dominate a run's byte

@@ -22,7 +22,7 @@ export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): St
       return () => observeDiagnostic(() => typeof end === "function" ? end() : undefined);
     },
     worker: (name, durationMs) => observeDiagnostic(() => timing.worker(name, durationMs)),
-    missing: name => observeDiagnostic(() => timing.missing(name)),
+    missing: (name, omitted) => observeDiagnostic(() => omitted === undefined ? timing.missing(name) : timing.missing(name, omitted)),
     received: () => observeDiagnostic(() => timing.received()),
   };
 }

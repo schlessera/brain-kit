@@ -10,9 +10,14 @@ export function requireAdmissionSteps(sample: ReturnType<typeof lifecycleTimingS
   for (const [start, end] of [[sample.governedStartedAt, sample.governedAcquiredAt], [sample.journalStartedAt, sample.journalBeganAt]]) {
     if (start === null || end === null || !Number.isFinite(start) || !Number.isFinite(end) || end < start) fail();
   }
-  for (const phase of ["governed", "journal"]) {
-    if (!sample.admissionSteps.some(step => step.phase === phase && Number.isFinite(step.startedAt)
-      && step.endedAt !== null && Number.isFinite(step.endedAt) && step.endedAt >= step.startedAt)) fail();
+  for (const [phase, start, end] of [["governed", sample.governedStartedAt, sample.governedAcquiredAt],
+    ["journal", sample.journalStartedAt, sample.journalBeganAt]] as const) {
+    const steps = sample.admissionSteps.filter(step => step.phase === phase);
+    if (!steps.length) fail();
+    for (const step of steps) {
+      if (!Number.isFinite(step.startedAt) || step.endedAt === null || !Number.isFinite(step.endedAt)
+        || step.startedAt < start! || step.endedAt! > end! || step.endedAt! < step.startedAt) fail();
+    }
   }
 }
 
@@ -42,7 +47,7 @@ export function lifecycleTimingSample(record: ActivityTurnLifecycle | undefined,
     backendStartupMs: span(record.backendInvokedAt, record.firstFrameAt), timeToFirstFrameMs: span(record.acceptedAt, record.firstFrameAt),
     // An absent first request must not turn into a claimed receipt at failure/turn end.
     invocationToRelayMs: record.backendInvokedAt === null || record.firstRelayRequestAt == null ? null : Math.max(0, record.firstRelayRequestAt - record.backendInvokedAt),
-    backendSteps: observed.filter(step => step.phase === "backend"), backendMissingEvidence: record.backendMissingEvidence ?? null, steps };
+    backendSteps: observed.filter(step => step.phase === "backend"), backendEvidenceOmitted: record.backendEvidenceOmitted ?? null, backendMissingEvidence: record.backendMissingEvidence ?? null, steps };
 }
 
 /** The first and five warm samples of the native observation fixture. */

@@ -67,8 +67,8 @@ test("an observed empty MCP list stays distinct from an unavailable list", async
 });
 
 test("Claude collects a bounded MCP name sample only from the first initialization frame", async () => {
-  const missing: string[] = [];
-  const servers = Array.from({ length: 1000 }, (_, index) => ({ name: index === 0 ? "🦉".repeat(80) : `ithaca-server-${index}`, status: "connected" }));
+  const missing: string[] = [], omittedCounts: number[] = []; let nameReads = 0;
+  const servers = Array.from({ length: 1000 }, (_, index) => ({ get name() { nameReads++; return index === 0 ? "🦉".repeat(80) : `ithaca-server-${index}`; }, status: "connected" }));
   const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
     yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: servers };
     for (let i = 0; i < 100; i++) yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: [{ name: `ithaca-late-server-${i}`, status: "connected" }] };
@@ -76,11 +76,15 @@ test("Claude collects a bounded MCP name sample only from the first initializati
   }) });
   const { bridge, frames } = makeBridge();
   await backend.startTurn(makeReq(bridge, new AbortController().signal, { startupTiming: {
-    start: () => () => {}, missing: name => { missing.push(name); }, worker() {}, received() {},
+    start: () => () => {}, missing: (name, omitted) => { missing.push(name); if (omitted !== undefined) omittedCounts.push(omitted); }, worker() {}, received() {},
   } }));
   expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
-  expect(missing.length, "CLAUDE_MCP_NAMES_ARE_BOUNDED").toBeLessThanOrEqual(36);
-  expect(missing.filter(name => name.startsWith("mcp_connect:ithaca-server-"))).toHaveLength(31);
+  expect(nameReads, "CLAUDE_MCP_SAMPLER_READS_AT_MOST_EIGHT_NAMES").toBe(8);
+  expect(missing.length, "CLAUDE_MCP_NAMES_ARE_BOUNDED").toBeLessThanOrEqual(12);
+  const sampled = missing.filter(name => name.startsWith("mcp_connect:ithaca-server-"));
+  expect(sampled.length).toBeLessThanOrEqual(8);
+  expect(Buffer.byteLength(JSON.stringify(sampled)), "CLAUDE_MCP_BYTES_ARE_BOUNDED").toBeLessThanOrEqual(192);
+  expect(sampled.length + omittedCounts.reduce((sum, count) => sum + count, 0), "CLAUDE_MCP_OMITTED_COUNT_IS_EXACT").toBe(1000);
   expect(missing).toContain("mcp_connect:additional_servers_omitted");
   expect(missing.filter(name => Buffer.byteLength(name) > 256)).toEqual([]);
   expect(missing).not.toContain("mcp_connect:ithaca-late-server-99");

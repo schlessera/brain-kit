@@ -10,6 +10,33 @@ import { orderedWrites } from "./store-writes.js";
  */
 export type PhaseTimer = (name: string) => () => void;
 
+const BACKEND_STEP_LIMIT = 16, BACKEND_STEP_BYTES = 2048;
+const BACKEND_DIAGNOSTIC_LIMIT = 8, BACKEND_DIAGNOSTIC_BYTES = 256, BACKEND_NAME_BYTES = 96;
+
+/** Bound only the additive backend evidence, including older persisted rows. */
+function boundBackendEvidence(record: ActivityTurnLifecycle): ActivityTurnLifecycle {
+  let omitted = record.backendEvidenceOmitted ?? 0, steps = 0, stepBytes = 2, diagnosticBytes = 2;
+  const count = () => { omitted = Math.min(Number.MAX_SAFE_INTEGER, omitted + 1); };
+  const fitsName = (name: string) => typeof name === "string" && name.length <= BACKEND_NAME_BYTES && Buffer.byteLength(name) <= BACKEND_NAME_BYTES;
+  const openSubPhases = record.openSubPhases?.filter(step => {
+    if (step.phase !== "backend") return true;
+    if (!fitsName(step.name)) { count(); return false; }
+    const bytes = Buffer.byteLength(JSON.stringify(step)) + 1;
+    if (steps >= BACKEND_STEP_LIMIT || stepBytes + bytes > BACKEND_STEP_BYTES) { count(); return false; }
+    steps++; stepBytes += bytes; return true;
+  });
+  const names: string[] = [];
+  for (const name of record.backendMissingEvidence ?? []) {
+    if (!fitsName(name)) { count(); continue; }
+    const bytes = Buffer.byteLength(JSON.stringify(name)) + 1;
+    if (names.length >= BACKEND_DIAGNOSTIC_LIMIT || diagnosticBytes + bytes > BACKEND_DIAGNOSTIC_BYTES) { count(); continue; }
+    diagnosticBytes += bytes; names.push(name);
+  }
+  return { ...record, ...(record.openSubPhases ? { openSubPhases } : {}),
+    ...(record.backendMissingEvidence ? { backendMissingEvidence: names } : {}),
+    ...(omitted || record.backendEvidenceOmitted !== undefined ? { backendEvidenceOmitted: omitted } : {}) };
+}
+
 /** A restarted host cannot recover elapsed downtime from a prior monotonic clock. */
 export function lastLifecycleObservation(record: ActivityTurnLifecycle): number {
   const marks = [record.acceptedAt, record.dequeuedAt, record.governedStartedAt, record.governedAcquiredAt,
@@ -33,7 +60,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   const record: ActivityTurnLifecycle = {
     hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,
-    journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstRelayRequestAt: null, backendMissingEvidence: [], firstFrameAt: null, failureObservedAt: null,
+    journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstRelayRequestAt: null, backendMissingEvidence: [], backendEvidenceOmitted: 0, firstFrameAt: null, failureObservedAt: null,
     endedAt: null, outcome: null, reason: null, totalElapsedMs: null, timeToFirstFrameMs: null,
     queueWaitMs: null, governedAdmissionMs: null, budgetAdmissionMs: null, journalBeginMs: null, backendStartupMs: null, subPhases: [], openSubPhases: [],
   };
@@ -47,12 +74,11 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     record.hostEvents.push({ principalId, kind, observedAt: clock() }); persist();
   };
   const backendOpen = () => record.backendInvokedAt !== null && record.firstRelayRequestAt === null && record.endedAt === null;
-  const missingNames = new Set<string>();
-  let missingOmitted = false;
-  const omitMissing = () => {
-    if (missingOmitted) return;
-    missingOmitted = true;
-    record.backendMissingEvidence!.push("additional_missing_evidence_omitted");
+  const applyBounds = () => {
+    const bounded = boundBackendEvidence(record);
+    record.openSubPhases = bounded.openSubPhases;
+    record.backendMissingEvidence = bounded.backendMissingEvidence;
+    record.backendEvidenceOmitted = bounded.backendEvidenceOmitted;
   };
   // Milestone intervals can be observed after steps that started later.
   // Insert by their actual start, retaining observation order for equal starts.
@@ -60,6 +86,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     const steps = record.openSubPhases ??= [];
     const next = steps.findIndex(other => other.startedAt > step.startedAt);
     steps.splice(next < 0 ? steps.length : next, 0, step);
+    if (step.phase === "backend") applyBounds();
   };
   const phaseTimer = (phase: string): PhaseTimer => name => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
@@ -78,14 +105,21 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     // A later init frame may identify a server whose connection clock was
     // unavailable. This reports absence only, never a late timing mark.
-    missing(name) {
+    missing(name, omitted = 0) {
       if (record.backendInvokedAt === null || record.endedAt !== null) return;
-      // Reserve one of 64 slots for visible loss; never retain oversized names
-      // or the unbounded set of omitted names. Check length before hashing.
-      if (typeof name !== "string" || name.length > 256 || Buffer.byteLength(name) > 256 || name === "additional_missing_evidence_omitted") { omitMissing(); return; }
-      if (missingNames.has(name)) return;
-      if (missingNames.size >= 63) { omitMissing(); return; }
-      missingNames.add(name); record.backendMissingEvidence!.push(name);
+      if (Number.isSafeInteger(omitted) && omitted > 0) {
+        applyBounds();
+        record.backendEvidenceOmitted = Math.min(Number.MAX_SAFE_INTEGER, (record.backendEvidenceOmitted ?? 0) + omitted);
+        // Retain the missing-evidence label when it fits. The annotation is
+        // not another omitted observation if the diagnostic budget is full.
+        if (!record.backendMissingEvidence!.includes(name)) {
+          const proposed = boundBackendEvidence({ ...record, backendMissingEvidence: [...record.backendMissingEvidence!, name] });
+          if (proposed.backendMissingEvidence?.includes(name)) record.backendMissingEvidence = proposed.backendMissingEvidence;
+        }
+        return;
+      }
+      if (record.backendMissingEvidence!.includes(name)) return;
+      record.backendMissingEvidence!.push(name); applyBounds();
     },
     received() {
       if (!backendOpen()) return;
@@ -129,7 +163,7 @@ export function lifecycleTiming(record: ActivityTurnLifecycle): ActivityTurnLife
   const elapsed = (start: number | null, end: number | null) => start === null || end === null ? null : Math.max(0, end - start);
   // Incomplete admissions still expose their actually observed terminal time.
   const phase = (start: number | null, end: number | null) => elapsed(start, end ?? record.failureObservedAt ?? record.endedAt);
-  return { ...record,
+  return boundBackendEvidence({ ...record,
     totalElapsedMs: elapsed(record.acceptedAt, record.endedAt),
     timeToFirstFrameMs: elapsed(record.acceptedAt, record.firstFrameAt),
     queueWaitMs: elapsed(record.acceptedAt, record.dequeuedAt),
@@ -141,5 +175,5 @@ export function lifecycleTiming(record: ActivityTurnLifecycle): ActivityTurnLife
     ...(record.subPhases ? { subPhases: record.subPhases.map(step => ({ ...step, elapsedMs: phase(step.startedAt, step.endedAt) })) } : {}),
     ...(record.openSubPhases ? { openSubPhases: record.openSubPhases.map(step => ({ ...step, elapsedMs: step.timeBase === "worker" ? step.workerElapsedMs ?? null
       : phase(step.startedAt, step.endedAt ?? (step.phase === "backend" ? record.firstRelayRequestAt ?? null : null)) })) } : {}),
-  };
+  });
 }

@@ -68,3 +68,17 @@ describe("shrinkForReplication", () => {
     expect(shrunk.type).toBe("session_history");
   });
 });
+
+test("shrinking an activity snapshot preserves its scope keys but does not acknowledge omitted lifecycle records", () => {
+  const life = { lifecycleId: "lifecycle:ithaca", turnId: "ithaca", backendMissingEvidence: Array.from({ length: 32 }, (_, i) => `mcp_connect:ithaca-${i}-${"x".repeat(190)}`) };
+  const lifecycles = Array.from({ length: 100 }, (_, i) => ({ ...life, lifecycleId: `lifecycle:ithaca-${i}`, turnId: `ithaca-${i}` }));
+  const frame = { type: "activity_snapshot", view: "index", spans: [], events: [], lifecycles,
+    highWaterSeq: Object.fromEntries(lifecycles.map(record => [record.lifecycleId, 2])) };
+  const shrunk = shrinkForReplication(frame);
+  expect(shrunk.lifecycles.length).toBeLessThan(100);
+  const received = new Set(shrunk.lifecycles.map(record => record.lifecycleId));
+  expect(Object.keys(shrunk.highWaterSeq), "SHRINK_RETAINS_AUTHORITATIVE_SCOPE_KEYS").toHaveLength(100);
+  for (const record of lifecycles) expect(shrunk.highWaterSeq[record.lifecycleId], "SHRINK_NEVER_ACKNOWLEDGES_DROPPED_LIFECYCLE")
+    .toBe(received.has(record.lifecycleId) ? 2 : 0);
+  expect(Object.values(frame.highWaterSeq)).toEqual(Array(100).fill(2));
+});

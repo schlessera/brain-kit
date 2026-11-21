@@ -82,7 +82,8 @@ qualify a startup breakdown.
 Admission qualification separately requires finite, ordered, explicit start and
 completion milestones plus explicitly completed steps with the exact phase
 `governed` and `journal` in `subPhases`. Terminal-fallback durations, open
-phases with those prefixes, and unfinished steps cannot supply that proof. Backend or
+phases with those prefixes, and unfinished steps cannot supply that proof. Every admission step must lie
+inside its exact phase start/completion milestones. Backend or
 future open-phase entries cannot satisfy that assertion; observed zero-duration
 admission steps remain valid.
 Pi must also carry its `first_relay_request` step matching the observed relay

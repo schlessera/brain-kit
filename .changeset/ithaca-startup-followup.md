@@ -1,9 +1,9 @@
 ---
 "@schlessera/brain-ui-server": minor
 "@schlessera/brain-ui-sdk": minor
-"@schlessera/brain-ui-react": minor
+"@schlessera/brain-backend-claude": patch
 ---
 
-Preserve complete Activity snapshots by sending byte-bounded append frames and pairing lifecycle records with atomic sequence watermarks. Keep lifecycle observations on one epoch-anchored monotonic clock so wall-clock corrections cannot reverse admission or backend timing. Require governed and journal evidence independently in native admission qualification.
+Bound backend startup steps and MCP diagnostics per lifecycle, with an explicit omitted observation count. Preserve the existing Activity snapshot wire behavior while lowering sequence floors for omitted records and replaying their existing deltas. Read lifecycle records and sequence floors consistently, and keep index floors below omitted child and event subscriptions.
 
-Refetch individually oversized Activity records over REST without acknowledging clipped evidence, and bound per-frame watermark metadata with paginated scope completion. Read REST lifecycle and index root rows consistently with their sequence floors. Recover interrupted lifecycles at their last persisted host observation, and require exact completed admission phases and milestones in native qualification.
+Use one epoch-anchored monotonic lifecycle clock and close recovered lifecycles at their last persisted observation. Require completed governed and journal evidence inside each phase's milestones in native qualification.

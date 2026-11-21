@@ -1,3 +1,5 @@
+import type { ServerActivitySnapshot } from "@schlessera/brain-ui-sdk/protocol";
+
 /**
  * Size-bounding for outbound WebSocket frames.
  *
@@ -81,7 +83,7 @@ function shrinkWalk(value: unknown, stringCap: number, arrayLimit: number, opaqu
   }
   if (value && typeof value === "object") {
     const src = value as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
+    const out: Record<string, unknown> = Object.create(null);
     // Arbitrary tool input can exceed the cap through key count alone. Clip
     // its records recursively, while preserving fields on protocol objects.
     const keys = Object.keys(src);
@@ -111,6 +113,35 @@ function shrinkWalk(value: unknown, stringCap: number, arrayLimit: number, opaqu
   return value;
 }
 
+/** Whole records absent or changed by display shrinking. No wire fields added. */
+export function activitySnapshotLosses(before: ServerActivitySnapshot, after: ServerActivitySnapshot) {
+  const missing = <T>(rows: T[], sent: T[], id: (row: T) => string) => {
+    const complete = new Set(sent.map(row => JSON.stringify(row)));
+    return new Set(rows.filter(row => !complete.has(JSON.stringify(row))).map(id));
+  };
+  return {
+    spans: missing(before.spans, after.spans, row => row.spanId),
+    events: missing(before.events, after.events, row => JSON.stringify([row.spanId, row.eventIndex])),
+    lifecycles: missing(before.lifecycles ?? [], after.lifecycles ?? [], row => row.lifecycleId),
+  };
+}
+
+function conservativeSnapshot<T>(before: T, after: T): T {
+  if ((before as { type?: string })?.type !== "activity_snapshot") return after;
+  const source = before as ServerActivitySnapshot, target = after as ServerActivitySnapshot;
+  const lost = activitySnapshotLosses(source, target), affected = new Set(lost.lifecycles);
+  for (const span of source.spans) if (lost.spans.has(span.spanId)) affected.add(span.runId);
+  for (const event of source.events) if (lost.events.has(JSON.stringify([event.spanId, event.eventIndex]))) {
+    const span = source.spans.find(row => row.spanId === event.spanId);
+    if (span) affected.add(span.runId);
+    else for (const id of Object.keys(source.highWaterSeq)) affected.add(id);
+  }
+  // The stream can prove a higher prefix from its change log. Other callers
+  // lack that proof, so an affected identity acknowledges no changes.
+  return { ...target, highWaterSeq: Object.fromEntries(Object.entries(source.highWaterSeq)
+    .map(([id, seq]) => [id, affected.has(id) ? 0 : seq])) } as T;
+}
+
 /**
  * Return `value` unchanged when its JSON serialization already fits
  * {@link MAX_WS_MESSAGE_BYTES}; otherwise return a deep-cloned shadow shrunk
@@ -123,7 +154,7 @@ export function shrinkForReplication<T>(value: T, maxBytes = MAX_WS_MESSAGE_BYTE
   let shrunk: unknown = value;
   for (const pass of SHRINK_PASSES) {
     shrunk = shrinkWalk(value, pass.stringCap, pass.arrayLimit);
-    if (jsonBytes(shrunk) <= maxBytes) return shrunk as T;
+    if (jsonBytes(shrunk) <= maxBytes) return conservativeSnapshot(value, shrunk as T);
   }
-  return shrunk as T;
+  return conservativeSnapshot(value, shrunk as T);
 }
