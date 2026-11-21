@@ -92,6 +92,15 @@ leaving at least two minutes beyond the effective inner timeout. This is
 a hang bound, not a performance promise. The small qualification keeps its
 existing one-second health/WebSocket, ten-second admission and Stop assertions.
 
+Admission component experiments must distinguish real namespace-probe and
+FULL write-worker timings from copied startup-view fixture costs. A copied
+large tree measures copying, not a native Btrfs checkpoint; bypassing a guard
+measures only an unsafe upper bound. Record the tree sizes, source revision,
+paired samples, order, mount-query count and load with the recommendation.
+Component medians do not add up to an end-to-end admission saving. Use the full
+`--observation-timing --tree=large` run to qualify any proposed change, including
+its refused-admission cleanup; keep throwaway bypasses out of the landing diff.
+
 `observation-holds.json` prints each lifecycle's hosted hold records, closing
 steps and recorder/idle milestones alongside the existing timing artifact.
 
