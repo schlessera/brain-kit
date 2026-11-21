@@ -5310,8 +5310,9 @@ unchanged. These shapes change at a pre-1.0 minor under that ruling.
 
 The optional `ActivityStore.lifecycleSnapshot(turnId)` returns a lifecycle and
 its `highWaterSeq` from one read transaction, or null when absent. The built-in
-store provides it. Without that same-connection read, REST omits `lifecycleSeq`;
-the stream's legacy fallback reads the sequence before its lifecycle row.
+store provides it. Without either atomic lifecycle reader, REST and the stream
+read the sequence through the store before its lifecycle row; REST still returns
+that conservative `lifecycleSeq` for prior store implementations.
 `ActivityStore.snapshotRun(runId, rootOnly?)` optionally reads only open roots
 with the full run sequence from the same transaction. The index stream lowers
 that floor only before a run change above the shared pump cursor, whose normal

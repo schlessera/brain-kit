@@ -113,18 +113,45 @@ test("REST uses the scoped atomic reader when the single lifecycle reader is una
   } finally { routeDb.close(); storeDb.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("legacy REST reads through a second SQLite connection do not claim a lifecycle sequence", async () => {
+test("legacy REST reads its sequence before the row through the store connection", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ithaca-lifecycle-connections-")), path = join(dir, "ui.db");
   const routeDb = createUiDb(path), storeDb = createUiDb(path), store = createActivityStore(storeDb);
   const life = createTurnLifecycle(store, "ithaca-rest-race", "ithaca", 1000, () => {}, () => 1200);
-  const legacy = { ...store, lifecycleSnapshot: undefined, snapshotLifecycles: undefined, lifecycle(id: string) { const row = store.lifecycle(id); life.finish("success"); return row; } };
+  const reads: string[] = [];
+  const legacy = { ...store, lifecycleSnapshot: undefined, snapshotLifecycles: undefined,
+    runHighWaterSeq(id: string) { reads.push("sequence"); return store.runHighWaterSeq(id); },
+    lifecycle(id: string) { reads.push("row"); const row = store.lifecycle(id); life.finish("success"); return row; },
+  };
   try {
     const response = await createActivityRoutes({ db: routeDb, store: legacy }).request("/activity/runs/ithaca-rest-race");
     const detail = await response.json();
     expect(detail.lifecycle.endedAt).toBeNull();
-    expect(detail.lifecycleSeq, "LEGACY_CONNECTION_CANNOT_CLAIM_ATOMIC_SEQUENCE").toBeUndefined();
+    expect(detail.lifecycleSeq, "LEGACY_REST_FLOOR_PRECEDES_RACING_COMPLETION").toBe(1);
+    expect(reads, "LEGACY_REST_READS_SEQUENCE_BEFORE_ROW").toEqual(["sequence", "row"]);
     expect(store.lifecycle("ithaca-rest-race")!.endedAt).toBe(1200);
   } finally { routeDb.close(); storeDb.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a prior store's terminal lifecycle replaces running at sequence 1 after one REST fetch", async () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  const life = createTurnLifecycle(store, "ithaca-rest-terminal", "ithaca", 1000, () => {}, () => 1200);
+  const prior = { ...store, lifecycleSnapshot: undefined, snapshotLifecycles: undefined };
+  const mirror = createMirror({ api: {} } as Parameters<typeof createMirror>[0]);
+  try {
+    const running = store.lifecycle("ithaca-rest-terminal")!;
+    mirror.getState().applyDelta({ type: "activity_delta", runId: running.lifecycleId, seq: 1, lifecycle: running });
+    expect(mirror.getState().lifecycles[running.turnId]!.outcome).toBeNull();
+    life.finish("success");
+    const response = await createActivityRoutes({ db, store: prior }).request("/activity/runs/ithaca-rest-terminal");
+    expect(response.status).toBe(200);
+    const detail = await response.json();
+    // Apply the same lifecycle projection and missing-sequence default as RunDetail.
+    mirror.getState().applySnapshot({ type: "activity_snapshot", view: "run", runId: running.turnId,
+      spans: [], events: [], lifecycles: [detail.lifecycle],
+      highWaterSeq: { [detail.lifecycle.lifecycleId]: detail.lifecycleSeq ?? 0 } });
+    expect(mirror.getState().lifecycles[running.turnId]!.outcome, "LEGACY_REST_TERMINAL_REPLACES_RUNNING_MIRROR").toBe("success");
+    expect(detail.lifecycleSeq, "LEGACY_REST_PRESERVES_TERMINAL_SEQUENCE").toBe(2);
+  } finally { mirror.dispose(); db.close(); }
 });
 
 test("a lifecycle watermark cannot overtake its record when a writer commits during subscription", () => {

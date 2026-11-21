@@ -817,7 +817,8 @@ shared pump cursor; then it stops immediately before that pending change.
 Previously delivered live deltas therefore do not make a reconnect discard a
 current root. Legacy lifecycle stores read the sequence before the row, so
 concurrent writes can advance the row without acknowledging unseen data.
-REST still omits `lifecycleSeq` when a legacy store cannot read it atomically.
+REST also returns that conservative `lifecycleSeq` when a legacy store lacks
+both atomic lifecycle readers, reading the sequence before the row.
 
 If a lifecycle survives intact in no snapshot chunk, that lifecycle's floor
 is lowered to its paired sequence minus one (not below zero), and its own
