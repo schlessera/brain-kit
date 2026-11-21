@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload and human trust Settings routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 195 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 196 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -219,6 +219,7 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/apify/account` | I | Confirm the token's changed Apify account | Settings UI (#3159); live human owners only. Starts a new authority generation; accepts no token. |
 | POST | `/api/apify/policy` | I | Propose one Apify setting through the policy-change review | Settings UI (#3163); live human owners only. `{ change, base_hash }` names exactly one of `enabled`, `discovery`, `actors` or `remove_grant` and the policy version it changes. Returns `{ turn_id, request_id, review }` with a pending `PolicyChangeReview` of the complete proposed `governance.md`; writes nothing. 409 when the policy changed since it was read; 422 when the file cannot be rewritten exactly. |
 | POST | `/api/apify/policy/:turnId/:requestId` | I | Answer that exact review | Settings UI (#3163); only the proposing owner. `{ approve }`; an approval lets the existing policy writer publish it inside a user journal window. A repeated or late answer returns the recorded receipt and never writes again; a lost answer is reconciled through `GET /api/policy-proposals/:turnId/:requestId`. |
+| POST | `/api/brain/sync/policy/:turnId/:requestId` | I | Answer a sync's incoming policy review | Sync panel (#4256); only the owner whose sync opened it. `{ approve }`; an approval lets the existing policy writer publish the incoming bytes inside a user journal window, and the owner syncs again. A repeated or late answer returns the recorded receipt and never writes again; a review of another family is never read here. |
 | POST | `/share-target` | S | Explain missing service worker without reading body | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
 | GET | `/ws` | S | Authenticate and admit WebSocket upgrade | SDK BrainUiClient; supported HTTP upgrade boundary, followed by the existing wire contract. |
 | GET | `/*` (conditional) | I | Serve configured SPA deep links | Custom shell with `staticRoot`; deployment asset transport, not an independent JSON API. |
@@ -228,7 +229,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 195 declared endpoints are mounted regardless of backend, renderer or
+All 196 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -627,7 +628,12 @@ concurrent attempts get 409 `{ error, heldMs }` before SSE starts, where
 the error text names it in seconds. The route invokes
 `brain sync --human`. Disconnecting the reader stops delivery but **does not
 cancel sync or release its reservation**; output continues draining until the
-child exits.
+child exits. Successful sync attempts voice keyterm rebuild; a rebuild failure
+is progress text and does not turn successful sync into failure. A degraded
+rebuild (no usable core peer, or an index core cannot read) is reported as
+progress text and not cached. A canonical
+root-resolution failure before admission can use the common 500. No idempotency
+key or SSE resumption promise exists.
 
 **Bounded start (additive, #4257).** Everything between admission and the
 sync's first worker starting (the CLI version probe, the writer gate, the
@@ -642,12 +648,27 @@ kind and origin `cron`, `jobName: "ui-sync"`, attributed to the requesting
 principal) whose terminal outcome carries the exit status and the last
 non-empty output lines, with the combined output tail as its `job_output`
 event, so a result survives a disconnected reader. A failure also logs
-`ui sync failed` with the same text on the `brain` logger. Successful sync attempts voice keyterm rebuild; a rebuild failure
-is progress text and does not turn successful sync into failure. A degraded
-rebuild (no usable core peer, or an index core cannot read) is reported as
-progress text and not cached. A canonical
-root-resolution failure before admission can use the common 500. No idempotency
-key or SSE resumption promise exists.
+`ui sync failed` with the same text on the `brain` logger.
+
+**Incoming policy change (additive, #4256).** On a hosted install, a pull
+whose only tier A change is `context/policies/governance.md` publishes
+nothing. When the requesting principal is a current owner, the stream sends
+`{ type: "policy_review", turn_id, request_id, review }`, where `review` is the
+same `PolicyChangeReview` a chat policy card shows (base hash, frontmatter
+diff, changed sections, body diff, and a fixed host rationale saying the
+brain's remote has this version at the named upstream commit), and ends with `{ type: "done", success: false, reason:
+"policy_review", text }`. The owner answers it through
+`POST /api/brain/sync/policy/:turnId/:requestId`. Approval writes exactly the
+incoming bytes through the existing policy writer (journal actor `user`, class
+`policy`, a `policy_change` governance event); the next admitted turn reads
+it, and the next sync completes. Decline writes nothing, and the next sync
+opens the review again. An incoming policy that is not UTF-8, exceeds 1 MiB or does not validate
+opens no review: the sync fails, and its text names the next step. A scheduled sync opens no review; it fails naming the waiting change.
+Any other refused tier A change keeps its refusal, and its text says what to do
+next: revert the upstream commit, or remove a change the brain itself made
+(and, under `context/policies/`, change the policy in chat with
+`propose_policy_change`). A refused sync's human report is replaced by that
+reason, since nothing was published or pushed.
 
 ## Sessions and execution records
 

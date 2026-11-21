@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { maintenanceLaunch } from "../src/server/maintenance-worker.js";
@@ -14,6 +14,7 @@ const hostEnv = {
   BRAIN_UI_SYNC_GITHUB_TOKEN: "odysseus-sync-git-token",
   BRAIN_UI_SKILLS_GITHUB_TOKEN: "odysseus-skills-git-token",
   BRAIN_UI_GITHUB_TOOLS_TOKEN: "odysseus-github-tools-token",
+  BRAIN_UI_MODULE_GITHUB_TOKEN: "odysseus-module-github-token",
   OPENAI_API_KEY: "odysseus-provider-key",
 };
 
@@ -25,6 +26,7 @@ for (const credentials of [true, false]) {
     expect(launch.env.GITHUB_TOKEN).toBeUndefined();
     expect(launch.env.BRAIN_UI_SYNC_GITHUB_TOKEN).toBeUndefined();
     expect(launch.env.BRAIN_UI_GITHUB_TOOLS_TOKEN, "SDK_MAINTENANCE_GITHUB_TOOLS_TOKEN_ABSENT").toBeUndefined();
+    expect(launch.env.BRAIN_UI_MODULE_GITHUB_TOKEN, "SDK_MAINTENANCE_MODULE_GITHUB_TOKEN_ABSENT").toBeUndefined();
     if (credentials) expect(launch.env.OPENAI_API_KEY).toBe(hostEnv.OPENAI_API_KEY);
     else expect(launch.env.OPENAI_API_KEY).toBeUndefined();
     expect(env).toEqual(hostEnv);
@@ -47,3 +49,21 @@ for (const maintenance of [false, true]) {
     });
   });
 }
+
+test("every host-view worker covers /etc/environment, where a container keeps the cron runner's credentials (#4259)", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-worker-etc-environment-")); roots.push(root);
+  const brain = join(root, "brain"); mkdirSync(brain);
+  for (const maintenance of [undefined, { credentials: false, network: false, readPaths: [process.execPath] }]) {
+    const argv = workerCommand({ brainPath: brain, command: ["/bin/true"], env: { PATH: "/usr/bin:/bin" }, ...(maintenance ? { maintenance } : {}) });
+    const covered = argv.some((arg, i) => arg === "--ro-bind" && argv[i + 1] === "/dev/null" && argv[i + 2] === "/etc/environment");
+    // A host without the file has nothing to cover.
+    expect(covered, `ETC_ENVIRONMENT_COVERED: ${maintenance ? "maintenance" : "agent"}`).toBe(existsSync("/etc/environment"));
+  }
+});
+
+test("a runtime or read path cannot take the module GitHub relay's mount point (#4259)", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-worker-relay-mount-")); roots.push(root);
+  const brain = join(root, "brain"); mkdirSync(brain);
+  expect(() => workerCommand({ brainPath: brain, command: ["/bin/true"], env: { PATH: "/usr/bin:/bin" },
+    maintenance: { credentials: false, network: false, readPaths: [process.execPath, "/run/brain-github"] } }), "RELAY_MOUNT_RESERVED").toThrow();
+});

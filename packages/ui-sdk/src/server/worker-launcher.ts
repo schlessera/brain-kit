@@ -177,6 +177,13 @@ export interface WorkerLaunch {
  * `/tmp/.X11-unix`.
  */
 export const HOST_MASKS = ["/run", "/var", "/home", "/root", "/mnt", "/media", "/srv"] as const;
+/**
+ * Host files covered in every host-view worker (#4259): a container's
+ * `/etc/environment` carries the cron runner's environment, its host-only
+ * credentials included, for pam_env. A worker's environment is built
+ * explicitly and never reads it.
+ */
+export const HOST_FILE_MASKS = ["/etc/environment"] as const;
 
 /** The private, empty `$HOME` of a credential-free maintenance worker, on its own `/tmp`. */
 export const MAINTENANCE_HOME = "/tmp/brain-maintenance-home";
@@ -210,6 +217,13 @@ export interface MaintenanceEnvelope {
    * `BRAIN_PROVIDER_RELAY_SOCKET`. Only a credentialed worker gets one.
    */
   providerRelay?: string;
+  /**
+   * The cron runner's private module GitHub relay directory (#4259), bound
+   * read-only at {@link WORKER_MODULE_GITHUB_DIR}; the launcher names its
+   * socket in `BRAIN_MODULE_GITHUB_SOCKET`. It holds no credential, so a
+   * credential-free worker may get one.
+   */
+  githubRelay?: string;
   /**
    * The server's home, made visible again below the home masks. Only a
    * credentialed worker gets it (the interim exposure the decision record
@@ -382,11 +396,15 @@ function rlimitPrefix(plan: WorkerLimitsPlan): string[] {
 
 /** Where a relayed maintenance worker reaches the CLI provider relay (#1673). */
 export const WORKER_PROVIDER_RELAY_DIR = "/run/brain-providers";
+/** Where a module cron job's worker reaches the host GitHub relay (#4259). */
+export const WORKER_MODULE_GITHUB_DIR = "/run/brain-github";
+/** The variable naming that relay's socket inside the worker. */
+export const MODULE_GITHUB_SOCKET_ENV = "BRAIN_MODULE_GITHUB_SOCKET";
 /**
  * A private server-owned directory holding one server-owned socket, outside
  * the brain: never a path a worker or the brain could have supplied.
  */
-function serverSocketDirectory(requested: string, socket: string, brain: string): string {
+function serverSocketDirectory(requested: string, socket: string, brain: string, purpose = "the provider relay"): string {
   const separateIdentity = Boolean(workerIdentityHelper());
   const serverUid = process.getuid?.(), serverGid = process.getgid?.();
   try {
@@ -399,7 +417,7 @@ function serverSocketDirectory(requested: string, socket: string, brain: string)
       && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
       && !holds(brain, directory) && !holds(directory, brain)) return directory;
   } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
-  throw new WorkerHostError("the provider relay requires its private server-owned directory and socket");
+  throw new WorkerHostError(`${purpose} requires its private server-owned directory and socket`);
 }
 
 /**
@@ -436,7 +454,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     }))) throw new WorkerHostError("a private mask ancestor overlaps the brain or required runtime");
     return covered;
   };
-  for (const requested of [...HOST_MASKS, ...(envelope.maskPaths ?? [])]) {
+  for (const requested of [...HOST_MASKS, ...HOST_FILE_MASKS, ...(envelope.maskPaths ?? [])]) {
     if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker masks must be absolute paths");
     let path: string;
     try { path = realpathSync(requested); } catch { continue; }
@@ -485,6 +503,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     if (!envelope.credentials) throw new WorkerHostError("only a credentialed maintenance worker reaches the provider relay");
     argv.push("--ro-bind", serverSocketDirectory(envelope.providerRelay, "relay.sock", brain), WORKER_PROVIDER_RELAY_DIR);
   }
+  if (envelope.githubRelay) argv.push("--ro-bind", serverSocketDirectory(envelope.githubRelay, "github.sock", brain, "the module GitHub relay"), WORKER_MODULE_GITHUB_DIR);
   if (envelope.network) {
     try {
       if (lstatSync("/etc/resolv.conf").isSymbolicLink() && statSync("/etc/resolv.conf").isFile()) bindBack("/etc/resolv.conf");
@@ -625,7 +644,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (input.sandbox?.dataTree && (maintenance || transport || workerProfile(input.sandbox) === "governed" || !input.startupView))
     throw new WorkerHostError("a turn data tree belongs only to a worker on an immutable startup view");
   const emptyHome = !input.restricted && input.env.HOME === WORKER_EMPTY_HOME;
-  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, ...(emptyHome ? [WORKER_EMPTY_HOME] : []), WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR,
+  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, ...(emptyHome ? [WORKER_EMPTY_HOME] : []), WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR, WORKER_MODULE_GITHUB_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
     ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
   const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => holds(reserved, runtimeCanonicalName(path)) || holds(runtimeCanonicalName(path), reserved))));
@@ -694,7 +713,11 @@ export function workerCommand(input: WorkerLaunch): string[] {
     const clear = argv.pop();
     const copies = input.areaOutput && input.sandbox?.profile === "strict"
       ? input.sandbox.areas.filter(area => area.mount.writable).map(area => ({ from: join(brain, area.rel), to: `${WORKER_AREA_ROOT}/${area.name}` })) : [];
-    argv.push(...maintenanceEnvMasks(input.startupView?.root ?? brain, brain, copies), clear!);
+    // An agent worker's host view covers the host files too (#4259); a restricted or transport root has none of them.
+    const hostFiles = input.restricted || transport ? [] : HOST_FILE_MASKS.flatMap(path => {
+      try { return statSync(path).isFile() ? ["--ro-bind", "/dev/null", path] : []; } catch { return []; }
+    });
+    argv.push(...maintenanceEnvMasks(input.startupView?.root ?? brain, brain, copies), ...hostFiles, clear!);
   }
 
   // A private tmpfs of exactly the allowance. Nothing on the host backs it,
@@ -726,6 +749,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (withheld?.length) argv.push("--setenv", WITHHELD_KEYS_ENV, withheld.join(","));
   if (providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, WORKER_PROVIDER_RELAY_SOCKET);
   else if (maintenance?.providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, `${WORKER_PROVIDER_RELAY_DIR}/relay.sock`);
+  if (maintenance?.githubRelay) argv.push("--setenv", MODULE_GITHUB_SOCKET_ENV, `${WORKER_MODULE_GITHUB_DIR}/github.sock`);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
     ...payloadCommand(input));

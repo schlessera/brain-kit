@@ -145,4 +145,14 @@ describe("subprocess environment descriptor", () => {
     }
     expect(SUBPROCESS_ENV.APIFY_TOKEN).toEqual([]);
   });
+
+  test("the module GitHub relay's token reaches no audience, even when the escape hatch or a spawn names it (#4259)", () => {
+    const sentinel = "odysseus-module-github-token-never-in-a-worker";
+    const env = { BRAIN_UI_MODULE_GITHUB_TOKEN: sentinel, PATH: "/usr/bin", BRAIN_UI_SUBPROCESS_ENV_EXTRA: "BRAIN_UI_MODULE_GITHUB_TOKEN" };
+    expect(parseSubprocessEnvExtra(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA), "MODULE_GITHUB_TOKEN_EXTRA_REFUSED").toEqual([]);
+    for (const audience of ["cron", "agent", "brainCli"] as const) {
+      const filtered = filterSubprocessEnv(env, audience, ["BRAIN_UI_MODULE_GITHUB_TOKEN"]);
+      expect(JSON.stringify(filtered), `MODULE_GITHUB_TOKEN_WITHHELD: ${audience}`).not.toContain(sentinel);
+    }
+  });
 });

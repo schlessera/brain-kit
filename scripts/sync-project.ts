@@ -77,7 +77,12 @@ export const TRACKS: Record<string, { epics: number[]; also: number[]; repo: str
     also: [46, 47, 48, 88, 93, 541, 543],
     repo: "schlessera/brain-kit",
   }],
-  "Answer quality": [{ epics: [363, 364, 365, 838, 918, 1603, 3103, 3120, 3150, 3157, 3640, 3791], also: [50], repo: "schlessera/brain-kit" }],
+  "Answer quality": [
+    { epics: [363, 364, 365, 838, 918, 1603, 3103, 3120, 3150, 3157, 3640, 3791, 4201, 4220], also: [50], repo: "schlessera/brain-kit" },
+    // The Google Workspace epics' template counterparts (#4201).
+    { epics: [], also: [6], repo: "schlessera/brain-template" },
+    { epics: [], also: [42], repo: "schlessera/brain-hosting-template" },
+  ],
   Modules: [{ epics: [32, 524, 731, 732, 733, 1100, 2079, 3017, 3018, 3781], also: [59, 60, 1393], repo: "schlessera/brain-kit" }],
   "Async collaboration": [{ epics: [51, 912], also: [], repo: "schlessera/brain-kit" }],
   Voice: [{ epics: [54, 3690, 3705], also: [91], repo: "schlessera/brain-kit" }],

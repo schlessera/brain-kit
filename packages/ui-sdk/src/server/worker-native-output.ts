@@ -9,6 +9,7 @@ import { hostOutputStagingLimits } from "./worker-state-limits.js";
 import { WorkerStateError, processStateLedger } from "./worker-state-budget.js";
 import { nativeWorkerStartupInput, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
+import { ProtectedMaintenanceOutputError } from "./protected-output-error.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import type { KeyedLock } from "./keyed-lock.js";
 import { NativeBrainManagerError, type NativeStage } from "./native-brain-manager-protocol.js";
@@ -337,6 +338,34 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       if ((await privateStat(stageInput, rel))?.stamp !== info.stamp) throw Error("Native private output changed while hashing");
       return { entry: { type: "file", mode: info.mode, hash: hash.digest("hex") }, stamp: version };
     }
+    /** One refused output file's bytes for the host, bounded; null when absent or not a regular file. */
+    async function readRefused(rel: string, bound: number): Promise<Uint8Array | null> {
+      if ((await inspectInput(true, rel)).entry?.type !== "file") return null;
+      const direct = async () => {
+        const chunks: Buffer[] = []; let total = 0;
+        const handle = parent(output.source, rel);
+        try {
+          const file = await open(at(handle.fd, handle.name), FILE);
+          try {
+            const buffer = Buffer.alloc(64 * 1024);
+            for (;;) {
+              const { bytesRead } = await file.read(buffer); if (!bytesRead) break;
+              total += bytesRead; if (total > bound) throw Error(`Refused output ${rel} exceeds ${bound} bytes`);
+              chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+            }
+          } finally { await file.close(); }
+        } finally { closeSync(handle.fd); }
+        return Buffer.concat(chunks);
+      };
+      try { return await direct(); }
+      catch (error) { if (!identityTicket || !permissionDenied(error)) throw error; }
+      const chunks: Buffer[] = []; let total = 0;
+      await privateBytes(true, rel, async bytes => {
+        total += bytes.byteLength; if (total > bound) throw Error(`Refused output ${rel} exceeds ${bound} bytes`);
+        chunks.push(Buffer.from(bytes));
+      }, bound + 1);
+      return Buffer.concat(chunks);
+    }
     async function walIndexInput(stageInput: boolean): Promise<Captured> {
       try { return { entry: walIndexEntry(stageInput ? output.source : view.root, WAL_INDEX), stamp: undefined }; }
       catch (error) { if (!identityTicket || !permissionDenied(error)) throw error; }
@@ -402,6 +431,14 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         before.set(WAL_INDEX, await walIndexInput(false)); after.set(WAL_INDEX, await walIndexInput(true));
         changed.push(WAL_INDEX); changed.sort();
       }
+      // Every refused tier A change, named before any lock or write (#4256).
+      const refused = changed.filter(rel => {
+        const previous = before.get(rel)!.entry, next = after.get(rel)!.entry;
+        const removesProtectedAncestor = previous?.type === "directory" && !next
+          && PROTECTED_TIER_A.some(p => isWithin(rel, p, { includeRoot: false }));
+        return removesProtectedAncestor || isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(p => isWithin(p, rel));
+      });
+      if (refused.length) throw new ProtectedMaintenanceOutputError(refused, (rel, bound) => readRefused(rel, bound));
       const releases: (() => void)[] = [];
       try {
         if (lock) for (const rel of [...new Set([...changed, ...[...gitScaffolds.keys()].map(name => `.git/${name}`)])].sort())
