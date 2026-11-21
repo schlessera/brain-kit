@@ -175,7 +175,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
         end?.();
         // Without a change the inventory is not taken: an empty set then says
         // nothing about the brain's configuration (#3257).
-        return { changes, steering, unreadable: [...unreadable.values()], stats: observation.stats, indexBytes: rootScope.index ? observation.indexBytes : 0, commit: observation.commit, abort: observation.abort };
+        return { changes, metadataChanges: observation.changes, steering, unreadable: [...unreadable.values()], stats: observation.stats, indexBytes: rootScope.index ? observation.indexBytes : 0, commit: observation.commit, abort: observation.abort };
       } catch (error) { await observation.abort().catch(() => {}); throw error; }
     },
     releases() { return observer.releases(); },

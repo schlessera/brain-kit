@@ -2359,6 +2359,10 @@ signatures (every public export and the types it is made of)
         capBytes?: number;
         now?: () => number;
         nativeManager: NativeJournalManager;
+        codeChanges?: {
+            maintenance: MaintenanceHost;
+            prepare?: (signal?: AbortSignal) => Promise<WorkerStartupView>;
+        };
         referencePool?: ReferenceWorktreeJournalPool;
         referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
@@ -2699,6 +2703,7 @@ signatures (every public export and the types it is made of)
             sessionId: null | string;
             workspaceMissing?: boolean;
             workspaceReadOnly?: boolean;
+            workspacesWritable?: boolean;
         }, stop: (error: Error) => void, signal?: AbortSignal, timing?: PhaseTimer): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): Promise<void>;
@@ -2713,6 +2718,11 @@ signatures (every public export and the types it is made of)
             retained: import("./native-journal-observer.js").NativeJournalReleaseAccounting;
         };
         close(): Promise<void>;
+        codePreview(sessionId: string, turnId: string, checkout: string): Promise<{
+            diff?: string;
+            inline: boolean;
+            reason?: string;
+        }>;
         configurationCoverage(): ConfigurationCoverageRead;
         coverPaths(turnId: string, paths: readonly string[]): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
@@ -2733,6 +2743,7 @@ signatures (every public export and the types it is made of)
         observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
             changedPaths: number;
+            checkoutBytes?: number;
             indexBytes?: null | number;
             observationChangedPaths?: number;
             observationToolUseId?: string;
@@ -2758,6 +2769,7 @@ signatures (every public export and the types it is made of)
             note: string;
         }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
         recoveryStatus(): JournalRecoveryStatus;
+        releaseWorktree(turnId: string, worktreeId: string): Promise<void>;
         releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
@@ -2775,6 +2787,7 @@ signatures (every public export and the types it is made of)
                 bytes: number;
             }>;
         };
+        withCodeEvidence<T>(sessionId: string, turnId: string, checkout: string, operation: (receipt: CodeChangeReceipt, pack: string) => Promise<T>): Promise<T>;
         withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): Promise<T>;
         withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): Promise<T>;
         worktrees(turnId: string): string[];

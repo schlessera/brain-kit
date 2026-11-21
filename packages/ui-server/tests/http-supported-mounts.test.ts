@@ -123,6 +123,9 @@ const checks: Record<string, Check> = {
   "GET /api/sessions/:sessionId/turns/:turnId/journal": { path: "/api/sessions/fixture-session/turns/unknown/journal", status: 404, body: { error: "No retained journal is available for this turn." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/preview", status: 404, body: { error: "Journal detail expired or unavailable." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/before", status: 404, body: { error: "Journal detail expired or unavailable." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/code/preview?checkout=workspaces/argo", status: 409, body: { error: "Code change evidence is unavailable." } },
+  "POST /api/sessions/:sessionId/turns/:turnId/journal/code/revert": { path: "/api/sessions/fixture-session/turns/unknown/journal/code/revert", init: json("POST", { id: "00000000-0000-4000-8000-000000004297", checkout: "workspaces/argo" }), status: 409, body: { error: "Code history is unavailable or no longer eligible; no effect was retried." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id": { path: "/api/sessions/fixture-session/turns/unknown/journal/code/revert/00000000-0000-4000-8000-000000004297", status: 404, body: { error: "No such code history operation." } },
   "GET /api/journal/configuration-coverage": { path: "/api/journal/configuration-coverage", status: 200, body: { state: "unknown" } },
   // Imported history: the session exists, and the host proves nothing about it.
   "GET /api/sessions/:id/safety": {path:"/api/sessions/fixture-session/safety",status:404,body:{version:1,reason:"unavailable"},verify:async r=>{expect(r.headers.get("cache-control")).toBe("no-store");}},

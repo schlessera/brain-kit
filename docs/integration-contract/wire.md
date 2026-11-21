@@ -206,6 +206,12 @@ frame, authenticated history and HTTP journal summary. Its facts are
 The byte count sums captured changed hashed regular-file versions. Ignored
 regular files have no content hash and contribute their largest observed after-size
 once per turn per path, rather than their full size on every observation (#2027).
+Receipt-covered checkout paths likewise contribute their largest observed
+after-size once per path, without retaining file content. Each in-brain checkout
+also has a fixed 16 MiB content ceiling, checked during observation independently
+of the turn byte policy. Exceeding it produces a Stop-only `turn_bytes` scope
+receipt whose reason identifies the checkout ceiling and whose count is that
+checkout's current content size.
 This corrects repeated metadata observations inflating the existing observed-write
 counter. Before #4302 the root disposable index and staying publication
 copies counted their largest observed after-size, with metadata-only history.

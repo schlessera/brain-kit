@@ -39,6 +39,69 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+### Checkout change receipts (#4297)
+
+**Breaking narrowing, authorized 2026-11-20:** new turns replace per-file
+history of covered writable Git checkouts with one `codeChanges` entry per
+checkout in `TurnJournalDetails`. Retained legacy `changes` rows remain
+readable. Notes and non-checkout workspace files retain their previous
+before-images and revert rules. This is a pre-1.0 minor with the restriction
+named in its changeset.
+
+Each entry has `checkout` (a logical `workspaces/<name>` or
+`reference-worktree://<id>/` identity), `state` (`recording`, `complete`, or
+`partial`), `head_before` and `head_after` (`{ commit, ref }`, where a detached
+HEAD has `ref: null`), `tree_before`, `tree_after`, `paths` (each
+`{ path, kind: added|deleted|modified, untracked }`), `bytes` (sum of the two
+changed blob sizes), `untracked` (count of added, untracked paths), and
+`ignore_changed` (any changed `.gitignore`). The starting tree is the previous
+completed receipt's endpoint or the starting commit's tree. Tracked files and
+untracked files Git does not ignore are captured as raw bytes. Ignored output
+and intermediate versions are not retained. Submodules, linked worktrees, unborn checkouts, LFS and filter/encoding attributes refuse writable
+receipt admission rather than claim faithful coverage.
+
+Both endpoint trees and their reachable blobs are copied as self-contained
+Git packs into host-owned journal object storage beside the journal database.
+Their stored bytes and receipt rows count toward its existing quota. Turn pins
+retain them through checkout deletion, source GC and restart, until ordinary
+journal retention expires. Git runs only in a credential-free maintenance
+worker, with source configuration never installed and hooks, filters and
+fsmonitor disabled. The evidence repository and journal rows are not worker
+mounts. A durable baseline receipt precedes exclusion of file coverage. A checkout
+created after admission keeps ordinary file coverage until its next admission. A final
+receipt is captured after writers exit, before the access generation closes;
+release captures the held endpoint under the existing worker hold. An
+interrupted recording remains partial, never a completed endpoint.
+
+Managed worktrees retain the pool's per-operation allowance, replacing the
+journal's `turn_bytes` charge. In-brain checkouts have a 16 MiB total captured
+content bound. The existing maintenance transport bounds combined capture output to 64 MiB
+(including base64 and path metadata); an endpoint pack that cannot fit refuses
+that operation without granting uncovered writes. A
+receipt-capacity refusal cannot grant uncovered writes.
+
+From the same authenticated turn-history entry:
+
+- `GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview?checkout=...`
+  returns `{ inline: true, diff }` or `{ inline: false, reason }`. Preview reads
+  only owned endpoint evidence, with a 256 KiB inline bound.
+- Owner/ambient-authorized `POST .../journal/code/revert` accepts exactly
+  `{ id, checkout }`, with a UUID operation identity. It drains writers, holds
+  the brain/Git locks, captures a fresh tree and restores the changed paths
+  from `tree_before` only when that tree equals `tree_after`. Added paths are
+  removed. Commits, branch refs and ignored output are unchanged.
+- `GET .../journal/code/revert/:id` reconciles that principal/session/turn-bound
+  operation. Results have `id`, `status` (`restored`, `conflict`, `unknown`, or
+  `failed`); a conflict includes `expected`, `current` endpoint facts and a bounded
+  `currentPreview` (`{ inline, diff?, reason? }`) for
+  owner review. Reusing an identity never dispatches its effect again. Lost
+  responses read the original identity; interrupted effects stay unknown.
+
+These UI history transports do not introduce an Activity record kind. Receipt
+facts never enter a provider's history. Existing tool definitions remain
+byte-identical; updated recording guidance is emitted only in a new tool
+result.
+
 ### Default workspace inspection and code-changes preference (#4295)
 
 **Breaking narrowing, authorized 2026-11-20:** default governed and strict
@@ -83,7 +146,7 @@ and cannot weaken strict or provider restrictions. A first-send profile draft
 carries its code-changes preference into the named session. Saves survive
 resume and are frozen before admission awaits; changing a save never changes
 an active turn. Enabled turns retain writable workspace qualification, the
-alias scan, per-file journaling and byte charges. The saved switch is intent:
+alias scan and byte bounds. Ordinary workspace files keep per-file journaling; covered Git checkouts use the receipt narrowing below. The saved switch is intent:
 host application writes remain protected unless admission actually qualifies
 a writable mount. Mode changes reach the worker through append-only new-turn context, without altering tools, the
 system prompt or earlier messages. The refusal note names both writable

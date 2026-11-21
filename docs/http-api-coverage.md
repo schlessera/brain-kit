@@ -129,6 +129,9 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
+| `GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview` | J |
+| `POST /api/sessions/:sessionId/turns/:turnId/journal/code/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/journal/code/revert` | J |
+| `GET /api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id` | J |
 | `GET /api/journal/configuration-coverage` | `mounted supported handler: GET /api/journal/configuration-coverage` | J |
 | `GET /api/sessions/:id/safety` | `mounted supported handler: GET /api/sessions/:id/safety` | S |
 | `POST /api/sessions/:id/safety/reviews/prepare` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/prepare` | SR |
@@ -578,3 +581,11 @@ the owner, foreign, agent and unknown answers through `createApp` and cookies.
 The safety read additionally runs real password-authenticated loopback HTTP/WS
 fixtures in `packages/ui-server/tests/safety-history.test.ts`, including stale
 cursors, revocation/retirement after a held read and independent A/B/C records.
+
+Checkout receipt behavior is covered by `code-change-receipt.test.ts` (real Git,
+owned endpoints, sandbox denial, crash recovery),
+`code-change-history-runtime.test.ts` (mounted owner effects, idempotent
+reconciliation and conflicts), and the code-history case in
+`turn-journal-runtime.test.ts` (real browser history controls, confirmation and
+conflict endpoints). Native UID qualification is in
+`scripts/native-proof/code-change-receipts.ts`.

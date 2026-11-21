@@ -1369,7 +1369,17 @@ turns bind `workspaces/` read-only after the existing root, symlink and mount
 checks, without the writable-alias walk. A per-session code-changes switch is
 stored with operational session preferences and frozen before admission's
 first await. It survives resume; a save affects only the next turn. Enabled
-sessions retain the existing writable alias scan and per-file journaling.
+sessions retain the existing writable alias scan. **Amended by #4297:** covered
+Git checkouts use one Git change receipt instead of per-file rows, under the
+[receipt ruling](reference-worktrees.md#git-receipt-amendment-2026-11-20-4297)
+and [HTTP definition](../integration-contract/http.md#checkout-change-receipts-4297).
+Both endpoint trees and blobs are owned and pinned beside the journal, charged
+to its quota and invisible to workers. A durable receipt precedes file-coverage
+retirement; a crash leaves partial coverage, never clean history. Capture and
+preview run only in credential-free maintenance workers with repository
+configuration, hooks, filters and fsmonitor disabled. Owner-confirmed revert
+requires a fresh matching endpoint and otherwise shows both states. Notes
+retain their existing before-images. Legacy rows remain readable.
 
 Default turns exclude workspace paths from capture, retained rows, ignore
 policy and observed-byte charges. Shared observations apply that exclusion
