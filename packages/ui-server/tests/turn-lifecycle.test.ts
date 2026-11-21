@@ -149,11 +149,16 @@ test("build identity validates revision and retains runtime evidence with termin
   const db = createUiDb(":memory:");
   try {
     const store = createActivityStore(db); let now = 1000;
-    const live = createTurnLifecycle(store, "turn-build", "ithaca", now, () => {}, () => now, undefined, { buildRevision: "ithaca+4278" });
+    const live = createTurnLifecycle(store, "turn-build", "ithaca", now, () => {}, () => now, "odysseus", { buildRevision: "ithaca+4278" });
     expect(store.lifecycle("turn-build"), "BUILD_IDENTITY_STAMPED_AT_ACCEPT").toMatchObject({ packageVersion: packageInfo.version, buildRevision: "ithaca+4278" });
     live.runtimeVersion("2.1.343");
     const end = live.timer("closing")("journal_finish"); now = 1400; end(); live.finish("success");
+    const clientTiming = { sendToFirstHostFrameMs: 10 };
+    expect(store.writeClientReceipt?.("turn-build", "odysseus", clientTiming), "BUILD_IDENTITY_KEEPS_RECEIPT_OWNERSHIP").toBe(true);
     now = 1500; live.mark("recorderSettledAt"); now = 1600; live.mark("idleEmittedAt");
+    expect(store.lifecycle("turn-build")?.clientTiming, "OWNER_RECEIPT_SURVIVES_TRAILING_HOST_CLOCK_WRITES").toEqual(clientTiming);
+    const raw = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id=?").get("turn-build") as { record: string };
+    expect(JSON.parse(raw.record), "CLIENT_RECEIPT_STAYS_OUTSIDE_HOST_CLOCK_RECORD").not.toHaveProperty("clientTiming");
     expect(store.lifecycle("turn-build")).toMatchObject({ runtimeVersion: "2.1.343", endedAt: 1400, recorderSettledAt: 1500, idleEmittedAt: 1600,
       openSubPhases: [{ phase: "closing", name: "journal_finish", startedAt: 1000, endedAt: 1400, elapsedMs: 400 }] });
     for (const [i, revision] of [undefined, "", "contains spaces", "x".repeat(65), "ithaca\n", "ithaca/secret"].entries()) {
