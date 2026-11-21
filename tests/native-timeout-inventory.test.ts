@@ -24,7 +24,7 @@ test("new native literal timer, spawn, polling and aliased options cannot bypass
  test("outer",()=>{},90000); test("outer options",{timeout:90000},()=>{});
  setTimeout(()=>{},watchdogMs(5000));
  setTimeout(()=>{},/* native-product-timing: Fixed measured application budget. */ 1000);
- const receipt={timeout:false};`,ts.ScriptTarget.Latest,true);
+ const receipt={timeout:false,probeTimeout:{requirement:"fixed"}};`,ts.ScriptTarget.Latest,true);
  expect(unscaledNativeDeadlines("new-native.ts",source).map(item=>item.expression.getText(source))).toEqual(["25000","6000","20000","5000","30000","5000","30000","5000"]);
  expect(nativeDeadlines("new-native.ts",source).filter(item=>item.kind==="registrar")).toHaveLength(2);
 });
