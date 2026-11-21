@@ -19,7 +19,7 @@ export function lifecycleTimingSample(record: ActivityTurnLifecycle | undefined,
     steps[key] = elapsedMs === null ? steps[key] ?? null : (steps[key] ?? 0) + elapsedMs;
     return { ...step, elapsedMs };
   });
-  return { turnId: record.turnId, backendInvokedAt: record.backendInvokedAt, firstFrameAt: record.firstFrameAt, firstRelayRequestAt: record.firstRelayRequestAt ?? null,
+  return { turnId: record.turnId, backendInvokedAt: record.backendInvokedAt, firstFrameAt: record.firstFrameAt, endedAt: record.endedAt, firstRelayRequestAt: record.firstRelayRequestAt ?? null,
     queueWaitMs: span(record.acceptedAt, record.dequeuedAt),
     governedAdmissionMs: span(record.governedStartedAt, record.governedAcquiredAt),
     budgetAdmissionMs: span(record.budgetStartedAt, record.budgetAdmittedAt), journalBeginMs: span(record.journalStartedAt, record.journalBeganAt),
@@ -59,13 +59,17 @@ export function backendStartupSamples(backend: "claude" | "pi", firstAfterStart:
     }
     if (missing.length) throw Error(`BACKEND_TIMING_MISSING_STEPS ${missing.join(",")}`);
     // Worker durations keep their own clock; only their host observation point
-    // belongs in this bracket. Claude's shell fixture qualifies up to its first
-    // frame, since it exercises no model request or relay receipt.
-    const boundary = sample.firstRelayRequestAt ?? sample.firstFrameAt;
+    // belongs in this bracket. Claude's shell fixture has no relay receipt;
+    // prompt_prefix can open Activity before launch, so its upper bound is the
+    // observed turn end, never the first Activity frame.
+    const boundary = backend === "claude" ? sample.endedAt : sample.firstRelayRequestAt;
+    if (boundary === null || !Number.isFinite(boundary)) throw Error("BACKEND_TIMING_BOUNDARY_MISSING");
     for (const step of sample.backendSteps) {
       if (!Number.isFinite(step.startedAt) || step.startedAt < sample.backendInvokedAt || step.startedAt > boundary
         || step.endedAt !== null && (!Number.isFinite(step.endedAt) || step.endedAt < step.startedAt || step.endedAt > boundary))
         throw Error(`BACKEND_TIMING_OUTSIDE_STARTUP ${step.name}`);
+      if (step.timeBase === "worker" && step.startedAt !== step.endedAt)
+        throw Error(`BACKEND_TIMING_WORKER_RECEIPT_POINT ${step.name}`);
     }
   }
   return { clock: "host epoch timestamps; timeBase=worker uses workerElapsedMs, never subtracted from host time", backend,

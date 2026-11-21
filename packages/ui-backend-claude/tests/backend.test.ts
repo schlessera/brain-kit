@@ -23,16 +23,21 @@ import { defineProfiles } from "../src/profiles";
 type Gen = (options: Options) => AsyncGenerator<unknown>;
 
 for (const observed of [false, true]) {
-  for (const malformed of ["non-array", "null-entry", "throwing-list", "throwing-name"] as const) {
+  for (const malformed of ["absent", "null", "non-array", "null-entry", "throwing-list", "throwing-name"] as const) {
     test(`malformed MCP diagnostics (${malformed}, observer=${observed}) never fail a usable Claude stream`, async () => {
-      const missing: string[] = [];
+      const missing: string[] = []; let diagnosticReads = 0;
       const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
         const init: Record<string, unknown> = { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [] };
-        if (malformed === "non-array") init.mcp_servers = {};
+        if (malformed === "absent") { /* The SDK supplied no list. */ }
+        else if (malformed === "null") init.mcp_servers = null;
+        else if (malformed === "non-array") init.mcp_servers = {};
         else if (malformed === "null-entry") init.mcp_servers = [null, { name: "ithaca", status: "connected" }];
         else if (malformed === "throwing-list") Object.defineProperty(init, "mcp_servers", { get() { throw Error("Ithaca diagnostic list unavailable"); } });
         else init.mcp_servers = [{ get name() { throw Error("Ithaca diagnostic name unavailable"); } }];
-        yield init;
+        yield new Proxy(init, { get(target, key, receiver) {
+          if (key === "mcp_servers") diagnosticReads++;
+          return Reflect.get(target, key, receiver);
+        } });
         yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
       }) });
       const { bridge, frames } = makeBridge();
@@ -42,10 +47,24 @@ for (const observed of [false, true]) {
       expect(frames.at(-1), "MALFORMED_MCP_DIAGNOSTICS_CANNOT_FAIL_TURN").toMatchObject({ type: "result", isError: false });
       expect(frames.filter(frame => frame.type === "session_info")).toHaveLength(1);
       if (observed) expect(missing, "MCP_DIAGNOSTIC_OMISSIONS_ARE_EXPLICIT").toContain("mcp_connect:additional_servers_omitted");
-      else expect(missing).toEqual([]);
+      expect(diagnosticReads, "NO_OBSERVER_DOES_NOT_READ_MCP_DIAGNOSTICS").toBe(observed ? 1 : 0);
     });
   }
 }
+
+test("an observed empty MCP list stays distinct from an unavailable list", async () => {
+  const missing: string[] = [];
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: [] };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const { bridge, frames } = makeBridge();
+  await backend.startTurn(makeReq(bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, missing: name => { missing.push(name); }, worker() {}, received() {},
+  } }));
+  expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
+  expect(missing, "OBSERVED_EMPTY_MCP_LIST_IS_KNOWN").toEqual(["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui"]);
+});
 
 test("Claude collects a bounded MCP name sample only from the first initialization frame", async () => {
   const missing: string[] = [];

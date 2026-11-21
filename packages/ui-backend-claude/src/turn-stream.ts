@@ -91,7 +91,7 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
         // Diagnostic metadata has no authority over an otherwise usable frame.
         // Both list/property reads and individual entries may be malformed.
         try {
-          const servers = msg.mcp_servers ?? [];
+          const servers = msg.mcp_servers;
           if (!Array.isArray(servers)) omitted = true;
           else {
             omitted = servers.length > 32;

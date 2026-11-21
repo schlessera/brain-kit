@@ -1,9 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import { backendStartupSamples, lifecycleTimingSample } from "../scripts/native-proof/lifecycle-timing.js";
 import { createUiDb } from "../packages/ui-server/src/db/client.js";
 import { createActivityStore } from "../packages/ui-server/src/activity/store.js";
 import { createTurnLifecycle } from "../packages/ui-server/src/activity/turn-lifecycle.js";
+import { createTurnRecorder } from "../packages/ui-server/src/activity/recorder.js";
+import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 
 function record(): ActivityTurnLifecycle {
   return { hostEvents: [], skippedPhases: [], lifecycleId: "lifecycle:ithaca", turnId: "ithaca", sessionId: "odysseus", backendRunId: "ithaca",
@@ -66,13 +68,59 @@ test("native startup host stages cannot be relabelled as worker-clock durations"
     .toThrow("BACKEND_TIMING_MISSING_STEPS host_probe");
 });
 
-test("native Claude worker qualification contains host steps before its observed first frame", () => {
+test("native Claude worker qualification contains host steps before turn completion", () => {
   const valid = claudeStartup();
   const invalid = { ...valid, backendSteps: valid.backendSteps.map(step => step.name === "host_probe"
-    ? { ...step, startedAt: 1800, endedAt: 1900, elapsedMs: 100 } : step) };
+    ? { ...step, startedAt: 2100, endedAt: 2200, elapsedMs: 100 } : step) };
   expect(() => backendStartupSamples("claude", invalid, Array(5).fill(valid)), "CLAUDE_FIXTURE_STEPS_STAY_INSIDE_OBSERVED_STARTUP")
     .toThrow("BACKEND_TIMING_OUTSIDE_STARTUP host_probe");
 });
+
+test("Claude qualification permits worker startup after prompt_prefix opened the Activity root", async () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  const pinned = Date.UTC(2026, 6, 12); let now = pinned + 1100;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    const lifecycle = createTurnLifecycle(store, "turn-ithaca", "ithaca", pinned + 1000, () => {}, () => now);
+    lifecycle.mark("backendInvokedAt");
+    const recorder = createTurnRecorder({ store }, { turnId: "turn-ithaca", sessionId: "ithaca", lifecycle });
+    const probe = lifecycle.startupTiming.start("host_probe"); now += 20; probe();
+    recorder.observeActivity({ kind: "prompt_prefix", resumed: false,
+      prefix: promptPrefixFingerprint({ tools: [], system: "Odysseus records Ithaca.", gitStatusIncluded: false }) });
+    expect(store.lifecycle("turn-ithaca")!.firstFrameAt).toBe(pinned + 1120);
+    for (const name of ["worker_host_probe", "worker_launch"]) {
+      now += 10; const end = lifecycle.startupTiming.start(name); now += 10; end();
+    }
+    now += 10; recorder.observeFrame({ type: "session_info", sessionId: "ithaca", isNew: true });
+    now += 10; recorder.finish("success"); lifecycle.finish("success"); await recorder.settled();
+    const sample = lifecycleTimingSample(store.lifecycle("turn-ithaca")!, "claude_worker_fixture")!;
+    let output: ReturnType<typeof backendStartupSamples> | undefined;
+    expect(() => { output = backendStartupSamples("claude", sample, Array(5).fill(sample)); },
+      "CLAUDE_BOUNDARY_MUST_INCLUDE_POST_PREFIX_WORKER_STARTUP").not.toThrow();
+    expect(output!.firstAfterStart?.backendSteps.find(step => step.name === "worker_launch")?.endedAt).toBe(pinned + 1160);
+    expect(output!.firstAfterStart?.invocationToRelayMs).toBeNull();
+  } finally { clock.mockRestore(); db.close(); }
+});
+
+test("Claude qualification requires an observed terminal bound instead of guessing from first frame", () => {
+  const valid = claudeStartup();
+  const source = record(); source.firstRelayRequestAt = null; source.endedAt = null;
+  source.openSubPhases = valid.backendSteps;
+  const pending = lifecycleTimingSample(source, "claude_worker_fixture")!;
+  expect(() => backendStartupSamples("claude", pending, Array(5).fill(valid)), "CLAUDE_TERMINAL_BOUND_MUST_BE_OBSERVED")
+    .toThrow("BACKEND_TIMING_BOUNDARY_MISSING");
+});
+
+for (const [name, endedAt] of [["resources", 1550], ["ithaca_extra", 1550], ["ithaca_extra", null]] as const) {
+  test(`native worker duration ${name} cannot fabricate a host interval ending at ${endedAt}`, () => {
+    const valid = piStartup();
+    const invalid = { ...valid, backendSteps: [...valid.backendSteps.filter(step => step.name !== name), {
+      phase: "backend", name, timeBase: "worker" as const, workerElapsedMs: 9, elapsedMs: 9, startedAt: 1500, endedAt,
+    }] };
+    expect(() => backendStartupSamples("pi", invalid, Array(5).fill(valid)), "WORKER_HOST_TIMESTAMPS_ARE_ONE_RECEIPT_POINT")
+      .toThrow(`BACKEND_TIMING_WORKER_RECEIPT_POINT ${name}`);
+  });
+}
 
 for (const [name, start, end] of [
   ["host_probe", 1000, 1200], ["host_probe", 1800, 1900], ["host_probe", 1600, 1800],

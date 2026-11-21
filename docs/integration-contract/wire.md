@@ -668,8 +668,10 @@ The lifecycle retains at most 63 distinct missing-evidence names of at most
 256 UTF-8 bytes each, plus `additional_missing_evidence_omitted` on overflow.
 Omitted names are not retained for deduplication. Continuation init frames do
 not expand the sample; missing evidence remains explicit when a limit is hit.
-Malformed MCP diagnostic lists or entries also mark the sample incomplete;
-they cannot fail an otherwise usable stream. Without a timing observer, the
+Malformed MCP diagnostic lists or entries also mark the sample incomplete.
+Null or absent lists are unavailable evidence; an explicit empty array is an
+observed empty list. These diagnostics cannot fail an otherwise usable stream.
+Without a timing observer, the
 backend does not read the MCP diagnostic list.
 
 Historical records may omit either timing array; neither is backfilled.

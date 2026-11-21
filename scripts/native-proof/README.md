@@ -60,7 +60,7 @@ qualification.
 
 The `backendStartup` section (#4285/#4286) includes the first turn after
 server start and those five warm turns. Each sample carries invocation to
-first relay receipt when observed, the `openSubPhases` backend steps, their host receipt timestamps and
+first relay receipt when observed, the observed turn `endedAt`, the `openSubPhases` backend steps, their host receipt timestamps and
 worker clock tags, and `backendMissingEvidence` for unavailable SDK marks.
 Worker durations are reported from `workerElapsedMs`, separately from host
 intervals. Nested resource/session/initialize samples overlap; do not sum them.
@@ -88,9 +88,12 @@ and a present frame step must still match the milestone. A frame observed
 after relay receipt remains outside the bracket.
 Every backend entry's host start/end observations must be contained between
 invocation and relay receipt. Worker durations keep their independent clock;
-only their host observation point is bounded. Claude's worker-only fixture
-uses the observed first frame as its qualification boundary, without claiming
-a model request. Required host stages must use the host clock.
+both host timestamps must be the same receipt point inside the bracket.
+Claude's worker-only fixture uses the observed turn end as its qualification
+upper bound, without claiming a model request. Its Activity `firstFrameAt`
+can be set by `prompt_prefix` during SDK option assembly before worker launch.
+A missing terminal bound cannot be replaced by that early frame. Required
+host stages must use the host clock.
 
 Its `phases` section (#2915) attributes each observed writer's worker hold and
 each harbour turn's journal begin and finish to their steps: the queue for the
