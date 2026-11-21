@@ -149,7 +149,7 @@ test("build identity validates revision and retains runtime evidence with termin
   const db = createUiDb(":memory:");
   try {
     const store = createActivityStore(db); let now = 1000;
-    const live = createTurnLifecycle(store, "turn-build", "ithaca", now, () => {}, () => now, { buildRevision: "ithaca+4278" });
+    const live = createTurnLifecycle(store, "turn-build", "ithaca", now, () => {}, () => now, undefined, { buildRevision: "ithaca+4278" });
     expect(store.lifecycle("turn-build"), "BUILD_IDENTITY_STAMPED_AT_ACCEPT").toMatchObject({ packageVersion: packageInfo.version, buildRevision: "ithaca+4278" });
     live.runtimeVersion("2.1.343");
     const end = live.timer("closing")("journal_finish"); now = 1400; end(); live.finish("success");
@@ -157,7 +157,7 @@ test("build identity validates revision and retains runtime evidence with termin
     expect(store.lifecycle("turn-build")).toMatchObject({ runtimeVersion: "2.1.343", endedAt: 1400, recorderSettledAt: 1500, idleEmittedAt: 1600,
       openSubPhases: [{ phase: "closing", name: "journal_finish", startedAt: 1000, endedAt: 1400, elapsedMs: 400 }] });
     for (const [i, revision] of [undefined, "", "contains spaces", "x".repeat(65), "ithaca\n", "ithaca/secret"].entries()) {
-      createTurnLifecycle(store, `turn-invalid-${i}`, null, now, () => {}, () => now, { buildRevision: revision });
+      createTurnLifecycle(store, `turn-invalid-${i}`, null, now, () => {}, () => now, undefined, { buildRevision: revision });
       expect(store.lifecycle(`turn-invalid-${i}`)!.buildRevision).toBeUndefined();
     }
   } finally { db.close(); }

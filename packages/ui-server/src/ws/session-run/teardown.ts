@@ -1,6 +1,7 @@
 import { lstatSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { isEnvName, PROTECTED_TIER_A } from "@schlessera/brain-ui-sdk/internal";
+import { prepareClientTurnReceipt } from "../client-turn-receipts.js";
 import { withTurnScope } from "../frames.js";
 import type { TurnOutcome } from "./outcome.js";
 import { releaseActive } from "./slot.js";
@@ -95,6 +96,7 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
     const failureEnd = lifecycle?.timer("closing")("failure_recording");
     if (await failureRecording.finish(turn.sessionId)) failureEnd?.();
     lifecycle?.finish(outcome.lifecycle, outcome.reason ?? null);
+    run.clientReceiptEligible = !!lifecycle && prepareClientTurnReceipt(host, run.turnId, current.principalId, lifecycle.settled);
     clearTimeout(timeoutHandle);
     turn.recorder = undefined;
     work?.settle(outcome.work, { sessionId: turn.sessionId, ...(outcome.reason ? { reason: outcome.reason } : {}) });

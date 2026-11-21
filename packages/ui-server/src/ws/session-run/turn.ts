@@ -16,7 +16,7 @@ import type { SessionSlot, TurnLifecycle, TurnRun } from "./types.js";
  * synchronous run as its next dequeue or its close.
  */
 type SlotTurnResult =
-  | { readonly kind: "ran"; readonly outcome: TurnOutcome }
+  | { readonly kind: "ran"; readonly outcome: TurnOutcome; readonly clientReceiptEligible?: boolean }
   | { readonly kind: "revoked" }
   | { readonly kind: "denied"; readonly error: unknown };
 
@@ -82,7 +82,7 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
     stops: {}, budgetWrites: new Set(), held: { referenceViews: null, referenceTurn: false, enteredBackend: false },
   };
   announceTurnStart(slot, current, run.startedAt);
-  return { kind: "ran", outcome: await executeTurn(run) };
+  return { kind: "ran", outcome: await executeTurn(run), ...(run.clientReceiptEligible ? { clientReceiptEligible: true } : {}) };
 }
 
 /** Admit, enter the backend, classify the outcome and tear the turn down. */
