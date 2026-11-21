@@ -1,3 +1,4 @@
+import "../test-network-child-preload.ts";
 import { nativeScriptedService } from "../test-native-guard.ts";
 /** Actual core factory, actual bundled CLI, networkless fictional control only. */
 import { mkdirSync,writeFileSync,readFileSync,existsSync,appendFileSync } from "node:fs";

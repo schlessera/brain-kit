@@ -1,3 +1,4 @@
+import "./test-network-child-preload.ts";
 import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // #1213: production enforcement and foreground rewrite inherited by a real subagent.
 // Run with only loopback enabled. All credentials and commands are controlled fixtures.

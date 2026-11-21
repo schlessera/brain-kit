@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BROWSER_DETERMINISM_REPORT, browserDeterminismPairs, categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
@@ -453,4 +453,25 @@ test("native CLI command preload resolves as a file and latches refusal before a
   expect(code).not.toBe(0);
   expect(output).toContain('"success":false,"nativeLaunched":false');
   expect(output).toContain("positive native proof requires a hosted runner");
+});
+
+
+test("standalone native SDK entries install the guard before importing their runtime dependencies", () => {
+  const entries = [
+    "scripts/measure-claude-capability.ts", "scripts/measure-claude-runtime.ts", "scripts/measure-claude-usage.ts",
+    "scripts/measure-claude-haiku.ts", "scripts/measure-claude-enforcement.ts", "scripts/measure-claude-delegation.ts",
+    "scripts/measure-show-block.ts", "scripts/measure-show-block-server.ts", "scripts/measure-real-provider-dispatch.ts",
+    "scripts/measure-turn-surface-live.ts", "scripts/measure-turn-surface-tokens.ts", "scripts/show-block-schema-forms.ts",
+    "scripts/capture-turn-surface.ts", "scripts/turn-surface-overlap.ts", "scripts/fixtures/claude-core-default-probe.ts",
+    "scripts/native-proof/hosted-app-child.ts", "scripts/native-proof/reference-integration-child.ts",
+    "experiments/fixtures/runtime-placement-probe.ts", "experiments/2052-title-provenance/probe.ts",
+  ];
+  for (const entry of entries) {
+    const source = readFileSync(join(ROOT, entry), "utf8");
+    // A first side-effect import evaluates the guard before static SDK imports,
+    // backend dependencies or dynamic SDK resolution in the entry's body.
+    expect(source.split("\n")[0], entry).toMatch(/^import "(?:\.\.\/|\.\/)+(?:scripts\/)?test-network-child-preload\.ts";$/);
+  }
+  const preload = readFileSync(join(ROOT, "scripts/test-network-child-preload.ts"), "utf8");
+  expect(preload.indexOf("installNetworkGuard();")).toBeLessThan(preload.indexOf('await import("bun:test")'));
 });

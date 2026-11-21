@@ -1,3 +1,4 @@
+import "./test-network-child-preload.ts";
 import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // Re-measures the Claude Code runtime behaviours the permission design rests
 // on, against whatever SDK and CLI this workspace installs (#209,

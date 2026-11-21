@@ -1,3 +1,5 @@
+import "../../scripts/test-network-child-preload.ts";
+import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 /** Run through run.ts: the SDK, CLI and tool descendants share an offline netns. */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -36,6 +38,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" }];
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream", "request-id": id } });
 } });
+nativeScriptedService(server.url.origin);
 try {
   for (turnIndex = 1; turnIndex <= 2; turnIndex++) {
     const controller = new AbortController();

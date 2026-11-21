@@ -1,3 +1,4 @@
+import "./test-network-child-preload.ts";
 // Measures how often a backend reaches for `show_block` (D41) and what the
 // classification pass (D42) finds in the markdown it typed instead —
 // through the running server, so any backend can be measured.

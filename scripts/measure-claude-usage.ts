@@ -1,3 +1,5 @@
+import "./test-network-child-preload.ts";
+import { nativeScriptedService } from "./test-native-guard.ts";
 // Keyless installed-runtime measurement for #2025. Only a loopback Messages
 // origin is contacted; isolated HOME/config and synthetic credentials prevent
 // borrowing provider access. This measures CLI accounting, not provider bills.
@@ -31,6 +33,7 @@ export async function measureClaudeUsage() {
     return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),
       { headers: { "content-type": "text/event-stream" } });
   } });
+nativeScriptedService(model.url.origin);
   const cwd = mkdtempSync(join(tmpdir(), "claude-usage-cwd-"));
   const home = mkdtempSync(join(tmpdir(), "claude-usage-home-"));
   let sessionId: string | undefined, cliVersion: string | undefined;

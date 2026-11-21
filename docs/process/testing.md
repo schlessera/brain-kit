@@ -1170,6 +1170,12 @@ OAuth. Its measurement is labelled accordingly and does not prove ordinary TCP
 credential precedence.
 No production authentication or managed-policy behavior changes.
 
+Standalone native measurement and experiment entries import the subprocess guard
+before their SDK or backend dependencies. Direct fixture HOME and cwd mounts
+reject unowned Unix sockets, including nested aliases, and recheck immediately
+before launch. The hostile-settings proof always registers; outside hosted CI it
+fails with an explicit isolation-unavailable receipt rather than disappearing.
+
 `tests/native-offline-boundary.test.ts` proves local refusal with harmless
 synthetic executables. Hosted proof additionally exercises hostile managed
 settings, an outside-HOME sentinel credential, helper descendants, denied TCP,

@@ -214,7 +214,7 @@ function fixtureToolView(env: Record<string, string | undefined>, cwd: string, h
 }
 
 interface AuditReceipt { kind: "native-offline-audit"; head: string; nativeLaunched: boolean; success: boolean; reason?: string; deniedConnects: number }
-interface Boundary { argv: string[]; env: Record<string, string>; dispose(): void; receipt(): AuditReceipt }
+interface Boundary { beforeLaunch(): void; argv: string[]; env: Record<string, string>; dispose(): void; receipt(): AuditReceipt }
 
 /** Retain only public synthetic credentials, including their absent/both cases. */
 function syntheticCredentials(env: Record<string, string | undefined>): Record<string, string> {
@@ -311,6 +311,12 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   const inheritedOrigin = inheritedSocket ? ownedSocketOrigin(inheritedSocket) : undefined;
   if (inheritedSocket && !inheritedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (inheritedOrigin && (!scriptedRoute.getStore() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(scriptedRoute.getStore()!.origin))) refuse("native relay did not match scripted authority");
+  const beforeLaunch = () => {
+    for (const path of [home, cwd]) {
+      if (!fixtureSocketViewOwned(path, route.origin)) refuse("fixture storage contains an unowned Unix socket or directory alias");
+    }
+  };
+  beforeLaunch();
   const bridge = startNativeTestRelay(route.origin);
   try {
     const tools = fixtureToolView(env, cwd, home);
@@ -344,7 +350,8 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
     argv.push("--chdir", cwd, "--", command, ...args);
     const audited = auditNativeLaunch(argv, expectedNativeExec(command, args, options), () => { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); });
-    return { ...audited, env: {} };
+    beforeLaunch();
+    return { ...audited, env: {}, beforeLaunch };
   } catch (error) { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); throw error; }
 }
 
@@ -476,6 +483,25 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
     if (directory && !relaySubtreeOwned(directory, authority.origin)) return;
     return authority.origin;
   }
+}
+
+/** Metadata only: no fixture file contents or outside directory trees are read. */
+function fixtureSocketViewOwned(directory: string, origin: string): boolean {
+  const root = realpathSync(directory), visited = new Set<string>();
+  const visit = (path: string): boolean => {
+    const real = realpathSync(path), info = lstatSync(real, { bigint: true });
+    if (info.isSocket()) {
+      const peer = ownedSocketOrigin(real);
+      return Boolean(peer && normalizedOrigin(peer) === normalizedOrigin(origin));
+    }
+    if (!info.isDirectory()) return true;
+    if (!within(root, real)) return false;
+    const key = socketIdentity(info);
+    if (visited.has(key)) return true;
+    visited.add(key);
+    return readdirSync(real).every(name => visit(join(real, name)));
+  };
+  try { return visit(root); } catch { return false; }
 }
 
 function relaySubtreeOwned(directory: string, origin: string): boolean {

@@ -1,3 +1,4 @@
+import "./test-network-child-preload.ts";
 import { nativeScriptedService } from "./test-native-guard.ts";
 // #1213: keyless Sonnet 5.5 native metadata control. Run with loopback only.
 import assert from "node:assert/strict";

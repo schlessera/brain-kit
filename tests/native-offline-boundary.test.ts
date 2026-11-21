@@ -523,6 +523,32 @@ test("registered same-origin Unix relays forward successfully", async () => {
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("direct fixture mounts reject unowned sockets in HOME, cwd and a late launch recheck", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-mounted-socket-"));
+  try {
+    for (const mode of ["home", "cwd", "late"]) {
+      const result = await probe(`${imports}
+        import {mkdirSync,writeFileSync} from "node:fs";
+        const spawnSync=Bun.spawnSync,which=Bun.which;
+        Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+        Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+        process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+        const home=${JSON.stringify(join(scratch, "home"))},cwd=${JSON.stringify(join(scratch, "brain"))};
+        mkdirSync(home,{recursive:true});mkdirSync(cwd,{recursive:true});
+        const socket=(${JSON.stringify(mode)}==="cwd"?cwd:home)+"/foreign.sock";
+        let foreign,plan;
+        if(${JSON.stringify(mode)}!=="late")foreign=Bun.serve({unix:socket,fetch:()=>new Response("foreign")});
+        const leave=registerScriptedService("http://127.0.0.1:1");
+        try{plan=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd,env:{HOME:home}});
+          if(${JSON.stringify(mode)}==="late"){leave();foreign=Bun.serve({unix:socket,fetch:()=>new Response("late")});}
+          plan.beforeLaunch();
+        }finally{foreign?.stop(true);if(plan){writeFileSync(plan.argv[plan.argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();}}`, scratch);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('"reason":"fixture storage contains an unowned Unix socket or directory alias"');
+    }
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 // Positive native tests are deliberately unavailable on developer hosts. The
 // local suite proves refusal above; CI executes this assertion rather than a
 // skipped test or an unsealed fallback.

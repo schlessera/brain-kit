@@ -1,3 +1,4 @@
+import "./test-network-child-preload.ts";
 /** Private #587 experiment: overlap installed-CLI startup with a bounded router.
  * MCP listing waits for the decision; claim discovers the fixture's project
  * skills after any diagnostic pruning. All arms use the same startup path.

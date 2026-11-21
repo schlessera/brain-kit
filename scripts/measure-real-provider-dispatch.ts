@@ -1,3 +1,4 @@
+import "./test-network-child-preload.ts";
 /**
  * Real-provider verification of the restricted inference relay and the gated
  * dispatcher (#1548). Opt-in, paid, never run by tests or CI.
