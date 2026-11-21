@@ -2873,6 +2873,7 @@ export "./server" (./src/server/index.ts)
   type InboxWorkPayload
   type InputSafetyAdmissionCheck
   type InputSafetyAdmissionView
+  type InputSafetyDispatchTicket
   type JournalObservationReference
   type JournalOutwardAction
   type JournalRecoveryStatus
@@ -10722,6 +10723,11 @@ signatures (every public export and the types it is made of)
     export type InputSafetyAdmissionCheck = () => string | null;
   InputSafetyAdmissionView (packages/ui-sdk/src/server/backend.ts)
     export type InputSafetyAdmissionView = (toolUseId: string, toolName: string, safety: import("./admission-safety.js").AdmissionSafety) => import("./admission-safety.js").AdmissionSafety;
+  InputSafetyDispatchTicket (packages/ui-sdk/src/server/backend.ts)
+    export interface InputSafetyDispatchTicket {
+        commit(validate?: InputSafetyAdmissionCheck): void;
+        cancel(): Promise<void>;
+    }
   JournalObservationReference (packages/ui-sdk/src/turn-journal.ts)
     export interface JournalObservationReference {
         turnId: string;

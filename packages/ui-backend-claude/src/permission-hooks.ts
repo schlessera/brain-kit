@@ -294,7 +294,8 @@ export function createPermissionContext(options: PermissionWiringOptions, native
 export function enforcementHookFor(ctx: PermissionContext): HookCallback {
   const { req, allowed, enforced } = ctx;
   return async (hookInput) => {
-    const snapshot = req.bridge.admissionSafety?.read();
+    const safety=hookInput.hook_event_name==="PreToolUse"?toolAdmissionSafety(req.bridge,hookInput.tool_use_id,hookInput.tool_name):req.bridge.admissionSafety;
+    const snapshot = safety?.read();
     if (hookInput.hook_event_name === "PreToolUse") {
       const unavailable = toolAvailabilityRefusal(req, hookInput.tool_name);
       if (unavailable) return { continue: true, hookSpecificOutput: {
@@ -323,7 +324,7 @@ export function enforcementHookFor(ctx: PermissionContext): HookCallback {
       try { await req.bridge.inputSafety.begin(hookInput.tool_use_id,hookInput.tool_name,hookInput.tool_input as Record<string,unknown>); }
       catch(error){return {continue:true,hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:error instanceof Error?error.message:"Safety recording unavailable"}};}
     }
-    const stale = safetyAdmissionRefusal(req.bridge.admissionSafety, snapshot);
+    const stale = safetyAdmissionRefusal(safety, snapshot);
     if (stale) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: stale } };
     if (
       hookInput.hook_event_name !== "PreToolUse" ||
@@ -619,7 +620,7 @@ function createRewriteHooks(ctx: PermissionContext, options: PermissionWiringOpt
     const safety=args[0].hook_event_name==="PreToolUse"?toolAdmissionSafety(req.bridge,args[0].tool_use_id,toolName):req.bridge.admissionSafety;
     const snapshot = safety?.read();
     const output = await hook(...args);
-    const admissionRefusal = safetyAdmissionRefusal(req.bridge.admissionSafety);
+    const admissionRefusal = safetyAdmissionRefusal(safety,snapshot);
     if (admissionRefusal) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: admissionRefusal } };
     if (req.signal.aborted) return { continue: true, hookSpecificOutput: {
       hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Turn cancelled during input rewrite.",
@@ -709,6 +710,7 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   // instead.
   const callbackAdmissions=new Map<string,number>();
   const canUseTool: typeof decideToolUse = async (toolName,input,opts) => {
+    let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
     try {
       admit(opts.toolUseID,toolName,callbackAdmissions);
       const cached=ctx.shownOutward.get(opts.toolUseID);
@@ -722,11 +724,14 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
         const effective=result.updatedInput??input;
         const validate=()=>{req.signal.throwIfAborted();opts.signal?.throwIfAborted();return safetyAdmissionRefusal(safety,before)??(outward(toolName,effective).classification.actions.length?outwardAdmissionRefusal(safety,before):null);};
         const stale=validate();if(stale)throw new Error(stale);
-        await req.bridge.inputSafety?.allowed?.(opts.toolUseID,validate);
+        ticket=req.bridge.inputSafety?.prepareDispatch?await req.bridge.inputSafety.prepareDispatch(opts.toolUseID):undefined;
+        if(!ticket)await req.bridge.inputSafety?.allowed?.(opts.toolUseID,validate);
         const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
+        ticket?.commit(validate);
       }
       return result;
     }catch(error){
+      try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}
       turnLock.releaseForTool(opts.toolUseID);await refuse(opts.toolUseID);
       try{ctx.observe(outward(toolName,input),toolName,input,opts.toolUseID,'refused');}catch{/* Unavailable diagnostics cannot turn a deny into a rejected hook. */}
       return {behavior:'deny',message:error instanceof Error?error.message:'Host tool admission is unavailable.'};

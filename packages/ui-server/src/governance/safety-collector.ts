@@ -95,7 +95,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   }catch(observation){return fail(new AggregateError([error,observation],"Reference result uncertainty could not commit"));}
   return fail(error);
  };
- return {
+ const collector:NonNullable<BackendBridge["inputSafety"]>={
   forAdmission(toolUseId,tool,root){
    const cached=views.get(toolUseId);
    if(cached){if(cached.tool!==tool||cached.root!==root)throw new Error("Causal admission identity changed");return cached.view;}
@@ -225,6 +225,26 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    else if(calls.size<2000)calls.set(toolUseId,{tools:new Map(),allowed:true});
    else throw new Error("Safety allowance capacity exceeded; the call does not run");
   },true);},
+  prepareDispatch(toolUseId){return serial(toolUseId,async()=>{
+   const prepared=operations.get(toolUseId);
+   if(prepared&&(prepared.refused||!prepared.admitted))throw new Error("Safety operation was refused or not admitted");
+   let consumed=false,dispatched=false;
+   return {
+    commit(validate?:import("@schlessera/brain-ui-sdk/server").InputSafetyAdmissionCheck){
+     if(consumed)throw new Error("Dispatch ticket already consumed");
+     consumed=true;
+     const op=operations.get(toolUseId);
+     if(options.signal.aborted||op!==prepared||op&&(op.refused||!op.admitted||op.done||op.resultStarted))throw new Error("Dispatch ticket is no longer current");
+     const refusal=validate?.();if(refusal)throw new Error(refusal);
+     const call=calls.get(toolUseId);
+     if(call)call.allowed=true;
+     else if(calls.size<2000)calls.set(toolUseId,{tools:new Map(),allowed:true});
+     else throw new Error("Safety allowance capacity exceeded");
+     dispatched=true;
+    },
+    async cancel(){if(dispatched)return;consumed=true;await collector.refused?.(toolUseId,true);},
+   };
+  },true);},
   // A result the backend could not hand over (a refused or malformed report):
   // its chat keeps a permanent gap. Resolves once that gap is durable.
   lost(toolUseId,tool,cause){return recording((async()=>{
@@ -232,4 +252,5 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    try{await rejectReadResult(toolUseId,tool,loss);}catch(error){if(error!==loss)throw error;}
   })());},
  };
+ return collector;
 }

@@ -169,6 +169,11 @@ export interface LocationFix {
 
 /** Synchronous final host check, run before an allowance becomes usable. */
 export type InputSafetyAdmissionCheck = () => string | null;
+/** Host-only single-use dispatch handoff; never serialized to workers. */
+export interface InputSafetyDispatchTicket {
+  commit(validate?: InputSafetyAdmissionCheck): void;
+  cancel(): Promise<void>;
+}
 
 /** Host-owned causal view factory for an exact logical tool call. Never a grant. */
 export type InputSafetyAdmissionView = (
@@ -236,6 +241,10 @@ export interface BackendBridge {
      * instead. `validate` runs synchronously inside the serialized step,
      * before the allowance is marked; a refusal never marks the call allowed. */
     allowed?(toolUseId: string, validate?: InputSafetyAdmissionCheck): Promise<void>;
+    /** Prepare without recording dispatch. After every final wait/check, commit
+     * synchronously immediately before exposing allowance. Cancel an unused
+     * ticket on refusal; old hosts lacking this method retain conservative gaps. */
+    prepareDispatch?(toolUseId: string): Promise<InputSafetyDispatchTicket>;
   };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;

@@ -3,6 +3,7 @@ export type {
   BackendBridge,
   InputSafetyAdmissionView,
   InputSafetyAdmissionCheck,
+  InputSafetyDispatchTicket,
   BackendActivityEvent,
   ActivityQuery,
   ActivityQueryResult,

@@ -1,7 +1,7 @@
 /** Connection-local ingestion state shared by every facade and host recovery. */
 import type { Database } from "bun:sqlite";
 import type { SessionTaint } from "./session-taint.js";
-type PendingSafety = {turnId:string|null;sessionId:string|null;source:SessionTaint["source"];bytes:number};
+type PendingSafety = {turnId:string|null;sessionId:string|null;source:SessionTaint["source"];bytes:number;reservationId?:string;occurrenceId?:string};
 const queues=new WeakMap<Database,{pending:Set<PendingSafety>;bytes:number;failed:boolean;inflight:number;
  /** The safety revision when this process latched in memory; null when unreadable. */
  latchRevision:string|null;

@@ -104,7 +104,7 @@ export interface GovernanceWrites {
   safetyFail(turnId:string,cause?:unknown):Promise<void>;
   safety(turnId:string|null,sessionId:string|null):SafetyProjection;
   /** Input recording must be settled and healthy before any provider delivery. */
-  recordingAvailable(turnId:string|null,sessionId:string|null):boolean;
+  recordingAvailable(turnId:string|null,sessionId:string|null,excludeOccurrences?:readonly string[]):boolean;
   /**
    * Validates now, throwing `GovernanceEventError` as the synchronous writer
    * did; the returned promise settles once the row commits, or with the
@@ -226,10 +226,11 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       void safetyFail(row.turnId,new SafetyCapacityExhausted("Safety occurrence write capacity exceeded","turn")).catch(()=>{});
       throw new Error("Safety occurrence write capacity exceeded; ingestion must stop");
     }
-    const pending = { turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
+    const reservation=crypto.randomUUID();
+    const pending = { reservationId:reservation,occurrenceId:input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.occurrence?.id:undefined,turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
     pendingTaints.add(pending); shared.bytes += bytes;
     notifySafetyChanged(db);
-    const reservation=crypto.randomUUID();let reserved=false;
+    let reserved=false;
     const stored = call<void>("safetyReserve",row,reservation,bytes,!!options.beforeDelivery)
       .then(()=>{reserved=true;return call<{id:number;recorded:boolean;discharged?:boolean}>("safetyCommit",row,reservation,options.discharge??null);});
     return stored.catch(error => {
@@ -299,12 +300,16 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
         if(lost){projection.coverage.state="incomplete";if(!projection.reasons.includes("recording_failed"))projection.reasons.push("recording_failed");}}
       return projection;
     }),
-    recordingAvailable(turnId,sessionId){
+    recordingAvailable(turnId,sessionId,excludeOccurrences=[]){
       return snapshot(()=>{
         if(covered(turnId))return true;
-        if(shared.failed||lostInScope(turnId,sessionId)||pendingInScope(turnId,sessionId).length)return false;
+        const own=new Set(excludeOccurrences),pending=pendingInScope(turnId,sessionId),ignored=pending.filter(item=>item.occurrenceId!==undefined&&own.has(item.occurrenceId));
+        if(shared.failed||lostInScope(turnId,sessionId)||pending.some(item=>!ignored.includes(item)))return false;
         const state=safetyProjection(db,turnId,sessionId);
-        return !state.reasons.some(reason=>["recording_failed","recording_pending","capacity"].includes(reason));
+        if(!ignored.length)return !state.reasons.some(reason=>["recording_failed","recording_pending","capacity"].includes(reason));
+        const reservations=ignored.flatMap(item=>item.reservationId?[item.reservationId]:[]);
+        const other=db.query(`SELECT 1 FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE c.turn_id IN (SELECT value FROM json_each(?)) AND p.id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`).get(JSON.stringify([...safetyScopeTurns(db,turnId,sessionId)]),JSON.stringify(reservations));
+        return !other&&!state.reasons.some(reason=>["recording_failed","capacity"].includes(reason));
       });
     },
     firstTaint: (input, options) => record(input, options).then(result => result.recorded),

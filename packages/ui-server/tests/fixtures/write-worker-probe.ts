@@ -1,4 +1,5 @@
 /** A write-worker procedure module for tests (#2814): Odysseus's log, one row per call. */
+import {watchdogMs} from "../../../../scripts/test-deadlines";
 import type { Database } from "bun:sqlite";
 
 export const url = import.meta.url;
@@ -10,6 +11,7 @@ export function setup(db: Database, options: { table: string }) {
   db.exec(`CREATE TABLE IF NOT EXISTS ${options.table} (n INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL)`);
   const insert = (label: string) => db.query(`INSERT INTO ${options.table} (label) VALUES (?)`).run(label).changes;
   return {
+    gate(entered:Int32Array,release:Int32Array){enter(entered);if(Atomics.wait(release,0,0,watchdogMs(10000))==='timed-out')throw new Error('Odysseus gate watchdog expired');},
     log(label: string) { return db.transaction(() => insert(label)).immediate(); },
     /** Holds the commit for `ms`, as a slow fsync would; `entered` is set once it holds the write transaction. */
     slow(label: string, ms: number, entered?: Int32Array) {

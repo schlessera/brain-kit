@@ -128,11 +128,15 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           const visible=prepareOutwardPlan({toolName:event.toolName,shellToolName:"bash",input:event.input,autonomous:!!turn.autonomous}).classification.actions.length>0;
           return safetyAdmissionRefusal(turn.bridge?.admissionSafety)??(visible?revalidatePiAdmission(turn,event.toolName,event.toolCallId,event.input??{}):null);
         };
+        let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
         try{
           const stale=validate();if(stale)throw new Error(stale);
-          if(event.toolName!=="bash")await safety?.allowed?.(event.toolCallId,validate);
+          ticket=event.toolName!=="bash"&&safety?.prepareDispatch?await safety.prepareDispatch(event.toolCallId):undefined;
+          if(event.toolName!=="bash"&&!ticket)await safety?.allowed?.(event.toolCallId,validate);
           const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
+          ticket?.commit(validate);
         }catch(error){
+          try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}
           await safety?.refused?.(event.toolCallId,true);
           return {block:true,reason:error instanceof Error?error.message:'Safety recording refused this call.'};
         }

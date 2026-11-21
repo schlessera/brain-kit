@@ -1898,5 +1898,7 @@ Historical provider input remains separate #3178 work.
 ## Causal tool admission view (additive, 0.45.0, #4271)
 
 The SDK's optional host-owned causal view distinguishes an outward tool's own
-recorded input from independent evidence during final dispatch waits. See
+input and its exact pending reservations from independent evidence during
+final dispatch waits. Optional host-owned dispatch tickets separate asynchronous
+preparation from the synchronous final allowance. See
 [the package API contract](integration-contract/package-api.md#causal-tool-admission-view-additive-0450-4271).

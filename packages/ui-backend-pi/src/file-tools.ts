@@ -195,13 +195,17 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
         if (signal?.aborted) throw new DOMException("Tool cancelled before subprocess execution", "AbortError");
         if (turn.bridge?.commitToolAdmission) await turn.bridge.commitToolAdmission(_id, "bash", params);
         else {
+          let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
           try {
             const validate=()=>{signal?.throwIfAborted();return revalidatePiAdmission(turn,"bash",_id,params);};
             const stale=validate();if(stale)throw new Error(stale);
-            await turn.bridge?.inputSafety?.allowed?.(_id,validate);
+            ticket=turn.bridge?.inputSafety?.prepareDispatch?await turn.bridge?.inputSafety.prepareDispatch(_id):undefined;
+            if(!ticket)await turn.bridge?.inputSafety?.allowed?.(_id,validate);
             const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
+            ticket?.commit(validate);
             forgetPiAdmission(turn,"bash",_id);
           }catch(error){
+            try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}
             forgetPiAdmission(turn,"bash",_id);
             await turn.bridge?.inputSafety?.refused?.(_id,true);
             throw error;
