@@ -10,6 +10,7 @@
  */
 import { z } from "zod";
 import { parseGoogleMailbox } from "./address.js";
+import { BIDI_CONTROL, BODY_CONTROL } from "./encoding.js";
 import {
   GMAIL_DRAFT_ID_PATTERN, GMAIL_MESSAGE_ID_PATTERN, GMAIL_THREAD_ID_PATTERN,
   GOOGLE_HOST_CURSOR_PATTERN, isGmailLabelId,
@@ -158,8 +159,6 @@ export interface GoogleError {
 
 /** C0/C1 controls and the Unicode line and paragraph separators: never in a one-line value. */
 const NOT_ONE_LINE = /[\p{Cc}\u2028\u2029]/u;
-/** Controls a plain-text body may not hold: everything but tab, line feed and carriage return. */
-const BODY_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
 const oneLine = (max: number) => z.string().min(1).max(max)
   .refine(value => !NOT_ONE_LINE.test(value), "must be one line without control characters")
@@ -178,9 +177,10 @@ const labelIds = z.array(labelId).min(1).max(GMAIL_LIMITS.labelChangesPerCall);
 const mailbox = z.string().min(3).max(GMAIL_LIMITS.mailboxChars)
   .refine(value => parseGoogleMailbox(value).ok, "must be one plain email address (no groups, comments or quoted local parts)");
 const recipients = z.array(mailbox).min(1).max(GMAIL_LIMITS.recipientsPerField);
-const subject = oneLine(GMAIL_LIMITS.subjectChars);
+const subject = oneLine(GMAIL_LIMITS.subjectChars)
+  .refine(value => !BIDI_CONTROL.test(value), "must not hold bidirectional embedding, override or isolate characters");
 const body = z.string().max(GMAIL_LIMITS.draftBodyChars)
-  .refine(value => !BODY_CONTROL.test(value), "must be plain text without control characters")
+  .refine(value => !BODY_CONTROL.test(value), "must be plain text the send card can show (no control or bidirectional embedding, override or isolate characters)")
   .describe("The plain-text body. No HTML, no attachments.");
 
 function duplicates(values: readonly string[] | undefined): string[] {
