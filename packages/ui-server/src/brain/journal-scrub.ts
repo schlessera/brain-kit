@@ -52,12 +52,15 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
         // cannot make quarantined bytes disappear from the quota.
         const reserved=write(()=>{
           if(busy()) return null;
-          const retry = () => db.query("SELECT hash,bytes FROM turn_journal_scrub_quarantine WHERE state='reserved' AND hash>? ORDER BY hash LIMIT 32").all(retryAfter) as {hash:string;bytes:number}[];
+          const retry = () => db.query("SELECT hash,bytes FROM turn_journal_scrub_quarantine WHERE state='reserved' AND hash>? ORDER BY hash LIMIT ?").all(retryAfter,JOURNAL_SCRUB_FILES/2) as {hash:string;bytes:number}[];
           let rows=retry();
           if(!rows.length && retryAfter) {retryAfter="";rows=retry();}
           retryAfter=rows.at(-1)?.hash ?? "";
+          // Pending retries own at most half of the combined work bound,
+          // so new directory entries always have a share of the same batch.
+          const listLimit=JOURNAL_SCRUB_FILES-rows.length;
           listing ??= opendirSync(root);
-          while(result.listed<JOURNAL_SCRUB_FILES) {
+          while(result.listed<listLimit) {
             const entry=listing.readSync();
             if(!entry) {listing.closeSync();listing=undefined;break;}
             result.listed++;

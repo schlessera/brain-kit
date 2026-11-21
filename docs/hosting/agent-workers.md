@@ -984,7 +984,8 @@ store, never admission or finish. Each pass lists at most 64 directory entries
 and resumes its held directory iterator on the next pass (a process restart
 starts a fresh sweep). A full batch remains partial until the iterator reaches
 its end. Up to 32 pending reservations are retried separately with a rotating
-cursor; missing old candidates cannot starve newly discovered files. Each
+cursor, sharing the combined 64-entry/row work bound and leaving at least half
+for new entries; missing old candidates cannot starve newly discovered files. Each
 physical copy gets a separate destination name and durable byte charge. Under the journal writer lock it excludes hashes with
 any object row, reference or reservation, verifies remaining bytes against the
 SHA-256 filename, commits their quota charge, then moves verified orphans to
