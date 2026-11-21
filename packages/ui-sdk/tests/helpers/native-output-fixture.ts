@@ -21,5 +21,5 @@ export async function nativeOutputFixture(root:string,brain:string,extraChanges:
 
  const view=await prepareNativeWorkerStartupView(brain,manager);
  const output=await prepareNativeWorkerOutput(brain,{startupView:view,areas:[".git",".brain-index","registry.md",".brain/scratch"]});
- return {output,async close(){await output.cleanup();await view.cleanup();stat.mockRestore();}};
+ return {output,view,manager,async close(){await output.cleanup();await view.cleanup();stat.mockRestore();}};
 }

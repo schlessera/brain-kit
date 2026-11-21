@@ -679,7 +679,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
                 ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
               () => { execution.assertAuthorized?.(); execution.onExecute?.(); });
-              if (routine ? !gitPublicationAllowed(result.exitCode,result.stdout) : result.exitCode !== 0) outputs.discardGit();
+              if (routine ? !gitPublicationAllowed(result.exitCode,result.stdout) : execution.maintenanceKind === "git" && result.exitCode !== 0) outputs.discardGit();
               if (!result.killed && execution.publish !== false) {
                 execution.assertAuthorized?.();
                 if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
@@ -777,7 +777,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       let signalCode: string | null = null;
       const report = routineMaintenance(execution.argv) ? observeMaintenanceStdout(worker.stdout) : undefined;
       const exited = worker.exited.then(async code => {
-        if (report ? !report.gitSucceeded(code) : code !== 0) outputs!.discardGit();
+        if (report ? !report.gitSucceeded(code) : execution.maintenanceKind === "git" && code !== 0) outputs!.discardGit();
         if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();
