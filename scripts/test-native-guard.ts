@@ -165,7 +165,7 @@ function qualify(): void {
   catch { refuse("OS namespace setup failed"); }
   if (result.exitCode !== 0) refuse("OS namespace setup failed");
   let trace: ReturnType<typeof Bun.spawnSync>;
-  try { trace = Bun.spawnSync(["strace", "-qq", "-e", "trace=connect", "-e", "raw=connect", "/usr/bin/true"],
+  try { trace = Bun.spawnSync(["strace", "-I", "1", "--kill-on-exit", "-qq", "-e", "trace=connect", "-e", "raw=connect", "/usr/bin/true"],
     { env: {}, stdout: "pipe", stderr: "pipe", timeout: 5000 }); }
   catch { refuse("native connection audit setup failed"); }
   if (trace.exitCode !== 0) refuse("native connection audit setup failed");
@@ -339,7 +339,9 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       return receipt;
     } finally { cleanup(); rmSync(directory, { recursive: true, force: true }); }
   };
-  return { argv: [straceExecutable, "-f", "-qq", "-s", "0", "-e", "trace=connect,execve", "-e", "raw=connect", "-o", log, "--", ...argv],
+  // -o otherwise makes strace ignore SIGTERM; refusal/cancellation must kill
+  // both the tracer and its entire traced sandbox, closing inherited pipes.
+  return { argv: [straceExecutable, "-I", "1", "--kill-on-exit", "-f", "-qq", "-s", "0", "-e", "trace=connect,execve", "-e", "raw=connect", "-o", log, "--", ...argv],
     dispose() { finish(); }, receipt: finish };
 }
 
