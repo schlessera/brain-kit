@@ -1,7 +1,7 @@
 import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
-import { sameSafetyAdmission, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
+import { sameSafetyAdmission, toolAdmissionSafety, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
 import { approvalRequestFrame, withTurnScope } from "../frames.js";
 import type { BridgeContext, BridgeSlice } from "./context.js";
 import { waitWhile } from "../../brain/authority-hold.js";
@@ -28,9 +28,18 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
     // This is the common boundary for SDK tools AND host-internal callers
     // (applications, policy publication, compute and actors). Caller metadata
     // cannot opt a card out of withdrawal or supply its authority.
-    const safety = self().admissionSafety;
-    let snapshot: AdmissionSafetySnapshot | undefined;
-    try { snapshot = safety?.read(); }
+    const bridge=self();
+    let safety:ReturnType<typeof toolAdmissionSafety>,snapshot:AdmissionSafetySnapshot|undefined;
+    try {
+      // Policy and actor cards represent host operations, not backend input.
+      safety=req.kind==='policy'||req.kind==='actor'?bridge.admissionSafety:toolAdmissionSafety(bridge,req.toolUseId,req.toolName);snapshot=safety?.read();
+      // A current root receipt from a compatible caller may be normalized,
+      // but stale caller metadata cannot replace host-owned authority.
+      if(snapshot&&req.admissionSnapshot&&!sameSafetyAdmission(req.admissionSnapshot,snapshot)){
+        const root=bridge.admissionSafety?.read();
+        if(!root||!sameSafetyAdmission(req.admissionSnapshot,root))return Promise.resolve({behavior:"deny",message:STALE_SAFETY_ADMISSION});
+      }
+    }
     catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
     const revalidate = (): string | null => {
       if (ctx.signal.aborted || (safety || ctx.backendId === "claude" || ctx.backendId === "pi") && !ctx.current()) return STALE_SAFETY_ADMISSION;
@@ -39,7 +48,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
       } catch { return STALE_SAFETY_ADMISSION; }
       return null;
     };
-    if (revalidate() || safety && snapshot && req.admissionSnapshot && !sameSafetyAdmission(req.admissionSnapshot, snapshot))
+    if (revalidate())
       return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
     if (snapshot) req = { ...req, admissionSnapshot: snapshot };
     // A native permission checkpoint delegates this particular operation to

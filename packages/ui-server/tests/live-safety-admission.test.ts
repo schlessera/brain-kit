@@ -39,6 +39,9 @@ import { requestToolPermission } from "@schlessera/brain-ui-sdk/server";
 import { NativeFileVersions } from "@schlessera/brain-ui-sdk/internal";
 import { handleToolApproval, handleToolDenial } from "../src/ws/handlers/tool-permission";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import {createPermissions} from "../src/ws/bridge-capabilities/permissions";
+import {createBridgeContext} from "../src/ws/bridge-capabilities/context";
+import type {RunningTurn} from "../src/ws/turns";
 import { createSettingsWrites } from "../src/db/settings-writes";
 import { getAutoAllowedTools } from "../src/db/settings";
 import { retireChat, resolveChat } from "../src/ws/chat-lifecycle";
@@ -984,4 +987,23 @@ for(const pending of [false,true])for(const revise of [false,true])test(`dispatc
   try{expect(()=>ticket.commit(),'ANY_LATER_BEGIN_INVALIDATES_PREPARATION').toThrow('current');}finally{await begun;}await ticket.cancel();
   expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
  }finally{await f.close();}
+});
+for(const independent of [false,true])for(const legacy of [false,true])test(`host card retains exact causal view (independent=${independent},legacy=${legacy})`,async()=>{
+ const f=await fixture(false),raised=Promise.withResolvers<void>();
+ const store=createActivityStore(f.db),host=new WsHost({brainPath:f.root,registry:createStaticBackendRegistry([makeFakeBackend({id:'claude'})],'claude'),catalog:createSessionCatalog(()=>f.db),isPrincipalAuthorized:id=>id===f.principal.id,activity:{store,stream:createActivityStream(store),governanceDb:f.db,governanceWrites:f.writes}});
+ const authorization=host.coordinator.openAuthorization({principalId:f.principal.id,valid:true,expiresAt:Number.MAX_SAFE_INTEGER});
+ const turn={turnId:'voyage',principalId:f.principal.id,authorization,startedAt:1,sessionId:'ithaca',abortController:f.controller,queue:[]} as unknown as RunningTurn;
+ const ws={send(text:string){if(JSON.parse(text).type==='tool_approval_request')raised.resolve();}};host.clients.add(ws,f.principal.id);
+ const bridge={emit(){},inputSafety:f.collector,admissionSafety:f.safety} as unknown as BackendBridge;Object.assign(bridge,createPermissions(createBridgeContext(host,turn,{promptText:'Return to Ithaca',backendId:'claude'}),()=>bridge));
+ let work:Promise<unknown>|undefined;
+ try{
+  await f.add('before_host_card');const id='host-causal-card';f.collector.admitting!(id,'Bash');
+  const causal=f.collector.forAdmission!(id,'Bash',f.safety),request={toolUseId:id,toolName:'Bash',kind:'command' as const,input:{command},description:'Review the outward command'};
+  if(legacy){const stale=f.safety.read();await f.add('before_current_host_receipt');expect(await bridge.requestPermission({...request,admissionSnapshot:stale}),'STALE_ROOT_METADATA_CANNOT_SELECT_A_FRESH_BASELINE').toMatchObject({behavior:'deny'});}
+  work=legacy?bridge.requestPermission({...request,admissionSnapshot:f.safety.read()}):requestToolPermission({...bridge,admissionSafety:causal},request);
+  await Promise.race([raised.promise,work.then(result=>{throw new Error('HOST_CARD_MUST_ACCEPT_THE_CURRENT_SNAPSHOT '+JSON.stringify(result));})]);
+  await f.collector.begin(id,'Bash',{command});if(independent)await f.add('independent_host_card');
+  if(!independent)await handleToolApproval({host,ws,requireEcho:true,connection:{principal:f.principal,authorization}} as never,{type:'tool_approval',toolUseId:id,turnId:'voyage',channel:'card'});
+  expect(await work,'HOST_OWNER_RESPONSE_USES_THE_RETAINED_CAUSAL_VIEW').toMatchObject({behavior:independent?'deny':'allow'});
+ }finally{authorization.release();host.close();await work;await f.close();}
 });
