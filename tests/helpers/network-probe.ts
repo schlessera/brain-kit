@@ -133,6 +133,40 @@ export async function runProbe(scenario: string): Promise<void> {
         }
       }
     }
+  } else if (scenario === "gog-forms") {
+    // A harmless stand-in named gog. Every attempt names it absolutely or
+    // finds it on an explicit PATH holding nothing else, so a form that
+    // escaped the guard could only run the stand-in, which leaves a mark the
+    // sentinel reports as native. No attempt can reach an installed gog.
+    const { mkdirSync, symlinkSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const bin = join(process.env.PROBE_DIR!, "gog-bin");
+    mkdirSync(bin, { recursive: true });
+    const gog = join(bin, "gog");
+    writeFileSync(gog, `#!/bin/sh\nprintf 'gog ran %s\\n' "$*" >> '${join(process.env.PROBE_DIR!, "native-gog")}'\n`, { mode: 0o755 });
+    symlinkSync(gog, join(bin, "renamed"));
+    const env = { PATH: bin };
+    const settle = async (value: unknown) => {
+      if (value && typeof value === "object" && "exited" in value) await (value as { exited: Promise<unknown> }).exited;
+      else if (value && typeof value === "object" && "once" in value) await new Promise<void>(resolve => (value as { once(event: string, done: () => void): void }).once("exit", () => resolve()));
+    };
+    for (const key of ["spawn", "spawnSync"] as const) {
+      for (const cmd of [["gog", "version"], [gog, "version"], [join(bin, "renamed"), "version"], ["/usr/bin/env", "gog", "version"],
+        ["/bin/sh", "-c", "gog version"], ["/bin/sh", "-ec", `exec ${gog} version`]]) {
+        for (const args of [[cmd, { env }], [{ cmd, env }]]) {
+          try { await settle(Reflect.apply(Bun[key], Bun, args)); } catch {}
+        }
+      }
+    }
+    const cp = await import("node:child_process");
+    for (const attempt of [
+      () => cp.execSync("gog version", { env }), () => cp.execFileSync("gog", ["version"], { env }), () => cp.spawnSync("gog", ["version"], { env }),
+      () => cp.exec("gog version", { env }), () => cp.spawn("gog version", { shell: true, env }), () => cp.execFile(gog, ["version"], { env }),
+    ]) {
+      try { await settle(attempt()); } catch {}
+    }
+    try { await Bun.$`gog version`.env(env).quiet(); } catch {}
+    try { await Bun.$`${gog} version`.env(env).quiet(); } catch {}
   } else if (scenario === "hosts") {
     for (const input of [external, new URL(external), new Request(external),
       "https://localhost.example.invalid/", "http://127.0.0.2/", "http://0.0.0.0/", "file:///etc/hosts"]) {

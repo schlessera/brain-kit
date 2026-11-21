@@ -74,14 +74,14 @@ describe("offline test guard", () => {
     });
   }
   for (const scenario of ["net-connect", "net-forms", "tls-forms", "bun-connect", "socket-exit-zero", "socket-mocks",
-    "partial", "robots", "proxy", "curl-forms", "hosts", "retries", "exit-zero", "mocks", "mock-files", "redirect"]) {
+    "partial", "robots", "proxy", "curl-forms", "gog-forms", "hosts", "retries", "exit-zero", "mocks", "mock-files", "redirect"]) {
     test(`${scenario} fails despite caught errors without dispatching native transport`, async () => {
       const result = await run(scenario);
       expect(result.calls.length, result.output).toBeGreaterThan(0);
       expect(result.calls.flat(), result.output).toEqual([]);
       expect(result.code).not.toBe(0);
       expect(result.output).toContain("Offline test guard");
-      expect(result.output).toContain(scenario === "curl-forms" ? "curl" : "escape.example.invalid");
+      expect(result.output).toContain(scenario === "curl-forms" ? "curl" : scenario === "gog-forms" ? "gog version" : "escape.example.invalid");
       if (scenario === "mock-files") expect(result.output).toContain("(pass) restore mocks in another file");
     });
   }

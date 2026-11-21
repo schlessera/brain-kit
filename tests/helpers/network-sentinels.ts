@@ -1,4 +1,5 @@
 /** A low-level safety net for isolated guard probes, including mutations. */
+import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { isIP, Socket } from "node:net";
 
@@ -54,14 +55,24 @@ for (const key of ["spawn", "spawnSync"] as const) {
       nativeCalls.push(`${key} ${cmd.join(" ")}`);
       throw new Error("NATIVE_CURL_SENTINEL");
     }
+    if (basename(cmd[0]!) === "gog") {
+      nativeCalls.push(`${key} ${cmd.join(" ")}`);
+      throw new Error("NATIVE_GOG_SENTINEL");
+    }
     return Reflect.apply(native, Bun, options === undefined ? [command] : [command, options]);
   }) as typeof Bun.spawn & typeof Bun.spawnSync;
 }
 
-process.on("exit", () => console.log(`NATIVE_CALLS=${JSON.stringify(nativeCalls)}`));
+// A gog the guard let through through a shell, env, Bun Shell or a renamed
+// link reaches the probe's harmless stand-in, which leaves this mark.
+const withMarks = () => {
+  const mark = process.env.PROBE_DIR ? `${process.env.PROBE_DIR}/native-gog` : "";
+  return mark && existsSync(mark) ? [...nativeCalls, ...readFileSync(mark, "utf8").trim().split("\n")] : nativeCalls;
+};
+process.on("exit", () => console.log(`NATIVE_CALLS=${JSON.stringify(withMarks())}`));
 try {
   const { afterAll } = await import("bun:test");
-  afterAll(() => console.log(`NATIVE_CALLS=${JSON.stringify(nativeCalls)}`));
+  afterAll(() => console.log(`NATIVE_CALLS=${JSON.stringify(withMarks())}`));
 } catch {
   // Ordinary child scripts use the exit listener instead of test hooks.
 }

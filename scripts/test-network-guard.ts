@@ -1,7 +1,70 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { basename, join } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { isIP, Socket } from "node:net";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
+
+/**
+ * Fakes a test wrote and may run although they are named `gog`. Kept on a
+ * global so every copy of this module in a process shares one registry.
+ */
+const FAKE_GOGS = Symbol.for("brain-kit.test-network-guard.fake-gogs");
+const fakeGogs = (): Set<string> => ((globalThis as Record<symbol, Set<string>>)[FAKE_GOGS] ??= new Set());
+
+/**
+ * Lets this process spawn `path`, a fake gog the test itself wrote (plan
+ * §11). Any other executable named `gog` is refused, so a test can never run
+ * the real one, whose home holds a Google credential. Returns the undo.
+ */
+export function registerFakeGog(path: string): () => void {
+  const real = realpathSync(path);
+  fakeGogs().add(real);
+  return () => fakeGogs().delete(real);
+}
+
+const SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash", "busybox"]);
+const unquote = (word: string) => word.replace(/^['"]+|['"]+$/g, "");
+
+/** Every word of a shell script, split on blanks and operators: a coarse superset of the commands it runs. */
+const shellWords = (script: string) => script.split(/[\s;&|()<>`$]+/).map(unquote).filter(Boolean);
+
+/** The file a command word runs, or null when it names nothing that exists. */
+function resolveExecutable(word: string, path: string | undefined, cwd: string | undefined): string | null {
+  const found = word.includes("/") ? resolve(cwd ?? process.cwd(), word) : Bun.which(word, { PATH: path ?? "", cwd });
+  if (!found) return null;
+  try {
+    return realpathSync(found);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The first word naming a gog that is not a registered fake, among the
+ * executable, the words `env` runs, and every word of a shell's `-c` script.
+ * The executable counts when it or the file it resolves to is named `gog`;
+ * any other word when it is named `gog`, which may over-match an argument
+ * (`echo gog`) but never misses a command.
+ */
+export function unregisteredGog(cmd: readonly string[], env: Readonly<Record<string, string | undefined>>, cwd?: string): string | null {
+  const words = [String(cmd[0])];
+  const program = basename(words[0]!);
+  // `env [options] [NAME=value…] command …`: a gog anywhere among its words.
+  if (program === "env") words.push(...cmd.slice(1).filter(arg => !arg.startsWith("-") && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg)).map(String));
+  if (SHELLS.has(program)) {
+    const flag = cmd.findIndex((arg, index) => index > 0 && /^-[A-Za-z]*c[A-Za-z]*$/.test(arg));
+    if (flag > 0 && cmd[flag + 1] !== undefined) words.push(...shellWords(cmd[flag + 1]!));
+  }
+  for (const [index, word] of words.entries()) {
+    const named = basename(word) === "gog";
+    // Only the executable itself is resolved to find a gog under another name.
+    if (!named && index > 0) continue;
+    const real = resolveExecutable(word, env.PATH ?? process.env.PATH, cwd);
+    if (!named && (real === null || basename(real) !== "gog")) continue;
+    if (real === null || !fakeGogs().has(real)) return word;
+  }
+  return null;
+}
 
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
@@ -25,8 +88,12 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
   };
 }
 
+/** Set while the guard is installed, so maintainer-only scripts can refuse to run under it. */
+export const NETWORK_GUARD_INSTALLED = Symbol.for("brain-kit.test-network-guard.installed");
+
 export function installNetworkGuard(): { assertNoEscapes(): void } {
   if (installed) return installed;
+  (globalThis as Record<symbol, unknown>)[NETWORK_GUARD_INSTALLED] = true;
   Object.assign(process.env, testGitEnvironment(process.env));
   const escapes: string[] = [];
   let reported = 0;
@@ -136,6 +203,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       const cmd = Array.isArray(first) ? first : first.cmd;
       const executable = String(cmd[0]);
       if (basename(executable) === "curl") refuse(`${key} ${cmd.join(" ")}`);
+      const spawnOptions = (Array.isArray(first) ? args[1] ?? {} : first) as { env?: Record<string, string | undefined>; cwd?: string };
+      if (unregisteredGog(cmd, spawnOptions.env ?? process.env, spawnOptions.cwd)) refuse(`${key} ${cmd.join(" ")}`);
       if (basename(executable) === "bun" || executable === process.execPath) {
         // Bun treats `bun --preload FILE test` as a package script. Keep the
         // builtin/subcommand first so child tests remain child tests.
@@ -160,6 +229,24 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       return result;
     }) as typeof Bun.spawn & typeof Bun.spawnSync;
   }
+
+  // Bun Shell does not go through Bun.spawn. Its template words and
+  // interpolated values are checked the same way before it runs anything.
+  const nativeShell = Bun.$;
+  Object.defineProperty(Bun, "$", {
+    ...Object.getOwnPropertyDescriptor(Bun, "$"),
+    value: new Proxy(nativeShell, {
+      apply(target, self, args: unknown[]) {
+        const [strings, ...values] = args as [TemplateStringsArray | string, ...unknown[]];
+        const words = [...(typeof strings === "string" ? [strings] : strings.raw).flatMap(shellWords),
+          ...values.flat(2).filter((value): value is string => typeof value === "string")];
+        for (const word of words) {
+          if (basename(word) === "gog" && unregisteredGog([word], process.env)) refuse(`Bun.$ ${word}`);
+        }
+        return Reflect.apply(target, self, args);
+      },
+    }),
+  });
 
   installed = {
     assertNoEscapes() {
