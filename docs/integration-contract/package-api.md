@@ -6119,3 +6119,10 @@ The native HTTP proxy also meters every informational response head (including
 final response. A 101 upgrade head is also metered; this HTTP route refuses
 protocol switching and closes that socket. An interim refusal cannot be overwritten by a final head that
 arrives in the same packet.
+
+A proxy input cannot use source trust until its occurrence write confirms a
+durable commit. A false result or failed write refuses that operation with
+503 egress_unavailable even if permanent-gap coverage reports recording
+available. No trusted source fact or terminal exposure is published for a
+missing occurrence. Legacy recorder adapters await their write result; an
+otherwise unacknowledged trusted write must be present in the safety ledger.

@@ -126,7 +126,15 @@ export async function prepareTurnEgress(options: {
   const record = options.record;
   const writes: typeof options.governanceWrites = options.governanceWrites ?? (db && record ? {
     taint: (turnId: string | null, sessionId: string | null) => sessionTaint(db, turnId, sessionId),
-    firstTaint: (event: GovernanceEventInput<"taint">) => { recordFirstTaint(db, event, record); return Promise.resolve(true); },
+    firstTaint: async (event: GovernanceEventInput<"taint">) => {
+      let pending:unknown;
+      recordFirstTaint(db,event,input=>{pending=record(input);});
+      const result=await pending;
+      if(typeof result === "boolean")return result;
+      if(result&&typeof result === "object"&&"recorded" in result)return result.recorded === true;
+      const input=event.payload.occurrence;
+      return !input?.admission?.trusted || db.query("SELECT id FROM safety_records WHERE id=? AND kind='occurrence'").get(input.id) !== null;
+    },
   } : undefined);
   const recording = new Set<Promise<unknown>>();
   // Hosts earlier turns of the session reached, then every host this turn admits.
@@ -157,8 +165,12 @@ export async function prepareTurnEgress(options: {
     options.controller.abort(recordingFailure);
   };
   const track = (committed: unknown) => {
-    if (!(committed instanceof Promise)) return;
-    const pending = committed.catch(fail).finally(() => recording.delete(pending));
+    const confirm=(result:unknown)=>{
+      // A positive existing id is a durable replay, not a lost write.
+      if(result===false||result&&typeof result === "object"&&"recorded" in result&&result.recorded===false&&(!("id" in result)||typeof result.id !== "number"||result.id<=0))throw new Error("Egress audit was not durably recorded");
+    };
+    if (!(committed instanceof Promise)) {try{confirm(committed);}catch{fail();}return;}
+    const pending = committed.then(confirm).catch(fail).finally(() => recording.delete(pending));
     recording.add(pending);
   };
   const releaseConnection = (connectionId?: string) => {
@@ -181,7 +193,7 @@ export async function prepareTurnEgress(options: {
         // Removal can close the transport while its initial occurrence is
         // still committing. Terminal evidence must join that exact write.
         const initial = exposureCommits.get(record.connectionId!);
-        track(initial ? initial.then(terminal) : terminal());
+        track(initial ? initial.then(recorded=>recorded===true?terminal():undefined,()=>undefined) : terminal());
       }
       const denied = options.policy.egress.deny.some(pattern => {
         const normalized = canonicalEgressHost(pattern);
@@ -310,16 +322,20 @@ export async function prepareTurnEgress(options: {
     const match = typeof instance === "string" ? candidate : null;
     exposure.admission = match ? { trusted: true, ruleId: match.ruleId, policyHash: match.policyHash, trustRevision: match.trustRevision, collectionRevision: match.collectionRevision }
       : { trusted: false, policyHash: trustSnapshot ? trustSnapshot.policyHash : options.policyHash ?? null, trustRevision: trustSnapshot?.revision ?? "0" };
-    if (match) trustedInputs.set(destination.connectionId, { destination, revision: match.trustRevision, ruleId: match.ruleId, instance:instance! });
     exposure.provenance=provenance;
     exposures.set(destination.connectionId, exposure);
     try {
       const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
         detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } });
       exposureCommits.set(destination.connectionId, initial);
-      await initial;
-    } catch (error) { fail(); throw error; }
+      if(await initial !== true)throw new EgressAdmissionRefused("Input occurrence was not durably recorded","egress_unavailable");
+    } catch {
+      // No occurrence means no trusted fact and no terminal exposure to append.
+      exposures.delete(destination.connectionId);
+      throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
+    }
     finally { exposureCommits.delete(destination.connectionId); }
+    if(match)trustedInputs.set(destination.connectionId,{destination,revision:match.trustRevision,ruleId:match.ruleId,instance:instance!});
     if (match && !inputCurrent(destination.connectionId)) throw new EgressAdmissionRefused("Source trust changed before dispatch","source_trust_changed");
   };
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */

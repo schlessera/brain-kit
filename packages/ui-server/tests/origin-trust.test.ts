@@ -26,7 +26,7 @@ function trust(rule: TrustRule) {
   const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash,ruleInstances}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
   return { live, publish(next:TrustRule[]) {const old=new Map(rules.map(r=>[r.id,JSON.stringify([r.selector,r.incomingContent])]));revision=String(BigInt(revision)+1n);ruleInstances=Object.fromEntries(next.map(r=>[r.id,old.get(r.id)===JSON.stringify([r.selector,r.incomingContent])?ruleInstances[r.id]??revision:revision]));rules=next;policyHash=revision.padStart(64,"0");for(const cb of listeners)cb();}, remove(notify=true) { rules=[];ruleInstances={};revision=String(BigInt(revision)+1n);policyHash="b".repeat(64);if(notify)for(const cb of listeners)cb(); } };
 }
-async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1") {
+async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1", legacy = false) {
   const root=full?mkdtempSync(join(tmpdir(),"odysseus-origin-trust-")):null;
   const db = createUiDb(root?join(root,"ui.db"):":memory:"); connectedSafetySession(db,"voyage","turn-voyage");
   const writer=full?openSqliteWriter(db):undefined;
@@ -37,7 +37,7 @@ async function fixture(recipient = false, policy: GovernancePolicyInput = {schem
     selector:{kind:"web_origin",scheme:"http",host:origin.url.hostname,port:origin.port!}};
   const t=trust(rule);const controller=new AbortController();
   const bridge={emit(){},requestPermission:async(...args: Parameters<BackendBridge["requestPermission"]>)=>{asks++;return decide(...args);},admissionSafety:createEffectiveSafety(db,{turnId:"turn-voyage",sessionId:()=>"voyage",policyHash:null,writes,trust:t.live,authority:()=>({current:true,epoch:"0"})})} as unknown as BackendBridge;
-  const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy(policy),trust:t.live,controller,turnId:"turn-voyage",sessionId:()=>"voyage",model:()=>null,profile:"governed",origin:"interactive",governanceDb:db,governanceWrites:writes,record:writes.record,
+  const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy(policy),trust:t.live,controller,turnId:"turn-voyage",sessionId:()=>"voyage",model:()=>null,profile:"governed",origin:"interactive",governanceDb:db,governanceWrites:legacy?undefined:writes,record:legacy?event=>writes.record(event):writes.record,
     bridge});
   const epoch=(db.query("SELECT id FROM safety_collections WHERE turn_id='turn-voyage'").get() as {id:string}).id;
   const taint=()=>writes.firstTaint({kind:"taint",turnId:"turn-voyage",sessionId:"voyage",actor:"interactive",profile:"governed",model:null,payload:{source:"web_search",tool:null,detail:null,occurrence:occurrence(epoch,"tool_web_input",crypto.randomUUID(),"finalized")}});
@@ -273,4 +273,27 @@ test('review28: recipient receipt uses final dispatch authority after preparatio
  f.t.publish([{id:'ithaca',label:'Ithaca',incomingContent:false,recipientWhileRestricted:true,selector:{kind:'web_origin',scheme:'https',host:'github.com',port:443}}]);await f.taint();
  const op=f.proxy.managedReference(new URL('https://github.com/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.prepare()).toEqual({ok:true});f.t.remove();expect(op.dispatch(()=>{})).toEqual({ok:true});op.finish('completed');await f.proxy.settled();const payload=queryGovernanceEvents(f.db,{kinds:['egress_connection'],limit:10})[0]?.payload;expect(payload,'REMOVED_RECIPIENT_RULE_NEVER_APPEARS_IN_DISPATCH_RECEIPT').not.toHaveProperty('standingRecipient');expect(payload).not.toHaveProperty('recipientAdmission');
  }finally{await f.close();}
+});
+
+test('review31: a permanent gap never substitutes for a durable trusted occurrence',async()=>{
+ const f=await fixture(true,{schema_version:1},undefined,true);const outcomes:boolean[]=[];const original=f.writes.firstTaint;
+ try{f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();f.db.exec("CREATE TRIGGER ithaca_missing_source BEFORE INSERT ON governance_events WHEN NEW.kind='taint' AND json_extract(NEW.payload,'$.source')='egress_connection' BEGIN SELECT RAISE(FAIL,'Odysseus source write unavailable'); END");f.writes.firstTaint=async(...args)=>{const result=await original(...args);outcomes.push(result);return result;};expect(f.writes.recordingAvailable('turn-voyage','voyage')).toBe(true);
+ expect(await get(f.proxy.socketPath,f.origin.url.href).catch(()=>0),'TRUST_REQUIRES_CONFIRMED_DURABLE_OCCURRENCE').toBe(503);expect(outcomes).toEqual([false]);expect(f.hits()).toBe(0);await f.proxy.settled();const denied=queryGovernanceEvents(f.db,{kinds:['egress_connection'],limit:10})[0]?.payload;expect(denied).toMatchObject({reason:'egress_unavailable',failureReason:'unavailable',dispatched:false});expect(denied).not.toHaveProperty('trustedSource');expect(queryGovernanceEvents(f.db,{kinds:['taint_exposure'],limit:10})).toHaveLength(0);expect(f.controller.signal.aborted).toBe(false);expect(f.writes.recordingAvailable('turn-voyage','voyage')).toBe(true);
+ f.db.exec('DROP TRIGGER ithaca_missing_source');
+ }finally{await f.close();}
+});
+for(const result of ['false','reject'] as const)test(`review31: ${result} occurrence write refuses only its operation as unavailable`,async()=>{
+ const f=await fixture(true);const original=f.writes.firstTaint;
+ try{f.writes.firstTaint=async()=>{if(result==='reject')throw new Error('Odysseus write unavailable');return false;};expect(f.writes.recordingAvailable('turn-voyage','voyage')).toBe(true);expect(await get(f.proxy.socketPath,f.origin.url.href).catch(()=>0),'EVERY_FAILED_OCCURRENCE_WRITE_IS_503').toBe(503);expect(f.hits()).toBe(0);expect(f.controller.signal.aborted).toBe(false);f.writes.firstTaint=original;expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);}finally{await f.close();}
+});
+
+
+test('review31: the legacy recorder adapter awaits and preserves a negative commit result',async()=>{
+ const f=await fixture(true,{schema_version:1},undefined,false,'127.0.0.1',true);const original=f.writes.record;let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),gate=new Promise<void>(r=>{release=r;});
+ try{f.writes.record=async(...args)=>{if(args[0].kind==='taint'){entered();await gate;return {id:0,recorded:false};}return original(...args);};const attempt=get(f.proxy.socketPath,f.origin.url.href).catch(()=>0);await reached;expect(f.hits(),'LEGACY_COMMIT_WAIT_PRECEDES_TRUSTED_DISPATCH').toBe(0);release();expect(await attempt,'LEGACY_NEGATIVE_COMMIT_IS_UNAVAILABLE').toBe(503);expect(f.hits()).toBe(0);f.writes.record=original;expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);}finally{release();await f.close();}
+});
+
+for(const outcome of ['missing','rejected','replay'] as const)test(`review31: egress audit commit ${outcome} preserves truthful recording health`,async()=>{
+ const f=await fixture(true,{schema_version:1},undefined,false,'127.0.0.1',true);const original=f.writes.record;
+ try{f.writes.record=async(...args)=>{if(args[0].kind==='egress_connection'){if(outcome==='missing')return {id:0,recorded:false};if(outcome==='rejected')throw new Error('Odysseus audit unavailable');const result=await original(...args);return {...result,recorded:false};}return original(...args);};await get(f.proxy.socketPath,f.origin.url.href).catch(()=>0);await f.proxy.settled();expect(f.controller.signal.aborted,'AUDIT_NEGATIVE_RESULTS_ARE_NOT_SUCCESSFUL_COMMITS').toBe(outcome!=='replay');expect(Boolean(f.proxy.recordingFailure())).toBe(outcome!=='replay');}finally{await f.close();}
 });
