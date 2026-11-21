@@ -1,8 +1,8 @@
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Production SDK options and isolated worker, real CLI tools, scripted loopback inference. */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type HookCallback, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createKeyedLock, type ServerMessage } from "@schlessera/brain-ui-sdk/server";
@@ -25,7 +25,7 @@ let registeredTools: string | undefined;
 for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mode of ["stale", "fresh", "strict", "voice"] as const) test(`hosted real Claude ${toolName}: ${mode}`, async () => {
   const reread = mode === "fresh", recovered = mode === "fresh";
   const refused = mode === "strict" || mode === "voice";
-  const root = mkdtempSync(join(tmpdir(), "odysseus-native-stale-")), brain = join(root, "brain"), home = join(root, "home");
+  const root = nativeFixtureDirectory("odysseus-native-stale-"), brain = join(root, "brain"), home = join(root, "home");
   mkdirSync(brain); mkdirSync(home);
   const notebook = (source: string) => JSON.stringify({ cells: [{ cell_type: "code", id: "loom", metadata: {}, source: [source], outputs: [], execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 });
   const path = join(brain, toolName === "NotebookEdit" ? "loom.ipynb" : "loom.md"), before = toolName === "NotebookEdit" ? notebook("Penelope weaves.\n") : "Penelope weaves.\n", peer = toolName === "NotebookEdit" ? notebook("Penelope sleeps.\n") : "Penelope sleeps.\n";

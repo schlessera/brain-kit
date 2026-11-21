@@ -37,6 +37,8 @@ stage("module-loaded");
 const brain = "/brain-fixture/brain", root = profile === "strict" ? "/identity-server-private/server-ws-strict" : "/identity-server-private/server-ws";
 const home = join(root, "home"), config = join(home, ".claude"), data = root;
 mkdirSync(data, { mode: 0o700, recursive: true }); mkdirSync(config, { recursive: true, mode: 0o700 });
+// Temporary diagnosis of the fresh separate-UID startup; only sanitized tails persist.
+if (defaultIdentityPhase(process.argv.slice(2)) === "fresh") process.argv.push(`--native-identity-startup-audit=${data}`);
 // Actual separate-UID fixture: directory metadata is shared, file bytes are not.
 const privateRoot=join(brain,"private");
 if (existsSync(privateRoot)) {

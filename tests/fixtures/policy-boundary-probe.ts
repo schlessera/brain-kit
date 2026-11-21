@@ -420,7 +420,7 @@ async function server(): Promise<void> {
   const url = `http://127.0.0.1:${inference.port}`;
   const configDir = join(root, "claude"), agentDir = join(root, "pi");
   mkdirSync(configDir, { recursive: true }); mkdirSync(agentDir, { recursive: true });
-  nativeScriptedService(inference.url.origin, { fixtureRoots: [brainPath, configDir] });
+  nativeScriptedService(inference.url.origin, { fixtureRoots: [root] });
   process.env.CLAUDE_CONFIG_DIR = configDir;
   process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
   process.env.PI_CODING_AGENT_DIR = agentDir;

@@ -44,12 +44,12 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   events.push({ type: "message_delta", delta: { stop_reason: index < 2 ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
   return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
-nativeScriptedService(server.url.origin);
+nativeScriptedService(server.url.origin, { fixtureRoots: [scratch] });
 let sessionId: string | undefined;
 try {
   for (let turnIndex = 0; turnIndex < 2; turnIndex++) {
     const controller = new AbortController(), view = createFixtureWorkerStartupView(brain);
-    const sandbox = prepareFixtureWorkerSandbox(brain, { home: process.env.HOME, profile: "strict" });
+    const sandbox = prepareFixtureWorkerSandbox(brain, { home: process.env.HOME, profile: "strict", areas: [] });
     const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: turnIndex ? "Use the chart" : "Prepare the chart", sessionId,
       signal: controller.signal, turnId: `odysseus-${turnIndex}`, workerStartupView: view, workerSandbox: sandbox,
       bridge: { emit() {}, async requestPermission() { return { behavior: "allow" }; } } },

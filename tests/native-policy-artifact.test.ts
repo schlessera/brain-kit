@@ -1,6 +1,6 @@
 /** Synthetic compiler outcomes only: no installed native runtime executes. */
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 const guard=join(import.meta.dir,"../scripts/test-native-guard.ts");
@@ -39,5 +39,25 @@ for(const mode of ["valid","changed","writable"] as const)test(`read-only RTK po
   const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
   expect(code,err).toBe(mode==="valid"?0:1);expect(err).not.toContain("INNER_COMPILER_REACHED");
   if(mode==="valid")expect(out.trim()).toBe("/usr/local/bin/brain-native-connect");else expect(err).toContain("native socket policy artifact is unavailable or changed");
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("an isolated preload without receipt libraries never prints raw diagnostic text",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-isolated-diagnostic-"));
+ try{
+  mkdirSync(join(root,"scripts"));mkdirSync(join(root,"packages"));
+  writeFileSync(join(root,"package.json"),JSON.stringify({private:true}));copyFileSync(guard,join(root,"scripts/test-native-guard.ts"));
+  const script=join(root,"probe.ts"),secret="odysseus-private-diagnostic-material";
+  writeFileSync(script,`const original=Bun.spawnSync;
+   Bun.spawnSync=((argv,options)=>argv[0]==="cc"?{exitCode:1,stdout:Buffer.alloc(0),stderr:Buffer.from(process.env.TEST_DIAGNOSTIC_SECRET)}:Reflect.apply(original,Bun,[argv,options]));
+   const {compileSocketPolicy,scrubNativeStartupTrace}=await import(${JSON.stringify(join(root,"scripts/test-native-guard.ts"))});
+   console.log(JSON.stringify({text:scrubNativeStartupTrace(process.env.TEST_DIAGNOSTIC_SECRET)}));
+   try{compileSocketPolicy();}catch{}process.exit(1);`);
+  const child=Bun.spawn([process.execPath,script],{env:{...process.env,TEST_DIAGNOSTIC_SECRET:secret},stdout:"pipe",stderr:"pipe"});
+  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  expect(code).toBe(1);expect(out+err).not.toContain(secret);
+  expect(JSON.parse(out).text).toBe("[diagnostic redaction unavailable]");
+  const receipt=JSON.parse(err.split("\n").find(line=>line.startsWith('{"kind":"native-offline-boundary"'))!);
+  expect(receipt.compilerStderr).toBe("[diagnostic redaction unavailable]");
  }finally{rmSync(root,{recursive:true,force:true});}
 });

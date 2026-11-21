@@ -11,7 +11,7 @@ interface BootstrapStatus { exitCode: number | null; signalCode: string | number
 export function observeNativeWorkerStartup(worker: StartupWorker, bootstrap: BootstrapStatus, secrets: readonly string[]): void {
   const redactor=createRedactor(undefined);for(const secret of secrets)redactor.add(secret);
   // These are the existing outcome/log and Activity/provider-receipt scrubbers.
-  const scrub=(text:string)=>redactProviderMessage(redactCredentials(redactor.text(text)));
+  const scrub=(text:string)=>redactProviderMessage(redactCredentials(redactor.text(text.replace(/^[ \t]*(?:Args|Arguments|argv|Env|Environment):[^\n]*(?:\n|$)/gim,"[redacted startup metadata]\n"))));
   const chunks:Buffer[]=[];let retained=0,observed=0,flushed=false;
   const data=(chunk:Buffer|string)=>{
     const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);observed+=bytes.length;

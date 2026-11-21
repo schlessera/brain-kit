@@ -23,7 +23,7 @@ const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   ];
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
-nativeScriptedService(upstream.url.origin);
+nativeScriptedService(upstream.url.origin, { fixtureRoots: [scratch] });
 try {
   for (let index = 0; index < 4; index++) {
     const brainPath = join(scratch, `ithaca-${index}`);

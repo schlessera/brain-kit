@@ -1,3 +1,4 @@
+import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Actual SDK/CLI protocol qualification, inside the caller's private network namespace. */
@@ -6,12 +7,11 @@ import { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER,
 import { resolveClaudeHostOAuth } from "../../src/host-oauth.js";
 import { nativeModelReply } from "../helpers/native-model-reply.js";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 
-const root = mkdtempSync(join(tmpdir(), "odysseus-native-host-relay-"));
+const root = nativeFixtureDirectory("odysseus-native-host-relay-");
 const host = join(root, "host"), worker = join(root, "worker"), brain = join(worker, "brain"), directory = join(root, "lock");
 for (const path of [host, worker, brain, directory]) mkdirSync(path, { mode: 0o700 });
 const access = ["odysseus-host-first", "odysseus-host-changed", "odysseus-host-refreshed"];

@@ -209,6 +209,13 @@ if (process.argv[2] === "--index-child") {
         phase ? retainFixtureStream(child.stderr, `/proof/${sharedGit ? "shared-git" : "default"}-${phase}-server.stderr`) : new Response(child.stderr).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })), child.exited]);
       if (capturedOutput.failure) throw capturedOutput.failure.error;
       if (capturedErrors.failure) throw capturedErrors.failure.error;
+      if (phase === "fresh" && !sharedGit) {
+        const auditRoot = "/identity-server-private/server-ws";
+        if (existsSync(auditRoot)) for (const name of readdirSync(auditRoot).filter(name => /^native-startup-audit-[0-9]+\.json$/.test(name))) {
+          // The guard already bounded/scrubbed this snapshot before raw audit cleanup.
+          writeFileSync(join("/proof", name), readFileSync(join(auditRoot, name)), { mode: 0o600 });
+        }
+      }
       const output = capturedOutput.text, errors = capturedErrors.text;
       aggregateOutput += output; aggregateErrors += errors;
       writeFileSync("/proof/server.stdout", aggregateOutput); writeFileSync("/proof/server.stderr", aggregateErrors);

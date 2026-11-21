@@ -1,3 +1,4 @@
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import {searchWitnessScript} from "./helpers/search-witness";
 import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /** A tool result that reaches the host already exists in the runtime's own
@@ -9,10 +10,9 @@ import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
  * still owing it when the collection ends is a gap. Installed Claude, a
  * scripted loopback model and the real host ledger; no key, no network. */
 import {expect,test} from "bun:test";
-import {chmodSync,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
+import {chmodSync,existsSync,mkdirSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {createRequire} from "node:module";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
 import {query} from "@anthropic-ai/claude-agent-sdk";
 import {createUiDb} from "../src/db/client";
 import {openSqliteWriter} from "../src/db/write-worker";
@@ -61,7 +61,7 @@ function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]
 }
 async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<typeof createUiDb>;writes:ReturnType<typeof createGovernanceWrites>;
  first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number};searched:boolean;searchInvoked:boolean;replayed:string[]})=>void){
- const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retention-")),brain=join(root,"brain"),home=join(root,"home");
+ const root=nativeFixtureDirectory("odysseus-safety-retention-"),brain=join(root,"brain"),home=join(root,"home");
  // A note: reading it records nothing before the tool runs, so only the
  // search output's own record stands between it and a complete chat.
  mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(home);
@@ -287,7 +287,7 @@ test("a denial of another tool under the search's id cannot settle the search th
  * call's own hook, which never saw the id, denies it, in the runtime's own
  * hook order or with the hook both tools share starting late. */
 for(const late of [false,true])test(`a denied shell call reusing a search's id cannot settle the search that ran${late?", even when the shared hook starts late":""}`,async()=>{
- const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retool-")),brain=join(root,"brain"),home=join(root,"home");
+ const root=nativeFixtureDirectory("odysseus-safety-retool-"),brain=join(root,"brain"),home=join(root,"home");
  mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(home);
  const path=join(brain,"notes","sirens.md");writeFileSync(path,`${SONG}\n`);
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);

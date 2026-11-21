@@ -1,5 +1,6 @@
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
-import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A message sent while a Claude turn runs reaches the model inside that turn
@@ -19,8 +20,7 @@ import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
@@ -171,7 +171,7 @@ afterEach(() => {
 });
 
 function tempDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = nativeFixtureDirectory(prefix);
   scratch.push(dir);
   return dir;
 }
@@ -284,7 +284,7 @@ async function runScenario(scenario: Scenario): Promise<Observed> {
   };
 
   const workerStartupView = createFixtureWorkerStartupView(brainPath);
-  const turn = backend.startTurn({ workerStartupView, prompt: "Plan the voyage home.", signal: new AbortController().signal, bridge });
+  const turn = backend.startTurn({ workerStartupView, workerSandbox: prepareFixtureWorkerSandbox(brainPath, { home: process.env.HOME, areas: [] }), prompt: "Plan the voyage home.", signal: new AbortController().signal, bridge });
   if (scenario.sendDuring === "tool") {
     await cardOpened;
     await sendFollowUp();

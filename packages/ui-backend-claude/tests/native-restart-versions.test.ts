@@ -1,8 +1,8 @@
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Actual installed native tools through the production runner; only the worker transport is replaced. */
 import { expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { createWorkerFileObserver, workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
@@ -13,7 +13,7 @@ import { MEASURED_RUNTIME } from "../src/measured-runtime";
 import { nativeModelReply } from "./helpers/native-model-reply";
 
 for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted Claude runner restores native observations before actual ${tool}`, async () => {
-  const root = mkdtempSync(join(tmpdir(), "odysseus-claude-restart-")), brain = join(root, "brain"), home = join(root, "home");
+  const root = nativeFixtureDirectory("odysseus-claude-restart-"), brain = join(root, "brain"), home = join(root, "home");
   mkdirSync(brain); mkdirSync(home);
   const notebook = (source: string) => JSON.stringify({ cells: [{ cell_type: "code", id: "loom", metadata: {}, source: [source], outputs: [], execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 });
   const path = join(brain, tool === "NotebookEdit" ? "loom.ipynb" : "loom.md"), peer = tool === "NotebookEdit" ? notebook("Penelope sleeps.\n") : "Penelope sleeps.\n";

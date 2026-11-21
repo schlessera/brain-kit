@@ -1,7 +1,8 @@
+import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Real turn runner and an explicitly prepared transport; no live provider calls. */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect } from "bun:test";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -14,7 +15,7 @@ import { createNativeBrainManagerClient } from "../../../ui-sdk/src/server/nativ
 import { Database } from "bun:sqlite";
 
 
-const root = mkdtempSync(join(tmpdir(), "odysseus-server-inference-"));
+const root = nativeFixtureDirectory("odysseus-server-inference-");
 const managed = process.argv.includes("--managed");
 const brainPath = managed ? "/brain-fixture/brain" : join(root, "brain");
 // outside-masks: the host's Claude config sits where no host mask hides it (the caller mounts /opt).

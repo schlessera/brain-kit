@@ -1,3 +1,4 @@
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /** Installed Claude file tools against a scripted loopback model and the real host ledger. */
 import {expect,test} from "bun:test";
@@ -6,9 +7,8 @@ import {startInferenceRelay,ANTHROPIC_INFERENCE_ROUTES} from "@schlessera/brain-
 import {resolveGovernancePolicy} from "@schlessera/brain-common/internal/governance-policy";
 import {prepareTurnEgress} from "../src/brain/turn-egress";
 import {query} from "@anthropic-ai/claude-agent-sdk";
-import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from "node:fs";
+import {mkdirSync,rmSync,writeFileSync} from "node:fs";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
 import {createUiDb} from "../src/db/client";
 import {openSqliteWriter} from "../src/db/write-worker";
 import * as probe from "./fixtures/write-worker-probe";
@@ -20,7 +20,7 @@ import {MEASURED_RUNTIME} from "../../ui-backend-claude/src/measured-runtime";
 import {nativeModelReply} from "../../ui-backend-claude/tests/helpers/native-model-reply";
 
 for(const mode of ["complete","writer-loss"] as const)test(`installed Claude ${mode} preserves the recorder delivery boundary`,async()=>{
- const root=mkdtempSync(join(tmpdir(),"odysseus-safety-native-")),brain=join(root,"brain"),home=join(root,"home");
+ const root=nativeFixtureDirectory("odysseus-safety-native-"),brain=join(root,"brain"),home=join(root,"home");
  mkdirSync(join(brain,"workspaces","voyage"),{recursive:true});mkdirSync(home);
  const path=join(brain,"workspaces","voyage","raft.md");writeFileSync(path,"Odysseus repairs the raft.\n");
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer),controller=new AbortController();

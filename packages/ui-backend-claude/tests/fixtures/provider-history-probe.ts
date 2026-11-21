@@ -63,7 +63,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     { type: "message_delta", delta: { stop_reason: tool ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
-nativeScriptedService(server.url.origin);
+nativeScriptedService(server.url.origin, { fixtureRoots: [scratch] });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
   for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {
@@ -78,7 +78,7 @@ try {
       if (scenario === "repository" && turnIndex) changeRepository(brain, turnIndex);
       const facts = scenario === "facts" ? turnIndex : 0;
       const controller = new AbortController();
-      const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", ...(scenario === "promotion" ? {} : { areas: [] }) });
+      const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] });
       const view = createFixtureWorkerStartupView(brain);
       const turn = createClaudeSdkTurn({ backend: { brainPath: brain, ...(scenario === "safety" ? { systemPromptAppend: turnIndex === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal." } : {}) }, req: {
         prompt: `Odysseus checks voyage step ${turnIndex}.`, sessionId, signal: controller.signal, turnId: `odysseus-${turnIndex}`,
@@ -156,7 +156,7 @@ try {
   // the production fingerprint of that exact SDK systemPrompt option instead
   // of leaving their option check vacuous behind the CLI's replayed system.
   const hosted = historyHost(brain, { ...budgetBackend, async startTurn(req) {
-    return budgetBackend.startTurn({ ...req, bridge: { ...req.bridge, activity(event) {
+    return budgetBackend.startTurn({ ...req, workerSandbox: prepareFixtureWorkerSandbox(brain, { home, areas: [] }), bridge: { ...req.bridge, activity(event) {
       if (event.kind === "prompt_prefix") capture.appends.push(event.prefix.system);
       req.bridge.activity?.(event);
     } } });

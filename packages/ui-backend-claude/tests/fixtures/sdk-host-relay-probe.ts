@@ -1,3 +1,4 @@
+import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 import { SDK_RELAY_TURN_COUNT, SDK_RELAY_TURN_TIMEOUT_MS, SDK_RELAY_CANCELLATION_TIMEOUT_MS } from "./sdk-host-relay-limits.js";
@@ -13,9 +14,8 @@ import { settingsRefusal, subscriptionVerdict, type CliSettingsReport } from "..
 import { processStateLedger } from "../../src/worker-state-budget.js";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import type { LaunchedWorker, WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 
 const separateIdentity = process.argv[4] === "separate-uid";
@@ -30,7 +30,7 @@ const permissionProof = process.argv[3] === "permission";
 const settingsProof = process.argv[3] === "managed" || process.argv[3] === "project";
 let withheldForSettings = false;
 let permissionRequests = 0;
-const root = mkdtempSync(join(tmpdir(), "odysseus-native-host-relay-"));
+const root = nativeFixtureDirectory("odysseus-native-host-relay-");
 const host = join(root, "host"), worker = join(root, "worker"), brain = join(worker, "brain"), directory = join(root, "lock");
 for (const path of [host, worker, brain, directory]) mkdirSync(path, { mode: 0o700 });
 if (separateIdentity) {

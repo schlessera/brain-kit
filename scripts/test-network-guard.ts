@@ -1,5 +1,5 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, nativeTestHead, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
+import { recordNativeGuardChild, guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, nativeTestHead, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
 import { basename, join } from "node:path";
 import { Server as HttpServer } from "node:http";
 import { isIP, Socket } from "node:net";
@@ -189,7 +189,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       try {
         boundary?.beforeLaunch(); workerBoundary?.beforeLaunch();
         const result = Reflect.apply(native, Bun, args);
-        if (key === "spawn") void result.exited.finally(() => { boundary?.dispose(); workerBoundary?.dispose(); });
+        if (key === "spawn") { recordNativeGuardChild(result); void result.exited.finally(() => { boundary?.dispose(); workerBoundary?.dispose(); }); }
         else workerBoundary?.dispose();
         return result;
       } catch (error) { boundary?.dispose(); workerBoundary?.dispose(); throw error; }

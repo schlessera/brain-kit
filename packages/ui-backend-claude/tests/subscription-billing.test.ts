@@ -1,5 +1,6 @@
+import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
-import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A Claude turn on a profile with no credential of its own runs on the
@@ -16,8 +17,7 @@ import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BackendActivityEvent, BackendBridge, ServerMessage } from "@schlessera/brain-ui-sdk/server";
@@ -77,7 +77,7 @@ afterEach(() => {
 });
 
 function tempDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = nativeFixtureDirectory(prefix);
   scratch.push(dir);
   return dir;
 }
@@ -165,7 +165,7 @@ async function runTurn(
     log: () => {},
   });
   const workerStartupView = createFixtureWorkerStartupView(brainPath);
-  try { await backend.startTurn({ workerStartupView,
+  try { await backend.startTurn({ workerStartupView, workerSandbox: prepareFixtureWorkerSandbox(brainPath, { home: process.env.HOME, areas: [] }),
     prompt: "Reply with the single word ok.",
     signal: new AbortController().signal,
     bridge,

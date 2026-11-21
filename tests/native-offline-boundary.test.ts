@@ -1023,3 +1023,53 @@ test("guard-created fixture roots cannot authorize a replacement host tree",asyn
   expect(result.code).not.toBe(0);expect(result.output.split("\n")).toContain("CREATED_ROOT_REPLACEMENT_REFUSED");
  }finally{rmSync(scratch,{recursive:true,force:true});}
 });
+
+test("a refused worker spawn rejects and closes the failed invocation promptly",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-refusal-deadline-"));
+ try{
+  const wrapper=join(scratch,"fixture-wrapper"),marker=join(scratch,"launched"),script=join(scratch,"probe.ts");
+  writeFileSync(wrapper,`#!/bin/sh\nprintf launched > '${marker}'\n`);chmodSync(wrapper,0o700);
+  writeFileSync(script,`${imports}
+   await Promise.resolve().then(()=>Bun.spawn([${JSON.stringify(wrapper)},${JSON.stringify(runtime)}],{env:{BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(wrapper)},${JSON.stringify(runtime)}],argv:["bwrap","--",${JSON.stringify(wrapper)},${JSON.stringify(runtime)}]})}})).catch(()=>console.error("SPAWN_PROMISE_REJECTED"));
+   setInterval(()=>{},1000);`);
+  const child=Bun.spawn([process.execPath,script],{env:{PATH:"/usr/bin:/bin",HOME:scratch},stdout:"pipe",stderr:"pipe",signal:AbortSignal.timeout(watchdogMs(5000))});
+  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  expect(code,err).toBe(1);expect(out).toBe("");expect(err.split("\n")).toContain("SPAWN_PROMISE_REJECTED");
+  expect(err).toContain('"nativeLaunched":false');expect(existsSync(marker)).toBe(false);
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+},watchdogMs(15000));
+
+test("keeper output root requires a guarded child namespace and pinned fixture handle",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-keeper-registration-")),keeperRoot=mkdtempSync(join(tmpdir(),"odysseus-keeper-output-")),outside=mkdtempSync(join(tmpdir(),"odysseus-keeper-outside-"));
+ try{
+  mkdirSync(join(keeperRoot,"merged/.brain/scratch"),{recursive:true});writeFileSync(join(keeperRoot,"merged/.brain/scratch/result.md"),"Odysseus returns to Ithaca.");
+  symlinkSync(outside,join(keeperRoot,"merged/escape"));
+  const result=await probe(`import * as fs from "node:fs";import {mock} from "bun:test";
+   const child=Bun.spawn([process.execPath,"--no-env-file","-e",'process.stdin.resume();process.stdin.once("end",()=>process.exit(0));'],{stdin:"pipe",stdout:"ignore",stderr:"ignore"});
+   const originalFs={...fs},namespace=\`/proc/\${child.pid}/ns/mnt\`;
+   // Metadata-only stand-in for a separate tmpfs namespace. No namespace or
+   // installed runtime executes; the hosted cell supplies the kernel proof.
+   mock.module("node:fs",()=>({...originalFs,statSync:(path,options)=>{const info=originalFs.statSync(path,options);return path===namespace?{...info,ino:typeof info.ino==="bigint"?info.ino+1n:info.ino+1}:info;},statfsSync:()=>({type:0x01021994})}));
+   const guard=await import(${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))});
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((name,options)=>name==="strace"?"/synthetic/strace":which(name,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+   guard.nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(scratch)}]});
+   guard.recordNativeGuardChild(child);
+   const fd=fs.openSync(${JSON.stringify(keeperRoot)},"r"),start=fs.readFileSync(\`/proc/\${child.pid}/stat\`,"utf8").replace(/^.*\\) /s,"").split(" ")[19];
+   const unregister=guard.registerNativeFixtureKeeper({root:\`/proc/\${process.pid}/fd/\${fd}\`,mount:${JSON.stringify(keeperRoot)},namespacePid:child.pid,namespaceStart:start});
+   const env={BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)}},argv:["/usr/bin/nsenter","--target",String(child.pid),"--user","--mount","--preserve-credentials","--","bwrap","--bind",${JSON.stringify(join(keeperRoot,"merged/.brain/scratch"))},"/tmp/odysseus-output","--",${JSON.stringify(runtime)}]})};
+   try{
+    const plan=guard.nativeWorkerBoundary(env);plan.beforeLaunch();
+    const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
+    const binds=argv.slice(argv.indexOf("--bind"));if(!binds.includes(${JSON.stringify(join(keeperRoot,"merged/.brain/scratch"))}))throw Error("PUBLICATION_BIND_CHANGED");
+    fs.writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();console.error(JSON.stringify({keeperRoot:"admitted"}));
+    const escaped=JSON.parse(env.BRAIN_WORKER_LAUNCH);escaped.argv[escaped.argv.indexOf("--bind")+1]=${JSON.stringify(join(keeperRoot,"merged/escape"))};
+    try{const unsafe=guard.nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(escaped)});unsafe.dispose();throw Error("KEEPER_SYMLINK_ESCAPE_ADMITTED");}catch(error){if(!String(error).includes("worker bind was not created or staged by the fixture"))throw error;console.error(JSON.stringify({keeperRoot:"escape-refused"}));}
+    unregister();
+    try{const unsafe=guard.nativeWorkerBoundary(env);unsafe.dispose();throw Error("UNREGISTERED_KEEPER_ADMITTED");}catch(error){if(!String(error).includes("worker bind was not created or staged by the fixture"))throw error;console.error(JSON.stringify({keeperRoot:"unregistered-refused"}));}
+   }finally{unregister();child.stdin.end();child.kill("SIGKILL");fs.closeSync(fd);}`,scratch);
+  expect(result.output.split("\n")).toContain('{"keeperRoot":"admitted"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"unregistered-refused"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"escape-refused"}');expect(result.code).toBe(1);
+ }finally{rmSync(scratch,{recursive:true,force:true});rmSync(keeperRoot,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});}
+});

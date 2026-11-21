@@ -1,6 +1,6 @@
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
-import { createFixtureWorkerStartupView, createFixtureMaintenanceHost } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { createFixtureWorkerStartupView, createFixtureMaintenanceHost, prepareFixtureWorkerSandbox } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Keyless selected-runtime assembly receipt; caller denies all external network. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -24,7 +24,7 @@ const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   ];
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
-nativeScriptedService(upstream.url.origin);
+nativeScriptedService(upstream.url.origin, { fixtureRoots: [scratch] });
 try {
   for (const billing of ["api", "subscription"] as const) {
     const brainPath = join(scratch, `ithaca-${billing}`);
@@ -52,7 +52,7 @@ try {
       const maintenance = createFixtureMaintenanceHost(brainPath);
       const turn = createClaudeSdkTurn({
         backend: { brainPath, maintenance },
-        req: { workerStartupView, sessionId, prompt: `Odysseus turn ${index}`, signal: abortController.signal,
+        req: { workerStartupView, workerSandbox: prepareFixtureWorkerSandbox(brainPath, { home, areas: [] }), sessionId, prompt: `Odysseus turn ${index}`, signal: abortController.signal,
           turnBudgetMs: 10000,
           bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "deny", message: "no grant" }; } } } as never,
         profile: { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing, requiredEnvKeys: [],

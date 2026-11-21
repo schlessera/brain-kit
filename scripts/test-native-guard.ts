@@ -1,13 +1,10 @@
 /** Test-only OS boundary for installed native Claude processes (#4313). */
-import { chmodSync, closeSync, mkdirSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, fstatSync, statfsSync, chmodSync, closeSync, mkdirSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { redactCredentials } from "../packages/ui-server/src/activity/runtime-status";
-import { redactProviderMessage } from "../packages/ui-react/src/lib/turn-failure";
-import { createRedactor } from "../packages/compute-boat/src/redact";
 import type { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -144,6 +141,9 @@ export function isNativeClaude(command: string, args: readonly unknown[] = [], o
 
 function refuse(reason: string, mountEvidence?: Record<string, unknown>, compilerStderr?: string): never {
   denied++;
+  // SDK callers may await an event that a refused launch can never emit.
+  // End this failed test invocation after synchronous callers see the error.
+  setImmediate(() => process.exit(1));
   // Classifications and mount evidence omit arguments/settings/credentials.
   // Compiler diagnostics are bounded and scrubbed before reaching this receipt.
   console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: nativeTestHead(), ...(mountEvidence ? { mountEvidence } : {}), ...(compilerStderr !== undefined ? { compilerStderr } : {}) }));
@@ -183,12 +183,25 @@ function qualify(): void {
 }
 
 export const RTK_SOCKET_POLICY = "/usr/local/bin/brain-native-connect";
+// Isolated preload fixtures copy only the guard closure. Load the existing
+// receipt scrubbers only for diagnostics, and never fall back to raw text.
+function diagnosticRedactors() {
+  const require = createRequire(import.meta.url);
+  return {
+    createRedactor: (require("../packages/compute-boat/src/redact.ts") as typeof import("../packages/compute-boat/src/redact")).createRedactor,
+    redactCredentials: (require("../packages/ui-server/src/activity/runtime-status.ts") as typeof import("../packages/ui-server/src/activity/runtime-status")).redactCredentials,
+    redactProviderMessage: (require("../packages/ui-react/src/lib/turn-failure.ts") as typeof import("../packages/ui-react/src/lib/turn-failure")).redactProviderMessage,
+  };
+}
 function compilerDiagnostic(value: string): string {
+  try {
+  const {createRedactor,redactCredentials,redactProviderMessage}=diagnosticRedactors();
   const redactor = createRedactor(undefined);
   for (const [key, secret] of Object.entries(process.env)) if (/secret|token|password|credential|api.?key/i.test(key) && secret) redactor.add(secret);
   let text = Buffer.from(value).subarray(0, 4096).toString("utf8");
   if (Buffer.byteLength(value) > 4096) text = text.slice(0, Math.max(0, text.lastIndexOf("\n")));
   return redactProviderMessage(redactCredentials(redactor.text(text))).slice(0, 4096);
+  } catch { return "[diagnostic redaction unavailable]"; }
 }
 /** Compile in the outer test process; RTK re-entry receives only this artifact. */
 export function compileSocketPolicy(): string {
@@ -322,7 +335,25 @@ function auditAcl(operation: "set" | "check", uid: number, directory: string, lo
   catch { return false; }
 }
 
+/** Fixture-only tail: no syscall buffers, exec arguments or environment survive. */
+export function scrubNativeStartupTrace(trace: string): string {
+  try {
+  const {createRedactor,redactCredentials,redactProviderMessage}=diagnosticRedactors();
+  let tail = trace.slice(-65536);
+  if (trace.length > tail.length) tail = tail.includes("\n") ? tail.slice(tail.indexOf("\n") + 1) : "";
+  tail = tail.split("\n").map(line => line.replace(/\bexecve(?:at)?\(.*$/, "execve([arguments omitted])")).join("\n");
+  const redactor = createRedactor(undefined);
+  for (const [key, secret] of Object.entries(process.env)) if (/secret|token|password|credential|api.?key/i.test(key) && secret) redactor.add(secret);
+  return redactProviderMessage(redactCredentials(redactor.text(tail))).slice(-65536);
+  } catch { return "[diagnostic redaction unavailable]"; }
+}
+
 export function auditNativeLaunch(argv: string[], expected: readonly string[], cleanup: () => void, workerUid?: number) {
+  const diagnosticRoot = workerUid === undefined ? undefined : process.argv.find(value => value.startsWith("--native-identity-startup-audit="))?.slice("--native-identity-startup-audit=".length);
+  if (diagnosticRoot) {
+    const info = lstatSync(diagnosticRoot);
+    if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077)) refuse("native startup audit storage is not private");
+  }
   const directory = mkdtempSync(join(tmpdir(), "odysseus-native-audit-"));
   const log = join(directory, "connect.log");
   writeFileSync(log, "", { mode: 0o600 });
@@ -351,17 +382,25 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       }
       let trace = "";
       try { trace = readFileSync(log, "utf8"); } catch { /* Missing evidence is a failed receipt. */ }
-      const nativeLaunched = nativeExecObserved(trace, expected);
+      if (diagnosticRoot) {
+        try { writeFileSync(join(diagnosticRoot, `native-startup-audit-${directoryStamp.ino}.json`),
+          JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace) }), { flag: "wx", mode: 0o600 }); }
+        catch { console.error(JSON.stringify({kind:"native-fixture-startup-audit-failure",head:nativeTestHead(),success:false,reason:"startup audit snapshot unavailable"})); }
+      }
+      // Wider diagnostics may contain syscall-looking filenames; only actual
+      // connect/exec records participate in the security receipt.
+      const auditTrace = diagnosticRoot ? trace.split("\n").filter(line => /^\s*(?:[0-9]+\s+)?(?:execve\(|connect\(|<\.\.\. connect resumed>)/.test(line)).join("\n") : trace;
+      const nativeLaunched = nativeExecObserved(auditTrace, expected);
       if (!nativeLaunched) denied++;
       receipt = { kind: "native-offline-audit", head: nativeTestHead(), nativeLaunched, success: nativeLaunched,
-        ...(!nativeLaunched ? { reason: "native exec was not observed" } : {}), deniedConnects: deniedNativeConnects(trace) };
+        ...(!nativeLaunched ? { reason: "native exec was not observed" } : {}), deniedConnects: deniedNativeConnects(auditTrace) };
       console.error(JSON.stringify(receipt));
       return receipt;
     } finally { cleanup(); rmSync(directory, { recursive: true, force: true }); }
   };
   // -o otherwise makes strace ignore SIGTERM; refusal/cancellation must kill
   // both the tracer and its entire traced sandbox, closing inherited pipes.
-  return { argv: [straceExecutable, "-I", "1", "--kill-on-exit", "-f", "-qq", "-s", "0", "-e", "trace=connect,execve", "-e", "raw=connect", "-o", log, "--", ...argv],
+  return { argv: [straceExecutable, "-I", "1", "--kill-on-exit", "-f", "-qq", "-s", "0", "-e", diagnosticRoot ? "trace=connect,%file,%process,mmap,mprotect,munmap,brk,prlimit64,getrlimit,prctl,io_uring_setup,pidfd_open,pidfd_getfd,rt_sigaction,rt_sigprocmask,sched_getaffinity,rseq,futex" : "trace=connect,execve", "-e", "raw=connect", "-o", log, "--", ...argv],
     dispose() { finish(); }, receipt: finish };
 }
 
@@ -627,7 +666,7 @@ function mountInputEvidence(input: string, destination: string, index: number, e
 }
 
 /** Validate the same bind-source inventory used to construct the native view. */
-function assertNativeMountSockets(mounts: readonly string[], origin: string): void {
+function assertNativeMountSockets(mounts: readonly string[], origin: string, keeper?: KeeperInspection): void {
   const roots: string[] = [];
   for (let i = 0; i < mounts.length; i++) {
     const flag = mounts[i]!;
@@ -636,7 +675,7 @@ function assertNativeMountSockets(mounts: readonly string[], origin: string): vo
       const input = mounts[i + 1]!, destination = resolve(mounts[i + 2]!);
       if (FORBIDDEN_BIND_ROOTS.has(resolve(input)) || FORBIDDEN_BIND_ROOTS.has(destination)) refuse("native bind exposes a forbidden host service root");
       let source: string;
-      try { source = realpathSync(input); } catch(error) { refuse("native mount source is unavailable",mountInputEvidence(input,destination,i,error,scriptedRoute.getStore()?.fixtureRoots)); }
+      try { source = inspectedWorkerSource(input, keeper); } catch(error) { refuse("native mount source is unavailable",mountInputEvidence(input,destination,i,error,scriptedRoute.getStore()?.fixtureRoots)); }
       if (FORBIDDEN_BIND_ROOTS.has(source)) refuse("native bind exposes a forbidden host service root");
       const system = [...SYSTEM, ...SYSTEM_FILES].some(path => {
         try { return destination === path && source === realpathSync(path); } catch { return false; }
@@ -720,6 +759,66 @@ export function nativeFixtureDirectory(prefix: string): string {
   const info=lstatSync(root,{bigint:true});createdFixtureRoots.set(root,{dev:info.dev,ino:info.ino});return root;
 }
 
+interface FixtureKeeper { mount: string; namespacePid: number; namespaceStart: string; root: string }
+interface KeeperInspection { mount: string; snapshot: string; refresh(): void }
+const guardedChildren = new Map<number, string>();
+const fixtureKeepers = new Map<number, KeeperInspection & { live(): boolean; dispose(): void }>();
+function processStart(pid: number): string { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!; }
+/** Called only by the installed test spawn interceptor, never by product code. */
+export function recordNativeGuardChild(child: { pid: number; exited: Promise<number> }): void {
+  let start: string; try { start = processStart(child.pid); } catch { return; }
+  guardedChildren.set(child.pid, start);
+  void child.exited.finally(() => { if (guardedChildren.get(child.pid) === start) guardedChildren.delete(child.pid); }).catch(() => {});
+}
+/** Fixture-owned output descriptor plus a live, guard-observed namespace; no path exemption. */
+export function registerNativeFixtureKeeper(storage: FixtureKeeper): () => void {
+  try { return registerFixtureKeeper(storage); }
+  catch(error) { if(String(error).includes("Offline native Claude refused before launch:"))throw error;return refuse("fixture keeper provenance is unavailable"); }
+}
+function registerFixtureKeeper(storage: FixtureKeeper): () => void {
+  const start = processStart(storage.namespacePid);
+  let pid = storage.namespacePid, observed = false;
+  for (let depth = 0; pid > 1 && depth < 64; depth++) {
+    if (guardedChildren.get(pid) === processStart(pid)) { observed = true; break; }
+    const parent = /^PPid:\s+(\d+)/m.exec(readFileSync(`/proc/${pid}/status`, "utf8"));
+    if (!parent) break; pid = Number(parent[1]);
+  }
+  const ns = `/proc/${storage.namespacePid}/ns/mnt`, namespace = statSync(ns, { bigint: true });
+  if (!observed || storage.namespaceStart !== start || namespace.ino === statSync("/proc/self/ns/mnt", { bigint: true }).ino ||
+      !new RegExp(`^/proc/${process.pid}/fd/[0-9]+$`).test(storage.root) || FORBIDDEN_BIND_ROOTS.has(resolve(storage.mount))) refuse("fixture keeper provenance is unavailable");
+  if(Number(statfsSync(storage.root).type)!==0x01021994)refuse("fixture keeper output is not private tmpfs");
+  // Only the publication tree is needed; overlay work/upper metadata never enters inspection.
+  const mount=join(resolve(storage.mount),"merged");
+  const fd = openSync(join(storage.root,"merged"), 0x200000 | 0x10000 | 0x20000); // O_PATH | O_DIRECTORY | O_NOFOLLOW.
+  const info = fstatSync(fd, {bigint:true});
+  const namespaceRoot = `/proc/${storage.namespacePid}/root${mount}`;
+  const mounted = statSync(namespaceRoot, {bigint:true});
+  if (mounted.dev !== info.dev || mounted.ino !== info.ino || !info.isDirectory() || info.uid !== BigInt(process.getuid?.() ?? -1)) { closeSync(fd); refuse("fixture keeper output is not private tmpfs"); }
+  const snapshot = nativeFixtureDirectory("odysseus-keeper-inspection-");
+  const anchor = `/proc/${process.pid}/fd/${fd}`;
+  let disposed=false;
+  const live = () => { try { const now=statSync(ns,{bigint:true}); return !disposed && processStart(storage.namespacePid)===start && now.dev===namespace.dev && now.ino===namespace.ino && statSync(namespaceRoot,{bigint:true}).dev===info.dev && statSync(namespaceRoot,{bigint:true}).ino===info.ino && observed; } catch { return false; } };
+  const entry = { mount, snapshot, live, refresh() {
+    if (!live()) refuse("fixture keeper namespace is no longer live");
+    for (const name of readdirSync(snapshot)) rmSync(join(snapshot,name),{recursive:true,force:true});
+    for (const name of readdirSync(anchor)) cpSync(join(anchor,name),join(snapshot,name),{recursive:true,dereference:false});
+  }, dispose() { if(disposed)return;disposed=true;if(fixtureKeepers.get(storage.namespacePid)===entry)fixtureKeepers.delete(storage.namespacePid);closeSync(fd);rmSync(snapshot,{recursive:true,force:true}); } };
+  if(fixtureKeepers.has(storage.namespacePid)){closeSync(fd);rmSync(snapshot,{recursive:true,force:true});refuse("fixture keeper was already registered");}
+  try { entry.refresh(); } catch { entry.dispose(); refuse("fixture keeper snapshot is unavailable"); }
+  fixtureKeepers.set(storage.namespacePid,entry); return entry.dispose;
+}
+function workerKeeper(argv: readonly string[], bwrap: number): KeeperInspection | undefined {
+  const at = argv.findIndex((value,index) => index < bwrap && basename(value)==="nsenter");
+  if(at<0)return;
+  const target=argv.indexOf("--target",at);if(target<0||target>bwrap)return;
+  const entry=fixtureKeepers.get(Number(argv[target+1]));if(!entry)return;
+  if(!entry.live())refuse("fixture keeper namespace is no longer live");entry.refresh();return entry;
+}
+function inspectedWorkerSource(input: string, keeper?: KeeperInspection): string {
+  const path=resolve(input);
+  return keeper && within(keeper.mount,path) ? realpathSync(join(keeper.snapshot,path.slice(keeper.mount.length))) : realpathSync(input);
+}
+
 /** Only fixture-declared data, fixed runtime bytes and guard-created IPC enter a worker. */
 function workerSourceAllowed(source: string, route: ScriptedAuthority, guardRoot: string): boolean {
   const created=[...createdFixtureRoots].filter(([path,stamp])=>{try{const now=lstatSync(path,{bigint:true});return now.dev===stamp.dev&&now.ino===stamp.ino;}catch{return false;}}).map(([path])=>path);
@@ -731,14 +830,14 @@ function workerSourceAllowed(source: string, route: ScriptedAuthority, guardRoot
     .some(path => { try { return realpathSync(path) === source; } catch { return false; } });
 }
 
-function stageWorkerFixtureBinds(argv: string[], bwrap: number, route: ScriptedAuthority, guardRoot: string): void {
+function stageWorkerFixtureBinds(argv: string[], bwrap: number, route: ScriptedAuthority, guardRoot: string, keeper?: KeeperInspection): void {
   let staged = 0;
   const staging = join(guardRoot, "files");
   for (let i = bwrap + 1; i < argv.indexOf("--", bwrap); i++) {
     if (!["--bind", "--ro-bind", "--dev-bind", "--bind-try", "--ro-bind-try", "--dev-bind-try"].includes(argv[i]!)) continue;
     if (FORBIDDEN_BIND_ROOTS.has(resolve(argv[i+1]!)) || FORBIDDEN_BIND_ROOTS.has(resolve(argv[i+2]!))) refuse("native bind exposes a forbidden host service root");
     let source: string;
-    try { source = realpathSync(argv[i + 1]!); } catch(error) { refuse("worker bind source is unavailable",mountInputEvidence(argv[i+1]!,argv[i+2]!,i,error,route.fixtureRoots)); }
+    try { source = inspectedWorkerSource(argv[i + 1]!, keeper); } catch(error) { refuse("worker bind source is unavailable",mountInputEvidence(argv[i+1]!,argv[i+2]!,i,error,route.fixtureRoots)); }
     if (FORBIDDEN_BIND_ROOTS.has(source)) refuse("native bind exposes a forbidden host service root");
     const explicit = route.fixtureFiles.get(source);
     if (explicit) {
@@ -763,10 +862,10 @@ function stageWorkerFixtureBinds(argv: string[], bwrap: number, route: ScriptedA
   }
 }
 
-function assertWorkerFixtureBinds(mounts: readonly string[], route: ScriptedAuthority, guardRoot: string): void {
+function assertWorkerFixtureBinds(mounts: readonly string[], route: ScriptedAuthority, guardRoot: string, keeper?: KeeperInspection): void {
   for(let i=0;i<mounts.length;i++) {
     if(!["--bind","--ro-bind","--dev-bind","--bind-try","--ro-bind-try","--dev-bind-try"].includes(mounts[i]!))continue;
-    let source:string;try{source=realpathSync(mounts[i+1]!);}catch{refuse("worker bind source is unavailable");}
+    let source:string;try{source=inspectedWorkerSource(mounts[i+1]!,keeper);}catch{refuse("worker bind source is unavailable");}
     if(!workerSourceAllowed(source,route,guardRoot)) {
       const info=lstatSync(source);
       if(!(info.isSocket() && socketMatchesOrigin(source,route.origin)) && !(source === "/dev/null" && info.isCharacterDevice()))refuse("worker bind was not created or staged by the fixture",mountInputEvidence(source,mounts[i+2]!,i,{code:"UNREGISTERED"},route.fixtureRoots));
@@ -890,14 +989,15 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
-    try { stageWorkerFixtureBinds(workerArgv,bwrap,route,bridge.directory); }
+    const keeper=workerKeeper(workerArgv,bwrap);
+    try { stageWorkerFixtureBinds(workerArgv,bwrap,route,bridge.directory,keeper); }
     catch(error) { if (String(error).includes("Offline native Claude refused before launch:")) throw error; refuse("worker fixture provenance is unavailable"); }
     const payloadIndex = workerArgv.indexOf("--", bwrap) + 1;
     const nativePayload = workerArgv.splice(payloadIndex);
     workerArgv.push(...nativeSocketCommand(nativePayload, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET));
     const nativeMounts = workerArgv.slice(bwrap + 1, workerArgv.indexOf("--", bwrap));
     const beforeLaunch = () => {
-      try { assertWorkerFixtureBinds(nativeMounts, route, bridge.directory); assertNativeMountSockets(nativeMounts, route.origin); }
+      try { keeper?.refresh(); assertWorkerFixtureBinds(nativeMounts, route, bridge.directory,keeper); assertNativeMountSockets(nativeMounts, route.origin,keeper); }
       catch(error) { if (String(error).includes("Offline native Claude refused before launch:")) throw error; refuse("worker fixture provenance is unavailable"); }
     };
     beforeLaunch();
