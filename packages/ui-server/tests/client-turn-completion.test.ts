@@ -21,7 +21,7 @@ test("idle eligibility never reads lifecycle storage", () => {
   const frames: unknown[] = [];
   const host = { activity: { store: { lifecycle() { reads++; throw new Error("Lifecycle I/O on idle"); } } },
     sendToClients: (frame: unknown) => frames.push(frame), log: { emit() {} } } as unknown as WsHost;
-  publishTurnStatus({ host, turn: { turnId: "turn-ithaca", sessionId: "ithaca" } as never, clientReceiptEligible: true } as TurnRun, { cancelledBeforeStart: false });
+  publishTurnStatus({ host, turn: { turnId: "turn-ithaca", sessionId: "ithaca" } as never, clientReceiptEligible: true }, { cancelledBeforeStart: false });
   expect(reads).toBe(0);
   expect(frames[0]).toMatchObject({ type: "status", status: "idle", hostTurnComplete: true });
 });
