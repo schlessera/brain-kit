@@ -69,8 +69,10 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     inputs.log("warn", "inference transport check refused the turn", { "profile.id": inputs.profileId, reason });
     return terminal.withhold();
   };
-  const refuseSettings = (): false => {
-    const message = "Claude native settings refused the retained tool-search selection. Correct the conflicting settings before retrying.";
+  const refuseSettings = (unreadable = false): false => {
+    const message = unreadable
+      ? "Claude native settings could not be read. Correct settings access before retrying."
+      : "Claude native settings refused the retained tool-search selection. Correct the conflicting settings before retrying.";
     terminal.refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.settings_conflict, message } };
     // This is configuration, not failed authentication. No auth_failure event
     // may poison subscription status before runtime billing has been observed.
@@ -81,6 +83,7 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     const cli = await inputs.queryHandle;
     let account: AccountInfo | undefined;
     let settings: CliSettingsReport | undefined;
+    let readingSettings = false;
     try {
       const check = async () => {
         account = (await inputs.initialize(cli)).account;
@@ -88,6 +91,7 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
         // Not on the public Query type; the SDK sends the CLI's own
         // `get_settings` control request. Absent means unreadable,
         // which refuses below.
+        readingSettings = true;
         const getSettings = (cli as { getSettings?: () => Promise<CliSettingsReport> }).getSettings;
         settings = getSettings ? await getSettings.call(cli) : undefined;
       };
@@ -96,6 +100,7 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     } catch (error) {
       // A handshake the host cancelled is a cancelled turn, not a failed one.
       if (abortController.signal.aborted) return terminal.withhold();
+      if (readingSettings) return refuseSettings(true);
       terminal.refused = {
         code: "CLAUDE_ERROR",
         message: `@schlessera/brain-backend-claude runtime (claude-code) during ${inputs.phase}; requirements: ${runtimeRequirements.map(req => `${req.owner} minimum ${req.declaration}`).join("; ") || "subscription handshake"}; detected startup unknown. Claude Code did not complete its handshake: ${error instanceof Error ? error.message : String(error)}. Install/select a compatible executable that completes SDK initialization.`,

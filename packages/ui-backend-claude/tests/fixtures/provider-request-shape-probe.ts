@@ -3,7 +3,7 @@
  * captureOffline isolates networking. This probe launches the runtime directly:
  * worker boundary qualification remains in provider-history-probe.ts.
  */
-import { chmodSync, linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 import { sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
@@ -15,6 +15,7 @@ import { INFERENCE_PLACEHOLDER, startInferenceRelay } from "@schlessera/brain-ui
 import { createClaudeSdkTurn } from "../../src/sdk-options.js";
 import { createTurnLockBinding } from "../../src/turn-lock.js";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { SessionRosterIncompatibleError } from "../../src/session-request-shape.js";
 import { claudePromptContext } from "../../src/prompt-context.js";
 import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { replaceNativeStartupAcquisitionForFixture } from "../../../ui-server/tests/helpers/fixture-native-startup.js";
@@ -55,7 +56,7 @@ const proxy = Bun.serve({ unix: join(relay.dir, "proxy.sock"), fetch() { return 
 chmodSync(join(relay.dir, "proxy.sock"), 0o600);
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
- for (scenario of (process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? ["managed-gateway"] : ["discovery", "legacy", "legacy-inherited", "gateway", "project-on", "authority-upgrade", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"])) {
+ for (scenario of (process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? ["managed-gateway"] : ["discovery", "legacy", "legacy-no-snapshot", "legacy-inherited", "gateway", "project-on", "authority-upgrade", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"])) {
   const brain = fixtureBrain(scratch, scenario), home = join(scratch, `home-${scenario}`);
   mkdirSync(join(home, ".claude"), { recursive: true });
   writeFileSync(join(brain, "ithaca.ipynb"), JSON.stringify({ nbformat: 4, nbformat_minor: 5, metadata: {},
@@ -75,7 +76,7 @@ try {
     sessionId = crypto.randomUUID();
     // This is the pre-upgrade context format: only the old append, no request
     // selection or marker. The first query uses independently frozen inputs.
-    claudePromptContext(brain, sessionId).retainAppend(baseline.append);
+    if (scenario !== "legacy-no-snapshot") claudePromptContext(brain, sessionId).retainAppend(baseline.append);
   }
   for (turnIndex = 0; turnIndex < (scenario === "builtins" ? 2 : scenario === "fast-thirdparty" || scenario === "managed-gateway" ? 1 : 3); turnIndex++) {
     if (turnIndex) rmSync(marker, { force: true });
@@ -103,25 +104,36 @@ try {
       ...(legacy || scenario === "authority-upgrade" ? { MCP_CONNECTION_NONBLOCKING: "0" } : {}),
       ...(scenario === "legacy-inherited" ? { ENABLE_TOOL_SEARCH: turnIndex === 0 ? "true" : "false" } : {}),
       ...(scenario.endsWith("gateway") ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) };
-    const turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
-      applicationAuthority: scenario === "authority-upgrade" && turnIndex === 0 ? undefined : "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
+    const requestsBeforeAssembly = capture.exchanges.length;
+    let turn: ReturnType<typeof createClaudeSdkTurn> | ReturnType<typeof legacySdkTurn>;
+    try { turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
+      applicationAuthority: scenario === "authority-upgrade" && turnIndex !== 1 ? undefined : "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
       workerSandbox: prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }),
       bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } },
     }, profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
       turnEnvironment: environment,
       hostInference: { proxyDir: relay.dir, placeholders: { ANTHROPIC_API_KEY: INFERENCE_PLACEHOLDER } },
       abortController: controller, allowedTools: ["Read"], confirmPatterns: [], turnLock, log(level, message) { console.error(level, message); },
-    });
+    }); } catch (error) {
+      view.cleanup(); turnLock.close();
+      if (scenario !== "authority-upgrade" || turnIndex !== 1 || !(error instanceof SessionRosterIncompatibleError)) throw error;
+      capture.qualification ??= {};
+      capture.qualification.authorityRefusal = { errorClass: error.errorClass, message: error.message,
+        before: requestsBeforeAssembly, after: capture.exchanges.length };
+      continue;
+    }
     delete turn.options.spawnClaudeCodeProcess;
     turn.options.env!.ANTHROPIC_UNIX_SOCKET = relay.socketPath;
     (turn.options.settings as any).env.ANTHROPIC_UNIX_SOCKET = relay.socketPath;
     // Route only the transport socket into this direct-runtime probe. Never
     // override production tool-search selection for gateway or removal cases.
     const contextFile = sessionPromptContextLocation(process.env.CLAUDE_CONFIG_DIR || join(process.env.HOME!, ".claude"), brain, sessionId ?? turn.options.sessionId!);
-    const savedContext = JSON.parse(readFileSync(join(contextFile.dir, contextFile.name), "utf8"));
+    const hostSnapshotPresent = existsSync(join(contextFile.dir, contextFile.name));
+    const savedContext = hostSnapshotPresent ? JSON.parse(readFileSync(join(contextFile.dir, contextFile.name), "utf8")) : {};
     const initialized = savedContext.claudeRequestShapeInitialized === true;
     capture.qualification ??= {};
     capture.qualification.watchdogMs = watchdogMs(45_000);
+    ((capture.qualification.hostSnapshotPresentByTurn ??= []) as boolean[]).push(hostSnapshotPresent);
     if (legacy && turnIndex > 0) capture.qualification.legacyOriginalSetting = savedContext.claudeRequestShape.toolSearch === null ? "unknown" : "known";
     capture.qualification.projectToolSearch = JSON.parse(readFileSync(join(brain, ".claude/settings.json"), "utf8")).env.ENABLE_TOOL_SEARCH;
     if (legacy && turnIndex === 0) capture.qualification.baseline = { source: baseline.source, initialized };

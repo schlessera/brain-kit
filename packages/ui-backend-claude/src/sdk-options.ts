@@ -541,9 +541,9 @@ function assembleClaudeSdkTurn(
   sdkOptions.mcpServers = { "brain-ui": turnMcpServer(backend, req, roster, turnTemp, tools => { assembledTools = tools; }) };
   let selectionPin: string | undefined;
   if (retained) {
-    // Safety exclusions are current authority, layered over the recorded roster.
-    // The historical snapshot itself remains untouched for validation/replay.
-    sdkOptions.disallowedTools = [...new Set([...retained.disallowedTools, ...mandatory])];
+    // Retention already refused any incompatible mandatory exclusions. Never
+    // rewrite the provider roster to adapt an existing session's authority.
+    sdkOptions.disallowedTools = retained.disallowedTools;
     selectionPin = retained.toolSearch ?? undefined;
     if (selectionPin === undefined) {
       // The original legacy setting is unknown. Keep its pre-upgrade behavior:

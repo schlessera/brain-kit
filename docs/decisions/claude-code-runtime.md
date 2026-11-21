@@ -1555,8 +1555,10 @@ remain registered and retain their existing scoped refusals. Selection and its
 initialization marker share the atomic prompt-context record. A selection digest
 validates the version, recorded session list and tool-search pin independently
 of later removal lists.
-Missing marked selection or a missing whole context refuses before any state
-is recreated, rather than silently adopting legacy. A genuine legacy
+Missing marked selection refuses before state is recreated. A content-free
+provenance marker distinguishes a lost known context from a pre-snapshot legacy
+session with neither context nor provenance; the latter retains its first
+observed post-upgrade append. A genuine legacy
 context without either field uses the legacy disallow list;
 removing built-ins from a deployment-wide list on resume would rewrite its
 roster. Plan/worktree modes, Workflow and ReportFindings remain available:
@@ -1596,13 +1598,18 @@ claim to recover or qualify its missing original value.
 Selection and route validation precede prompt preparation. Prompt ownership is
 persisted only when the gated input is pulled after native-settings checks, so
 refused retries leave the original prompt bytes unchanged. The selection digest
-covers its version, entire roster and tool-search pin. Settings conflicts use
-`settings_conflict` without an authentication event or login action.
+covers its version, entire roster and tool-search pin. Settings conflicts, including rejected native settings-control reads after a
+successful initialization, use `settings_conflict` without an authentication
+event or login action. Initialization failures remain separate. Every context
+writer checks encoded UTF-8 bytes against the same 64 MiB read limit before
+replacement, including selection migration.
 
-The stored roster records historical optional membership. Current mandatory
-exclusions still apply on top, including the three project MCP writers when a
-direct session resumes under server application authority. The historical
-snapshot is not rewritten to manufacture a matching digest.
+The stored roster records historical membership. If current mandatory
+exclusions are absent from that roster, the resume is refused with
+`session_roster_incompatible` before persistence or SDK startup. In particular,
+a direct session cannot resume under server authority by dropping the three
+project MCP writers. A later compatible resume retains every original tool;
+no roster is rewritten to manufacture compatibility.
 
 Non-blocking tool-search qualification also observes the newly loaded group of
 six intact core definitions changing order on the first resume: the selected

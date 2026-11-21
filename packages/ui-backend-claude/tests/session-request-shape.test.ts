@@ -75,8 +75,12 @@ test("production assembly retains a gateway pin and confines a changed-upstream 
     turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, log() {},
   });
   const gateway = assemble("https://gateway.example.com");
-  const enabledId = session(); retain(enabledId);
   const firstParty = assemble("https://api.anthropic.com");
+  const enabledId = firstParty.options.sessionId!;
+  const enabledState = JSON.parse(readFileSync(path(enabledId), "utf8"));
+  enabledState.claudeRequestShape.toolSearch = "true";
+  enabledState.claudeRequestShape.selectionDigest = selectionDigest(enabledState.claudeRequestShape.disallowedTools, "true");
+  writeFileSync(path(enabledId), JSON.stringify(enabledState));
   try {
     const resumed = assemble("https://api.anthropic.com", gateway.options.sessionId!);
     try {
@@ -109,9 +113,7 @@ test("production assembly retains a gateway pin and confines a changed-upstream 
     await unhosted.finishWorker();
     const savedRoster = JSON.parse(readFileSync(path(unhostedId), "utf8")).claudeRequestShape.disallowedTools;
     expect(savedRoster).not.toContain("mcp__brain__brain_add");
-    const hosted = assemble("https://api.anthropic.com", unhostedId, false);
-    try { for (const name of ["brain_add", "brain_update", "brain_archive"]) expect(hosted.options.disallowedTools, "CURRENT_MANDATORY_EXCLUSIONS_ALWAYS_APPLY").toContain(`mcp__brain__${name}`); }
-    finally { await hosted.finishWorker(); }
+    expect(() => assemble("https://api.anthropic.com", unhostedId, false), "INCOMPATIBLE_MANDATORY_EXCLUSIONS_REFUSE").toThrow("session_roster_incompatible");
     expect(JSON.parse(readFileSync(path(unhostedId), "utf8")).claudeRequestShape.disallowedTools).toEqual(savedRoster);
     const corrupt = assemble("https://api.anthropic.com");
     const corruptId = corrupt.options.sessionId!; await corrupt.finishWorker();
@@ -141,4 +143,18 @@ test("the retained digest covers the tool-search pin, including a forged legacy 
   state.claudeRequestShape.toolSearch = null;
   writeFileSync(path(id), JSON.stringify(state));
   expect(() => retain(id, true), "TOOL_SEARCH_PIN_IS_DIGESTED").toThrow("Invalid saved Claude session request shape");
+});
+
+
+test("migration refuses before an encoded snapshot would cross its read limit", () => {
+  const id = session(), limit = 64 * 1024 * 1024;
+  const state = { append: "Odysseus retains the original brief.", delivered: {}, turns: {}, padding: "" };
+  const empty = Buffer.byteLength(JSON.stringify(state));
+  // Multi-byte padding makes a character-count-only bound insufficient.
+  state.padding = "\u03bb".repeat(Math.floor((limit - 96 - empty) / 2));
+  const before = JSON.stringify(state);
+  expect(Buffer.byteLength(before)).toBeLessThan(limit);
+  writeFileSync(path(id), before);
+  expect(() => retain(id, true), "MIGRATION_NEVER_WRITES_AN_UNREADABLE_CONTEXT").toThrow("storage limit");
+  expect(readFileSync(path(id), "utf8")).toBe(before);
 });

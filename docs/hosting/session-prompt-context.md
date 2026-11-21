@@ -50,6 +50,17 @@ observes after upgrade; it cannot retroactively change earlier provider
 requests. Native Claude prompt recording, where available, continues to retain
 that conversation's original rendered system prompt.
 
+Claude records content-free append provenance outside the context file's
+directory before SDK assembly receives the retained append. A missing context
+with known provenance refuses that session's resume; no file and no provenance
+allows the legacy migration above. An existing unmarked context gains provenance
+when retained, without changing its bytes. Retiring native history removes both
+the context and its provenance. A malformed marker never counts as legacy.
+
+All context replacements check their encoded UTF-8 size before writing and stay
+within the same 64 MiB bound used for reads. Oversized migration or prompt
+preparation refuses without replacing the readable prior state.
+
 Offline tests run three turns through the real installed Claude CLI and fresh
 Pi workers against loopback fake origins. Claude is checked both with native
 snapshot recording requested and explicitly disabled. The tests capture the

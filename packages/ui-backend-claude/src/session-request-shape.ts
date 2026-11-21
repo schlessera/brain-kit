@@ -1,11 +1,18 @@
 /** Host-owned native selection, fixed before a session's first provider request. */
-import { sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
+import { SESSION_PROMPT_CONTEXT_MAX_BYTES, sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
 import { createHash } from "node:crypto";
 import { realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { envSnapshot } from "./config/env.js";
+import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { regular } from "./worker-state.js";
+
+export class SessionRosterIncompatibleError extends BackendRequestError {
+  readonly errorClass = FIRST_PARTY_FAILURE_CLASSES.session_roster_incompatible;
+  constructor() { super("session_roster_incompatible: this session's retained tools conflict with current mandatory exclusions. Resume under its compatible authority or start a new conversation."); }
+}
 
 export const HOST_UNUSED_BUILTINS = Object.freeze([
   "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
@@ -33,7 +40,7 @@ export function retainSessionRequestShape(brain: string, session: string, resume
   const { dir, name } = sessionPromptContextLocation(root, brain, session);
   if (realpathSync(dir) !== dir) throw new Error("Session request storage must not contain directory aliases");
   const path = join(dir, name);
-  const state = JSON.parse(regular(path, 64 * 1024 * 1024).toString("utf8"));
+  const state = JSON.parse(regular(path, SESSION_PROMPT_CONTEXT_MAX_BYTES).toString("utf8"));
   if (!state || Array.isArray(state) || typeof state.append !== "string") throw invalid();
   const validate = (value: unknown): ClaudeSessionRequestShape => {
     const shape = value as ClaudeSessionRequestShape | undefined;
@@ -49,7 +56,9 @@ export function retainSessionRequestShape(brain: string, session: string, resume
   };
   if (state.claudeRequestShapeInitialized !== undefined) {
     if (state.claudeRequestShapeInitialized !== true) throw invalid();
-    return validate(state.claudeRequestShape);
+    const saved = validate(state.claudeRequestShape);
+    if (!legacy.every(name => saved.disallowedTools.includes(name))) throw new SessionRosterIncompatibleError();
+    return saved;
   }
   if (state.claudeRequestShape !== undefined) throw invalid();
   const selectedRoster = resumed ? legacy : candidate;
@@ -58,8 +67,11 @@ export function retainSessionRequestShape(brain: string, session: string, resume
   const selected = validate({ version: 4, selectionDigest: digest(selectedRoster, selectedPin), disallowedTools: selectedRoster, toolSearch: selectedPin });
   state.claudeRequestShapeInitialized = true;
   state.claudeRequestShape = selected;
+  const encoded = JSON.stringify(state);
+  if (Buffer.byteLength(encoded) > SESSION_PROMPT_CONTEXT_MAX_BYTES)
+    throw new Error("Session request shape exceeds its 64 MiB storage limit; migration refused without writing.");
   const temp = `${path}.${crypto.randomUUID()}.tmp`;
-  try { writeFileSync(temp, JSON.stringify(state), { mode: 0o600, flag: "wx" }); renameSync(temp, path); }
+  try { writeFileSync(temp, encoded, { mode: 0o600, flag: "wx" }); renameSync(temp, path); }
   finally { rmSync(temp, { force: true }); }
   return selected;
 }

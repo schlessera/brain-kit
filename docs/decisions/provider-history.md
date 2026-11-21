@@ -210,8 +210,10 @@ hypothetical append; this keyless comparison does not measure provider cache
 hits, tokens or savings.
 
 The direct-runtime path also rewrites earlier system-role message content from
-a block array to a string on resume. That remains a provider-history violation,
-tracked in #4324; fast-mode product work in #4310 waits for its fix. The strict
+a block array to a string within a turn and on resume. Those remain provider-history violations,
+tracked in #4324; fast-mode product work in #4310 waits for its fix. Same-turn
+and resume transitions are qualified and reported separately; evidence in one
+scope does not establish a violation in the other. The strict
 history guard has no exception for it, on resume or within a turn. A separate
 qualification test records the reproduction by asserting that the strict guard
 rejects the captured bytes; it does not establish passing history qualification.
@@ -223,8 +225,10 @@ New hosted sessions retain their native disallow selection and tool-search pin
 atomically in private prompt-context storage, beside an initialization marker.
 Each recorded selection carries its own digest, validated independently of later
 releases' removal lists. An initialized record with a missing or malformed
-selection refuses only that session. A wholly missing context refuses resume
-before any append or selection is recreated. A genuine older prompt-context record without either field adopts the
+selection refuses only that session. A content-free provenance marker is recorded before the append returns to SDK
+assembly. Missing context with known provenance refuses resume; absence of both
+is a pre-snapshot legacy session and retains the first append observed after
+upgrade. A genuine older prompt-context record without either field adopts the
 legacy selection with no new SDK tool-search pin. Mandatory exclusions remain
 validated. The retained system append protects earlier wording when a new
 deployment adds a brief. These internal fields never enter provider content.
@@ -243,13 +247,18 @@ claim to recover or qualify its missing original value.
 Selection and route validation precede prompt preparation. Prompt ownership is
 persisted only when the gated input is pulled after native-settings checks, so
 refused retries leave the original prompt bytes unchanged. The selection digest
-covers its version, entire roster and tool-search pin. Settings conflicts use
-`settings_conflict` without an authentication event or login action.
+covers its version, entire roster and tool-search pin. Settings conflicts, including rejected native settings-control reads after a
+successful initialization, use `settings_conflict` without an authentication
+event or login action. Initialization failures remain separate. Every context
+writer checks encoded UTF-8 bytes against the same 64 MiB read limit before
+replacement, including selection migration.
 
-The stored roster records historical optional membership. Current mandatory
-exclusions still apply on top, including the three project MCP writers when a
-direct session resumes under server application authority. The historical
-snapshot is not rewritten to manufacture a matching digest.
+The stored roster records historical membership. If current mandatory
+exclusions are absent from that roster, the resume is refused with
+`session_roster_incompatible` before persistence or SDK startup. In particular,
+a direct session cannot resume under server authority by dropping the three
+project MCP writers. A later compatible resume retains every original tool;
+no roster is rewritten to manufacture compatibility.
 
 Non-blocking tool-search qualification also observes the newly loaded group of
 six intact core definitions changing order on the first resume: the selected

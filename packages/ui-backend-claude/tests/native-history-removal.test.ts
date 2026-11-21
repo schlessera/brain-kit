@@ -1,3 +1,4 @@
+import { claudePromptContext, claudePromptContextProvenanceLocation } from "../src/prompt-context.js";
 /**
  * Explicit removal of a retired chat's native Claude history (#3229), through
  * the installed Agent SDK's own listing and reading against isolated synthetic
@@ -46,6 +47,7 @@ function metadata(id: string, text: string) {
   mkdirSync(replay.dir, { recursive: true }); mkdirSync(prompt.dir, { recursive: true });
   writeFileSync(join(replay.dir, replay.name), JSON.stringify({ texts: {}, receipts: { r: { id: "r", name: "brain_add", input: { text }, output: text, isError: false } } }));
   writeFileSync(join(prompt.dir, prompt.name), JSON.stringify({ claudeRequestShapeInitialized: true, claudeRequestShape: { version: 1, disallowedTools: [text], toolSearch: null }, append: text, delivered: {}, turns: { t: { original: text, wireDigest: "0", facts: {} } } }));
+  claudePromptContext(brain, id, { CLAUDE_CONFIG_DIR: config }).retainAppend(text);
   const observations = join(archive, "native-observations"); mkdirSync(observations, { recursive: true });
   writeFileSync(join(observations, `${nativeObservationIdentity(brain, id)}.json`), JSON.stringify({ schema: 1, identity: text, incomplete: false, observed: [] }));
 }
@@ -99,10 +101,13 @@ test("removes every owned artifact through the installed SDK and keeps the unrel
   expect((await backend.listSessions()).map(session => session.id).sort()).toEqual([TARGET, OTHER, ARCHIVED].sort());
   expect(text(await backend.getHistory(TARGET))).toContain(MARKER);
   expect(stored()).toContain(MARKER);
+  const provenance = claudePromptContextProvenanceLocation(brain, TARGET, { CLAUDE_CONFIG_DIR: config });
+  expect(existsSync(join(provenance.dir, provenance.name))).toBe(true);
 
   expect(await backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: TARGET })).toEqual({ outcome: "removed" });
 
   expect(stored(), "NO_OWNED_MARKER_REMAINS").not.toContain(MARKER);
+  expect(existsSync(join(provenance.dir, provenance.name)), "RETIRED_PROMPT_PROVENANCE_REMOVED").toBe(false);
   expect((await listSessions({ dir: brain })).map(session => session.sessionId)).toEqual([OTHER]);
   expect(await getSessionMessages(TARGET, { dir: brain })).toEqual([]);
   expect((await backend.listSessions()).map(session => session.id).sort()).toEqual([OTHER, ARCHIVED].sort());

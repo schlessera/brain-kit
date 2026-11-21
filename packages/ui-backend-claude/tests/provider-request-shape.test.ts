@@ -101,11 +101,12 @@ test("#4306 qualification: non-blocking project startup and resume violate stric
   for (const [a, b] of pairs(capture)) identical(system(a), system(b), "qualification system");
 });
 
-test("#4324 qualification evidence: strict history rejects the native earlier-message rewrite", () => {
-  let violations = 0;
+test.each(["same-turn", "resume"] as const)("#4324 %s qualification records exact earlier-message outcomes", scope => {
+  const transitions: Array<{ scenario: string; fromTurn: number; toTurn: number; rewrite: boolean }> = [];
   // This is evidence of invalid native history, not a passing strict guard.
   // Check the complete prefix, including a successor, on every transition.
-  for (const capture of Object.values(captures)) for (const [a, b] of pairs(capture)) {
+  for (const [scenario, capture] of Object.entries(captures)) for (const [a, b] of pairs(capture).filter(([a, b]) => scope === "same-turn" ? a.turn === b.turn : a.turn !== b.turn)) {
+    expect(a.turn === b.turn ? "same-turn" : "resume", "QUALIFICATION_TRANSITION_SCOPE").toBe(scope);
     const expected = [...messages(a), a.answer], actual = messages(b);
     expect(actual.length, "EVERY_TRANSITION_HAS_A_SUCCESSOR").toBeGreaterThan(expected.length);
     const observed = actual.slice(0, expected.length);
@@ -118,10 +119,16 @@ test("#4324 qualification evidence: strict history rejects the native earlier-me
       identical({ ...message, content: message.content.map((part: any) => part.text).join("") }, observed[index], "EXACT_4324_REWRITE_ONLY");
       knownRewrite = true;
     }
-    if (knownRewrite) { expect(() => history(a, b), "4324_IS_NOT_A_STRICT_GUARD_EXCEPTION").toThrow(`messages turn ${a.turn} -> ${b.turn}`); violations++; }
+    if (knownRewrite) expect(() => history(a, b), "4324_IS_NOT_A_STRICT_GUARD_EXCEPTION").toThrow(`messages turn ${a.turn} -> ${b.turn}`);
     else history(a, b);
+    transitions.push({ scenario, fromTurn: a.turn, toTurn: b.turn, rewrite: knownRewrite });
   }
-  expect(violations).toBeGreaterThan(0);
+  expect(transitions.length, "EACH_QUALIFICATION_SCOPE_IS_EXERCISED").toBeGreaterThan(0);
+  const rewrites = transitions.filter(item => item.rewrite);
+  console.log("4324_HISTORY_QUALIFICATION", JSON.stringify({ scope, examined: transitions.length, rewrites }));
+  // Independently reproduce the pinned client's known violation in each
+  // scope: same-turn failures cannot satisfy the resume qualification.
+  expect(rewrites.length, scope === "same-turn" ? "FIRST_TURN_4324_REPRODUCTION" : "RESUME_4324_REPRODUCTION").toBeGreaterThan(0);
 });
 
 // A pre-upgrade session has no recorded original environment. This is
@@ -222,12 +229,31 @@ test("project settings alone cannot turn on a host-pinned-off session", () => {
   for (const exchange of main(capture)) expect(body(exchange).tools.some((tool: any) => tool.name === "ToolSearch"), "PROJECT_TRUE_CANNOT_ENABLE_WIRE_DISCOVERY").toBe(false);
 });
 
-test("current server exclusions remove previously loaded project writers on authority upgrade", () => {
+test("incompatible authority refuses before inference and compatible resume preserves every writer definition", () => {
   const capture = captures["authority-upgrade"]!, exchanges = main(capture);
-  for (const name of ["brain_add", "brain_update", "brain_archive"]) {
-    const tool = `mcp__brain__${name}`;
-    expect(body(exchanges[0]!).tools.map((item: any) => item.name), "WRITER_WAS_REGISTERED_BEFORE_AUTHORITY_UPGRADE").toContain(tool);
-    for (const exchange of exchanges.slice(1)) expect(body(exchange).tools.map((item: any) => item.name), "MANDATORY_SERVER_EXCLUSION_REACHES_WIRE").not.toContain(tool);
-    for (const input of (capture.budgets as any[]).slice(1)) expect(input.disallowed).toContain(tool);
+  expect(capture.qualification!.authorityRefusal).toMatchObject({ errorClass: "session_roster_incompatible", message: expect.stringContaining("session_roster_incompatible") });
+  const refusal = capture.qualification!.authorityRefusal as { before: number; after: number };
+  expect(refusal.after, "INCOMPATIBLE_AUTHORITY_SENDS_NO_REQUEST").toBe(refusal.before);
+  expect(capture.sessions).toHaveLength(2);
+  expect(exchanges.map(item => item.turn)).toEqual([0, 2]);
+  for (const name of ["brain_add", "brain_update", "brain_archive"]) for (const exchange of exchanges)
+    expect(body(exchange).tools.map((item: any) => item.name), "COMPATIBLE_AUTHORITY_RETAINS_WRITER_REGISTRATION").toContain(`mcp__brain__${name}`);
+  for (const [a, b] of pairs(capture)) providerTools(a, b, "AUTHORITY_REFUSAL_NEVER_REWRITES_ROSTER");
+});
+
+
+test("a native session predating host snapshots resumes and retains its first post-upgrade append", () => {
+  const capture = captures["legacy-no-snapshot"]!;
+  expect(capture.sessions).toHaveLength(3);
+  expect(new Set(capture.sessions).size).toBe(1);
+  expect(capture.qualification!.hostSnapshotPresentByTurn, "NATIVE_PRE_SNAPSHOT_MIGRATION").toEqual([false, true, true]);
+  identical(capture.appends[1], capture.appends[2], "FIRST_OBSERVED_APPEND_RETAINED_AFTER_MIGRATION");
+  for (const input of capture.budgets as any[]) {
+    expect(input.env).toBeUndefined(); expect(input.settings).toBeUndefined();
+    identical(baseline.disallowedTools, input.disallowed, "PRE_SNAPSHOT_LEGACY_ROSTER_INPUT");
+  }
+  for (const [a, b] of pairs(capture)) {
+    providerTools(a, b, "PRE_SNAPSHOT_NATIVE_ROSTER_STABLE");
+    identical(system(a), system(b), "PRE_SNAPSHOT_NATIVE_SYSTEM_STABLE");
   }
 });

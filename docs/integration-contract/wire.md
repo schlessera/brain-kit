@@ -1024,8 +1024,14 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   does not update subscription authentication status. Its message names a
   known, unambiguous host denial cause; conflicting observed causes and replay
   with only relay text claim no finer cause.
+  `session_roster_incompatible` means the retained native tool roster cannot
+  satisfy current mandatory exclusions without changing provider history. That
+  resume is refused before SDK startup, with the original roster and context
+  unchanged. A compatible authority can resume it, or the owner can start a new
+  conversation. It carries no authentication action.
   `settings_conflict` means the native runtime could not honor a retained host
-  setting before prompt release. It carries no `authAction`, emits no
+  setting before prompt release, including an unreadable or rejected native
+  settings-control request after successful initialization. It carries no `authAction`, emits no
   `auth_failure` event and does not update subscription authentication status.
   Correcting the conflicting settings permits the next attempt; changing login
   credentials does not resolve it. It uses the existing free-form failure-class
