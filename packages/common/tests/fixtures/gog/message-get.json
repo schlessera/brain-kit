@@ -1,0 +1,71 @@
+{
+  "body": "Mother, I will sail to Pylos for news of him.\r\n",
+  "headers": {
+    "bcc": "",
+    "cc": "Odysseus <odysseus@example.com>",
+    "date": "Sun, 12 Jul 2026 09:40:00 +0000",
+    "from": "Telemachus <telemachus@example.com>",
+    "in_reply_to": "<loom-0712@example.com>",
+    "message_id": "<pylos-0712@example.com>",
+    "references": "",
+    "reply_to": "",
+    "subject": "Re: Suitors at the hall",
+    "to": "Penelope <penelope@example.com>"
+  },
+  "message": {
+    "historyId": "5502",
+    "id": "19a0c3d2e4f50602",
+    "internalDate": "1783849200000",
+    "labelIds": [
+      "INBOX",
+      "UNREAD",
+      "Label_12"
+    ],
+    "payload": {
+      "body": {
+        "data": "TW90aGVyLCBJIHdpbGwgc2FpbCB0byBQeWxvcyBmb3IgbmV3cyBvZiBoaW0uDQo",
+        "size": 47
+      },
+      "filename": "",
+      "headers": [
+        {
+          "name": "From",
+          "value": "Telemachus <telemachus@example.com>"
+        },
+        {
+          "name": "To",
+          "value": "Penelope <penelope@example.com>"
+        },
+        {
+          "name": "Cc",
+          "value": "Odysseus <odysseus@example.com>"
+        },
+        {
+          "name": "Subject",
+          "value": "Re: Suitors at the hall"
+        },
+        {
+          "name": "Date",
+          "value": "Sun, 12 Jul 2026 09:40:00 +0000"
+        },
+        {
+          "name": "Message-ID",
+          "value": "<pylos-0712@example.com>"
+        },
+        {
+          "name": "In-Reply-To",
+          "value": "<loom-0712@example.com>"
+        },
+        {
+          "name": "Content-Type",
+          "value": "text/plain; charset=\"UTF-8\""
+        }
+      ],
+      "mimeType": "text/plain",
+      "partId": ""
+    },
+    "sizeEstimate": 2210,
+    "snippet": "Mother, I will sail to Pylos for news of him.",
+    "threadId": "19a0c3d2e4f50601"
+  }
+}

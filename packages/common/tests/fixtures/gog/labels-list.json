@@ -1,0 +1,39 @@
+{
+  "labels": [
+    {
+      "id": "INBOX",
+      "labelListVisibility": "labelShow",
+      "messageListVisibility": "hide",
+      "name": "INBOX",
+      "type": "system"
+    },
+    {
+      "id": "UNREAD",
+      "name": "UNREAD",
+      "type": "system"
+    },
+    {
+      "id": "STARRED",
+      "labelListVisibility": "labelShow",
+      "messageListVisibility": "hide",
+      "name": "STARRED",
+      "type": "system"
+    },
+    {
+      "id": "CATEGORY_PERSONAL",
+      "name": "CATEGORY_PERSONAL",
+      "type": "system"
+    },
+    {
+      "color": {
+        "backgroundColor": "#16a765",
+        "textColor": "#ffffff"
+      },
+      "id": "Label_12",
+      "labelListVisibility": "labelShow",
+      "messageListVisibility": "show",
+      "name": "Ithaca/Household",
+      "type": "user"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "draft": {
+    "id": "r-1234567890123456789",
+    "message": {
+      "historyId": "5701",
+      "id": "19a0c3d2e4f50800",
+      "internalDate": "1783852200000",
+      "labelIds": [
+        "DRAFT"
+      ],
+      "raw": "RnJvbTogT2R5c3NldXMgPG9keXNzZXVzQGV4YW1wbGUuY29tPg0KVG86IFBlbmVsb3BlIDxwZW5lbG9wZUBleGFtcGxlLmNvbT4NClN1YmplY3Q6IFJlOiBTdWl0b3JzIGF0IHRoZSBoYWxsDQpJbi1SZXBseS1UbzogPGxvb20tMDcxMkBleGFtcGxlLmNvbT4NClJlZmVyZW5jZXM6IDxsb29tLTA3MTJAZXhhbXBsZS5jb20-DQpNSU1FLVZlcnNpb246IDEuMA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluOyBjaGFyc2V0PSJVVEYtOCINCkNvbnRlbnQtVHJhbnNmZXItRW5jb2Rpbmc6IDdiaXQNCg0KSSBhbSBvbiBteSB3YXkgaG9tZS4gS2VlcCB3ZWF2aW5nLg0K",
+      "sizeEstimate": 318,
+      "snippet": "I am on my way home. Keep weaving.",
+      "threadId": "19a0c3d2e4f50601"
+    }
+  }
+}
