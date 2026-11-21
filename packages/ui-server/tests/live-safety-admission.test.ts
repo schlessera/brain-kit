@@ -956,3 +956,32 @@ test('Pi rejected in-process lock discharges its never-dispatched Bash obligatio
   expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'IN_PROCESS_FAILED_LOCK_NEVER_DISPATCHED').toEqual({n:0});
  }finally{await f.close();}
 });
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: approval-time checks exclude the exact call recorded by a parallel binding`,async()=>{
+ const f=await fixture(false);try{
+  await f.add('prior_card_evidence');
+  const id='approval-own-input',input={command};let sibling:()=>Promise<unknown>,cards=0;
+  const bridge:BackendBridge={emit(){},admissionSafety:f.safety,inputSafety:f.collector,async requestPermission(){cards++;await sibling();return {behavior:'allow'};}};
+  if(binding==='pi'){
+   const turn={...createTurnContext(),bridge,signal:f.controller.signal,commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[]}};
+   sibling=()=>f.collector.begin(id,'bash',input);
+   const gate=createPermissionGate({turn,allowedTools:new Set(['bash']),confirmPatterns:[]});let handler:((event:unknown)=>Promise<{block?:boolean}|undefined>)|undefined;
+   (typeof gate==='function'?gate:gate.factory)({on:(name:string,callback:unknown)=>{if(name==='tool_call')handler=callback as typeof handler;}} as never);
+   const answer=await handler!({toolName:'bash',toolCallId:id,input});expect(answer?.block,'OWN_INPUT_DOES_NOT_INVALIDATE_THE_OPEN_CARD '+JSON.stringify(answer)).not.toBe(true);
+  }else{
+   const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',bridge,signal:f.controller.signal,workerSandbox:{brain:f.root,profile:'governed',commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[]}} as never},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
+   const args=[{hook_event_name:'PreToolUse',tool_name:'Bash',tool_input:input,tool_use_id:id},id,{signal:f.controller.signal}] as const;
+   sibling=async()=>{await wiring.hooks!.PreToolUse!.find(group=>group.matcher==='^Bash$')!.hooks[0]!(args[0] as never,id,args[2]);await f.collector.begin(id,'Bash',input);};
+   if(binding==='claude-callback')expect((await wiring.canUseTool!('Bash',input,{toolUseID:id,signal:f.controller.signal} as never))?.behavior,'OWN_INPUT_DOES_NOT_INVALIDATE_THE_OPEN_CARD').toBe('allow');
+   else{const result=await wiring.hooks!.PreToolUse!.find(group=>group.matcher===MUTATING_TOOL_MATCHER)!.hooks[0]!(args[0] as never,id,args[2]);expect('hookSpecificOutput' in result&&result.hookSpecificOutput?.hookEventName==='PreToolUse'&&result.hookSpecificOutput.permissionDecision==='deny','OWN_INPUT_DOES_NOT_INVALIDATE_THE_OPEN_CARD').toBe(false);}
+  }
+  expect(cards).toBe(1);
+ }finally{await f.close();}
+});
+for(const revise of [false,true])test(`dispatch tickets bind an immutable begin generation (revise=${revise})`,async()=>{
+ const f=await fixture(false);try{
+  const id='generation';f.collector.admitting!(id,'Bash');await f.collector.begin(id,'Bash',{command});const ticket=await f.collector.prepareDispatch!(id);
+  await f.collector.begin(id,'Bash',{command:revise?command+' --dry-run':command});
+  expect(()=>ticket.commit(),'ANY_LATER_BEGIN_INVALIDATES_PREPARATION').toThrow('current');await ticket.cancel();
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
+ }finally{await f.close();}
+});

@@ -377,7 +377,7 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
     if (outwardPlan.pattern && !shown) {
       const approval = { kind: "command" as const, reason: outwardPlan.pattern.effect! };
       const request = createToolPermissionRequest({ toolUseId: opts.toolUseID, toolName, input, description: approval.reason, approval });
-      perUseDecision = await requestPolicyPermission(commandPolicy, { bridge: req.bridge, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
+      perUseDecision = await requestPolicyPermission(commandPolicy, { bridge: {...req.bridge,admissionSafety:safety}, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
       if (perUseDecision.behavior === "deny") { observe(outwardPlan, toolName, input, opts.toolUseID, perUseDecision); return toPermissionResult(perUseDecision); }
       if (perUseDecision.updatedInput !== undefined) {
         const refusal = recheckEdit(toolName, input, perUseDecision.updatedInput, opts.toolUseID);
@@ -409,7 +409,7 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
       outsideEnforcedAllowlist: outsideEnforcedAllowlist(enforced, allowed, toolName),
     });
     const decision = carryPerUseEdit(reusablePerUseDecision(perUseDecision, allowed, toolName)
-      ?? await requestPolicyPermission(commandPolicy, { bridge: req.bridge, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal }), perUseDecision, input);
+      ?? await requestPolicyPermission(commandPolicy, { bridge: {...req.bridge,admissionSafety:safety}, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal }), perUseDecision, input);
     // An edit is re-checked before it is applied: the card was a grant for
     // the input it showed, and an edit into a call that needs a per-use
     // confirmation — one the PreToolUse hook raised for nothing, because it
@@ -523,7 +523,7 @@ export function mutatingHookFor(ctx: PermissionContext): HookCallback {
         description: approval.reason,
         approval,
       });
-      const decision = await requestPolicyPermission(commandPolicy, { bridge: req.bridge, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
+      const decision = await requestPolicyPermission(commandPolicy, { bridge: {...req.bridge,admissionSafety:safety}, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
       if (decision.behavior !== "allow") {
         observe(outwardPlan, hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id, decision);
         return {

@@ -213,7 +213,7 @@ async function decidePiToolPermissionUnchecked(options: PermissionGateOptions, t
     const original = effective;
     const request = createToolPermissionRequest({ toolUseId, toolName, input: original, description: approval.reason,
       approval, outsideEnforcedAllowlist: turn.enforceAllowedTools && approval.kind === "tool" });
-    const decision = await requestPolicyPermission(policy, { bridge: turn.bridge, request, shellToolName: "bash",
+    const decision = await requestPolicyPermission(policy, { bridge: turn.bridge?{...turn.bridge,admissionSafety:safety}:turn.bridge, request, shellToolName: "bash",
       permission: { noGrantSurface: turn.noGrantSurface }, signal: turn.signal });
     if (decision.behavior === "deny") { observe(original, decision); return decision; }
     if (approval.kind === "command" && outwardPlan.needsApproval) outwardApproved = true;

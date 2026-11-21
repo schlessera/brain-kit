@@ -5991,7 +5991,10 @@ waits for admission recording but does not record dispatch. The backend checks
 all evidence, trust and cancellation state after that await, then invokes the
 host-owned ticket's synchronous `commit(validate?)` immediately before exposing
 allowance or spawning. No await follows commit on that dispatching path.
-Commit is single-use, rechecks the current operation and turn, and runs the
+Each ticket captures an immutable input generation. Every later `begin()`
+invalidates it, even when its input bytes repeat; a queued begin invalidates
+the previous preparation before it can commit. Commit is single-use, rechecks
+the current operation and turn, and runs the
 optional final validator before marking dispatch. A repeat, cancelled, refused
 or stale commit refuses. `cancel()` closes an unused ticket and settles the
 backend refusal; a unique never-dispatched call discharges without a false

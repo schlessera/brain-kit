@@ -18,7 +18,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];inputOccurrences:string[];resultStarted:boolean;done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean;uncertain:boolean};
+ type Operation={generation:symbol;tool:string;inputHashes:Set<string>;id:string;occurrences:string[];inputOccurrences:string[];resultStarted:boolean;done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean;uncertain:boolean};
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
  // to admit a call under it, for each tool name it came under, and whether
@@ -33,7 +33,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // A refusal can prove the call never ran only for an id admitted once,
  // under one tool name, and never allowed.
  const once=(call:{tools:Map<string,number>;allowed:boolean}|undefined)=>!!call&&!call.allowed&&call.tools.size===1&&[...call.tools.values()][0]===1;
- const operation=(tool:string):Operation=>({tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],inputOccurrences:[],resultStarted:false,done:false,admitted:false,signals:[],owed:false,refused:false,uncertain:false});
+ const operation=(tool:string):Operation=>({generation:Symbol(),tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],inputOccurrences:[],resultStarted:false,done:false,admitted:false,signals:[],owed:false,refused:false,uncertain:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
  const marked=(path:string)=>isMarkedUntrusted(db,path);
  const hash=(value:string)=>new Bun.CryptoHasher("sha256").update(value).digest("hex");
@@ -119,7 +119,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // nothing on rejection. The obligation is the host's own record, so it
   // holds whatever the runtime delivers: cancellation, abort, a result hook
   // the runtime skips, or process death all leave the gap.
-  begin(toolUseId,tool,input){return serial(toolUseId,async()=>{
+  begin(toolUseId,tool,input){const current=operations.get(toolUseId);if(current)current.generation=Symbol();return serial(toolUseId,async()=>{
    assertLive();
    // Refused: the runtime never runs it, and refusing again is no failure.
    if(operations.get(toolUseId)?.refused)throw new Error("Safety operation was refused; the call does not run");
@@ -226,7 +226,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    else throw new Error("Safety allowance capacity exceeded; the call does not run");
   },true);},
   prepareDispatch(toolUseId){return serial(toolUseId,async()=>{
-   const prepared=operations.get(toolUseId);
+   const prepared=operations.get(toolUseId),generation=prepared?.generation;
    if(prepared&&(prepared.refused||!prepared.admitted))throw new Error("Safety operation was refused or not admitted");
    let consumed=false,dispatched=false;
    return {
@@ -234,7 +234,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
      if(consumed)throw new Error("Dispatch ticket already consumed");
      consumed=true;
      const op=operations.get(toolUseId);
-     if(options.signal.aborted||op!==prepared||op&&(op.refused||!op.admitted||op.done||op.resultStarted))throw new Error("Dispatch ticket is no longer current");
+     if(options.signal.aborted||op!==prepared||op?.generation!==generation||op&&(op.refused||!op.admitted||op.done||op.resultStarted))throw new Error("Dispatch ticket is no longer current");
      const refusal=validate?.();if(refusal)throw new Error(refusal);
      const call=calls.get(toolUseId);
      if(call)call.allowed=true;
