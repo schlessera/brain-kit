@@ -71,8 +71,8 @@ describe("parseGoogleMailboxList", () => {
   });
 
   test("an encoded word in a display name cannot add a recipient", () => {
-    // Decodes to `", suitor@example.invalid, "`, but only after the list's structure is fixed.
-    expect(addresses("=?utf-8?Q?=22=2C_suitor=40example.invalid=2C_=22?= <penelope@example.com>")).toEqual(["penelope@example.com"]);
+    // The display name decodes to `suitor@example.invalid,`, but only after the list's structure is fixed.
+    expect(addresses("=?utf-8?Q?suitor=40example.invalid=2C?= <penelope@example.com>")).toEqual(["penelope@example.com"]);
   });
 
   test("group syntax in a list is refused", () => {

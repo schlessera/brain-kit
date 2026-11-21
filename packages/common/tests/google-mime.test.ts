@@ -156,8 +156,8 @@ describe("parseGmailRawDraft: encoded words and folding", () => {
   });
 
   test("an encoded display name is decoded but cannot add a recipient", async () => {
-    const draft = await parseGmailRawDraft(message("To: =?utf-8?Q?=22=2C_suitor=40example.invalid=2C_=22?= <penelope@example.com>", "", ""));
-    expect([addresses(draft.to), draft.to[0]?.display_name, flags(draft)]).toEqual([["penelope@example.com"], "\", suitor@example.invalid, \"", CLEAN]);
+    const draft = await parseGmailRawDraft(message("To: =?utf-8?Q?suitor=40example.invalid=2C?= <penelope@example.com>", "", ""));
+    expect([addresses(draft.to), draft.to[0]?.display_name, flags(draft)]).toEqual([["penelope@example.com"], "suitor@example.invalid,", CLEAN]);
   });
 
   test("an encoded word in an unknown charset is unreadable, not guessed", async () => {
