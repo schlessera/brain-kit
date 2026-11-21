@@ -19,3 +19,4 @@ export * from "./catalog.js";
 export * from "./ids.js";
 export * from "./classify.js";
 export * from "./address.js";
+export * from "./mime.js";

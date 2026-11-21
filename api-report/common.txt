@@ -179,6 +179,8 @@ export "./internal/google-operations" (./src/google/index.ts)
   GMAIL_MESSAGE_ID_PATTERN
   GMAIL_MODIFY_INPUT
   GMAIL_OPERATIONS
+  GMAIL_RAW_DRAFT_LIMITS
+  GMAIL_RAW_DRAFT_PROBLEMS
   GMAIL_READ_INPUT
   GMAIL_READ_TARGETS
   GMAIL_REVERSIBLE_SYSTEM_LABELS
@@ -212,6 +214,8 @@ export "./internal/google-operations" (./src/google/index.ts)
   type GmailLabelKind
   type GmailModifyInput
   type GmailOperation
+  type GmailRawDraft
+  type GmailRawDraftProblem
   type GmailReadInput
   type GmailReadTarget
   type GmailSearchInput
@@ -257,6 +261,7 @@ export "./internal/google-operations" (./src/google/index.ts)
   matchGoogleAllowList
   matchesAllowList
   normalizeGoogleDomain
+  parseGmailRawDraft
   parseGoogleAllowListEntry
   parseGoogleMailbox
   parseGoogleMailboxList
