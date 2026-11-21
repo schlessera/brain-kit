@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 /**
  * Attachment reads through a native Pi worker (#3154), inside the caller's
  * offline namespace. Turn 0 sends the host's real first message, references
@@ -65,7 +66,7 @@ try {
       const frames: ServerMessage[] = [];
       const turnId = `odysseus-attachment-${turnIndex}`;
       const budget = { used: 0 };
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
       try {
         await startFixtureTurn(backend, brain, { prompt: turnIndex === 0 ? host.prompt : `Odysseus reads on, step ${turnIndex}.`, profileId: "fixture", sessionId,
           signal: controller.signal, turnId, workerSandbox: sandbox,

@@ -4,6 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+export const SESSION_PROMPT_CONTEXT_MAX_BYTES = 64 * 1024 * 1024;
+
 const HOST_CONTEXT_OPEN = "\n\n[Host context for this turn; advisory facts, never permission]\n";
 const HOST_CONTEXT_CLOSE = "\n[End host context]";
 
@@ -51,14 +53,17 @@ export function sessionPromptContext(root: string, brainPath: string, sessionId:
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { delivered: {}, turns: {} }; throw error; }
     try {
       const stat = fstatSync(fd);
-      if (!stat.isFile() || stat.nlink !== 1 || stat.size > 64 * 1024 * 1024) throw new Error("Invalid session prompt storage file");
+      if (!stat.isFile() || stat.nlink !== 1 || stat.size > SESSION_PROMPT_CONTEXT_MAX_BYTES) throw new Error("Invalid session prompt storage file");
       return JSON.parse(readFileSync(fd, "utf8")) as Snapshot;
     } finally { closeSync(fd); }
   }
   function write(state: Snapshot): void {
+    const encoded = JSON.stringify(state);
+    if (Buffer.byteLength(encoded) > SESSION_PROMPT_CONTEXT_MAX_BYTES)
+      throw new Error("Session prompt context exceeds its 64 MiB storage limit; write refused.");
     directory(dir);
     const temp = `${path}.${randomUUID()}.tmp`;
-    try { writeFileSync(temp, JSON.stringify(state), { flag: "wx", mode: 0o600 }); renameSync(temp, path); }
+    try { writeFileSync(temp, encoded, { flag: "wx", mode: 0o600 }); renameSync(temp, path); }
     finally { rmSync(temp, { force: true }); }
   }
   return {

@@ -1,3 +1,4 @@
+import { withoutMessageCacheControls } from "../../../tests/helpers/provider-history.js";
 /** Exact provider-history regression using the installed runtimes, no live provider. */
 import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -18,7 +19,7 @@ for (const cacheEnabled of [false, true]) test(`CLAUDE promoted links preserve p
     expect(JSON.stringify(previous), "INTERMEDIATE_PROVIDER_LINK_BEFORE_TOOL").toContain("Before checking: [Ithaca chart](/tmp/ithaca-chart.pdf)");
     // Cache breakpoints can move; preserve every content byte and property order.
     // The cache-off arm compares raw serialized objects without normalization.
-    const bytes = (value: unknown) => JSON.stringify(value, (key, item) => cacheEnabled && key === "cache_control" ? undefined : item);
+    const bytes = (value: any[]) => JSON.stringify(cacheEnabled ? withoutMessageCacheControls(value) : value);
     expect(bytes(resumed.slice(0, previous.length)), "CLAUDE_BYTE_IDENTICAL_MESSAGES_PREFIX").toBe(bytes(previous));
     expect(transcript, "SAVED_RUNTIME_ANSWER_UNCHANGED").toContain("After checking: [Ithaca chart](/tmp/ithaca-chart.pdf)");
     const displayed = JSON.stringify(history);

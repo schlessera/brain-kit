@@ -1551,7 +1551,7 @@ describe("turn budget in the current tail", () => {
       captured = params.options!;
       return {
         initializationResult: async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }),
-        getSettings: async () => ({ effective: {}, sources: [] }),
+        getSettings: async () => ({ effective: { env: { ENABLE_TOOL_SEARCH: "false" } }, sources: [] }),
         async *[Symbol.asyncIterator]() {
         if (typeof params.prompt === "string") promptText = params.prompt;
         else { const first = await params.prompt[Symbol.asyncIterator]().next(); if (!first.done) promptText = JSON.stringify(first.value.message.content); }

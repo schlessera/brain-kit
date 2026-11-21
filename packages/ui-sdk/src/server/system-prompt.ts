@@ -123,7 +123,7 @@ export interface ExecutionBrief {
   /**
    * True when sibling tool calls in one assistant message execute
    * concurrently and the model should be told to batch independent calls.
-   * Default false (the Claude backend's harness decides this itself).
+   * Default false; backends opt in when their runtime supports it.
    */
   parallelToolCalls?: boolean;
 }
