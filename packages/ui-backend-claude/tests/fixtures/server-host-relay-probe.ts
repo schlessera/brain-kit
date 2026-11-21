@@ -65,9 +65,12 @@ if (mode === "server-custom-project-same" || mode === "server-custom-project-oth
     mode === "server-custom-project-same" ? "https://GATEWAY.ithaca.invalid:443/anthropic/" : "https://gateway.ithaca.invalid/other-tenant" } }));
 }
 if (mode === "server-custom-other-port") process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://gateway.ithaca.invalid:8443";
+let managedSettingsFile:string|undefined;
 if (mode === "managed-custom") {
   mkdirSync("/etc/claude-code");
-  writeFileSync("/etc/claude-code/managed-settings.json", JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
+  const json=JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } });
+  managedSettingsFile=join(root,"declared-managed-settings.json");writeFileSync(managedSettingsFile,json);
+  writeFileSync("/etc/claude-code/managed-settings.json",json);
 }
 if (mode === "api-key-project-credential") {
   mkdirSync(join(brainPath, ".claude"));
@@ -128,7 +131,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   requests.push({ credential: tokens.indexOf(request.headers.get("authorization")?.replace("Bearer ", "") ?? ""), model: body.model, history: body.messages.length });
   return nativeModelReply();
 } });
-nativeScriptedService(provider.url.origin, { fixtureRoots: [brainPath, home] });
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brainPath, home],...(managedSettingsFile?{managedSettingsFile}:{}) });
 const nativeFetch = globalThis.fetch;
 globalThis.fetch = (async (input, init) => {
   const target = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);

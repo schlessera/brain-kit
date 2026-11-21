@@ -1,3 +1,4 @@
+import { watchdogMs } from "../scripts/test-deadlines";
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
@@ -84,4 +85,23 @@ for(const mode of ["parent","timeout","exit143"] as const)test(`bootstrap termin
  const records=out.split("\n").filter(line=>line.startsWith('{"kind":"native-offline-bootstrap-')).map(line=>JSON.parse(line));
  if(mode==="exit143")expect(records.some(record=>record.kind==="native-offline-bootstrap-failure"),"UNREQUESTED_EXIT143_IS_STILL_FAILURE").toBe(true);
  else {expect(records.find(record=>record.kind==="native-offline-bootstrap-termination")?.reason,"EXPECTED_TERMINATION_HAS_FIXED_REASON").toBe(mode==="parent"?"terminated by parent signal":"terminated by signal");expect(out).not.toContain("stderr reason unavailable");}
+});
+
+for(const delay of [0,150])test(`cleanup kill after exit 1 preserves the bootstrap failure reason (${delay}ms)`,async()=>{
+ const child=spawnGuardFixture([process.execPath,"-e",`
+  import {recordNativeGuardChild} from ${JSON.stringify(join(import.meta.dir,"../scripts/test-native-guard.ts"))};
+  import {readFileSync} from "node:fs";
+  const boot=Bun.spawn(["/bin/sh","-c","echo fixture child failed >&2; exit 1"],{env:{PATH:"/usr/bin:/bin"},stdin:"ignore",stdout:"ignore",stderr:"pipe"});
+  let text="";const drained=new Response(boot.stderr).text().then(value=>{text=value;});
+  const reported=recordNativeGuardChild(boot,true,{drained,snapshot:()=>text});
+  // Observe kernel exit without letting the JS exit callback run before cleanup.
+  const deadline=Date.now()+${watchdogMs(2000)};
+  for(;;){let exited=false;try{exited=/^[^)]+\\) Z /.test(readFileSync("/proc/"+boot.pid+"/stat","utf8"));}catch(error){if(error.code!=="ENOENT")throw error;exited=true;}if(exited)break;if(Date.now()>deadline)throw Error("SYNTHETIC_FAILURE_DID_NOT_EXIT");Bun.sleepSync(1);}
+  Bun.sleepSync(${delay});boot.kill("SIGTERM");await reported;
+ `],{env:{PATH:"/usr/bin:/bin"}});
+ const [code,out]=await Promise.all([child.exited,child.guardOutput()]);expect(code,out).toBe(0);
+ const record=out.split("\n").filter(line=>line.startsWith('{"kind":"native-offline-bootstrap-failure"')).map(line=>JSON.parse(line))[0];
+ expect(record?.exitCode,"CLEANUP_KILL_MUST_NOT_RELABEL_FAILURE").toBe(1);
+ expect(record?.reason).toContain("fixture child failed");
+ expect(out).not.toContain('"kind":"native-offline-bootstrap-termination"');
 });

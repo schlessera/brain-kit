@@ -30,3 +30,17 @@ for (const signal of ["SIGTERM", "SIGKILL"] as const) test(`native audit ${signa
     child.kill("SIGKILL"); child.stdin.end(); audit.dispose();
   }
 }, watchdogMs(15000));
+
+test("live native audit supplies exact successful exec PIDs without finishing the audit",async()=>{
+ const {realpathSync,readFileSync}=await import("node:fs");
+ const executable=realpathSync("/usr/bin/python3");
+ const audit=auditNativeLaunch([executable,"-I","-S","-c","import os,time;print(os.getpid(),flush=True);time.sleep(30)"],[executable],()=>{});
+ const child=Bun.spawn(audit.argv,{stdin:"ignore",stdout:"pipe",stderr:"pipe"});
+ try{
+  const reader=child.stdout.getReader(),ready=await reader.read();reader.releaseLock();
+  const pid=Number(new TextDecoder().decode(ready.value).trim());
+  const start=readFileSync(`/proc/${pid}/stat`,"utf8").replace(/^.*\) /s,"").split(" ")[19]!;
+  expect([...audit.liveExecs()],"LIVE_AUDIT_EXACT_PAYLOAD_IDENTITY").toEqual([[pid,start]]);
+  expect([...audit.liveExecs()],"LIVE_AUDIT_IS_REPEATABLE_BEFORE_FINISH").toEqual([[pid,start]]);
+ }finally{child.kill();await child.exited;await new Response(child.stderr).text();audit.dispose();}
+},watchdogMs(15000));

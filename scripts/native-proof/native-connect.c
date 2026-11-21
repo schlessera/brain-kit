@@ -127,29 +127,34 @@ static int send_connected(int listener,struct seccomp_notif *request,int64_t *va
   for(size_t i=0;i<copied;i++)free(vectors[i].iov_base);
   free(vectors);return error;
 }
-static int connect_pinned(int listener,struct seccomp_notif *request,int pinned,const char *allowed) {
+static int connect_pinned(int listener,struct seccomp_notif *request,int pinned,const char *allowed,const struct sockaddr_in *proxy) {
   size_t length=request->data.args[2],expected=strlen(allowed);
-  struct sockaddr_un address={0};
-  if(length<offsetof(struct sockaddr_un,sun_path)+expected || length>sizeof(address)) return EPERM;
-  struct iovec local={&address,length},remote={(void *)(uintptr_t)request->data.args[1],length};
-  if(process_vm_readv(request->pid,&local,1,&remote,1,0)!=(ssize_t)length) return EPERM;
-  size_t supplied=length - offsetof(struct sockaddr_un,sun_path);
-  size_t actual=strnlen(address.sun_path,supplied);
-  if(address.sun_family!=AF_UNIX || actual!=expected || memcmp(address.sun_path,allowed,expected)) return EPERM;
+  struct sockaddr_storage storage={0};
+  if(length<sizeof(sa_family_t)||length>sizeof(storage)||!read_guest(request->pid,&storage,request->data.args[1],length))return EPERM;
+  struct sockaddr_un *address=(struct sockaddr_un *)&storage;
+  int tcp=storage.ss_family==AF_INET;
+  if(tcp){
+    const struct sockaddr_in *requested=(const struct sockaddr_in *)&storage;
+    if(!proxy||length!=sizeof(*requested)||requested->sin_addr.s_addr!=proxy->sin_addr.s_addr||requested->sin_port!=proxy->sin_port)return EPERM;
+  }else{
+    if(length<offsetof(struct sockaddr_un,sun_path)+expected||length>sizeof(*address))return EPERM;
+    size_t supplied=length - offsetof(struct sockaddr_un,sun_path),actual=strnlen(address->sun_path,supplied);
+    if(address->sun_family!=AF_UNIX||actual!=expected||memcmp(address->sun_path,allowed,expected))return EPERM;
+  }
   int socket=duplicate(request->pid,(int)request->data.args[0]); if(socket<0) return EPERM;
   int domain=0,type=0; socklen_t size=sizeof(int);
   if(getsockopt(socket,SOL_SOCKET,SO_DOMAIN,&domain,&size) || getsockopt(socket,SOL_SOCKET,SO_TYPE,&type,&size)
-      || domain!=AF_UNIX || type!=SOCK_STREAM || !valid(listener,request->id)) { close(socket); return EPERM; }
+      || domain!=(tcp?AF_INET:AF_UNIX) || type!=SOCK_STREAM || !valid(listener,request->id)) { close(socket); return EPERM; }
   /* The broker connects a duplicate of the blocked socket to a pinned inode.
      It never continues the caller's syscall or trusts caller memory afterward. */
   struct sockaddr_un target={.sun_family=AF_UNIX};
   snprintf(target.sun_path,sizeof(target.sun_path),"/proc/self/fd/%d",pinned);
-  int result=connect(socket,(struct sockaddr *)&target,offsetof(struct sockaddr_un,sun_path)+strlen(target.sun_path)+1);
+  int result=tcp?connect(socket,(const struct sockaddr *)proxy,sizeof(*proxy)):connect(socket,(struct sockaddr *)&target,offsetof(struct sockaddr_un,sun_path)+strlen(target.sun_path)+1);
   int error=result==0?0:errno;
-  if(!error && retain_cookie(socket)) error=ENOMEM;
+  if((!error||error==EINPROGRESS) && retain_cookie(socket)) error=ENOMEM;
   close(socket); return error;
 }
-static int run(int pinned,const char *allowed,char **command,int probe,const char *foreign) {
+static int run(int pinned,const char *allowed,char **command,int probe,const char *foreign,const struct sockaddr_in *proxy) {
   int ready[2],ack[2]; if(pipe2(ready,O_CLOEXEC)||pipe2(ack,O_CLOEXEC)) return 125;
   /* Native descendants cannot inspect or change their broker through /proc. */
   if(prctl(PR_SET_DUMPABLE,0)) return 125;
@@ -206,7 +211,7 @@ static int run(int pinned,const char *allowed,char **command,int probe,const cha
     if(ioctl(listener,SECCOMP_IOCTL_NOTIF_RECV,request)) { if(errno==EINTR||errno==ENOENT) continue; kill(child,SIGKILL); waitpid(child,&status,0); break; }
     int error=EPERM; int64_t value=0;
     if(valid(listener,request->id)) {
-      if(request->data.nr==SYS_connect) error=connect_pinned(listener,request,pinned,allowed);
+      if(request->data.nr==SYS_connect) error=connect_pinned(listener,request,pinned,allowed,proxy);
       else if(request->data.nr==SYS_sendmsg) error=send_connected(listener,request,&value);
     }
     struct seccomp_notif_resp response={.id=request->id,.error=-error,.val=value,.flags=0};
@@ -221,7 +226,8 @@ int main(int argc,char **argv) {
   const char *head=probe?argv[2]:(argc>2?argv[2]:"");
   if(strlen(head)!=40 || strspn(head,"0123456789abcdef")!=40) return 125;
   char directory[]="/tmp/odysseus-connect-policy-XXXXXX",source[108],other[108];
-  int server=-1; const char *allowed=NULL; int pinned=-1;
+  int server=-1; const char *allowed=NULL; int pinned=-1,proxy_pin=-1,proxy_enabled=0,payload=12;
+  struct sockaddr_in proxy={.sin_family=AF_INET,.sin_addr={.s_addr=htonl(INADDR_LOOPBACK)}};
   if(probe) {
     if(!mkdtemp(directory)) return 125;
     snprintf(source,sizeof(source),"%s/relay.sock",directory); snprintf(other,sizeof(other),"%s/foreign.sock",directory);
@@ -230,12 +236,24 @@ int main(int argc,char **argv) {
     pinned=open(source,O_PATH|O_CLOEXEC); allowed=source;
   } else {
     if(argc<13 || strcmp(argv[1],"--head") || strcmp(argv[3],"--socket") || strcmp(argv[5],"--device")
-        || strcmp(argv[7],"--inode") || strcmp(argv[9],"--allowed") || strcmp(argv[11],"--")) return 125;
+        || strcmp(argv[7],"--inode") || strcmp(argv[9],"--allowed")) return 125;
     pinned=open(argv[4],O_PATH|O_CLOEXEC); allowed=argv[10]; struct stat info;
     if(pinned<0||fstat(pinned,&info)||!S_ISSOCK(info.st_mode)||info.st_dev!=strtoull(argv[6],NULL,10)||info.st_ino!=strtoull(argv[8],NULL,10)) return 125;
+    if(!strcmp(argv[11],"--turn-proxy")){
+      if(argc<17||strcmp(argv[15],"--"))return 125;
+      proxy_pin=open(argv[12],O_PATH|O_CLOEXEC);
+      if(proxy_pin<0||fstat(proxy_pin,&info)||!S_ISSOCK(info.st_mode)||info.st_dev!=strtoull(argv[13],NULL,10)||info.st_ino!=strtoull(argv[14],NULL,10))return 125;
+      /* The pinned first-party wrapper sets this before launching the broker.
+         Copy once; payload environment mutations never alter registration. */
+      const char *url=getenv("HTTP_PROXY"),*prefix="http://127.0.0.1:";char *end=NULL;
+      if(!url||strncmp(url,prefix,strlen(prefix)))return 125;
+      unsigned long port=strtoul(url+strlen(prefix),&end,10);
+      if(!port||port>65535||!end||*end)return 125;
+      proxy.sin_port=htons((uint16_t)port);proxy_enabled=1;payload=16;
+    }else if(strcmp(argv[11],"--"))return 125;
   }
   if(pinned<0 || strlen(allowed)>=108) return 125;
-  int result=run(pinned,allowed,probe?NULL:argv+12,probe,other); close(pinned);
+  int result=run(pinned,allowed,probe?NULL:argv+payload,probe,other,proxy_enabled?&proxy:NULL); close(pinned);if(proxy_pin>=0)close(proxy_pin);
   if(probe) { close(server); unlink(source); rmdir(directory); if(result==0) puts("NATIVE_SOCKET_POLICY_HELD"); }
   return result;
 }

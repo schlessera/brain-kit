@@ -48,9 +48,12 @@ function save(token: string, expiresAt = Date.now() + 3_600_000) {
   } }), { mode: 0o600 });
 }
 save(access[0]!);
+let managedSettingsFile:string|undefined;
 if (process.argv[3] === "managed") {
   mkdirSync("/etc/claude-code", { recursive: true });
-  writeFileSync("/etc/claude-code/managed-settings.json", JSON.stringify({ env: { ANTHROPIC_UNIX_SOCKET: "/run/odysseus-unapproved.sock" } }));
+  const json=JSON.stringify({ env: { ANTHROPIC_UNIX_SOCKET: "/run/odysseus-unapproved.sock" } });
+  managedSettingsFile=join(root,"declared-managed-settings.json");writeFileSync(managedSettingsFile,json);
+  writeFileSync("/etc/claude-code/managed-settings.json",json);
 }
 if (process.argv[3] === "project") {
   mkdirSync(join(brain, ".claude"));
@@ -116,7 +119,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
     name: "Bash", id: "tool_ithaca_denied", input: { command: `printf odysseus > ${join(brain, "should-not-exist")}` },
   } : undefined);
 } });
-nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, worker, directory] });
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, worker, directory],...(managedSettingsFile?{managedSettingsFile}:{}) });
 const originalFetch = globalThis.fetch;
 // Only the host's lowest fetch method is replaced. The native CLI makes real
 // HTTP requests over the real Unix socket. Both upstream exchanges reach a

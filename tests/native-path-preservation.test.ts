@@ -8,14 +8,14 @@ import { fixtureToolView } from "../scripts/test-native-guard";
 test("only read-only system or staged fixture PATH entries preserve exact spelling",()=>{
  const root=mkdtempSync(join(tmpdir(),"odysseus-path-")),outside=mkdtempSync(join(tmpdir(),"odysseus-path-outside-"));
  try {
-  const home=join(root,"home"),cwd=join(root,"cwd"),bin=join(root,"bin"),alias=join(root,"alias");
-  for(const dir of [home,cwd,bin])mkdirSync(dir);symlinkSync(outside,alias);
+  const home=join(root,"home"),cwd=join(root,"cwd"),bin=join(root,"bin"),alias=join(root,"alias"),systemAlias=join(root,"system-alias"),toolAlias=join(root,"tool-alias");
+  for(const dir of [home,cwd,bin])mkdirSync(dir);symlinkSync(outside,alias);symlinkSync("/usr/bin",systemAlias);symlinkSync(bin,toolAlias);
   for(const path of ["/usr/local/bin:/usr/bin:/bin",bin+":/usr/bin:/bin"]){
    const view=fixtureToolView({PATH:path,HOME:home},cwd,home);
    expect(view.path,"EXACT_READONLY_PATH_PRESERVED").toBe(path);
    expect(view.mounts).toEqual(path.startsWith(bin)?["--ro-bind",realpathSync(bin),realpathSync(bin)]:[]);
   }
-  for(const path of [outside+":/usr/bin:/bin",alias+":/usr/bin:/bin","/usr/local/bin/../../../tmp/x:/usr/bin:/bin","/usr/bin:/usr/bin","/usr/bin::/bin","bin:/usr/bin",home+":/usr/bin:/bin"]){
+  for(const path of [systemAlias+":/usr/bin:/bin",toolAlias+":/usr/bin:/bin",outside+":/usr/bin:/bin",alias+":/usr/bin:/bin","/usr/local/bin/../../../tmp/x:/usr/bin:/bin","/usr/bin:/usr/bin","/usr/bin::/bin","bin:/usr/bin",home+":/usr/bin:/bin"]){
    const view=fixtureToolView({PATH:path,HOME:home},cwd,home);
    expect(view.path,"UNREGISTERED_PATH_CANNOT_GRANT_REWRITE_AUTHORITY").not.toBe(path);
    expect(view.mounts).not.toContain(outside);expect(view.path).not.toContain(outside);

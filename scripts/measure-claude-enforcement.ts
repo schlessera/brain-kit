@@ -82,6 +82,7 @@ try {
           const originalCallback = options.canUseTool!;
           const hooks = { ...options.hooks, PreToolUse: options.hooks?.PreToolUse?.map((matcher, i) => ({
             ...matcher, hooks: matcher.hooks.map((hook, j) => async (input, id, context) => {
+              if(scenario==="rtk-rewrite")worker.qualifyRtk();
               const output = await hook(input, id, context);
               if ("tool_use_id" in input && input.tool_use_id === callId) hookCalls.push({ index: `${i}:${j}`, input, output });
               return output;

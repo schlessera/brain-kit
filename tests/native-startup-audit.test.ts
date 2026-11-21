@@ -55,3 +55,10 @@ test("failed-open labels retain fixture-relative names and remove every outside 
  for(const hidden of ["secret-captain","My Secret","secret-owner","secret-runtime","secret-device","/home/","/fixture/","/root/","/outside/"])expect(text,"FAILED_OPEN_HOST_PATH_IS_OMITTED").not.toContain(hidden);
  expect(text).toContain("EACCES");
 });
+
+test("failed device opens retain only fixed non-secret device basenames",()=>{
+ const trace=['/dev/stdin','/dev/stdout','/dev/stderr','/dev/fd/2','/dev/null','/dev/urandom','/dev/tty','/dev/pts/7','/dev/shm/circe-private'].map(path=>`1 openat(AT_FDCWD, ${JSON.stringify(path)}, O_RDONLY) = -1 EACCES (Permission denied)`).join("\n");
+ const text=scrubNativeStartupTrace(trace,[]);
+ for(const label of ['dev:stdin','dev:stdout','dev:stderr','dev:fd/2','dev:null','dev:urandom','dev:tty','dev:pts/7','dev:shm/[entry]'])expect(text,"FIXED_DEVICE_OPEN_LABEL").toContain(label);
+ expect(text).not.toContain('circe');expect(text).not.toContain('/dev/');
+});

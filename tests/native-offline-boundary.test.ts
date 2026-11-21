@@ -325,20 +325,23 @@ test("guard worker binds follow every covering mount", async()=>{
  const scratch=mkdtempSync(join(tmpdir(),"odysseus-mount-order-"));
  try {
   const result=await probe(`${imports}
-   import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};import {writeFileSync} from "node:fs";
+   import {nativeWorkerBoundary,nativeFixtureDirectory,nativeScriptedService} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};import {writeFileSync} from "node:fs";
    ${guardMountOrderCheck}
    const spawnSync=Bun.spawnSync,which=Bun.which;
    Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
-   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+   const managedRoot=nativeFixtureDirectory("odysseus-plan-managed-");writeFileSync(managedRoot+"/managed.json",'{"env":{"ANTHROPIC_BASE_URL":"https://ithaca.invalid"}}');
+   nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(scratch)}],managedSettingsFile:managedRoot+"/managed.json"});
    const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},PATH:"/usr/local/bin:/usr/bin:/bin"},argv:["bwrap",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--remount-ro","/etc","--",process.execPath,${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"))},"--direct-loopback",${JSON.stringify(runtime)}]})});
    if(plan.native!==true)throw Error("ADMITTED_NATIVE_PLAN_CLASSIFIED");
    const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv,bwrap=argv.indexOf("--",argv.indexOf("-o"))+1,split=argv.indexOf("--",bwrap);
    const mounts=argv.slice(bwrap+1,split);assertGuardMountOrder(mounts,["/","/etc"]);
+   if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+2]==="/etc/claude-code/managed-settings.json"))throw Error("DECLARED_MANAGED_SETTINGS_IN_WORKER_PLAN");
    if(!mounts.some((arg,i)=>arg==="--setenv"&&mounts[i+1]==="PATH"&&mounts[i+2]==="/usr/local/bin:/usr/bin:/bin"))throw Error("GUARD_PLAN_PRESERVES_READONLY_SYSTEM_PATH");
    const payload=argv.slice(split+1);if(payload[1]!==${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"))}||payload[2]!=="--direct-loopback"||!payload[3]?.endsWith("/native-connect"))throw Error("PRODUCTION_TRANSPORT_OUTSIDE_PAYLOAD_FILTER");
    if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+1]?.endsWith("/native-connect"))||!mounts.includes("/tmp/native-relay"))throw Error("guard input missing from plan");
-   plan.beforeLaunch();writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();`,scratch);
+   plan.beforeLaunch();writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();require("node:fs").rmSync(managedRoot,{recursive:true,force:true});`,scratch);
   expect(result.code,result.output).toBe(0);
   const receipt=JSON.parse(result.output.split("\n").find(line=>line.startsWith('{"kind":"native-offline-worker-plan"'))!);
   expect(Object.keys(receipt).sort()).toEqual(["kind","head","bootstrapArgc","bootstrapArgvBytes","sandboxArgc","sandboxArgvBytes","metadataBytes"].sort());
@@ -1146,5 +1149,32 @@ test("runtime provenance rechecks walk entries without re-attesting fixtures for
   expect(cost.stampChecks,"FIXTURE_ATTESTATIONS_ARE_NOT_PER_RUNTIME_FILE").toBeLessThan(cost.runtimeFiles/5);
   expect(cost.backendTraversals,"OVERLAPPING_MOUNTS_WALKED_ONCE_PER_VALIDATION").toBeLessThanOrEqual(4);
   expect(cost.backendTraversals,"BEFORE_LAUNCH_RECHECK_IS_FRESH").toBeGreaterThan(cost.initial);
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+});
+
+test("direct and trusted worker plans admit only a registered turn-proxy endpoint",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-proxy-plan-"));
+ try{
+  const result=await probe(`${imports}
+   import * as guard from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};import {writeFileSync} from "node:fs";
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+   const root=${JSON.stringify(scratch)},runtime=${JSON.stringify(runtime)},entry=${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"))};
+   guard.nativeScriptedService("http://127.0.0.1:9",{fixtureRoots:[root],turnProxy:true});
+   const tunnel=guard.startNativeTurnProxyTunnel("http://127.0.0.1:9",root);await new Promise(resolve=>setImmediate(resolve));
+   function finish(plan,argv){writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();}
+   try{
+    const direct=guard.nativeClaudeBoundary(runtime,[],{cwd:root,env:{HOME:root,PATH:"/usr/bin:/bin"}});
+    if(!direct.argv.includes("--turn-proxy")||!direct.argv.includes(entry))throw Error("DIRECT_PROXY_REGISTRATION_MISSING");finish(direct,direct.argv);
+    for(const [trusted,registered] of [[true,true],[true,false],[false,true]]){
+     const command=[runtime],wrapper=trusted?[process.execPath,entry]:["/usr/bin/true"];
+     const argv=["bwrap",...(registered?["--ro-bind",tunnel.socket,guard.WORKER_TURN_PROXY]:[]),"--",...wrapper,...command];
+     const plan=guard.nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command,argv,brainPath:root,env:{HOME:root,PATH:"/usr/bin:/bin"}})}),actual=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
+     if(actual.includes("--turn-proxy")!==(trusted&&registered))throw Error("WORKER_PROXY_REQUIRES_TRUSTED_WRAPPER_AND_REGISTRATION");finish(plan,actual);
+    }
+   }finally{tunnel.dispose();}`,scratch);
+  expect(result.code,result.output).toBe(0);
  }finally{rmSync(scratch,{recursive:true,force:true});}
 });
