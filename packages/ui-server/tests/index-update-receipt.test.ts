@@ -78,3 +78,26 @@ test("governed post-turn refresh records shutdown cancellation before suppressin
   expect(receipts.map(receipt => receipt.outcome), "GOVERNED_SHUTDOWN_IS_CANCELLED").toEqual(["cancelled"]);
   expect(warnings).toEqual([]);
 });
+
+test("SQLite full is the named index storage capacity result", async () => {
+  const { Database } = await import("bun:sqlite"), { recordIndexUpdate } = await import("../src/brain/index-update-receipt.js");
+  const db = new Database(":memory:"), receipts: IndexUpdateReceipt[] = [];
+  try {
+    db.exec("PRAGMA page_size=512; CREATE TABLE voyage(bytes BLOB); PRAGMA max_page_count=3");
+    const failed = await recordIndexUpdate(async () => { db.query("INSERT INTO voyage VALUES (zeroblob(16384))").run(); }, receipt => receipts.push(receipt)).then(() => null, error => error);
+    expect(failed.code, "REAL_SQLITE_FULL_CONTROL").toBe("SQLITE_FULL");
+    expect(receipts[0]?.outcome, "SQLITE_FULL_IS_INDEX_CAPACITY").toBe("index_capacity");
+  } finally { db.close(); }
+});
+
+test("close records cancellation for the coalesced turn whose refresh never starts", async () => {
+  const { createGovernedTurns } = await import("../src/brain/governed-turn.js"), gate = Promise.withResolvers<void>();
+  const receipts: { receipt: IndexUpdateReceipt; turns: string[] }[] = [];
+  let calls = 0;
+  const turns = createGovernedTurns({ brainPath: "/odysseus", nativeManager: {} as never, execution: {} as never, profile: "governed", maskPaths: [],
+    async index() { calls++; await gate.promise; }, report() {}, indexReceipt: (receipt, turns) => receipts.push({ receipt, turns }) });
+  turns.refresh({} as never, "first"); turns.refresh({} as never, "second");
+  const closing = turns.close(); gate.resolve(); await closing;
+  expect(calls).toBe(1);
+  expect(receipts.map(item => [item.receipt.outcome, item.turns]), "PENDING_REFRESH_CANCELLED_WITH_CAUSING_TURN").toEqual([["complete", ["first"]], ["cancelled", ["second"]]]);
+});

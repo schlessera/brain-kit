@@ -65,3 +65,54 @@ test("identical concurrent captures have one publisher and never expose a multip
     expect(store.read(hashes[0]!, 100).toString()).toBe("Odysseus returns to Ithaca.");
   } finally { release.resolve(); await Promise.allSettled(work); for (const fd of sources) closeSync(fd); store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("post-publication directory sync failure settles the in-flight copy owner", async () => {
+  const fs = await import("node:fs"), { spyOn } = await import("bun:test");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-publish-sync-")); let settled = 0, finished = 0;
+  const store = createJournalObjects(join(root, "objects"), { reserve() { return { finish() { finished++; }, cancel() {}, settled() { settled++; } }; } });
+  writeFileSync(join(root, "source"), "Ithaca"); const source = openSync(join(root, "source"), "r"), sync = fs.fsync;
+  const fault = spyOn(fs, "fsync").mockImplementation(((fd: number, callback: (error: Error | null) => void) => {
+    if (fs.fstatSync(fd).isDirectory()) callback(new Error("directory sync EIO")); else sync(fd, callback);
+  }) as typeof fs.fsync);
+  try {
+    await expect(store.putFileAsync(source, 6)).rejects.toThrow("directory sync EIO");
+    expect(finished).toBe(0); expect(settled, "PUBLISHED_SYNC_FAILURE_RELEASES_IN_FLIGHT_OWNER").toBe(1);
+  } finally { fault.mockRestore(); closeSync(source); store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("post-publication sync failure wakes a peer waiting on the real reservation queue", async () => {
+  const fs = await import("node:fs"), { spyOn } = await import("bun:test");
+  const { journalReservationBatch } = await import("../src/brain/journal-reservation-batch.js");
+  const { watchdogMs } = await import("../../../scripts/test-deadlines.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-sync-peer-")), entered = Promise.withResolvers<void>(), fail = Promise.withResolvers<void>(), waiting = Promise.withResolvers<void>();
+  let admitted = false;
+  const queue = journalReservationBatch(async entries => {
+    if (admitted) { waiting.resolve(); throw new JournalCapacityError(); }
+    admitted = true; return entries.map(() => crypto.randomUUID());
+  });
+  const store = createJournalObjects(join(root, "objects"), { async reserve(bytes, hash) {
+    const id = (await queue.reserve({ bytes, hash }))!;
+    return { id, finish() {}, cancel() {}, settled() { queue.settled([id]); } };
+  } });
+  writeFileSync(join(root, "source"), "Ithaca"); const source = openSync(join(root, "source"), "r"), sync = fs.fsync;
+  const fault = spyOn(fs, "fsync").mockImplementation(((fd: number, callback: (error: Error | null) => void) => {
+    if (fs.fstatSync(fd).isDirectory()) { entered.resolve(); void fail.promise.then(() => callback(new Error("directory sync EIO"))); } else sync(fd, callback);
+  }) as typeof fs.fsync);
+  const copy = store.putFileAsync(source, 6).then(() => null, error => error);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let peer: Promise<string | null> | undefined;
+  try {
+    await entered.promise;
+    peer = queue.reserve({ bytes: 6, hash: "a".repeat(64) }).then(() => "admitted", error => error instanceof JournalCapacityError ? "capacity" : String(error));
+    await waiting.promise; fail.resolve();
+    expect(String(await copy)).toContain("directory sync EIO");
+    const result = await Promise.race([peer, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), watchdogMs(5000)); })]);
+    expect(result, "SYNC_FAILURE_WAKES_CAPACITY_PEER_INSTEAD_OF_FREEZING_IT").toBe("capacity");
+  } finally {
+    clearTimeout(timer); fail.resolve(); fault.mockRestore();
+    // Also release the owner in a mutated run so a failed assertion cannot hang teardown.
+    queue.settled([]); admitted = false;
+    await copy; if (peer) await peer;
+    closeSync(source); store.close(); rmSync(root, { recursive: true, force: true });
+  }
+});

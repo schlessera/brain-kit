@@ -28,3 +28,29 @@ test("matrix HTTP response survives the real Bun server idle timeout", async () 
     expect(result.status).toBe(200); expect(result.body).toEqual({ recorded: 10000 });
   } finally { clearTimeout(timer); server.stop(true); }
 });
+
+test("matrix client disables an armed socket idle timer while retaining its abort watchdog", async () => {
+  const http = await import("node:http"), { spyOn } = await import("bun:test"), { observationMatrixRequest } = await import("./observation-hold.js");
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch() { await Bun.sleep(120); return Response.json({ recorded: 10000 }); } });
+  const get = http.get;
+  const armed = spyOn(http, "get").mockImplementation(((...args: unknown[]) => {
+    const request = Reflect.apply(get, http, args); request.setTimeout(10, () => request.destroy(new Error("client idle timeout"))); return request;
+  }) as typeof http.get);
+  try {
+    const outcome = await observationMatrixRequest(`http://127.0.0.1:${server.port}/matrix`, AbortSignal.timeout(watchdogMs(10000))).then(async response => ({ error: null, body: await response.json() }), error => ({ error: String(error), body: null }));
+    expect(outcome.error, "MATRIX_CLIENT_IDLE_TIMEOUT_CANNOT_CUT_OFF_RESPONSE").toBeNull();
+    expect(outcome.body).toEqual({ recorded: 10000 });
+  } finally { armed.mockRestore(); server.stop(true); }
+});
+
+test("matrix client abort watchdog cancels a stalled response", async () => {
+  const { observationMatrixRequest } = await import("./observation-hold.js");
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch() { entered.resolve(); await release.promise; return Response.json({ recorded: 10000 }); } });
+  const abort = new AbortController();
+  const request = observationMatrixRequest(`http://127.0.0.1:${server.port}/matrix`, abort.signal).then(() => false, () => true);
+  try {
+    await entered.promise; abort.abort(new Error("matrix watchdog"));
+    expect(await request, "MATRIX_EXPLICIT_WATCHDOG_STILL_CANCELS_REQUEST").toBe(true);
+  } finally { release.resolve(); server.stop(true); }
+});

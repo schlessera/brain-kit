@@ -1,3 +1,4 @@
+import { observationMatrixRequest } from "./observation-hold.js";
 import { afterAll, expect, test } from "bun:test";
 import { watchdogMs } from "../test-deadlines.js";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -338,8 +339,8 @@ print(json.dumps(result))`;
         return events.filter(row => row.kind === "automatic_index_started").every(start =>
           events.some(end => ["automatic_index_finished", "automatic_index_failed"].includes(end.kind) && end.ordinal === start.ordinal));
       }, 120000);
-      const matrixResponse = await fetch(origin + "/__native_observation_path_matrix");
-      const pathMatrix = await matrixResponse.json() as { turnId: string; samples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[]; admission: { name: string; ms: number }[]; historyRows: number; loadedSamples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[] };
+      const matrixResponse = await observationMatrixRequest(origin + "/__native_observation_path_matrix", AbortSignal.timeout(watchdogMs(3_600_000)));
+      const pathMatrix = await matrixResponse.json() as { turnId: string; samples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[]; admission: { name: string; ms: number }[]; historyRows: number; rejectedSamples: { changedPaths: number; requestedPaths: number; toolUseId: string; sharedHold: boolean }[]; loadedSamples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[] };
       expect(matrixResponse.status, `OBSERVATION_PATH_MATRIX_SUCCEEDED ${JSON.stringify(pathMatrix)}`).toBe(200);
       expect(pathMatrix.samples).toHaveLength(48);
       expect(pathMatrix.historyRows, "OBSERVATION_MATRIX_HAS_TEN_THOUSAND_ROWS").toBeGreaterThanOrEqual(10000);

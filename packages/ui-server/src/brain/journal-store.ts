@@ -276,7 +276,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
             actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at, dedupeKey: `${turnId}:${sequence}`,
             payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds, ...(restricted ? { tainted: true } : {}) } });
           pin(turnId, item.before); pin(turnId, item.after);
-          if (!overlappingTurnIds.length) continue;
+          if (!overlappingTurnIds.length && !db.query("SELECT 1 FROM turn_journal_changes WHERE turn_id=? AND path=? AND overlaps!='[]' LIMIT 1").get(turnId, item.path)) continue;
           const observed = db.query("SELECT sequence,after_json,overlaps FROM turn_journal_changes WHERE turn_id=? AND path=? ORDER BY sequence").all(turnId, item.path) as {sequence:number;after_json:string|null;overlaps:string}[];
           const participants = new Set(observed.flatMap(row => JSON.parse(row.overlaps) as string[]));
           const conflicting = new Map<number, JournalObservationReference>();
@@ -285,8 +285,13 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
             if (new Set(shared.map(row => row.after_json ?? "null")).size < 2) continue;
             for (const row of shared) conflicting.set(row.sequence, {turnId, sequence:row.sequence, side:"after"});
           }
-          if (conflicting.size) db.query("UPDATE turn_journal_changes SET conflict_observations=? WHERE turn_id=? AND path=?")
-            .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
+          if (conflicting.size) {
+            let earliest = Infinity;
+            for (const sequence of conflicting.keys()) earliest = Math.min(earliest, sequence);
+            for (const row of observed) if (row.sequence >= earliest) conflicting.set(row.sequence, { turnId, sequence: row.sequence, side: "after" });
+            db.query("UPDATE turn_journal_changes SET conflict_observations=? WHERE turn_id=? AND path=?")
+              .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
+          }
         }
         // Intentional worktree edits are editable workspace content of their holding turn only.
         for (const change of record.worktree) {

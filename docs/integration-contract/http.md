@@ -164,7 +164,7 @@ governed post-turn index update, including the separate credentialed vector refr
 `index_update` Activity event for each causing turn. Its payload contains an
 opaque `generation`, `durationMs` and `outcome` (`complete`, `failed`, `cancelled` or
 `index_capacity`); failures also carry a bounded `cause`. A retry is a new
-update with a new generation. Tool child spans retain receipts that arrive before the backend root span. Owner API/stream records retain the receipt spans and events; `query_activity` omits host receipt spans from its model-facing projection. These host receipts never enter provider history.
+update with a new generation. Revert and Undo updates use their own journal turn IDs. Shutdown records a cancelled generation for queued refreshes that never start. Tool child spans carry the causing session and retain receipts that arrive before the backend root span. Owner API/stream records retain the receipt spans and events; `query_activity` omits host receipt spans from its model-facing projection. These host receipts never enter provider history.
 
 An ordinary governed writer keeps direct in-worker `brain index`. Each
 observation also measures current index-family and publication-copy size from
@@ -173,7 +173,7 @@ independent 4 GiB bound, scope pauses with optional receipt
 `result: "index_capacity"` under the existing `turn_bytes` dimension. Optional
 scope fields `indexBytes` (nullable while unconfirmed) and `indexLimitBytes`
 disclose that independent size and ceiling. The existing one-time finite
-continuation doubles only the index ceiling. Unknown measurement has no grant.
+continuation doubles only the index ceiling; the prompt names that ceiling and preserves the content allowance. Independent pending content and index pauses must both be answered before workers resume. Unknown measurement has no grant.
 The closed dimension enum is unchanged, and old parsers accept the records.
 The bound matches the former default byte scope; checks occur at observations,
 so writes may overshoot between them. The free-space floor remains binding.

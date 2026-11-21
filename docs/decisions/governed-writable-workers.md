@@ -1846,7 +1846,7 @@ never authorizes a worker to modify what a later reader will execute or read.
 The host records each application batch, separate credentialed refresh and governed post-turn refresh as an
 `index_update` Activity event on each causing turn: generation, duration and
 outcome (`complete`, `failed`, `index_capacity` or `cancelled`). Cancellation is recorded before shutdown suppresses its warning. A retry has a fresh generation. These
-receipts use tool child spans so a result preceding the backend root span is durable, and stay in host storage. Existing index-version rows are served in their
+receipts use tool child spans with their causing session so a result preceding the backend root span is durable and reaches live subscribers. Revert and Undo refreshes carry their own journal turn IDs. Shutdown records a cancelled generation for queued refreshes that never start. Receipts stay in host storage. Existing index-version rows are served in their
 previous metadata-only form, including the existing byte purge and restoration
 exclusions; the upgrade does not erase their history.
 
@@ -1863,7 +1863,7 @@ Past 4 GiB the existing scope pause applies, with optional receipt
 summaries add optional `indexBytes` (null when unconfirmed) and
 `indexLimitBytes`. An interactive turn can receive the existing one-time finite
 doubling for this independent resource only; that grant never raises the content
-byte allowance. A second hit, unknown measurement or absent worker has no
+byte allowance. Independent content and index pauses both require an answer; granting one cannot resume past the other. The prompt names the ceiling Continue raises. A second hit, unknown measurement or absent worker has no
 continuation grant. Voice stops by its existing scope rule. Old clients retain
 their enum vocabulary and parse the optional fields without dropping records.
 This is an observation-time guard, so an opaque command can overshoot between
@@ -1878,14 +1878,13 @@ allowance and aggregate budget both default to 256 MiB
 aggregate budget (`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES`). The native manager
 continues charging retained extents until deletion is confirmed. Exhausting a
 worker allowance returns `ENOSPC`; unavailable admission returns
-`worker_state_busy`. The index receipt names either refusal `index_capacity`,
+`worker_state_busy`. The index receipt names either refusal, including SQLite `SQLITE_FULL`, `index_capacity`,
 and queued application paths remain pending. Retrying after capacity returns
 needs no operator judgment. Markdown and note before-images are unaffected.
 
 ### Observation commits and startup release — 2026-11-20 (#4294, #4304)
 
-Changed versions are captured with at most 32 open version reads (16 paths,
-two sides each). Ready object reservations share one FULL ledger transaction;
+Directly readable changed versions are captured with at most 32 open version reads (16 paths, two sides each). Worker-private files defer fixed-reader fallback until those direct copies settle, then capture one side at a time. This stays within the native reader limit and charges only one temporary staging copy beside its retained object. Ready object reservations share one FULL ledger transaction;
 ready completions share another that pins each object to its actual owners:
 shared observations to their window, private memory and independent worktrees
 to their holding turn. Hash publication is serialized and link/unlink runs in
@@ -1895,7 +1894,7 @@ before refusing or expiring history. Every file and its object directory remain 
 The observation rows commit before advancing the native checkpoint or resuming
 workers. A failed batch joins all started readers before aborting its roots.
 Existing per-reservation startup recovery reconciles any interrupted batch;
-a quarantined hash refuses only that version, preserving healthy batch peers.
+a quarantined hash refuses only that version, preserving healthy batch peers. Recovery removes a dead reservation's exact pending hardlink before checking its published digest, so a crash between link and unlink is recoverable. Scheduling ownership settles even if directory sync fails after publication; its durable storage charge remains until recovery.
 
 Active-turn summary and scope counters advance from committed change rows.
 Distinct paths, steering/kept/shared state, repeated hashed versions, ignored
@@ -1912,10 +1911,10 @@ a bounded background release owner. The durable native lease remains the same
 through handoff and deletion, so startup recovery still finds an interrupted
 release. At most two startup checkpoints are pending or being admitted through
 this owner. Only an admission handing off an unused governed view takes a
-slot; strict and data-tree consumers take none. Admission waits for the first
+slot before acquiring its checkpoint; strict and data-tree consumers take none. Admission waits for the first
 free slot and observes cancellation. Observations request capacity first and
 join a release in `observe_reserve` only after a positive native capacity refusal;
-room already available never waits for deletion.
+room already available never waits for deletion. Native deletion persists its `deleting` intent under the request lock, then deletes and syncs outside it. The intent fences reuse, duplicate releases join one owner, and final confirmation reacquires the lock. Unrelated checkpoint admission can proceed during reclamation.
 Failed deletion keeps the lease and physical charge, retries automatically,
 and records `startup_checkpoint_release` in Activity and the last failure in
 `journal.cleanup.lastFailure` with timestamp, error class and retrying state. That cleanup failure alone never fails an

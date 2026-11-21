@@ -78,3 +78,18 @@ test("startup failure diagnostics retain every required cleanup field", async ()
     await releases.drain();
   } finally { await releases.close(); }
 });
+
+test("a resumed session receives its early maintenance receipt before any root span", async () => {
+  const { createActivityStream } = await import("../src/activity/stream.js");
+  const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store), frames: { type: string; event?: { eventType: string } }[] = [];
+  const ws = { readyState: 1, send(value: string) { frames.push(JSON.parse(value)); }, close() {} };
+  try {
+    createTurnLifecycle(store, "voyage", "ithaca", Date.now(), () => {});
+    stream.handleSubscribe(ws as never, { type: "activity_subscribe", view: "session", sessionId: "ithaca" }, "athena");
+    frames.length = 0;
+    await recordMaintenanceReceipt(store, "voyage", "startup_checkpoint_release", { turnId: "voyage", checkpointId: "checkpoint", durationMs: 5, attempt: 1, outcome: "released", at: Date.now() });
+    stream.pump();
+    expect(store.getSpan("voyage:turn")).toBeNull();
+    expect(frames.some(frame => frame.event?.eventType === "startup_checkpoint_release"), "EARLY_RECEIPT_REACHES_RESUMED_SESSION_SUBSCRIBER").toBe(true);
+  } finally { stream.close(); db.close(); }
+});

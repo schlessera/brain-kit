@@ -136,7 +136,12 @@ export function createGovernedTurns(options: {
       const policy = policyReader.load();
       return { policyProfile: options.profile === "strict" ? "strict" : policy.policy.profiles[origin], policy };
     },
-    async close() { closing = true; again = false; await current; await privateIndexes.close(); await startupReleases.close(); },
+    async close() {
+      closing = true; again = false; await current;
+      const turns = [...refreshTurns]; refreshTurns.clear();
+      if (turns.length) await recordIndexUpdate(async () => { throw new DOMException("Pending index refresh cancelled by shutdown", "AbortError"); }, receipt => options.indexReceipt?.(receipt, turns)).catch(() => {});
+      await privateIndexes.close(); await startupReleases.close();
+    },
     // Exposure records commit on the write worker (#2850): a read waits for
     // every one submitted before it.
     bindSession(turnId, sessionId) { return options.exposures?.bind(turnId, sessionId) ?? Promise.resolve(); },
@@ -176,7 +181,15 @@ export function createGovernedTurns(options: {
       // Marked before the checkpoint: its index may lack what is queued (#2848).
       const watermark = options.indexBatch?.watermark();
       let releaseSlot: Awaited<ReturnType<typeof startupReleases.reserve>> | undefined;
+      const policy = policyReader.load();
+      const plannedProfile = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
+      const plannedRecipient = options.exposures && route?.inferenceOrigin ? providerRecipient(route.inferenceOrigin, options.recipientOrigins) : undefined;
+      const keepsPrivateIndex = policy.policy.providers.some(rule => plannedRecipient === undefined || !rule.allow.includes(plannedRecipient));
       try {
+        // Bound the disposable governed views before acquiring them. Strict
+        // and masked consumers retain their view and never enter this queue.
+        if (plannedProfile === "governed" && !keepsPrivateIndex)
+          releaseSlot = await step("startup_release_reserve", () => startupReleases.reserve(signal));
         startupView = await step("startup_checkpoint", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
         // Every governed and strict turn runs on the turn egress proxy and the
         // host inference relay (#1665), which need a view the configured native
@@ -186,7 +199,6 @@ export function createGovernedTurns(options: {
         assertManagedTurnStartupView(startupView);
         signal.throwIfAborted();
         const availability = await step("boundary_prepare", () => options.execution.boundary.prepare(signal, startupView!));
-        const policy = policyReader.load();
         // A provider rule masks its folders from every turn whose recipient it
         // does not allow (#1668). Only the exact origin of the host inference
         // relay proves a recipient (#2695); any other turn is denied every
@@ -334,7 +346,7 @@ export function createGovernedTurns(options: {
         if (governed) {
           if (dataTree) indexView = startupView;
           else {
-            releaseSlot = await step("startup_release_reserve", () => startupReleases.reserve(signal));
+            if (!releaseSlot) throw new Error("A governed startup view has no bounded release owner");
             await step("startup_view_cleanup", async () => { releaseSlot!.handoff(turnId, startupView!); });
           }
           startupView = undefined;

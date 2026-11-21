@@ -6,6 +6,8 @@ import { promisify } from "node:util";
 
 export interface JournalObjectReservation {
   readonly id?: string;
+  /** Stop scheduling pressure waits, even when publication needs later recovery. */
+  settled?(): void;
   /** Convert an in-flight reservation to one retained object, or release a deduplicated copy. */
   finish(hash: string, bytes: number, alreadyPresent: boolean): void | Promise<void>;
   cancel(): void | Promise<void>;
@@ -21,7 +23,7 @@ const readAsync = promisify(fs.read);
 const writeAsync = promisify(fs.write);
 const openAsync = promisify(fs.open);
 const closeAsync = promisify(fs.close);
-const syncAsync = promisify(fs.fsync);
+const syncAsync = (fd: number): Promise<void> => new Promise((resolve, reject) => fs.fsync(fd, error => error ? reject(error) : resolve()));
 const unlinkAsync = promisify(fs.unlink);
 const HASH = /^[a-f0-9]{64}$/;
 
@@ -100,6 +102,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         if (output !== undefined) closeSync(output);
         if (created) unlinkSync(path(temporary));
         if (!published) await reservation.cancel(); throw error;
+      } finally { reservation.settled?.();
       }
       });
     },
@@ -161,7 +164,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         if (present) await unlinkAsync(path(name));
         if (!published) await reservation.cancel();
         throw error;
-      }
+      } finally { reservation.settled?.(); }
       });
     },
     read(hash, maxBytes) {

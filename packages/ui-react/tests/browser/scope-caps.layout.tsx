@@ -178,3 +178,12 @@ test("budget warning and scope pause share one Disclosure without granting a bud
   expect(host.textContent).toContain("Budget warning"); expect(host.textContent).toContain("Ceilings: 1000 calls");
   expect(f.field.value).toBe("Ask Penelope about the shroud.");
 });
+
+test("index capacity prompt names the independent ceiling and preserves content allowance", async () => {
+  const f = await mount(1280);
+  f.frame(cap({ dimension: "turn_bytes", result: "index_capacity", count: 4294967297, cap: 4294967296, overshoot: 1, newCap: 8589934592 }));
+  await expect.poll(() => host.textContent, { message: "INDEX_PROMPT_NAMES_INDEX_CAPACITY" }).toContain("This turn reached its index capacity.");
+  expect(host.textContent, "INDEX_CONTINUE_NAMES_THE_CEILING_IT_RAISES").toContain("Raises the index ceiling to exactly 8,589,934,592 bytes");
+  expect(host.textContent).toContain("The content write allowance is unchanged.");
+  expect(host.textContent).not.toContain("This turn reached its write allowance.");
+});

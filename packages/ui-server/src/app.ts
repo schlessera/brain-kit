@@ -645,7 +645,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Applications return after their Markdown commits; the paths they changed
   // are indexed together before the next read that needs them (#2835).
   const indexReceipt = async (receipt: IndexUpdateReceipt, turnIds: string[]) => {
-    await Promise.all(turnIds.map(turnId => recordMaintenanceReceipt(activity.store, turnId, "index_update", receipt).catch(error => brainLog.emit({ severityText: "ERROR", body: `Index receipt could not be recorded: ${String(error)}` }))));
+    await Promise.all(turnIds.map(turnId => recordMaintenanceReceipt(activity.store, turnId, "index_update", receipt, (db.query("SELECT session_id FROM turn_journal_turns WHERE turn_id=?").get(turnId) as { session_id: string | null } | null)?.session_id ?? undefined).catch(error => brainLog.emit({ severityText: "ERROR", body: `Index receipt could not be recorded: ${String(error)}` }))));
   };
   const indexBatch = createIndexBatch({ index: paths => applicationPlanner.index(config.brainPath, undefined, paths), receipt: indexReceipt, cancellation: [closeBegun.signal, shutdown.signal], afterIndex: keyedReindex });
   bootCleanup.push(() => indexBatch.idle());
@@ -797,7 +797,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const workerLock = createKeyedLock();
   const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: workerLock, governance: activity.governanceWrites,
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
-    refresh() { host.governedTurns?.refresh(host.workerLock); } });
+    refresh(turnId) { host.governedTurns?.refresh(host.workerLock, turnId); } });
   const computeHost = createComputeHost({ db, brainPath: config.brainPath, stateDir: computeSettings.stateDir,
     stateMasked: computeConfigured && computeSettings.stateDir !== null && turnMaskPaths.includes(realpathSync(computeSettings.stateDir)),
     keys: computeSettings.keys, workerEnvExtra: computeSettings.workerEnvExtra,

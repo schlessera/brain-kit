@@ -2,7 +2,7 @@
 import { JournalObjectQuarantined } from "./journal-accounting.js";
 import { createNativeJournalObserver, type NativeJournalManager, type NativeJournalMetadata, type NativeJournalUnreadable } from "./native-journal-observer.js";
 import { freezeNativeJournalPolicy, journalMetadataOnlyPath, journalPathScope } from "./native-journal-policy.js";
-import { nativeJournalPermissionDenied, readNativeJournalFile, withNativeJournalFile, type NativeJournalReadContext } from "./native-journal-read.js";
+import { NativeJournalPrivateRead, nativeJournalPermissionDenied, readNativeJournalFile, withNativeJournalFile, type NativeJournalReadContext } from "./native-journal-read.js";
 import { verifiedWorkerIdentity, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import { isJournalSteeringPath, nativeJournalSteeringInputs, type JournalSteeringOptions } from "./journal-steering.js";
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
@@ -69,7 +69,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
         const captured = new Map<string, Promise<string | undefined>>();
         const unreadableKeys = new Map<string, NativeJournalUnreadable>();
         const unreadable = new Map<string, NativeJournalUnreadable>(observation.unreadable.map(item => [item.path, item]));
-        async function version(metadata: NativeJournalMetadata | null, policy: NativeJournalPolicy, root: { id: string; path: string }): Promise<JournalSnapshotEntry | undefined> {
+        async function version(metadata: NativeJournalMetadata | null, policy: NativeJournalPolicy, root: { id: string; path: string }, deferPrivate = false): Promise<JournalSnapshotEntry | undefined> {
           if (!metadata) return undefined;
           const result = entry(metadata, policy);
           if (!result || !retained(result)) return result;
@@ -77,9 +77,10 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
           let pending = captured.get(key);
           if (!pending) {
             pending = (async () => {
-              const privateRead = context(root, signal), started = performance.now();
+              const baseRead = context(root, signal), privateRead = baseRead ? { ...baseRead, deferPrivate } : undefined, started = performance.now();
               try { return await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead, file => retain(file.fd, metadata.bytes, signal)); }
               catch (error) {
+                if (error instanceof NativeJournalPrivateRead) { captured.delete(key); throw error; }
                 if (error instanceof JournalObjectQuarantined) {
                   const cause = { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "retained_object_corrupt" as const, ms: 0 };
                   unreadable.set(metadata.path, cause); unreadableKeys.set(key, cause);
@@ -103,21 +104,33 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
           // Bound descriptor/memory use while allowing the ready reservations
           // and completions of this window to share their durable commits.
           for (let offset = 0; offset < observation.changes.length; offset += 16) {
-            const batch = await Promise.allSettled(observation.changes.slice(offset, offset + 16).map(async change => {
+            const deferred: typeof observation.changes = [];
+            const captureChange = async (change: typeof observation.changes[number], deferPrivate: boolean) => {
               signal?.throwIfAborted();
               if (change.before?.kind === "directory" && change.after?.kind === "directory") return undefined;
               if (change.before?.kind === change.after?.kind && change.before?.mode === change.after?.mode &&
                 change.before?.stamp === change.after?.stamp && change.before?.target === change.after?.target) return undefined;
-              const pair = await Promise.allSettled([version(change.before, policy, observation.beforeRoot), version(change.after, policy, observation.afterRoot)]);
-              for (const side of pair) if (side.status === "rejected") throw side.reason;
+              // Deferred private reads run one side at a time, after all direct
+              // copies in this batch: one fixed reader and one temporary copy.
+              if (!deferPrivate) {
+                const before = await version(change.before, policy, observation.beforeRoot);
+                const after = await version(change.after, policy, observation.afterRoot);
+                return before || after ? { path: change.path, before, after } : undefined;
+              }
+              const pair = await Promise.allSettled([version(change.before, policy, observation.beforeRoot, true), version(change.after, policy, observation.afterRoot, true)]);
+              const failure = pair.find(side => side.status === "rejected");
+              if (failure?.status === "rejected") throw failure.reason;
               const [before, after] = pair.map(side => side.status === "fulfilled" ? side.value : undefined);
               return before || after ? { path: change.path, before, after } : undefined;
+            };
+            const batch = await Promise.allSettled(observation.changes.slice(offset, offset + 16).map(async change => {
+              try { return await captureChange(change, true); }
+              catch (error) { if (error instanceof NativeJournalPrivateRead) { deferred.push(change); return undefined; } throw error; }
             }));
-            // Join every started retain before aborting a checkpoint: no file
-            // reader can outlive its sealed root, even when a peer failed.
             const failure = batch.find(item => item.status === "rejected");
             if (failure?.status === "rejected") throw failure.reason;
             for (const item of batch) if (item.status === "fulfilled" && item.value) versions.push(item.value);
+            for (const change of deferred) { const item = await captureChange(change, false); if (item) versions.push(item); }
           }
           changes.set(turnId, versions);
         }

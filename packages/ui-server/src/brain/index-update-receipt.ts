@@ -13,7 +13,7 @@ export async function recordIndexUpdate<T>(work: () => Promise<T>, record: (rece
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     receipt = { generation, durationMs: performance.now() - started,
-      outcome: cancellation.some(signal => signal.aborted && signal.reason === error) || error instanceof Error && error.name === "AbortError" ? "cancelled" : /ENOSPC|EDQUOT|No space left on device|Disk quota exceeded|staging capacity|temporary storage is busy/i.test(cause) ? "index_capacity" : "failed", cause: cause.slice(0, 2000) };
+      outcome: cancellation.some(signal => signal.aborted && signal.reason === error) || error instanceof Error && error.name === "AbortError" ? "cancelled" : /SQLITE_FULL|database or disk is full|ENOSPC|EDQUOT|No space left on device|Disk quota exceeded|staging capacity|temporary storage is busy/i.test(cause) ? "index_capacity" : "failed", cause: cause.slice(0, 2000) };
     throw error;
   } finally {
     try { await record(receipt!); } catch { /* Receipt diagnostics cannot replace the index result. */ }

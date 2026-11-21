@@ -194,3 +194,25 @@ test("release frees its slot before reporting while close joins the durable rece
     report.resolve(); await closing;
   } finally { report.resolve(); await queue.close(); }
 });
+
+test("ten real admissions reserve release ownership before acquiring disposable views", async () => {
+  const { mkdirSync } = await import("node:fs"), root = mkdtempSync(join(tmpdir(), "odysseus-bounded-admissions-")), brain = join(root, "brain"); mkdirSync(brain);
+  const native = createNativeJournalFixture(brain, root), queue = createNativeStartupReleases(), deletion = deferred(), full = deferred();
+  setNativeStartupReleases(native.client, queue);
+  let views = 0, maximum = 0;
+  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
+    const checkpoint = await native.client.checkpoint(crypto.randomUUID()); views++; maximum = Math.max(maximum, views); if (views === 2) full.resolve();
+    return { brain, root: checkpoint.path, storage: { root: checkpoint.path, retain() {}, release() {} }, async cleanup() { await deletion.promise; await native.client.release(checkpoint.id); views--; } };
+  });
+  const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
+  const resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockResolvedValue({ profile: "governed", areas: [], protection: { paths: [] } } as never);
+  const execution = { boundary: { async prepare() { return { available: true }; }, maintenance: {} }, gate() { return { async acquire() { return { release() {} }; } }; }, manifests() { return { async begin() {}, async end() { return null; } }; } };
+  const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, execution: execution as never, profile: "governed", maskPaths: [], async index() {}, report() {} });
+  const admissions = Array.from({ length: 10 }, (_, i) => turns.begin(`voyage-${i}`, new AbortController().signal));
+  try {
+    await full.promise; await new Promise<void>(resolve => setImmediate(resolve));
+    expect(views, "ADMISSION_VIEWS_ARE_BOUNDED_BEFORE_RELEASE_SLOTS_FILL").toBe(2);
+    deletion.resolve(); for (const hold of await Promise.all(admissions)) await hold.end(); await queue.drain();
+    expect(maximum, "TEN_ADMISSIONS_NEVER_CREATE_TEN_PENDING_VIEWS").toBe(2);
+  } finally { deletion.resolve(); for (const hold of await Promise.all(admissions)) await hold.end(); await turns.close(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});

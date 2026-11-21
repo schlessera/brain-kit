@@ -45,3 +45,28 @@ test("live index size pauses independently of retained bytes, with one finite in
     await scope.finish("voyage");
   } finally { scope.close(); db.close(); }
 });
+
+for (const indexBytes of [INDEX_OBSERVATION_CAP_BYTES + 1, null]) test(`a content grant cannot bypass independent index state ${indexBytes}`, async () => {
+  const db = createUiDb(":memory:"); db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
+  let observed!: Parameters<TurnJournal["onObservation"]>[0], periodic!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observed, hold: typeof periodic) { observed = callback; periodic = hold; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  let frozen = false;
+  const saved = () => JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary);
+  try {
+    await scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1, scope: { max_bytes_written: 10 } }), source: "policy", hardTimeoutMs: 3600000, current: () => true, stop() {} });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() { frozen = true; }, resume() { frozen = false; }, kill() {} } as never);
+    periodic.before(); observed("voyage", { changedPaths: 1, observedBytes: 11, workspacePaths: 0, indexBytes, partial: false }); periodic.after(true);
+    const content = saved().receipts[0];
+    const result = await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: content.eventId, submissionId: "content-grant", action: "continue" }, true);
+    expect(result.state, "CONTENT_GRANT_REFUSES_INDEX_BYPASS").toBe("refused");
+    expect(frozen, "INDEPENDENT_INDEX_BREACH_STAYS_FROZEN").toBe(true);
+    const index = saved().receipts.at(-1);
+    expect(index.result).toBe("index_capacity");
+    if (indexBytes !== null) {
+      const reply = await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: index.eventId, submissionId: "index-grant", action: "continue" }, true);
+      expect(reply.state).toBe("accepted"); expect(frozen, "INDEX_GRANT_STILL_RESPECTS_PENDING_CONTENT_CAP").toBe(true);
+    } else expect(index.newCap).toBeUndefined();
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});

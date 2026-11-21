@@ -214,7 +214,7 @@ bytes. Instead optional `indexBytes`/`indexLimitBytes` report its independent
 observation-time size cap (4 GiB initially). A cap receipt uses the existing
 `turn_bytes` dimension with optional `result: "index_capacity"`; there is no
 new enum value. Its one-time finite doubling changes only the index ceiling;
-unknown size permits no grant. The byte counter does not
+an independent pending content pause remains binding. Unknown size permits no grant. The byte counter does not
 claim to capture writes overwritten between observations. Missing snapshots
 remain unknown. Shared windows may include other writers. No autonomous Queue
 counter or budget usage field changes.

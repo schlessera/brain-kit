@@ -104,3 +104,18 @@ test("reservation pressure shrinks the batch and waits for one copy instead of d
     expect(db.query("SELECT count(*) AS n FROM turn_journal_objects WHERE state='present'").get(), "PRESSURE_PRESERVES_RETAINED_OBJECTS").toEqual({ n: 3 });
   } finally { await Promise.allSettled(work); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("recovery removes the dead pending link before validating a published digest", async () => {
+  const { linkSync } = await import("node:fs");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-double-link-")), path = join(root, "ui.db"), db = createUiDb(path), accounting = createJournalAccounting(db, path), store = createJournalObjects(join(root, "objects"), accounting);
+  const bytes = "Odysseus returns", hash = sha(bytes);
+  try {
+    const [id] = accounting.reserveBatch([{ hash, bytes: Buffer.byteLength(bytes) }]);
+    writeFileSync(join(root, "objects", `pending-${id}`), bytes);
+    linkSync(join(root, "objects", `pending-${id}`), join(root, "objects", hash));
+    accounting.write(() => db.query("UPDATE turn_journal_reservations SET pid=2147483647,pid_start='dead'").run());
+    expect(accounting.recover(store), "TWO_LINK_CRASH_RECOVERS").toEqual({ unresolvedRecords: 0, firstCause: null });
+    expect(store.read(hash, 100).toString(), "TWO_LINK_CRASH_PRESERVES_PUBLISHED_BYTES").toBe(bytes);
+    expect(accounting.recover(store).unresolvedRecords).toBe(0);
+  } finally { store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});

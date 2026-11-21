@@ -1,3 +1,4 @@
+import { get } from "node:http";
 /** One confirmed physical freeze may contain several serialized observations. */
 export function observationHold(worker: { freeze(): void; resume(): void; kill(signal: NodeJS.Signals): void }, clock: () => number = performance.now.bind(performance)) {
   let depth = 0, started = 0, failed = false, shared = false;
@@ -23,4 +24,18 @@ export function observationHold(worker: { freeze(): void; resume(): void; kill(s
 export async function observationMatrixResponse(request: Request, server: { timeout(request: Request, seconds: number): void }, work: () => Promise<unknown>): Promise<Response> {
   server.timeout(request, 0);
   return Response.json(await work());
+}
+
+/** No client idle deadline; the proof's explicit abort watchdog owns this request. */
+export function observationMatrixRequest(url: string, signal: AbortSignal): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const request = get(url, { signal }, response => {
+      const chunks: Buffer[] = [];
+      response.on("data", chunk => chunks.push(Buffer.from(chunk)));
+      response.once("error", reject);
+      response.once("end", () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode ?? 500 })));
+    });
+    request.setTimeout(0);
+    request.once("error", reject);
+  });
 }

@@ -251,6 +251,12 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
         }
         let published = false, corrupt: unknown;
         try {
+          // Retire the dead reservation's exact temporary name before checking
+          // the digest: a crash may have left these as two links to one inode.
+          write(() => {
+            const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=?").get(row.id) as { pid: number; pid_start: string } | null;
+            if (current && !processAlive(current.pid, current.pid_start)) objects.discardPending(row.id);
+          });
           published = objects.has(row.hash);
           if (published && !objects.verify(row.hash, row.bytes)) corrupt = new Error("Published interrupted object failed integrity verification");
         } catch (error) {

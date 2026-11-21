@@ -156,7 +156,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const objects = createJournalObjects(options.objectsRoot, { async reserve(bytes, hash, turnIds = []) {
     const id = await reservations.reserve({ bytes, hash });
     if (id === null) throw new JournalObjectQuarantined();
-    return { id, finish: (actual: string, size: number) => finishObjects({ id, hash: actual, bytes: size, turnIds }), cancel: async () => { try { await call<void>("cancelBatchReservation", id); } finally { reservations.settled([id]); } } };
+    return { id, finish: (actual: string, size: number) => finishObjects({ id, hash: actual, bytes: size, turnIds }), settled: () => reservations.settled([id]), cancel: async () => { try { await call<void>("cancelBatchReservation", id); } finally { reservations.settled([id]); } } };
   } });
   /** Writes no admission awaits; `idle()` waits for them too. */
   const unserialized = new Set<Promise<unknown>>();
