@@ -333,6 +333,7 @@ for (const profile of ["governed", "strict"] as const) test(`throwing workerStar
   let exited: Promise<number> | undefined;
   const view = { brain, root: brain, storage: { root: brain, retain() {}, release() {} }, cleanup() {} };
   const prepared = { view, output: { source: brain, storage: { root: brain, mount: brain, namespacePid: 1, allowanceBytes: MiB, retain() {}, release() {} } },
+    gitResultPath:".git/.brain-maintenance-result-fixture",async gitSucceeded(){return false;},
     async cleanup() { events.push("native-cleanup"); await exited; }, discardGit() {}, async publish() {}, async publishLocked() {} };
   const native = spyOn(worker, "prepareNativeWorkerOutput").mockResolvedValue(prepared);
   launch.mockImplementation(() => {
@@ -525,6 +526,7 @@ for (const refused of ["turn-temp", "native-output"] as const) test(`post-launch
   const view = { brain, root: brain, storage: { root: brain, retain() {}, release() {} }, cleanup() {} };
   const native = spyOn(worker, "prepareNativeWorkerOutput").mockResolvedValue({ view,
     output: { source: brain, storage: { root: brain, mount: brain, namespacePid: 1, allowanceBytes: MiB, retain() {}, release() {} } },
+    gitResultPath:".git/.brain-maintenance-result-fixture",async gitSucceeded(){return false;},
     async cleanup() { if (++outputs <= 7 && refused === "native-output") throw new Error("native deletion unconfirmed"); },
     discardGit() {}, async publish() {}, async publishLocked() {} });
   launch.mockImplementation(async (...args: unknown[]) => {

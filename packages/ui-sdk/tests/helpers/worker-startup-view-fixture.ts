@@ -222,10 +222,21 @@ export async function prepareFixtureNativeWorkerOutput(brain: string, options: {
   try { publication = prepareWorkerOutput(brain, { startupView: view, areas: options.areas }); }
   catch (error) { await view.cleanup(); throw error; }
   let cleanup: Promise<void> | undefined;
-  return { view, output: publication.output,
+  const gitResultPath=`.git/.brain-maintenance-result-${crypto.randomUUID()}`;
+  const removeReceipt=()=>{try{unlinkSync(join(publication.output.source,gitResultPath));}catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;}};
+  return { view, output: publication.output,gitResultPath,
+    async gitSucceeded(){
+      let fd:number|undefined;
+      try{
+        fd=openSync(join(publication.output.source,gitResultPath),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+        const info=fstatSync(fd);if(!info.isFile()||info.size!==7)return false;
+        const bytes=Buffer.alloc(7);return readSync(fd,bytes,0,7,0)===7&&bytes.toString()==="packed\n";
+      }catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return false;throw error;}
+      finally{if(fd!==undefined)closeSync(fd);}
+    },
     discardGit() { publication.discardGit(); },
-    async publish() { publication.publish(); },
-    async publishLocked(lock) { await publication.publishLocked(lock); },
+    async publish() { removeReceipt();publication.publish(); },
+    async publishLocked(lock) { removeReceipt();await publication.publishLocked(lock); },
     cleanup() { return cleanup ??= (async () => { try { await publication.cleanup(); } finally { await view.cleanup(); } })(); },
   };
 }
