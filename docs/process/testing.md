@@ -22,7 +22,13 @@ inspecting CI on a PR live in the `work-issue` skill's
   only the parsed hosts `localhost`, `127.0.0.1` and `[::1]`; every followed
   redirect is checked before dispatch, and explicit proxies are refused. Real
   curl execution is refused, including absolute executable paths and both
-  spawn argument forms. Attempts are recorded: test hooks fail even when a
+  spawn argument forms. So is any executable named `gog`, whose home holds a
+  Google credential, unless the test registered it as its own fake
+  (`registerFakeGog`, which `packages/common/tests/support/fake-gog.ts`
+  calls): the guard checks the executable and the file it resolves to, the
+  words `env` runs, every word of a shell's `-c` script and Bun Shell
+  templates, so `node:child_process` shell forms are covered too. Attempts
+  are recorded: test hooks fail even when a
   client catches/retries the error. Saved originals and restored spies refer
   to the guarded functions; install mocks after preload and restore them in
   teardown. The test suite requires Bun >=1.4.0; CI pins 1.4.2, whose

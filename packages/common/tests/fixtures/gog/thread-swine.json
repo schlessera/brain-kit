@@ -1,0 +1,86 @@
+{
+  "downloaded": null,
+  "thread": {
+    "historyId": "5601",
+    "id": "19a0c3d2e4f50700",
+    "messages": [
+      {
+        "historyId": "5601",
+        "id": "19a0c3d2e4f50700",
+        "internalDate": "1783839900000",
+        "labelIds": [
+          "INBOX",
+          "STARRED"
+        ],
+        "payload": {
+          "body": {},
+          "headers": [
+            {
+              "name": "From",
+              "value": "Eumaeus <eumaeus@example.com>"
+            },
+            {
+              "name": "To",
+              "value": "Odysseus <odysseus@example.com>"
+            },
+            {
+              "name": "Subject",
+              "value": "=?UTF-8?Q?Swine_count_=E2=80=94_July?="
+            },
+            {
+              "name": "Date",
+              "value": "Sun, 12 Jul 2026 07:05:00 +0000"
+            },
+            {
+              "name": "Content-Type",
+              "value": "multipart/mixed; boundary=\"sty\""
+            }
+          ],
+          "mimeType": "multipart/mixed",
+          "parts": [
+            {
+              "body": {
+                "data": "PGh0bWw-PGJvZHk-PHA-TWFzdGVyLDwvcD48cD5UaGUgaGVyZCBjb3VudHMgMzYwIGJvYXJzICZhbXA7IDYwMCBzb3dzLjwvcD48L2JvZHk-PC9odG1sPg",
+                "size": 88
+              },
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/html; charset=\"UTF-8\""
+                },
+                {
+                  "name": "Content-Transfer-Encoding",
+                  "value": "quoted-printable"
+                }
+              ],
+              "mimeType": "text/html",
+              "partId": "0"
+            },
+            {
+              "body": {
+                "attachmentId": "ANGjdJ8swineCount0712",
+                "size": 2048
+              },
+              "filename": "herd.csv",
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/csv; name=\"herd.csv\""
+                },
+                {
+                  "name": "Content-Disposition",
+                  "value": "attachment; filename=\"herd.csv\""
+                }
+              ],
+              "mimeType": "text/csv",
+              "partId": "1"
+            }
+          ]
+        },
+        "sizeEstimate": 9120,
+        "snippet": "Master, The herd counts 360 boars &amp; 600 sows.",
+        "threadId": "19a0c3d2e4f50700"
+      }
+    ]
+  }
+}

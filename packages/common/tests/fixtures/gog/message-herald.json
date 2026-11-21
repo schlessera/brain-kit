@@ -1,0 +1,108 @@
+{
+  "body": "News from the hall: the suitors feast on, and the shroud on the loom is still unfinished.\r\nThe Ithaca Herald\r\n",
+  "headers": {
+    "bcc": "",
+    "cc": "",
+    "date": "Sun, 12 Jul 2026 05:30:00 +0000",
+    "from": "The Ithaca Herald <herald@example.com>",
+    "in_reply_to": "",
+    "message_id": "<herald-0712@example.com>",
+    "references": "",
+    "reply_to": "",
+    "subject": "The Ithaca Herald: news from the hall",
+    "to": "Penelope <penelope@example.com>"
+  },
+  "message": {
+    "historyId": "5401",
+    "id": "19a0c3d2e4f50a01",
+    "internalDate": "1783834200000",
+    "labelIds": [
+      "INBOX",
+      "CATEGORY_UPDATES"
+    ],
+    "payload": {
+      "body": {},
+      "headers": [
+        {
+          "name": "From",
+          "value": "The Ithaca Herald <herald@example.com>"
+        },
+        {
+          "name": "To",
+          "value": "Penelope <penelope@example.com>"
+        },
+        {
+          "name": "Subject",
+          "value": "The Ithaca Herald: news from the hall"
+        },
+        {
+          "name": "Date",
+          "value": "Sun, 12 Jul 2026 05:30:00 +0000"
+        },
+        {
+          "name": "Message-ID",
+          "value": "<herald-0712@example.com>"
+        },
+        {
+          "name": "List-Unsubscribe",
+          "value": "<mailto:herald-leave@example.com?subject=leave>, <https://example.com/herald/leave?reader=penelope>"
+        },
+        {
+          "name": "List-Unsubscribe-Post",
+          "value": "List-Unsubscribe=One-Click"
+        },
+        {
+          "name": "MIME-Version",
+          "value": "1.0"
+        },
+        {
+          "name": "Content-Type",
+          "value": "multipart/alternative; boundary=\"herald\""
+        }
+      ],
+      "mimeType": "multipart/alternative",
+      "parts": [
+        {
+          "body": {
+            "data": "TmV3cyBmcm9tIHRoZSBoYWxsOiB0aGUgc3VpdG9ycyBmZWFzdCBvbiwgYW5kIHRoZSBzaHJvdWQgb24gdGhlIGxvb20gaXMgc3RpbGwgdW5maW5pc2hlZC4NClRoZSBJdGhhY2EgSGVyYWxkDQo",
+            "size": 110
+          },
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "text/plain; charset=\"UTF-8\""
+            },
+            {
+              "name": "Content-Transfer-Encoding",
+              "value": "7bit"
+            }
+          ],
+          "mimeType": "text/plain",
+          "partId": "0"
+        },
+        {
+          "body": {
+            "data": "PHA-TmV3cyBmcm9tIHRoZSBoYWxsOiB0aGUgc3VpdG9ycyBmZWFzdCBvbiwgYW5kIHRoZSBzaHJvdWQgb24gdGhlIGxvb20gaXMgc3RpbGwgdW5maW5pc2hlZC48L3A-PHA-VGhlIEl0aGFjYSBIZXJhbGQ8L3A-",
+            "size": 120
+          },
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "text/html; charset=\"UTF-8\""
+            },
+            {
+              "name": "Content-Transfer-Encoding",
+              "value": "7bit"
+            }
+          ],
+          "mimeType": "text/html",
+          "partId": "1"
+        }
+      ]
+    },
+    "sizeEstimate": 6120,
+    "snippet": "News from the hall: the suitors feast on, and the shroud on the loom is still unfinished.",
+    "threadId": "19a0c3d2e4f50a01"
+  },
+  "unsubscribe": "https://example.com/herald/leave?reader=penelope"
+}

@@ -133,6 +133,115 @@ export async function runProbe(scenario: string): Promise<void> {
         }
       }
     }
+  } else if (scenario === "gog-forms") {
+    // A harmless stand-in named gog. Every attempt names it absolutely or
+    // finds it on an explicit PATH holding nothing else, so a form that
+    // escaped the guard could only run the stand-in, which leaves a mark the
+    // sentinel reports as native. No attempt can reach an installed gog.
+    const { mkdirSync, readFileSync, symlinkSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const bin = join(process.env.PROBE_DIR!, "gog-bin");
+    mkdirSync(bin, { recursive: true });
+    const gog = join(bin, "gog");
+    writeFileSync(gog, `#!/bin/sh\nprintf 'gog ran %s\\n' "$*" >> '${join(process.env.PROBE_DIR!, "native-gog")}'\n`, { mode: 0o755 });
+    const renamed = join(bin, "renamed");
+    symlinkSync(gog, renamed);
+    const env = { PATH: bin };
+    const settle = async (value: unknown) => {
+      if (value && typeof value === "object" && "exited" in value) await (value as { exited: Promise<unknown> }).exited;
+      else if (value && typeof value === "object" && "once" in value) await new Promise<void>(resolve => (value as { once(event: string, done: () => void): void }).once("exit", () => resolve()));
+    };
+    // Registration takes only a fake the fake-gog helper made, and only while
+    // its file is still that fake: a registered stand-in or a registered
+    // /bin/true would let every spawn below through.
+    const { fakeGogShim, registerFakeGog } = await import("../../scripts/test-network-guard");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    // The fake's own bytes outside the helper's place, and the stand-in's bytes in it.
+    const elsewhere = join(process.env.PROBE_DIR!, "fake-gog-Ithaca", "bin", "gog");
+    mkdirSync(join(elsewhere, ".."), { recursive: true });
+    writeFileSync(elsewhere, fakeGogShim(elsewhere), { mode: 0o700 });
+    const impostorDir = mkdtempSync(join(tmpdir(), "fake-gog-"));
+    const impostor = join(impostorDir, "bin", "gog");
+    mkdirSync(join(impostor, ".."));
+    writeFileSync(impostor, readFileSync(gog), { mode: 0o700 });
+    for (const [label, path] of [["stand-in", gog], ["true", "/bin/true"], ["elsewhere", elsewhere], ["impostor", impostor]] as const) {
+      try {
+        registerFakeGog(path);
+        console.log(`GOG_REGISTRATION=${label}:accepted`);
+      } catch {
+        console.log(`GOG_REGISTRATION=${label}:refused`);
+      }
+    }
+    const { createFakeGog } = await import("../../packages/common/tests/support/fake-gog");
+    const replaced = createFakeGog({});
+    writeFileSync(replaced.executable, readFileSync(gog));
+    for (const key of ["spawn", "spawnSync"] as const) {
+      for (const cmd of [["gog", "version"], [gog, "version"], [renamed, "version"], [replaced.executable, "version"], [impostor, "version"],
+        ["/usr/bin/env", "gog", "version"],
+        ["/bin/sh", "-c", "gog version"], ["/bin/sh", "-ec", `exec ${gog} version`],
+        // Wrappers inside wrappers, and the renamed link through each.
+        ["/usr/bin/env", "/bin/sh", "-c", "gog version"], ["/usr/bin/env", "-S", "gog version"], ["/usr/bin/env", "-u", "HOME", "renamed", "version"],
+        ["/usr/bin/env", "-i", `PATH=${bin}`, "/bin/sh", "-c", "renamed version"], ["/usr/bin/env", "/usr/bin/env", "/bin/sh", "-c", "renamed version"],
+        ["/bin/sh", "-c", `exec ${renamed} version`], ["/bin/sh", "-c", "/usr/bin/env renamed version"], ["/bin/sh", "-c", "/bin/sh -c 'renamed version'"]]) {
+        for (const args of [[cmd, { env }], [{ cmd, env }]]) {
+          try { await settle(Reflect.apply(Bun[key], Bun, args)); } catch {}
+        }
+      }
+    }
+    const cp = await import("node:child_process");
+    for (const attempt of [
+      () => cp.execSync("gog version", { env }), () => cp.execFileSync("gog", ["version"], { env }), () => cp.spawnSync("gog", ["version"], { env }),
+      () => cp.exec("gog version", { env }), () => cp.spawn("gog version", { shell: true, env }), () => cp.execFile(gog, ["version"], { env }),
+    ]) {
+      try { await settle(attempt()); } catch {}
+    }
+    try { await Bun.$`gog version`.env(env).quiet(); } catch {}
+    try { await Bun.$`${gog} version`.env(env).quiet(); } catch {}
+    try { await Bun.$`${renamed} version`.env(env).quiet(); } catch {}
+    try { await Bun.$`renamed version`.env(env).quiet(); } catch {}
+    try { await Bun.$`renamed version`.cwd(bin).env(env).quiet(); } catch {}
+    try { await Bun.$.env(env)`renamed version`.quiet(); } catch {}
+    Bun.$.env(undefined);
+    replaced.dispose();
+    const { rmSync } = await import("node:fs");
+    rmSync(impostorDir, { recursive: true, force: true });
+  } else if (scenario === "gog-environment") {
+    // A form token matching does not see (shell quoting splits the name), so
+    // the guard lets it through, and the stand-in, a Bun script found on an
+    // explicit PATH holding nothing else, reports what it was given. What is
+    // under test is that even this finds no account to use.
+    const { mkdirSync, readFileSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const bin = join(process.env.PROBE_DIR!, "gog-bin");
+    mkdirSync(bin, { recursive: true });
+    const report = join(process.env.PROBE_DIR!, "gog-env.json");
+    writeFileSync(join(bin, "gog"), `#!${process.execPath}
+import { readdirSync, statSync, writeFileSync } from "node:fs";
+const home = process.env.GOG_HOME ?? "";
+let state = null;
+try { const stats = statSync(home); state = { dir: stats.isDirectory(), entries: readdirSync(home).length, mode: (stats.mode & 0o777).toString(8), uid: stats.uid }; } catch {}
+writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntries(Object.entries(process.env).filter(([name]) => name.startsWith("GOG_"))), home: state }));
+`, { mode: 0o755 });
+    const child = Bun.spawnSync(["/bin/sh", "-c", "go\"\"g version"], { env: { ...process.env, PATH: bin }, stdout: "pipe", stderr: "pipe" });
+    console.log(`GOG_ENV_EXIT=${child.exitCode}`);
+    console.log(`GOG_ENV=${readFileSync(report, "utf8")}`);
+  } else if (scenario === "gog-home-descendants") {
+    // Children the guard starts, given this process's environment or another,
+    // report the gog home they were given. Two are killed with SIGKILL, which
+    // runs no exit hook; the last exits normally.
+    const { existsSync } = await import("node:fs");
+    const own = process.env.GOG_HOME!;
+    const children = [
+      [undefined, 'process.kill(process.pid, "SIGKILL")'],
+      [{ PATH: process.env.PATH!, TMPDIR: process.env.TMPDIR! }, 'process.kill(process.pid, "SIGKILL")'],
+      [undefined, "process.exit(0)"],
+    ].map(([env, exit]) => {
+      const program = `require("node:fs").writeSync(1, process.env.GOG_HOME ?? ""); ${exit}`;
+      const child = Bun.spawnSync([process.execPath, "-e", program], { ...(env ? { env: env as Record<string, string> } : {}), stdout: "pipe", stderr: "pipe" });
+      return { home: child.stdout.toString(), signal: child.signalCode ?? null, exit: child.exitCode };
+    });
+    console.log(`GOG_HOMES=${JSON.stringify({ own, children, own_after: existsSync(own) })}`);
   } else if (scenario === "hosts") {
     for (const input of [external, new URL(external), new Request(external),
       "https://localhost.example.invalid/", "http://127.0.0.2/", "http://0.0.0.0/", "file:///etc/hosts"]) {

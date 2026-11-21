@@ -1,0 +1,147 @@
+{
+  "downloaded": null,
+  "thread": {
+    "historyId": "5502",
+    "id": "19a0c3d2e4f50601",
+    "messages": [
+      {
+        "historyId": "5501",
+        "id": "19a0c3d2e4f50601",
+        "internalDate": "1783844100000",
+        "labelIds": [
+          "INBOX",
+          "CATEGORY_PERSONAL"
+        ],
+        "payload": {
+          "body": {},
+          "headers": [
+            {
+              "name": "From",
+              "value": "Penelope <penelope@example.com>"
+            },
+            {
+              "name": "To",
+              "value": "Odysseus <odysseus@example.com>"
+            },
+            {
+              "name": "Subject",
+              "value": "Suitors at the hall"
+            },
+            {
+              "name": "Date",
+              "value": "Sun, 12 Jul 2026 08:15:00 +0000"
+            },
+            {
+              "name": "Message-ID",
+              "value": "<loom-0712@example.com>"
+            },
+            {
+              "name": "MIME-Version",
+              "value": "1.0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "multipart/alternative; boundary=\"loom\""
+            }
+          ],
+          "mimeType": "multipart/alternative",
+          "parts": [
+            {
+              "body": {
+                "data": "RGVhcmVzdCwgdGhlIHN1aXRvcnMgZmVhc3QgYWdhaW4gaW4gdGhlIGhhbGwuDQpJIHVucmF2ZWwgdGhlIHNocm91ZCBlYWNoIG5pZ2h0ICYgd2FpdC4NCg",
+                "size": 88
+              },
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/plain; charset=\"UTF-8\""
+                },
+                {
+                  "name": "Content-Transfer-Encoding",
+                  "value": "quoted-printable"
+                }
+              ],
+              "mimeType": "text/plain",
+              "partId": "0"
+            },
+            {
+              "body": {
+                "data": "PGRpdj5EZWFyZXN0LCB0aGUgc3VpdG9ycyBmZWFzdCBhZ2FpbiBpbiB0aGUgaGFsbC48L2Rpdj48ZGl2PkkgdW5yYXZlbCB0aGUgc2hyb3VkIGVhY2ggbmlnaHQgJmFtcDsgd2FpdC48L2Rpdj4",
+                "size": 110
+              },
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/html; charset=\"UTF-8\""
+                },
+                {
+                  "name": "Content-Transfer-Encoding",
+                  "value": "quoted-printable"
+                }
+              ],
+              "mimeType": "text/html",
+              "partId": "1"
+            }
+          ]
+        },
+        "sizeEstimate": 4521,
+        "snippet": "Dearest, the suitors feast again in the hall. I unravel the shroud each night &amp; wait.",
+        "threadId": "19a0c3d2e4f50601"
+      },
+      {
+        "historyId": "5502",
+        "id": "19a0c3d2e4f50602",
+        "internalDate": "1783849200000",
+        "labelIds": [
+          "INBOX",
+          "UNREAD",
+          "Label_12"
+        ],
+        "payload": {
+          "body": {
+            "data": "TW90aGVyLCBJIHdpbGwgc2FpbCB0byBQeWxvcyBmb3IgbmV3cyBvZiBoaW0uDQo",
+            "size": 47
+          },
+          "headers": [
+            {
+              "name": "From",
+              "value": "Telemachus <telemachus@example.com>"
+            },
+            {
+              "name": "To",
+              "value": "Penelope <penelope@example.com>"
+            },
+            {
+              "name": "Cc",
+              "value": "Odysseus <odysseus@example.com>"
+            },
+            {
+              "name": "Subject",
+              "value": "Re: Suitors at the hall"
+            },
+            {
+              "name": "Date",
+              "value": "Sun, 12 Jul 2026 09:40:00 +0000"
+            },
+            {
+              "name": "Message-ID",
+              "value": "<pylos-0712@example.com>"
+            },
+            {
+              "name": "In-Reply-To",
+              "value": "<loom-0712@example.com>"
+            },
+            {
+              "name": "Content-Type",
+              "value": "text/plain; charset=\"UTF-8\""
+            }
+          ],
+          "mimeType": "text/plain"
+        },
+        "sizeEstimate": 2210,
+        "snippet": "Mother, I will sail to Pylos for news of him.",
+        "threadId": "19a0c3d2e4f50601"
+      }
+    ]
+  }
+}
