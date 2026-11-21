@@ -105,9 +105,9 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
             if(already.bytes===null&&protectedHash(row.hash.slice(0,64))){db.query("DELETE FROM turn_journal_scrub_quarantine WHERE hash=? AND state='reserved'").run(row.hash);continue;}
             if(already.bytes===null){
               const candidate=verify(source,row.hash.slice(0,64),corruptCopies);if(candidate.bytes===null||candidate.corrupt)continue;
-              if(candidate.bytes!==row.bytes)throw Error("Journal scrub candidate changed after reservation");
+              if(candidate.bytes!==row.bytes){corruptCopies.set(`reservation:${row.hash}`,candidate.bytes);continue;}
               renameSync(at(source,row.hash.slice(0,64)),at(target,row.hash));
-            }else if(already.bytes!==row.bytes)throw Error("Journal scrub quarantine changed size");
+            }else if(already.bytes!==row.bytes){corruptCopies.set(`reservation:${row.hash}`,already.bytes);continue;}
             // A previous attempt may have renamed then failed its sync or
             // SQL commit. Retry both directory barriers before claiming success.
             fsyncSync(target);fsyncSync(source);

@@ -234,3 +234,13 @@ test("pending-file cleanup retries its directory barrier and retains the reserva
   expect(()=>objects.discardPending(row.id),"PENDING_UNLINK_RETRY_STILL_SYNCS").toThrow("Ithaca cleanup sync refused");
  }finally{fault.mockRestore();link.mockRestore();objects.close();f.close();}
 });
+
+test("a malformed reservation size cannot poison verified sibling moves",()=>{
+ const f=fixture();try {
+  for(const text of ["wrong-size","orphan"])writeFileSync(join(f.objects,sha(text)),text);
+  f.store.statements([{sql:"INSERT INTO turn_journal_scrub_quarantine VALUES (?,99,'reserved')",params:[sha("wrong-size")]}]);
+  expect(f.store.scrubObjects(),"SCRUB_BAD_RESERVATION_IS_LOCAL").toMatchObject({quarantined:1,pending:1,corrupt:1,state:"partial"});
+  expect(existsSync(join(f.objects,sha("wrong-size")))).toBe(true);
+  expect(existsSync(join(f.objects,"quarantine",sha("orphan")))).toBe(true);
+ }finally{f.close();}
+});
