@@ -164,7 +164,7 @@ governed post-turn index update, including the separate credentialed vector refr
 `index_update` Activity event for each causing turn. Its payload contains an
 opaque `generation`, `durationMs` and `outcome` (`complete`, `failed`, `cancelled` or
 `index_capacity`); failures also carry a bounded `cause`. A retry is a new
-update with a new generation. Revert and Undo updates use their own journal turn IDs. Shutdown records a cancelled generation for queued refreshes that never start. Tool child spans carry the causing session and retain receipts that arrive before the backend root span. Owner API/stream records retain the receipt spans and events; `query_activity` omits host receipt spans from its model-facing projection. These host receipts never enter provider history.
+update with a new generation. Revert and Undo updates use their own journal turn IDs. Shutdown records a cancelled generation for queued refreshes that never start. Tool child spans carry the causing session and retain receipts that arrive before the backend root span. Owner API/stream records retain the receipt spans and events; `query_activity` omits host receipt spans and lifecycle diagnostics from its model-facing projection. These host receipts never enter provider history.
 
 An ordinary governed writer keeps direct in-worker `brain index`. Each
 observation also measures current index-family and publication-copy size from

@@ -49,6 +49,8 @@ test("previous activity schemas parse journal clocks and index/release receipts 
     const modelText = await handleQueryActivity({ scope: "run", runId: turnId }, { queryActivity: (query: ActivityQuery) => runActivityQuery(db, store, query) } as never);
     expect(modelText, "HOST_RECEIPT_SPANS_STAY_OUT_OF_PROVIDER_CONTEXT").not.toContain("Index update");
     expect(modelText, "STARTUP_RECEIPT_SPANS_STAY_OUT_OF_PROVIDER_CONTEXT").not.toContain("Startup checkpoint release");
+    for (const timing of ["startup_release_reserve", "startup_view_cleanup", "observe_capture", "observe_record", "observe_publish", "observe_facts", "observe_commit", "subPhases", "acceptedAt", "lifecycle"])
+      expect(modelText, `JOURNAL_TIMING_STAYS_OUT_OF_PROVIDER_CONTEXT ${timing}`).not.toContain(timing);
     expect(JSON.parse(modelText.split("\n").slice(2, -1).join("\n")).spans.map((span: { spanId: string }) => span.spanId), "MODEL_RETAINS_ORDINARY_ACTIVITY_SPANS").toEqual([spanId]);
     expect(detail.spans!.filter(span => span.attrs?.hostMaintenanceReceipt === true), "OWNER_API_RETAINS_HOST_RECEIPTS").toHaveLength(3);
     expect(detail.events).toHaveLength(3);
