@@ -5699,6 +5699,8 @@ Exhausted revisions refuse both new reviews and publication of retained reviews
 before any protected policy write; request revisions above uint64 also refuse.
 The composed host shares its live trust revision with proxy and backend admission. The protected policy proposal publisher refreshes the same projection under the shared brain lock before reporting updated; qualified turn preparation refreshes it too. A synchronous anchored trust-list check refuses stale disk/projection matches during that refresh gap. Invalid policy retains last-valid rules with an error. Ordinary turn budgets, commands and profiles retain their admitted snapshots.
 
+`OriginTrust.refresh` returns without the brain lock when the observed policy hash equals the durable projection's hash and the projection carries no error; otherwise it queues the lock as before, cancellable on turn abort.
+
 The HTTP boundary admits at most 32 concurrent requests per principal and 256
 for the served brain, including lock waiters; excess requests return retryable
 `busy` (503) before joining another wait and recover as earlier requests finish.
@@ -6043,7 +6045,7 @@ approval changes are `safety_changed`, denied recipient/destination policy is
 client cancellation is `cancelled`. Their statuses are 403, 403, 503 and 499
 respectively; disconnected transports may have no response status. Inference/provider uploads, headers, streams and managed GitHub
 wire metering consume this result. `OriginTrust.refresh(signal?)` cancels a
-queued brain-lock acquisition on turn abort; it never releases another holder.
+queued brain-lock acquisition on turn abort; it never releases another holder. `OriginTrust.refresh` returns without the brain lock when the observed policy hash equals the durable projection's hash and the projection carries no error; otherwise it queues the lock as before, cancellable on turn abort.
 Turn startup rechecks abort before creating egress resources and normal turn
 teardown releases its own governed hold and concurrency slot.
 

@@ -159,7 +159,18 @@ export function createTrustSettings(options: {
     liveCache = { observation, base, value }; return value;
   };
   const live = { read: freshProjection, revision: () => freshProjection().revision,
-    refresh: (signal?: AbortSignal) => options.lock.withLock(BRAIN_LOCK_KEY, () => { signal?.throwIfAborted(); return refresh(); }, { signal }), subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
+    refresh: async (signal?: AbortSignal) => {
+      signal?.throwIfAborted();
+      try {
+        const value = observePolicy(), row = projection();
+        // A missing row's synthetic empty projection is not durable proof.
+        const exists = options.db.query("SELECT 1 FROM trust_settings_projection WHERE brain_id=?").get(brain) !== null;
+        if (value.kind === "valid" && exists && row.error === null && row.policyHash === value.policyHash) return freshProjection();
+      } catch (error) {
+        if (!(error instanceof TrustSettingsError) || error.code !== "stale_revision") throw error;
+      }
+      return options.lock.withLock(BRAIN_LOCK_KEY, () => { signal?.throwIfAborted(); return refresh(); }, { signal });
+    }, subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
   const refresh = async (): Promise<Projection> => {
     const old = projection(), value = observePolicy();
     if (value.kind === "unavailable") {
