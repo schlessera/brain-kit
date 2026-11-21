@@ -144,13 +144,14 @@ export const INGESTION_DETECTOR_MANIFEST = {
 
 function fileSignals(path: string, brainPath: string | undefined, marked: MarkedLookup | undefined,
   detector: "tool_file_input" | "tool_search_output"): IngestionSignal[] {
-  if(Buffer.byteLength(path)>1024)throw new Error("Safety path capacity exceeded");
+  if(Buffer.byteLength(path)>1024)return [{source:"legacy_unknown",detector,key:"unknown_path"}];
   const normalized = posix.normalize(path), result: IngestionSignal[] = [];
   const area = pathSource(normalized, brainPath);
   if (area) result.push({ source: area, detector, key: normalized });
   const relative = brainRelative(normalized, brainPath);
   // A workspace/staged/attachment signal must never hide the explicit mark.
-  if (relative !== null && marked?.(relative)) result.push({ source: "user_marked", detector: "explicit_untrusted_input", key: relative });
+  try{if (relative !== null && marked?.(relative)) result.push({ source: "user_marked", detector: "explicit_untrusted_input", key: relative });}
+  catch{result.push({source:"legacy_unknown",detector,key:"unknown_mark"});}
   return result;
 }
 
@@ -166,8 +167,11 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
     const object=input&&typeof input==="object"?input as Record<string,unknown>:{};
     const keys=source==="web_fetch"?["url","urls"]:["query","queries","claim"];
     const values=keys.flatMap(key=>typeof object[key]==="string"?[object[key] as string]:Array.isArray(object[key])?(object[key] as unknown[]).filter((v):v is string=>typeof v==="string"):[]);
-    if(values.length>256||values.some(value=>Buffer.byteLength(value)>2048))throw new Error("Safety web input capacity exceeded");
-    return [...new Set(values.length?values:["unknown_input"])].map(key=>({source,detector:"tool_web_input" as const,key}));
+    const incomplete=values.length>256||values.some(value=>Buffer.byteLength(value)>2048);
+    const kept=values.slice(0,incomplete?255:256).filter(value=>Buffer.byteLength(value)<=2048);
+    const result:IngestionSignal[]=[...new Set(kept.length?kept:["unknown_input"])].map(key=>({source,detector:"tool_web_input" as const,key}));
+    if(incomplete)result.push({source:"legacy_unknown",detector:"tool_web_input",key:"unknown_remainder"});
+    return result;
   }
   const detector = source === "compute_output" ? "compute_input" : source === "chat_attachment" ? "attachment_input"
       : source === "mcp_document" ? "external_mcp_input" : "unproxied_shell_input";
@@ -197,13 +201,15 @@ export function searchOutputComplete(output:string,status:InputSafetyOutputStatu
 
 export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup, context?: SearchOutputContext): IngestionSignal[] {
   if (!SEARCH_TOOLS.has(tool)) return [];
-  if(Buffer.byteLength(output)>1048576)throw new Error('Safety search output capacity exceeded');
-  const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=context?.outputComplete===false;
+  const oversized=Buffer.byteLength(output)>1048576;
+  if(oversized)output=Buffer.from(output.slice(0,1048576)).subarray(0,1048576).toString('utf8');
+  const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=oversized||context?.outputComplete===false;
   const add=(path:string)=>{
     if(!path||path.includes('\0')){unknown=true;return;}
     for(const signal of fileSignals(path,brainPath,marked,'tool_search_output')){
+      if(signal.source==='legacy_unknown'){unknown=true;continue;}
       const key=JSON.stringify([signal.detector,signal.key]);if(seen.has(key))continue;
-      if(result.length>=256)throw new Error('Safety search signal capacity exceeded');seen.add(key);result.push(signal);
+      if(result.length>=255){unknown=true;continue;}seen.add(key);result.push(signal);
     }
   };
   const content=(text:string,numbers:boolean)=>{
@@ -213,7 +219,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
       // No line numbers: every colon could separate the filename and content.
       // With numbers: lookahead preserves overlapping `:2:7:` candidates.
       for(const split of line.matchAll(numbers?/(?=:[1-9][0-9]*:)/g:/(?=:)/g)){
-        if(count++>=256)throw new Error('Safety search candidate capacity exceeded');const path=line.slice(0,split.index);contentPaths.add(path);add(path);
+        if(count++>=256){unknown=true;break;}const path=line.slice(0,split.index);contentPaths.add(path);add(path);
       }
       if(count!==1)unknown=true;
     }
@@ -235,17 +241,19 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     // filename as JSON; preserve known paths and retain boundary uncertainty.
     if(output.length){
       unknown=true;
-      const lines=output.split('\n');
-      if(lines.length>256)throw new Error('Safety display candidate capacity exceeded');
-      for(const line of lines)if(line)add(line);
+      const allLines=output.split('\n'),lines=allLines.slice(0,256);
+      // Literal filenames are candidates only in filename mode. Match text
+      // is not a filename and must not consume the path budget.
+      const filenames=tool==='Glob'||context.outputMode==='files_with_matches';
+      if(filenames)for(const line of lines)if(line)add(line);
       let candidates=0;
-      joins:for(let span=2;span<=lines.length;span++)for(let start=0;start+span<=lines.length;start++){
+      joins:for(let span=2;filenames&&span<=lines.length;span++)for(let start=0;start+span<=lines.length;start++){
           if(++candidates>4096)break joins;
           const joined=lines.slice(start,start+span).join('\n');if(Buffer.byteLength(joined)>1024)continue;
           const relative=brainRelative(joined,brainPath);
-          if(relative!==null&&marked?.(relative))add(joined);
+          try{if(relative!==null&&marked?.(relative))add(joined);}catch{unknown=true;}
       }
-      if(context.outputMode==='content')content(output,context.lineNumbers!==false);
+      if(context.outputMode==='content')content(lines.join('\n'),context.lineNumbers!==false);
       if(context.outputMode==='count')for(const line of lines){const split=/:([1-9][0-9]*)$/.exec(line);if(split)add(line.slice(0,split.index));}
     }
   }else if(tool==='grep'&&(context===undefined||context.backendId==='pi')){
@@ -314,7 +322,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
       if(value.numMatches!==undefined&&value.numMatches!==matches)unknown=true;
     }
   }else unknown=true;
-  if(unknown){if(result.length>=256)throw new Error('Safety search signal capacity exceeded');result.push({source:'legacy_unknown',detector:'tool_search_output',key:'unknown_remainder'});}
+  if(unknown){result.push({source:'legacy_unknown',detector:'tool_search_output',key:'unknown_remainder'});}
   return result;
 }
 

@@ -164,3 +164,17 @@ test('Claude display filenames preserve both workspace and mark evidence indepen
   expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source).sort(),'DISPLAY_PATH_RETAINS_ALL_INDEPENDENT_SIGNALS').toEqual(['legacy_unknown','user_marked','workspace_read']);
  }finally{recorder.finish('success');db.close();}
 });
+
+for(const mode of ['content','count'] as const)test(`Claude fallback recorder retains a mark from a long ${mode} row without abort`,async()=>{
+ const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');const db=createUiDb(':memory:'),sessionId='voyage-long-display',aborted:Error[]=[];
+ db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES(?,0,0)").run(sessionId);untrustedMarkOperations(db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
+ const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);},abort:error=>aborted.push(error)},{turnId:'long-display',sessionId,profile:'governed'});
+ try{
+  const text=mode==='content'?`notes/loom.md:7:${'s'.repeat(1100)}`:`notes/loom.md:${'7'.repeat(1100)}`;
+  recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'long_grep',toolName:'Grep'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'long_grep',toolName:'Grep',input:{pattern:'sirens',output_mode:mode}});
+  for(const frame of adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'long_grep',content:[{type:'text',text}]}]}} as never))if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId});
+  expect(aborted,'LONG_MATCH_TEXT_IS_NOT_A_FATAL_FILENAME').toEqual([]);
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(event=>event.payload.source).sort(),'LONG_ROW_PRESERVES_MARK_AND_UNKNOWN').toEqual(['legacy_unknown','user_marked']);
+ }finally{recorder.finish('success');db.close();}
+});

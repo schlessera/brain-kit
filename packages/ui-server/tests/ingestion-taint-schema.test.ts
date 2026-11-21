@@ -124,3 +124,13 @@ for(const filename of ['123','{"durationMs":1,"numFiles":0,"filenames":[],"trunc
 test('exactly empty display fallback has no ambiguous filename bytes',()=>{
  expect(outputTaintSignals('Glob','',undefined,()=>false,{displayOnly:true,backendId:'claude'})).toEqual([]);
 });
+
+for(const mode of ['content','count'] as const)test(`display Grep ${mode} guards parsed paths rather than match text`,()=>{
+ const output=mode==='content'?`notes/loom.md:7:${'s'.repeat(1100)}`:`notes/loom.md:${'7'.repeat(1100)}`;
+ const signals=outputTaintSignals('Grep',output,undefined,path=>path==='notes/loom.md',{displayOnly:true,backendId:'claude',outputMode:mode,lineNumbers:true});
+ expect(signals.map(signal=>signal.source).sort(),'LONG_CONTENT_RETAINS_MARK_AND_UNKNOWN').toEqual(['legacy_unknown','user_marked']);
+});
+test('unparseable oversized candidates retain independent later marks without throwing',()=>{
+ const signals=outputTaintSignals('Grep',`${'x'.repeat(1100)}:1:echo\nnotes/loom.md:2:sirens`,undefined,path=>path==='notes/loom.md',{displayOnly:true,backendId:'claude',outputMode:'content',lineNumbers:true});
+ expect(signals.map(signal=>signal.source).sort()).toEqual(['legacy_unknown','user_marked']);
+});

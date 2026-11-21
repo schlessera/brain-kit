@@ -256,12 +256,14 @@ test("imported and legacy provisional histories remain unknown after new detecto
  expect(f.writes.safety(null,"imported").restriction).toBe("restricted");
  }finally{await f.close();}});
 
-test("detector overflow stops collection rather than silently truncating later paths",async()=>{
+test("detector overflow retains bounded known paths plus an unknown remainder",async()=>{
  const f=fixture();try{const {collector}=await fresh(f);
  await collector.begin("many","Grep",{path:"notes"});
  const output=JSON.stringify({numFiles:257,filenames:Array.from({length:257},(_,i)=>`workspaces/voyage/map-${i}.md`)});
- await expectRejection(collector.result("many","Grep",output,true),"signal capacity");
- expect(f.writes.safety(null,"ithaca").reasons,"SAFETY_DETECTOR_OVERFLOW_LATCHED").toContain("recording_failed");
+ await collector.result("many","Grep",output,true);
+ const recorded=f.db.query("SELECT source FROM safety_records WHERE kind='occurrence'").all() as {source:string}[];expect(recorded.filter(row=>row.source==="workspace_read")).toHaveLength(255);expect(recorded.filter(row=>row.source==="legacy_unknown")).toHaveLength(1);
+ expect(f.writes.safety(null,"ithaca").restriction).toBe("restricted");
+ expect(f.writes.safety(null,"ithaca").reasons,"DETECTOR_LIMIT_IS_UNKNOWN_NOT_RECORDING_LOSS").not.toContain("recording_failed");
  }finally{await f.close();}});
 
 test("Claude delivery hooks await real SQLite commits before tool contact and result delivery, and refuse recorder loss",async()=>{
@@ -335,13 +337,15 @@ test("a clean search input cannot suppress mixed JSON paths, an explicit mark or
  expect(triggers(f).map(r=>(r.payload as {source:string}).source),"SAFETY_CLEAN_INPUT_CANNOT_HIDE_UNTRUSTED_JSON_OUTPUT").toEqual(["workspace_read","user_marked","legacy_unknown"]);
  }finally{await f.close();}});
 
-test("an unsupported recorder stops and persists a gap when input detection exceeds its bound",async()=>{
+test("a display recorder retains unknown without aborting when an input path exceeds its bound",async()=>{
  const f=fixture();try{await fresh(f);
  const {createTurnRecorder}=await import("../src/activity/recorder"),{createActivityStore}=await import("../src/activity/store");let stopped:Error|undefined;
- const recorder=createTurnRecorder({store:createActivityStore(f.db,{writer:"test"}),governanceDb:f.db,governanceWrites:f.writes,governance:event=>f.writes.record(event),abort:error=>{stopped=error;}},{turnId:"voyage",sessionId:"ithaca",profile:"governed"});
+ const recorder=createTurnRecorder({store:createActivityStore(f.db,{writer:"test"}),governanceDb:f.db,governanceWrites:f.writes,governance:event=>f.writes.record(event),abort:error=>{stopped=error;}},{turnId:"display-limit",sessionId:"ithaca",profile:"governed"});
  recorder.observeFrame({type:"tool_use_complete",sessionId:"ithaca",toolUseId:"too-long",toolName:"Read",input:{file_path:`workspaces/${"x".repeat(1024)}.md`}});
- expect(stopped?.message,"SAFETY_FALLBACK_DETECTOR_OVERFLOW_STOPS_TURN").toContain("detection failed");
- await recorder.settled();expect(f.writes.safety(null,"ithaca").reasons).toContain("recording_failed");
+ recorder.observeFrame({type:"tool_result",sessionId:"ithaca",toolUseId:"too-long",output:"",isError:false});
+ await recorder.settled();expect(stopped,"UNPARSEABLE_INPUT_DOES_NOT_ABORT_THE_TURN").toBeUndefined();
+ expect(triggers(f).some(row=>(row.payload as {source:string}).source==="legacy_unknown")).toBe(true);expect(f.writes.safety(null,"ithaca").restriction).toBe("restricted");
+ recorder.finish("success");
  }finally{await f.close();}});
 
 test("an imported provisional alias binds its actual owner and generation without inventing complete past coverage",async()=>{
@@ -602,11 +606,12 @@ test('Pi empty output never suppresses an independent untrusted input signal',as
  }finally{await f.close();}
 });
 
-test('excessive grep delimiter ambiguity refuses recording and retains a durable gap',async()=>{
+test('excessive grep delimiter ambiguity records an unknown remainder without a recording gap',async()=>{
  const f=fixture();try{const {collector}=await fresh(f,'voyage','ithaca','pi');
  await collector.begin('bounded_search','grep',{path:'.',pattern:'sirens'});
- await expectRejection(collector.result('bounded_search','grep',`notes/voyage${':1'.repeat(300)}:sirens`,true),'Safety search candidate capacity exceeded','SEARCH_AMBIGUITY_CAPACITY_STOPS_RECORDING');
- expect(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({failure:'recording_failed'});
+ await collector.result('bounded_search','grep',`notes/voyage${':1'.repeat(300)}:sirens`,true);
+ expect(triggers(f).map(row=>(row.payload as {source:string}).source)).toEqual(['legacy_unknown']);
+ expect(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({failure:null});
  expect(f.writes.safety(null,'ithaca').restriction).toBe('restricted');
  }finally{await f.close();}
 });
