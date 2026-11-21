@@ -248,4 +248,6 @@ six intact core definitions changing order on the first resume: the selected
 graph moves before the other five, after the SDK bridge definitions.
 Qualification asserts that exact ordering and every definition's bytes; the
 strict tool guard rejects the reorder. This remains evidence against enablement, not a guard
-exception. Tool search stays off pending the maintainer's startup ruling.
+exception. The maintainer keeps tool search off in #4319. Follow-up #4325
+registers static host bridge definitions and forwards execution to a per-turn
+sandboxed `brain mcp` process; enablement waits for that path's qualification.
