@@ -248,7 +248,14 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
     const own = await prepareClaudeTurnSandbox({ backend: options.backend, req, profile, turnEnvironment: claim.turnEnvironment });
     // The inventory gates the roster decision, not independent runtime or
     // route-input preparation. Join every owner before propagating a failure.
-    const sdkPreparation = buildSdkTurn(runner, claim, relay, own);
+    const sdkPreparation = buildSdkTurn(runner, claim, relay, own).then(turn => {
+      terminal.worker = { finishWorker: turn.finishWorker, workerFailure: turn.workerFailure,
+        workerStartFailure: turn.workerStartFailure };
+      // Once the roster decision is known, overlap brain startup with the
+      // remaining independent preparation too; cleanup already owns it.
+      turn.startBrainTools?.();
+      return turn;
+    });
     const runtimePreparation = (async () => {
       if (runtimeRequirements.length) {
         // Replaceable overrides are probed anew for BOTH new and resumed turns,
@@ -274,14 +281,11 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
         ? options.backend.brainPath : req.workerStartupView ?? options.backend.brainPath) : undefined;
     })();
     const [sdkResult, runtimeResult, routeResult] = await Promise.allSettled([sdkPreparation, runtimePreparation, routePreparation]);
-    if (sdkResult.status === "fulfilled") terminal.worker = { finishWorker: sdkResult.value.finishWorker,
-      workerFailure: sdkResult.value.workerFailure, workerStartFailure: sdkResult.value.workerStartFailure };
     if (sdkResult.status === "rejected") throw sdkResult.reason;
     if (runtimeResult.status === "rejected") throw runtimeResult.reason;
     if (routeResult.status === "rejected") throw routeResult.reason;
     const sdkTurn = sdkResult.value, probedVersion = runtimeResult.value;
 
-    sdkTurn.startBrainTools?.();
     frames.stateRoom = sdkTurn.workerStateRoom;
     archiveEnv = sdkTurn.options.env;
     limits.limits = sdkTurn.workerLimits;
