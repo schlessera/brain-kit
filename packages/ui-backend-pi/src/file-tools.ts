@@ -69,15 +69,16 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       });
       const onAbort = () => killWrapped(proc, exec);
       signal?.addEventListener("abort", onAbort, { once: true });
-      const [outBytes,stderrBytes,exitCode]=await Promise.all([new Response(proc.stdout).arrayBuffer(),new Response(proc.stderr).arrayBuffer(),proc.exited]);
+      const stderrPresent=(async()=>{let present=false;for await(const chunk of proc.stderr)if(chunk.byteLength)present=true;return present;})();
+      const [outBytes,stderr,exitCode]=await Promise.all([new Response(proc.stdout).arrayBuffer(),stderrPresent,proc.exited]);
       // A leading BOM can be part of a POSIX filename, not stream metadata.
       const decoder=new TextDecoder("utf-8",{ignoreBOM:true});
-      const out=decoder.decode(outBytes),stderr=decoder.decode(stderrBytes);
+      const out=decoder.decode(outBytes);
       signal?.removeEventListener("abort", onAbort);
       // Keep an unambiguous machine boundary in host-only result details.
       // POSIX filenames may contain newlines, colons and edge whitespace.
       // This changes result data only; provider tool definitions stay identical.
-      const empty=exitCode===1&&out.length===0&&stderr.length===0;
+      const empty=exitCode===1&&out.length===0&&!stderr;
       const frame=empty?"No matches.":out.replaceAll("\0", ":\0")||"Search output unavailable.";
       const rawText=frame.replaceAll("\0", ""),text=rawText.trim();
       const visibleText=clip(text),displayTruncated=text.length>MAX_OUTPUT_BYTES;
@@ -95,7 +96,7 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       const bytes=Buffer.from(frame.slice(0,end)),frameClipped=bytes.length>1048576;
       // Leave room for a decoder replacement if the byte cut splits UTF-8.
       const framedOutput=frameClipped?bytes.subarray(0,1048573).toString('utf8'):frame.slice(0,end);
-      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr:stderr.length>0,truncated:displayTruncated||frameClipped,framedOutput,visibleText}});
+      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr,truncated:displayTruncated||frameClipped,framedOutput,visibleText}});
     },
   } satisfies ToolDefinition;
 }

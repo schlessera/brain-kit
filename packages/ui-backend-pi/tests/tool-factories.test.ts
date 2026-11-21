@@ -207,3 +207,13 @@ test('grepTool prefixes a single file operand with its exact filename',async()=>
   expect((result.details as {search:{framedOutput:string}}).search.framedOutput,'EXACT_FILENAME_FRAME_IS_HOST_ONLY').toBe(old.replace(':3:',':\0'+'3:')+'\n');
   expect(resultText(result)).not.toContain('\0');
  });
+
+test('grep diagnostics drain without whole-stream buffering',async()=>{
+ const original=Response.prototype.arrayBuffer;let allocations=0;
+ Response.prototype.arrayBuffer=function(){allocations++;return original.call(this);};
+ try{
+  const result=await run(grepTool(kit({exec:{}})),{pattern:'['});
+  expect((result.details as {search:{stderr:boolean}}).search.stderr).toBe(true);
+  expect(allocations,'ONLY_STDOUT_MAY_ALLOCATE_THE_WHOLE_STREAM').toBe(1);
+ }finally{Response.prototype.arrayBuffer=original;}
+});

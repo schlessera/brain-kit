@@ -706,3 +706,16 @@ test('Pi grep preserves a BOM-prefixed directory in the host filename evidence',
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all()).toEqual([{source:'user_marked',detector:'explicit_untrusted_input'}]);
  }finally{await f.close();}
 });
+
+for(const shape of ['truncated','malformed'] as const)test(`extraction withholds relaxation after Claude Glob ${shape} without status`,async()=>{
+ const f=await voyage();try{
+  const {createTurnExtraction}=await import('../src/brain/turn-extraction');
+  const extraction=createTurnExtraction({bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:f.collector},origin:'interactive',sessionId:()=>null,tainted:()=>true,contacted:new Set(),cause:()=>null,brainPath:f.brain});
+  const wrapped=extraction.inputSafety(f.collector)!;
+  await wrapped.begin('glob','Glob',{pattern:'notes/*.md'});
+  const output=shape==='truncated'?JSON.stringify({filenames:['notes/loom.md'],numFiles:1,durationMs:1,truncated:true}):'{"filenames":[';
+  await wrapped.result('glob','Glob',output,true);
+  await wrapped.begin('fetch','WebFetch',{url:'https://aeaea.invalid/notice'});
+  expect(extraction.relaxes('aeaea.invalid'),'UNKNOWN_SIGNALS_WITHHOLD_EXTRACTION_RELAXATION').toBe(false);
+ }finally{await f.close();}
+});

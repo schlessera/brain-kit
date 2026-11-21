@@ -191,8 +191,10 @@ export function createTurnExtraction(options: {
       // Content from anywhere the host cannot vouch for: a fetch, a command
       // (its connections taint the session at the proxy), another MCP server,
       // an untrusted area or a marked file.
-      const tainting = !localTool(tool) || inputTaintSignals(tool, input, options.brainPath, options.marked, true).length > 0
-        || outputTaintSignals(tool, output, options.brainPath, options.marked, {...searchOutputContext(tool,input),outputComplete}).length > 0;
+      const signals=[...inputTaintSignals(tool,input,options.brainPath,options.marked,true),
+        ...outputTaintSignals(tool,output,options.brainPath,options.marked,{...searchOutputContext(tool,input),outputComplete})];
+      if(signals.some(signal=>signal.source==="legacy_unknown"))current.complete=false;
+      const tainting = !localTool(tool) || signals.length > 0;
       if (tainting) current.tainting(namedHosts(output));
     } catch { state.complete = false; }
   };
