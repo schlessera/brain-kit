@@ -23,7 +23,7 @@ export async function measureAdmissionJoin(directory: string, samples = 5) {
       const proxy = await prepareTurnEgress({ policy: resolveGovernancePolicy({ schema_version: 1 }), controller,
         turnId: `voyage-${hold}-${delayMs}-${sample}`, sessionId: () => null, model: () => "odysseus", origin: "interactive", profile: "governed",
         bridge: { emit() {}, requestPermission: async () => ({ behavior: "deny" }) } as unknown as BackendBridge,
-        record(event) { if (event.kind === "egress_connection") records.push(event.payload); return writes.record(event); } });
+        record(event) { if (event.kind === "egress_connection") records.push(event.payload as EgressRecord); return writes.record(event); } });
       const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: {}, egress: {
         inference(...args) {
           requestReceivedAt = performance.now();
