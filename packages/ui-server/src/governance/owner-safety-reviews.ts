@@ -15,6 +15,8 @@ function epoch(p: Principal, brainKey: string): SafetyReviewAuthority {
 }
 
 export class OwnerSafetyReviews {
+  private trust?: import("../brain/trust-settings.js").TrustSettings;
+  enableFutureRules(trust: import("../brain/trust-settings.js").TrustSettings) { this.trust = trust; }
   private readonly pending = new Map<string, number>();
   constructor(private readonly db: Database, private readonly writes: GovernanceWrites, private readonly mode: AuthMode, private readonly brainKey: string) {}
 
@@ -25,7 +27,7 @@ export class OwnerSafetyReviews {
   }
   capabilities(principal: Principal): SafetyCapabilities {
     const review = this.authorized(principal);
-    return { ...SAFETY_READ_CAPABILITIES, review, readOnlyReason:review ? null : "owner_required",
+    return { ...SAFETY_READ_CAPABILITIES, review, originRules: review && !!this.trust, recipientRules: review && !!this.trust, readOnlyReason:review ? null : "owner_required",
       limits:{ ...SAFETY_READ_CAPABILITIES.limits, reviewBodyBytes:16384, reviewLifetimeMs:900000, receiptLifetimeMs:86400000 } };
   }
   private current(principal: Principal, body: SafetyReviewBody) {

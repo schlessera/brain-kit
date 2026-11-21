@@ -1,3 +1,7 @@
+import {createTrustSettings} from '../../../ui-server/src/brain/trust-settings.js';
+import {createKeyedLock} from '@schlessera/brain-ui-sdk/server';
+import {CombinedSafetyReviews} from '../../../ui-server/src/governance/combined-safety-reviews.js';
+import {createOwnerSafetyReviewRoutes} from '../../../ui-server/src/routes/owner-safety-review.js';
 /** Keyless loopback browser fixture: real writer, owner HTTP and WS sidecars. */
 import {occurrence} from '../../../ui-server/src/governance/occurrence.js';
 import {retireChat} from '../../../ui-server/src/ws/chat-lifecycle.js';
@@ -20,18 +24,28 @@ const app=new Hono<AppEnv>();
 // Test-only bootstrap supplies the fixture principal to a real WS host. HTTP
 // mutations below still traverse the actual cookie/Origin/owner route stack.
 app.get('/ws',async(c,next)=>{c.set('principal',f.principal);return next();},createWsUpgrade(f.host));
+const trust=createTrustSettings({root:f.root,db:f.db,writer:f.writer,lock:createKeyedLock(),originEnforcement:true,
+ authority:id=>id===f.principal.id&&f.reviews!.authorized(f.principal)?'owner-epoch':null,observe:async(_id,write)=>{await write();}});
+f.reviews!.enableFutureRules(trust);
+const combined=new CombinedSafetyReviews(f.db,f.reviews!,trust);
+const futureApp=new Hono<AppEnv>();futureApp.use('*',async(c,next)=>{c.set('principal',f.principal);await next();});
+futureApp.route('/api',createOwnerSafetyReviewRoutes(f.reviews!,false,combined));
 const inner=f.url.replace('ws:','http:').replace('/ws','');let commits=0,prepares=0;
 app.post('/fixture',async c=>{
  const input=await c.req.json();
  if(input.action==='request'){
-  if(typeof input.path!=='string'||!/^\/api\/sessions\/ithaca\/safety\/reviews\/(prepare|[A-Za-z0-9_-]+\/commit)$/.test(input.path))return c.json({error:'invalid fixture route'},400);
-  if(input.path.endsWith('/commit'))commits++;else prepares++;
-  const response=await fetch(inner+input.path,{method:'POST',headers:{cookie:f.cookie,origin:inner,'content-type':'application/json'},body:input.body});
+  if(typeof input.path!=='string'||!/^\/api\/sessions\/ithaca\/safety\/reviews\/(prepare|future\/(prepare|commit|status)|[A-Za-z0-9_-]+\/commit)$/.test(input.path))return c.json({error:'invalid fixture route'},400);
+  if(input.path.endsWith('/commit'))commits++;else if(input.path.endsWith('/prepare'))prepares++;
+  const response=input.path.includes('/future/')?await futureApp.request(inner+input.path,{method:'POST',headers:{origin:inner,'content-type':'application/json'},body:input.body}):await fetch(inner+input.path,{method:'POST',headers:{cookie:f.cookie,origin:inner,'content-type':'application/json'},body:input.body});
   return c.json({status:response.status,body:await response.json()});
  }
  if(input.action==='retire'){
   const result=retireChat(f.db,{operationId:'odysseus-retire',principalId:f.principal.id,target:{sessionId:'ithaca'},expected:{backendId:'claude',generation:1},removableBackends:['claude'],at:Date.now()});
   if(result.status!=='retired')throw new Error('Fixture retirement failed');f.host.chatRetired(f.principal.id,result);return c.json({retired:true,commits,prepares});
+ }
+ if(input.action==='add_verified'){
+ const o=occurrence(f.bindingId,'proxy_input',null,'finalized');o.provenance={kind:'web_origin',origin:{scheme:'https',host:'ithaca.invalid',port:443},verifiedBy:'host_transport'};
+ await observedWrites.record({kind:'taint',sessionId:'ithaca',turnId:'voyage',actor:'interactive',model:null,profile:'governed',payload:{source:'egress_connection',tool:'shell',detail:null,occurrence:o}});
  }
  if(input.action==='add')await tool(input.id??'tool_d',input.finalized!==false);
  if(input.action==='prune')pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);

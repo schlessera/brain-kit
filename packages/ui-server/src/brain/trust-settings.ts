@@ -39,12 +39,12 @@ type LiveProjection = Projection & { readonly ruleInstances: Readonly<Record<str
 /** Kept off every strict Settings JSON response; captured atomically with its projection. */
 const withInstances = (projection:Projection,instances:Readonly<Record<string,string>>):LiveProjection =>
   Object.defineProperty(projection,"ruleInstances",{value:Object.freeze(instances),enumerable:false}) as LiveProjection;
-interface Receipt {
+export interface Receipt {
   version: 1; requestId: string; operationId: string; stage: "prepared" | "file_published" | "committed" | "partial" | "unknown" | "refused";
   publication: "not_published" | "proved" | "unknown"; ruleId: string; publishedTrustRevision: string | null;
   currentRule: "present" | "removed" | "changed" | "unknown"; enforcement: "unavailable" | "enforced"; reason: string | null;
 }
-interface Payload { input: Prepare; reviewId: string; proposed: string; proposedHash: string; base: string | null; topology: string; rule: TrustRule | null; githubIdentity?: TrustGitHubIdentity }
+interface Payload { input: Prepare; reviewId: string; proposed: string; proposedHash: string; base: string | null; topology: string; rule: TrustRule | null; githubIdentity?: TrustGitHubIdentity; safetyReview?: { body: import("@schlessera/brain-ui-sdk/protocol").SafetyReviewBody; requestId: string } }
 interface Row { principal_id: string; brain_id: string; authority: string; expires_at: number; retain_until: number; payload: string; stage: string; proof: string | null; receipt: string }
 const topology = (root: string) => [root, join(root, "context"), join(root, "context/policies"), join(root, "context/policies/governance.md")].map((path, i) => {
   const stat = lstatSync(path, { throwIfNoEntry: false });
@@ -213,6 +213,8 @@ export function createTrustSettings(options: {
   };
   return {
     live,
+    /** Internal binding; ordinary Settings commits cannot publish a combined review. */
+    safetyReview(principal: string, request: string) { return (JSON.parse(row(principal, request).payload) as Payload).safetyReview; },
     /** The other protected publisher already owns the shared brain lock. */
     refreshLocked: refresh,
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
@@ -230,7 +232,7 @@ export function createTrustSettings(options: {
     async list(principal: string) { authority(principal); const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh); authority(principal);
       return { ...p, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
     read,
-    async prepare(principal: string, raw: unknown, signal?: AbortSignal) {
+    async prepare(principal: string, raw: unknown, signal?: AbortSignal, safetyReview?: Payload["safetyReview"]) {
       const auth = authority(principal), input = TrustPrepareSchema.parse(raw);
       if (process.platform !== "linux") throw new TrustSettingsError("unavailable", 503);
       // Names/IDs supplied by browsers cannot create repository identity proof.
@@ -263,7 +265,7 @@ export function createTrustSettings(options: {
         }
         if (Buffer.byteLength(JSON.stringify({ base, proposed, diff: exactDiff(base, proposed) })) > 196608) throw new TrustSettingsError("capacity", 503);
         const payload: Payload = { input, reviewId: id(), proposed, proposedHash: hash(proposed), base, topology: identity,
-          rule: change.action === "remove" ? null : change.rule, ...(githubIdentity ? { githubIdentity } : {}) };
+          rule: change.action === "remove" ? null : change.rule, ...(safetyReview ? { safetyReview } : {}), ...(githubIdentity ? { githubIdentity } : {}) };
         const receipt: Receipt = { version: 1, requestId, operationId, stage: "prepared", publication: "not_published", ruleId,
           publishedTrustRevision: null, currentRule: "unknown", enforcement: "unavailable", reason: null };
         const inserted = await call<string>("insert", { requestId, brainId: brain, principalId: principal, authority: auth, expires: now() + 900000, retain: now() + 86400000,
@@ -273,10 +275,11 @@ export function createTrustSettings(options: {
       });
       return read(principal, request);
     },
-    async commit(principal: string, raw: unknown, signal?: AbortSignal) {
+    async commit(principal: string, raw: unknown, signal?: AbortSignal, safety?: { binding: NonNullable<Payload["safetyReview"]>; check(): void }) {
       const input: Commit = TrustCommitSchema.parse(raw); row(principal, input.requestId);
       await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
         const r = row(principal, input.requestId), payload = JSON.parse(r.payload) as Payload;
+        if (JSON.stringify(payload.safetyReview) !== JSON.stringify(safety?.binding)) throw new TrustSettingsError("request_conflict");
         if (payload.reviewId !== input.reviewId || payload.proposedHash !== input.reviewedBytesHash) throw new TrustSettingsError("request_conflict");
         if (r.stage !== "prepared") return; // Readback only, including uncertain writes.
         if (r.expires_at < now()) throw new TrustSettingsError("request_expired");
@@ -297,6 +300,7 @@ export function createTrustSettings(options: {
           let identityAuthority: (() => void) | undefined;
           const check = () => { signal?.throwIfAborted();
             if (!publicationOpen) throw new TrustSettingsError("publication_failed");
+            safety?.check();
             row(principal, input.requestId); identityAuthority?.(); if (r.expires_at < now()) throw new TrustSettingsError("request_expired");
             if (!matchesTopology(root, payload.topology, true)) throw new TrustSettingsError("stale_base");
             verifyGovernancePolicyAnchored(target!, p.policyHash); };

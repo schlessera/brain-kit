@@ -223,3 +223,27 @@ for(const width of [320,1280])for(const theme of ['light','dark'])for(const tunn
  flushSync(()=>ui!.stores.safety.setState({records}));const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getAttribute('aria-label')?.startsWith('Trusted at admission'))!;await userEvent.click(indicator);
  const expected=tunnel?'[::1]:443':'http://[::1]:8080';await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent,{message:'IPV6_HISTORY_BRACKETS_THE_EXACT_AUTHORITY'}).toContain(expected);
 });
+
+for(const width of [320,1280])for(const allow of [false,true])test(`${width}: future origin review, recipient ${allow}, exact bytes then A only and reload`,async()=>{
+ await scene(width,'light');await patch({action:'add_verified'});
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
+ const mark=section().querySelector<HTMLElement>('[role=button],button')!;await userEvent.click(mark);
+ const only=section().querySelector<HTMLInputElement>('input[type=radio]')!;expect(only.parentElement!.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);expect(only.checked,'COMBINED_DEFAULT_ONLY_THIS_TRIGGER').toBe(true);
+ await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));
+ const recipient=page.getByRole('checkbox',{name:'Allow sending data while restricted'});
+ await expect.element(recipient).not.toBeChecked();
+ if(allow)await userEvent.click(recipient);
+ await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));
+ await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();
+ expect(section().textContent).toContain('ithaca.invalid');expect((await patch()).commits).toBe(0);
+ await userEvent.click(page.getByRole('button',{name:allow?'Save rule, allow sending while restricted, and mark this trigger safe':'Save future source rule and mark this trigger safe',exact:true}));
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
+ expect((await patch()).decisions).toHaveLength(1);
+ expect(document.body.textContent).not.toContain('Normal policy restored');
+ await disposeView();await view();
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent).toContain('Future rule: present');
+ expect((await patch()).commits,'COMBINED_RELOAD_STATUS_NEVER_REPLAYS').toBe(1);
+});

@@ -1,3 +1,4 @@
+import { CombinedSafetyReviews } from "./governance/combined-safety-reviews.js";
 import { createTrustSettings } from "./brain/trust-settings.js";
 import { createTrustSettingsRoutes } from "./routes/trust-settings.js";
 import { createTrustGitHubIdentity } from "./brain/trust-github-identity.js";
@@ -1295,7 +1296,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // which a client reads as a host too old to answer (#964).
   if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));
   app.route("/api", createSessionSafetyRoutes(safetyHistory,principal=>host.isPrincipalValid(principal)));
-  app.route("/api", createOwnerSafetyReviewRoutes(ownerSafetyReviews,auth.trustProxy));
+
   app.route("/api", createPolicyProposalRoutes(host));
   app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));
   app.route("/api", createDraftRoutes(drafts));
@@ -1349,6 +1350,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       return p?.kind === "owner" && ["password", "passkey"].includes(p.authMethod) && isUsablePrincipal(p, Date.now())
         ? JSON.stringify([p.id, p.authMethod, p.credentialId, p.createdAt, p.expiresAt]) : null;
     }, observe: (id, publish) => journal.observeSettingsPolicy(id, publish) });
+  ownerSafetyReviews.enableFutureRules(trustSettings);
+  app.route("/api", createOwnerSafetyReviewRoutes(ownerSafetyReviews,auth.trustProxy,new CombinedSafetyReviews(db,ownerSafetyReviews,trustSettings)));
   await trustSettings.snapshot();
   host.originTrust = trustSettings.live;
   host.safetyTrust = trustSettings.live;

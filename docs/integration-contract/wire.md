@@ -3360,3 +3360,39 @@ pins this choice alongside entry correlation; changing it requires a fresh
 snapshot. Older readers retain their strict record shape and conservative
 interpretation. New clients omit the field when the server capability is absent.
 HTTP readers explicitly opt in with `admissions=1`; repeated/invalid query values are refused. This affects host UI sidecars only; it never changes provider history.
+
+### Combined single-trigger and future-source review (#3611)
+
+When `safetyCapabilities.originRules` is true, a password-mode owner may
+POST `/api/sessions/:id/safety/reviews/future/prepare` with the individual
+review body plus `future: { incomingContent: true, recipientWhileRestricted:
+boolean }`. The recipient flag is independently chosen, off by default.
+Only finalized proxy occurrences with host-attested web-origin or explicitly
+labelled tunnel provenance qualify. Repository choices remain unavailable.
+The response binds a request ID, exact session/occurrence, the proposed policy
+bytes/diff, review ID and SHA-256 reviewed-bytes hash. Clients must display this
+review before POSTing `/future/commit` with `{ version: 1, requestId, reviewId,
+reviewedBytesHash }`. No caller-supplied selector, principal or historical range
+is accepted. Old clients retain the existing individual review endpoints.
+
+The protected Settings operation stores its original single-verdict handle
+before publication. Publication precedes that verdict; publication alone never
+resolves the occurrence. Responses distinguish `verdict_committed`, `partial`,
+`unknown` and `refused`, retain publication evidence and the original verdict
+receipt, and include separate live `currentProjection` and rule presence
+(`present`, `removed`, `changed`, `unknown`). A proved publication can resume
+only its original verdict request; unknown publication requires fresh review.
+Retries never republish a removed rule. All other recorded triggers, including
+later input from the same source, keep their identities and verdicts.
+
+Prepared reviews expire after 15 minutes, with existing 24-hour receipt
+retention and bounded Settings/verdict capacity. Existing live owner epoch,
+Origin/JSON, session generation, evidence revision and protected publication
+fences apply. Auth/session changes discard pending browser work without replay.
+These host sidecars never enter provider history.
+
+POST `/future/status` with `{ version: 1, session, occurrenceId }` reads the
+latest retained combined operation without publishing or committing a verdict.
+It returns the same result envelope, or null when no receipt is retained. The
+owner UI reads this after reload and on focus to show partial/unknown completion
+and current rule presence separately from the remaining-trigger projection.

@@ -1,3 +1,4 @@
+import type { SafetyFuturePrepared } from "@schlessera/brain-ui-sdk/protocol";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
@@ -112,13 +113,30 @@ function SafetyIndicator({entries:currentEntries}:{entries:SafetyEvidence[]}) {
 
 function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
   const root=useBrainUiRoot(),state=useStore(root.stores.safety),auth=useStore(root.authLock.state,s=>s.phase);
+  const [savedRule,setSavedRule]=useState<string|null>(null);
+  const [future,setFuture]=useState(false),[recipient,setRecipient]=useState(false),[prepared,setPrepared]=useState<SafetyFuturePrepared|null>(null);
   const [review,setReview]=useState(false),[progress,setProgress]=useState<SafetyReviewProgress|null>(null);
   const reviewer=useRef<ReturnType<typeof createSafetyReviewer>|null>(null);
   useEffect(()=>{const r=createSafetyReviewer(root,setProgress);reviewer.current=r;return ()=>{r.dispose();reviewer.current=null;};},[root]);
   useEffect(()=>{if(state.status!=="ready"||!state.capabilities?.review||auth!=="active")setReview(false);},[state.status,state.capabilities?.review,auth]);
+  useEffect(()=>{if(auth!=="active"){setPrepared(null);setProgress(null);setReview(false);}},[auth]);
   const r=entry.occurrence,session=state.identity&&"sessionId" in state.identity?state.identity:null;
   const readable=state.status==="ready"&&!!session,owner=state.capabilities?.review===true&&auth==="active";
+  const sessionKey=JSON.stringify(session);
+  useEffect(()=>{
+    if(!readable||!owner||!state.capabilities?.originRules||!session){setSavedRule(null);return;}
+    const controller=new AbortController();
+    const read=()=>void root.api.safetyFutureStatus({version:1,session,occurrenceId:r.id},controller.signal).then(result=>{
+      if(controller.signal.aborted)return;
+      if(!result){setSavedRule(null);return;}
+      const presence=result.rule.currentRule;
+      setSavedRule(`${result.stage==="prepared"?"Future rule prepared but not published; fresh review is required. ":result.stage==="partial"?"Rule publication proved; this trigger is still unresolved. ":result.stage==="unknown"?"Rule publication is unknown; fresh review is required. ":""}Future rule: ${presence}.`);
+    }).catch(()=>{if(!controller.signal.aborted)setSavedRule(previous=>previous?"Current future rule presence is unavailable.":null);});
+    read();window.addEventListener("focus",read);
+    return()=>{controller.abort();window.removeEventListener("focus",read);};
+  },[root,r.id,sessionKey,readable,owner,state.capabilities?.originRules,state.revision]);
   const canReview=readable&&owner&&entry.exposure==="finalized"&&!entry.decision&&!r.admission?.trusted&&!state.projection?.pendingCount&&!state.projection?.reasons.includes("recording_failed");
+  const futureAvailable=state.capabilities?.originRules===true&&r.detector==="proxy_input"&&!!r.provenance;
   const busy=progress?.stage==="pending",unknown=progress?.stage==="unknown";
   const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${formatAuthority(r.provenance.origin)}`:
     r.provenance?.kind==="tunnel_authority"?formatAuthority(r.provenance.authority):"Source provenance unavailable";
@@ -126,20 +144,26 @@ function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
     <p className="font-medium">{r.admission?.trusted?"Trusted at admission":entry.decision?"Marked safe by you":"Safety restrictions enabled"}</p>
     <p>{sources[r.source]} · <time dateTime={new Date(r.observedAt).toISOString()}>{new Date(r.observedAt).toLocaleString()}</time></p>
     <p>{r.summary}</p><p>{provenance}</p>
+    {savedRule&&<p role="status">{savedRule}</p>}
     {r.admission?.trusted&&<p>Source rule {r.admission.ruleId} · trust revision {r.admission.trustRevision}. This historical decision grants no current recipient permission.</p>}
     {r.detailPruned&&<p>Some source detail has expired. The trigger and any decision remain recorded.</p>}
     {entry.decision&&<p>Marked safe by you · <time dateTime={new Date(entry.decision.observedAt).toISOString()}>{new Date(entry.decision.observedAt).toLocaleString()}</time></p>}
     {!r.admission?.trusted&&!entry.decision&&entry.exposure!=="finalized"&&<p>{entry.exposure==="open"?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This trigger cannot be marked safe."}</p>}
     {!r.admission?.trusted&&!owner&&!entry.decision&&<p>Only the authenticated owner can mark this trigger safe.</p>}
     {!readable&&<p>Current evidence is unavailable or incomplete. Read it again before reviewing.</p>}
-    {canReview&&!review&&!progress&&<Button label="Mark as safe" reach onClick={()=>setReview(true)}/>}
+    {canReview&&!review&&!progress&&<Button label="Mark as safe" reach onClick={()=>{setReview(true);setFuture(false);setRecipient(false);setPrepared(null);}}/>}
     {review&&canReview&&!progress&&<div className="space-y-2" role="group" aria-label="Review safety decision">
-      <strong>Only this trigger</strong><p>Keep the original event and record your safe verdict for this trigger. Other triggers and incomplete coverage remain restrictive.</p>
-      <Button label="Mark this trigger as safe" reach onClick={()=>void reviewer.current?.markSafe(r.id)}/>
+      <label className="flex min-h-11 items-center gap-2"><input type="radio" name={`scope-${r.id}`} checked={!future} onChange={()=>setFuture(false)}/> Only this trigger</label>
+      {futureAvailable&&<label className="flex min-h-11 items-center gap-2"><input type="radio" name={`scope-${r.id}`} checked={future} onChange={()=>setFuture(true)}/> {r.provenance?.kind==="tunnel_authority"?"Trust this tunnel destination":"Trust this origin"}</label>}
+      {future&&<><p>Trust incoming content from {provenance} for future input. Resolve only this trigger; every other recorded trigger stays unresolved.</p>
+        {state.capabilities?.recipientRules&&<label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={recipient} onChange={e=>setRecipient(e.target.checked)}/> Allow sending data while restricted</label>}</>}
+      <p>Keep the original event and record your safe verdict for this trigger. Other triggers and incomplete coverage remain restrictive.</p>
+      <Button label={future?"Review future rule":"Mark this trigger as safe"} reach onClick={()=>{if(future)void reviewer.current?.prepareFuture(r.id,recipient).then(p=>setPrepared(p??null));else void reviewer.current?.markSafe(r.id);}}/>
       <Button label="Cancel safety review" tone="quiet" reach onClick={()=>setReview(false)}/>
     </div>}
-    {progress&&!(entry.decision&&state.status==="ready")&&<p role="status">{progress.message}</p>}
-    {(unknown||progress?.stage==="refused")&&!busy&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={()=>{setProgress(null);setReview(false);state.refresh();}}/>}
+    {prepared&&progress?.stage==="review"&&canReview&&<div role="group" aria-label="Exact future rule review"><p>Exact target: {provenance}. Other triggers remain unresolved. Recipient permission: {recipient?"allow sending data while restricted":"off"}.</p><pre className="max-h-48 overflow-auto whitespace-pre-wrap">{prepared.review.diff}</pre><Button label={recipient?"Save rule, allow sending while restricted, and mark this trigger safe":"Save future source rule and mark this trigger safe"} reach onClick={()=>void reviewer.current?.commitFuture()}/><Button label="Cancel future rule review" tone="quiet" reach onClick={()=>{setPrepared(null);setProgress(null);setReview(false);}}/></div>}
+    {progress&&<p role="status">{progress.message}</p>}
+    {(unknown||progress?.stage==="refused"||progress?.stage==="partial")&&!busy&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={()=>{setProgress(null);setReview(false);state.refresh();}}/>}
     <p className="text-xs">{state.normal&&state.status==="ready"?"Normal policy restored":`Still restricted${state.projection?` · ${state.projection.unresolvedCount} unresolved triggers`:" · current evidence unavailable"}`}</p>
   </section>;
 }

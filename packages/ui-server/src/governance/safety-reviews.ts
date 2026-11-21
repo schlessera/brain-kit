@@ -74,7 +74,7 @@ export function safetyReviewTarget(db: Database, body: SafetyReviewBody, princip
     || !sameAccount(db, { principalId: owner.principal_id, account: owner.principal_account }, principalId))) return "unavailable";
   return null;
 }
-function eligible(db: Database, body: SafetyReviewBody, actor: SafetyReviewer): string | null {
+export function eligible(db: Database, body: SafetyReviewBody, actor: SafetyReviewer): string | null {
   const r = db.query(`SELECT c.turn_id,c.principal_id,c.principal_account,c.generation,r.state,coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) trusted,COALESCE((SELECT x.state FROM safety_records x
     WHERE x.occurrence_id=r.id AND x.kind='exposure' ORDER BY length(x.sequence) DESC,x.sequence DESC LIMIT 1),r.state) final_state
     FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id

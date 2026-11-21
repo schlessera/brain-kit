@@ -40,7 +40,7 @@ export const safetyPageSchema = z.strictObject({ version:z.literal(1), identity:
 export const safetyUpdateSchema = z.strictObject({ version:z.literal(1), identity:safetyIdentitySchema, fromRevision:revision, toRevision:revision,
   projection:safetyProjectionSchema, records:z.array(safetyRecordSchema).max(100) });
 export const safetyUnavailableSchema = z.strictObject({ version:z.literal(1), reason:z.enum(["unavailable","unauthorized","expired","capacity","generation_changed","gap"]) });
-export const safetyCapabilitiesSchema = z.strictObject({ version:z.literal(1), read:z.literal(true), review:z.boolean(), originRules:z.literal(false), repositoryRules:z.literal(false), recipientRules:z.literal(false),
+export const safetyCapabilitiesSchema = z.strictObject({ version:z.literal(1), read:z.literal(true), review:z.boolean(), originRules:z.boolean(), repositoryRules:z.literal(false), recipientRules:z.boolean(),
   readOnlyReason:z.enum(["review_unavailable","owner_required"]).nullable(), detectorVersion:z.literal(1), limits:z.strictObject({ pageRecords:z.literal(100), frameBytes:z.literal(262144), cursorBytes:z.literal(512), cursorLifetimeMs:z.literal(300000),
     reviewBodyBytes:z.literal(16384).optional(), reviewLifetimeMs:z.literal(900000).optional(), receiptLifetimeMs:z.literal(86400000).optional() }) });
 export const SESSION_SAFETY_CAPABILITY = "sessionSafetyHistory";
@@ -84,3 +84,16 @@ export type ClientSafetyUnsubscribe = z.infer<typeof clientSafetyUnsubscribeSche
 export type ServerSafetyHistory = z.infer<typeof serverSafetyHistorySchema>;
 export type ServerSafetyUpdate = z.infer<typeof serverSafetyUpdateSchema>;
 export type ServerSafetyUnavailable = z.infer<typeof serverSafetyUnavailableSchema>;
+
+/** Optional prospective rule review. Repository identity remains unavailable. */
+export const safetyFuturePrepareSchema=safetyReviewBodySchema.extend({future:z.strictObject({incomingContent:z.literal(true),recipientWhileRestricted:z.boolean()})});
+export const safetyFutureCommitSchema=z.strictObject({version:z.literal(1),requestId:id,reviewId:id,reviewedBytesHash:z.string().regex(/^[a-f0-9]{64}$/u)});
+const futureRuleReceipt=z.strictObject({version:z.literal(1),requestId:id,operationId:id,stage:z.enum(["prepared","file_published","committed","partial","unknown","refused"]),publication:z.enum(["not_published","proved","unknown"]),ruleId:id,publishedTrustRevision:revision.nullable(),currentRule:z.enum(["present","removed","changed","unknown"]),enforcement:z.enum(["unavailable","enforced"]),reason:text(512).nullable()});
+export const safetyFuturePreparedSchema=z.strictObject({version:z.literal(1),requestId:id,session:safetySessionKeySchema,occurrenceId:id,
+ review:z.strictObject({reviewId:id,base:text(196608).nullable(),proposed:text(196608),diff:text(196608),reviewedBytesHash:z.string().regex(/^[a-f0-9]{64}$/u),expiresAt:time,repositoryIdentity:z.null(),includesFutureRepositories:z.boolean()}),rule:futureRuleReceipt,currentProjection:safetyProjectionSchema.nullable()});
+export const safetyFutureResultSchema=z.strictObject({version:z.literal(1),requestId:id,session:safetySessionKeySchema,occurrenceId:id,stage:z.enum(["prepared","verdict_committed","partial","unknown","refused"]),rule:futureRuleReceipt,verdict:safetyReviewReceiptSchema.nullable(),currentProjection:safetyProjectionSchema});
+export type SafetyFuturePrepare=z.infer<typeof safetyFuturePrepareSchema>;
+export type SafetyFutureCommit=z.infer<typeof safetyFutureCommitSchema>;
+export type SafetyFuturePrepared=z.infer<typeof safetyFuturePreparedSchema>;
+
+export const safetyFutureStatusSchema=z.strictObject({version:z.literal(1),session:safetySessionKeySchema,occurrenceId:id});
