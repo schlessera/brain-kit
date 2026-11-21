@@ -529,7 +529,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         publish(turnId);
         step?.(); step = timing?.("observe_facts");
         const facts = advanceCounters(turnId).facts;
-        for (const observer of observers) observer(turnId, { ...(currentHold?.records.get(turnId)?.toolUseId ? { observationToolUseId: currentHold.records.get(turnId)!.toolUseId } : {}), observationChangedPaths: new Set([...changed.values(), ...worktree].map(item => item.path)).size, ...facts, workspacePaths: turn.ordinaryWorkspaces ? 0 : facts.workspacePaths, indexBytes: observation.indexBytes, partial: summary(turnId).state === "partial" });
+        for (const observer of observers) observer(turnId, { ...(currentHold?.records.get(turnId)?.toolUseId ? { observationToolUseId: currentHold.records.get(turnId)!.toolUseId } : {}), observationChangedPaths: new Set([...changedPaths, ...worktree.map(item => item.path)]).size, ...facts, workspacePaths: turn.ordinaryWorkspaces ? 0 : facts.workspacePaths, indexBytes: observation.indexBytes, partial: summary(turnId).state === "partial" });
         step?.();
       }
       const committed = timing?.("observe_commit");
@@ -537,7 +537,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       for (const root of separate) await root.observation.commit();
       diagnostic(() => { for (const [id, record] of currentHold?.records ?? []) {
         const paths = currentHold!.paths.get(id) ?? new Set<string>();
-        for (const item of changed.values()) paths.add(item.path);
+        for (const path of changedPaths) paths.add(path);
         for (const root of separate.filter(root => root.turnId === id)) {
           for (const item of root.observation.changes.get(id) ?? []) {
             if (identity(item.before) !== identity(item.after)) paths.add(referenceWorktreeJournalPath(root.worktreeId, item.path));
