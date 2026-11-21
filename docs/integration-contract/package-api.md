@@ -6003,8 +6003,10 @@ the previous preparation before it can commit. Commit is single-use, rechecks
 the current operation and turn, and runs the
 optional final validator before marking dispatch. A repeat, cancelled, refused
 or stale commit refuses. `refused()` invalidates outstanding tickets
-synchronously, before its queued durable discharge settles. Preparation without
-an admitted operation refuses. `cancel()` closes an unused ticket and settles the
+synchronously, before its queued durable discharge settles. Host-routed calls may prepare before backend-local input collection because
+the host owns that later boundary. Their tickets still bind the captured
+operation absence and synchronous refusal state; a begin before commit
+invalidates the earlier preparation. A ticket itself grants no authority. `cancel()` closes an unused ticket and settles the
 backend refusal; a unique never-dispatched call discharges without a false
 missing-result gap. Cancel after successful dispatch does not erase its result
 obligation. Tickets stay on the host and never enter worker RPC or provider

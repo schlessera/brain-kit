@@ -1038,9 +1038,17 @@ test('refusal synchronously invalidates a ticket before queued discharge',async(
   expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'REFUSED_UNDISPATCHED_CALL_DISCHARGES').toEqual({n:0});
  }finally{await f.close();}
 });
-test('dispatch preparation without an admitted operation refuses',async()=>{
+test('host-routed preparation still refuses synchronously before input collection',async()=>{
  const f=await fixture(false);try{
-  const refusal=await f.collector.prepareDispatch!('missing-operation').then(()=>null,error=>error);
-  expect(refusal).toBeInstanceOf(Error);expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
+  const ticket=await f.collector.prepareDispatch!('host-route-refusal'),refusing=f.collector.refused!('host-route-refusal',true);let error:unknown;
+  try{ticket.commit();}catch(cause){error=cause;}await refusing;
+  expect(error,'HOST_ROUTED_TICKET_REFUSAL_IS_IMMEDIATE').toBeInstanceOf(Error);
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+test('Claude preserves host-routed permission before host-owned input collection',async()=>{
+ const f=await fixture(false);try{
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),applyBrain:async()=>({ok:true,message:"Host route",changes:[]}),admissionSafety:f.safety,inputSafety:f.collector}},allowedTools:['mcp__brain-ui__brain_add'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
+  expect((await wiring.canUseTool!('mcp__brain-ui__brain_add',{title:'Voyage'},{toolUseID:'host-owned',signal:f.controller.signal} as never))?.behavior,'HOST_ROUTE_HAS_ITS_OWN_LATER_INPUT_BOUNDARY').toBe('allow');
  }finally{await f.close();}
 });

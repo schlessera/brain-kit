@@ -29,7 +29,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // obligation whatever these say. Two tool names already make the id
  // unprovable, so a third is not kept.
  const views=new Map<string,{tool:string;root:import("@schlessera/brain-ui-sdk/internal").AdmissionSafety;view:import("@schlessera/brain-ui-sdk/internal").AdmissionSafety}>();
- const calls=new Map<string,{tools:Map<string,number>;allowed:boolean}>();
+ const calls=new Map<string,{tools:Map<string,number>;allowed:boolean;refused?:boolean}>();
  // A refusal can prove the call never ran only for an id admitted once,
  // under one tool name, and never allowed.
  const once=(call:{tools:Map<string,number>;allowed:boolean}|undefined)=>!!call&&!call.allowed&&call.tools.size===1&&[...call.tools.values()][0]===1;
@@ -103,7 +103,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    const view=createCausalAdmissionSafety(db,root,{turnId:options.turnId,sessionId:options.sessionId,writes,own:()=>{
     const op=operations.get(toolUseId),call=calls.get(toolUseId);
     const unique=!call||(call.tools.size===1&&call.tools.get(tool)===1);
-    const valid=unique&&(!op||(op.tool===tool&&!op.done&&!op.resultStarted&&!op.refused&&!op.uncertain));
+    const valid=unique&&call?.refused!==true&&(!op||(op.tool===tool&&!op.done&&!op.resultStarted&&!op.refused&&!op.uncertain));
     return {valid,ids:valid&&op?op.inputOccurrences:[]};
    }});
    views.set(toolUseId,{tool,root,view});return view;
@@ -206,6 +206,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // (a stopped turn, a replay). Never rejects.
   refused(toolUseId,denied=false){
    const current=operations.get(toolUseId);if(current){current.refused=true;current.generation=Symbol();}
+   const call=calls.get(toolUseId);if(call)call.refused=true;
    return serial(toolUseId,async()=>{
    const op=operations.get(toolUseId);
    const proves=denied&&once(calls.get(toolUseId));
@@ -220,22 +221,27 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // until this resolves.
   allowed(toolUseId,validate){return serial(toolUseId,async()=>{
    const op=operations.get(toolUseId);
-   if(op&&(op.refused||!op.admitted))throw new Error("Safety operation was refused or not admitted; the call does not run");
+   if(calls.get(toolUseId)?.refused||op&&(op.refused||!op.admitted))throw new Error("Safety operation was refused or not admitted; the call does not run");
    const refusal=validate?.();if(refusal)throw new Error(refusal);
    const call=calls.get(toolUseId);
    if(call)call.allowed=true;
    else if(calls.size<2000)calls.set(toolUseId,{tools:new Map(),allowed:true});
    else throw new Error("Safety allowance capacity exceeded; the call does not run");
   },true);},
-  prepareDispatch(toolUseId){const prepared=operations.get(toolUseId),generation=prepared?.generation;return serial(toolUseId,async()=>{
-   if(!prepared||prepared.refused||!prepared.admitted)throw new Error("Safety operation was refused or not admitted");
+  prepareDispatch(toolUseId){
+   const prepared=operations.get(toolUseId),generation=prepared?.generation;
+   let admission=calls.get(toolUseId);
+   if(!admission){if(calls.size>=2000)return Promise.reject(new Error("Safety allowance capacity exceeded"));calls.set(toolUseId,admission={tools:new Map(),allowed:false});}
+   const permit=admission;
+   return serial(toolUseId,async()=>{
+   if(permit.refused||prepared&&(prepared.refused||!prepared.admitted))throw new Error("Safety operation was refused or not admitted");
    let consumed=false,dispatched=false;
    return {
     commit(validate?:import("@schlessera/brain-ui-sdk/server").InputSafetyAdmissionCheck){
      if(consumed)throw new Error("Dispatch ticket already consumed");
      consumed=true;
      const op=operations.get(toolUseId);
-     if(options.signal.aborted||op!==prepared||op?.generation!==generation||op&&(op.refused||!op.admitted||op.done||op.resultStarted))throw new Error("Dispatch ticket is no longer current");
+     if(options.signal.aborted||permit.refused||calls.get(toolUseId)!==permit||op!==prepared||op?.generation!==generation||op&&(op.refused||!op.admitted||op.done||op.resultStarted))throw new Error("Dispatch ticket is no longer current");
      const refusal=validate?.();if(refusal)throw new Error(refusal);
      const call=calls.get(toolUseId);
      if(call)call.allowed=true;
