@@ -31,7 +31,9 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       if(disposed)return false;
       if(msg.type==="server_hello"){
         admissions=msg.capabilities?.sessionSafetyAdmissionEvidence===true;
-        requestId=null;store.getState().reset(msg.capabilities?.sessionSafetyHistory===true&&msg.safetyCapabilities?.read===true,msg.safetyCapabilities??null,msg.capabilities?.sessionSafetyEntryCorrelation===true,msg.principalKey?`host:${msg.principalKey}`:`unbound:${crypto.randomUUID()}`);selected();return false;
+        const future=msg.capabilities?.sessionSafetyFutureRules===true&&msg.safetyCapabilities?.review===true;
+        const capabilities=msg.safetyCapabilities?{...msg.safetyCapabilities,originRules:future,recipientRules:future}:null;
+        requestId=null;store.getState().reset(msg.capabilities?.sessionSafetyHistory===true&&msg.safetyCapabilities?.read===true,capabilities,msg.capabilities?.sessionSafetyEntryCorrelation===true,msg.principalKey?`host:${msg.principalKey}`:`unbound:${crypto.randomUUID()}`);selected();return false;
       }
       if(msg.type==="chat_retired"){store.getState().retire(msg.sessionId,msg.historyOwnerIds);if(target&&"sessionId" in target&&target.sessionId===msg.sessionId){requestId=null;target=null;store.getState().unavailable("retired");}return false;}
       if(msg.type==="safety_history"){

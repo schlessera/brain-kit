@@ -247,3 +247,37 @@ for(const width of [320,1280])for(const allow of [false,true])test(`${width}: fu
  await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent).toContain('Future rule: present');
  expect((await patch()).commits,'COMBINED_RELOAD_STATUS_NEVER_REPLAYS').toBe(1);
 });
+
+async function futureReviewScene(width:number,partial=false){
+ await scene(width,'light');await patch({action:'add_verified'});
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);
+ await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));
+ await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));
+ await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();
+ if(partial)await patch({action:'fail_combined_verdict'});
+ await userEvent.click(page.getByRole('button',{name:'Save future source rule and mark this trigger safe',exact:true}));
+ await expect.poll(()=>ui!.stores.safety.getState().status).toBe('ready');
+ return section;
+}
+for(const width of [320,1280])test(`${width} review F3: focus refresh replaces commit-time rule presence`,async()=>{
+ const section=await futureReviewScene(width);
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
+ await expect.poll(()=>section().textContent).toContain('Future rule: present');
+ await patch({action:'remove_future_rule'});window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Future rule: removed');
+ expect(section().textContent,'F3_NO_STALE_COMMIT_TIME_PRESENCE').not.toContain('currently present');
+ expect(section().textContent).not.toContain('Future rule: present');
+});
+for(const width of [320,1280])test(`${width} review F4: partial operation is distinct from another tab's safe verdict`,async()=>{
+ const section=await futureReviewScene(width,true);
+ await expect.poll(()=>section().textContent).toContain('Rule publication proved');
+ await patch({action:'individual_safe'});
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
+ window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Marked safe by you');
+ expect(section().textContent,'F4_PARTIAL_RECEIPT_IS_NOT_CURRENT_TRIGGER_STATE').not.toContain('this trigger is still unresolved');
+ expect(section().textContent).not.toContain('this trigger remains unresolved');
+});

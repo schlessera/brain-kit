@@ -108,7 +108,7 @@ test("combined real HTTP/WS owner, Origin, provenance and session fences",async(
  const post=(action:string,body:unknown,headers:Record<string,string>={})=>fetch(`${origin}/api/sessions/ithaca/safety/reviews/future/${action}`,{method:'POST',headers:{cookie:f.cookie,origin,'content-type':'application/json',...headers},body:JSON.stringify(body)});
  try{
  const a=await f.add('A'),body=f.body(a.id);
- expect((await f.connect()).hello).toMatchObject({safetyCapabilities:{review:true,originRules:true,recipientRules:true,repositoryRules:false}});
+ expect((await f.connect()).hello).toMatchObject({safetyCapabilities:{review:true,originRules:false,recipientRules:false,repositoryRules:false},capabilities:{sessionSafetyFutureRules:true}});
  expect((await post('prepare',body,{origin:'https://troy.invalid'})).status).toBe(403);
  expect((await post('prepare',{...body,future:{...body.future,selector:{kind:'web_origin',host:'troy.invalid'}}})).status).toBe(400);
  const prepared=await post('prepare',body);expect(prepared.status,'COMBINED_HTTP_PREPARE_REQUIRES_IMPLEMENTED_ROUTE').toBe(200);
@@ -163,5 +163,38 @@ test("historical JSON without the host provenance attestation cannot offer a sta
  f.db.query('UPDATE safety_records SET payload=? WHERE id=?').run(JSON.stringify(payload),a.id);
  expect(await f.combined.prepare(f.principal,f.body(a.id)).then(()=>"prepared",error=>error.message),'COMBINED_REQUIRES_HOST_ATTESTATION').toBe('provenance_unavailable');
  expect((await f.settings.list(f.principal.id)).rules).toEqual([]);
+ }finally{await f.close();}
+});
+
+for(const crash of [false,true])test(`review F1: individual endpoint cannot consume a combined handle before proved publication (crash ${crash})`,async()=>{
+ const f=await fixture(crash?stage=>{if(stage==='renamed')throw new Error('unproved publication');}:undefined);try{
+ const a=await f.add('A'),{future,...body}=f.body(a.id),p=await f.combined.prepare(f.principal,{...body,future});
+ if(crash)expect((await f.combined.commit(f.principal,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash})).stage).toBe('unknown');
+ const handle=f.settings.safetyReview(f.principal.id,p.requestId)!.requestId;
+ const origin=f.url.replace('ws:','http:').replace('/ws','');
+ const response=await fetch(`${origin}/api/sessions/ithaca/safety/reviews/${handle}/commit`,{method:'POST',headers:{cookie:f.cookie,origin,'content-type':'application/json'},body:JSON.stringify(body)});
+ expect(response.status,'F1_INDIVIDUAL_ENDPOINT_REQUIRES_COMBINED_PUBLICATION_PROOF').toBe(409);
+ expect((await response.json()).receipt.reason).toBe('publication_unproven');
+ expect((await f.reviews!.review(f.principal,body,handle)).receipt.verdict).toBe('unresolved');
+ expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+ if(!crash)expect((await f.combined.commit(f.principal,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash})).stage).toBe('verdict_committed');
+ }finally{await f.close();}
+});
+test('review F1: prepared status never exposes the unpublished verdict handle',async()=>{
+ const f=await fixture();try{const a=await f.add('A'),body=f.body(a.id);await f.combined.prepare(f.principal,body);
+ const status=await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ expect(status?.verdict?.requestId,'F1_NO_EARLY_VERDICT_HANDLE').toBeNull();
+ }finally{await f.close();}
+});
+test('review F2: legacy SDK can parse the real owner hello and retains individual review',async()=>{
+ const {z}=await import('zod'),{safetyCapabilitiesSchema}=await import('@schlessera/brain-ui-sdk/schemas');
+ const f=await fixture();try{f.reviews!.enableFutureRules(f.settings);const socket=await f.connect();
+ if(socket.hello.type!=='server_hello')throw new Error('Missing hello');
+ const legacy=safetyCapabilitiesSchema.extend({originRules:z.literal(false),recipientRules:z.literal(false)}).safeParse(socket.hello.safetyCapabilities);
+ expect(legacy.success,'F2_OLD_SDK_RETAINS_SAFETY_CAPABILITIES').toBe(true);
+ if(!legacy.success)throw legacy.error;expect(legacy.data).toMatchObject({read:true,review:true});
+ expect(socket.hello.capabilities?.sessionSafetyFutureRules).toBe(true);
+ const a=await f.add('A'),{future:_,...body}=f.body(a.id),prepared=await f.reviews!.review(f.principal,body,null);
+ expect((await f.reviews!.review(f.principal,body,prepared.receipt.requestId!)).receipt.verdict).toBe('committed');
  }finally{await f.close();}
 });

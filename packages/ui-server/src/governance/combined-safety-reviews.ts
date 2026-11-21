@@ -53,7 +53,7 @@ export class CombinedSafetyReviews {
   const currentProjection=this.reviews.delivery(principal,body);
   return {version:1 as const,requestId:row.request_id,session:input.session,occurrenceId:input.occurrenceId,
     stage:verdict?.verdict==="committed"?"verdict_committed":rule.publication==="proved"?"partial":rule.publication==="unknown"?"unknown":rule.stage==="prepared"?"prepared":"refused",
-    rule,verdict,currentProjection};
+    rule,verdict:verdict&&verdict.verdict!=="committed"?{...verdict,requestId:null,operationId:null}:verdict,currentProjection};
  }
  async commit(principal:Principal,raw:unknown,signal?:AbortSignal,sessionId?:string){
   const input=combinedCommitSchema.parse(raw),binding=this.settings.safetyReview(principal.id,input.requestId);

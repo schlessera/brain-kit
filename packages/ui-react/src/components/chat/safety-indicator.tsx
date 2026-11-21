@@ -130,7 +130,7 @@ function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
       if(controller.signal.aborted)return;
       if(!result){setSavedRule(null);return;}
       const presence=result.rule.currentRule;
-      setSavedRule(`${result.stage==="prepared"?"Future rule prepared but not published; fresh review is required. ":result.stage==="partial"?"Rule publication proved; this trigger is still unresolved. ":result.stage==="unknown"?"Rule publication is unknown; fresh review is required. ":""}Future rule: ${presence}.`);
+      setSavedRule(`${result.stage==="prepared"?"Future rule prepared but not published; fresh review is required. ":result.stage==="partial"?"Rule publication proved; this operation's verdict is incomplete. ":result.stage==="unknown"?"Rule publication is unknown; fresh review is required. ":""}Future rule: ${presence}.`);
     }).catch(()=>{if(!controller.signal.aborted)setSavedRule(previous=>previous?"Current future rule presence is unavailable.":null);});
     read();window.addEventListener("focus",read);
     return()=>{controller.abort();window.removeEventListener("focus",read);};
@@ -155,13 +155,13 @@ function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
     {review&&canReview&&!progress&&<div className="space-y-2" role="group" aria-label="Review safety decision">
       <label className="flex min-h-11 items-center gap-2"><input type="radio" name={`scope-${r.id}`} checked={!future} onChange={()=>setFuture(false)}/> Only this trigger</label>
       {futureAvailable&&<label className="flex min-h-11 items-center gap-2"><input type="radio" name={`scope-${r.id}`} checked={future} onChange={()=>setFuture(true)}/> {r.provenance?.kind==="tunnel_authority"?"Trust this tunnel destination":"Trust this origin"}</label>}
-      {future&&<><p>Trust incoming content from {provenance} for future input. Resolve only this trigger; every other recorded trigger stays unresolved.</p>
+      {future&&<><p>Trust incoming content from {provenance} for future input. Resolve only this trigger. Other recorded triggers keep their existing verdicts.</p>
         {state.capabilities?.recipientRules&&<label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={recipient} onChange={e=>setRecipient(e.target.checked)}/> Allow sending data while restricted</label>}</>}
-      <p>Keep the original event and record your safe verdict for this trigger. Other triggers and incomplete coverage remain restrictive.</p>
+      <p>Keep the original event and record your safe verdict for this trigger. Other verdicts and coverage remain unchanged.</p>
       <Button label={future?"Review future rule":"Mark this trigger as safe"} reach onClick={()=>{if(future)void reviewer.current?.prepareFuture(r.id,recipient).then(p=>setPrepared(p??null));else void reviewer.current?.markSafe(r.id);}}/>
       <Button label="Cancel safety review" tone="quiet" reach onClick={()=>setReview(false)}/>
     </div>}
-    {prepared&&progress?.stage==="review"&&canReview&&<div role="group" aria-label="Exact future rule review"><p>Exact target: {provenance}. Other triggers remain unresolved. Recipient permission: {recipient?"allow sending data while restricted":"off"}.</p><pre className="max-h-48 overflow-auto whitespace-pre-wrap">{prepared.review.diff}</pre><Button label={recipient?"Save rule, allow sending while restricted, and mark this trigger safe":"Save future source rule and mark this trigger safe"} reach onClick={()=>void reviewer.current?.commitFuture()}/><Button label="Cancel future rule review" tone="quiet" reach onClick={()=>{setPrepared(null);setProgress(null);setReview(false);}}/></div>}
+    {prepared&&progress?.stage==="review"&&canReview&&<div role="group" aria-label="Exact future rule review"><p>Exact target: {provenance}. Other verdicts remain unchanged. Recipient permission: {recipient?"allow sending data while restricted":"off"}.</p><pre className="max-h-48 overflow-auto whitespace-pre-wrap">{prepared.review.diff}</pre><Button label={recipient?"Save rule, allow sending while restricted, and mark this trigger safe":"Save future source rule and mark this trigger safe"} reach onClick={()=>void reviewer.current?.commitFuture()}/><Button label="Cancel future rule review" tone="quiet" reach onClick={()=>{setPrepared(null);setProgress(null);setReview(false);}}/></div>}
     {progress&&<p role="status">{progress.message}</p>}
     {(unknown||progress?.stage==="refused"||progress?.stage==="partial")&&!busy&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={()=>{setProgress(null);setReview(false);state.refresh();}}/>}
     <p className="text-xs">{state.normal&&state.status==="ready"?"Normal policy restored":`Still restricted${state.projection?` · ${state.projection.unresolvedCount} unresolved triggers`:" · current evidence unavailable"}`}</p>

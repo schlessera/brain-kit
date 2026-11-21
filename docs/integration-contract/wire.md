@@ -3363,7 +3363,8 @@ HTTP readers explicitly opt in with `admissions=1`; repeated/invalid query value
 
 ### Combined single-trigger and future-source review (#3611)
 
-When `safetyCapabilities.originRules` is true, a password-mode owner may
+When `capabilities.sessionSafetyFutureRules` and `safetyCapabilities.review`
+are true, a password-mode owner may
 POST `/api/sessions/:id/safety/reviews/future/prepare` with the individual
 review body plus `future: { incomingContent: true, recipientWhileRestricted:
 boolean }`. The recipient flag is independently chosen, off by default.
@@ -3396,3 +3397,27 @@ latest retained combined operation without publishing or committing a verdict.
 It returns the same result envelope, or null when no receipt is retained. The
 owner UI reads this after reload and on focus to show partial/unknown completion
 and current rule presence separately from the remaining-trigger projection.
+
+#### Combined-review ordering and legacy capability encoding
+
+A verdict handle bound to a combined operation requires that operation's durable
+publication proof inside the FULL verdict transaction, including commits through
+the individual review endpoint and receipt replay. `publication_unproven` refuses
+only that attempt without consuming the handle; equal current policy bytes are
+not publication proof. Prepared/noncommitted status redacts the internal verdict
+request and operation IDs. A separately prepared individual review remains an
+independent human decision and does not finish the combined operation.
+
+For compatibility with the previously shipped strict SDK parser, every
+`server_hello.safetyCapabilities` retains `originRules: false`,
+`repositoryRules: false`, and `recipientRules: false`. Future-rule support is
+instead offered as the additive boolean
+`server_hello.capabilities.sessionSafetyFutureRules`. A new UI enables its local
+future source/recipient controls only when that offer and `safetyCapabilities.review`
+are both true. Old UIs ignore the boolean offer and retain safety history and
+individual review. No protocol revision or breaking schema migration is required.
+
+Operation completion text never asserts current rule presence or current trigger
+resolution. Refreshed status owns current rule presence; the live safety ledger
+owns the selected trigger's verdict and remaining-trigger count. A partial
+combined receipt can coexist with a later independent safe decision.

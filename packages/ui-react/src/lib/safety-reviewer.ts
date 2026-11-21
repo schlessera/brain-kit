@@ -41,8 +41,9 @@ export function createSafetyReviewer(root:BrainUiServices,changed:(value:SafetyR
         const result=await root.api.safetyFutureCommit(p.session.sessionId,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash},owned.signal);
         if(disposed||owned.signal.aborted)return;
         if(result.requestId!==p.requestId||result.occurrenceId!==p.occurrenceId||JSON.stringify(result.session)!==JSON.stringify(p.session))throw new Error("Different future review receipt");
-        const rule=result.rule.currentRule==="present"?"The future rule is currently present.":result.rule.currentRule==="removed"?"The future rule has been removed.":result.rule.currentRule==="changed"?"The future rule has changed.":"Current future rule presence is unknown.";
-        changed({stage:result.stage==="verdict_committed"?"committed":result.stage==="partial"?"partial":result.stage==="unknown"?"unknown":"refused",message:result.stage==="verdict_committed"?`This trigger was marked safe. ${rule}`:result.rule.publication==="proved"?`The rule was saved, but this trigger remains unresolved. ${rule}`:`Publication was ${result.rule.publication==="unknown"?"not confirmed":"refused"}; this trigger remains unresolved. Fresh review is required.`});
+        // Completion is a historical operation fact. Only refreshed status
+        // reports current rule presence; only live evidence reports the verdict.
+        changed({stage:result.stage==="verdict_committed"?"committed":result.stage==="partial"?"partial":result.stage==="unknown"?"unknown":"refused",message:result.stage==="verdict_committed"?"This operation recorded a safe verdict. Reading current restrictions…":result.rule.publication==="proved"?"The rule was saved; this operation did not complete its verdict. Reading current restrictions…":`Publication was ${result.rule.publication==="unknown"?"not confirmed":"refused"}. This operation did not record a verdict. Fresh review is required.`});
         controller=null;s.refresh();
       }catch{if(!owned.signal.aborted)changed({stage:"unknown",message:"The result is unknown. Refresh evidence and Settings; this operation will not be sent again."});}
       finally{if(controller===owned)controller=null;committing=false;}

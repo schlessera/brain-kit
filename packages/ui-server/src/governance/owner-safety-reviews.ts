@@ -25,9 +25,11 @@ export class OwnerSafetyReviews {
     const current = resolvePrincipal(this.db, principal.id);
     return !!current && JSON.stringify(epoch(current,this.brainKey)) === JSON.stringify(epoch(principal,this.brainKey)) && isUsablePrincipal(current, Date.now());
   }
+  /** Standing-rule support is offered outside the legacy strict DTO. */
+  futureRules(principal: Principal): boolean { return this.authorized(principal) && !!this.trust; }
   capabilities(principal: Principal): SafetyCapabilities {
     const review = this.authorized(principal);
-    return { ...SAFETY_READ_CAPABILITIES, review, originRules: review && !!this.trust, recipientRules: review && !!this.trust, readOnlyReason:review ? null : "owner_required",
+    return { ...SAFETY_READ_CAPABILITIES, review, originRules: false, recipientRules: false, readOnlyReason:review ? null : "owner_required",
       limits:{ ...SAFETY_READ_CAPABILITIES.limits, reviewBodyBytes:16384, reviewLifetimeMs:900000, receiptLifetimeMs:86400000 } };
   }
   private current(principal: Principal, body: SafetyReviewBody) {
