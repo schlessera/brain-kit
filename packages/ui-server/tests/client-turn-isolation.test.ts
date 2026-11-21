@@ -134,8 +134,8 @@ test("server timing reads preserve unknown optional keys while client writes rej
     const futureTiming = { ...timing, futureArrivalMs: 7 };
     const lifecycle = { ...store.lifecycle("turn-ithaca")!, clientTiming: futureTiming };
     for (const frame of [
-      { type: "activity_delta", runId: "lifecycle:turn-ithaca", seq: 1, lifecycle },
-      { type: "activity_snapshot", view: "index", spans: [], events: [], highWaterSeq: {}, lifecycles: [lifecycle] },
+      { type: "activity_delta" as const, runId: "lifecycle:turn-ithaca", seq: 1, lifecycle },
+      { type: "activity_snapshot" as const, view: "index" as const, spans: [], events: [], highWaterSeq: {}, lifecycles: [lifecycle] },
     ]) expect(parseServerMessage(JSON.stringify(frame))).toEqual({ ok: true, message: frame });
     expect(parseClientMessage(JSON.stringify({ type: "client_turn_receipt", turnId: "turn-ithaca", timing: futureTiming })).ok).toBe(false);
     expect(store.writeClientReceipt!("turn-ithaca", "odysseus", futureTiming)).toBe(false);
