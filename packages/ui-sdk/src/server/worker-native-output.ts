@@ -250,7 +250,6 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(rel) || rel.split("/").some(part => !part || part === "." || part === "..")))
     throw Error("Invalid retained provider folder path");
   const native = nativeWorkerStartupInput(options.startupView), view = retainWorkerStartupView(options.startupView);
-  let limits = hostOutputStagingLimits();
   let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
   let discardGit = false;
   let prepared: PreparedWorkerOutput | undefined, stageRequested = false;
@@ -276,6 +275,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     })().catch((error: unknown) => { cleanupFailed = true; throw error; });
   };
   try {
+    let limits = hostOutputStagingLimits();
     if (options.packingAllowanceBytes !== undefined) {
       const status = await native.manager.ready(options.signal);
       const maximum = Math.floor((status.capacityBytes - status.recoveryReserveBytes - Math.max(status.capacityBytes * .05, 2 * 1024 ** 3)) / 2 / 4096) * 4096;
