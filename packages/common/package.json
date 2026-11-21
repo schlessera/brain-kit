@@ -91,6 +91,11 @@
       "types": "./dist/apify-operations.d.ts",
       "default": "./dist/apify-operations.js"
     },
+    "./internal/google-operations": {
+      "bun": "./src/google/index.ts",
+      "types": "./dist/google/index.d.ts",
+      "default": "./dist/google/index.js"
+    },
     "./internal/claude-subscription": {
       "bun": "./src/claude-subscription.ts",
       "types": "./dist/claude-subscription.d.ts",
