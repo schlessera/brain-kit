@@ -22,6 +22,9 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
     },
     sent(message: ClientMessage, sentAt: number) {
       if ((message.type !== "chat_message" && message.type !== "retry_turn") || !message.requestId) return;
+      // A durable snapshot cannot reconstruct a lost Send after a reload
+      // or eviction. Its origin must have been captured by this live root.
+      if (message.type === "chat_message" && message.draftRef && !requests.has(message.requestId)) return;
       // Preserve the Send boundary captured before snapshot persistence.
       this.started(message.requestId, sentAt);
     },

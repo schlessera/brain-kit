@@ -151,3 +151,20 @@ test("a Send boundary survives snapshot persistence and is not reset by socket d
     sendToFirstHostFrameMs: 510, sendToFirstContentFrameMs: 700, lastContentFrameToIdleMs: 20,
   } }]);
 });
+
+test("a snapshot whose Send boundary was lost cannot invent one at later dispatch", () => {
+  for (const lost of ["eviction", "reload"] as const) {
+    const s = scene();
+    s.clock.started("voyage", 500);
+    if (lost === "eviction") {
+      for (let index = 0; index < 257; index++) s.frame(1000 + index, { type: "status", status: "thinking", turnId: `turn-troy-${index}` });
+    } else {
+      s.clock.disconnected();
+      s.frame(1300, { type: "server_hello", protocolRev: 5, capabilities: { clientTurnReceipts: true } });
+    }
+    s.clock.sent({ type: "chat_message", text: "Plan Ithaca", requestId: "voyage", draftRef: { draftId: "draft-ithaca", revision: 1 } }, 1300);
+    s.frame(1310, { type: "session_info", isNew: true, requestId: "voyage", turnId: "turn-ithaca", sessionId: "ithaca" });
+    s.frame(1400, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
+    expect(s.reports).toEqual([]);
+  }
+});

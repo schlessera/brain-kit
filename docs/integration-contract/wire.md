@@ -591,7 +591,9 @@ zero. A request without correlation, or a client disconnected during the turn,
 reports nothing; reconnect/history replay cannot reconstruct arrival evidence.
 The React client caps pending request observations and turn-arrival correlations
 at 256 entries each. If eviction loses a possible first arrival, affected pending
-requests lose their measurement rather than reporting a later frame as first. A failed/lost report is never retried and never affects the turn.
+requests lose their measurement rather than reporting a later frame as first.
+A snapshot dispatched without its original Send boundary also reports nothing;
+dispatch after reload or eviction cannot invent a new Send timestamp. A failed/lost report is never retried and never affects the turn.
 
 Receipt frames are capped at 4096 encoded bytes and have an independent rate
 bucket. A bounded lexical routing probe identifies their message kind before
