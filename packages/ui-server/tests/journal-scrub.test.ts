@@ -244,3 +244,34 @@ test("a malformed reservation size cannot poison verified sibling moves",()=>{
   expect(existsSync(join(f.objects,"quarantine",sha("orphan")))).toBe(true);
  }finally{f.close();}
 });
+
+test("an oversized orphan does not consume the whole batch quota or starve a smaller sibling",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-scrub-quota-")),db=createUiDb(":memory:"),objects=join(root,"objects"),store=journalStore.setup(db,{dbPath:":memory:",objectsRoot:objects,capBytes:8});
+ try {
+  for(const text of ["large-orphan","ok"])writeFileSync(join(objects,sha(text)),text);
+  let result:unknown;expect(()=>{result=store.scrubObjects!();},"SCRUB_QUOTA_IS_PER_CANDIDATE").not.toThrow();
+  expect(result).toMatchObject({quarantined:1,capacityBlocked:1,state:"partial"});
+  expect(existsSync(join(objects,"quarantine",sha("ok")))).toBe(true);expect(existsSync(join(objects,sha("large-orphan")))).toBe(true);
+  expect(store.scrubObjects!(),"SCRUB_QUOTA_NEXT_PASS_IS_USABLE").toMatchObject({capacityBlocked:1,state:"partial"});
+  expect(store.usage!()).toBe(2);
+ }finally{store.close!();db.close();rmSync(root,{recursive:true,force:true});}
+});
+test("a nonregular reserved destination cannot suppress or overwrite a valid second source copy",()=>{
+ const f=fixture();try {
+  fs.mkdirSync(join(f.objects,"quarantine"));fs.mkdirSync(join(f.objects,"quarantine",sha("orphan")));
+  f.store.statements([{sql:"INSERT INTO turn_journal_scrub_quarantine VALUES (?,6,'reserved')",params:[sha("orphan")]}]);
+  writeFileSync(join(f.objects,sha("orphan")),"orphan");
+  expect(f.store.scrubObjects(),"SCRUB_NONREGULAR_TARGET_DOES_NOT_HIDE_SOURCE").toMatchObject({unaccounted:1,quarantined:1,pending:1,corrupt:1});
+  expect(fs.lstatSync(join(f.objects,"quarantine",sha("orphan"))).isDirectory()).toBe(true);
+  expect(f.db.query("SELECT sum(bytes) AS bytes FROM turn_journal_scrub_quarantine").get()).toEqual({bytes:12});
+ }finally{f.close();}
+});
+for(const kind of ["symlink","hardlink"])test(`collection retains unexpected ${kind} objects and their accounting`,()=>{
+ const f=fixture();try {
+  const hash=sha("orphan"),outside=join(f.root,"chart.txt");writeFileSync(outside,"orphan");
+  if(kind==="symlink")fs.symlinkSync(outside,join(f.objects,hash));else fs.linkSync(outside,join(f.objects,hash));
+  f.store.statements([{sql:"INSERT INTO turn_journal_objects VALUES (?,6,'present')",params:[hash]}]);
+  expect(()=>f.store.collectObjects(),"COLLECTION_RETAINS_UNEXPECTED_OBJECT").toThrow(kind==="symlink"?"ELOOP":"Journal object is not a private regular file");
+  expect(fs.lstatSync(join(f.objects,hash))).toBeDefined();expect(f.db.query("SELECT bytes FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({bytes:6});
+ }finally{f.close();}
+});

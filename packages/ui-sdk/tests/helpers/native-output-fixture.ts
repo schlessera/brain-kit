@@ -1,13 +1,11 @@
-/** Copied acquisition and a reflink kernel-operation double for overlayfs.
- * Publication, atomic rename, process kills, file contents and Git run for real. */
+/** Explicit copied acquisition; tests call the production native publisher. */
 import { spyOn } from "bun:test";
 import * as fs from "node:fs";
 import {join} from "node:path";
 import {prepareNativeWorkerStartupView} from "../../src/server/worker-startup-view.js";
 import {prepareNativeWorkerOutput} from "../../src/server/worker-native-output.js";
 import type { NativeStageChange } from "../../src/server/native-brain-manager-protocol.js";
-export async function packingFixture(root:string,brain:string) {
- const copy=fs.copyFileSync,clone=spyOn(fs,"copyFileSync").mockImplementation((source,target,mode)=>copy(source,target,mode===fs.constants.COPYFILE_FICLONE_FORCE?fs.constants.COPYFILE_FICLONE:mode));
+export async function nativeOutputFixture(root:string,brain:string) {
  const actualStat=fs.statfsSync,stat=spyOn(fs,"statfsSync").mockImplementation(((...args:any[])=>{const value=Reflect.apply(actualStat,fs,args);return {...value,type:typeof value.type==="bigint"?0x9123683en:0x9123683e};}) as typeof fs.statfsSync);
  const checkpoints=new Map<string,string>(),uuid="a".repeat(32),sourceUuid="b".repeat(32);
  let stageRoot="",lowerId="";
@@ -22,6 +20,6 @@ export async function packingFixture(root:string,brain:string) {
  };
 
  const view=await prepareNativeWorkerStartupView(brain,manager);
- const output=await prepareNativeWorkerOutput(brain,{startupView:view,areas:[".git"]});
- return {output,async close(){await output.cleanup();await view.cleanup();stat.mockRestore();clone.mockRestore();}};
+ const output=await prepareNativeWorkerOutput(brain,{startupView:view,areas:[".git",".brain-index","registry.md",".brain/scratch"]});
+ return {output,async close(){await output.cleanup();await view.cleanup();stat.mockRestore();}};
 }

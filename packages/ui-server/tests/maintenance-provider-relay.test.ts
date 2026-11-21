@@ -187,13 +187,15 @@ exec '${realGit}' "$@"
 });
 
 for(const method of ["run","launch"] as const) {
- test(`successful Git ${method} publishes despite an unrelated scratch failure`,async()=>{
-  const {existsSync,readdirSync}=await import("node:fs");
+ test(`a nonzero maintain ${method} conservatively discards Git while publishing index output`,async()=>{
+  const {existsSync,readFileSync,statSync}=await import("node:fs");
   const git=(...args:string[])=>Bun.spawnSync(["git","-C",brain,...args],{stdout:"pipe",stderr:"pipe"});
   expect(git("init","-q").exitCode).toBe(0);
   const blob=Bun.spawnSync(["git","-C",brain,"hash-object","-w","--stdin"],{stdin:Buffer.from(`Athena ${method}`),stdout:"pipe",stderr:"pipe"});expect(blob.exitCode).toBe(0);
   const hash=blob.stdout.toString().trim(),loose=join(brain,".git/objects",hash.slice(0,2),hash.slice(2));
   expect(git("update-ref",`refs/athena/${method}`,hash).exitCode).toBe(0);
+  const index=join(brain,".brain-index/brain.db"),indexBefore=statSync(index).mtimeMs;
+  const note=join(brain,"notes/ithaca.md");writeFileSync(note,readFileSync(note,"utf8")+`\nAthena checks ${method}.\n`);
   rmSync(join(brain,".brain"),{recursive:true,force:true});writeFileSync(join(brain,".brain"),"Scratch cannot be a file.");
   try {
    mkdirSync(join(brain,"scripts"),{recursive:true});writeFileSync(join(brain,"scripts/brain-cli.ts"),`await import(${JSON.stringify(BRAIN_CLI)});`);
@@ -202,8 +204,8 @@ for(const method of ["run","launch"] as const) {
    const result=await execute(host,method,{argv,env:hostEnv(),credentials:true,gate:"exclusive",purpose:"Odysseus independent maintenance"});
    const report=JSON.parse(result.stdout);expect(report.find((row:{step:string})=>row.step==="git").result,"GIT_SUCCEEDS_DESPITE_SCRATCH").toStartWith("ok — packed ");
    expect(report.find((row:{step:string})=>row.step==="scratch").result).toStartWith("FAILED");expect(result.exitCode).toBe(2);
-   expect(existsSync(loose),"SUCCESSFUL_GIT_OUTPUT_IS_PUBLISHED").toBe(false);
-   expect(git("cat-file","-e",hash).exitCode).toBe(0);expect(readdirSync(join(brain,".git/objects/pack")).some(name=>name.endsWith(".pack"))).toBe(true);
+   expect(existsSync(loose),"NONZERO_MAINTAIN_DISCARDS_GIT").toBe(true);
+   expect(git("cat-file","-e",hash).exitCode).toBe(0);expect(statSync(index).mtimeMs,"NONZERO_MAINTAIN_PUBLISHES_INDEX").toBeGreaterThan(indexBefore);
   }finally{rmSync(join(brain,".brain"),{recursive:true,force:true});}
  });
  test(`headroom skip ${method} publishes no frozen Git objects`,async()=>{

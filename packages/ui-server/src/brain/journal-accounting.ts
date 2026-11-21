@@ -233,27 +233,11 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     recover(objects) {
       const report: JournalRecoveryStatus = { unresolvedRecords: 0, firstCause: null };
       const rows = db.query("SELECT * FROM turn_journal_reservations").all() as { id: string; hash: string; bytes: number; pid: number; pid_start: string; kind: string; recovery_failure: string | null }[];
-      for (const row of rows) {
-        if (processAlive(row.pid, row.pid_start)) continue;
-        if (row.kind === "read") { write(() => db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id)); continue; }
-        if (row.kind === "temporary") {
-          write(() => {
-            const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=? AND kind='temporary'").get(row.id) as { pid: number; pid_start: string } | null;
-            if (!current || processAlive(current.pid, current.pid_start)) return;
-            objects.discardPending(row.id);
-            db.query("DELETE FROM turn_journal_reservations WHERE id=? AND kind='temporary'").run(row.id);
-          });
-          continue;
-        }
-        let published = false, corrupt: unknown;
-        try {
-          published = objects.has(row.hash);
-          if (published && !objects.verify(row.hash, row.bytes)) corrupt = new Error("Published interrupted object failed integrity verification");
-        } catch (error) {
+      const recordFailure=(row:typeof rows[number],error:unknown)=>{
           // An I/O refusal proves neither existence nor corruption. Keep the
           // reservation and its state untouched for the next recovery pass.
           const fresh: NonNullable<JournalRecoveryStatus["firstCause"]> = {
-            reservationId: row.id, hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
+            reservationId: row.id, hash: row.hash ?? "", site: "journal-accounting.recover", at: Date.now(),
             errorClass: error instanceof Error ? error.name : "Error", message: (error instanceof Error ? error.message : String(error)).slice(0, 2000) };
           // A damaged stored cause is a diagnostic, never a boot refusal.
           let stored: unknown;
@@ -273,8 +257,23 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           if (!report.firstCause || cause.at < report.firstCause.at) report.firstCause = cause;
           process.stderr.write(JSON.stringify({ kind: "journal_object_recovery_pending", ...cause,
             ...(cause !== fresh ? { currentErrorClass: fresh.errorClass, currentError: fresh.message } : {}), ...(diagnosticError ? { diagnosticError } : {}) }) + "\n");
+      };
+      for (const row of rows) {
+        try {
+        if (processAlive(row.pid, row.pid_start)) continue;
+        if (row.kind === "read") { write(() => db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id)); continue; }
+        if (row.kind === "temporary") {
+          write(() => {
+            const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=? AND kind='temporary'").get(row.id) as { pid: number; pid_start: string } | null;
+            if (!current || processAlive(current.pid, current.pid_start)) return;
+            objects.discardPending(row.id);
+            db.query("DELETE FROM turn_journal_reservations WHERE id=? AND kind='temporary'").run(row.id);
+          });
           continue;
         }
+        let published = false, corrupt: unknown;
+        published = objects.has(row.hash);
+        if (published && !objects.verify(row.hash, row.bytes)) corrupt = new Error("Published interrupted object failed integrity verification");
         if (!published && db.query("SELECT 1 FROM turn_journal_object_refs WHERE hash=? LIMIT 1").get(row.hash))
           corrupt = new Error("Retained interrupted object is absent");
         let quarantined = false;
@@ -308,6 +307,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
         });
         if (quarantined) process.stderr.write(JSON.stringify({ kind: "journal_object_quarantined", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
           errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: corrupt instanceof Error ? corrupt.message : String(corrupt) }) + "\n");
+        }catch(error){recordFailure(row,error);}
       }
       return report;
     },

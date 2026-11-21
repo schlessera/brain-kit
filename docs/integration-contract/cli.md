@@ -338,7 +338,8 @@ is null, `no_space`, `not_a_git_worktree` or `git_maintenance_unavailable`;
 these existing values remain unchanged.
 `headroom` is null before capacity inspection, or `{availableBytes, requiredBytes:
 null, reason}`. Availability is a nullable live statfs observation of the Git
-common store. Additive in #4287/#4288: `headroom.packingRequiredBytes`
+objects filesystem (resolved by `git rev-parse --git-path objects`, which may
+differ from the common directory when objects are relocated). Additive in #4287/#4288: `headroom.packingRequiredBytes`
 is the conservative preflight need: page-rounded three times the sum of raw Git
 object sizes plus 128 bytes per object, and ref text plus 128 bytes per ref,
 plus 16 MiB. `requiredBytes` retains its
@@ -1473,3 +1474,11 @@ written. Existing fields and dispositions retain their meanings. Preview-only
 new model pass. Use the explicit `propagation --dry-run` to inspect prospective
 automation. The operation exits 0 after reporting outcomes, including unavailable
 and deferred cases; usage/configuration errors retain exit 1.
+
+
+Hosted routine maintenance selects Git output conservatively: only a zero exit
+and a complete JSON report with one successful Git step permit publication.
+Failed, skipped, malformed, oversized, human-only or unavailable reports discard
+all `.git/` output while other validated maintenance areas publish. A streaming
+caller whose report is not fully observed at process exit also discards Git.
+The successful-output publisher is unchanged by this selection rule.

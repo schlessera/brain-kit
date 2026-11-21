@@ -1,8 +1,7 @@
 /** Changed-only publication from a root-inspected trusted OverlayFS stage. */
-import { clonePackDirectory, recoverPackDirectories, renamePackDirectory } from "./maintenance-pack-directory.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { INDEX_DB_PATH } from "@schlessera/brain-common/internal/index-location";
-import { closeSync, constants, fsyncSync, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
+import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -32,9 +31,6 @@ export interface PreparedWorkerOutput {
   readonly view: WorkerStartupView;
   readonly output: { source: string; storage: WorkerOutputStorage };
   discardGit(): void;
-  /** Private per-execution receipt; never selected for publication. */
-  readonly gitResultPath: string;
-  gitSucceeded(): Promise<boolean>;
   publish(): Promise<void>;
   publishLocked(lock: KeyedLock): Promise<void>;
   /** Await stage deletion, then release the owned checkpoint reference. Idempotent. */
@@ -254,7 +250,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(rel) || rel.split("/").some(part => !part || part === "." || part === "..")))
     throw Error("Invalid retained provider folder path");
   const native = nativeWorkerStartupInput(options.startupView), view = retainWorkerStartupView(options.startupView);
-  let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
+  const limits = hostOutputStagingLimits(); let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
   let discardGit = false;
   let prepared: PreparedWorkerOutput | undefined, stageRequested = false;
   const id = randomUUID(); let stage: NativeStage | undefined, fd: number | undefined, cleanupPromise: Promise<void> | undefined;
@@ -279,7 +275,6 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     })().catch((error: unknown) => { cleanupFailed = true; throw error; });
   };
   try {
-    let limits = hostOutputStagingLimits();
     reservation = processStateLedger().reserve(undefined, undefined, limits);
     stageRequested = true;
     stage = await native.manager.prepareStage(id, native.checkpoint.id, reservation.outputStagingBytes, options.signal);
@@ -397,7 +392,6 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         if (live && (await inspect(brain, rel)).entry) throw Error("Git mask scaffold live absence changed");
       }
     }
-    const gitResultPath = `.git/.brain-maintenance-result-${randomUUID()}`;
     async function publish(lock?: KeyedLock) {
       if (gitPoisoned || gitPreparation) throw Error("Git input preparation is incomplete; discard stage");
       if (indexPoisoned || indexPreparation) throw Error("Disposable index preparation is incomplete; discard stage");
@@ -417,7 +411,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         }
       }
       const isGitControl = (rel: string) => [...gitControls.keys()].some(root => isWithin(root, rel));
-      function add(rel: string) { if (rel === gitResultPath || isGitControl(rel)) return; if (++count > 200_000) throw Error("Native output exceeds existing 200000 entry bound"); candidates.add(rel); }
+      function add(rel: string) { if (isGitControl(rel)) return; if (++count > 200_000) throw Error("Native output exceeds existing 200000 entry bound"); candidates.add(rel); }
       for await (const change of receipt.changes) {
         const rel = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(change.pathHex, "hex"));
         if (isGitControl(rel)) continue;
@@ -428,7 +422,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       }
       await receipt.completed;
       if (receipt.checkpointId !== native.checkpoint.id || receipt.checkpointUuid !== native.checkpoint.uuid) throw Error("Native output inspection changed its lower identity");
-      const selected = (rel: string) => !(discardGit && isWithin(".git", rel)) && (!options.areas || options.areas.some(area => isWithin(area, rel)));
+      const selected = (rel: string) => !(discardGit && isWithin(".git",rel)) && (!options.areas || options.areas.some(area => isWithin(area, rel)));
       const before = new Map<string, Captured>(), after = new Map<string, Captured>();
       for (const rel of [...candidates].filter(rel => selected(rel) && rel !== WAL_INDEX).sort()) {
         const next = await inspectInput(true, rel); after.set(rel, next);
@@ -477,36 +471,15 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         const pending: { rel: string; fd: number; name: string; temporary?: string; next?: Entry; recovery?: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> }[] = [];
         const directoryModes: { fd: number; mode: number; rel: string; parent: number; name: string; temporaryMode: number }[] = [];
         let publicationError: unknown;
-        const packRoot = ".git/objects/pack", packChanges = changed.filter(rel => isWithin(packRoot, rel));
-        let transaction: {objects:number;directory:number;name:string;files:number;pack:number;root:string;mode:number;activated:boolean;durable:boolean} | undefined;
-        const packMember = (rel: string) => isWithin(packRoot, rel);
         const finalizeDirectory = (directory: (typeof directoryModes)[number]) => {
           const held = fstatSync(directory.fd), visible = lstatSync(at(directory.parent,directory.name));
           if (!visible.isDirectory() || held.dev !== visible.dev || held.ino !== visible.ino || (held.mode & 0o7777) !== directory.temporaryMode) throw Error(`stale maintenance output: ${directory.rel}`);
           fchmodSync(directory.fd,directory.mode);
         };
         try {
-          if (packChanges.length) {
-            // The transaction must share the objects filesystem, including its
-            // subvolume; a transaction beside the brain can cross EXDEV.
-            const held = parent(brain, packRoot), name = `.brain-maintenance-${randomUUID()}`, opened:number[]=[];
-            try {
-              recoverPackDirectories(held.fd);
-              mkdirSync(at(held.fd, name), {mode:0o700});
-              const directory = openSync(at(held.fd,name), DIRECTORY), root = at(directory,".");opened.push(directory);
-              mkdirSync(at(directory,"files"),{mode:0o700});mkdirSync(at(directory,"pack"),{mode:0o700});
-              const files = openSync(at(directory,"files"),DIRECTORY);opened.push(files);
-              const pack = openSync(at(directory,"pack"),DIRECTORY);opened.push(pack);
-              transaction = {objects:held.fd,directory,name,files,pack,root,activated:false,durable:false,mode:after.get(packRoot)?.entry?.mode ?? ((lstatSync(at(held.fd,"pack"),{throwIfNoEntry:false})?.mode ?? 0o755) & 0o7777)};
-              let live:number|undefined;
-              try { live=openSync(at(held.fd,"pack"),DIRECTORY); }catch(error){if(!absent(error))throw error;}
-              if(live!==undefined)try{clonePackDirectory(live,pack);}finally{closeSync(live);}
-              fsyncSync(directory);fsyncSync(held.fd);
-            } catch(error){if(!transaction){for(const fd of opened.reverse())closeSync(fd);try{rmSync(at(held.fd,name),{recursive:true,force:true});}finally{closeSync(held.fd);}}throw error;}
-          }
           for (const rel of changed) {
             const next = after.get(rel)!.entry; if (!next || next.type === "directory") continue;
-            const handle = { fd: transaction && isWithin(".git",rel) ? openSync(at(transaction.files,"."),DIRECTORY) : preparationDirectory(brain, rel), name: `.maintenance-${randomUUID()}` }, temporary = at(handle.fd, handle.name);
+            const handle = { fd: preparationDirectory(brain, rel), name: `.maintenance-${randomUUID()}` }, temporary = at(handle.fd, handle.name);
             pending.push({ rel, ...handle, temporary, next });
             if (next.type === "symlink") symlinkSync(next.link!, temporary);
             else if (rel === WAL_INDEX) { const target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode); try { await target.chmod(next.mode); } finally { await target.close(); } }
@@ -529,7 +502,6 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
                   }, beforeRead!.bytes);
                   if ((await privateStat(true, rel))?.stamp !== beforeRead!.stamp) throw Error(`Native private output changed during copy: ${rel}`);
                   await target.chmod(next.mode);
-                  await target.sync();
                 } finally { await target.close(); }
                 continue;
               }
@@ -539,8 +511,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               catch (error) { closeSync(source.fd); throw error; }
               let target: Awaited<ReturnType<typeof open>> | undefined;
               try {
-                const inputInfo = await input.stat({ bigint: true });
-                const found = stamp(inputInfo);
+                const found = stamp(await input.stat({ bigint: true }));
                 if (found !== after.get(rel)!.stamp) throw Error(`Native output changed before copy: ${rel} (inspected ${after.get(rel)!.stamp}, found ${found})`);
                 target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode);
                 const buffer = Buffer.alloc(64 * 1024);
@@ -551,7 +522,6 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
                 const copied = stamp(await input.stat({ bigint: true }));
                 if (copied !== after.get(rel)!.stamp) throw Error(`Native output changed during copy: ${rel} (inspected ${after.get(rel)!.stamp}, found ${copied})`);
                 await target.chmod(next.mode);
-                await target.sync();
               } finally { closeSync(source.fd); await input.close(); await target?.close(); }
             }
           }
@@ -567,62 +537,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
             const directory = before.get(rel)!.entry?.type === "directory" && after.get(rel)!.entry?.type === "directory";
             if (directory ? current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":") : current !== expected) throw Error(`stale maintenance output: ${rel}`);
           }
-          for (const rel of changed.filter(p => after.get(p)!.entry?.type === "directory" && !packMember(p)).sort((a,b) => a.split("/").length-b.split("/").length)) {
-            const entry = after.get(rel)!.entry!, handle = parent(brain, rel);
-            try {
-              const current = versionAt(handle.fd, handle.name), expected = authoritative.get(rel)!.stamp;
-              if (current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":")) throw Error(`stale maintenance output: ${rel}`);
-              if (!before.get(rel)!.entry) { mkdirSync(at(handle.fd, handle.name), { mode: entry.mode | 0o700 }); fsyncSync(handle.fd); }
-              const directory = openSync(at(handle.fd, handle.name), DIRECTORY), temporaryMode = entry.mode | 0o700;
-              fchmodSync(directory, temporaryMode); directoryModes.push({ fd: directory, mode: entry.mode, rel, parent: openSync(at(handle.fd, "."), DIRECTORY), name: handle.name, temporaryMode });
-            } finally { closeSync(handle.fd); }
-          }
-          // Build and sync the complete replacement outside the visible pack
-          // directory. A kill at any preparation point leaves the old set live.
-          if (transaction) {
-            for (const rel of packChanges.filter(rel=>after.get(rel)!.entry?.type === "directory").sort((a,b)=>a.length-b.length)) {
-              if(rel===packRoot)continue;
-              mkdirSync(`${transaction.root}/pack/${rel.slice(packRoot.length+1)}`, {recursive:true,mode:after.get(rel)!.entry!.mode});
-            }
-            for (const item of pending.filter(item=>packMember(item.rel))) {
-              const destination = parent(`${transaction.root}/pack`,item.rel.slice(packRoot.length+1));
-              try { renameSync(item.temporary!,at(destination.fd,destination.name));fsyncSync(destination.fd); }
-              finally {closeSync(destination.fd);}
-            }
-            for(const rel of packChanges.filter(rel=>!after.get(rel)!.entry).sort((a,b)=>b.length-a.length)) {
-              if(rel===packRoot)throw Error("Maintenance cannot remove the Git pack directory");
-              const destination=parent(`${transaction.root}/pack`,rel.slice(packRoot.length+1));
-              try{rmSync(at(destination.fd,destination.name),{recursive:true,force:true});fsyncSync(destination.fd);}finally{closeSync(destination.fd);}
-            }
-            const names = new Set(readdirSync(at(transaction.pack,".")));
-            for(const name of names) {
-              const companion = name.endsWith(".pack") ? name.slice(0,-5)+".idx" : name.endsWith(".idx") ? name.slice(0,-4)+".pack" : undefined;
-              if(companion && packChanges.includes(`${packRoot}/${name}`) && after.get(`${packRoot}/${name}`)?.entry && !names.has(companion))throw Error("Incomplete Git pack/index publication family");
-            }
-            fchmodSync(transaction.pack,transaction.mode);fsyncSync(transaction.pack);fsyncSync(transaction.directory);
-            renamePackDirectory(transaction.directory,"pack",transaction.objects,"pack",Boolean(before.get(packRoot)?.entry ?? lstatSync(at(transaction.objects,"pack"),{throwIfNoEntry:false})));
-            transaction.activated=true;
-            // After the atomic switch, never roll packs back: any subsequent
-            // ref or MIDX flush may already have become durable.
-            fsyncSync(transaction.objects);transaction.durable=true;
-          }
-          // Every object precedes every ref. Loose deletion follows all installs.
-          const priority = (rel:string) => isWithin(".git/objects",rel) ? 0 : 1;
-          for (const item of pending.filter(item=>!packMember(item.rel)).sort((a,b)=>priority(a.rel)-priority(b.rel))) {
-            const destination = parent(brain, item.rel);
-            try {
-              if (item.rel === WAL_INDEX) {
-                const current = walIndexAt(destination.fd, destination.name);
-                if (current && current.type !== "file") throw Error(`stale maintenance output: ${item.rel}`);
-                renameSync(item.temporary!, at(destination.fd,destination.name)); continue;
-              }
-              if (versionAt(destination.fd, destination.name) !== authoritative.get(item.rel)!.stamp) throw Error(`stale maintenance output: ${item.rel}`);
-              if (before.get(item.rel)!.entry) renameSync(item.temporary!, at(destination.fd,destination.name));
-              else { try { linkSync(item.temporary!, at(destination.fd,destination.name)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw Error(`stale maintenance output: ${item.rel}`); throw error; } }
-              fsyncSync(destination.fd);
-            } finally { closeSync(destination.fd); }
-          }
-          for (const rel of changed.filter(p => !after.get(p)!.entry && !packMember(p)).sort((a,b) => b.split("/").length-a.split("/").length)) {
+          for (const rel of changed.filter(p => !after.get(p)!.entry).sort((a,b) => b.split("/").length-a.split("/").length)) {
             const handle = parent(brain, rel); try {
               if (rel === WAL_INDEX) {
                 const current = walIndexAt(handle.fd, handle.name);
@@ -635,19 +550,35 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               if (before.get(rel)!.entry!.type === "directory") rmdirSync(at(handle.fd, handle.name)); else unlinkSync(at(handle.fd, handle.name));
             } finally { closeSync(handle.fd); }
           }
+          for (const rel of changed.filter(p => after.get(p)!.entry?.type === "directory").sort((a,b) => a.split("/").length-b.split("/").length)) {
+            const entry = after.get(rel)!.entry!, handle = parent(brain, rel);
+            try {
+              const current = versionAt(handle.fd, handle.name), expected = authoritative.get(rel)!.stamp;
+              if (current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":")) throw Error(`stale maintenance output: ${rel}`);
+              if (!before.get(rel)!.entry) mkdirSync(at(handle.fd, handle.name), { mode: entry.mode | 0o700 });
+              const directory = openSync(at(handle.fd, handle.name), DIRECTORY), temporaryMode = entry.mode | 0o700;
+              fchmodSync(directory, temporaryMode); directoryModes.push({ fd: directory, mode: entry.mode, rel, parent: openSync(at(handle.fd, "."), DIRECTORY), name: handle.name, temporaryMode });
+            } finally { closeSync(handle.fd); }
+          }
+          for (const item of pending) {
+            const destination = parent(brain, item.rel);
+            try {
+              if (item.rel === WAL_INDEX) {
+                const current = walIndexAt(destination.fd, destination.name);
+                if (current && current.type !== "file") throw Error(`stale maintenance output: ${item.rel}`);
+                renameSync(item.temporary!, at(destination.fd,destination.name)); continue;
+              }
+              if (versionAt(destination.fd, destination.name) !== authoritative.get(item.rel)!.stamp) throw Error(`stale maintenance output: ${item.rel}`);
+              if (before.get(item.rel)!.entry) renameSync(item.temporary!, at(destination.fd,destination.name));
+              else { try { linkSync(item.temporary!, at(destination.fd,destination.name)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw Error(`stale maintenance output: ${item.rel}`); throw error; } }
+            } finally { closeSync(destination.fd); }
+          }
         } catch (error) { publicationError = error; }
         finally {
           // Drain every retained descriptor; cleanup cannot replace the original refusal.
           for (const item of pending) {
             try { if (item.temporary) rmSync(item.temporary, { force: true }); item.recovery?.release(); } catch (error) { publicationError ??= error; }
             try { closeSync(item.fd); } catch (error) { publicationError ??= error; }
-          }
-          if(transaction) {
-            for(const fd of [transaction.files,transaction.pack,transaction.directory])try{closeSync(fd);}catch(error){publicationError??=error;}
-            // An unconfirmed activation keeps both generations. Recovery must
-            // confirm the objects-directory barrier before deleting the old one.
-            if(!transaction.activated||transaction.durable)try{rmSync(at(transaction.objects,transaction.name),{recursive:true,force:true});fsyncSync(transaction.objects);}catch(error){publicationError??=error;}
-            try{closeSync(transaction.objects);}catch(error){publicationError??=error;}
           }
           for (const directory of directoryModes.reverse()) {
             try { finalizeDirectory(directory); } catch (error) { publicationError ??= error; }
@@ -658,11 +589,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         if (publicationError) throw publicationError;
       } finally { for (const release of releases.reverse()) release(); }
     }
-    prepared = { view, output, gitResultPath,
-      async gitSucceeded() {
-        try { const bytes = await readRefused(gitResultPath, 16); return bytes !== null && Buffer.from(bytes).toString() === "packed\n"; }
-        catch(error) { if(absent(error))return false;throw error; }
-      }, discardGit() { discardGit = true; }, publish: () => publish(), publishLocked: publish, cleanup };
+    prepared = { view, output, discardGit() { discardGit = true; }, publish: () => publish(), publishLocked: publish, cleanup };
     const maintenanceOwner: NativeMaintenanceOwner = {
       protected: Boolean(identityTicket), generation: 0,
       async index(input) {

@@ -1,4 +1,3 @@
-import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 /**
  * Which paths under a brain git ignores, asked of git once.
  *
@@ -13,7 +12,7 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
  * submodule in it) rather than a spawn per file.
  */
 import { existsSync, readFileSync } from "fs";
-import { dirname, isAbsolute, join, relative } from "path";
+import { isAbsolute, join } from "path";
 
 import { ASSET_EXTENSIONS } from "./types.js";
 
@@ -43,21 +42,14 @@ function gitList(dir: string, args: string[]): string[] | null {
  * a submodule's boundary, while the asset scan does not, so each nested work
  * tree gets the same one call of its own.
  */
-function collectIgnored(dir: string, prefix: string, files: Set<string>, dirs: Set<string>, depth: number, exclusions: { dirs: string[]; segments: string[] }): boolean {
-  // Synthetic directory ignores prune before Git opens taxonomy-excluded trees.
-  // Quote gitignore metacharacters; the taxonomy contains literal names.
-  const escape = (value: string) => value.replace(/[\\*?\[\]#! ]/g, "\\$&");
-  // Command-line exclude patterns are rooted at the worktree, even when
-  // discovery starts in a subdirectory of a containing repository.
-  let worktree = dir;
-  while (!existsSync(join(worktree,".git")) && dirname(worktree) !== worktree) worktree=dirname(worktree);
-  const localPrefix=relative(worktree,dir);
-  const patterns = [
-    ...exclusions.dirs.filter(path => !prefix || path.startsWith(prefix)).map(path => "/" + escape([localPrefix,path.slice(prefix.length)].filter(Boolean).join("/")) + "/"),
-    ...exclusions.segments.filter(segment=>!segment.includes("/")).map(segment => escape(segment) + "/"),
-  ];
-  const entries = gitList(dir, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z",
-    ...patterns.map(pattern => `--exclude=${pattern}`), "--", ":(literal)."]);
+function collectIgnored(dir: string, prefix: string, files: Set<string>, dirs: Set<string>, depth: number, candidates?: readonly string[]): boolean {
+  const local=candidates?.filter(path=>path.startsWith(prefix)).map(path=>path.slice(prefix.length));
+  if(local && !local.length)return true;
+  // Candidate paths came from the taxonomy-pruned walk. Git sees no excluded
+  // directory, even if its index tracks a descendant. Taxonomy remains literal
+  // and case-sensitive; Git's own core.ignorecase applies only to Git ignores.
+  const entries = gitList(dir, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z", "--",
+    ...(local ? local.map(path=>`:(literal)${path}`) : [":(literal)."])]);
   if (entries === null) return false;
   for (const entry of entries) (entry.endsWith("/") ? dirs : files).add(prefix + entry);
   if (depth >= MAX_SUBMODULE_DEPTH) return true;
@@ -66,7 +58,7 @@ function collectIgnored(dir: string, prefix: string, files: Set<string>, dirs: S
   // initialised has its own `.git`; an uninitialised one is an empty directory.
   for (const path of submodulePaths(dir)) {
     const nested = join(dir, path);
-    if (!exclusions.dirs.some(excluded => isWithin(excluded,`${prefix}${path}`)) && !path.split("/").some(part => exclusions.segments.includes(part)) && existsSync(join(nested, ".git"))) collectIgnored(nested, `${prefix}${path}/`, files, dirs, depth + 1, exclusions);
+    if (existsSync(join(nested, ".git"))) collectIgnored(nested, `${prefix}${path}/`, files, dirs, depth + 1, candidates);
   }
   return true;
 }
@@ -96,10 +88,10 @@ const MAX_SUBMODULE_DEPTH = 8;
  * `--directory` reports an ignored directory once, with a trailing slash,
  * instead of every file in it, so an ignored tree of media costs one line.
  */
-export function gitIgnoredMatcher(root: string, exclusions: { dirs: string[]; segments: string[] } = { dirs: [], segments: [] }): IgnoredMatcher {
+export function gitIgnoredMatcher(root: string, candidates?: readonly string[]): IgnoredMatcher {
   const files = new Set<string>();
   const dirs = new Set<string>();
-  if (!collectIgnored(root, "", files, dirs, 0, exclusions)) return NOTHING_IGNORED;
+  if (!collectIgnored(root, "", files, dirs, 0, candidates)) return NOTHING_IGNORED;
   if (files.size === 0 && dirs.size === 0) return NOTHING_IGNORED;
   return (path) => {
     if (files.has(path)) return true;

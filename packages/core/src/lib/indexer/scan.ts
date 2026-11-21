@@ -10,7 +10,7 @@ import { statSync } from "fs";
 import { resolve } from "path";
 
 import { CHUNKER_VERSION } from "../chunker.js";
-import { gitIgnoredMatcher } from "../git-ignore.js";
+import { gitIgnoredMatcher, isAssetPath } from "../git-ignore.js";
 import { ASSET_EXTENSIONS } from "../types.js";
 import type { Asset } from "../types.js";
 import type { Taxonomy } from "../taxonomy.js";
@@ -50,9 +50,11 @@ const MIME_TYPES: Record<string, string> = {
  */
 export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
   const assets: Asset[] = [];
-  const ignored = gitIgnoredMatcher(root, taxonomy.exclude);
+  const candidates=[...discoveryFiles(root,path=>taxonomy.isExcludedDirectory(path))]
+    .filter(path=>!taxonomy.isExcludedPath(path));
+  const ignored = gitIgnoredMatcher(root,candidates.filter(isAssetPath));
 
-  for (const path of discoveryFiles(root, path => taxonomy.isExcludedDirectory(path) || ignored(`${path}/`))) {
+  for (const path of candidates) {
     // The path as it is on disk, the way the markdown scan, the stats corpus
     // walk and the MCP listing test it: exclude entries are literal. Only the
     // extension below is case-folded. Lowercasing here made `dirs: ["drafts"]`

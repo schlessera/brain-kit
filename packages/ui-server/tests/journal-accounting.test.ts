@@ -261,3 +261,23 @@ test("a damaged stored recovery cause is replaced by the current cause instead o
     }
   } finally {db.close();rmSync(root,{recursive:true,force:true});}
 });
+
+for(const kind of ["copy","temporary"])test(`pending-file fsync failure in ${kind} recovery is local, durable and retryable`,async()=>{
+ const fs=await import("node:fs"),{spyOn}=await import("bun:test");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-recovery-sync-")),db=createUiDb(":memory:"),ledger=createJournalAccounting(db,":memory:"),objects=createJournalObjects(join(root,"objects"),ledger);
+ try {
+  const hash="a".repeat(64),held=kind==="copy"?await ledger.reserve(8,hash):ledger.reserveTemporary(8);
+  ledger.write(()=>db.query("UPDATE turn_journal_reservations SET pid_start='gone' WHERE id=?").run(held.id!));
+  writeFileSync(join(root,"objects",`pending-${held.id}`),"Odysseus");
+  const sync=spyOn(fs,"fsyncSync").mockImplementation(()=>{throw Error("Ithaca recovery directory sync refused");});
+  let report!:ReturnType<typeof ledger.recover>;
+  try {
+   expect(()=>{report=ledger.recover(objects);},"RECOVERY_SYNC_FAILURE_IS_LOCAL").not.toThrow();
+   expect(report,"RECOVERY_SYNC_FAILURE_IS_LOCAL").toMatchObject({unresolvedRecords:1,firstCause:{reservationId:held.id,errorClass:"Error",message:"Ithaca recovery directory sync refused",hash:kind==="copy"?hash:""}});
+   const row=db.query("SELECT recovery_failure FROM turn_journal_reservations WHERE id=?").get(held.id!) as {recovery_failure:string};expect(JSON.parse(row.recovery_failure),"RECOVERY_SYNC_CAUSE_IS_DURABLE").toEqual(report.firstCause);
+   const other=await ledger.reserve(2,"b".repeat(64));other.cancel();
+   expect(ledger.recover(objects),"RECOVERY_RETRIES_MISSING_PENDING_BARRIER").toEqual(report);
+  }finally{sync.mockRestore();}
+  expect(ledger.recover(objects),"RECOVERY_SYNC_TRANSIENT_RESOLVES").toEqual({unresolvedRecords:0,firstCause:null});
+ }finally{objects.close();db.close();rmSync(root,{recursive:true,force:true});}
+});

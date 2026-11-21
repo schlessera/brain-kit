@@ -3416,3 +3416,10 @@ These sidecars never change provider messages, tools or system prefixes. The
 host-only verdict store remains separate; this slice changes no effective-taint
 admission semantics or Settings policy. The semantic G6 break remains governed
 by the prior maintainer ruling in the session-safety ADR.
+
+
+Idle journal maintenance records scrub results in the existing `journal_scrub`
+Activity event payload. The optional numeric `capacityBlocked` field counts
+candidates whose quarantine charge could not fit this pass; the result remains
+`partial` with the existing `quarantine_pending` reason. No existing event,
+outcome or reason discriminator changes.

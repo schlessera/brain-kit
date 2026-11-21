@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import { expect, spyOn, test } from "bun:test";
 import { Glob } from "bun";
 import { chmodSync, mkdtempSync, mkdirSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -139,5 +140,37 @@ test("Git directory pruning also holds when discovery starts below its worktree 
   mkdirSync(join(brain,"node_modules/unreadable"),{recursive:true});writeFileSync(join(brain,"ithaca.jpg"),"");utimesSync(join(brain,"node_modules"),0,0);
   expect(getAssetFiles(brain,buildTaxonomy({})).map(row=>row.path)).toEqual(["ithaca.jpg"]);
   expect(statSync(join(brain,"node_modules")).atimeMs,"NESTED_WORKTREE_PRUNES_EXCLUDED_DIRECTORY").toBe(0);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("Git ignorecase does not case-fold taxonomy directory exclusions",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-ignorecase-taxonomy-"));
+ const git=(...args:string[])=>{const result=Bun.spawnSync(["git","-C",root,...args],{stdout:"pipe",stderr:"pipe"});expect(result.exitCode,result.stderr.toString()).toBe(0);};
+ try {
+  git("init","-q");git("config","core.ignorecase","true");
+  for(const path of ["Drafts/chart.jpg","drafts/hidden.jpg","athena.png"]){mkdirSync(join(root,path,".."),{recursive:true});writeFileSync(join(root,path),"");}
+  writeFileSync(join(root,".gitignore"),"*.PNG\n");const taxonomy=buildTaxonomy({user:{exclude:{dirs:["drafts"]}}} as never);
+  expect(taxonomy.isExcludedPath("Drafts/chart.jpg")).toBe(false);
+  expect(getAssetFiles(root,taxonomy).map(row=>row.path),"TAXONOMY_CASE_IS_INDEPENDENT_OF_GIT_IGNORECASE").toEqual(["Drafts/chart.jpg"]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+test("tracked descendants cannot make Git open taxonomy-excluded trees",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-tracked-excluded-"));
+ try {
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+  for(const dir of ["node_modules","workspaces"]){mkdirSync(join(root,dir,"unreadable"),{recursive:true});writeFileSync(join(root,dir,"chart.md"),"Ithaca");}
+  writeFileSync(join(root,"chart.jpg"),"Ithaca");
+  expect(Bun.spawnSync(["git","-C",root,"add","-f","node_modules/chart.md","workspaces/chart.md"]).exitCode).toBe(0);
+  for(let n=0;n<10000;n++)writeFileSync(join(root,`node_modules/unreadable/${n}.md`),"");
+  for(const dir of ["node_modules","workspaces"])utimesSync(join(root,dir),0,0);
+  const reads=spyOn(fs,"readdirSync");
+  try {
+   expect(getAssetFiles(root,buildTaxonomy({})).map(row=>row.path)).toEqual(["chart.jpg"]);
+   expect(reads.mock.calls.some(([path])=>/\/(node_modules|workspaces)(?:\/|$)/.test(String(path))),"WALK_PRUNES_TRACKED_EXCLUDED_TREES").toBe(false);
+  }finally{reads.mockRestore();}
+  for(const dir of ["node_modules","workspaces"])expect(statSync(join(root,dir)).atimeMs,"GIT_NEVER_SEES_TRACKED_EXCLUDED_TREE").toBe(0);
+  // Establish that Git's old unrestricted listing reads the tracked subtree.
+  expect(Bun.spawnSync(["git","-C",root,"ls-files","--others","--ignored","--exclude-standard","--directory","--exclude=node_modules/","-z"]).exitCode).toBe(0);
+  expect(statSync(join(root,"node_modules")).atimeMs,"GIT_READ_COUNTER_NEGATIVE_CONTROL").toBeGreaterThan(0);
  }finally{rmSync(root,{recursive:true,force:true});}
 });

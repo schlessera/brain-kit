@@ -1,3 +1,4 @@
+import { routineMaintenance, gitPublicationAllowed, observeMaintenanceStdout } from "./maintenance-git-publication.js";
 /**
  * The host execution boundary (#1648; docs/decisions/governed-writable-workers.md,
  * "The host execution boundary").
@@ -294,19 +295,6 @@ export interface HostBoundaryOptions {
   /** The server's home, which a credentialed worker sees. */
   home?: string;
   log?: Logger;
-}
-
-/** Recognize the routine CLI among Bun and executable launch forms. */
-function routineMaintenance(argv: readonly string[]): boolean {
-  const step = argv.indexOf("maintain");
-  return step > 0 && argv.slice(0, step).some(arg => /(?:^|\/)brain(?:-cli)?(?:\.[cm]?[jt]s)?$/.test(arg));
-}
-
-/** Observe the CLI inside its worker, retaining bounded state while forwarding stdout. */
-function observeMaintenanceGit(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>): void {
-  const entry = Bun.resolveSync("./maintenance-git-result", import.meta.dir);
-  command.command = [process.execPath,"--config=/dev/null","--no-env-file",entry,`${outputs.output.target}/${outputs.gitResultPath}`,...command.command];
-  command.readPaths = [...(command.readPaths ?? []),entry];
 }
 
 /** The program a worker runs, made absolute: in the brain, the server's Bun, or on the worker's PATH. */
@@ -686,13 +674,12 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
               relay = providerRelayFor(execution);
               const launch = command(execution, undefined, relay);
               const routine = routineMaintenance(execution.argv);
-              if (routine) observeMaintenanceGit(launch,outputs);
               const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
               execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
                 ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
               () => { execution.assertAuthorized?.(); execution.onExecute?.(); });
-              if (routine ? !await outputs.gitSucceeded() : result.exitCode !== 0) outputs.discardGit();
+              if (routine ? !gitPublicationAllowed(result.exitCode,result.stdout) : result.exitCode !== 0) outputs.discardGit();
               if (!result.killed && execution.publish !== false) {
                 execution.assertAuthorized?.();
                 if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
@@ -777,7 +764,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
         relay = providerRelayFor(execution);
         const launch = command(execution, undefined, relay);
-        if (routineMaintenance(execution.argv)) observeMaintenanceGit(launch,outputs);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
         execution.signal?.throwIfAborted();
         const maintenance = { ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) };
@@ -789,8 +775,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       catch (error) { await relay?.stop(); try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
+      const report = routineMaintenance(execution.argv) ? observeMaintenanceStdout(worker.stdout) : undefined;
       const exited = worker.exited.then(async code => {
-        if (routineMaintenance(execution.argv) ? !await outputs!.gitSucceeded() : code !== 0) outputs!.discardGit();
+        if (report ? !report.gitSucceeded(code) : code !== 0) outputs!.discardGit();
         if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();
@@ -809,7 +796,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       // An abort accepted while the launch was awaited still stops the worker.
       if (execution.signal?.aborted) kill("SIGKILL");
-      return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, kill }, credential);
+      return retainExecutionAdmission({ stdout: report?.stream ?? worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, kill }, credential);
     },
     async runSync(execution) {
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");

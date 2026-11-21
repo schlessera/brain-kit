@@ -1,6 +1,7 @@
 /** Bounded, host-private orphan quarantine. Only the journal write worker calls this. */
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, lstatSync, openSync, opendirSync, readSync, renameSync, type Dir } from "node:fs";
+import {JournalCapacityError} from "./journal-objects.js";
 import type { Database } from "bun:sqlite";
 
 const JOURNAL_SCRUB_FILES = 64;
@@ -11,6 +12,7 @@ export interface JournalScrubResult {
   listed: number; unaccounted: number; unaccountedBytes: number;
   corrupt: number; corruptBytes: number; quarantined: number; quarantinedBytes: number;
   pending: number; pendingBytes: number;
+  capacityBlocked?: number;
 }
 export function createJournalScrub(db: Database, root: string, write: <T>(operation: () => T) => T) {
   let listing: Dir | undefined;
@@ -71,17 +73,17 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
           batch=Object.freeze(names);
         }
         const frozen=batch;
-        const reserved=write(()=>{
+        const reserve=(entries=frozen,includeRetries=true)=>write(()=>{
           if(busy())return null;
           const retry=(after:string)=>db.query("SELECT hash,bytes FROM turn_journal_scrub_quarantine WHERE state='reserved' AND hash>? ORDER BY hash LIMIT ?")
             .all(after,JOURNAL_SCRUB_FILES/2) as {hash:string;bytes:number}[];
-          let rows=retry(retryAfter);if(!rows.length&&retryAfter)rows=retry("");
-          const nextRetry=rows.at(-1)?.hash??"",selected=frozen.slice(0,JOURNAL_SCRUB_FILES-rows.length);
+          let rows=includeRetries?retry(retryAfter):[];if(includeRetries&&!rows.length&&retryAfter)rows=retry("");
+          const nextRetry=rows.at(-1)?.hash??"",selected=entries.slice(0,JOURNAL_SCRUB_FILES-rows.length);
           const corruptCopies=new Map<string,number>();let unaccounted=0,unaccountedBytes=0;
           for(const entry of selected){
             const hash=entry.name;if(!/^[a-f0-9]{64}$/.test(hash)||protectedHash(hash))continue;
             const prior=db.query("SELECT hash FROM turn_journal_scrub_quarantine WHERE substr(hash,1,64)=? AND state='reserved' ORDER BY rowid DESC LIMIT 1").get(hash) as {hash:string}|null;
-            if(prior&&SCRUB_NAME.test(prior.hash)&&verify(target,prior.hash,corruptCopies).bytes===null)continue;
+            if(prior&&SCRUB_NAME.test(prior.hash)){const destination=verify(target,prior.hash,corruptCopies);if(destination.bytes===null&&!destination.corrupt)continue;}
             const candidate=verify(source,hash,corruptCopies);if(candidate.bytes===null)continue;
             unaccounted++;unaccountedBytes+=candidate.bytes;if(candidate.corrupt)continue;
             const name=db.query("SELECT 1 FROM turn_journal_scrub_quarantine WHERE hash=?").get(hash)?entry.alternate:hash;
@@ -90,7 +92,24 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
           }
           return {rows,nextRetry,consumed:selected.length,corruptCopies,unaccounted,unaccountedBytes};
         });
+        let reserved:ReturnType<typeof reserve>,capacityBlocked=0;
+        try{reserved=reserve();}
+        catch(error){
+          if(!(error instanceof JournalCapacityError))throw error;
+          // A refused batch has committed nothing. Retry its bounded candidates
+          // independently so one large orphan cannot block smaller siblings.
+          reserved=reserve([],true);if(!reserved)return skip();
+          for(const entry of frozen.slice(0,JOURNAL_SCRUB_FILES-reserved.rows.length)){
+            try{
+              const part=reserve([entry],false);if(!part)return skip();
+              reserved.rows.push(...part.rows);reserved.unaccounted+=part.unaccounted;reserved.unaccountedBytes+=part.unaccountedBytes;
+              for(const [key,bytes]of part.corruptCopies)reserved.corruptCopies.set(key,bytes);
+            }catch(failure){if(!(failure instanceof JournalCapacityError))throw failure;capacityBlocked++;}
+            reserved.consumed++;
+          }
+        }
         if(!reserved)return skip();
+        if(capacityBlocked)result.capacityBlocked=capacityBlocked;
         batch=frozen.length>reserved.consumed?frozen.slice(reserved.consumed):undefined;retryAfter=reserved.nextRetry;
         // Both phases hold SQLite's writer lock. The charge is already FULL
         // committed. Rename is idempotent on replay: a moved destination is
@@ -121,7 +140,7 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
         result.corrupt=moved.corruptCopies.size;result.corruptBytes=[...moved.corruptCopies.values()].reduce((sum,bytes)=>sum+bytes,0);
         const pending=db.query("SELECT count(*) AS count,coalesce(sum(bytes),0) AS bytes FROM turn_journal_scrub_quarantine WHERE state='reserved'").get() as {count:number;bytes:number};
         result.pending=pending.count;result.pendingBytes=pending.bytes;
-        if(pending.count||listing||batch){result.state="partial";if(pending.count)result.reason="quarantine_pending";}
+        if(pending.count||listing||batch||capacityBlocked){result.state="partial";if(pending.count||capacityBlocked)result.reason="quarantine_pending";}
         return result;
       }finally{closeSync(source);closeSync(target);}
     },

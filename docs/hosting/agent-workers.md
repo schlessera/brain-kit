@@ -940,21 +940,15 @@ A failed or incomplete pack publishes **nothing under `.git`**. Newly created
 temporary pack files are removed from the failed stage; outside a declared
 private stage, new names are conservatively left alone because another Git
 writer may own them. Historical garbage is
-never removed. The host uses an execution-private Git receipt, independent of
-human/JSON output or the command's overall exit. Failed, skipped or incomplete
-Git work publishes nothing; successful Git work publishes even when another
-maintenance step fails. The receipt itself is never published.
-
-Publication assembles and syncs a complete replacement pack directory outside
-the live `objects/pack`, in a private transaction on the objects filesystem.
-Existing pack files require a Btrfs reflink; refusal cannot fall back to an
-unbounded byte copy. One Linux `renameat2` exchange activates the whole pack/index/MIDX family.
-Only after syncing that directory switch does it install loose objects and
-refs; superseded loose objects are removed after every installation succeeds.
-A process kill leaves either complete pack set visible, with no partial index
-or temporary in the live pack directory. Later publication syncs the objects directory before recovering private
-transaction leftovers; an unconfirmed activation retains both generations. A failure after activation retains the complete pack
-set and the old loose objects, since a ref may already be durable.
+never removed. For routine `brain maintain`, the host selects Git output only
+when the command exits zero and its complete JSON result contains a successful
+Git step. Malformed, skipped, nonzero, human-only, oversized or unavailable
+reports discard the whole Git portion while other validated output publishes.
+Streaming launch never waits for unread stdout before deciding: if its bounded
+report has not completed by process exit, it conservatively discards Git.
+Successful output uses the existing publisher; this guard adds no pack exchange,
+transaction directory or writable-stage receipt. Pack/index/loose ordering and
+crash safety of successful publication are separate follow-up work.
 `brain maintain`'s git result and
 `brain storage pack --json` report existing garbage count and bytes from
 `git count-objects -v`. Cleanup of existing garbage requires a separate backed-up
@@ -978,7 +972,9 @@ exists. Collection syncs each unlink before deleting its accounting row,
 including retries after a prior unlink. Persisted reservation names are validated
 before path use; nonregular entries stay in place without starving valid files.
 Unresolved reservations report `quarantine_pending` with
-pending counts and bytes rather than a clean pass. Corrupt files stay in place and are reported separately.
+pending counts and bytes rather than a clean pass. A quota-refused batch retries
+its bounded candidates individually, so an oversized orphan cannot block small
+siblings. Optional `capacityBlocked` counts candidates left for a future sweep. Corrupt files stay in place and are reported separately.
 A busy journal records `journal_busy` without waiting for the turn to end.
 Counts, bytes, skips and failure causes appear in the existing maintenance
 Activity record as `journal_scrub` / `journal_scrub_failed` events under the

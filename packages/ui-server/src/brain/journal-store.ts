@@ -117,6 +117,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   const collect = () => {
     const unused = db.query("SELECT hash,bytes FROM turn_journal_objects WHERE state='present' AND hash NOT IN (SELECT hash FROM turn_journal_object_refs) AND hash NOT IN (SELECT hash FROM turn_journal_reservations WHERE hash IS NOT NULL)").all() as { hash: string; bytes: number }[];
     for (const row of unused) {
+      objects.has(row.hash); // Validate type/link count; absence still needs the retry barrier.
       objects.remove(row.hash);
       db.query("DELETE FROM turn_journal_object_quarantine WHERE hash=?").run(row.hash);
       db.query("DELETE FROM turn_journal_objects WHERE hash=?").run(row.hash);
