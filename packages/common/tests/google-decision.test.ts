@@ -187,7 +187,7 @@ function mismatches(scenarios: Scenario[]): string[] {
 describe("decision table: mode × class × posture × taint × standing admission × principal", () => {
   for (const kind of Object.keys(KINDS) as Kind[]) {
     for (const posture of POSTURES) {
-      test(`${kind} calls in the ${posture} posture decide as the plan says`, () => {
+      test(`${kind} calls in the ${posture} posture: every mode, override, taint, standing admission and principal`, () => {
         const scenarios = MODE_SETS.flatMap(modes => OVERRIDES[kind].flatMap(override => TAINTS.flatMap(taint => STANDINGS.flatMap(standing =>
           PRINCIPALS.map((principal): Scenario => ({ kind, modes, override, posture, taint, standing, principal,
             card: true, routing: "allowed", standaloneReversible: "allow", turnUsed: 0 }))))));
@@ -201,7 +201,7 @@ describe("decision table: mode × class × posture × taint × standing admissio
 describe("decision table: card availability × routing × standalone key × turn count", () => {
   for (const kind of Object.keys(KINDS) as Kind[]) {
     for (const posture of POSTURES) {
-      test(`${kind} calls in the ${posture} posture decide as the plan says`, () => {
+      test(`${kind} calls in the ${posture} posture: every card availability, routing verdict, standalone key and turn count`, () => {
         const scenarios = MODE_SETS.flatMap(modes => TAINTS.flatMap(taint => STANDINGS.flatMap(standing =>
           [true, false, undefined].flatMap(card => (["allowed", "recipient_restricted", "recipient_unproven", undefined] as Routing[]).flatMap(routing =>
             (["deny", "allow"] as const).flatMap(standaloneReversible => [0, PER_TURN - ITEMS, PER_TURN - ITEMS + 1, undefined].map((turnUsed): Scenario =>
@@ -273,9 +273,10 @@ describe("an operation override is capped by the computed class", () => {
 
   test("an allow that reaches an irreversible call by hand is capped to ask", () => {
     const widened = { ...policy(), modes: { read: "allow", reversible: "ask", irreversible: "allow" } } as unknown as GooglePolicy;
-    expect(verdict(decideGoogleCall(widened, trash, facts()))).toEqual({ outcome: "needs_card", cause: "irreversible", offers: { allow_always: false, allow_for_session: false } });
     const overridden = { ...policy(), operations: { "gmail.trash": "allow" } } as unknown as GooglePolicy;
-    expect(verdict(decideGoogleCall(overridden, trash, facts()))).toEqual({ outcome: "needs_card", cause: "irreversible", offers: { allow_always: false, allow_for_session: false } });
+    for (const decision of [decideGoogleCall(widened, trash, facts()), decideGoogleCall(overridden, trash, facts())]) {
+      expect([decision.mode, verdict(decision)]).toEqual(["ask", { outcome: "needs_card", cause: "irreversible", offers: { allow_always: false, allow_for_session: false } }]);
+    }
   });
 });
 
