@@ -181,11 +181,11 @@ export function createGovernedTurns(options: {
       // Marked before the checkpoint: its index may lack what is queued (#2848).
       const watermark = options.indexBatch?.watermark();
       let releaseSlot: Awaited<ReturnType<typeof startupReleases.reserve>> | undefined;
-      const policy = policyReader.load();
-      const plannedProfile = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
-      const plannedRecipient = options.exposures && route?.inferenceOrigin ? providerRecipient(route.inferenceOrigin, options.recipientOrigins) : undefined;
-      const keepsPrivateIndex = policy.policy.providers.some(rule => plannedRecipient === undefined || !rule.allow.includes(plannedRecipient));
       try {
+        const policy = policyReader.load();
+        const plannedProfile = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
+        const plannedRecipient = options.exposures && route?.inferenceOrigin ? providerRecipient(route.inferenceOrigin, options.recipientOrigins) : undefined;
+        const keepsPrivateIndex = policy.policy.providers.some(rule => plannedRecipient === undefined || !rule.allow.includes(plannedRecipient));
         // Bound the disposable governed views before acquiring them. Strict
         // and masked consumers retain their view and never enter this queue.
         if (plannedProfile === "governed" && !keepsPrivateIndex)

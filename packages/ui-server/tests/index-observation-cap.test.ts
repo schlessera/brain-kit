@@ -87,7 +87,7 @@ test("an index grant cannot bypass shared content added while its worker is paus
     facts(11);
     expect((await decide(index.eventId)).state, "INDEX_GRANT_REFUSES_LATER_CONTENT_BYPASS").toBe("refused");
     expect(frozen).toBe(true);
-    const content = saved().receipts.at(-1); expect(content).toMatchObject({ dimension: "turn_bytes", count: 11 }); expect(content.result).toBeUndefined();
+    const content = saved().receipts.at(-1); expect(content, "SHARED_CONTENT_PAUSE_REMAINS_DISTINCT_FROM_INDEX").toMatchObject({ dimension: "turn_bytes", count: 11 }); expect(content.result).toBeUndefined();
     expect((await decide(content.eventId)).state, "CONTENT_GRANT_DOES_NOT_CREATE_DUPLICATE_INDEX_PAUSE").toBe("accepted"); expect(frozen).toBe(true);
     expect(saved().receipts).toHaveLength(2);
     expect((await decide(index.eventId)).state).toBe("accepted"); expect(frozen, "BOTH_INDEPENDENT_GRANTS_RESUME_WORKER").toBe(false);

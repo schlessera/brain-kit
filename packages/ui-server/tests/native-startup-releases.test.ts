@@ -1,6 +1,6 @@
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { expect, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as startup from "../../ui-sdk/src/server/worker-startup-view.js";
@@ -215,4 +215,20 @@ test("ten real admissions reserve release ownership before acquiring disposable 
     deletion.resolve(); for (const hold of await Promise.all(admissions)) await hold.end(); await queue.drain();
     expect(maximum, "TEN_ADMISSIONS_NEVER_CREATE_TEN_PENDING_VIEWS").toBe(2);
   } finally { deletion.resolve(); for (const hold of await Promise.all(admissions)) await hold.end(); await turns.close(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("early policy failure releases the admission gate and index watermark", async () => {
+  const governance = await import("../src/brain/governance-policy.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-policy-admission-")), brain = join(root, "brain"); mkdirSync(brain);
+  const native = createNativeJournalFixture(brain, root), reader = governance.governancePolicyReaderFor(brain);
+  const load = spyOn(reader, "load").mockImplementation(() => { throw new Error("policy read EIO"); });
+  let released = 0, watermarks = 0;
+  const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, profile: "governed", maskPaths: [], async index() {}, report() {},
+    indexBatch: { watermark() { return { release() { watermarks++; } }; } } as never,
+    execution: { gate() { return { async acquire() { return { release() { released++; } }; } }; }, manifests() { return {}; } } as never });
+  try {
+    await expect(turns.begin("voyage", new AbortController().signal)).rejects.toThrow("policy read EIO");
+    expect(released, "EARLY_POLICY_FAILURE_RELEASES_ADMISSION_GATE").toBe(1);
+    expect(watermarks, "EARLY_POLICY_FAILURE_RELEASES_INDEX_WATERMARK").toBe(1);
+  } finally { load.mockRestore(); await turns.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
