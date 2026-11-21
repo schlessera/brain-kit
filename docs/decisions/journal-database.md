@@ -93,11 +93,11 @@ that no pre-charge covers. The evidence is on the issue.
   capture took an inventory at all, which it does only for an observation that
   saw a change. Per-turn arrays from earlier releases move into sets at open, a
   bounded batch per accounted commit, because SQLite cannot hash
-  (`migrateConfigurationSets(limit`, `packages/ui-server/src/brain/journal-store.ts:252-260`);
+  (`migrateConfigurationSets(limit`, `packages/ui-server/src/brain/journal-store.ts:254-262`);
   readers understand the arrays until then, and an empty legacy array stays
   "no set recorded". The brain's current set is the one the most recent complete,
   inventoried turn recorded
-  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:847-853`).
+  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:848-854`).
   The sets table is an ordinary rowid table, as every journal table is: the
   operational backup copies and compares journal rows in rowid order.
 

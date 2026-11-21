@@ -164,7 +164,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-119`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:133-386`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:135-388`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -296,7 +296,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:80-319`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:82-321`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1648,7 +1648,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:604-611`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:605-612`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -2072,7 +2072,7 @@ opens, after interrupted turns have been ended
 in at most two accounted commits whose progress is recorded in
 `turn_journal_allocation.index_purge`
 (`purgeIndexVersions(): IndexPurgeResult`,
-`packages/ui-server/src/brain/journal-store.ts:206-245`):
+`packages/ui-server/src/brain/journal-store.ts:208-247`):
 
 1. Every recorded index-family version, in history and in revert records, is
    rewritten to the metadata-only form a new one has: kind, mode, size and the
@@ -2199,7 +2199,7 @@ attempts it without making recovery depend on success. Ordinary collection
 tries before deleting, runs the existing integrity-checked path if it was
 refused, and retries after the freed object bytes make room
 (`collectObjects(): void`,
-`packages/ui-server/src/brain/journal-store.ts:179-185`). Freeing rows alone
+`packages/ui-server/src/brain/journal-store.ts:181-187`). Freeing rows alone
 does not credit persistent pages: they remain charged until reclamation is
 observed. Every pin and reservation keeps its object throughout success,
 refusal, failure and restart, and foreign keys remain enabled on every ordinary
@@ -2279,7 +2279,7 @@ brain and every managed worktree, has its own owner, and each owner keeps at
 most `NATIVE_RELEASE_BACKLOG`, two, previous checkpoints retained, whether
 queued or failed. An observation makes room before it takes its own
 checkpoint (`async function reserveRelease`,
-`packages/ui-server/src/brain/native-journal-observer.ts:368-376`): it waits
+`packages/ui-server/src/brain/native-journal-observer.ts:377-385`): it waits
 inside the hold for the oldest queued release, or, when failed releases fill
 the bound, retries the oldest one inside the hold, as every release ran
 before. If that retry fails, the observation is refused before it takes a
@@ -2287,7 +2287,7 @@ checkpoint, so the bound is never exceeded. Each retained checkpoint is charged 
 it holds that the live root no longer has: the bytes of every file version
 replaced or removed since it was taken
 (`releases(): NativeJournalReleaseAccounting`,
-`packages/ui-server/src/brain/native-journal-observer.ts:547-551`).
+`packages/ui-server/src/brain/native-journal-observer.ts:610-614`).
 Directory and other metadata extents are not counted. The store's free space,
 which the `free_space_floor` scope limit reads, counts the actual extents until
 each release completes. Shutdown waits for every queued release, retries
@@ -3364,7 +3364,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:224-233`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:226-235`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:68-77`). It starts
@@ -3757,7 +3757,7 @@ The backend supplies the origin before admission through the optional
 Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only when it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:192-193`). A turn whose startup
+`packages/ui-server/src/brain/governed-turn.ts:194-195`). A turn whose startup
 view is not on managed native storage, where the relay runs, is refused before
 this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
@@ -4982,7 +4982,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:754-784`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:755-785`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:114-124`.
 
 ### Concurrent edits
