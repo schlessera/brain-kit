@@ -1,5 +1,5 @@
 ---
-"@schlessera/brain-backend-claude": minor
+"@schlessera/brain-backend-claude": patch
 ---
 
-Enable deferred tool discovery for new sessions on first-party relayed inference. Pin the selection in both environment and flag settings, preserve legacy SDK inputs, and refuse a resumed discovery-enabled session on an unqualified upstream.
+Keep unqualified production tool search off for new interactive sessions, verify its native effective setting before releasing the prompt, and preserve legacy inherited settings. Retain each session's recorded roster independently of future removal lists, and refuse missing session context before recreating cache inputs.

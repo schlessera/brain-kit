@@ -1528,9 +1528,13 @@ into the sorted MCP group. The maintainer permits insertion at any position:
 every earlier definition retains exact bytes and relative order, nothing is
 removed or edited, and only names referenced by the discovery may be added.
 Ordinary round trips retain exact equality; system and earlier messages stay
-byte-identical. Production pins tool search on for new first-party sessions and
-off for other selected origins. Legacy sessions retain their original unpinned
-SDK input. D44 and [provider history](provider-history.md) record the rule.
+byte-identical. Production non-blocking `.mcp.json` startup, however, omits the
+core reads initially and adds all six core definitions after a graph-only
+search. Tool search stays off for new interactive sessions on every route,
+including direct turns. The prompt gate checks the native effective setting
+before releasing input; managed-policy overrides refuse only that turn.
+Legacy sessions preserve their inherited tool-search environment and original
+unpinned flag input. D44 and [provider history](provider-history.md) record the rule.
 The keyless insertion-versus-append byte-prefix comparison measures no real
 provider cache hits or savings.
 
@@ -1548,8 +1552,10 @@ selection in host prompt-context storage for every later resume:
 NotebookEdit remains registered for governed typed native writes; a strict-mode
 refusal is not evidence that the governed contract is unusable. Reference tools
 remain registered and retain their existing scoped refusals. Selection and its
-initialization marker share the atomic prompt-context record; missing marked
-selection refuses rather than silently adopting legacy. A genuine legacy
+initialization marker share the atomic prompt-context record. A roster digest
+validates the recorded session list independently of later removal lists.
+Missing marked selection or a missing whole context refuses before any state
+is recreated, rather than silently adopting legacy. A genuine legacy
 context without either field uses the legacy disallow list;
 removing built-ins from a deployment-wide list on resume would rewrite its
 roster. Plan/worktree modes, Workflow and ReportFindings remain available:

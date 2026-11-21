@@ -107,8 +107,9 @@ Messages endpoint. It records the exact request bodies and asserts the rule
 directly:
 
 - `system` is byte-identical between turns of one session;
-- `tools` is unchanged, or the complete previous array followed by newly
-  discovered definitions, with earlier definitions and order byte-identical;
+- `tools` is unchanged except that successful discovery may insert only
+  referenced deferred definitions at any position, preserving every earlier
+  definition's bytes and relative order;
 - every request's `messages` extend the previous request's `messages` plus that
   request's answer;
 - between the turns, the test changes everything that legitimately changes in
@@ -196,8 +197,14 @@ captures production SDK assembly and the pinned runtime through the Unix relay,
 including the first discovery transition and resume. The guard checks actual
 tool references before authorizing additions. CLI 2.1.293 inserts the discovered
 definition into the sorted stdio MCP group, preserving all earlier definitions
-and relative order. New first-party relayed sessions pin tool search in both
-the inference environment and flag settings. Other selected origins pin it off.
+and relative order in a blocking SDK-injected MCP fixture. Production startup
+instead loads the brain server from `.mcp.json` non-blockingly: the first request
+has no core reads, and one search introduces all six core definitions despite
+referencing only the graph. This violates #4306. Production therefore pins
+search off for new interactive sessions, with or without a relay. Native
+effective settings are checked before prompt release; a managed-policy override
+or unreadable selection refuses only that turn. Legacy inherited settings are
+preserved, without adding a flag pin.
 The captured tool-array common byte prefix is shorter with insertion than with
 hypothetical append; this keyless comparison does not measure provider cache
 hits, tokens or savings.
@@ -205,16 +212,19 @@ hits, tokens or savings.
 The direct-runtime path also rewrites earlier system-role message content from
 a block array to a string on resume. That remains a provider-history violation,
 tracked in #4324; fast-mode product work in #4310 waits for its fix. The strict
-history guard does not normalize it away. Separate qualification records the
-exact known reproduction and rejects every other earlier-message mismatch.
+history guard has no exception for it, on resume or within a turn. A separate
+qualification test records the reproduction by asserting that the strict guard
+rejects the captured bytes; it does not establish passing history qualification.
 Worker boundary proof remains in the original guard; the companion launches
 the runtime directly inside an offline namespace and makes no worker-boundary
 claim.
 
 New hosted sessions retain their native disallow selection and tool-search pin
 atomically in private prompt-context storage, beside an initialization marker.
-An initialized record with a missing or malformed selection refuses only that
-session. A genuine older prompt-context record without either field adopts the
+Each recorded roster carries its own digest, validated independently of later
+releases' removal lists. An initialized record with a missing or malformed
+selection refuses only that session. A wholly missing context refuses resume
+before any append or selection is recreated. A genuine older prompt-context record without either field adopts the
 legacy selection with no new SDK tool-search pin. Mandatory exclusions remain
 validated. The retained system append protects earlier wording when a new
 deployment adds a brief. These internal fields never enter provider content.

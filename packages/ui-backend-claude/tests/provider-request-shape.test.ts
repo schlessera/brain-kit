@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, bytes, captureOffline, identical, main, pairs, providerTools, qualifyHistory, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { body, captureOffline, discoveredToolNames, identical, main, pairs, history, messages, providerTools, system, type Captures } from "../../../tests/helpers/provider-history.js";
 import { HOST_UNUSED_BUILTINS } from "../src/session-request-shape.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import baseline from "./fixtures/legacy-sdk-inputs.json" with { type: "json" };
@@ -16,8 +16,8 @@ test("new Claude sessions retain their removal selection and fixed batching brie
   for (const input of capture.budgets as any[]) {
     for (const name of HOST_UNUSED_BUILTINS) expect(input.disallowed, "PRODUCTION_REMOVAL_SELECTION").toContain(name);
     expect(input.disallowed).not.toContain("NotebookEdit");
-    expect(input.env).toBe("true");
-    expect(input.settings).toBe("true");
+    expect(input.env).toBe("false");
+    expect(input.settings).toBe("false");
   }
   for (const exchange of main(capture)) {
     const names = body(exchange).tools.map((tool: { name: string }) => tool.name);
@@ -65,41 +65,34 @@ test("legacy sessions retain SDK inputs and wire tools after metadata and append
   for (const [a, b] of pairs(capture)) { identical(body(a).tools, body(b).tools, "LEGACY_TOOLS_SURVIVE_METADATA_UPGRADE"); identical(system(a), system(b), "LEGACY_SYSTEM_WIRE"); }
 });
 
-test("relay qualification sees inline reads, every bridge tool, deferred graph and forwarded discovery beta", () => {
+// Qualification evidence for #4306, deliberately separate from the strict
+// provider-history guard: production non-blocking project MCP startup is red.
+test("#4306 qualification: project MCP startup fails inline reads and referenced-only discovery", () => {
   const capture = captures.discovery!, first = body(main(capture)[0]!), next = body(main(capture)[1]!);
-  const names = first.tools.map((tool: { name: string }) => tool.name);
-  expect(names).toContain("ToolSearch");
-  for (const name of ["brain_context", "brain_list", "brain_read", "brain_read_many", "brain_search"]) expect(names).toContain(`mcp__brain__${name}`);
-  expect(names.filter((name: string) => name.startsWith("mcp__brain__"))).toHaveLength(5);
-  const bridge = names.filter((name: string) => name.startsWith("mcp__brain-ui__"));
-  expect(bridge.length).toBeGreaterThan(0);
-  expect(bridge).toEqual(body(main(captures.gateway!)[0]!).tools.map((tool: { name: string }) => tool.name).filter((name: string) => name.startsWith("mcp__brain-ui__")));
-  expect(first.tools.filter((tool: { name: string }) => tool.name.startsWith("mcp__brain-ui__")).every((tool: { defer_loading?: boolean }) => !tool.defer_loading)).toBe(true);
-  expect(next.tools.find((tool: { name: string }) => tool.name === "mcp__brain__brain_graph")?.defer_loading).toBe(true);
-  expect(main(capture)[1]!.raw).toContain('"tool_reference"');
-  expect((capture.calls![0] as { beta: string }).beta).toContain("advanced-tool-use");
-  for (const append of capture.appends) identical(capture.appends[0], append, "discovery SDK append");
-  const qualifications = [];
-  for (const [a, b] of pairs(capture)) {
-    identical(system(a), system(b), "discovery system");
-    // Includes the first pre-discovery -> discovered request, not just resumes.
-    providerTools(a, b, "DISCOVERY_PRIOR_DEFINITIONS");
-    const qualification = qualifyHistory(a, b);
-    if (qualification) qualifications.push(qualification);
-  }
-  // #4324 remains a real strict-history failure; this fixture records only that
-  // exact reproduction while retaining every other byte assertion.
-  expect(qualifications.some(value => value.issue === 4324), "RECORDED_4324_REPRODUCTION").toBe(true);
-  const old = Buffer.from(bytes(first.tools)), actual = Buffer.from(bytes(next.tools));
-  const oldNames = new Set(first.tools.map((tool: any) => tool.name));
-  const additions = next.tools.filter((tool: any) => !oldNames.has(tool.name));
-  const appended = Buffer.from(bytes([...first.tools, ...additions]));
-  const common = (a: Buffer, b: Buffer) => { let n = 0; while (n < Math.min(a.length, b.length) && a[n] === b[n]) n++; return n; };
-  const prefix = { priorBytes: old.length, insertedBytes: actual.length, insertionPrefixBytes: common(old, actual), appendPrefixBytes: common(old, appended) };
-  expect(prefix.insertionPrefixBytes).toBeLessThan(prefix.appendPrefixBytes);
-  console.log("KEYLESS_TOOL_PREFIX_BYTES", JSON.stringify(prefix));
-  const [discovered, ...resumed] = main(capture).slice(1);
-  for (const exchange of resumed) identical(body(discovered!).tools, body(exchange).tools, "discovered roster survives resume");
+  expect(capture.qualification!.mcpStartup).toBe("project .mcp.json, production non-blocking");
+  expect(first.tools.some((tool: any) => tool.name === "ToolSearch")).toBe(true);
+  const prior = new Set(first.tools.map((tool: any) => tool.name));
+  const added = next.tools.filter((tool: any) => !prior.has(tool.name));
+  console.log("PRODUCTION_STARTUP_DISCOVERY_QUALIFICATION", JSON.stringify({ initialCore: first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__")).map((tool: any) => tool.name), added: added.map((tool: any) => tool.name) }));
+  expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__"))).toHaveLength(0);
+  expect(added).toHaveLength(6);
+  expect(discoveredToolNames(main(capture)[0]!, main(capture)[1]!)).toEqual(["mcp__brain__brain_graph"]);
+  expect(() => providerTools(main(capture)[0]!, main(capture)[1]!, "production discovery"), "UNREFERENCED_DEFINITIONS_REMAIN_A_VIOLATION").toThrow();
+  for (const [a, b] of pairs(capture)) identical(system(a), system(b), "qualification system");
+});
+
+test("#4324 qualification evidence: strict history rejects the native earlier-message rewrite", () => {
+  const [a, b] = pairs(captures["fast-api"]!).find(([a, b]) => a.turn !== b.turn)!;
+  const expected = [...messages(a), a.answer], observed = messages(b).slice(0, expected.length);
+  const index = expected.findIndex((message, i) => message.role === "system" && Array.isArray(message.content) && typeof observed[i]?.content === "string");
+  expect(index).toBeGreaterThanOrEqual(0);
+  expect(() => history(a, b), "4324_IS_NOT_A_STRICT_GUARD_EXCEPTION").toThrow();
+});
+
+test("legacy inherited tool search retains original SDK input and provider roster", () => {
+  const capture = captures["legacy-inherited"]!;
+  for (const input of capture.budgets as any[]) { expect(input.env).toBe("true"); expect(input.settings).toBeUndefined(); }
+  for (const [a, b] of pairs(capture)) identical(body(a).tools, body(b).tools, "INHERITED_LEGACY_WIRE_ROSTER");
 });
 
 test("production gateway pin and deadline factor reach the runtime unchanged", () => {
@@ -121,7 +114,7 @@ test("fast-mode keyless relay qualification records requested and effective API 
     for (const [a, b] of pairs(capture)) {
       identical(body(a).tools, body(b).tools, "FAST_MODE_TOOLS_STABLE");
       identical(system(a), system(b), "FAST_MODE_SYSTEM_STABLE");
-      qualifyHistory(a, b); // #4324 qualification only, never a clean-history claim.
+      // Earlier-message qualification is separate evidence for #4324 above.
     }
   }
   expect(JSON.parse(captures.gateway!.rosters![0]!)).toEqual({ version: "2.1.293", state: "off", reason: "sdk_opt_in_required" });
@@ -161,3 +154,16 @@ test("each selected native removal is tried through the hosted SDK hooks and rel
   expect(tried.get("ReportFindings")).toContain("No findings reported");
   expect(tried.get("Workflow")).toContain("not found");
 });
+
+test("native managed policy overriding a gateway selection is refused before prompt release", async () => {
+  const captures = await captureOffline(join(import.meta.dir, "fixtures/managed-tool-search-probe.ts"), {
+    isolateManagedSettings: true, managedSettings: { env: { ENABLE_TOOL_SEARCH: "true" } },
+  });
+  const capture = captures["managed-gateway"]!;
+  expect((capture.budgets![0] as any).env).toBe("false");
+  expect((capture.budgets![0] as any).settings).toBe("false");
+  expect(capture.qualification!.effectiveToolSearch).toBe("true");
+  expect(capture.qualification!.promptReleased).toBe(false);
+  expect(capture.qualification!.refusal).toMatchObject({ message: expect.stringContaining("retained tool-search selection") });
+  expect(capture.exchanges, "MANAGED_OVERRIDE_RELEASES_NO_PROVIDER_REQUEST").toHaveLength(0);
+}, 180_000);

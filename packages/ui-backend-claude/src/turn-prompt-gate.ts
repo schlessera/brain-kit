@@ -76,7 +76,7 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     try {
       const check = async () => {
         account = (await inputs.initialize(cli)).account;
-        if (!sdkTurn.subscriptionOnly && !relay?.egress) return;
+        if (!sdkTurn.subscriptionOnly && !relay?.egress && sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH === undefined) return;
         // Not on the public Query type; the SDK sends the CLI's own
         // `get_settings` control request. Absent means unreadable,
         // which refuses below.
@@ -105,6 +105,9 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
         return refuseSubscription(verdict.ok ? conflict! : verdict.reason);
       }
     }
+    const discovery = sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH;
+    if (discovery !== undefined && settings?.effective?.env?.ENABLE_TOOL_SEARCH !== discovery)
+      return refuseTransport("native settings refused the retained tool-search selection");
     if (relay?.egress) {
       // An API-billed turn is not a subscription refusal: name the transport instead.
       const refuse = sdkTurn.subscriptionOnly ? refuseSubscription : refuseTransport;

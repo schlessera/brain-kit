@@ -422,10 +422,12 @@ Its discovery inserts definitions into a sorted group. The maintainer permits
 that insertion only for definitions actually referenced by a successful tool
 search, with every earlier definition's bytes and relative order preserved.
 Nothing is removed or edited; ordinary tool round trips require exact equality,
-as do system and earlier-message bytes. The production pin applies only to new
-sessions on the selected first-party origin, in both inference env and flag
-settings. Gateway profiles pin tool search off, and legacy sessions retain their
-original unpinned SDK input. The [provider-history rule](../provider-history.md#2026-11-20--referenced-deferred-discovery-4306)
+as do system and earlier-message bytes. Production non-blocking project MCP startup fails this rule: its first request
+omits the core reads and a graph-only discovery adds all six core definitions.
+Search therefore stays off for new interactive sessions on every route, in env
+and flag settings. The prompt gate checks native effective settings and refuses
+managed-policy overrides. Legacy sessions retain their original SDK input,
+including an inherited tool-search value, without adding a flag pin. The [provider-history rule](../provider-history.md#2026-11-20--referenced-deferred-discovery-4306)
 and keyless capture guard the first discovery and every subsequent transition.
 Insertion shortens the unchanged tool-array byte prefix versus append; keyless
 captures cannot establish actual provider cache hits or cost.

@@ -8,6 +8,8 @@ import { join, resolve } from "node:path";
 import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 import { sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
 import { baseline, legacySdkTurn } from "./legacy-sdk-turn.js";
+import { TurnTerminal, TurnFrames } from "../../src/turn-terminal.js";
+import { gatedPrompt, promptGateCheck } from "../../src/turn-prompt-gate.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { INFERENCE_PLACEHOLDER, startInferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeSdkTurn } from "../../src/sdk-options.js";
@@ -21,12 +23,14 @@ import type { Captures, HistoryCapture } from "../../../../tests/helpers/provide
 const scratch = process.argv[2]!;
 const captures: Captures = {};
 let capture: HistoryCapture, scenario = "", turnIndex = 0;
+let mcpReady: string | undefined;
 let queue: Array<{ name: string; input: object }> = [];
 const model = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
   if (path !== "/v1/messages") return Response.json({});
   const raw = await request.text(), body = JSON.parse(raw);
   const main = body.tools?.some((tool: any) => tool.name === "Read");
+  if (main && mcpReady) writeFileSync(mcpReady, "Odysseus permits MCP startup.");
   const step = main ? queue.shift() : undefined;
   if (step?.name === "CronDelete") {
     const match = /Scheduled one-shot task ([a-z0-9]+)/.exec(JSON.stringify(body.messages));
@@ -51,25 +55,29 @@ const proxy = Bun.serve({ unix: join(relay.dir, "proxy.sock"), fetch() { return 
 chmodSync(join(relay.dir, "proxy.sock"), 0o600);
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
- for (scenario of ["discovery", "legacy", "gateway", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"]) {
+ for (scenario of (process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? ["managed-gateway"] : ["discovery", "legacy", "legacy-inherited", "gateway", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"])) {
   const brain = fixtureBrain(scratch, scenario), home = join(scratch, `home-${scenario}`);
   mkdirSync(join(home, ".claude"), { recursive: true });
   writeFileSync(join(brain, "ithaca.ipynb"), JSON.stringify({ nbformat: 4, nbformat_minor: 5, metadata: {},
     cells: [{ id: "raft", cell_type: "markdown", metadata: {}, source: ["Odysseus checks Ithaca."] }] }));
   const marker = join(brain, "legacy-metadata");
-  if (scenario === "legacy") writeFileSync(marker, "Odysseus keeps the old roster.");
+  mcpReady = scenario === "discovery" ? join(brain, "mcp-ready") : undefined;
+  if (scenario.startsWith("legacy")) writeFileSync(marker, "Odysseus keeps the old roster.");
   mkdirSync(join(brain, ".claude"), { recursive: true });
-  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ env: { ENABLE_TOOL_SEARCH: "false" } }));
+  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ enableAllProjectMcpServers: true, env: scenario === "legacy-inherited" ? {} : { ENABLE_TOOL_SEARCH: "false" } }));
+  if (!scenario.startsWith("legacy") && scenario !== "builtins") writeFileSync(join(brain, ".mcp.json"), JSON.stringify({ mcpServers: {
+    brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker, ...(mcpReady ? [mcpReady] : [])] },
+  } }));
   capture = captures[scenario] = { sessions: [], exchanges: [], appends: [], budgets: [], calls: [] };
   let sessionId: string | undefined;
-  const legacy = scenario === "legacy" || scenario === "builtins";
+  const legacy = scenario.startsWith("legacy") || scenario === "builtins";
   if (legacy) {
     sessionId = crypto.randomUUID();
     // This is the pre-upgrade context format: only the old append, no request
     // selection or marker. The first query uses independently frozen inputs.
     claudePromptContext(brain, sessionId).retainAppend(baseline.append);
   }
-  for (turnIndex = 0; turnIndex < (scenario === "builtins" ? 2 : scenario === "fast-thirdparty" ? 1 : 3); turnIndex++) {
+  for (turnIndex = 0; turnIndex < (scenario === "builtins" ? 2 : scenario === "fast-thirdparty" || scenario === "managed-gateway" ? 1 : 3); turnIndex++) {
     if (turnIndex) rmSync(marker, { force: true });
     queue = scenario === "discovery" && turnIndex === 0 ? [{ name: "ToolSearch", input: { query: "select:mcp__brain__brain_graph", max_results: 1 } }]
       : scenario === "removed" && turnIndex === 0 ? [{ name: "SendMessage", input: { to: "athena", message: "Odysseus checks Ithaca." } }]
@@ -88,8 +96,10 @@ try {
     const controller = new AbortController();
     const view = createFixtureWorkerStartupView(brain);
     const turnLock = createTurnLockBinding({ turn: { pendingReleases: new Map(), ended: false }, writeLock: createKeyedLock(), lockWaitMs: 1000, log() {} });
-    const environment: Record<string, string> = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", MCP_CONNECTION_NONBLOCKING: "0",
-      ...(scenario === "gateway" ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) };
+    const environment: Record<string, string> = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+      ...(legacy ? { MCP_CONNECTION_NONBLOCKING: "0" } : {}),
+      ...(scenario === "legacy-inherited" ? { ENABLE_TOOL_SEARCH: "true" } : {}),
+      ...(scenario.endsWith("gateway") ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) };
     const turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
       applicationAuthority: "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
       workerSandbox: prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }),
@@ -109,7 +119,14 @@ try {
     capture.qualification ??= {};
     capture.qualification.watchdogMs = watchdogMs(45_000);
     if (legacy && turnIndex === 0) capture.qualification.baseline = { source: baseline.source, initialized };
-    turn.options.mcpServers = { ...turn.options.mcpServers, brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker] } };
+    if (legacy) turn.options.mcpServers = { ...turn.options.mcpServers, brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker] } };
+    if (scenario === "discovery") {
+      // Qualification only: production holds search off. Exercise the failing
+      // production project-MCP startup with an explicitly diagnostic opt-in.
+      turn.options.env!.ENABLE_TOOL_SEARCH = "true";
+      (turn.options.settings as any).env.ENABLE_TOOL_SEARCH = "true";
+    }
+    capture.qualification.mcpStartup = legacy ? "frozen blocking baseline" : "project .mcp.json, production non-blocking";
     if (scenario.startsWith("fast-")) {
       turn.options.settings = { ...turn.options.settings as object, fastMode: true };
       if (scenario === "fast-disabled") {
@@ -132,21 +149,44 @@ try {
     capture.appends.push(turn.options.systemPrompt);
     capture.budgets!.push({ disallowed: turn.options.disallowedTools, allowed: turn.options.allowedTools,
       env: turn.options.env?.ENABLE_TOOL_SEARCH, settings: (turn.options.settings as any)?.env?.ENABLE_TOOL_SEARCH,
-      flagSettings: turn.options.settings, mcp: Object.keys(turn.options.mcpServers), requestedFast: (turn.options.settings as any)?.fastMode });
+      flagSettings: turn.options.settings, mcp: Object.keys(turn.options.mcpServers ?? {}), requestedFast: (turn.options.settings as any)?.fastMode });
     const timer = setTimeout(() => controller.abort(), watchdogMs(45_000));
     try {
       let success = false;
-      for await (const message of query({ prompt: turn.prompt, options: turn.options })) {
+      let runtime: ReturnType<typeof query>;
+      let gateTerminal: TurnTerminal | undefined;
+      let prompt = turn.prompt;
+      if (scenario === "managed-gateway") {
+        gateTerminal = new TurnTerminal({ frames: new TurnFrames({ emit() {}, async requestPermission() { return { behavior: "deny", message: "Qualification cannot approve permission prompts." }; } }, null), hostSignal: new AbortController().signal,
+          abortController: controller, startedAt: Date.now(), pendingFailure: () => null });
+        const terminal = gateTerminal;
+        prompt = gatedPrompt(turn.prompt, async () => {
+          const cli = runtime;
+          const check = promptGateCheck({ queryHandle: Promise.resolve(cli), initialize: value => value.initializationResult(),
+            sdkTurn: turn as ReturnType<typeof createClaudeSdkTurn>, relay: undefined, terminal, runtimeRequirements: [], phase: "qualification", abortController: controller,
+            profileId: "fixture", log() {}, reportActivity() {}, reportRuntime() {} });
+          const settings = await (cli as any).getSettings();
+          capture.qualification!.effectiveToolSearch = settings.effective?.env?.ENABLE_TOOL_SEARCH;
+          const allowed = await check();
+          capture.qualification!.promptReleased = allowed;
+          capture.qualification!.refusal = terminal.refused;
+          return allowed;
+        });
+      }
+      runtime = query({ prompt, options: turn.options });
+      for await (const message of runtime) {
         if (message.type === "system" && message.subtype === "init") {
           (capture.rosters ??= []).push(JSON.stringify({ version: message.claude_code_version, state: message.fast_mode_state, reason: message.fast_mode_disabled_reason }));
           if (scenario === "fast-thirdparty") controller.abort();
         }
         if (message.type === "result") { if (message.subtype !== "success") throw new Error(JSON.stringify(message)); sessionId = message.session_id; success = true; }
       }
+      if (scenario === "managed-gateway" && gateTerminal?.withheld) continue;
       if (!success || !sessionId) throw new Error("Missing successful SDK result");
       capture.sessions.push(sessionId);
     } catch (error) {
-      if (scenario !== "fast-thirdparty" || !controller.signal.aborted || !capture.rosters?.length) throw error;
+      if (scenario === "managed-gateway" && controller.signal.aborted && capture.qualification?.promptReleased === false) { /* Expected gate refusal, before any model request. */ }
+      else if (scenario !== "fast-thirdparty" || !controller.signal.aborted || !capture.rosters?.length) throw error;
     } finally { clearTimeout(timer); await turn.finishWorker(); view.cleanup(); turnLock.close(); }
   }
  }

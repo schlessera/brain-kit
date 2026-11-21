@@ -315,20 +315,21 @@ export function turnChildEnvironment(
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
     ANTHROPIC_BASE_URL: options.hostInference.baseUrl ?? "http://localhost",
     ...RELAYED_TURN_TRAFFIC_ENV,
-    ENABLE_TOOL_SEARCH: firstPartyInferenceUpstream(inheritedEnv) ? "true" : "false",
+    // Production non-blocking project MCP startup is not qualified (#4306).
+    ENABLE_TOOL_SEARCH: "false",
   } : undefined;
   // The relay holds the profile's credential, so the variables it names stay on the host.
-  const childEnv = inferenceEnv ? { ...Object.fromEntries(Object.entries(inheritedEnv)
+  const childEnv: Record<string, string | undefined> = inferenceEnv ? { ...Object.fromEntries(Object.entries(inheritedEnv)
     .filter(([name]) => !profile.requiredEnvKeys.includes(name)
       // An operator who admits an agent-only key explicitly keeps it.
-      && !(AGENT_INFERENCE_CREDENTIAL_ENV.includes(name) && !operatorAdmittedEnvNames().includes(name)))), ...inferenceEnv } : inheritedEnv;
+      && !(AGENT_INFERENCE_CREDENTIAL_ENV.includes(name) && !operatorAdmittedEnvNames().includes(name)))), ...inferenceEnv } : { ...inheritedEnv };
   // The provider keys a governed or strict worker keeps (#1666): the Claude
   // CLI's own inference variables (placeholders on a relayed turn), the
   // profile's declared credential and what an operator admits. The launcher
   // withholds every other provider key, and the note names what stays.
   const credentialEnv = [...CLAUDE_INFERENCE_ENV, ...profile.requiredEnvKeys, ...operatorAdmittedEnvNames()];
   const providerKeys = workerProviderCredentials(childEnv, credentialEnv).kept.filter(name => !inferenceEnv || !(name in inferenceEnv));
-  return { inferenceEnv, childEnv, credentialEnv, providerKeys };
+  return { inferenceEnv, inheritedEnv, childEnv, credentialEnv, providerKeys };
 }
 
 /** The worker's writable areas and limits, and the note the agent reads about them. */
@@ -396,6 +397,10 @@ export function assemblePromptContext(
   const candidate = brief ? `${brief}\n\n${sandboxNote}` : sandboxNote;
   const contextId = req.sessionId ?? crypto.randomUUID();
   const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId);
+  // Absence cannot distinguish a lost current session from a genuine older
+  // context. Never recreate an existing session's cache inputs before checking.
+  if (context && req.sessionId !== undefined && typeof context.append() !== "string")
+    throw new Error("Saved Claude session prompt context is missing; resume refused.");
   const append = context ? context.retainAppend([buildAppend(backend, undefined, {
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
     location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true, github: true,
@@ -425,7 +430,7 @@ function assembleClaudeSdkTurn(
   const { backend, req, profile, abortController, confirmPatterns, turnLock, log } = options;
   const roster = computeToolRoster(req, options.allowedTools);
   const { turnTempTool, hosted, allowed } = roster;
-  const { inferenceEnv, childEnv, credentialEnv, providerKeys } = turnChildEnvironment(options, envelope);
+  const { inferenceEnv, inheritedEnv, childEnv, credentialEnv, providerKeys } = turnChildEnvironment(options, envelope);
   const { sandbox, limits, stateLimits, turnTempLimits, sandboxNote } = prepareSandboxNote(options, envelope, providerKeys, turnTempTool);
   const { contextId, context, append, owned } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote);
   const subscriptionOnly = profile.billing !== "api";
@@ -521,25 +526,36 @@ function assembleClaudeSdkTurn(
   // bodies also return model-readable errors instead of acquiring authority.
   let assembledTools: unknown[] | undefined;
   sdkOptions.mcpServers = { "brain-ui": turnMcpServer(backend, req, roster, turnTemp, tools => { assembledTools = tools; }) };
+  let selectionPin: string | undefined;
   if (context) {
     const retained = retainSessionRequestShape(backend.brainPath, contextId, req.sessionId !== undefined,
-      [...sdkOptions.disallowedTools ?? [], ...(hosted ? HOST_UNUSED_BUILTINS : [])], sdkOptions.disallowedTools ?? [], undefined,
-      inferenceEnv ? (inferenceEnv.ENABLE_TOOL_SEARCH === "true" ? "true" : "false") : null);
+      [...sdkOptions.disallowedTools ?? [], ...(hosted ? HOST_UNUSED_BUILTINS : [])], sdkOptions.disallowedTools ?? [], undefined, "false");
     sdkOptions.disallowedTools = retained.disallowedTools;
-    if (inferenceEnv) {
-      if (retained.toolSearch === "true" && inferenceEnv.ENABLE_TOOL_SEARCH !== "true")
+    // This applies with or without the host relay. An old enabled selection
+    // must never silently become an unpinned direct-gateway session.
+    if (retained.toolSearch === "true") {
+      if (!firstPartyInferenceUpstream(inheritedEnv))
         throw new Error("This session's tool search requires its qualified first-party inference upstream.");
-      if (retained.toolSearch === null) {
-        delete (inferenceEnv as Record<string, string>).ENABLE_TOOL_SEARCH;
-        delete childEnv.ENABLE_TOOL_SEARCH;
-      } else {
-        inferenceEnv.ENABLE_TOOL_SEARCH = retained.toolSearch;
-        childEnv.ENABLE_TOOL_SEARCH = retained.toolSearch;
-      }
+      throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");
+    }
+    selectionPin = retained.toolSearch ?? undefined;
+    if (selectionPin === undefined) {
+      // No host pin existed for genuine legacy sessions. Preserve the inherited
+      // SDK environment, including true/false/auto values, and add no flag pin.
+      if (inferenceEnv) delete (inferenceEnv as Record<string, string>).ENABLE_TOOL_SEARCH;
+      if (inheritedEnv.ENABLE_TOOL_SEARCH === undefined) delete childEnv.ENABLE_TOOL_SEARCH;
+      else childEnv.ENABLE_TOOL_SEARCH = inheritedEnv.ENABLE_TOOL_SEARCH;
+    } else {
+      childEnv.ENABLE_TOOL_SEARCH = selectionPin;
+      if (inferenceEnv) inferenceEnv.ENABLE_TOOL_SEARCH = selectionPin;
     }
   }
   sdkOptions.env = childEnv;
   applyTurnSettings(sdkOptions, envelope, subscriptionOnly, inferenceEnv);
+  if (selectionPin !== undefined) {
+    sdkOptions.settings = { ...sdkOptions.settings as object,
+      env: { ...(sdkOptions.settings as { env?: Record<string, string> }).env, ENABLE_TOOL_SEARCH: selectionPin } };
+  }
   if (!req.autonomous) reportPromptPrefix(req, sdkOptions, assembledTools);
 
   // The selected relay origin makes the CLI coalesce custom system blocks.
@@ -548,8 +564,8 @@ function assembleClaudeSdkTurn(
   return {
     options: sdkOptions,
     subscriptionOnly,
-    ...(envelope ? { pinnedSettingsEnv: envelope.pinned } : options.hostInference
-      ? { pinnedSettingsEnv: inferenceEnv } : {}),
+    ...(envelope ? { pinnedSettingsEnv: envelope.pinned }
+      : inferenceEnv || selectionPin !== undefined ? { pinnedSettingsEnv: { ...inferenceEnv, ...(selectionPin === undefined ? {} : { ENABLE_TOOL_SEARCH: selectionPin }) } } : {}),
     finishWorker: envelope
       ? () => worker.finish().finally(() => envelope.relay.stop())
       : async () => {
@@ -655,7 +671,7 @@ function addTurnTempPressure(sdkOptions: Options, turnTemp: TurnTempAccess): voi
   };
 }
 
-/** Flag settings outrank every settings file; a restricted turn reads none from the brain. */
+/** Flag settings outrank project settings; managed policy is checked before prompt release. */
 function applyTurnSettings(
   sdkOptions: Options,
   envelope: ReturnType<typeof claudeAutonomousEnvelope> | undefined,
@@ -666,11 +682,11 @@ function applyTurnSettings(
     // A restricted turn reads no settings, instructions, skills or hooks from
     // the brain: its instructions are the server's immutable snapshot (R29).
     sdkOptions.settingSources = [];
-    // Flag settings outrank every settings file: none can reroute inference.
+    // Flag settings outrank project settings; startup checks managed policy.
     sdkOptions.settings = { apiKeyHelper: "", env: { ...envelope.pinned } };
   } else if (subscriptionOnly || inferenceEnv) {
-    // Flag settings outrank every settings file: none can reroute inference
-    // or put a credential back in front of the relay's placeholder.
+    // Flag settings outrank project settings. The prompt gate verifies that
+    // managed policy did not reroute inference or replace its credentials.
     sdkOptions.settings = { ...NEUTRALISED_SETTINGS, ...(inferenceEnv ? RELAYED_TURN_SETTINGS : {}), env: { ...NEUTRALISED_SETTINGS.env,
       ...(inferenceEnv ?? {}),
     } };

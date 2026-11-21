@@ -1,5 +1,6 @@
 /** Host-owned native selection, fixed before a session's first provider request. */
 import { sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
+import { createHash } from "node:crypto";
 import { realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -11,13 +12,14 @@ export const HOST_UNUSED_BUILTINS = Object.freeze([
   "SendMessage", "ListAgents",
 ]);
 export interface ClaudeSessionRequestShape {
-  version: 1;
+  version: 2;
+  rosterDigest: string;
   disallowedTools: string[];
   /** null retains the pre-upgrade SDK input: no host tool-search pin. */
   toolSearch: "true" | "false" | null;
 }
 const invalid = () => new Error("Invalid saved Claude session request shape");
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const digest = (roster: string[]) => createHash("sha256").update(JSON.stringify(roster)).digest("hex");
 
 /**
  * The selection and its presence marker live atomically beside the retained
@@ -32,16 +34,15 @@ export function retainSessionRequestShape(brain: string, session: string, resume
   const path = join(dir, name);
   const state = JSON.parse(regular(path, 64 * 1024 * 1024).toString("utf8"));
   if (!state || Array.isArray(state) || typeof state.append !== "string") throw invalid();
-  const known = [legacy, [...legacy, ...HOST_UNUSED_BUILTINS], candidate];
   const validate = (value: unknown): ClaudeSessionRequestShape => {
     const shape = value as ClaudeSessionRequestShape | undefined;
-    if (!shape || typeof shape !== "object" || Array.isArray(shape) || shape.version !== 1
-      || Object.keys(shape).sort().join(",") !== "disallowedTools,toolSearch,version"
+    if (!shape || typeof shape !== "object" || Array.isArray(shape) || shape.version !== 2
+      || Object.keys(shape).sort().join(",") !== "disallowedTools,rosterDigest,toolSearch,version"
       || !Array.isArray(shape.disallowedTools) || shape.disallowedTools.length === 0
       || !shape.disallowedTools.every(name => typeof name === "string" && name.length > 0)
       || new Set(shape.disallowedTools).size !== shape.disallowedTools.length
-      || !legacy.includes("AskUserQuestion") || !legacy.every(name => shape.disallowedTools.includes(name))
-      || !known.some(roster => same(roster, shape.disallowedTools))
+      || !shape.disallowedTools.includes("AskUserQuestion")
+      || shape.rosterDigest !== digest(shape.disallowedTools)
       || ![null, "true", "false"].includes(shape.toolSearch)) throw invalid();
     return shape;
   };
@@ -50,7 +51,9 @@ export function retainSessionRequestShape(brain: string, session: string, resume
     return validate(state.claudeRequestShape);
   }
   if (state.claudeRequestShape !== undefined) throw invalid();
-  const selected = validate({ version: 1, disallowedTools: resumed ? legacy : candidate, toolSearch: resumed ? null : toolSearch });
+  const selectedRoster = resumed ? legacy : candidate;
+  if (!legacy.every(name => selectedRoster.includes(name))) throw invalid();
+  const selected = validate({ version: 2, rosterDigest: digest(selectedRoster), disallowedTools: selectedRoster, toolSearch: resumed ? null : toolSearch });
   state.claudeRequestShapeInitialized = true;
   state.claudeRequestShape = selected;
   const temp = `${path}.${crypto.randomUUID()}.tmp`;

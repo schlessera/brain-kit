@@ -140,7 +140,8 @@
         "CLAUDE_CODE_USE_MANTLE": "",
         "CLAUDE_CODE_USE_ANTHROPIC_AWS": "",
         "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD": "",
-        "ANTHROPIC_UNIX_SOCKET": ""
+        "ANTHROPIC_UNIX_SOCKET": "",
+        "ENABLE_TOOL_SEARCH": "false"
       },
       "includeGitInstructions": false
     },
@@ -215,7 +216,9 @@
       "sessionId": "<generated>"
     },
     "subscriptionOnly": true,
-    "pinnedSettingsEnv": null,
+    "pinnedSettingsEnv": {
+      "ENABLE_TOOL_SEARCH": "false"
+    },
     "promptIsStream": true
   },
   "voice": {
@@ -350,7 +353,8 @@
         "CLAUDE_CODE_USE_MANTLE": "",
         "CLAUDE_CODE_USE_ANTHROPIC_AWS": "",
         "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD": "",
-        "ANTHROPIC_UNIX_SOCKET": ""
+        "ANTHROPIC_UNIX_SOCKET": "",
+        "ENABLE_TOOL_SEARCH": "false"
       },
       "includeGitInstructions": false
     },
@@ -425,7 +429,9 @@
       "sessionId": "<generated>"
     },
     "subscriptionOnly": true,
-    "pinnedSettingsEnv": null,
+    "pinnedSettingsEnv": {
+      "ENABLE_TOOL_SEARCH": "false"
+    },
     "promptIsStream": true
   },
   "unhosted": {
@@ -539,7 +545,8 @@
         "CLAUDE_CODE_USE_MANTLE": "",
         "CLAUDE_CODE_USE_ANTHROPIC_AWS": "",
         "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD": "",
-        "ANTHROPIC_UNIX_SOCKET": ""
+        "ANTHROPIC_UNIX_SOCKET": "",
+        "ENABLE_TOOL_SEARCH": "false"
       },
       "includeGitInstructions": false
     },
@@ -614,7 +621,9 @@
       "sessionId": "<generated>"
     },
     "subscriptionOnly": true,
-    "pinnedSettingsEnv": null,
+    "pinnedSettingsEnv": {
+      "ENABLE_TOOL_SEARCH": "false"
+    },
     "promptIsStream": true
   },
   "relayed": {
@@ -762,7 +771,7 @@
         "CLAUDE_CODE_OAUTH_TOKEN": "brain-inference-relay-placeholder",
         "ANTHROPIC_BASE_URL": "http://localhost",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-        "ENABLE_TOOL_SEARCH": "true"
+        "ENABLE_TOOL_SEARCH": "false"
       },
       "skipWebFetchPreflight": true,
       "includeGitInstructions": false
@@ -856,7 +865,7 @@
       "CLAUDE_CODE_OAUTH_TOKEN": "brain-inference-relay-placeholder",
       "ANTHROPIC_BASE_URL": "http://localhost",
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-      "ENABLE_TOOL_SEARCH": "true"
+      "ENABLE_TOOL_SEARCH": "false"
     },
     "promptIsStream": true
   },

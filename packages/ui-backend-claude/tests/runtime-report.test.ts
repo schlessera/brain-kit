@@ -158,7 +158,7 @@ describe("a turn the subscription gate refuses (#253)", () => {
     // A double that pulls the prompt, as the SDK does, so the gate runs.
     const queryFn = ((params: { prompt: AsyncIterable<unknown> }) => ({
       initializationResult: async () => ({ account: { ...OAUTH_ACCOUNT, apiKeySource: "ANTHROPIC_API_KEY" } }),
-      getSettings: async () => ({ effective: {}, sources: [] }),
+      getSettings: async () => ({ effective: { env: { ENABLE_TOOL_SEARCH: "false" } }, sources: [] }),
       // oxlint-disable-next-line require-yield -- consumes the prompt only; the gate releases nothing
       async *[Symbol.asyncIterator]() {
         for await (const _ of params.prompt) {

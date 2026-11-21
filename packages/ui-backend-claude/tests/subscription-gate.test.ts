@@ -27,7 +27,7 @@ interface Double {
 function double(
   init: () => Promise<{ account: AccountInfo }>,
   after: unknown[],
-  settings: (() => Promise<unknown>) | null = async () => ({ effective: {}, sources: [] })
+  settings: (() => Promise<unknown>) | null = async () => ({ effective: { env: { ENABLE_TOOL_SEARCH: "false" } }, sources: [] })
 ): Double {
   const released: SDKUserMessage[] = [];
   const queryFn = ((params: { prompt: string | AsyncIterable<SDKUserMessage> }) => ({

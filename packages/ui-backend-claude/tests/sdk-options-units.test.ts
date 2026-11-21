@@ -56,18 +56,19 @@ describe("turnChildEnvironment", () => {
   test("an ordinary turn runs with its resolved environment unchanged", () => {
     const turnEnvironment = { ODYSSEUS_KEY: "k", CLAUDE_CODE_OAUTH_TOKEN: "fixture", HOME: "/home/penelope" };
     const env = turnChildEnvironment({ profile, turnEnvironment }, undefined);
-    expect(env.childEnv).toBe(turnEnvironment);
+    expect(env.childEnv).toEqual(turnEnvironment);
+    expect(env.childEnv).not.toBe(turnEnvironment);
     expect(env.inferenceEnv).toBeUndefined();
     expect(env.providerKeys).toEqual(["CLAUDE_CODE_OAUTH_TOKEN"]);
   });
 
-  test("tool search is pinned only for the selected first-party origin", () => {
+  test("unqualified production tool search stays off on every selected origin", () => {
     for (const route of [undefined, "https://api.anthropic.com", "https://api.anthropic.com/"]) {
       const turnEnvironment = { ANTHROPIC_BASE_URL: route, ENABLE_TOOL_SEARCH: "false" };
       expect(firstPartyInferenceUpstream(turnEnvironment)).toBe(true);
       const env = turnChildEnvironment({ profile, turnEnvironment, hostInference: { proxyDir: "/run/relay" } }, undefined);
-      expect(env.inferenceEnv?.ENABLE_TOOL_SEARCH).toBe("true");
-      expect(env.childEnv.ENABLE_TOOL_SEARCH).toBe("true");
+      expect(env.inferenceEnv?.ENABLE_TOOL_SEARCH).toBe("false");
+      expect(env.childEnv.ENABLE_TOOL_SEARCH).toBe("false");
     }
     for (const route of ["https://gateway.example.com", "http://api.anthropic.com", "https://api.anthropic.com.example.com", "https://odysseus@api.anthropic.com", "https://api.anthropic.com?route=ithaca", "not a URL"]) {
       const turnEnvironment = { ANTHROPIC_BASE_URL: route, ENABLE_TOOL_SEARCH: "true" };

@@ -62,33 +62,6 @@ export function providerTools(previous: Exchange, next: Exchange, label: string)
   }
 }
 
-/**
- * Qualification only: keep the strict guard's outcome, and reject any mismatch
- * other than #4324's recorded system-content encoding. This never makes the
- * provider history clean or changes the bytes fed to history().
- */
-export function qualifyHistory(previous: Exchange, next: Exchange): { issue: 4324; indices: number[]; guardFailure: string } | null {
-  try { history(previous, next); return null; } catch (error) {
-    const expected = [...messages(previous), previous.answer], actual = messages(next).slice(0, expected.length);
-    expect(actual).toHaveLength(expected.length);
-    const indices: number[] = [];
-    for (const [index, message] of expected.entries()) {
-      const observed = actual[index];
-      if (bytes(message) === bytes(observed)) continue;
-      // Diagnose the exact known violation, without admitting it in history().
-      expect(message.role, "#4324 is confined to an earlier system-role message").toBe("system");
-      identical({ ...message, content: undefined }, { ...observed, content: undefined }, "#4324 leaves non-content fields unchanged");
-      expect(Array.isArray(message.content)).toBe(true);
-      identical(message.content, message.content.map((part: any) => ({ type: "text", text: part.text })), "#4324 original blocks contain only text");
-      expect(typeof observed.content).toBe("string");
-      expect(observed.content, "#4324 diagnostic: text itself is unchanged").toBe(message.content.map((part: any) => part.text).join(""));
-      indices.push(index);
-    }
-    expect(indices.length).toBeGreaterThan(0);
-    return { issue: 4324, indices, guardFailure: error instanceof Error ? error.message : String(error) };
-  }
-}
-
 /** The local Claude CLI may replay old system bytes; also hold the actual
  * SDK systemPrompt option (or its production fingerprint for hosted turns). */
 export function identicalSystemPromptOptions(appends: readonly unknown[], label: string): void {
@@ -139,7 +112,7 @@ export function noInternalNotes(capture: HistoryCapture): void {
   }
 }
 
-export async function captureOffline(probe: string, options: { isolateManagedSettings?: boolean } = {}): Promise<Captures> {
+export async function captureOffline(probe: string, options: { isolateManagedSettings?: boolean; managedSettings?: object } = {}): Promise<Captures> {
   const root = resolve(import.meta.dir, "../..");
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-provider-history-"));
   // A private /etc works even when the runner has no /etc/claude-code.
@@ -150,6 +123,7 @@ export async function captureOffline(probe: string, options: { isolateManagedSet
   if (options.isolateManagedSettings) {
     mkdirSync(join(managed, "claude-code"), { recursive: true });
     for (const name of systemFiles) writeFileSync(join(managed, name), "");
+    if (options.managedSettings) writeFileSync(join(managed, "claude-code/managed-settings.json"), JSON.stringify(options.managedSettings));
   }
   const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/",
     ...(options.isolateManagedSettings ? ["--ro-bind", managed, "/etc",

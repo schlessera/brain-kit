@@ -25,7 +25,15 @@ export function mockWorkerHostForSdkStream() {
     const brain = join(root, "ithaca"); mkdirSync(brain);
     // Hand-driven SDK streams have no native transcript or real /brain directory.
     // Keep their newly persistent host context in this test's own storage.
-    prompt = spyOn(context, "claudePromptContext").mockImplementation((_brain, id) => sessionPromptContext(join(root, "host"), brain, id));
+    prompt = spyOn(context, "claudePromptContext").mockImplementation((_brain, id) => {
+      const saved = sessionPromptContext(join(root, "host"), brain, id);
+      // Hand-driven streams invent native IDs instead of returning the SDK's
+      // generated UUID. Seed those synthetic resumed sessions explicitly;
+      // real UUIDs and the missing-context guard use production storage tests.
+      if (!/^[a-f0-9-]{36}$/.test(id) && saved.append() === undefined)
+        saved.retainAppend("Odysseus retains the fixture session brief.");
+      return saved;
+    });
     acknowledgement = spyOn(context, "acknowledgeClaudeContext").mockImplementation(() => {});
     // Match the existing fake brain/config context while exercising the real
     // selection reader and writer; permission-only streams have no /brain.

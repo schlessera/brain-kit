@@ -135,6 +135,9 @@ export class TurnInferenceRelay {
     if (settings?.effective?.env?.ANTHROPIC_BASE_URL !== this.baseUrl) {
       return "native settings refused the prepared inference transport";
     }
+    const discovery = pinnedSettingsEnv?.ENABLE_TOOL_SEARCH;
+    if (discovery !== undefined && settings?.effective?.env?.ENABLE_TOOL_SEARCH !== discovery)
+      return "native settings refused the retained tool-search selection";
     this.#authorized = true;
     return undefined;
   }

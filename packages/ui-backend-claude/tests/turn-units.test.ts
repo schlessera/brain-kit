@@ -272,6 +272,17 @@ describe("TurnInferenceRelay", () => {
     expect(relay.qualify(qualified(relay.baseUrl), true, undefined)).toBeUndefined();
   });
 
+  test("managed discovery overrides and unreadable effective pins are refused before relay authorization", () => {
+    for (const observed of ["true", undefined]) {
+      const relay = relayFor(), report = qualified(relay.baseUrl);
+      Object.assign(report.effective.env, { ENABLE_TOOL_SEARCH: observed });
+      expect(relay.qualify(report, true, { ENABLE_TOOL_SEARCH: "false" })).toBe("native settings refused the retained tool-search selection");
+    }
+    const relay = relayFor(), report = qualified(relay.baseUrl);
+    Object.assign(report.effective.env, { ENABLE_TOOL_SEARCH: "false" });
+    expect(relay.qualify(report, true, { ENABLE_TOOL_SEARCH: "false" })).toBeUndefined();
+  });
+
   test("an unlisted custom origin is refused before the host login", () => {
     const relay = relayFor({ ANTHROPIC_BASE_URL: "https://gateway.example/v1" });
     expect(relay.qualify(qualified(relay.baseUrl), true, undefined)).toBe("the selected inference origin is not authorized to receive the host Claude login; list its exact origin in BRAIN_UI_CLAUDE_OAUTH_ORIGINS");
@@ -312,6 +323,18 @@ describe("promptGateCheck", () => {
     });
     return { check, terminal, abortController, activity, reported };
   }
+
+  test("direct API turns also withhold the prompt when effective discovery is clamped or unreadable", async () => {
+    for (const observed of ["true", undefined, "false"]) {
+      const { terminal, abortController } = terminalFixture();
+      const query = { async getSettings() { return { effective: { env: { ENABLE_TOOL_SEARCH: observed } } }; } } as unknown as Query;
+      const check = promptGateCheck({ queryHandle: Promise.resolve(query), initialize: async () => ({}) as never,
+        sdkTurn: { subscriptionOnly: false, pinnedSettingsEnv: { ENABLE_TOOL_SEARCH: "false" } }, relay: undefined,
+        terminal, runtimeRequirements: [], phase: "start", abortController, profileId: "fixture", log() {}, reportActivity() {}, reportRuntime() {} });
+      expect(await check()).toBe(observed === "false");
+      expect(terminal.withheld).toBe(observed !== "false");
+    }
+  });
 
   test("a subscription turn the CLI would bill elsewhere is refused and withheld", async () => {
     const { check, terminal, abortController, activity, reported } = gate({ account: undefined });
