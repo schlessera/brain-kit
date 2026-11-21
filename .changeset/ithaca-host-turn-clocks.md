@@ -10,3 +10,5 @@ Confirm clock completion only from successful work: retain physical worker-contr
 Keep best-effort timing evidence out of worker control flow, bind hold receipts to the workers they stopped, verify persisted catalog ownership, preserve base backend timing samples, align native watchdogs and parse initial SSE usage in linear work.
 
 Hold clocks use the existing worker-control acknowledgement contract without additional kernel inspection. Diagnostic failures leave missing clocks or null inference-overlap samples and never change worker control. Closing cleanup only completes after the named turn's work succeeds.
+
+Isolate inference-relay timing marks and per-request usage capture so diagnostic exceptions cannot skip upstream dispatch or interrupt response bytes.

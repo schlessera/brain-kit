@@ -471,7 +471,9 @@ nonnegative, ordered and bounded by `durationMs`. Unreached marks are absent,
 including on refused/failed attempts. `loopLagMaxMs` is independently the
 maximum nonnegative drift of a 50 ms timer before dispatch (also sampled at
 dispatch before a delayed callback can run); it is not a provider latency.
-These optional host fields never alter request or response bytes. A refused
+These optional host fields never alter request or response bytes. Timing and
+per-request usage callbacks are best-effort: a failed callback leaves its mark
+absent and cannot prevent dispatch or interrupt a response. A refused
 first admission carries `admitMs` at the completed refusal decision, including
 session-binding waits before proxy admission. A denied audit is submitted
 synchronously at that boundary, so turn stop and settlement cannot outrun it.
