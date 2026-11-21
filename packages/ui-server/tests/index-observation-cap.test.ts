@@ -70,3 +70,27 @@ for (const indexBytes of [INDEX_OBSERVATION_CAP_BYTES + 1, null]) test(`a conten
     await scope.finish("voyage");
   } finally { scope.close(); db.close(); }
 });
+
+test("an index grant cannot bypass shared content added while its worker is paused", async () => {
+  const db = createUiDb(":memory:"); db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
+  let observed!: Parameters<TurnJournal["onObservation"]>[0], periodic!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observed, hold: typeof periodic) { observed = callback; periodic = hold; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  let frozen = false;
+  const saved = () => JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary);
+  const facts = (observedBytes: number) => { periodic.before(); observed("voyage", { changedPaths: 1, observedBytes, workspacePaths: 0, indexBytes: INDEX_OBSERVATION_CAP_BYTES + 1, partial: false }); periodic.after(true); };
+  const decide = (eventId: string) => scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId, submissionId: eventId, action: "continue" }, true);
+  try {
+    await scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1, scope: { max_bytes_written: 10 } }), source: "policy", hardTimeoutMs: 3600000, current: () => true, stop() {} });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() { frozen = true; }, resume() { frozen = false; }, kill() {} } as never);
+    facts(0); const index = saved().receipts[0]; expect(index.result).toBe("index_capacity");
+    facts(11);
+    expect((await decide(index.eventId)).state, "INDEX_GRANT_REFUSES_LATER_CONTENT_BYPASS").toBe("refused");
+    expect(frozen).toBe(true);
+    const content = saved().receipts.at(-1); expect(content).toMatchObject({ dimension: "turn_bytes", count: 11 }); expect(content.result).toBeUndefined();
+    expect((await decide(content.eventId)).state, "CONTENT_GRANT_DOES_NOT_CREATE_DUPLICATE_INDEX_PAUSE").toBe("accepted"); expect(frozen).toBe(true);
+    expect(saved().receipts).toHaveLength(2);
+    expect((await decide(index.eventId)).state).toBe("accepted"); expect(frozen, "BOTH_INDEPENDENT_GRANTS_RESUME_WORKER").toBe(false);
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});

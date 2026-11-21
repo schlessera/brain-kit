@@ -113,7 +113,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       }
       // A pending content grant cannot bypass an independently breached or
       // unmeasurable index cap from this same observation.
-      if (fs.free >= floor && pending.dimension !== "free_space_floor" && pending.result !== "index_capacity" && turn.summary.indexBytes !== undefined &&
+      if (fs.free >= floor && pending.dimension !== "free_space_floor" && pending.result !== "index_capacity" && !turn.summary.receipts.some(item => item.state === "paused" && item.result === "index_capacity") && turn.summary.indexBytes !== undefined &&
           (turn.summary.indexBytes === null || turn.summary.indexBytes > turn.summary.indexLimitBytes!)) {
         const cap = turn.summary.indexLimitBytes!, count = turn.summary.indexBytes ?? cap;
         const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension: "turn_bytes", result: "index_capacity", count, cap,
@@ -122,6 +122,21 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
           dedupeKey: receipt.eventId, payload: { cap: "turn_bytes", limit: cap, observed: count, overshoot: receipt.overshoot,
             frozen: receipt.frozen, outcome: "paused", source: "default" } });
+      }
+      // A peer can add shared content while an index-paused worker is frozen.
+      // Discover that independent limit before granting the index continuation.
+      if (fs.free >= floor && pending.result === "index_capacity") {
+        const content: [Exclude<ScopeDimension, "free_space_floor">, number | null][] = [["tool_calls", turn.summary.calls], ["minutes", turn.summary.minutes],
+          ["files_changed", turn.filesChanged], ["turn_bytes", turn.summary.observedBytes]];
+        for (const [dimension, count] of content) {
+          const cap = turn.summary.limits[dimension];
+          if (count === null || count < cap || turn.summary.receipts.some(item => item.state === "paused" && item.dimension === dimension && !item.result)) continue;
+          const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension, count, cap, overshoot: Math.max(0, count - cap), frozen: pending.frozen, observedAt: now(), state: "paused" };
+          refreshHeadroom(turn, receipt); turn.summary.receipts.push(receipt);
+          scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
+            dedupeKey: receipt.eventId, payload: { cap: dimension, limit: cap, observed: count, overshoot: receipt.overshoot, frozen: receipt.frozen, outcome: "paused", source: turn.source } });
+          break;
+        }
       }
       if (options.connected(turn.sessionId)) turn.disconnectedAt = undefined;
       else turn.disconnectedAt ??= now();
