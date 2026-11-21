@@ -1637,6 +1637,23 @@ seconds; each forwarded request also has a 30-second bound. Failure is a named
 tool result, never a host content read. The process and its reservation are
 owned until turn cleanup confirms release. It is not retained between turns.
 
+Both the inventory helper and the forwarder share the runtime's ordinary
+launch construction, including the operator exec wrapper, worker PATH and
+shell-startup variable filtering. The forwarder and runtime share one atomic
+runtime-state/turn-temp admission. Each gets half the configured turn-temp
+allowance, rounded to whole pages, with any extra page going to the runtime;
+the two mount sizes add up to the admitted allowance. The runtime's note and
+`turn_temp` tool report its own mount size. New sessions below two pages keep
+stdio with `brain_bridge_fallback_temp_allowance`. The reservation remains
+charged until both cleanup owners release it, including reconciliation after
+a refused storage close. A rejected exit observer still disposes pipes and
+attempts storage cleanup in `finally`.
+
+Independent runtime-version preparation stays parallel for ordinary turns.
+Restricted autonomous turns first assemble their envelope, then probe with the
+SDK turn's exact environment, so version probes receive inference placeholders
+and never the profile credential.
+
 The internal session snapshot records bridge version 1 for new hosted
 sessions. Previous snapshots, including version 4 selection records, keep the
 stdio path and their search pin unchanged. New first-party-origin relayed

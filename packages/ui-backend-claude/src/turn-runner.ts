@@ -260,12 +260,15 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
       if (runtimeRequirements.length) {
         // Replaceable overrides are probed anew for BOTH new and resumed turns,
         // before query() sees any user input. Capture uses the SDK's resolver.
+        const probeEnv = req.autonomous?.containment === "restricted"
+          ? (await sdkPreparation).options.env!
+          : turnChildEnvironment({ profile, turnEnvironment: own?.turnEnvironment ?? claim.turnEnvironment,
+            ...(relay!.egress ? { hostInference: { proxyDir: relay!.egress.dir, baseUrl: relay!.baseUrl,
+              ...(relay!.apiCredential ? { placeholders: relay!.apiCredential.placeholders } : {}) } } : {}) }, undefined).childEnv;
         const report = await probeClaudeRuntime({
           brainPath: options.backend.brainPath,
           ...(options.backend.claudeCodePath !== undefined ? { claudeCodePath: options.backend.claudeCodePath } : {}),
-          env: turnChildEnvironment({ profile, turnEnvironment: own?.turnEnvironment ?? claim.turnEnvironment,
-            ...(relay!.egress ? { hostInference: { proxyDir: relay!.egress.dir, baseUrl: relay!.baseUrl,
-              ...(relay!.apiCredential ? { placeholders: relay!.apiCredential.placeholders } : {}) } } : {}) }, undefined).childEnv, exec: options.backend.exec ?? ambientExecConfig(),
+          env: probeEnv, exec: options.backend.exec ?? ambientExecConfig(),
           versionRequirements: options.backend.versionRequirements, phase,
           signal: abortController.signal, log: options.log,
         });
@@ -350,7 +353,7 @@ async function buildSdkTurn(runner: TurnRunnerState, claim: ClaimedTurn, relay: 
   let brainBridgeInventory: "core-only" | "module-tools" | "unavailable" | undefined;
   if (!req.sessionId && !req.autonomous && computeToolRoster(turnReq, allowedTools).hosted && turnReq.workerSandbox) {
     const environment = turnChildEnvironment({ profile, turnEnvironment, hostInference }, undefined);
-    brainBridgeInventory = await probeBrainBridgeInventory({ brainPath: options.backend.brainPath,
+    brainBridgeInventory = await probeBrainBridgeInventory({ brainPath: options.backend.brainPath, exec: options.backend.exec ?? ambientExecConfig(),
       sandbox: turnReq.workerSandbox, startupView: req.workerStartupView, env: environment.childEnv,
       limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits(options.backend.turnTemp ?? {}),
       req: turnReq, egress: hostInference, credentialEnv: environment.credentialEnv }, claim.abortController.signal);

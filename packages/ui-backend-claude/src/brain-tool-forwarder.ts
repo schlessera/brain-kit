@@ -1,3 +1,4 @@
+import { ordinaryWorkerLaunch } from "./worker-launch-command.js";
 import { createBrainInventoryCache, type BrainInventoryResolution } from "./brain-tool-inventory.js";
 /** Per-turn MCP relay. This module never opens brain content on the host. */
 import type { ZodRawShape } from "zod";
@@ -8,10 +9,10 @@ import { CallToolResultSchema, type JSONRPCMessage } from "@modelcontextprotocol
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { brainReadDefinitions, BRAIN_READ_DEFINITION_VERSION } from "@schlessera/brain/internal";
 import { launchAgentWorkerAsync, retainWorkerStartupView, prepareNativeWorkerOutput, processStateLedger,
-  workerCleanupUnconfirmed, processCleanupReconciler, reportStrandedWorkerCleanup, WORKER_EMPTY_HOME,
+  workerCleanupUnconfirmed, processCleanupReconciler, reportStrandedWorkerCleanup,
   type LaunchedWorker, type WorkerSandbox, type WorkerStartupView, type WorkerLimitsPlan, type WorkerStateLimits,
 } from "@schlessera/brain-ui-sdk/internal";
-import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import type { ExecWrapperConfig, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { join } from "node:path";
 
 /** Product bound for readiness and individual calls, independent of test watchdogs. */
@@ -97,15 +98,16 @@ export function createBrainToolForwarder(start: (signal: AbortSignal) => Promise
 
 /** Use the exact turn sandbox and its immutable startup view, including data tree and provider masks. */
 export interface BrainToolWorkerInput { brainPath: string; sandbox: WorkerSandbox; startupView?: WorkerStartupView;
-  env: Record<string, string | undefined>; limits: WorkerLimitsPlan; turnTempLimits: WorkerStateLimits;
-  req: StartTurnRequest; egress?: { proxyDir: string }; credentialEnv: readonly string[] }
+  exec: ExecWrapperConfig; env: Record<string, string | undefined>; limits: WorkerLimitsPlan; turnTempLimits: WorkerStateLimits;
+  reservation?: () => import("./worker-state-budget.js").Reservation; req: StartTurnRequest; egress?: { proxyDir: string }; credentialEnv: readonly string[] }
 
 export function startBrainToolWorker(input: BrainToolWorkerInput, args: readonly string[] = ["mcp"]) {
   return async (signal: AbortSignal) => {
-    const reservation = processStateLedger().reserve(undefined, input.turnTempLimits);
+    const reservation = input.reservation?.() ?? processStateLedger().reserve(undefined, input.turnTempLimits);
     let worker: LaunchedWorker | undefined;
     let output: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
     let launchFailure: unknown;
+    let abort: (() => void) | undefined;
     const closeStorage = async () => {
       if (!worker && workerCleanupUnconfirmed(launchFailure)) {
         if (!launchFailure.close) throw launchFailure;
@@ -135,11 +137,10 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, args: readonly
       worker = await launchAgentWorkerAsync({ brainPath: input.brainPath, sandbox: input.sandbox, limits: input.limits,
         ...(output ? { preparedOutput: output } : input.startupView && input.sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(input.startupView) } : {}),
         ...(input.req.workerLock ? { outputLock: input.req.workerLock } : {}),
-        command: [process.execPath, join(input.brainPath, "node_modules/.bin/brain"), ...args],
-        env: { ...Object.fromEntries(Object.entries(input.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), HOME: WORKER_EMPTY_HOME },
+        ...ordinaryWorkerLaunch(input.brainPath, [process.execPath, join(input.brainPath, "node_modules/.bin/brain"), ...args], input.env, input.exec),
         credentialEnv: input.credentialEnv, ...(input.egress ? { egress: input.egress } : {}), turnTempBytes: reservation.turnTempBytes });
       const child = worker;
-      const abort = () => child.kill("SIGKILL");
+      abort = () => child.kill("SIGKILL");
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
       worker.stderr.resume();
@@ -147,18 +148,28 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, args: readonly
       let closing: Promise<void> | undefined;
       return { worker, transport: brainWorkerTransport(worker), close() {
         return closing ??= (async () => {
-          signal.removeEventListener("abort", abort);
+          if (abort) signal.removeEventListener("abort", abort);
           child.kill("SIGKILL");
-          await child.exited;
-          child.stdin.end(); child.stdout.destroy(); child.stderr.destroy();
-          await child.released();
-          await release();
+          try { await child.exited; }
+          finally {
+            child.stdin.end(); child.stdout.destroy(); child.stderr.destroy();
+            try { await child.released(); } finally { await release(); }
+          }
         })();
       } };
     } catch (error) {
       launchFailure = error;
-      if (worker) { worker.kill("SIGKILL"); await worker.exited; worker.stdin.end(); worker.stdout.destroy(); worker.stderr.destroy(); await worker.released(); }
-      await release();
+      if (abort) signal.removeEventListener("abort", abort);
+      try {
+        if (worker) {
+          worker.kill("SIGKILL");
+          try { await worker.exited; }
+          finally {
+            worker.stdin.end(); worker.stdout.destroy(); worker.stderr.destroy();
+            await worker.released();
+          }
+        }
+      } finally { await release(); }
       throw error;
     }
   };

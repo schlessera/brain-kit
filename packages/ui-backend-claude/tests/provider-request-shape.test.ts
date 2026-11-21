@@ -75,6 +75,28 @@ test("#4325: static core reads survive non-blocking startup and graph discovery 
   expect(first.tools.some((tool: any) => tool.name === "ToolSearch")).toBe(true);
   expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__")).map((tool: any) => tool.name).sort(), "FIVE_CORE_READS_IN_FIRST_NONBLOCKING_REQUEST")
     .toEqual(["brain_context", "brain_list", "brain_read", "brain_read_many", "brain_search"].map(name => `mcp__brain__${name}`));
+  // Independent explicit roster: omitting or deferring any host bridge tool
+  // must fail qualification even when all five core reads remain inline.
+  const hostTools = [
+    "show_block", "propose_policy_change", "get_current_location", "ask_user", "ask_user_list",
+    "ask_user_rank", "ask_user_form", "request_image_mask", "request_image_markup", "query_activity",
+    "turn_temp", "inbox_list", "inbox_get", "inbox_add", "resolve_action",
+    "complete_share", "reference_source", "reference_worktree", "reference_read", "brain_compute_health",
+    "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
+    "brain_apify_availability", "brain_apify_approvals", "brain_apify_revoke", "brain_apify_discover", "brain_apify_inspect",
+    "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort",
+    "brain_github_issue_read", "brain_github_issue_search", "brain_github_issue_create", "brain_github_issue_comment", "read_attachment",
+    "brain_add", "brain_update", "brain_archive", "write_file", "edit_file",
+    "apply_staged_changes", "brain_read_base",
+  ];
+  expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain-ui__")).map((tool: any) => tool.name).sort(), "EVERY_HOST_BRIDGE_TOOL_IN_FIRST_REQUEST")
+    .toEqual(hostTools.map(name => `mcp__brain-ui__${name}`).sort());
+  for (const name of [...hostTools.map(name => `mcp__brain-ui__${name}`),
+    ...["brain_context", "brain_list", "brain_read", "brain_read_many", "brain_search"].map(name => `mcp__brain__${name}`)]) {
+    const definition = first.tools.find((tool: any) => tool.name === name);
+    expect(definition, `INLINE_BRIDGE_DEFINITION_${name}`).toBeDefined();
+    expect(definition.defer_loading, `BRIDGE_TOOL_IS_INLINE_${name}`).not.toBe(true);
+  }
   const prior = new Set(first.tools.map((tool: any) => tool.name));
   const added = next.tools.filter((tool: any) => !prior.has(tool.name));
   expect(added.map((tool: any) => ({ name: tool.name, defer_loading: tool.defer_loading })), "ONLY_REFERENCED_GRAPH_DEFINITION_ADDED")

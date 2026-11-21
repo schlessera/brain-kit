@@ -27,6 +27,13 @@ to 30 seconds; an individual forwarding request has the same 30-second bound.
 Failures return `isError: true` with `brain_tool_unavailable` or
 `brain_tool_timeout`, without disabling other tools or falling back to a host
 read. A timed-out early call may succeed later once startup finishes.
+The inventory helper and forwarder use the runtime's ordinary launch policy:
+its exec wrapper, worker PATH and shell-startup environment filtering. Runtime
+and forwarder divide one admitted turn-temp allowance between their private
+mounts; the runtime note and purge tool report its actual share. New sessions
+with less than two pages of turn temp preserve stdio and record
+`brain_bridge_fallback_temp_allowance`. Cleanup retains the shared reservation
+until both processes' storage has closed, including a rejected exit observer.
 
 A new session's inventory is reused from disposable host memory under a
 content hash of configuration, static dependencies, module manifests/settings

@@ -55,7 +55,7 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
     providerMasks: { folders: ["sealed"], index: join(scratch, "index") } };
   cpSync(join(brain, ".brain-index"), join(scratch, "index"), { recursive: true });
   let starts = 0;
-  const input = { brainPath: brain, sandbox: sandbox as never, startupView: view,
+  const input = { brainPath: brain, exec: {}, sandbox: sandbox as never, startupView: view,
     env: { PATH: process.env.PATH, HOME: home }, limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits({}),
     credentialEnv: [], req: { workerStarted(worker: { stderr: NodeJS.ReadableStream; exited: Promise<number> }) { starts++; worker.stderr.on("data", chunk => errors.push(String(chunk)));  }, bridge: {} } as never };
   forward = createBrainToolForwarder(startBrainToolWorker(input), controller.signal, error => errors.push(error));
@@ -102,7 +102,7 @@ test("a sandbox-resolved module MCP inventory keeps its original stdio tool reac
     openDatabase(join(brain, ".brain-index/brain.db")).close();
     view = createFixtureWorkerStartupView(brain);
     const sandbox = { ...prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry]) };
-    const input = { brainPath: brain, sandbox, startupView: view, env: { PATH: process.env.PATH, HOME: home },
+    const input = { brainPath: brain, exec: {}, sandbox, startupView: view, env: { PATH: process.env.PATH, HOME: home },
       limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits({}), credentialEnv: [], req: { bridge: {} } as never };
     const measured = inventoryTiming("module-tools");
     const inventory = await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: measured.timing } as never }, controller.signal);
