@@ -3,6 +3,7 @@ import type { ClientMessage, ClientTurnTiming, ServerMessage } from "@schlessera
 interface Observation {
   sentAt: number;
   dispatchedAt?: number;
+  disqualified?: true;
   turnId?: string;
   firstHostAt?: number;
   firstContentAt?: number;
@@ -10,7 +11,7 @@ interface Observation {
 }
 
 function isDispatched(value: Observation | undefined): value is Observation & { dispatchedAt: number } {
-  return value?.dispatchedAt !== undefined;
+  return value?.dispatchedAt !== undefined && value.disqualified !== true;
 }
 
 /** Arrival evidence only, before rendering/delta buffering. Nothing survives a
@@ -30,6 +31,7 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
       // A durable snapshot cannot reconstruct a lost Send after a reload
       // or eviction. Its origin must have been captured by this live root.
       if (message.type === "chat_message" && message.draftRef && !requests.has(message.requestId)) return;
+      if (requests.get(message.requestId)?.disqualified) return;
       // Preserve the Send boundary captured before snapshot persistence.
       this.started(message.requestId, sentAt);
       requests.get(message.requestId)!.dispatchedAt ??= sentAt;
@@ -38,15 +40,26 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
     disconnected() { supported = false; requests.clear(); arrivals.clear(); },
     frame(message: ServerMessage) {
       if (message.type === "server_hello") { supported = message.capabilities?.clientTurnReceipts === true; return; }
-      if (![...requests.values()].some(isDispatched)) return;
+      if (!requests.size) return;
       const at = clock();
       const { turnId, requestId } = (message.type === "session_queue" ? message.started : message) as { turnId?: string; requestId?: string } | undefined ?? {};
+      // A known request acknowledged before this client's dispatch belongs
+      // to a peer. Retain that loss even if this tab later dispatches the id.
+      const acknowledged = message.type === "session_queue"
+        ? [...message.followUps.map(entry => entry.requestId), message.started?.requestId, ...(message.dropped ?? []).map(entry => entry.requestId)]
+        : message.type === "session_info" || message.type === "status" || message.type === "error" || message.type === "retry_receipt" && message.state === "accepted"
+          ? [requestId] : [];
+      for (const id of acknowledged) {
+        const observation = id ? requests.get(id) : undefined;
+        if (observation && observation.dispatchedAt === undefined) observation.disqualified = true;
+      }
+      if (![...requests.values()].some(isDispatched)) return;
       if (message.type === "session_queue") {
         for (const entry of message.followUps) {
           const pending = entry.requestId ? requests.get(entry.requestId) : undefined;
           if (isDispatched(pending)) pending.firstHostAt ??= at;
         }
-        for (const entry of message.dropped ?? []) if (entry.requestId) requests.delete(entry.requestId);
+        for (const entry of message.dropped ?? []) { const dropped = entry.requestId ? requests.get(entry.requestId) : undefined; if (dropped) dropped.disqualified = true; }
       }
       // Activity can announce acceptance before session_info identifies the
       // initiating request. Only retain arrivals; never infer ownership.

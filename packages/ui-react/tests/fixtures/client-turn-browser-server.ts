@@ -2,6 +2,11 @@
 import { workerHostBoundary } from "../../../ui-sdk/src/server/worker-launcher.js";
 // The fixture backend has no worker process; native containment has its own proof.
 workerHostBoundary.probe = () => ({ ok: true });
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { openSqliteWriter } from "../../../ui-server/src/db/write-worker.js";
+import { createModelPricing } from "../../../ui-server/src/pricing/model-pricing.js";
 import { createUiDb } from "../../../ui-server/src/db/client.js";
 import { createActivityRuntime } from "../../../ui-server/src/activity/runtime.js";
 import { createStaticBackendRegistry } from "../../../ui-server/src/agent/backend.js";
@@ -13,9 +18,13 @@ import { makeFakeBackend } from "../../../ui-server/tests/helpers/fake-backend.j
 import { testPrincipal } from "../../../ui-server/tests/helpers/principal.js";
 import type { Logger } from "@opentelemetry/api-logs";
 
-const db = createUiDb(":memory:");
+const temporary = mkdtempSync(join(tmpdir(), "client-turn-ithaca-"));
+const db = createUiDb(join(temporary, "ui.db"));
+const writer = openSqliteWriter(db);
+const pricingConfig = { brainPath: temporary, enabled: false };
+const pricing = createModelPricing(pricingConfig);
 const log = { emit() {} } as unknown as Logger;
-const activity = createActivityRuntime(db, { log });
+const activity = createActivityRuntime(db, { log, writer, pricing, pricingConfig });
 let release: (() => void) | undefined;
 let earlyIdleHeld = false, reportsReceived = 0;
 const drained = new Set<string>();
@@ -35,7 +44,7 @@ const backend = makeFakeBackend({ id: "odyssey", startTurn: async request => {
     earlyIdleHeld = false;
   }
 } });
-const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog: createSessionCatalog(() => db), activity });
+const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog: createSessionCatalog(() => db, log, undefined, { pricing, store: activity.store, governance: activity.governanceWrites, writer, pricingConfig }), activity });
 type SocketData = { handlers: ReturnType<typeof createWsHandlers>; context: WSContext };
 const server = Bun.serve<SocketData>({ hostname: "127.0.0.1", port: 0,
   async fetch(request, server) {
@@ -62,6 +71,6 @@ const server = Bun.serve<SocketData>({ hostname: "127.0.0.1", port: 0,
   },
 });
 process.on("SIGTERM", async () => {
-  release?.(); await host.close(); await activity.close(); db.close(); server.stop(true); process.exit(0);
+  release?.(); await host.close(); await activity.close(); await writer.close(); db.close(); server.stop(true); rmSync(temporary, { recursive: true, force: true }); process.exit(0);
 });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));

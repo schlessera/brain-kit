@@ -1601,7 +1601,7 @@ export interface ServerError extends SessionScoped {
 }
 
 export interface ServerStatus extends SessionScoped {
-  /** Host-only final idle after teardown and lifecycle commit, never a backend idle. */
+  /** Host-only final idle after cleanup; receipt persistence may finish later. Never a backend idle. */
   hostTurnComplete?: true;
   type: "status";
   status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";

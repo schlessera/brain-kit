@@ -166,3 +166,17 @@ test("only the browser that dispatches a shared snapshot reports its receipt", a
   expect(result.reportsReceived).toBe(1);
   expect(result.lifecycles[0]?.clientTiming).toBeDefined();
 });
+
+
+test("six turns on one socket retain every receipt with the real file-backed writer", async () => {
+  await scene();
+  for (let index = 0; index < 6; index++) {
+    expect(ui!.connection.send({ type: "chat_message", text: "Plan Ithaca", requestId: `voyage-${index}`,
+      ...(index ? { sessionId: "ithaca" } : {}) })).toBe(true);
+    await expect.poll(async () => (await read()).lifecycles.filter(record => record.clientTiming).length).toBe(index + 1);
+  }
+  const result = await read();
+  expect(result.reportsReceived).toBe(6);
+  expect(result.lifecycles).toHaveLength(6);
+  expect(result.lifecycles.every(record => record.outcome === "success" && record.clientTiming !== undefined)).toBe(true);
+});

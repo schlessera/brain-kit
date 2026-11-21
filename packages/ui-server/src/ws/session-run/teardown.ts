@@ -1,6 +1,7 @@
 import { lstatSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { isEnvName, PROTECTED_TIER_A } from "@schlessera/brain-ui-sdk/internal";
+import { prepareClientTurnReceipt } from "../client-turn-receipts.js";
 import { withTurnScope } from "../frames.js";
 import type { TurnOutcome } from "./outcome.js";
 import { releaseActive } from "./slot.js";
@@ -81,6 +82,7 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   turn.backendStarted = false;
   await failureRecording.finish(turn.sessionId);
   lifecycle?.finish(outcome.lifecycle, outcome.reason ?? null);
+  run.clientReceiptEligible = !!lifecycle && prepareClientTurnReceipt(host, run.turnId, current.principalId, lifecycle.settled);
   clearTimeout(timeoutHandle);
   turn.recorder = undefined;
   work?.settle(outcome.work, { sessionId: turn.sessionId, ...(outcome.reason ? { reason: outcome.reason } : {}) });
@@ -91,8 +93,8 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   // which the slot publishes with {@link publishTurnStatus}.
   await recorder?.settled();
   // Lifecycle timing is best-effort: pending or failed telemetry must not
-  // hold idle or the next queued turn. publishTurnStatus attests only a
-  // terminal already visible on the read connection.
+  // hold idle or the next queued turn. The receipt handler waits for any
+  // pending timing commit separately from this cleanup path.
 }
 
 /**
@@ -102,16 +104,13 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
  * backend result can precede asynchronous journal finalization, so recovery
  * reads the committed terminal from `idle`, before a successor starts.
  */
-export function publishTurnStatus(run: Pick<TurnRun, "host" | "turn">, outcome: Pick<TurnOutcome, "cancelledBeforeStart">): void {
+export function publishTurnStatus(run: Pick<TurnRun, "host" | "turn" | "clientReceiptEligible">, outcome: Pick<TurnOutcome, "cancelledBeforeStart">): void {
   const { host, turn } = run;
   if (outcome.cancelledBeforeStart) host.sendToClients(withTurnScope({ type: "status", status: "cancelled",
     detail: "Cancelled before starting", ...(turn.requestId ? { requestId: turn.requestId } : {}) }, turn));
   else if (turn.sessionId) {
-    // Lifecycle writes may still be pending or rejected. Attest
-    // completion only when the read connection observes the terminal commit.
-    let committed = false;
-    try { committed = host.activity?.store.lifecycle(turn.turnId)?.endedAt != null; }
-    catch (error) { host.log.emit({ severityText: "ERROR", body: `terminal lifecycle read failed: ${String(error)}` }); }
-    host.sendToClients(withTurnScope({ type: "status", status: "idle", ...(committed ? { hostTurnComplete: true as const } : {}) }, turn));
+    // The marker describes completed host cleanup, not a database commit.
+    // Eligibility was captured in memory; idle never reads lifecycle storage.
+    host.sendToClients(withTurnScope({ type: "status", status: "idle", ...(run.clientReceiptEligible ? { hostTurnComplete: true as const } : {}) }, turn));
   }
 }

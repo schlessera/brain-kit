@@ -176,7 +176,7 @@ test("server timing reads preserve unknown optional keys while client writes rej
 });
 
 for (const asynchronous of [false, true]) {
-  test(`failed ${asynchronous ? "asynchronous" : "synchronous"} terminal persistence cannot attest committed host completion`, async () => {
+  test(`${asynchronous ? "asynchronous" : "synchronous"} terminal timing failure cannot change in-memory host completion`, async () => {
     const { publishTurnStatus } = await import("../src/ws/session-run/teardown.js");
     const db = createUiDb(":memory:");
     const store = createActivityStore(db);
@@ -193,11 +193,11 @@ for (const asynchronous of [false, true]) {
       const lifecycle = createTurnLifecycle(writes, "turn-ithaca", "ithaca", 1000, () => {}, () => 1100, "odysseus");
       lifecycle.finish("success"); await lifecycle.settled();
       const host = { activity: { store }, sendToClients: (frame: unknown) => frames.push(frame), log: { emit() {} } } as unknown as WsHost;
-      const run = { host, turn: { turnId: "turn-ithaca", sessionId: "ithaca" } as never };
+      const run = { host, turn: { turnId: "turn-ithaca", sessionId: "ithaca" } as never, clientReceiptEligible: true };
       publishTurnStatus(run, { cancelledBeforeStart: false });
       expect(store.lifecycle("turn-ithaca")?.endedAt).toBeNull();
       expect(frames).toEqual([expect.objectContaining({ type: "status", status: "idle" })]);
-      expect(frames[0]).not.toHaveProperty("hostTurnComplete");
+      expect(frames[0]).toHaveProperty("hostTurnComplete", true);
       completed(store, "turn-troy");
       publishTurnStatus({ ...run, turn: { turnId: "turn-troy", sessionId: "ithaca" } as never }, { cancelledBeforeStart: false });
       expect(frames[1]).toHaveProperty("hostTurnComplete", true);

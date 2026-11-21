@@ -142,7 +142,7 @@ async function runRetainedSession(
         next = dequeueRequest(turn);
         continue;
       }
-      publishTurnStatus(slot, result.outcome);
+      publishTurnStatus({ ...slot, clientReceiptEligible: result.clientReceiptEligible }, result.outcome);
 
       // Subsequent (queued) turns resume the now-known session and keep its
       // pin. turn.providerId is the resolved profile (set from initial routing

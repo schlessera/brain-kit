@@ -195,8 +195,9 @@ test("session_queue started identifies a queued turn that fails before session_i
 
 test("pre-dispatch arrivals retained for another request cannot become a later sender's first frame", () => {
   const s = scene(); s.send("other-local"); s.clock.started("voyage", 0);
-  s.frame(1000, { type: "session_info", isNew: true, requestId: "voyage", turnId: "turn-ithaca", sessionId: "ithaca" });
+  s.frame(1000, { type: "status", status: "thinking", turnId: "turn-ithaca", sessionId: "ithaca" });
   s.clock.sent({ type: "chat_message", text: "Plan Ithaca", requestId: "voyage" }, 1010);
+  s.frame(1015, { type: "session_info", isNew: true, requestId: "voyage", turnId: "turn-ithaca", sessionId: "ithaca" });
   s.frame(1020, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
   expect(s.reports).toEqual([]);
 });
@@ -209,3 +210,20 @@ test("a pending session_queue entry is itself the first correlated host acknowle
   s.frame(1030, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
   expect(s.reports).toEqual([{ type: "client_turn_receipt", turnId: "turn-ithaca", timing: { sendToFirstHostFrameMs: 2 } }]);
 });
+
+for (const kind of ["status", "session_queue"] as const) {
+  test(`a peer's ${kind} acknowledgement before local dispatch disqualifies the shared request`, () => {
+    const s = scene(); s.clock.started("voyage", 1000);
+    const entry = { id: "queued-voyage", requestId: "voyage", text: "Plan Ithaca", queuedAt: 0 };
+    s.frame(1005, kind === "status" ? { type: "status", status: "queued", sessionId: "ithaca", requestId: "voyage" }
+      : { type: "session_queue", sessionId: "ithaca", followUps: [entry] });
+    s.clock.sent({ type: "chat_message", text: "Plan Ithaca", requestId: "voyage" }, 1010);
+    s.frame(1030, { type: "session_queue", sessionId: "ithaca", followUps: [], started: { ...entry, turnId: "turn-ithaca" } });
+    s.frame(1040, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
+    expect(s.reports).toEqual([]);
+    s.send("return");
+    s.frame(1050, { type: "session_info", isNew: false, requestId: "return", turnId: "turn-return", sessionId: "ithaca" });
+    s.frame(1060, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-return" });
+    expect(s.reports).toEqual([{ type: "client_turn_receipt", turnId: "turn-return", timing: { sendToFirstHostFrameMs: 10 } }]);
+  });
+}

@@ -571,10 +571,16 @@ Negotiation resets with each socket. After receiving the host's final
 `status: idle` with optional `hostTurnComplete: true`, the initiating client may
 send exactly one best-effort `{ type: "client_turn_receipt", turnId, timing }` frame.
 Backend idle frames do not carry this marker; the host strips any backend-supplied
-marker and sets it only after teardown and a read confirms the lifecycle terminal commit.
-Pending or rejected timing writes leave the marker absent without blocking idle
-or the next queued turn. Timing persistence is never awaited on the idle path;
-if its terminal is not committed yet, only that client measurement is lost.
+marker. It describes completed host cleanup, decided only from in-memory state,
+not a lifecycle database commit. Final idle performs no lifecycle read and never
+waits for timing persistence or a writer lock. A receipt that arrives before its
+terminal commits is held by the receipt handler, off the turn path, until that
+turn's queued lifecycle writes settle. The atomic storage guard still checks
+completion and ownership; a failed commit loses only the optional measurement.
+The host retains at most 256 pending persistence gates, accepts only one waiting
+owner report per gate, and refuses a report whose authorization expires or is
+revoked while it waits. Full gate capacity drops only new optional samples and
+recovers automatically as writes settle.
 Initial thinking, accepted retry acknowledgements, and `session_queue.started`
 correlate by `requestId` before `session_info`. Pending queue entries can establish
 the first acknowledgement without binding a turn identity. `timing` contains non-negative finite millisecond pairs measured entirely on
@@ -585,8 +591,10 @@ the client's monotonic clock:
   request-to-turn correlation). Send begins at the composer action, before snapshot
   persistence or upload waits, and stays on that same monotonic clock until dispatch.
   Capturing Send alone never authorizes a receipt: this client must successfully
-  dispatch that request on its own socket. Pre-dispatch arrivals from another
-  client cannot become its first host frame.
+  dispatch that request on its own socket. A peer acknowledgement carrying the
+  same request id before local dispatch disqualifies that saved Send, including
+  queued entries and starts; later local dispatch cannot adopt the peer's turn.
+  Earlier uncorrelated turn arrivals also cannot become its first host frame.
 - Optional `sendToFirstContentFrameMs`: send to the first non-empty
   `thinking_delta` or `text_delta` frame received.
 - Optional `lastContentFrameToIdleMs`: last such content frame received to
