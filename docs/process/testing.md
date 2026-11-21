@@ -1170,16 +1170,27 @@ OAuth. Its measurement is labelled accordingly and does not prove ordinary TCP
 credential precedence.
 No production authentication or managed-policy behavior changes.
 
-Standalone native measurement and experiment entries import the subprocess guard
-before their SDK or backend dependencies. Direct and worker bind inventories reject unowned Unix sockets across every
-source, including fixture PATH directories, settings and nested mounted aliases,
-and recheck immediately before launch. Separate-UID trace storage remains
-guard-owned with a named-user POSIX ACL granting only the verified worker UID
-write access; receipt reads verify ownership, inode identity, modes and ACLs.
-The opt-in paid real-provider dispatch measurement is outside the offline test
-path: its documented `--allow-real-provider` admission is required before runtime
-imports, and its live-provider and spending warnings remain in the script. The hostile-settings proof always registers; outside hosted CI it
-fails with an explicit isolation-unavailable receipt rather than disappearing.
+Measurement commands share synchronous entry admission before runtime imports.
+Offline commands install the test guard; documented live commands require
+`BRAIN_LIVE_EVAL=587` or `--allow-real-provider`, print a real-provider/cost
+warning, and leave authorized provider access intact. Pure pricing and counting
+libraries do not install process-wide guards.
+
+Native descendants inherit a Linux seccomp user-notification policy. It
+emulates connections only to the pinned guard-owned relay inode; it never
+continues an untrusted connect syscall. A socket created later in any live
+fixture bind cannot become an allowed destination. Addressed messages,
+alternate syscall ABIs, io_uring and attempts to replace the policy are denied.
+The broker remains non-dumpable, its listener is absent from the native child,
+and native processes cannot duplicate or inspect its control descriptors.
+Hosted qualification must pass the real kernel-policy self-test before any
+installed runtime launches; missing compiler or kernel support emits a failed
+receipt. Local plan tests compile the helper but mock that hosted probe.
+
+Separate-UID trace storage stays guard-owned with an ACL granting only the
+verified worker UID write access. Receipt reads validate ownership, inode,
+mode and ACL integrity. The hostile-settings proof always registers and fails
+explicitly when isolation is unavailable.
 
 `tests/native-offline-boundary.test.ts` proves local refusal with harmless
 synthetic executables. Hosted proof additionally exercises hostile managed

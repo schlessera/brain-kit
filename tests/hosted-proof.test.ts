@@ -470,21 +470,9 @@ test("standalone native SDK entries install the guard before importing their run
     const source = readFileSync(join(ROOT, entry), "utf8");
     // A first side-effect import evaluates the guard before static SDK imports,
     // backend dependencies or dynamic SDK resolution in the entry's body.
-    expect(source.split("\n")[0], entry).toMatch(/^import "(?:\.\.\/|\.\/)+(?:scripts\/)?test-network-child-preload\.ts";$/);
+    expect(source.split("\n")[0], entry).toMatch(/^import (?:.* from )?"(?:\.\.\/|\.\/)+(?:scripts\/)?(?:test-network-child-preload|measurement-entry-preload)\.ts";$/);
   }
   const preload = readFileSync(join(ROOT, "scripts/test-network-child-preload.ts"), "utf8");
   expect(preload).toContain("const guard = installNetworkGuard();");
   expect(preload.indexOf("installNetworkGuard();")).toBeLessThan(preload.indexOf('await import("bun:test")'));
-});
-
-
-test("paid provider measurement requires explicit admission before runtime imports", () => {
-  const source = readFileSync(join(ROOT, "scripts/measure-real-provider-dispatch.ts"), "utf8");
-  const admission = source.indexOf('if (!process.argv.includes("--allow-real-provider"))');
-  expect(admission).toBeGreaterThanOrEqual(0);
-  expect(source.slice(admission, source.indexOf("/**"))).toContain("process.exit(2)");
-  expect(admission).toBeLessThan(source.indexOf("await import("));
-  expect(source).not.toContain('import "./test-network-child-preload.ts"');
-  expect(source).toContain('String(prior), "--allow-real-provider"');
-  expect(source).toContain("Opt-in, paid, never run by tests or CI");
 });

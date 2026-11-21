@@ -1,3 +1,4 @@
+import "./measurement-entry-preload.ts";
 /** Recompute the public routing table from retained measurement rows; no provider calls. */
 import { readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);

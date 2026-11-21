@@ -1,4 +1,4 @@
-import "./test-network-child-preload.ts";
+import "./measurement-entry-preload.ts";
 /**
  * Measure the `show_block` call rate on the Claude backend, with and without
  * the tool's per-turn brief.
@@ -33,14 +33,14 @@ import "./test-network-child-preload.ts";
  * duplicates; a claim about "the block rate" needs to say which one produced
  * it, and on which backend.
  *
- *   bun scripts/measure-show-block.ts --reps 3 --out runs.json --md report.md
- *   bun scripts/measure-show-block.ts --always-load   # tools in the prompt
- *   bun scripts/measure-show-block.ts --tokens        # the schema arithmetic
- *   bun scripts/measure-show-block.ts --both-arms     # loaded AND deferred, one run
- *   bun scripts/measure-show-block.ts --suggestions --reps 3 --out suggestions.json --md suggestions.md
- *   bun scripts/measure-show-block.ts --suggestions --schema-cost # keyless estimates
- *   bun scripts/measure-show-block.ts --suggestions --tokens      # counted API cost
- *   bun scripts/measure-show-block.ts --schema-forms  # #336: the schema written three ways
+ *   bun scripts/measure-show-block.ts --allow-real-provider --reps 3 --out runs.json --md report.md
+ *   bun scripts/measure-show-block.ts --allow-real-provider --always-load   # tools in the prompt
+ *   bun scripts/measure-show-block.ts --allow-real-provider --tokens        # the schema arithmetic
+ *   bun scripts/measure-show-block.ts --allow-real-provider --both-arms     # loaded AND deferred, one run
+ *   bun scripts/measure-show-block.ts --allow-real-provider --suggestions --reps 3 --out suggestions.json --md suggestions.md
+ *   bun scripts/measure-show-block.ts --allow-real-provider --suggestions --schema-cost # keyless estimates
+ *   bun scripts/measure-show-block.ts --allow-real-provider --suggestions --tokens      # counted API cost
+ *   bun scripts/measure-show-block.ts --allow-real-provider --schema-forms  # #336: the schema written three ways
  *
  * `--both-arms` re-checks D44's CLI half on whatever runtime is installed
  * (#209): every prompt runs with the bridge server loaded and deferred, the
@@ -669,7 +669,7 @@ async function countTokens(credential: LiveCredential, body: Record<string, unkn
  * the shipped binary, as is `defer_loading`), so those two shapes are what
  * `alwaysLoad` chooses between.
  *
- *   bun scripts/measure-show-block.ts --tokens
+ *   bun scripts/measure-show-block.ts --allow-real-provider --tokens
  */
 async function schemaCost(credential: LiveCredential): Promise<{
   rows: { name: string; loaded: number; briefTokens: number; briefLines: number }[];

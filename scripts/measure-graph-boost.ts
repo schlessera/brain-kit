@@ -1,3 +1,4 @@
+import "./measurement-entry-preload.ts";
 /**
  * Measure a link-graph ranking signal on the keyless retrieval goldens (#419).
  *

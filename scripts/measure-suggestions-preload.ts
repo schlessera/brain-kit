@@ -1,3 +1,4 @@
+import "./measurement-entry-preload.ts";
 /**
  * Harness-only description arm (#550). Loaded in a fresh subprocess before
  * either backend imports its tool contract. It changes exactly one line in

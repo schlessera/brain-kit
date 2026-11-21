@@ -95,6 +95,21 @@ test("missing bubblewrap emits a failed receipt and cannot be caught into succes
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("missing kernel lifetime socket policy refuses before native launch", async () => {
+  const scratch=mkdtempSync(join(tmpdir(),"odysseus-kernel-policy-"));
+  try {
+    const result=await probe(`${imports}
+      const original=Bun.spawnSync; const which=Bun.which;
+      Bun.which=((name,options)=>name==="strace"?"/synthetic/strace":which(name,options));
+      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:argv[0]?.endsWith("/native-connect")?{exitCode:125,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(original,Bun,[argv,options]));
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      nativeClaudeBoundary(${JSON.stringify(runtime)},[],{});`,scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"reason":"native socket lifetime policy unavailable"');
+    expect(result.output).toContain('"nativeLaunched":false');
+  } finally { rmSync(scratch,{recursive:true,force:true}); }
+});
+
 test("relay paths cannot redirect headers and body to another loopback service", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-relay-origin-"));
   let intended = 0, unintended = 0;
@@ -148,12 +163,14 @@ test("wrapper exec and auth inspection cannot fabricate native launch or injecte
     const result = await probe(`${imports}
       import {writeFileSync} from "node:fs";
       const spawnSync=Bun.spawnSync,which=Bun.which;
-      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       const boundary=nativeClaudeBoundary("/usr/bin/unshare",["--user",${JSON.stringify(runtime)},"auth","status","--json"],
         {cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_BASE_URL:"http://127.0.0.1:1"}});
       if(boundary.argv[0]!=="/synthetic/strace")throw Error("audit executable was not resolved");
+      const broker=boundary.argv.findIndex((arg,i)=>arg.endsWith("/native-connect")&&boundary.argv[i+1]==="--head");
+      if(broker<0||!boundary.argv.includes("--device")||!boundary.argv.includes("--inode")||boundary.argv[broker+10]!=="/tmp/native-relay/relay.sock")throw Error("kernel lifetime socket policy was omitted");
       const setup=boundary.argv.slice(0,boundary.argv.lastIndexOf("--"));
       for(let i=0;i<setup.length;i++)if(setup[i]==="--setenv"&&["ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","ANTHROPIC_BASE_URL","ANTHROPIC_UNIX_SOCKET"].includes(setup[i+1]))throw Error("auth inspection received credential or route overrides");
       writeFileSync(boundary.argv[boundary.argv.indexOf("-o")+1],'1 execve("/usr/bin/unshare", [], 0x1) = 0');
@@ -172,7 +189,7 @@ test("isolated plans preserve synthetic credential precedence and an unauthentic
       import {nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
-      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       const key="sk-ant-api03-"+"k".repeat(95)+"AA",token="sk-ant-oat01-"+"o".repeat(95)+"AA",bearer="sk-ant-declared-"+"t".repeat(60);
       const leave=nativeScriptedService("http://127.0.0.1:1");
@@ -204,7 +221,7 @@ test("fixture PATH tools are mounted selectively without exposing sibling creden
       import {nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
-      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       nativeScriptedService("http://127.0.0.1:1");
       const env={HOME:${JSON.stringify(home)},PATH:${JSON.stringify([bin, scratch, unrelated, "/usr/bin"].join(":"))},USE_BUILTIN_RIPGREP:"0",ENABLE_TOOL_SEARCH:"true",ANTHROPIC_BASE_URL:"http://127.0.0.1:1"};
@@ -234,7 +251,7 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
       spyOn(launcher,"verifiedWorkerIdentity").mockReturnValue({identity:"separate_uid",workerUid:(process.getuid()||21000)+1});
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
-      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       const leave=nativeScriptedService("http://127.0.0.1:1");
       const launch={command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_API_KEY:"offline-fixture"},
@@ -264,7 +281,7 @@ test("the SDK spawn hook retains its scripted authority when invoked from anothe
       import {nativeScriptedQuery,nativeScriptedService,nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
-      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       let hook,worker;
       const query=nativeScriptedQuery(input=>{hook=input.options.spawnClaudeCodeProcess;return {};},${JSON.stringify(intended.url.origin)});
@@ -287,7 +304,7 @@ test("fixture server callbacks retain authority while creating a native relay", 
       import {nativeScriptedService,nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
-      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       const leave=nativeScriptedService("http://127.0.0.1:1");let relay;
       const app=Bun.serve({hostname:"127.0.0.1",port:0,fetch(){
@@ -311,7 +328,7 @@ test("the installed spawn interceptor receives fixture authority before a synthe
       import {nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
-      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       nativeScriptedService("http://127.0.0.1:1");
       const child=Bun.spawn([process.execPath,"-e",${JSON.stringify(bootstrap)}],{env:{HOME:${JSON.stringify(scratch)},BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],env:{HOME:${JSON.stringify(scratch)}},brainPath:${JSON.stringify(scratch)},argv:["bwrap","--",${JSON.stringify(runtime)}]})},stdout:"pipe",stderr:"pipe"});
@@ -342,7 +359,7 @@ test("a hard-link alias retains live guard-owned socket authority and loses it w
       import {nativeScriptedService,nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
-      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       nativeScriptedService("http://127.0.0.1:1");
       const source=${JSON.stringify(join(scratch, "source.sock"))},alias=${JSON.stringify(join(scratch, "alias.sock"))};
@@ -488,7 +505,7 @@ test("environment endpoints cannot supply missing scripted authority", async () 
         import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
         const original=Bun.spawnSync;const which=Bun.which;
         Bun.which=((name,options)=>name==="strace"?"/synthetic/strace":which(name,options));
-        Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(original,Bun,[argv,options]));
+        Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(original,Bun,[argv,options]));
         process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
         const env={HOME:${JSON.stringify(scratch)},ANTHROPIC_BASE_URL:"http://127.0.0.1:1"};
         ${worker ? `nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],env,argv:["bwrap","--",${JSON.stringify(runtime)}]})}).dispose();` : `nativeClaudeBoundary(${JSON.stringify(runtime)},[],{env}).dispose();`}`, scratch);
@@ -535,7 +552,7 @@ test("all direct bind sources reject unowned sockets, including PATH, managed se
         import {mkdirSync,writeFileSync} from "node:fs";
         const spawnSync=Bun.spawnSync,which=Bun.which;
         Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
-        Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+        Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
         process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
         const home=${JSON.stringify(join(scratch, "home"))},cwd=${JSON.stringify(join(scratch, "brain"))};
         mkdirSync(home,{recursive:true});mkdirSync(cwd,{recursive:true});
@@ -563,7 +580,7 @@ test("worker device-bind sources cannot expose an unregistered Unix socket", asy
       import {writeFileSync} from "node:fs";
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
-      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
       const socket=${JSON.stringify(join(scratch,"foreign.sock"))};
       const server=Bun.serve({unix:socket,fetch:()=>new Response("foreign")});
@@ -624,7 +641,7 @@ test("hostile managed helper and native descendants cannot read an outside crede
     // backend/provider-history cells under the same preload.
     const executable = join(brain, "odysseus-native-probe");
     writeFileSync(executable, `#!/usr/bin/python3
-import http.client,json,os,socket,subprocess
+import http.client,json,os,socket,subprocess,time
 settings=json.load(open('/etc/claude-code/managed-settings.json'))
 helper=subprocess.run(settings['apiKeyHelper'],shell=True,capture_output=True)
 assert helper.returncode != 0 and not helper.stdout, 'outside credential escaped'
@@ -640,6 +657,18 @@ for host,port in [('127.0.0.1',${service.port}),('198.18.0.1',1)]:
   raise RuntimeError('unintended native destination reached')
  finally:
   probe.close()
+open(os.path.join(os.environ['HOME'],'boundary-ready'),'w').close()
+while not os.path.exists(os.path.join(os.environ['HOME'],'late-ready')):
+ time.sleep(.01)
+late=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+try:
+ late.connect(os.path.join(os.environ['HOME'],'late-host.sock'))
+except OSError:
+ pass
+else:
+ raise RuntimeError('late host socket escaped')
+finally:
+ late.close()
 connection=http.client.HTTPConnection('localhost')
 connection.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
 connection.sock.connect(os.environ['ANTHROPIC_UNIX_SOCKET'])
@@ -649,12 +678,26 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
 `);
     chmodSync(executable, 0o700);
     let boundary: ReturnType<typeof nativeClaudeBoundary> | undefined;
+    let lateServer: import("node:net").Server | undefined;
+    let lateConnections=0;
     try {
       boundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
       const child = Bun.spawn(boundary.argv, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
-      const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      const output=Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+      const deadline=Date.now()+10000;
+      while(!existsSync(join(home,"boundary-ready"))&&child.exitCode===null&&Date.now()<deadline)await Bun.sleep(10);
+      if(!existsSync(join(home,"boundary-ready"))){child.kill();const failed=await output;throw Error("native policy failed before late socket proof: "+failed[2]);}
+      const {createServer}=await import("node:net");
+      lateServer=createServer(peer=>{lateConnections++;peer.destroy();});
+      await new Promise<void>(resolve=>lateServer!.listen(join(home,"late-host.sock"),resolve));
+      writeFileSync(join(home,"late-ready"),"Odysseus");
+      const [code,out,err]=await output;
       expect(code, err).toBe(0);
-      expect(boundary.receipt().deniedConnects).toBeGreaterThanOrEqual(2);
+      expect(lateConnections).toBe(0);
+      expect(err).toContain('"kind":"native-offline-socket-denial"');
+      expect(boundary.receipt().deniedConnects).toBeGreaterThanOrEqual(3);
+      await new Promise<void>(resolve=>lateServer!.close(()=>resolve()));lateServer=undefined;
+      rmSync(join(home,"late-host.sock"),{force:true});
       expect(out).toContain("HOSTILE_MANAGED_BOUNDARY_HELD");
       expect(out + err).not.toContain("odysseus-synthetic-credential");
       expect(requests).toBe(1);
@@ -671,5 +714,5 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
       expect(brokenErr).toContain("outside credential escaped");
       expect(brokenOut + brokenErr).not.toContain("odysseus-synthetic-credential");
       mutationBoundary.dispose();
-    } finally { boundary?.dispose(); service.stop(true); rmSync(scratch, { recursive: true, force: true }); }
+    } finally { lateServer?.close(); boundary?.dispose(); service.stop(true); rmSync(scratch, { recursive: true, force: true }); }
   });

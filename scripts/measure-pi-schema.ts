@@ -1,3 +1,5 @@
+import "./measurement-entry-preload.ts";
+// Live entry requires --allow-real-provider; permits provider access and charges.
 /** #563: three provider-acceptance probes, never a call-rate experiment. */
 import { join, resolve } from "node:path";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";

@@ -44,7 +44,7 @@ arithmetic question and nobody had done the arithmetic.
   `count_tokens`.
 
 **The arithmetic, counted rather than estimated.**
-`bun scripts/measure-show-block.ts --tokens` takes the schemas from the real
+`bun scripts/measure-show-block.ts --allow-real-provider --tokens` takes the schemas from the real
 server — `createBrainUiMcpServer` with every handler supplied, listed over an
 in-memory MCP client, which is the serialisation the CLI forwards — and prices
 them with `count_tokens` on `claude-sonnet-5` in the two shapes the API
@@ -387,9 +387,9 @@ earn their place. The question is #157.
 **Reproducing it.**
 
 ```sh
-bun scripts/measure-show-block.ts --tokens
-bun scripts/measure-show-block.ts --reps 3 --concurrency 6 --out deferred.json --md deferred.md
-bun scripts/measure-show-block.ts --always-load --reps 3 --concurrency 6 --out loaded.json --md loaded.md
+bun scripts/measure-show-block.ts --allow-real-provider --tokens
+bun scripts/measure-show-block.ts --allow-real-provider --reps 3 --concurrency 6 --out deferred.json --md deferred.md
+bun scripts/measure-show-block.ts --allow-real-provider --always-load --reps 3 --concurrency 6 --out loaded.json --md loaded.md
 ```
 
 Both need `ANTHROPIC_API_KEY` and the network; CI runs none of it. Note that
@@ -403,5 +403,5 @@ config carries no `alwaysLoad` so the in-process server never joins the
 startup wait set — is now the `d44-always-load-reaches-the-model` case of
 `scripts/measure-claude-runtime.ts`, keyless, against the runtime
 `MEASURED_RUNTIME` names. The latency and rate halves still need a live
-model: `bun scripts/measure-show-block.ts --both-arms` runs both load modes in
+model: `bun scripts/measure-show-block.ts --allow-real-provider --both-arms` runs both load modes in
 one invocation and records the Claude Code version of every turn.

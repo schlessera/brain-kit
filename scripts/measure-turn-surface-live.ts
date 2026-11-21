@@ -1,4 +1,4 @@
-import "./test-network-child-preload.ts";
+import "./measurement-entry-preload.ts";
 /** Private #587 research entrypoint. Never changes a production router/default. */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

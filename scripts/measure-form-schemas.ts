@@ -1,3 +1,4 @@
+import "./measurement-entry-preload.ts";
 /** Keyless estimates of the actual always-loaded bridge schemas; never executes a tool. */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";

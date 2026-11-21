@@ -1,8 +1,4 @@
-// Explicit paid-operation admission precedes all runtime dependency imports.
-if (!process.argv.includes("--allow-real-provider")) {
-  console.error("Real-provider measurement refused: explicit --allow-real-provider opt-in required");
-  process.exit(2);
-}
+import "./measurement-entry-preload.ts";
 /**
  * Real-provider verification of the restricted inference relay and the gated
  * dispatcher (#1548). Opt-in, paid, never run by tests or CI.

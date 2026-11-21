@@ -1,4 +1,4 @@
-import "./test-network-child-preload.ts";
+import "./measurement-entry-preload.ts";
 import { nativeScriptedService } from "./test-native-guard.ts";
 // Keyless installed-runtime measurement for #2025. Only a loopback Messages
 // origin is contacted; isolated HOME/config and synthetic credentials prevent

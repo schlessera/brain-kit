@@ -1,4 +1,4 @@
-import "./test-network-child-preload.ts";
+import "./measurement-entry-preload.ts";
 import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard";
 // #1238: actual bundled runtime, production model assembly, fixture inference.
 // Run inside a network namespace with only loopback. No real credentials.

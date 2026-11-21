@@ -17,7 +17,7 @@ const WORKER_RUNTIME_ENV = new Set(["HOME", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL
   "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "ENABLE_TOOL_SEARCH"]);
 const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
 let qualified = false;
-let bwrapExecutable = "bwrap", straceExecutable = "strace";
+let bwrapExecutable = "bwrap", straceExecutable = "strace", socketPolicyExecutable = "";
 let denied = 0, reported = 0;
 export function nativeIsolationFailed(): boolean { return denied > 0; }
 export function assertNoNativeRefusals(): void {
@@ -155,7 +155,37 @@ function qualify(): void {
   if (trace.exitCode !== 0) refuse("native connection audit setup failed");
   bwrapExecutable = Bun.which("bwrap") ?? refuse("OS namespace setup failed");
   straceExecutable = Bun.which("strace") ?? refuse("native connection audit setup failed");
+  const policy = compileSocketPolicy();
+  let socketProof: ReturnType<typeof Bun.spawnSync>;
+  try { socketProof = Bun.spawnSync([policy, "--probe", nativeTestHead()], { env: {}, stdout: "pipe", stderr: "pipe", timeout: 5000 }); }
+  catch { refuse("native socket lifetime policy unavailable"); }
+  if (socketProof.exitCode !== 0) refuse("native socket lifetime policy unavailable");
   qualified = true;
+}
+
+function compileSocketPolicy(): string {
+  if (socketPolicyExecutable) return socketPolicyExecutable;
+  const directory = mkdtempSync(join(tmpdir(), "odysseus-native-policy-"));
+  const executable = join(directory, "native-connect");
+  let compiled: ReturnType<typeof Bun.spawnSync>;
+  try { compiled = metadataSpawnSync(["cc", "-O2", "-std=c11", "-Wall", "-Wextra", "-Werror",
+    join(import.meta.dir, "native-proof/native-connect.c"), "-o", executable],
+    { env: { PATH: "/usr/bin:/bin", LANG: "C" }, stdout: "pipe", stderr: "pipe", timeout: 30000 }); }
+  catch { rmSync(directory, { recursive: true, force: true }); return refuse("native socket policy compiler unavailable"); }
+  if (compiled.exitCode !== 0) { rmSync(directory, { recursive: true, force: true }); return refuse("native socket policy compilation failed"); }
+  chmodSync(executable, 0o555); chmodSync(directory, 0o555);
+  socketPolicyExecutable = executable;
+  process.on("exit", () => { chmodSync(directory, 0o700); rmSync(directory, { recursive: true, force: true }); });
+  return executable;
+}
+
+/** Kernel policy persists across native exec/fork and emulates only the pinned relay connection. */
+function nativeSocketCommand(command: string[], source: string, allowed: string): string[] {
+  const origin = ownedSocketOrigin(source), route = scriptedRoute.getStore();
+  if (!origin || !route || normalizedOrigin(origin) !== normalizedOrigin(route.origin)) refuse("native socket policy lacks scripted authority");
+  const info = lstatSync(realpathSync(source), { bigint: true });
+  return [compileSocketPolicy(), "--head", nativeTestHead(), "--socket", allowed, "--device", String(info.dev),
+    "--inode", String(info.ino), "--allowed", allowed, "--", ...command];
 }
 
 function systemMounts(): string[] {
@@ -351,7 +381,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     const executable = realpathSync(command);
     const mounts = [...systemMounts(),
       "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", ...testRuntimeMounts(),
-      "--ro-bind", executable, command, "--ro-bind", process.execPath, process.execPath, "--bind", home, home,
+      "--ro-bind", executable, command, "--ro-bind", process.execPath, process.execPath, "--ro-bind", compileSocketPolicy(), compileSocketPolicy(), "--bind", home, home,
       ...(cwd === ROOT || within(ROOT, cwd) || within(home, cwd) ? [] : ["--bind", cwd, cwd]),
       ...tools.mounts,
       "--ro-bind", bridge.directory, "/tmp/native-relay",
@@ -378,7 +408,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_UNIX_SOCKET"]) delete childEnv[key];
     }
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
-    argv.push("--chdir", cwd, "--", command, ...args);
+    argv.push("--chdir", cwd, "--", ...nativeSocketCommand([command, ...args], inheritedSocket && inheritedOrigin ? inheritedSocket : join(bridge.directory, "relay.sock"), "/tmp/native-relay/relay.sock"));
     const audited = auditNativeLaunch(argv, expectedNativeExec(command, args, options), () => { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); });
     beforeLaunch();
     return { ...audited, env: {}, beforeLaunch };
@@ -497,7 +527,7 @@ function ownedSocketOrigin(path: string): string | undefined {
   return stat.isSocket() && stat.dev === authority.dev && stat.ino === authority.ino ? authority.origin : undefined;
 }
 
-function admittedRelay(argv: string[], socket: string): string | undefined {
+function admittedRelay(argv: string[], socket: string): { origin: string; path: string } | undefined {
   for (let i = 0; i < argv.length - 2; i++) {
     if (!["--ro-bind", "--bind"].includes(argv[i]!) || !within(argv[i + 2]!, socket)) continue;
     const path = join(argv[i + 1]!, socket.slice(argv[i + 2]!.length));
@@ -511,7 +541,7 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
     // No socket in that view may escape the same live scripted authority.
     const directory = statSync(argv[i + 1]!).isDirectory() ? argv[i + 1]! : undefined;
     if (directory && !relaySubtreeOwned(directory, authority.origin)) return;
-    return authority.origin;
+    return { origin: authority.origin, path: real };
   }
 }
 
@@ -598,7 +628,8 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   const socket = launch.env?.ANTHROPIC_UNIX_SOCKET;
   const route = scriptedRoute.getStore();
   if (!route) refuse("scripted service authority was not registered");
-  const ownedOrigin = socket ? admittedRelay(workerArgv, socket) : undefined;
+  const admitted = socket ? admittedRelay(workerArgv, socket) : undefined;
+  const ownedOrigin = admitted?.origin;
   if (socket && !ownedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (ownedOrigin && (!route || normalizedOrigin(ownedOrigin) !== normalizedOrigin(route.origin))) refuse("native relay did not match scripted authority");
   qualify();
@@ -610,7 +641,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       if (workerArgv[i] === "--ro-bind" && workerArgv[i + 1] === "/" && workerArgv[i + 2] === "/") workerArgv.splice(i--, 3);
       else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
     }
-    workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), ...tools.mounts, "--ro-bind", process.execPath, process.execPath);
+    workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", "--unshare-pid", ...systemMounts(), ...testRuntimeMounts(), ...tools.mounts, "--ro-bind", process.execPath, process.execPath, "--ro-bind", compileSocketPolicy(), compileSocketPolicy());
     const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
       PATH: tools.path, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1",
       ...(["0", "1"].includes(launch.env?.USE_BUILTIN_RIPGREP ?? "") ? { USE_BUILTIN_RIPGREP: launch.env!.USE_BUILTIN_RIPGREP! } : {}),
@@ -620,6 +651,9 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     workerArgv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
+    const payloadIndex = workerArgv.indexOf("--", bwrap) + 1;
+    const nativePayload = workerArgv.splice(payloadIndex);
+    workerArgv.push(...nativeSocketCommand(nativePayload, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET));
     const nativeMounts = workerArgv.slice(bwrap + 1, workerArgv.indexOf("--", bwrap));
     const beforeLaunch = () => assertNativeMountSockets(nativeMounts, route.origin);
     beforeLaunch();

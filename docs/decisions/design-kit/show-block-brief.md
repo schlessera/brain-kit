@@ -333,13 +333,13 @@ other level — it drives the whole server over a real socket
 and is backend-agnostic, so it sees the classification pass, the wire frames
 and the client that this harness, sitting below all three, cannot.
 
-**Reproducing it.** `bun scripts/measure-show-block.ts --reps 6 --concurrency 6
+**Reproducing it.** `bun scripts/measure-show-block.ts --allow-real-provider --reps 6 --concurrency 6
 --out runs.json --md report.md`, with `ANTHROPIC_API_KEY` set. The
 always-loaded table is a different shape — eight prompts at three reps, not
 nine at six, with `recommend` the one this entry's nine that it omits:
 
 ```sh
-bun scripts/measure-show-block.ts --always-load --reps 3 --only \
+bun scripts/measure-show-block.ts --allow-real-provider --always-load --reps 3 --only \
   compare-short,compare-long,trend,contact,table,steps,quote,bars
 ```
 
