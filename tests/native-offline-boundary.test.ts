@@ -1065,11 +1065,13 @@ test("keeper output root requires a guarded child namespace and pinned fixture h
     const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
     const binds=argv.slice(argv.indexOf("--bind"));if(!binds.includes(${JSON.stringify(join(keeperRoot,"merged/.brain/scratch"))}))throw Error("PUBLICATION_BIND_CHANGED");
     fs.writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();console.error(JSON.stringify({keeperRoot:"admitted"}));
+    const hostNamespace=JSON.parse(env.BRAIN_WORKER_LAUNCH);hostNamespace.argv=hostNamespace.argv.filter(value=>value!=="--mount");
+    try{const unsafe=guard.nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(hostNamespace)});unsafe.dispose();throw Error("KEEPER_WITHOUT_MOUNT_ADMITTED");}catch(error){if(!String(error).includes("worker bind was not created or staged by the fixture"))throw error;console.error(JSON.stringify({keeperRoot:"missing-mount-refused"}));}
     const escaped=JSON.parse(env.BRAIN_WORKER_LAUNCH);escaped.argv[escaped.argv.indexOf("--bind")+1]=${JSON.stringify(join(keeperRoot,"merged/escape"))};
     try{const unsafe=guard.nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(escaped)});unsafe.dispose();throw Error("KEEPER_SYMLINK_ESCAPE_ADMITTED");}catch(error){if(!String(error).includes("worker bind was not created or staged by the fixture"))throw error;console.error(JSON.stringify({keeperRoot:"escape-refused"}));}
     unregister();
     try{const unsafe=guard.nativeWorkerBoundary(env);unsafe.dispose();throw Error("UNREGISTERED_KEEPER_ADMITTED");}catch(error){if(!String(error).includes("worker bind was not created or staged by the fixture"))throw error;console.error(JSON.stringify({keeperRoot:"unregistered-refused"}));}
    }finally{unregister();child.stdin.end();child.kill("SIGKILL");fs.closeSync(fd);}`,scratch);
-  expect(result.output.split("\n")).toContain('{"keeperRoot":"admitted"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"unregistered-refused"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"escape-refused"}');expect(result.code).toBe(1);
+  expect(result.output.split("\n")).toContain('{"keeperRoot":"missing-mount-refused"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"admitted"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"unregistered-refused"}');expect(result.output.split("\n")).toContain('{"keeperRoot":"escape-refused"}');expect(result.code).toBe(1);
  }finally{rmSync(scratch,{recursive:true,force:true});rmSync(keeperRoot,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});}
 });

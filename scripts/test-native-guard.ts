@@ -810,7 +810,9 @@ function registerFixtureKeeper(storage: FixtureKeeper): () => void {
 function workerKeeper(argv: readonly string[], bwrap: number): KeeperInspection | undefined {
   const at = argv.findIndex((value,index) => index < bwrap && basename(value)==="nsenter");
   if(at<0)return;
-  const target=argv.indexOf("--target",at);if(target<0||target>bwrap)return;
+  const separator=argv.indexOf("--",at);
+  if(separator<0||separator>bwrap||!argv.slice(at+1,separator).includes("--mount"))return;
+  const target=argv.indexOf("--target",at);if(target<0||target>separator)return;
   const entry=fixtureKeepers.get(Number(argv[target+1]));if(!entry)return;
   if(!entry.live())refuse("fixture keeper namespace is no longer live");entry.refresh();return entry;
 }
