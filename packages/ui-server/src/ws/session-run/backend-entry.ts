@@ -180,6 +180,7 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
   await host.originTrust?.refresh?.(abortController.signal);
   abortController.signal.throwIfAborted();
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
+    ...(host.journal && host.scope ? { journal: host.journal, scope: host.scope } : {}),
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
     trust: host.originTrust,
     profile: heldProfile(run), origin,policyHash:governedHold.policy.hash, brainPath: host.brainPath,

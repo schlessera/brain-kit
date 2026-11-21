@@ -1,7 +1,8 @@
+import { journalInference } from "./journal-inference.js";
 /** One admitted turn's concrete proxy, approval surface and durable records. */
 import { originTrustMatchSnapshot, type OriginTrust, type OriginDestination } from "./origin-trust.js";
 import type { EffectiveGovernancePolicy, TrustMatch } from "@schlessera/brain-common/internal/governance-policy";
-import { startEgressProxy, canonicalEgressHost, validatedEgressProvenance, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
+import { startEgressProxy, canonicalEgressHost, validatedEgressProvenance, EgressAdmissionRefused, type EgressRecord, type InferenceArrival } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
@@ -14,6 +15,8 @@ import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/brid
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { createTurnExtraction } from "./turn-extraction.js";
 import type { ExtractionJudge } from "../governance/extraction-judge.js";
+import type { TurnJournal } from "./turn-journal.js";
+import type { TurnScope } from "./turn-scope.js";
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
 const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
@@ -93,6 +96,8 @@ export function createOutwardCalls() {
 
 export async function prepareTurnEgress(options: {
   trust?: OriginTrust;
+  journal?: TurnJournal;
+  scope?: TurnScope;
   policy: EffectiveGovernancePolicy; policyHash?:string|null; bridge: BackendBridge; controller: AbortController;
   turnId: string; sessionId: () => string | null; model: () => string | null;
   profile: "governed" | "strict"; origin: "interactive" | "voice";
@@ -395,6 +400,9 @@ export async function prepareTurnEgress(options: {
   releaseTrust = options.trust?.subscribe(() => proxy.invalidateInputs());
   options.controller.signal.addEventListener("abort", () => releaseTrust?.(), { once: true });
   const original = options.bridge;
+  const inference = options.journal && journalInference(options.journal);
+  const releaseJournalRelay = inference && options.scope ? inference.relayStarted(options.turnId,
+    { eligible: () => options.scope!.canDefer(options.turnId), allowed: () => options.scope!.responseAllowed(options.turnId) }, options.controller.signal) : undefined;
   /** The bridge the backend receives, so its classifications and results open and close each call. */
   const bridge: BackendBridge = { ...original,
     emit(message) { calls.emitted(message); extraction?.emitted(message); original.emit(message); },
@@ -411,9 +419,26 @@ export async function prepareTurnEgress(options: {
       },
       set: (value: BackendBridge["inputSafety"]) => { original.inputSafety = value; } });
   }
-  const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal) => {
+  const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal, arrival?: InferenceArrival) => {
     const operation = proxy[kind](method, target, signal);
-    return settleOperation(operation);
+    const settledOperation = settleOperation(operation);
+    if (kind !== "inference" || !inference || !options.scope) return { ...settledOperation,
+      async prepareDispatch(_body: Uint8Array) { return true; }, dispatchReady() { return true; }, async responseReady() { return true; } };
+    const gate = arrival ?? inferenceArrival(target.pathname)!;
+    operation.signal.addEventListener("abort", gate.close, { once: true });
+    if (operation.signal.aborted) gate.close();
+    return { ...settledOperation,
+      async prepareDispatch(body: Uint8Array) {
+        try { return await gate.prepareDispatch(body); }
+        catch { return false; }
+      },
+      // The relay checks this without yielding before the typed transport's
+      // own dispatch(send) fence. A pending result never marks a send as done.
+      dispatchReady() { return gate.dispatch(); },
+      async responseReady() {
+        return gate.responseReady();
+      },
+    };
   };
   const settleOperation = (operation: ReturnType<typeof proxy.managedReference>) => {
     return { ...operation, async admit() {
@@ -434,8 +459,14 @@ export async function prepareTurnEgress(options: {
       } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
     } };
   };
-  return { ...proxy, stop() { releaseTrust?.(); proxy.stop(); }, bridge, recordingFailure: () => recordingFailure, settled,
-    inference: (method: string, target: URL, signal: AbortSignal) => relayOperation("inference", method, target, signal),
+  const inferenceArrival = (path: string): InferenceArrival | undefined => {
+    if (!inference || !options.scope) return;
+    const request = inference.requestStarted(options.turnId);
+    return { ...request, prepareDispatch: body => request.prepare(path, body) };
+  };
+  return { ...proxy, inferenceArrival, inferenceRoutes(paths: readonly string[]) { inference?.routes(options.turnId, paths); }, bridge, recordingFailure: () => recordingFailure, settled,
+    stop() { releaseJournalRelay?.(); releaseTrust?.(); proxy.stop(); },
+    inference: (method: string, target: URL, signal: AbortSignal, arrival?: InferenceArrival) => relayOperation("inference", method, target, signal, arrival),
     relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal),
     managedReference: (target: URL, signal: AbortSignal) => settleOperation(proxy.managedReference(target, signal)) };
 }

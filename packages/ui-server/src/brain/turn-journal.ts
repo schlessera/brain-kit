@@ -1,3 +1,5 @@
+import { retainJournalInference } from "./journal-inference.js";
+import { deferredObservation, followsToolResult } from "./deferred-observation.js";
 import { startCronSpan } from "../cron/activity.js";
 import type { JournalScrubResult } from "./journal-scrub.js";
 import { FINISH_REFERENCE_CLEANUP } from "./journal-reference-cleanup.js";
@@ -120,6 +122,8 @@ export interface TurnJournalOptions {
 }
 /** Internal shared interval; scope records each turn's control acknowledgements. */
 export interface JournalHold {
+  /** @internal Control receipt required for speculative inference dispatch; never diagnostic. */
+  stopReceipt?: { turnId: string; count: number; total: number };
   records: Map<string, ActivityTurnHold>;
   stoppedTurns: Set<string>;
   paths: Map<string, Set<string>>;
@@ -465,13 +469,57 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const calls = new Map<string, { turnId: string; name: string | null; started: boolean; path?: ToolExecutionPath }>();
   const lasting = new Set<string>();
   const callKey = (turnId: string, toolUseId: string) => JSON.stringify([turnId, toolUseId]);
+  type Gate = { required: number; committed: number; denied: Set<number>; failed: boolean;
+    armed?: { gen: number; observation: ReturnType<typeof deferredObservation> } };
+  const gates = new Map<string, Gate>();
+  const gateWaiters = new Map<Gate, Set<() => void>>();
+  const relays = new Map<string, { messages: boolean; generation: number; armedAt: number; toolUseId: string;
+    operations: Set<object>; eligible(): boolean; allowed(): boolean }>();
+  const immediateOnly = new Set<string>();
+  function gateFor(turnId: string): Gate {
+    let gate = gates.get(turnId);
+    if (!gate) { gate = { required: 0, committed: 0, denied: new Set(), failed: false }; gates.set(turnId, gate); }
+    return gate;
+  }
+  function wakeGate(gate: Gate): void {
+    const waiters = gateWaiters.get(gate); gateWaiters.delete(gate);
+    for (const wake of waiters ?? []) wake();
+  }
+  function claimGate(gate: Gate, confirmed?: { stopped: boolean }): Promise<void> {
+    const armed = gate.armed;
+    if (!armed) return Promise.resolve();
+    // Clear before entering held(), which flushes other armed results too.
+    gate.armed = undefined;
+    return armed.observation.claim(confirmed);
+  }
+  /** @internal */
+  function flushDeferred(): Promise<void> {
+    return Promise.all([...gates.values()].map(gate => claimGate(gate))).then(() => {});
+  }
+  /** One control predicate, used at arming and at the synchronous dispatch boundary. */
+  function mayDefer(turnId: string, armed?: Gate["armed"], operation?: object): boolean {
+    try {
+      const relay = relays.get(turnId);
+      if (failures.has(turnId) || summary(turnId).state !== "recording") immediateOnly.add(turnId);
+      if (!relay || !relay.messages || immediateOnly.has(turnId)) return false;
+      if (armed && (armed.observation.expired() || relay.generation !== relay.armedAt + 1)) {
+        immediateOnly.add(turnId); return false;
+      }
+      return !closing && !holds && active.size === 1 && active.has(turnId) && !calls.size
+        && ![...lasting].some(id => id !== turnId) && relay.eligible()
+        && (operation ? relay.operations.size === 1 && relay.operations.has(operation) : relay.operations.size === 0);
+    } catch {
+      immediateOnly.add(turnId); return false;
+    }
+  }
   let holds = 0;
   let observationFailures = 0;
   /** `trace` also times the hold itself; `lifecycle` sees every step but that one. */
   function held<T>(operation: (timing?: PhaseTimer) => Promise<T>, admission = false, trace?: PhaseTimer, lifecycle?: PhaseTimer,
-    cause: { kind: ActivityTurnHold["cause"]; turnId: string | null; toolUseId?: string; hold?: ActivityTurnHold } = { kind: "scope", turnId: null }): Promise<T> {
+    cause: { kind: ActivityTurnHold["cause"]; turnId: string | null; toolUseId?: string; hold?: ActivityTurnHold } = { kind: "scope", turnId: null }, confirmed?: { stopped: boolean }): Promise<T> {
+    void flushDeferred().catch(() => {});
     const holdId = cause.hold?.holdId ?? crypto.randomUUID(), requestedAt = Date.now();
-    const interval: JournalHold = { records: new Map(), stoppedTurns: new Set(), paths: new Map(),
+    const interval: JournalHold = { ...(confirmed && cause.turnId ? { stopReceipt: { turnId: cause.turnId, count: 0, total: 0 } } : {}), records: new Map(), stoppedTurns: new Set(), paths: new Map(),
       inferenceInFlight: id => diagnostic(() => evidence.get(id)?.inference() ?? false) ?? null,
       participant(id) {
         const previous = interval.records.get(id); if (previous) return previous;
@@ -493,12 +541,15 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     let acquired = 0;
     try { for (const holder of holders) { acquired++; holder.before(interval); } }
     catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false, interval); return Promise.reject(error); }
+    if (confirmed) confirmed.stopped = !!interval.stopReceipt && interval.stopReceipt.count >= 1 && interval.stopReceipt.count === interval.stopReceipt.total;
     return serialize(async () => {
       waited?.();
       currentHold = interval;
       let completed = false;
       const failedBefore = observationFailures;
-      try { const result = await operation(timing); completed = true; return result; }
+      try { const result = await operation(timing);
+        if (confirmed?.stopped) await inference.settleScope?.();
+        completed = true; return result; }
       finally {
         // A cancelled/refused new admission made no worker writes. Existing
         // participants resume when their shared observation itself succeeded,
@@ -512,6 +563,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
   /** The turn is partial at once; its durable marker commits after. */
   async function fail(turnId: string, error: unknown) {
+    void flushDeferred().catch(() => {});
     const reason = error instanceof JournalCapacityError ? "journal_capacity" : "journal_unavailable";
     failures.set(turnId, reason);
     // Admission preallocates this fixed-size terminal slot. It never needs a
@@ -777,7 +829,78 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       throw failure;
     }
   }
-  return {
+  const inference: Parameters<typeof retainJournalInference>[1] = {
+    relayStarted(turnId, transport, signal) {
+      void flushDeferred().catch(() => {});
+      gateFor(turnId);
+      const relay = { ...transport, messages: false, generation: 0, armedAt: 0, toolUseId: "", operations: new Set<object>() };
+      relays.set(turnId, relay);
+      const abort = () => {
+        void flushDeferred().catch(() => {});
+        if (relays.get(turnId) === relay) relays.delete(turnId);
+        if (!active.has(turnId) && !relays.has(turnId)) gates.delete(turnId);
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      return () => { signal.removeEventListener("abort", abort); abort(); };
+    },
+    routes(turnId, paths) {
+      const relay = relays.get(turnId); if (!relay) return;
+      relay.messages = paths.includes("/v1/messages");
+      if (!relay.messages) { immediateOnly.add(turnId); void flushDeferred().catch(() => {}); }
+    },
+    flushDeferred,
+    requestStarted(turnId) {
+      const gate = gateFor(turnId), relay = relays.get(turnId), operation = {};
+      // Only generations pending at arrival bind their committed verdict to this request.
+      const bound = { after: gate.committed, through: gate.required };
+      const denied = () => [...gate.denied].some(gen => gen > bound.after && gen <= bound.through);
+      const allowed = () => { try { return relay?.allowed() === true; } catch { return false; } };
+      if (relay) {
+        relay.operations.add(operation); relay.generation++;
+        if (relay.operations.size > 1 || gate.armed && relay.generation > relay.armedAt + 1) {
+          immediateOnly.add(turnId); void claimGate(gate).catch(() => {});
+        }
+      }
+      let matched = false;
+      const responseReady = async (): Promise<boolean> => {
+        for (;;) {
+          void claimGate(gate).catch(() => {});
+          if (gate.failed) return false;
+          if (gate.committed === gate.required) return !denied();
+          await new Promise<void>(resolve => {
+            const waiters = gateWaiters.get(gate) ?? new Set();
+            waiters.add(resolve); gateWaiters.set(gate, waiters);
+          });
+        }
+      };
+      return {
+        async prepare(path, body) {
+          const armed = gate.armed;
+          matched = !!armed && mayDefer(turnId, armed, operation) && followsToolResult(path, body, relay!.toolUseId);
+          if (matched) return true;
+          // Join only this turn's required results, never unrelated journal work.
+          await responseReady();
+          return true;
+        },
+        dispatch() {
+          if (gate.failed) return false;
+          if (gate.committed === gate.required) return !denied() && allowed();
+          const armed = gate.armed;
+          if (armed?.gen === gate.required && gate.committed === gate.required - 1 && matched && mayDefer(turnId, armed, operation)) {
+            const confirmed = { stopped: false };
+            void claimGate(gate, confirmed).catch(() => {});
+            if (!confirmed.stopped) immediateOnly.add(turnId);
+            return confirmed.stopped;
+          }
+          void claimGate(gate).catch(() => {}); return false;
+        },
+        responseReady,
+        close() { relay?.operations.delete(operation); },
+      };
+    },
+  };
+  const journal = {
     /**
      * @internal Host scope monitor consumes this same observation window.
      * `changedPaths` counts every changed path; `workspacePaths` counts paths
@@ -870,10 +993,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * or another name, makes that call unproven.
      */
     toolStarted(turnId: string, toolUseId: string, name: string, start: boolean): void {
+      void flushDeferred().catch(() => {});
       if (!active.has(turnId)) return;
       const key = callKey(turnId, toolUseId), call = calls.get(key);
       if (!call) { calls.set(key, { turnId, name, started: start }); return; }
-      if (call.name !== name || start && call.started) call.name = null;
+      if (call.name !== name || start && call.started) { call.name = null; immediateOnly.add(turnId); }
       call.started ||= start;
     },
     /** @internal The backend's evidence of where the call actually ran (`StartTurnRequest.toolExecution`). */
@@ -887,12 +1011,40 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * may outlast it. A call that could write is observed after its own result.
      */
     toolEnded(turnId: string, toolUseId: string): Promise<void> {
+      void flushDeferred().catch(() => {});
       const key = callKey(turnId, toolUseId), call = calls.get(key);
       calls.delete(key);
-      const effect = call ? toolObservation(call.name, call.path) : "unproven";
-      if (effect === "unproven" && active.has(turnId)) lasting.add(turnId);
-      if (effect === "read" && !lasting.size && !calls.size) return Promise.resolve();
-      return held(timing => observe(false, timing), false, traceFor("tool", turnId, toolUseId), undefined, { kind: "tool", turnId, toolUseId });
+      const gate = gateFor(turnId);
+      let required = true;
+      try {
+        const effect = call ? toolObservation(call.name, call.path) : "unproven";
+        if (effect === "unproven" && active.has(turnId)) lasting.add(turnId);
+        required = effect !== "read" || !!lasting.size || !!calls.size;
+      } catch { immediateOnly.add(turnId); }
+      if (!required) return Promise.resolve();
+      const gen = ++gate.required;
+      const relay = relays.get(turnId);
+      const commit = (work: Promise<void>): Promise<void> => work.then(() => {
+        if (relay?.allowed() !== true) gate.denied.add(gen);
+        gate.committed = gen; wakeGate(gate);
+      }).catch(error => { gate.failed = true; wakeGate(gate); throw error; });
+      const start = (confirmed?: { stopped: boolean }) => {
+        try { return commit(held(timing => observe(false, timing), false,
+          traceFor("tool", turnId, toolUseId), undefined, { kind: "tool", turnId, toolUseId }, confirmed)); }
+        catch (error) { gate.failed = true; wakeGate(gate); return Promise.reject(error); }
+      };
+      try {
+        if (call?.started && call.name !== null && mayDefer(turnId)) {
+          relay!.armedAt = relay!.generation; relay!.toolUseId = toolUseId;
+          const observation = deferredObservation(confirmed => {
+            if (gate.armed?.gen === gen) gate.armed = undefined;
+            return start(confirmed);
+          });
+          gate.armed = { gen, observation };
+          return observation.done;
+        }
+      } catch { immediateOnly.add(turnId); }
+      return start();
     },
     /**
      * Cover one managed worktree (#2430) for an active turn before any of its
@@ -957,6 +1109,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       for (const root of retiredWorktrees) await root.releasesSettled();
     },
     async idle(): Promise<void> {
+      await flushDeferred();
       let waiting: Promise<unknown>;
       do { waiting = tail; await waiting; } while (waiting !== tail);
       // Background worktree cleanup (#3825) is not awaited here: every turn's
@@ -1023,7 +1176,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       finally {
         for (const [key, root] of checkouts) if (root.turnId === turnId) checkouts.delete(key);
         await write([statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND json_extract(receipt,'$.state')='recording'", turnId)]);
-        active.delete(turnId); counters.delete(turnId); codeScopeFacts.delete(turnId); lasting.delete(turnId);
+        active.delete(turnId); counters.delete(turnId); codeScopeFacts.delete(turnId); lasting.delete(turnId); immediateOnly.delete(turnId);
+        if (!relays.has(turnId)) gates.delete(turnId);
         for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
         let step = [...worktrees.values()].some(root => root.turnId === turnId) ? timing?.("finish_worktrees") : undefined;
         if (await dropWorktrees(turnId)) step?.();
@@ -1232,7 +1386,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     /** @internal Runs one idle maintenance pass now; settles once it has (#3355). */
     maintain,
     async close() {
-      closing = true; clearInterval(idleTimer); shutdown.abort(new Error("turn journal closed"));
+      closing = true; void flushDeferred().catch(() => {}); clearInterval(idleTimer); shutdown.abort(new Error("turn journal closed"));
       clearTimeout(worktreeRetryTimer); worktreeRetryTimer = undefined;
       clearInterval(scopeTimer);
       try {
@@ -1248,6 +1402,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       finally { await Promise.allSettled([...unserialized]); objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
     },
   };
+  retainJournalInference(journal, inference);
+  return journal;
 }
 
 export type TurnJournal = ReturnType<typeof createTurnJournal>;

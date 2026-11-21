@@ -1408,6 +1408,7 @@ export "./internal" (./src/internal.ts)
   type HostCredentialDomain
   HostCredentialExclusionError
   INFERENCE_PLACEHOLDER
+  type InferenceArrival
   type InferenceRelay
   type InferenceRelayEvent
   type InferenceTimingMark

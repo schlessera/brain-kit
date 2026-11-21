@@ -105,3 +105,5 @@ export { createCleanupReconciler, processCleanupReconciler, CLEANUP_RETRY_ATTEMP
 export type { CleanupNotice, CleanupReconciler, CleanupReconcilerOptions, RetainedCleanup } from "./server/cleanup-reconciler.js";
 
 export { workspaceWriteRefusal } from "./server/workspace-refusal.js";
+
+export type { InferenceArrival } from "./server/inference-relay.js";

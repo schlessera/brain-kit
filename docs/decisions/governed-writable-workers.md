@@ -1641,15 +1641,80 @@ from worker transcripts, and no extension of the observed-shell guarantee.
 > the scope-limit bound stay; no coalescing, overshoot relaxation or durability
 > change.
 
+**Amendment (maintainer, 2026-11-20), Option A — deferred freeze (#4292).**
+Keep a synchronous observation at every write-capable or unproven result. The
+hold may be taken when the turn's relay has fully accepted the next inference
+request and is about to dispatch it, instead of when the result is handled,
+provided the stop is confirmed before dispatch. The upstream response then
+overlaps the unchanged hold. A missing or ambiguous request, a pending sibling
+call, an unknown writer or an interruption takes the immediate path. Each
+required observation, its attribution, its durability and its terminal
+accounting are preserved. One inference request may therefore be sent before
+the observation's scope verdict is known.
+
+The implementation arms one result boundary with one 50 ms fallback. Dispatch,
+the elapsed deadline, a new tool or worker, another hold, the periodic tick,
+finish, abort and shutdown claim that same boundary synchronously; another
+result never coalesces with it (`deferredObservation`,
+`packages/ui-server/src/brain/deferred-observation.ts:4-22`). One synchronous
+predicate runs both when arming and at dispatch. Eligibility requires known
+complete journal/scope coverage, a relay serving `/v1/messages`, a single active
+turn and worker, no globally pending calls or peer unproven producer, and no
+inference operation at the result. An ambiguous call identity or a second
+inference operation after arming permanently selects the immediate schedule
+for that turn, even after the call entry is deleted or the second request
+closes. Operation creation supplies this evidence; an in-flight count cannot
+recover uniqueness. Unsupported transports never arm. Expired deadlines take
+the immediate path even before their timer callbacks run.
+
+Only a streaming Messages request whose final assistant call and sole final
+user tool result match that boundary can overlap (`followsToolResult`,
+`packages/ui-server/src/brain/deferred-observation.ts:25-37`). Token counts,
+tool-free titles, unsupported shapes and unknown evidence keep the prior-verdict
+fence. Both inference admission fences and the session-binding wait remain.
+
+A synchronous control receipt, independent of diagnostic timing marks, confirms
+the stop before speculative dispatch. A false or legacy void acknowledgement
+falls back to today's immediate held observation; it does not add a turn-abort
+path. After that observation commits, ordinary admission may proceed as before.
+Only a confirmed deferred stop waits for the scope writes to commit. Immediate,
+periodic, finish and admission holds keep their existing schedule, and an
+ordinary inference never joins unrelated work on the global journal queue.
+
+Each turn with a relay keeps a monotonic result gate: every required result
+increments its required generation before eligibility is read, and only that
+result's observation advances its committed generation. Rejection keeps that
+turn's gate failed. Periodic, begin and scope observations never advance it.
+Every arrival records the generations pending at that instant, before method
+or route checks. Dispatch requires all generations committed and current scope
+authority, except for the one eligible latest result with a confirmed stop.
+The stop receipt counts acknowledged workers for the cause turn; it must be
+nonzero and equal the turn's worker count.
+
+Every relay answer crosses the same gate, including wrong methods and routes,
+admission errors and exceptions, size, byte-cap and credential refusals. The
+inner handler returns a branded value that only the gated exit can produce.
+The exit claims any armed observation and waits for the required generations
+to commit or fail, checking again after each wait. A denied generation pending
+at arrival remains bound to that request even after Continue. A cap therefore
+discards the in-flight upstream response even if the owner chooses Continue
+before upstream headers arrive. A straggler arriving on a paused turn receives
+403 until Continue authorizes dispatch. The existing cap receipt and authorized
+continuation remain.
+Files changed, observed turn bytes, index capacity, wall minutes and free space
+may be discovered after one request has left. The tool-call cap stays checked at
+launch. No existing egress, credential, recording or authority fence is removed.
+These host facts never enter provider history.
+
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:273`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:292-313`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:518-563`),
 and the scope monitor's hold freezes every active turn's productive workers
-until the capture completes (`before() {`,
-`packages/ui-server/src/brain/turn-scope.ts:193-201`). Pi's agent loop runs in
+until the capture completes (`before(hold?: JournalHold)`,
+`packages/ui-server/src/brain/turn-scope.ts:256-273`). Pi's agent loop runs in
 its worker, so a frozen worker cannot send its next provider request until the
 resume. On the native fixture the gap between a result and the next request
 tracked the hold, not the bridge call.
@@ -1658,7 +1723,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:605-612`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:1013-1048`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 

@@ -485,6 +485,11 @@ print(json.dumps(result))`;
       };
       const steps = [...new Set(warm.flatMap(row => Object.keys(row?.steps ?? {})))];
       const stepMedians = Object.fromEntries(steps.map(name => [name, median(warm.map(row => row?.steps[name]).filter((n): n is number => typeof n === "number"))]));
+      const admissionJoinResponse = await fetch(`http://127.0.0.1:${ready.port}/__native_admission_join`);
+      const admissionJoin = await admissionJoinResponse.json();
+      expect(admissionJoinResponse.status, "ADMISSION_JOIN_MEASURED").toBe(200);
+      expect(admissionJoin.rows, "ADMISSION_JOIN_ALL_DELAYS_AND_HOLD_MODES").toHaveLength(30);
+      writeFileSync(join(ARTIFACTS, "admission-join.json"), JSON.stringify(admissionJoin, null, 2));
       writeFileSync(join(ARTIFACTS, "observation-holds.json"), JSON.stringify(lifecycles().map(record => ({ turnId: record.turnId, holds: record.holds ?? [],
         closing: (record.openSubPhases ?? []).filter((step: any) => step.phase === "closing"), recorderSettledAt: record.recorderSettledAt ?? null, idleEmittedAt: record.idleEmittedAt ?? null })), null, 2));
       const pathCells = [0, 1, 20, 200].map(changedPaths => {
