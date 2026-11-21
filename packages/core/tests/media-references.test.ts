@@ -45,6 +45,23 @@ function brain(): string {
 
 const limits = (over: Partial<MediaReferenceLimits> = {}): MediaReferenceLimits => ({ ...DEFAULT_MEDIA_REFERENCE_LIMITS, ...over });
 
+test("a non-UTF-8 directory containing a note refuses the reference inventory", () => {
+  const root = brain();
+  const directory = Buffer.concat([Buffer.from(`${root}/`), Buffer.from([0xff])]);
+  mkdirSync(directory);
+  writeFileSync(Buffer.concat([directory, Buffer.from("/ithaca.md")]), `![Harbour](/${HARBOUR})`);
+  expect(scanMediaReferences(root, [HARBOUR]), "INVALID_UTF8_DIRECTORY_REFUSES_INVENTORY")
+    .toMatchObject({ status: "refused", refusal: { code: "inventory-unscannable" } });
+});
+
+test("a non-UTF-8 Markdown filename refuses the reference inventory", () => {
+  const root = brain();
+  const note = Buffer.concat([Buffer.from(`${root}/`), Buffer.from([0xff]), Buffer.from(".md")]);
+  writeFileSync(note, `![Harbour](/${HARBOUR})`);
+  expect(scanMediaReferences(root, [HARBOUR]), "INVALID_UTF8_NOTE_REFUSES_INVENTORY")
+    .toMatchObject({ status: "refused", refusal: { code: "inventory-unscannable" } });
+});
+
 describe("declared forms", () => {
   test("inline links and images, angle destinations, definitions, wiki links and embeds are rewritable", () => {
     const text = [

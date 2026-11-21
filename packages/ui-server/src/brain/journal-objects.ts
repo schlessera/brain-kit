@@ -101,6 +101,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
       } catch (error) {
         if (output !== undefined) closeSync(output);
         if (created) unlinkSync(path(temporary));
+        fsyncSync(directory);
         if (!published) await reservation.cancel(); throw error;
       } finally { reservation.settled?.();
       }
@@ -162,6 +163,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
       } catch (error) {
         if (output !== undefined) await closeAsync(output);
         if (present) await unlinkAsync(path(name));
+        await syncAsync(directory);
         if (!published) await reservation.cancel();
         throw error;
       } finally { reservation.settled?.(); }
@@ -200,8 +202,9 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
     },
     discardPending(id) {
       assertOpen(); if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid journal reservation identifier.");
-      try { unlinkSync(path(`pending-${id}`)); fsyncSync(directory); }
+      try { unlinkSync(path(`pending-${id}`)); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      fsyncSync(directory);
     },
     async withVerifiedCopy(hash, bytes, apply) {
       const fd = openObject(hash);
@@ -248,7 +251,12 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
       });
       return { body, bytes };
     },
-    remove(hash) { assertOpen(); if (!HASH.test(hash)) throw new Error("Invalid journal object identifier."); unlinkSync(path(hash)); },
+    remove(hash) { assertOpen(); if (!HASH.test(hash)) throw new Error("Invalid journal object identifier."); try { unlinkSync(path(hash)); }
+      catch(error) { if((error as NodeJS.ErrnoException).code !== "ENOENT")throw error; }
+      // Retry the barrier even if a prior unlink succeeded before a failed
+      // sync/SQL commit. The caller may delete the charge only after this.
+      fsyncSync(directory);
+    },
     close() { if (!closed) { closed = true; closeSync(directory); } },
   };
 }

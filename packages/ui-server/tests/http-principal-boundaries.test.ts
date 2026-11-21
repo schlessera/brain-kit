@@ -22,7 +22,9 @@ test("real owner management rejects a live agent against populated principal and
     const owner = await acting(t);
     const agent = await acting(t, owner.principal.id);
     t.app.db.query("INSERT INTO passkey_credentials (id, public_key, counter, rp_id, label, created_at) VALUES ('fixture-key', ?, 0, 'localhost', 'Original fixture label', 1)").run(new Uint8Array([1, 2, 3]));
-    expect(t.app.db.query("SELECT id FROM principals").all()).toHaveLength(2);
+    // Scheduled maintenance owns a separate system principal. Keep this
+    // assertion exact for the owner/agent rows this authority test exercises.
+    expect(t.app.db.query("SELECT id FROM principals WHERE kind IN ('owner','agent')").all()).toHaveLength(2);
     expect(t.app.db.query("SELECT id FROM passkey_credentials").all()).toHaveLength(1);
     for (const [method, path, body] of [
       ["GET", "/api/auth/principals", undefined],

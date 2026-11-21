@@ -30,6 +30,7 @@ export interface PreparedWorkerOutput {
   /** Exactly one owned checkpoint reference. Consumed by launchAgentWorker. */
   readonly view: WorkerStartupView;
   readonly output: { source: string; storage: WorkerOutputStorage };
+  discardGit(): void;
   publish(): Promise<void>;
   publishLocked(lock: KeyedLock): Promise<void>;
   /** Await stage deletion, then release the owned checkpoint reference. Idempotent. */
@@ -249,7 +250,8 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(rel) || rel.split("/").some(part => !part || part === "." || part === "..")))
     throw Error("Invalid retained provider folder path");
   const native = nativeWorkerStartupInput(options.startupView), view = retainWorkerStartupView(options.startupView);
-  const limits = hostOutputStagingLimits(); let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
+  let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
+  let discardGit = false;
   let prepared: PreparedWorkerOutput | undefined, stageRequested = false;
   const id = randomUUID(); let stage: NativeStage | undefined, fd: number | undefined, cleanupPromise: Promise<void> | undefined;
   let identityTicket: { fd: number; close(): void } | undefined;
@@ -273,6 +275,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     })().catch((error: unknown) => { cleanupFailed = true; throw error; });
   };
   try {
+    const limits = hostOutputStagingLimits();
     reservation = processStateLedger().reserve(undefined, undefined, limits);
     stageRequested = true;
     stage = await native.manager.prepareStage(id, native.checkpoint.id, reservation.outputStagingBytes, options.signal);
@@ -411,7 +414,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       const isGitControl = (rel: string) => [...gitControls.keys()].some(root => isWithin(root, rel));
       function add(rel: string) { if (isGitControl(rel)) return; if (++count > 200_000) throw Error("Native output exceeds existing 200000 entry bound"); candidates.add(rel); }
       for await (const change of receipt.changes) {
-        const rel = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(change.pathHex, "hex"));
+        const raw=Buffer.from(change.pathHex,"hex");
+        if(discardGit&&(raw.equals(Buffer.from(".git"))||raw.subarray(0,5).equals(Buffer.from(".git/"))))continue;
+        const rel = new TextDecoder("utf-8", { fatal: true }).decode(raw);
         if (isGitControl(rel)) continue;
         if ([...gitScaffolds.keys()].some(name => rel === `.git/${name}`)) continue;
         // Validate components before any host path walk.
@@ -420,7 +425,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       }
       await receipt.completed;
       if (receipt.checkpointId !== native.checkpoint.id || receipt.checkpointUuid !== native.checkpoint.uuid) throw Error("Native output inspection changed its lower identity");
-      const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
+      const selected = (rel: string) => !(discardGit && isWithin(".git",rel)) && (!options.areas || options.areas.some(area => isWithin(area, rel)));
       const before = new Map<string, Captured>(), after = new Map<string, Captured>();
       for (const rel of [...candidates].filter(rel => selected(rel) && rel !== WAL_INDEX).sort()) {
         const next = await inspectInput(true, rel); after.set(rel, next);
@@ -587,7 +592,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         if (publicationError) throw publicationError;
       } finally { for (const release of releases.reverse()) release(); }
     }
-    prepared = { view, output, publish: () => publish(), publishLocked: publish, cleanup };
+    prepared = { view, output, discardGit() { discardGit = true; }, publish: () => publish(), publishLocked: publish, cleanup };
     const maintenanceOwner: NativeMaintenanceOwner = {
       protected: Boolean(identityTicket), generation: 0,
       async index(input) {
