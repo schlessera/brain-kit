@@ -26,7 +26,7 @@ export function registerAuthLifecycle(root: Pick<BrainUiServices, "stores">, lif
  */
 export function createAccountServices(
   root: BrainUiServices,
-  deps: { send: (message: ClientMessage) => boolean; socket: () => BrainUiClient | null },
+  deps: { send: (message: ClientMessage) => boolean; socket: () => BrainUiClient | null; noteTurnSend?: (requestId: string) => void },
 ) {
   /**
    * The current connection's hello is known (received, or absent because the
@@ -49,7 +49,7 @@ export function createAccountServices(
         .getState()
         .reportError("ANSWER_QUEUE_CORRUPT", "A saved answer on this device could not be read and was discarded."),
   });
-  const makeDrafts = () => createDraftClient(root, { send: (message) => deps.send(message) });
+  const makeDrafts = () => createDraftClient(root, { send: (message) => deps.send(message), noteTurnSend: deps.noteTurnSend });
 
   const answers = makeAnswers();
   void answers.start();
