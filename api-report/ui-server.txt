@@ -126,6 +126,14 @@ signatures (every public export and the types it is made of)
         }>;
         lifecycle(turnId: string): ActivityTurnLifecycle | null;
         lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
+        snapshotLifecycles?(scope: {
+            turnId?: string;
+            sessionId?: string;
+            limit?: number;
+        }): {
+            lifecycles: ActivityTurnLifecycle[];
+            highWaterSeq: Record<string, number>;
+        };
         readonly writer: string;
         startSpan(input: StartSpanInput): SpanRow;
         endSpan(spanId: string, input: EndSpanInput): boolean;
