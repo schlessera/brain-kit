@@ -4495,7 +4495,7 @@ signatures (every public export and the types it is made of)
         resumedAt: number | null;
         changedPaths: number | null;
         otherTurnsStopped: number;
-        inferenceInFlight: boolean;
+        inferenceInFlight: boolean | null;
     }
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnLifecycle {
@@ -22121,7 +22121,7 @@ signatures (every public export and the types it is made of)
                 causeTurnId: z.ZodNullable<z.ZodString>;
                 changedPaths: z.ZodNullable<z.ZodNumber>;
                 holdId: z.ZodString;
-                inferenceInFlight: z.ZodBoolean;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
                 otherTurnsStopped: z.ZodNumber;
                 requestedAt: z.ZodNumber;
                 resumedAt: z.ZodNullable<z.ZodNumber>;
@@ -22280,7 +22280,7 @@ signatures (every public export and the types it is made of)
                 causeTurnId: z.ZodNullable<z.ZodString>;
                 changedPaths: z.ZodNullable<z.ZodNumber>;
                 holdId: z.ZodString;
-                inferenceInFlight: z.ZodBoolean;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
                 otherTurnsStopped: z.ZodNumber;
                 requestedAt: z.ZodNumber;
                 resumedAt: z.ZodNullable<z.ZodNumber>;
@@ -25319,7 +25319,7 @@ signatures (every public export and the types it is made of)
                 causeTurnId: z.ZodNullable<z.ZodString>;
                 changedPaths: z.ZodNullable<z.ZodNumber>;
                 holdId: z.ZodString;
-                inferenceInFlight: z.ZodBoolean;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
                 otherTurnsStopped: z.ZodNumber;
                 requestedAt: z.ZodNumber;
                 resumedAt: z.ZodNullable<z.ZodNumber>;
@@ -25479,7 +25479,7 @@ signatures (every public export and the types it is made of)
                 causeTurnId: z.ZodNullable<z.ZodString>;
                 changedPaths: z.ZodNullable<z.ZodNumber>;
                 holdId: z.ZodString;
-                inferenceInFlight: z.ZodBoolean;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
                 otherTurnsStopped: z.ZodNumber;
                 requestedAt: z.ZodNumber;
                 resumedAt: z.ZodNullable<z.ZodNumber>;

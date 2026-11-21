@@ -1434,7 +1434,8 @@ signatures (every public export and the types it is made of)
         records: Map<string, ActivityTurnHold>;
         stoppedTurns: Set<string>;
         paths: Map<string, Set<string>>;
-        inferenceInFlight(turnId: string): boolean;
+        inferenceInFlight(turnId: string): boolean | null;
+        participant(turnId: string): ActivityTurnHold | undefined;
     }
   JournalStatement (packages/ui-server/src/brain/journal-store.ts)
     export type JournalStatement = {
@@ -2674,7 +2675,7 @@ signatures (every public export and the types it is made of)
         finishReserved(turnId: string): Promise<void>;
         hasRetainedVersion(turnId: string, selected: JournalVersion): boolean;
         idle(): Promise<void>;
-        inferenceInFlight(turnId: string): boolean;
+        inferenceInFlight(turnId: string): boolean | null;
         isHeld(): boolean;
         maintain: () => Promise<void>;
         observe(cause?: {

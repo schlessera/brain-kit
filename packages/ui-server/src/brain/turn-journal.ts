@@ -110,7 +110,7 @@ export interface TurnJournalOptions {
    */
   observationTrace?: (kind: JournalTraceKind, turnId: string | null, toolUseId?: string) => PhaseTimer | undefined;
 }
-/** Internal shared interval; scope confirms each turn's physical boundaries. */
+/** Internal shared interval; scope records each turn's control acknowledgements. */
 export interface JournalHold {
   records: Map<string, ActivityTurnHold>;
   stoppedTurns: Set<string>;
