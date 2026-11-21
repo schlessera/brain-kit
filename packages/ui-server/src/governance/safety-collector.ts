@@ -66,7 +66,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   if(!op.owed)return;
   try{await writes.safetyDischarge(options.turnId,op.id);op.owed=false;}catch{/* Still owed: the end gaps it. */}
  };
- const tails=new Map<string,Promise<void>>();let queued=0;
+ const tails=new Map<string,Promise<unknown>>();let queued=0;
  // A result record under way, which the turn's end waits for (#3812).
  const recording=(work:Promise<void>):Promise<void>=>{
   const records=safetyQueue(db).recording;let mine=records.get(options.turnId);
@@ -75,7 +75,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   void work.finally(()=>{own.delete(work);if(!own.size&&records.get(options.turnId)===own)records.delete(options.turnId);}).catch(()=>{});
   return work;
  };
- const serial=(id:string,work:()=>Promise<void>,afterFailure=false,reject=fail):Promise<void>=>{
+ const serial=<T>(id:string,work:()=>Promise<T>,afterFailure=false,reject=fail):Promise<T>=>{
   if(queued>=256)return reject(new Error("Safety collection queue capacity exceeded"));
   queued++;
   // A result runs even after its call's begin() failed: that refusal must not
