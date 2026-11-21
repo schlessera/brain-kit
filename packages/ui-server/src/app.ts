@@ -770,7 +770,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => journal.close());
   // Startup recovery commits, or refuses boot, before any turn can run.
   await journal.ready;
-  const policyProposals = createPolicyProposals({ root: config.brainPath, db, writer,
+  const policyProposals = createPolicyProposals({ afterPublication: () => trustSettings.refreshLocked(), root: config.brainPath, db, writer,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
     recordEvent: (review, turn) => activity.governanceWrites.record({ kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,
@@ -1341,7 +1341,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const piExcluded = () => unavailableBackends.some(failure => failure.backendId === "pi");
   app.route("/api", createPiAuthRoutes({ agent: config.agent, excluded: piExcluded }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent, excluded: piExcluded }));
-  const trustSettings = createTrustSettings({ root: config.brainPath, db, writer, lock: workerLock,
+  const trustSettings = createTrustSettings({ root: config.brainPath, db, writer, lock: workerLock, originEnforcement: true,
     github: createTrustGitHubIdentity({ root: config.brainPath, access: githubReferenceAccess }),
     authority: id => {
       if (authMode !== "password") return null;
@@ -1349,6 +1349,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       return p?.kind === "owner" && ["password", "passkey"].includes(p.authMethod) && isUsablePrincipal(p, Date.now())
         ? JSON.stringify([p.id, p.authMethod, p.credentialId, p.createdAt, p.expiresAt]) : null;
     }, observe: (id, publish) => journal.observeSettingsPolicy(id, publish) });
+  await trustSettings.snapshot();
+  host.originTrust = trustSettings.live;
+  host.safetyTrust = trustSettings.live;
   app.route("/api", createTrustSettingsRoutes({ settings: trustSettings, trustProxy: auth.trustProxy }));
   const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.

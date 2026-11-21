@@ -1,4 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
+import * as nodeHttp from "node:http";
+import * as nodeNet from "node:net";
 import { connect, createServer } from "node:net";
 import { request } from "node:http";
 import { existsSync } from "node:fs";
@@ -316,14 +318,14 @@ test("a tainted turn reaches only taint-allowed or already contacted hosts; the 
   } finally { proxy.stop(); origin.stop(true); }
 });
 test("a narrowed destination asks through taint.approve before refusing; a failed or absent approval refuses (#3430)", async () => {
-  let calls = 0; const records: EgressRecord[] = [], asked: Array<{ host: string; port: number; method: string }> = [];
+  let calls = 0; const records: EgressRecord[] = [], asked: Array<{ host: string; port: number; method: string; protocol: string; managedReference: boolean }> = [];
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Ithaca"); } });
   let answer: () => Promise<boolean> = async () => true;
   const proxy = await startEgressProxy({ ...defaults(records), maxBytes: 65536,
     taint: { allow: [], tainted: () => true, contacted: () => false, approve: async destination => { asked.push(destination); return answer(); } } });
   try {
     expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_APPROVED_ADMITS").toBe(200);
-    expect(asked, "EGRESS_TAINT_APPROVE_NAMES_DESTINATION").toEqual([{ host: "127.0.0.1", port: origin.port!, method: "GET" }]);
+    expect(asked, "EGRESS_TAINT_APPROVE_NAMES_DESTINATION").toEqual([{ host: "127.0.0.1", port: origin.port!, method: "GET", protocol: "http:", managedReference: false }]);
     answer = async () => { throw new Error("Scylla"); };
     const refused = await get(proxy.socketPath, origin.url.href);
     expect(refused.status, "EGRESS_TAINT_FAILED_APPROVAL_REFUSES").toBe(403);
@@ -345,7 +347,7 @@ test("taint narrowing never overrides deny or the ordinary allowlist, and its pa
     expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_IS_NARROWING_ONLY").toBe(403);
     expect(records[0]).toMatchObject({ reason: "destination_not_allowed" });
   } finally { proxy.stop(); origin.stop(true); }
-  await expect(startEgressProxy({ ...defaults([]), taint: { allow: ["bad host"], tainted: () => true, contacted: () => false } })).rejects.toThrow("Invalid egress host pattern");
+  for (const host of ["bad host", "[::1", "::1]"]) await expect(startEgressProxy({ ...defaults([]), taint: { allow: [host], tainted: () => true, contacted: () => false } })).rejects.toThrow("Invalid egress host pattern");
 });
 
 test("each refusal tells the tool why in its status line and body (#3431)", async () => {
@@ -375,4 +377,153 @@ test("each refusal tells the tool why in its status line and body (#3431)", asyn
     } finally { tainted.stop(); }
     expect(calls).toBe(0);
   } finally { origin.stop(true); }
+});
+
+test("review: invalidation between TCP dispatch and connect closes both real tunnel sockets",async()=>{
+ const {Socket}=await import('node:net');const {spyOn}=await import('bun:test');let accepted:InstanceType<typeof Socket>|undefined,release!:()=>void,entered!:()=>void;const reached=new Promise<void>(r=>{entered=r;});
+ let serverClosed!:()=>void;const upstreamClosed=new Promise<void>(r=>{serverClosed=r;});const server=createServer(socket=>{accepted=socket;socket.once('close',serverClosed);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;
+ const original=Socket.prototype.emit;const event=spyOn(Socket.prototype,'emit').mockImplementation(function(this:InstanceType<typeof Socket>,name:string|symbol,...args:any[]){if(name==='connect'&&this.remotePort===port){release=()=>{original.call(this,name,...args);};entered();return true;}return original.call(this,name,...args);});
+ let current=true;const proxy=await startEgressProxy({...defaults([]),inputCurrent:()=>current});const client=connect(proxy.socketPath);const outcome=new Promise<string>(r=>{client.once('data',b=>r(b.toString()));client.once('close',()=>r('closed'));});client.on('error',()=>{});client.once('connect',()=>client.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`));
+ try{await reached;current=false;proxy.invalidateInputs();release();expect(await outcome,'CANCELLED_CONNECT_NEVER_RETURNS_200').toBe('closed');await upstreamClosed;expect(accepted?.destroyed).toBe(true);}finally{event.mockRestore();client.destroy();accepted?.destroy();proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+test('review2: one successful real tunnel notifies committed exactly once',async()=>{
+ let serverSocket:import('node:net').Socket|undefined;const server=createServer(s=>{serverSocket=s;});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;let commits=0;const proxy=await startEgressProxy({...defaults([]),committed:()=>{commits++;}});
+ try{expect(await new Promise<number>((resolve,reject)=>{const client=connect(proxy.socketPath);client.on('error',reject);client.once('connect',()=>client.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`));client.once('data',b=>{resolve(Number(/^HTTP\/1.1 (\d+)/.exec(b.toString())?.[1]));client.destroy();});})).toBe(200);expect(commits,'TUNNEL_COMMIT_NOTIFICATION_IS_EXACTLY_ONCE').toBe(1);
+ const op=proxy.relayed('GET',new URL(`http://127.0.0.1:${port}/`),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.dispatch(()=>{})).toEqual({ok:true});expect(op.dispatch(()=>{})).toEqual({ok:true});expect(commits,'RELAY_RECHECKS_DO_NOT_REPEAT_COMMIT_NOTIFICATION').toBe(2);op.finish('completed');
+ }finally{proxy.stop();serverSocket?.destroy();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+test('review4: bracketed IPv6 keeps canonical trust identity and dials a checked IP',async()=>{
+ const server=createServer(socket=>socket.on('data',b=>socket.write(b.toString().toUpperCase())));await new Promise<void>(r=>server.listen(0,'::1',r));const port=(server.address() as {port:number}).port;const records:EgressRecord[]=[];
+ const proxy=await startEgressProxy({...defaults(records),destinations:{ports:[port],allowRanges:['::1/128'],lookup:async()=>{throw new Error('IPv6 literals must bypass DNS');}}});
+ try{expect(await tunnel(proxy.socketPath,`[::1]:${port}`,'ithaca'),'CHECKED_IPV6_TUNNEL_REACHES_LOOPBACK').toContain('ITHACA');await recorded(records,1);expect(records[0]).toMatchObject({host:'::1',port,outcome:'completed'});
+ for(const bad of ['::1:443','[::1]','[::1]:0','[::1]:65536','[::1]:443/path','[::1%25lo]:443'])expect(await tunnel(proxy.socketPath,bad,''),'MALFORMED_TUNNEL_REMAINS_BAD_REQUEST').toContain('400 Bad Request');
+ }finally{proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+for(const approval of [false,true])for(const body of [false,true])test(`review6: delayed HTTP ${body?'write':'end'} fences stale ${approval?'card':'recipient rule'}`,async()=>{
+ let hits=0,current=true,revision='1',entered!:()=>void;const committed=new Promise<void>(r=>{entered=r;});const origin=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){hits++;return new Response('Ithaca');}});
+ const proxy=await startEgressProxy({...defaults([]),preparing:()=>entered(),taint:{allow:[],tainted:()=>true,contacted:()=>false,recipient:()=>!approval&&current,approvalRevision:()=>revision,approve:async()=>approval}});const client=connect(proxy.socketPath);client.on('error',()=>{});const closed=new Promise<void>(r=>client.once('close',()=>r()));client.on('data',()=>client.end());
+ try{client.write(`POST ${origin.url.href} HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n`);await committed;current=false;revision='2';client.write(body?'4\r\nraft\r\n0\r\n\r\n':'0\r\n\r\n');await closed;expect(hits,'DELAYED_HTTP_NEVER_SENDS_UNDER_WITHDRAWN_AUTHORITY').toBe(0);
+ }finally{client.destroy();proxy.stop();origin.stop(true);}
+});
+
+for(const outward of [false,true])test(`review6: canonical IPv6 honors ${outward?'outward approval':'deny'} policies`,async()=>{
+ let asks=0;const records:EgressRecord[]=[];const server=createServer(socket=>socket.on('data',b=>socket.write(b.toString().toUpperCase())));await new Promise<void>(r=>server.listen(0,'::1',r));const port=(server.address() as {port:number}).port;
+ const proxy=await startEgressProxy({...defaults(records),...(outward?{outwardHosts:['0:0:0:0:0:0:0:1'],approveOutward:async()=>{asks++;return false;}}:{deny:['::1']})});
+ try{expect(await tunnel(proxy.socketPath,`[::1]:${port}`,'ithaca'),'CANONICAL_IPV6_NEVER_BYPASSES_HOST_POLICY').toContain('403');expect(asks).toBe(outward?1:0);expect(records[0]?.host,'IPV6_RECEIPTS_USE_CANONICAL_BARE_HOST').toBe('::1');}finally{proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+for(const approval of [false,true])test(`review6: tunnel chunks fence a withdrawn ${approval?'card':'recipient rule'}`,async()=>{
+ let bytes=0,current=true,revision='1',closed!:()=>void;const upstreamClosed=new Promise<void>(r=>{closed=r;});const server=createServer(socket=>{socket.on('data',b=>{bytes+=b.length;socket.end();});socket.once('close',closed);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;
+ const proxy=await startEgressProxy({...defaults([]),taint:{allow:[],tainted:()=>true,contacted:()=>false,recipient:()=>!approval&&current,approvalRevision:()=>revision,approve:async()=>approval}});const client=connect(proxy.socketPath);client.on('error',()=>{});const ended=new Promise<void>(r=>client.once('close',()=>r()));
+ try{const ready=new Promise<void>(r=>client.once('data',b=>{expect(b.toString()).toContain('200 Connection Established');r();}));client.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`);await ready;current=false;revision='2';client.write('ithaca');await ended;await upstreamClosed;expect(bytes,'TUNNEL_CHUNKS_NEVER_BYPASS_RECIPIENT_OR_CARD_FENCE').toBe(0);
+ }finally{client.destroy();proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+test('review7: absent approvals never read approval history during a real HTTP exchange',async()=>{
+ let reads=0;const origin=Bun.serve({hostname:'127.0.0.1',port:0,fetch:()=>new Response('Ithaca')});const proxy=await startEgressProxy({...defaults([]),taint:{allow:[],tainted:()=>false,contacted:()=>false,approvalRevision:()=>{reads++;return '1';}}});
+ try{expect((await get(proxy.socketPath,origin.url.href)).status).toBe(200);expect(reads,'ABSENT_APPROVAL_NEVER_READS_REVISION').toBe(0);}finally{proxy.stop();origin.stop(true);}
+});
+
+for(const pinned of [false,true])test(`review9: absolute DNS authority survives ${pinned?'checked resolution':'unbound dialing'}`,async()=>{
+ const {Socket}=await import('node:net');const {spyOn}=await import('bun:test');const server=createServer(socket=>socket.on('data',b=>socket.write(b.toString().toUpperCase())));await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;const seen:string[]=[],records:EgressRecord[]=[];
+ const original=Socket.prototype.connect;const spy=spyOn(Socket.prototype,'connect').mockImplementation(function(this:InstanceType<typeof Socket>,...args:any[]){const values=Array.isArray(args[0])?args[0]:args,options=values[0];if(!pinned&&options&&typeof options==='object'&&options.port===port){seen.push(options.host);values[0]={...options,host:'127.0.0.1'};return Reflect.apply(original,this,args);}return Reflect.apply(original,this,args);});
+ const proxy=await startEgressProxy({...defaults(records),...(pinned?{destinations:{ports:[port],allowRanges:['127.0.0.0/8'],lookup:async(host:string)=>{seen.push(host);return [{address:'127.0.0.1',family:4}];}}}:{})});
+ try{expect(await tunnel(proxy.socketPath,`ithaca.example.org.:${port}`,'ithaca')).toContain('ITHACA');expect(seen,'ABSOLUTE_DNS_AUTHORITY_NEVER_LOSES_ITS_DOT').toEqual(['ithaca.example.org.']);await recorded(records,1);expect(records[0]?.host).toBe('ithaca.example.org');}finally{spy.mockRestore();proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+for (const over of [false, true]) test(`review13: real HTTP end ${over ? 'refuses one byte over' : 'completes at'} the exact cap`, async () => {
+  const origin = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('Ithaca') });
+  const measured: EgressRecord[] = [], sample = await startEgressProxy({ ...defaults(measured), maxBytes: 4096 });
+  try {
+    await get(sample.socketPath, origin.url.href); await recorded(measured, 1);
+    const cap = measured[0]!.bytes, records: EgressRecord[] = [];
+    const proxy = await startEgressProxy({ ...defaults(records), maxBytes: cap - Number(over) });
+    try {
+      const result = await get(proxy.socketPath, origin.url.href).catch(() => null);
+      await recorded(records, 1);
+      if (over) { expect(result?.body).not.toBe('Ithaca'); expect(records[0]).toMatchObject({ outcome: 'denied', reason: 'max_bytes_per_turn' }); }
+      else { expect(result, 'HTTP_EXACT_CAP_END_COMPLETES').toEqual({ status: 200, body: 'Ithaca' }); expect(records[0]).toMatchObject({ outcome: 'completed', bytes: cap }); }
+    } finally { proxy.stop(); }
+  } finally { sample.stop(); origin.stop(true); }
+});
+
+for (const over of [false, true]) test(`review13: real tunnel close ${over ? 'refuses one byte over' : 'completes at'} the exact cap`, async () => {
+  const payload = 'Ithaca', records: EgressRecord[] = [];
+  const origin = createServer(socket => socket.end(payload));
+  await new Promise<void>(resolve => origin.listen(0, '127.0.0.1', resolve));
+  const port = (origin.address() as { port: number }).port;
+  const proxy = await startEgressProxy({ ...defaults(records), maxBytes: Buffer.byteLength(payload) - Number(over) });
+  const client = connect(proxy.socketPath); let text = '';
+  try {
+    await new Promise<void>((resolve, reject) => {
+      client.on('error', reject); client.on('data', bytes => { text += bytes; });
+      client.once('connect', () => client.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`));
+      client.once('end', () => client.end()); client.once('close', () => resolve());
+    });
+    await recorded(records, 1);
+    if (over) { expect(text).not.toContain(payload); expect(records[0]).toMatchObject({ outcome: 'denied', reason: 'max_bytes_per_turn' }); }
+    else { expect(text, 'TUNNEL_EXACT_CAP_CLOSE_COMPLETES').toContain(payload); expect(records[0]).toMatchObject({ outcome: 'completed', bytes: payload.length }); }
+  } finally { client.destroy(); proxy.stop(); await new Promise<void>(resolve => origin.close(() => resolve())); }
+});
+
+test('review14: oversized HTTP headers never publish a contacted-host grant', async () => {
+ let dispatched=0,hits=0;const records:EgressRecord[]=[];
+ const origin=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){hits++;return new Response('Ithaca');}});
+ const proxy=await startEgressProxy({...defaults(records),maxBytes:128,committed:()=>{dispatched++;}});
+ try{expect((await get(proxy.socketPath,origin.url.href,'GET',undefined,{'x-odysseus':'x'.repeat(1024)})).status).toBe(403);expect(dispatched,'NO_CONTACTED_GRANT_BEFORE_HEADER_BUDGET_PASSES').toBe(0);expect(hits).toBe(0);}finally{proxy.stop();origin.stop(true);}
+});
+
+for(const method of ['GET','CONNECT'])test(`review14: initial recording loss is unavailable for ${method}`,async()=>{
+ const records:EgressRecord[]=[];const proxy=await startEgressProxy({...defaults(records),admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:false,authorityCurrent:true}),subscribe:()=>()=>{}}});
+ try{const status=method==='GET'?(await get(proxy.socketPath,'http://127.0.0.1:443/')).status:Number(/^HTTP\/1.1 (\d+)/.exec(await tunnel(proxy.socketPath,'127.0.0.1:443',''))?.[1]);expect(status,'INITIAL_RECORDING_LOSS_USES_SAME_503_CLASS').toBe(503);expect(records[0]).toMatchObject({outcome:'denied',reason:'egress_unavailable'});}finally{proxy.stop();}
+});
+
+test('review14: charged preparation does not commit until final dispatch',async()=>{
+ let commits=0;const records:EgressRecord[]=[];const proxy=await startEgressProxy({...defaults(records),committed:()=>{commits++;}});
+ try{const op=proxy.relayed('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.charge(8)).toEqual({ok:true});expect(commits,'CHARGING_IS_NOT_DISPATCH').toBe(0);op.finish('denied','invalid_request');expect(records[0]).toMatchObject({bytes:8,dispatched:false});const sent=proxy.relayed('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await sent.admit()).toBe(true);expect(sent.charge(8)).toEqual({ok:true});expect(sent.dispatch(()=>{})).toEqual({ok:true});expect(sent.dispatch(()=>{})).toEqual({ok:true});expect(commits).toBe(1);sent.finish('completed');expect(records[1]).toMatchObject({dispatched:true});}finally{proxy.stop();}
+});
+
+test('review16: exhausted budget during approval cannot start an empty-head CONNECT',async()=>{
+ let entered!:()=>void,release!:()=>void,accepted=0,commits=0;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const records:EgressRecord[]=[];const origin=createServer(s=>{accepted++;s.end();});await new Promise<void>(r=>origin.listen(0,'127.0.0.1',r));const port=(origin.address() as {port:number}).port;
+ const proxy=await startEgressProxy({...defaults(records),maxBytes:8,outwardHosts:['127.0.0.1'],approveOutward:async()=>{entered();await held;return true;},committed:d=>{if(!d.inference)commits++;}});
+ try{const pending=tunnel(proxy.socketPath,`127.0.0.1:${port}`,'');await reached;const other=proxy.inference('POST',new URL('https://api.example.org/'),new AbortController().signal);expect(await other.admit()).toBe(true);expect(other.dispatch(()=>{})).toEqual({ok:true});expect(other.charge(8)).toEqual({ok:true});other.finish('completed');release();expect(await pending,'NEW_CONNECT_NEEDS_POSITIVE_REMAINING_BUDGET').toContain('403');expect(accepted).toBe(0);expect(commits).toBe(0);}finally{release();proxy.stop();await new Promise<void>(r=>origin.close(()=>r()));}
+});
+
+test('review16: close during real CONNECT DNS wait never starts the admitted effect',async()=>{
+ let entered!:()=>void,release!:()=>void,effects=0;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const records:EgressRecord[]=[];const proxy=await startEgressProxy({...defaults(records),destinations:{ports:[443],allowRanges:['127.0.0.0/8'],lookup:async()=>{entered();await held;return [{address:'127.0.0.1',family:4}];}},admitted:async()=>{effects++;}});const client=connect(proxy.socketPath);client.on('error',()=>{});
+ try{client.once('connect',()=>client.write('CONNECT ithaca.example.org:443 HTTP/1.1\r\nHost: ithaca.example.org\r\n\r\n'));await reached;client.destroy();await recorded(records,1);release();await Bun.sleep(20);expect(effects,'FINISHED_DNS_CONTINUATION_NEVER_CREATES_INPUT').toBe(0);expect(records).toHaveLength(1);expect(records[0]).toMatchObject({outcome:'cancelled',dispatched:false});}finally{release();client.destroy();proxy.stop();}
+});
+
+for(const unavailable of [false,true])test(`review23: HTTP construction is behind final fence (unavailable ${unavailable})`,async()=>{
+ let current=true,accepted=0,grants=0;const records:EgressRecord[]=[];const origin=createServer(socket=>{accepted++;socket.end();});await new Promise<void>(r=>origin.listen(0,'127.0.0.1',r));const port=(origin.address() as {port:number}).port;
+ const proxy=await startEgressProxy({...defaults(records),preparing:()=>{current=false;},committed:()=>{grants++;},admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:unavailable?current:true,authorityCurrent:unavailable?true:current}),subscribe:()=>()=>{}}});
+ try{const answer=await get(proxy.socketPath,`http://127.0.0.1:${port}/`);expect(answer.status,'CONNECTION_CONSTRUCTION_REQUIRES_THE_FINAL_FENCE').toBe(unavailable?503:403);expect(accepted,'REFUSED_HTTP_NEVER_OPENS_AN_UPSTREAM_SOCKET').toBe(0);expect(grants).toBe(0);expect(records[0]).toMatchObject({dispatched:false,outcome:'denied'});}finally{proxy.stop();await new Promise<void>(r=>origin.close(()=>r()));}
+});
+
+test('review23: HTTP connection attempt is recorded while client body is pending',async()=>{
+ let entered!:()=>void,grants=0;const accepted=new Promise<void>(r=>{entered=r;});const sockets:import('node:net').Socket[]=[];const origin=createServer(s=>{sockets.push(s);s.on('error',()=>{});entered();});await new Promise<void>(r=>origin.listen(0,'127.0.0.1',r));const port=(origin.address() as {port:number}).port;const records:EgressRecord[]=[];const proxy=await startEgressProxy({...defaults(records),committed:()=>{grants++;}});const client=request({socketPath:proxy.socketPath,path:`http://127.0.0.1:${port}/`,method:'POST',headers:{'content-length':'4'}});client.on('error',()=>{});
+ try{client.flushHeaders();await accepted;expect(grants,'CONNECTION_ATTEMPT_IS_ALREADY_A_DISPATCH_FACT').toBe(1);client.destroy();await recorded(records,1);expect(records[0]).toMatchObject({dispatched:true});}finally{client.destroy();proxy.stop();for(const s of sockets)s.destroy();await new Promise<void>(r=>origin.close(()=>r()));}
+});
+
+for(const opaque of [false,true])test(`review24: received ${opaque?'CONNECT':'HTTP'} overflow consumes remaining allowance`,async()=>{
+ const records:EgressRecord[]=[];const origin=createServer(socket=>{socket.on('error',()=>{});if(opaque)socket.end('Ithaca '.repeat(2048));else socket.once('data',()=>socket.end('HTTP/1.1 200 OK\r\nContent-Length: 14336\r\n\r\n'+'Ithaca '.repeat(2048)));});await new Promise<void>(r=>origin.listen(0,'127.0.0.1',r));const port=(origin.address() as {port:number}).port;const proxy=await startEgressProxy({...defaults(records),maxBytes:4096});
+ try{if(opaque)await tunnel(proxy.socketPath,`127.0.0.1:${port}`,'');else await get(proxy.socketPath,`http://127.0.0.1:${port}/`).catch(()=>undefined);await recorded(records,1);expect(proxy.remainingBytes(),'RECEIVED_PROXY_BYTES_CANNOT_LEAVE_LATER_ALLOWANCE').toBe(0);expect(records[0]).toMatchObject({outcome:'denied',failureReason:'budget',bytes:4096});}finally{proxy.stop();await new Promise<void>(r=>origin.close(()=>r()));}
+});
+
+
+for(const opaque of [false,true])for(const synchronous of [false,true])test(`review25: proxy ${opaque?'CONNECT':'HTTP'} ${synchronous?'sync throw':'async refusal'} is 502`,async()=>{
+ const reserved=createServer();await new Promise<void>(r=>reserved.listen(0,'127.0.0.1',r));const port=(reserved.address() as {port:number}).port;await new Promise<void>(r=>reserved.close(()=>r()));const records:EgressRecord[]=[];const proxy=await startEgressProxy(defaults(records));const originalHttp=nodeHttp.request,originalConnect=nodeNet.connect;
+ const mocked=synchronous?(opaque?spyOn(nodeNet,'connect').mockImplementation(((...args:unknown[])=>{if(typeof args[0]==='object'&&args[0]!==null&&'port' in args[0]&&Number(args[0].port)===port)throw new Error('Odysseus dial unavailable');return Reflect.apply(originalConnect,nodeNet,args);}) as typeof nodeNet.connect):spyOn(nodeHttp,'request').mockImplementation(((...args:Parameters<typeof nodeHttp.request>)=>{if(args[0] instanceof URL&&Number(args[0].port)===port)throw new Error('Odysseus HTTP unavailable');return Reflect.apply(originalHttp,nodeHttp,args);}) as typeof nodeHttp.request)):undefined;
+ try{const status=opaque?Number(/^HTTP\/1.1 (\d+)/.exec(await tunnel(proxy.socketPath,`127.0.0.1:${port}`,'').catch(()=>''))?.[1]??0):(await get(proxy.socketPath,`http://127.0.0.1:${port}/`).catch(()=>({status:0}))).status;expect(status,'PROXY_SYNC_AND_ASYNC_TRANSPORT_FAILURE_ARE_502').toBe(502);await recorded(records,1);expect(records[0]).toMatchObject({outcome:'failed',reason:'upstream_unreachable',dispatched:!synchronous});}finally{mocked?.mockRestore();proxy.stop();}
+});
+
+
+for(const opaque of [false,true])test(`review27: failed ${opaque?'CONNECT':'HTTP'} construction grants no future recipient permission`,async()=>{
+ const origin=createServer();await new Promise<void>(r=>origin.listen(0,'127.0.0.1',r));const port=(origin.address() as {port:number}).port;const records:EgressRecord[]=[],contacted=new Set<string>();let tainted=false,cards=0;const proxy=await startEgressProxy({...defaults(records),committed:d=>{contacted.add(d.host);},taint:{allow:[],tainted:()=>tainted,contacted:host=>contacted.has(host),approve:async()=>{cards++;return false;}}});const originalHttp=nodeHttp.request,originalConnect=nodeNet.connect;
+ const mocked=opaque?spyOn(nodeNet,'connect').mockImplementation(((...args:unknown[])=>{if(typeof args[0]==='object'&&args[0]!==null&&'port' in args[0]&&Number(args[0].port)===port)throw new Error('Odysseus dial cannot start');return Reflect.apply(originalConnect,nodeNet,args);}) as typeof nodeNet.connect):spyOn(nodeHttp,'request').mockImplementation(((...args:Parameters<typeof nodeHttp.request>)=>{if(args[0] instanceof URL&&Number(args[0].port)===port)throw new Error('Odysseus HTTP cannot start');return Reflect.apply(originalHttp,nodeHttp,args);}) as typeof nodeHttp.request);
+ const attempt=async()=>opaque?Number(/^HTTP\/1.1 (\d+)/.exec(await tunnel(proxy.socketPath,`127.0.0.1:${port}`,''))?.[1]??0):(await get(proxy.socketPath,`http://127.0.0.1:${port}/`)).status;
+ try{expect(await attempt()).toBe(502);expect(contacted.size,'CONSTRUCTOR_THROW_NEVER_CREATES_CONTACTED_GRANT').toBe(0);expect(records[0]).toMatchObject({outcome:'failed',reason:'upstream_unreachable',dispatched:false});tainted=true;expect(await attempt(),'LATER_RESTRICTED_REQUEST_STILL_NEEDS_NETWORK_CARD').toBe(403);expect(cards).toBe(1);expect(contacted.size).toBe(0);}finally{mocked.mockRestore();proxy.stop();await new Promise<void>(r=>origin.close(()=>r()));}
 });

@@ -10,7 +10,7 @@ import {createSafetyClient} from '../../src/lib/safety-client.js';
 import {SessionSafety} from '../../src/components/chat/safety-indicator.js';
 import {parseServerMessage} from '@schlessera/brain-ui-sdk/schemas';
 import type {ChatMessage} from '../../src/stores/chat-store.js';
-import type {ClientMessage,SafetyPage} from '@schlessera/brain-ui-sdk/protocol';
+import type {ClientMessage,SafetyPage,SafetyRecord} from '@schlessera/brain-ui-sdk/protocol';
 let fixture:{id:string;url:string}|undefined,ui:BrainUiRoot|undefined,socket:WebSocket|undefined,renderer:Root|undefined,host:HTMLDivElement|undefined;
 let safetyClient:ReturnType<typeof createSafetyClient>|undefined;
 let styles:HTMLStyleElement;const oldTheme=document.documentElement.dataset.theme,viewport={width:innerWidth,height:innerHeight};
@@ -162,6 +162,22 @@ test('two live owner views keep independent review scope and converge after ever
  }
 });
 
+for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width} ${theme}: historical source admission is distinct from a human verdict`,async()=>{
+ await scene(width,theme);
+ const initialWidth=document.documentElement.scrollWidth;
+ const records={...ui!.stores.safety.getState().records};
+ for(const [id,r] of Object.entries(records))if(r.kind==='occurrence')records[id]={...r,admission:{trusted:true as const,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'}};
+ flushSync(()=>ui!.stores.safety.setState({records}));
+ const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getAttribute('aria-label')?.startsWith('Trusted at admission'))!;
+ expect(indicator,'SOURCE_DECISION_NEVER_READS_AS_UNRESOLVED_OR_HUMAN_VERDICT').toBeTruthy();await userEvent.click(indicator);
+ await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent).toContain('Source rule ithaca-source · trust revision 7');
+ expect(document.querySelector('[data-safety-details]')?.textContent).toContain('grants no current recipient permission');
+ expect([...document.querySelectorAll('[data-safety-details] button')].some(b=>b.textContent==='Mark as safe')).toBe(false);
+ const bounds=document.querySelector('[data-safety-details]')!.getBoundingClientRect();
+ expect(bounds.left).toBeGreaterThanOrEqual(0);expect(bounds.right).toBeLessThanOrEqual(innerWidth);
+ expect(document.documentElement.scrollWidth,'ADMISSION_DETAILS_ADD_NO_PAGE_OVERFLOW').toBeLessThanOrEqual(initialWidth);
+});
+
 for(const theme of ['light','dark'])test(`${theme}: a mixed reviewed group names its remaining unresolved source on hover and focus`,async()=>{
  await scene(320,theme);
  const indicator=buttonForTool();
@@ -183,4 +199,27 @@ for(const theme of ['light','dark'])test(`${theme}: a mixed reviewed group names
  await userEvent.click(indicator);
  expect(document.querySelectorAll('[data-safety-trigger]')).toHaveLength(2);
  expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Marked safe by you');
+});
+
+for(const width of [320,1280])for(const theme of ['light','dark'])for(const mode of ['reviewed','unresolved','both'] as const)test(`${width} ${theme}: mixed trusted history keeps each verdict kind (${mode})`,async()=>{
+ await scene(width,theme);const state=ui!.stores.safety.getState(),rows=Object.values(state.records).filter(r=>r.kind==='occurrence');expect(rows.length).toBeGreaterThanOrEqual(3);
+ const at=Date.UTC(2026,6,12,10),hasReviewed=mode!=='unresolved',hasUnresolved=mode!=='reviewed';
+ const base=(r:typeof rows[number])=>({...r,turnId:message.turnId!,entry:{kind:'tool' as const,toolUseId:'tool_a'},observedAt:at});
+ const trusted={...base(rows[0]!),source:'web_fetch' as const,admission:{trusted:true as const,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'}};
+ const reviewed={...base(rows[1]!),source:'mcp_document' as const,admission:{trusted:false as const,policyHash:null,trustRevision:'0'}};
+ const unresolved={...base(rows[2]!),source:'workspace_read' as const,admission:{trusted:false as const,policyHash:null,trustRevision:'0'}};
+ const records:Record<string,SafetyRecord>={[trusted.id]:trusted};if(hasReviewed){records[reviewed.id]=reviewed;const identity=state.identity;if(!identity||!('sessionId' in identity))throw new Error('Missing session');records.mixed_verdict={id:'mixed_verdict',sequence:'999999',observedAt:at,turnId:message.turnId!,bindingId:reviewed.bindingId,occurrenceId:reviewed.id,detailPruned:false,kind:'safe_decision',session:identity,requestId:'mixed_request',principalId:'odysseus',verdict:'safe',channel:'owner_history'};}if(hasUnresolved)records[unresolved.id]=unresolved;
+ flushSync(()=>ui!.stores.safety.setState({records,projection:{...state.projection!,unresolvedCount:hasUnresolved?1:0,earliestUnresolvedId:hasUnresolved?unresolved.id:null,restriction:hasUnresolved?'restricted':'normal',reasons:hasUnresolved?['unresolved']:[]},normal:!hasUnresolved&&state.projection?.coverage.state==='complete'}));
+ const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getClientRects().length>0)!;expect(indicator).toBeTruthy();
+ if(hasUnresolved)expect(indicator.getAttribute('aria-label'),'MIXED_GROUP_NAMES_ONLY_ITS_UNRESOLVED_SOURCE').toContain('Workspace read · Only this trigger can be reviewed');
+ if(hasReviewed)expect(indicator.getAttribute('aria-label'),'MIXED_HISTORY_NAMES_BOTH_TRUST_AND_HUMAN_VERDICT').toContain('1 marked safe by you');
+ await userEvent.click(indicator);const panel=document.querySelector('[data-safety-details]')!;expect(panel.textContent).toContain('Trusted at admission');if(hasReviewed)expect(panel.textContent).toContain('Marked safe by you');
+ const bounds=panel.getBoundingClientRect();expect(bounds.left).toBeGreaterThanOrEqual(0);expect(bounds.right).toBeLessThanOrEqual(innerWidth);
+});
+
+for(const width of [320,1280])for(const theme of ['light','dark'])for(const tunnel of [false,true])test(`${width} ${theme}: IPv6 safety authority stays unambiguous (tunnel ${tunnel})`,async()=>{
+ await scene(width,theme);const records={...ui!.stores.safety.getState().records};
+ for(const [id,r] of Object.entries(records))if(r.kind==='occurrence')records[id]={...r,admission:{trusted:true,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'},provenance:tunnel?{kind:'tunnel_authority',authority:{host:'::1',port:443},verifiedBy:'host_proxy'}:{kind:'web_origin',origin:{scheme:'http',host:'::1',port:8080},verifiedBy:'host_transport'}};
+ flushSync(()=>ui!.stores.safety.setState({records}));const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getAttribute('aria-label')?.startsWith('Trusted at admission'))!;await userEvent.click(indicator);
+ const expected=tunnel?'[::1]:443':'http://[::1]:8080';await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent,{message:'IPV6_HISTORY_BRACKETS_THE_EXACT_AUTHORITY'}).toContain(expected);
 });

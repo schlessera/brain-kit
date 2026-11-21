@@ -7,6 +7,8 @@ import { activeChat, useChatStore } from "../../stores/chat-store.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
 
+const formatAuthority = ({host,port}:{host:string;port:number}) => `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
+
 const sources:Record<SafetyEvidence["occurrence"]["source"],string>={web_fetch:"Web fetch",web_search:"Web search",staged_share:"Shared input",chat_attachment:"Chat attachment",
   workspace_read:"Workspace read",mcp_document:"External tool input",user_marked:"Marked untrusted",fetching_command:"Fetching command",unclassified_command:"Unclassified command",
   compute_output:"Compute output",apify_result:"Apify result",github_result:"GitHub result",egress_connection:"Network input",legacy_unknown:"Legacy input evidence"};
@@ -70,9 +72,17 @@ function SafetyIndicator({entries:currentEntries}:{entries:SafetyEvidence[]}) {
   const entries=allowed?(currentEntries.length?currentEntries:open||readStatus!=="ready"?held.current.entries:[]):[];
   useEffect(()=>{if(!allowed)setOpen(false);},[allowed]);
   useEffect(()=>{setOpen(false);},[scope,auth]);
-  const unresolved=entries.filter(e=>!e.decision).length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
-  const name=unresolved?`Safety restrictions: ${unresolved} unresolved trigger${unresolved===1?"":"s"}`:`Marked safe by you${entries.length>1?`: ${entries.length} triggers`:""}: show details`;
-  const reason=unresolved?`${sources[entries.find(e=>!e.decision)!.occurrence.source]} · Only this trigger can be reviewed`:"Human decision retained; content remains in the model context";
+  const unresolvedEntries=entries.filter(e=>!e.decision&&!e.occurrence.admission?.trusted);
+  const unresolved=unresolvedEntries.length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
+  const trusted=entries.filter(e=>e.occurrence.admission?.trusted).length,reviewed=entries.filter(e=>e.decision).length;
+  const accepted=[...(trusted?[`${trusted} trusted at admission`]:[]),...(reviewed?[`${reviewed} marked safe by you`]:[])].join("; ");
+  const name=unresolved?`Safety restrictions: ${unresolved} unresolved trigger${unresolved===1?"":"s"}${accepted?`; ${accepted}`:""}`
+    :trusted===entries.length&&!reviewed?`Trusted at admission${entries.length>1?`: ${entries.length} inputs`:""}: show details`
+    :reviewed===entries.length&&!trusted?`Marked safe by you${entries.length>1?`: ${entries.length} triggers`:""}: show details`
+    :`Safety history: ${accepted}: show details`;
+  const reason=unresolved?`${sources[unresolvedEntries[0]!.occurrence.source]} · Only this trigger can be reviewed`
+    :trusted&&reviewed?"Historical source trust and human decisions retained; current rules may differ"
+    :trusted?"Historical source trust retained; current rules may differ":"Human decision retained; content remains in the model context";
   useLayoutEffect(()=>{
     if(!open)return;
     const place=()=>{const r=trigger.current?.getBoundingClientRect();if(r)setPosition({left:Math.max(12,Math.min(r.left,innerWidth-Math.min(384,innerWidth-24)-12)),top:Math.max(12,Math.min(r.bottom+4,innerHeight-Math.min(520,innerHeight*.65)-12))});};
@@ -108,18 +118,19 @@ function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
   useEffect(()=>{if(state.status!=="ready"||!state.capabilities?.review||auth!=="active")setReview(false);},[state.status,state.capabilities?.review,auth]);
   const r=entry.occurrence,session=state.identity&&"sessionId" in state.identity?state.identity:null;
   const readable=state.status==="ready"&&!!session,owner=state.capabilities?.review===true&&auth==="active";
-  const canReview=readable&&owner&&entry.exposure==="finalized"&&!entry.decision&&!state.projection?.pendingCount&&!state.projection?.reasons.includes("recording_failed");
+  const canReview=readable&&owner&&entry.exposure==="finalized"&&!entry.decision&&!r.admission?.trusted&&!state.projection?.pendingCount&&!state.projection?.reasons.includes("recording_failed");
   const busy=progress?.stage==="pending",unknown=progress?.stage==="unknown";
-  const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${r.provenance.origin.host}:${r.provenance.origin.port}`:
-    r.provenance?.kind==="tunnel_authority"?`${r.provenance.authority.host}:${r.provenance.authority.port}`:"Source provenance unavailable";
+  const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${formatAuthority(r.provenance.origin)}`:
+    r.provenance?.kind==="tunnel_authority"?formatAuthority(r.provenance.authority):"Source provenance unavailable";
   return <section data-safety-trigger={r.id} className="space-y-2 border-t border-border py-3">
-    <p className="font-medium">{entry.decision?"Marked safe by you":"Safety restrictions enabled"}</p>
+    <p className="font-medium">{r.admission?.trusted?"Trusted at admission":entry.decision?"Marked safe by you":"Safety restrictions enabled"}</p>
     <p>{sources[r.source]} · <time dateTime={new Date(r.observedAt).toISOString()}>{new Date(r.observedAt).toLocaleString()}</time></p>
     <p>{r.summary}</p><p>{provenance}</p>
+    {r.admission?.trusted&&<p>Source rule {r.admission.ruleId} · trust revision {r.admission.trustRevision}. This historical decision grants no current recipient permission.</p>}
     {r.detailPruned&&<p>Some source detail has expired. The trigger and any decision remain recorded.</p>}
     {entry.decision&&<p>Marked safe by you · <time dateTime={new Date(entry.decision.observedAt).toISOString()}>{new Date(entry.decision.observedAt).toLocaleString()}</time></p>}
-    {!entry.decision&&entry.exposure!=="finalized"&&<p>{entry.exposure==="open"?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This trigger cannot be marked safe."}</p>}
-    {!owner&&!entry.decision&&<p>Only the authenticated owner can mark this trigger safe.</p>}
+    {!r.admission?.trusted&&!entry.decision&&entry.exposure!=="finalized"&&<p>{entry.exposure==="open"?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This trigger cannot be marked safe."}</p>}
+    {!r.admission?.trusted&&!owner&&!entry.decision&&<p>Only the authenticated owner can mark this trigger safe.</p>}
     {!readable&&<p>Current evidence is unavailable or incomplete. Read it again before reviewing.</p>}
     {canReview&&!review&&!progress&&<Button label="Mark as safe" reach onClick={()=>setReview(true)}/>}
     {review&&canReview&&!progress&&<div className="space-y-2" role="group" aria-label="Review safety decision">

@@ -67,9 +67,9 @@ for (const kind of ["inference", "provider"] as const) for (const releaseAt of [
     } });
     relay = kind === "inference"
       ? startInferenceRelay({ upstream: upstream.url.origin, routes: ["/v1/messages"], credentials: { "x-api-key": "odysseus-offline-only-key" },
-          egress: { inference: (...args) => observeOperation(proxy!.inference(...args)) } })
+          egress: { remainingBytes:()=>proxy!.remainingBytes(),inference: (...args) => observeOperation(proxy!.inference(...args)) } })
       : startProviderRelay({ origins: new Map([["ODYSSEUS_RELAY_KEY", [upstream.url.origin]]]), credential: () => "odysseus-offline-only-key",
-          egress: { relayed: (...args) => observeOperation(proxy!.relayed(...args)) } });
+          egress: { remainingBytes:()=>proxy!.remainingBytes(),relayed: (...args) => observeOperation(proxy!.relayed(...args)) } });
     const responsePending = new Promise<{ status: number; body: string }>((resolve, reject) => {
       const outgoing = request({ socketPath: relay!.socketPath, path: "/v1/messages", method: "POST", headers: { "content-type": "application/json", "x-brain-provider": "anthropic", "x-brain-provider-key": "ODYSSEUS_RELAY_KEY", "x-brain-provider-origin": upstream.url.origin } }, incoming => {
         const chunks: Buffer[] = []; incoming.on("data", chunk => chunks.push(chunk)); incoming.on("error", reject);
@@ -135,12 +135,12 @@ async function adverseFixture(kind: "inference" | "provider", finalWait = false)
     ? startInferenceRelay({ upstream: upstream.url.origin, routes: ["/v1/messages"], credentials: async () => {
         if (finalWait) { finalReached.resolve(); await releaseFinal.promise; }
         return { "x-api-key": "odysseus-offline-only-key" };
-      }, egress: { inference: (...args) => observeOperation(proxy.inference(...args)) } })
+      }, egress: { remainingBytes:()=>proxy!.remainingBytes(),inference: (...args) => observeOperation(proxy.inference(...args)) } })
     : startProviderRelay({ origins: new Map([["ODYSSEUS_RELAY_KEY", [upstream.url.origin]]]), credential: () => "odysseus-offline-only-key",
         admit: async () => {
           if (++providerAdmissions === 2 && finalWait) { finalReached.resolve(); await releaseFinal.promise; }
           return { allowed: true };
-        }, egress: { relayed: (...args) => observeOperation(proxy.relayed(...args)) } });
+        }, egress: { remainingBytes:()=>proxy!.remainingBytes(),relayed: (...args) => observeOperation(proxy.relayed(...args)) } });
   return {
     db, writer, writes, turn, bridge, catalog, controller, reads, proxy, hold, host,
     enteredAdmission: enteredAdmission.promise, finalReached: finalReached.promise, releaseFinal: releaseFinal.resolve,
@@ -183,7 +183,10 @@ for (const kind of ["inference", "provider"] as const) {
         else if (mode === "deadline") Object.defineProperty(Date, "now", { ...clock, value: () => now() + 10001 });
         else held.release();
         const result = await response;
-        expect(result.status, "FAILED_BINDING_NEVER_DISPATCHES").toBe(mode === "cancelled" ? 499 : 403);
+        // A revoked authority is403; an actually failed or unsettled binding stays503.
+        expect(result.status, "FAILED_BINDING_NEVER_DISPATCHES").toBe(mode === "cancelled" ? 499 : mode === "authority-revoked" ? 403 : 503);
+        if(kind === "inference") expect(JSON.parse(result.body).error.message).toBe(mode === "cancelled" ? "Inference request cancelled" : "Inference network admission refused");
+        else expect(result.body).toContain(mode === "cancelled" ? "cancelled" : mode === "authority-revoked" ? "safety_changed" : "unavailable");
         expect(f.requests(), "FAILED_BINDING_HAS_ZERO_PROVIDER_REQUESTS").toBe(0);
         expect(f.reads, "FAILED_BINDING_NEVER_MINTS_ADMISSION_AUTHORITY").toHaveLength(0);
       } finally { Object.defineProperty(Date, "now", clock); await f.close(); }
@@ -200,6 +203,8 @@ for (const kind of ["inference", "provider"] as const) {
       expect(f.writes.recordingAvailable("voyage", "ithaca")).toBe(false);
       const result = await f.send();
       expect(result.status).toBe(403);
+      if(kind === "inference") expect(JSON.parse(result.body).error.message).toBe("Inference network admission refused");
+      else expect(result.body).toContain("safety");
       expect(f.requests(), "INDEPENDENT_PENDING_INPUT_NEVER_REACHES_PROVIDER").toBe(0);
       expect(f.reads.some(value => !value.recordingAvailable)).toBe(true);
       held.release();
@@ -231,7 +236,7 @@ for (const kind of ["inference", "provider"] as const) {
           await f.catalog.settled!();
         }
         f.releaseFinal();
-        expect((await response).status).toBe(403);
+        expect((await response).status).toBe(mode === "own-recording-loss" ? 503 : 403);
         expect(f.requests(), "FINAL_SAFETY_CHANGE_NEVER_REACHES_PROVIDER").toBe(0);
         await f.proxy.settled();
         if (mode === "changed-scope") {
@@ -241,7 +246,7 @@ for (const kind of ["inference", "provider"] as const) {
           expect(f.proxy.recordingFailure()).toBeDefined();
           expect(f.controller.signal.aborted).toBe(true);
         } else {
-          const reason = mode === "authority-revoked" && kind === "inference" ? "session_binding_unavailable" : "safety_changed";
+          const reason = mode === "own-recording-loss" ? "egress_unavailable" : "safety_changed";
           expect(f.db.query("SELECT json_extract(payload,'$.reason') reason FROM governance_events WHERE kind='egress_connection'").all())
             .toEqual([{ reason }]);
         }
@@ -285,7 +290,7 @@ for (const kind of ["inference", "provider"] as const) test(`${kind} own-binding
     const refused = f.send(); await f.enteredAdmission;
     await new Promise<void>(resolve => setImmediate(resolve));
     Object.defineProperty(Date, "now", { ...clock, value: () => now() + 10001 });
-    expect((await refused).status, "OWN_BINDING_DEADLINE_REFUSES_ONLY_ITS_REQUEST").toBe(403);
+    expect((await refused).status, "OWN_BINDING_DEADLINE_REFUSES_ONLY_ITS_REQUEST").toBe(503);
     Object.defineProperty(Date, "now", clock); held.release();
     await held.committed; await f.catalog.settled!(); await f.proxy.settled();
     const controller = new AbortController();

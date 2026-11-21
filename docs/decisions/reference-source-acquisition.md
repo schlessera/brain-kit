@@ -191,7 +191,7 @@ reclamation is observed.
 The concrete access owner (`createGitHubReferenceAccess`,
 `packages/ui-server/src/brain/github-reference-access.ts:19-189`) uses the
 fixed transport (`createGitHubReferenceWire`,
-`packages/ui-server/src/brain/github-reference-wire.ts:19-254`).
+`packages/ui-server/src/brain/github-reference-wire.ts:20-257`).
 
 The host-only GitHub access service binds one canonical repository and short
 branch/tag to a bounded acquisition. Anonymous metadata precedes a private

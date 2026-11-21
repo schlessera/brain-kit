@@ -1,7 +1,8 @@
 import { createGovernancePolicyReader } from "../src/brain/governance-policy.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
-import { afterEach, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import { afterEach, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, renameSync, symlinkSync, openSync, closeSync, constants } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -434,4 +435,111 @@ test("Settings HTTP admission bounds queued lock waiters and recovers when reque
   } finally { if (timer) clearTimeout(timer); release(); await Promise.allSettled([...pending, excess]); }
   expect((await app.request("http://localhost/api/trust-settings")).status, "SETTINGS_HTTP_BUSY_CLEARS_WHEN_WAITERS_DRAIN").toBe(200);
   expect(f.requests).toEqual([]);
+});
+
+test("qualified origin removal notifies live fences at the durable revision before its enforced receipt", async () => {
+  const f=await fixture({originEnforcement:true});const draft=await f.prepare();
+  const added=await f.commit(draft);expect(added.receipt).toMatchObject({stage:"committed",enforcement:"enforced"});
+  const removing=await f.prepare({action:"remove",ruleId:rule.id});let fenced=false;
+  const release=f.settings.live.subscribe(()=>{fenced=true;expect(f.settings.live.read().rules).toEqual([]);expect(f.settings.live.revision()).toBe("2");});
+  try {const removed=await f.commit(removing);expect(fenced,"ENFORCED_REMOVAL_JOINS_LIVE_FENCE").toBe(true);expect(removed.receipt).toMatchObject({stage:"committed",enforcement:"enforced",currentRule:"removed"});expect(removed.capabilities).toMatchObject({originRules:true,recipientRules:true,repositoryRules:false});}finally{release();}
+});
+
+test("post-publication invalid policy cannot claim an enforced origin removal",async()=>{
+ let invalidate=false,target="";
+ const f=await fixture({originEnforcement:true,checkpoint:stage=>{if(invalidate&&stage==="file_published")writeFileSync(target,"---\nschema_version: invalid\n---\n");}});target=f.path;
+ await f.commit(await f.prepare());const removal=await f.prepare({action:"remove",ruleId:rule.id});invalidate=true;
+ const saved=await f.commit(removal);expect(saved.receipt,"INVALID_CURRENT_POLICY_NEVER_CLAIMS_REMOVAL_ENFORCED").toMatchObject({publication:"proved",stage:"partial",enforcement:"unavailable",currentRule:"unknown"});
+ expect(f.settings.live.read().rules[0]?.id).toBe(rule.id);
+});
+
+test("review: valid trust edits outside Settings cannot remain silently active",async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,initial);
+ expect(()=>f.settings.live.read(),"OUTSIDE_PUBLICATION_FENCES_STALE_TRUST").toThrow();
+ await f.settings.live.refresh();expect(f.settings.live.read().rules).toEqual([]);
+});
+
+test("review: real alternate policy publication refreshes durable trust under the same brain lock",async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const {createPolicyProposals}=await import('../src/brain/policy-proposal.js');
+ const service=createPolicyProposals({root:f.root,db:f.db,writer:f.writer,lock:f.lock,observeUserPolicy:(_id,write)=>write(),recordEvent:()=>{},afterPublication:()=>f.settings.refreshLocked()});
+ const result=await service.propose({principalId:'odysseus',turnId:'alternate-policy',sessionId:()=>null,signal:new AbortController().signal,isAuthorized:()=>true,isAvailable:()=>true,approve:async()=>true,emit(){}},'remove-origin',{content:initial,rationale:'Remove future source trust.'});
+ expect(result.state).toBe('updated');expect(f.settings.live.read().rules,'ALTERNATE_POLICY_WRITER_REMOVAL_IS_LIVE').toEqual([]);expect(f.settings.live.revision()).toBe('2');
+});
+
+test('review3: live trust evidence uses verified bytes after an unrelated policy edit',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const before=f.settings.live.read();
+ const changed=readFileSync(f.path,'utf8').replace('block_usd: 17','block_usd: 19');writeFileSync(f.path,changed);
+ const current=f.settings.live.read();expect(current.rules).toEqual(before.rules);expect(current.revision).toBe(before.revision);
+ expect(current.policyHash,'LIVE_ADMISSION_HASH_NAMES_VERIFIED_POLICY_BYTES').toBe(hash(changed));expect(current.policyHash).not.toBe(before.policyHash);
+});
+
+
+test('review4: oversized policy retains last-valid live trust with honest error',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const before=f.settings.live.read();writeFileSync(f.path,'x'.repeat(1024*1024+1));
+ await f.settings.live.refresh();expect(f.settings.live.read(),'UNREADABLE_POLICY_RETAINS_LAST_VALID_TRUST').toMatchObject({...before,error:'policy_unavailable'});expect(f.settings.live.revision()).toBe(before.revision);
+});
+
+for(const host of ['example.org','127.0.0.1','[::1]','xn--bcher-kva.example'])for(const kind of ['web_origin','tunnel_authority'] as const)test(`review4: Settings accepts enforced canonical ${kind} ${host}`,async()=>{
+ const f=await fixture({originEnforcement:true});const selector=kind==='web_origin'?{kind,scheme:'https' as const,host,port:443}:{kind,host,port:443};const draft=await f.prepare({action:'create',rule:{...rule,selector}});const saved=await f.commit(draft);expect(saved.receipt).toMatchObject({enforcement:'enforced'});expect(f.settings.live.read().rules[0]?.selector).toEqual(selector);
+});
+
+
+test('review5: malformed live policy reports an error before any refresh',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const before=f.settings.live.read(),valid=readFileSync(f.path,'utf8');writeFileSync(f.path,'---\nschema_version: [\n---\n');
+ expect(f.settings.live.read(),'MALFORMED_LIVE_POLICY_REPORTS_ERROR').toMatchObject({...before,error:'policy_unavailable'});
+ writeFileSync(f.path,valid);expect(f.settings.live.read()).toMatchObject({...before,error:null});
+});
+for(const refreshing of [false,true])test(`review5: removal during anchored verification fences ${refreshing?'refresh':'read'}`,async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,readFileSync(f.path,'utf8')+'\n');const read=fs.readSync;let swapped=false;
+ const spy=spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{const n=Reflect.apply(read,fs,args);if(n>0&&!swapped){swapped=true;renameSync(f.path,f.path+'.old');writeFileSync(f.path,initial);}return n;}) as typeof fs.readSync);
+ try{if(refreshing)await expect(f.settings.live.refresh(),'CHANGED_DURING_VERIFICATION_NEVER_RETAINS_RULE').rejects.toThrow();else expect(()=>f.settings.live.read(),'CHANGED_DURING_VERIFICATION_NEVER_RETAINS_RULE').toThrow();expect(swapped).toBe(true);}finally{spy.mockRestore();}
+});
+test('review5: unchanged large policy uses a cheap per-chunk revision fence',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,readFileSync(f.path,'utf8')+'\n'+ 'Ithaca. '.repeat(12000));const p=f.settings.live.read();const read=fs.readSync;let reads=0;
+ const spy=spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{reads++;return Reflect.apply(read,fs,args);}) as typeof fs.readSync);
+ try{for(let i=0;i<16;i++)expect(f.settings.live.revision()).toBe(p.revision);expect(reads,'UNCHANGED_CHUNKS_NEVER_REREAD_POLICY').toBe(0);
+ writeFileSync(f.path,initial);expect(()=>f.settings.live.revision(),'CHEAP_FENCE_STILL_DETECTS_REMOVAL').toThrow();expect(reads).toBeGreaterThan(0);
+ }finally{spy.mockRestore();}
+});
+
+test('review5: refresh rechecks current generation after its durable projection wait',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,readFileSync(f.path,'utf8')+'\nIthaca.');
+ const probe=await import('./fixtures/write-worker-probe');const channel=f.writer.channel(probe,{table:'trust_refresh_wait'});await channel.ready;const active=new Int32Array(new SharedArrayBuffer(4));const slow=channel.call('slow','Calypso',100,active);await Atomics.waitAsync(active,0,0).value;
+ let entered!:()=>void;const reached=new Promise<void>(r=>{entered=r;});const read=fs.readSync;const spy=spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{const n=Reflect.apply(read,fs,args);if(n>0)queueMicrotask(entered);return n;}) as typeof fs.readSync);
+ const pending=f.settings.live.refresh();try{await reached;}finally{spy.mockRestore();}writeFileSync(f.path,'---\nschema_version: [\n---\n');await slow;
+ expect((await pending).error,'REFRESH_NEVER_REPORTS_HEALTHY_AFTER_POLICY_CHANGES_DURING_COMMIT').toBe('policy_unavailable');
+});
+
+test('review7: a second reader recovers after the writer commits the same file generation',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const second=createTrustSettings({...f.options,originEnforcement:true});expect(second.live.read().rules).toHaveLength(1);
+ writeFileSync(f.path,initial);expect(()=>second.live.read()).toThrow();await f.settings.live.refresh();
+ expect(second.live.read().rules,'SECOND_READER_RECOVERS_WITHOUT_EXPLICIT_REFRESH').toEqual([]);expect(second.live.revision()).toBe('2');
+});
+
+for(const timeout of [false,true])test(`review10: turn trust refresh releases governed resources before the lock holder on ${timeout?'timeout':'cancel'}`,async()=>{
+ const f=await fixture({originEnforcement:true});const {WsHost}=await import('../src/ws/host');const {runSession}=await import('../src/ws/run-session');const {createSessionCatalog}=await import('../src/ws/session-catalog');const {createStaticBackendRegistry}=await import('../src/agent/backend');const {makeFakeBackend}=await import('./helpers/fake-backend');const {testAuthorization}=await import('./helpers/principal');
+ let held=0,entered!:()=>void,started=0;const reached=new Promise<void>(r=>{entered=r;});const original=f.lock.withLock.bind(f.lock);f.lock.withLock=(key,fn,opts)=>{if(key===BRAIN_LOCK_KEY)entered();return original(key,fn,opts);};
+ const policy=createGovernancePolicyReader(f.root).load();const backend=makeFakeBackend({id:'pi',async startTurn(){started++;}});const host=new WsHost({registry:createStaticBackendRegistry([backend],'pi'),catalog:createSessionCatalog(()=>f.db),turnTimeoutMs:5000,originTrust:f.settings.live,governedTurns:{async begin(){held++;return {sandbox:{profile:'strict',noteFacts:{}},policy,async end(){held--;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:'strict',policy};}} as never});
+ const release=await f.lock.acquire(BRAIN_LOCK_KEY);let running:Promise<void>|undefined;
+ try{running=runSession(host,{authorization:testAuthorization(),text:'Plan Ithaca',attachments:[]});await reached;if(!timeout)host.coordinator.cancelAll('Odysseus cancels');const done=await Promise.race([running.then(()=>true),Bun.sleep(timeout?6000:200).then(()=>false)]);
+ expect(done,'CANCELLED_REFRESH_NEVER_WAITS_FOR_UNRELATED_HOLDER').toBe(true);expect(held).toBe(0);expect(host.coordinator.isTurnActive()).toBe(false);expect(started).toBe(0);expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+ }finally{release();await running;host.close();}
+});
+
+for(const transition of ['remove','disable','retarget'] as const)test(`review12: two publishers retire source instances across ${transition}`,async()=>{
+ const f=await fixture({originEnforcement:true});const {request}=await import('node:http');const {prepareTurnEgress}=await import('../src/brain/turn-egress');const {createGovernanceWrites}=await import('../src/governance/event-writes');const {connectedSafetySession}=await import('./helpers/connected-safety');const {createEffectiveSafety}=await import('../src/governance/effective-safety');const {resolveGovernancePolicy}=await import('@schlessera/brain-common/internal/governance-policy');
+ let stream!:ReadableStreamDefaultController<Uint8Array>,first!:()=>void,second!:()=>void;const received=new Promise<void>(r=>{first=r;}),later=new Promise<void>(r=>{second=r;});const origin=Bun.serve({hostname:'127.0.0.1',port:0,fetch:()=>new Response(new ReadableStream<Uint8Array>({start(c){stream=c;c.enqueue(new TextEncoder().encode('first'));}}))});
+ const source={...rule,selector:{kind:'web_origin' as const,scheme:'http' as const,host:'127.0.0.1',port:origin.port!}};await f.commit(await f.prepare({action:'create',rule:source}));const publisher=createTrustSettings({...f.options,originEnforcement:true});connectedSafetySession(f.db,'voyage','turn-voyage');const writes=createGovernanceWrites(f.db,f.writer),controller=new AbortController(),safety=createEffectiveSafety(f.db,{turnId:'turn-voyage',sessionId:()=> 'voyage',policyHash:null,writes,trust:f.settings.live,authority:()=>({current:true,epoch:'1'})});
+ const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy({schema_version:1}),trust:f.settings.live,controller,turnId:'turn-voyage',sessionId:()=> 'voyage',model:()=>null,profile:'governed',origin:'interactive',governanceDb:f.db,governanceWrites:writes,record:writes.record,bridge:{emit(){},requestPermission:async()=>({behavior:'deny',message:'Athena declines'}),admissionSafety:safety}});
+ const closed=new Promise<void>((resolve,reject)=>{const req=request({socketPath:proxy.socketPath,path:origin.url.href},res=>{res.on('data',b=>{first();if(b.toString().includes('second'))second();});res.on('close',resolve);res.on('error',()=>resolve());});req.on('error',reject);req.end();});
+ const publish=async(change:unknown)=>{const p=await publisher.list('odysseus'),draft=await publisher.prepare('odysseus',{version:1,expectedTrustRevision:p.revision,expectedPolicyHash:p.policyHash,change});return publisher.commit('odysseus',{version:1,requestId:draft.receipt.requestId,reviewId:draft.review.reviewId,reviewedBytesHash:draft.review.reviewedBytesHash});};
+ try{await received;const birth=f.settings.live.read().ruleInstances[source.id];expect((await publish({action:'edit',rule:{...source,recipientWhileRestricted:true}})).receipt.enforcement).toBe('enforced');expect(f.settings.live.read().ruleInstances[source.id],'RECIPIENT_ONLY_EDIT_PRESERVES_SOURCE_INSTANCE').toBe(birth);if(transition==='retarget'){
+ // Settings intentionally requires remove/add for retargeting. Another valid policy
+ // writer can edit the same descriptor in place; no remove/create masks this case.
+ const edit=(host:string)=>writeFileSync(f.path,`---\n${JSON.stringify({schema_version:1,taint:{trusted_sources:[{...source,selector:{...source.selector,host}}]}})}\n---\nThe voyage policy.\n`);
+ edit('troy.example.org');await publisher.live.refresh();
+ const retargeted=f.settings.live.read();expect(retargeted.rules.map(r=>r.id)).toEqual([source.id]);expect(retargeted.rules[0]!.selector).toMatchObject({host:'troy.example.org'});expect(retargeted.ruleInstances[source.id],'SELECTOR_EDIT_RETIRES_OLD_INSTANCE_IN_PLACE').not.toBe(birth);
+ edit(source.selector.host);await publisher.live.refresh();
+ }else{const retired=transition==='remove'?{action:'remove',ruleId:source.id}:{action:'edit',rule:{...source,incomingContent:false,recipientWhileRestricted:true}};expect((await publish(retired)).receipt.enforcement).toBe('enforced');expect((await publish({action:transition==='remove'?'create':'edit',rule:source})).receipt.enforcement).toBe('enforced');}expect(f.settings.live.read().ruleInstances[source.id],'RESTORED_SOURCE_IS_A_NEW_INSTANCE').not.toBe(birth);try{stream.enqueue(new TextEncoder().encode('second'));}catch{}expect(await Promise.race([later.then(()=>true),closed.then(()=>false)]),'RECREATED_ID_NEVER_RESUMES_OLD_SOURCE_INSTANCE').toBe(false);expect(controller.signal.aborted).toBe(false);expect(JSON.stringify(await publisher.list('odysseus'))).not.toContain('ruleInstances');
+ }finally{proxy.stop();await closed;await proxy.settled();origin.stop(true);}
 });
