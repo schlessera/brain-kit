@@ -38,8 +38,12 @@ if (existsSync(privateRoot)) {
   expect(process.getuid?.(),"PRIVATE_FIXTURE_GUARD_UID").toBe(21001);
   expect(lstatSync(privateRoot).uid,"PRIVATE_FIXTURE_OWNER_UID").toBe(21002);
   expect(lstatSync(privateRoot).mode & 0o007,"PRIVATE_FIXTURE_NO_WORLD_ACCESS").toBe(0);
-  expect(readdirSync(privateRoot),"PRIVATE_FIXTURE_PROVENANCE_TRAVERSABLE").toContain(".gitattributes");
-  expect(()=>readFileSync(join(privateRoot,".gitattributes")),"PRIVATE_FIXTURE_CONTENTS_STAY_WORKER_ONLY").toThrow();
+  const privateEntries=readdirSync(privateRoot);
+  expect(privateEntries,"PRIVATE_FIXTURE_PROVENANCE_TRAVERSABLE").toContain("result.md");
+  const privateFile=join(privateRoot,privateEntries.includes(".gitattributes")?".gitattributes":"result.md");
+  let readError: string | undefined;
+  try {readFileSync(privateFile);} catch(error) {readError=(error as NodeJS.ErrnoException).code;}
+  expect(readError,"PRIVATE_FIXTURE_CONTENTS_STAY_WORKER_ONLY").toBe("EACCES");
   const runtime=bundledClaudeBinary();if(!runtime)throw Error("installed SDK identity unavailable");
   // Plan only: no native process launches. The registered root is exercised by
   // the real turn below; the same accessible, unregistered root must refuse.
