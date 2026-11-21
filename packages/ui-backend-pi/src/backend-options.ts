@@ -204,6 +204,8 @@ export interface SessionCaps {
 
 /** What one session's system prompt and toolset are conditioned on. */
 export interface SessionEnv {
+  /** Host-only startup observations, removed before worker serialization. */
+  startupTiming?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["startupTiming"];
   /** Host-only cleanup diagnostics, captured before worker initialization. */
   cleanupActivity?: BackendBridge["activity"];
   /** Internal static limits and current actionable budget context. */

@@ -1632,6 +1632,8 @@ const activityTurnLifecycleSchema = z.looseObject({
   journalStartedAt: z.number().nullable(),
   journalBeganAt: z.number().nullable(),
   backendInvokedAt: z.number().nullable(),
+  firstRelayRequestAt: z.number().nullable().optional(),
+  backendMissingEvidence: z.array(z.string()).optional(),
   firstFrameAt: z.number().nullable(),
   failureObservedAt: z.number().nullable(),
   endedAt: z.number().nullable(),
@@ -1644,6 +1646,8 @@ const activityTurnLifecycleSchema = z.looseObject({
   backendStartupMs: z.number().nullable(),
   subPhases: z.array(z.looseObject({ phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
     endedAt: z.number().nullable(), elapsedMs: z.number().nullable() })).optional(),
+  openSubPhases: z.array(z.looseObject({ phase: z.string(), name: z.string(), startedAt: z.number(),
+    endedAt: z.number().nullable(), elapsedMs: z.number().nullable(), timeBase: z.literal("worker").optional(), workerElapsedMs: z.number().nonnegative().optional() })).optional(),
   outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(), reason: z.string().nullable(),
 });
 
