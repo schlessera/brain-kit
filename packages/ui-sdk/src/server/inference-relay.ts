@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { startEgressProxy } from "./egress-proxy.js";
 import { INFERENCE_RELAY_PLACEHOLDER } from "@schlessera/brain-common/internal/provider-unavailable";
+import { observeDiagnostic } from "./startup-timing.js";
 
 /** Where the relay directory appears inside a restricted worker. */
 export const WORKER_INFERENCE_DIR = "/run/brain-inference";
@@ -36,6 +37,8 @@ export interface InferenceRelayOptions {
   egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "inference">;
   /** Called for every request, forwarded or refused. Values are never logged. */
   observe?(event: InferenceRelayEvent): void;
+  /** Host receipt of an authorized route, before egress admission or reading its body. Observability only. */
+  received?(path: string): void;
   /**
    * The exact origin turn admission proved this turn's recipient from (#2695).
    * A relay whose upstream has another origin refuses to start, so a turn that
@@ -95,7 +98,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   chmodSync(dir, separateIdentity ? 0o750 : 0o700);
   const socketPath = join(dir, "relay.sock");
   const refuse = (method: string, path: string, status: number, reason: string, denialReason?: string): Response => {
-    options.observe?.({ method, path, outcome: "refused", status, reason, ...(denialReason ? { denialReason } : {}) });
+    observeDiagnostic(() => options.observe?.({ method, path, outcome: "refused", status, reason, ...(denialReason ? { denialReason } : {}) }));
     return Response.json({ type: "error", error: { type: "brain_inference_refused", message: reason } }, { status });
   };
   let server: ReturnType<typeof Bun.serve>;
@@ -114,6 +117,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const path = url.pathname;
         if (request.method !== "POST") return refuse(request.method, path, 405, "Only inference requests are relayed");
         if (!routes.has(path)) return refuse(request.method, path, 403, "This path is not an authorized inference route");
+        observeDiagnostic(() => options.received?.(path));
         const target = new URL(upstream.origin);
         target.pathname = path; target.search = url.search;
         const operation = options.egress?.inference(request.method, target, request.signal);
@@ -206,7 +210,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           await response.body?.cancel().catch(() => {});
           return refuse(request.method, path, 502, "Inference upstream redirected; redirects are not followed");
         }
-        options.observe?.({ method: request.method, path, outcome: "forwarded", status: response.status });
+        observeDiagnostic(() => options.observe?.({ method: request.method, path, outcome: "forwarded", status: response.status }));
         const out = new Headers();
         for (const [name, value] of response.headers) if (!RESPONSE_STRIPPED.has(name.toLowerCase())) out.set(name, value);
         if (operation && !operation.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers))) {

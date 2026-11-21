@@ -76,6 +76,7 @@ export interface ClaudeSdkTurn {
   /** Flag-settings env values the host pinned itself; the settings check accepts exactly these. */
   pinnedSettingsEnv?: Readonly<Record<string, string>>;
   finishWorker(): Promise<void>;
+  sdkInitialized(): void;
   /** The resource limits this turn's workers hit (#1660): so far, and once they have exited. */
   workerLimits: { current(): WorkerLimitReport; settled(): Promise<WorkerLimitReport> };
   /** A worker-state refusal or stop (#1625), reported as the turn's failure. */
@@ -136,7 +137,8 @@ export function createClaudeSdkTurn(options: ClaudeSdkTurnOptions): ClaudeSdkTur
   // An autonomous turn gets the restricted envelope (#676): only the relay
   // route out, a placeholder credential and no ambient project configuration.
   const envelope = options.req.autonomous?.containment === "restricted"
-    ? claudeAutonomousEnvelope(options.profile, turnEnv(options.profile)) : undefined;
+    ? claudeAutonomousEnvelope(options.profile, turnEnv(options.profile), undefined,
+      path => { if (!path.endsWith("/count_tokens")) options.req.startupTiming?.received(); }) : undefined;
   try {
     const turn = assembleClaudeSdkTurn(options, envelope);
     if (options.req.autonomous) return turn;
@@ -493,7 +495,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits, turnTempLimits, reportCleanup: notice => req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
+    }, { limits: stateLimits, turnTempLimits, startupTiming: req.startupTiming, reportCleanup: notice => req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (!req.autonomous) addStateRoomWarning(sdkOptions, req, worker);
   /** This turn's answer text so far: what it links in turn temp is promoted, so a purge keeps it. */
@@ -530,6 +532,7 @@ function assembleClaudeSdkTurn(
         if (owned) acknowledgeClaudeContext(backend.brainPath, contextId, owned, childEnv);
       },
     workerLimits: { current: worker.limits, settled: worker.settledLimits },
+    sdkInitialized: worker.sdkInitialized,
     workerFailure: worker.failure,
     workerStartFailure: worker.startFailure,
     workerStateRoom: worker.stateRoom,

@@ -1,12 +1,13 @@
 /**
- * The agent-facing read over the activity record — the same data the UI
- * reads, shaped for model consumption and served through the backend
+ * The agent-facing read over backend activity, shaped for model consumption
+ * and served through the backend
  * bridge's `queryActivity` seam (the MCP tool calls it).
  *
  * Read-only by construction: nothing here writes. Free-text fields that
  * originated outside the primary agent's own context (failure reasons /
  * stderr tails, subagent transcript excerpts) are DATA, not instructions —
  * the tool layer labels them as such before they reach a model.
+ * Host lifecycle envelopes are UI diagnostics and never enter this result.
  */
 import type { Database } from "bun:sqlite";
 import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sdk/server";
@@ -47,7 +48,6 @@ export function runActivityQuery(
         windowHours: hoursBack,
         running: store.openRootSpans().map(liveSummary),
         finished: rows.map((r) => ({
-          lifecycle: store.lifecycle(r.runId) ?? undefined,
           runId: r.runId,
           origin: r.origin,
           name: r.name,
@@ -85,7 +85,6 @@ export function runActivityQuery(
           .get(query.runId) as any;
         const liveRollup = rollupRow ? rowToRunRollup(rollupRow) : null;
         return {
-          lifecycle,
           runId: query.runId,
           costUsd: liveRollup?.costUsd ?? null,
           effectiveCostUsd: liveRollup?.effectiveCostUsd ?? null,
@@ -113,11 +112,10 @@ export function runActivityQuery(
       const row = db
         .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
         .get(query.runId) as any;
-      if (!row) return lifecycle ? { lifecycle, runId: query.runId } : { error: `unknown run ${query.runId}` };
+      if (!row) return lifecycle ? { runId: query.runId } : { error: `unknown run ${query.runId}` };
       const rollup = rowToRunRollup(row);
       return {
         runId: query.runId,
-        lifecycle,
         detailPruned: true,
         rollup: {
           name: rollup.name,

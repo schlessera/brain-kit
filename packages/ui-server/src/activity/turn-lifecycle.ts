@@ -1,9 +1,10 @@
-import type { ActivityTurnLifecycle, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
+import type { ActivityTurnLifecycle, ActivityTurnSubPhase, ActivityTurnOpenSubPhase, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { AwaitableActivityStore } from "./store.js";
+import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { orderedWrites } from "./store-writes.js";
 
 /**
- * Starts one named step of an admission phase and returns its end (#3355).
+ * Starts one named lifecycle step and returns its end (#3355, #4285, #4286).
  * Steps ride on the record's next persisted milestone or terminal, so timing
  * adds no write to the turn path.
  */
@@ -16,9 +17,9 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   const record: ActivityTurnLifecycle = {
     hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,
-    journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstFrameAt: null, failureObservedAt: null,
+    journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstRelayRequestAt: null, backendMissingEvidence: [], firstFrameAt: null, failureObservedAt: null,
     endedAt: null, outcome: null, reason: null, totalElapsedMs: null, timeToFirstFrameMs: null,
-    queueWaitMs: null, governedAdmissionMs: null, budgetAdmissionMs: null, journalBeginMs: null, backendStartupMs: null, subPhases: [],
+    queueWaitMs: null, governedAdmissionMs: null, budgetAdmissionMs: null, journalBeginMs: null, backendStartupMs: null, subPhases: [], openSubPhases: [],
   };
   // Observability, including fanout, must never fail the observed turn. Each
   // write carries the record as it is now and fans out once committed (#2814).
@@ -29,7 +30,56 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     if (record.endedAt !== null) return;
     record.hostEvents.push({ principalId, kind, observedAt: clock() }); persist();
   };
+  const backendOpen = () => record.backendInvokedAt !== null && record.firstRelayRequestAt === null && record.endedAt === null;
+  const missingNames = new Set<string>();
+  let missingOmitted = false;
+  const omitMissing = () => {
+    if (missingOmitted) return;
+    missingOmitted = true;
+    record.backendMissingEvidence!.push("additional_missing_evidence_omitted");
+  };
+  // Milestone intervals can be observed after steps that started later.
+  // Insert by their actual start, retaining observation order for equal starts.
+  const addOpenStep = (step: ActivityTurnOpenSubPhase) => {
+    const steps = record.openSubPhases ??= [];
+    const next = steps.findIndex(other => other.startedAt > step.startedAt);
+    steps.splice(next < 0 ? steps.length : next, 0, step);
+  };
+  const phaseTimer = (phase: string): PhaseTimer => name => {
+    if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
+    const step = { phase, name, startedAt: clock(), endedAt: null as number | null, elapsedMs: null };
+    if (phase === "governed" || phase === "journal") (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
+    else addOpenStep(step);
+    return () => { if (record.endedAt === null && step.endedAt === null && (phase !== "backend" || backendOpen())) step.endedAt = clock(); };
+  };
+  const startupTiming: NonNullable<StartTurnRequest["startupTiming"]> = {
+    start: phaseTimer("backend"),
+    worker(name, durationMs) {
+      if (!backendOpen() || !Number.isFinite(durationMs) || durationMs < 0) return;
+      const at = clock();
+      addOpenStep({ phase: "backend", name, startedAt: at, endedAt: at, elapsedMs: null,
+        timeBase: "worker", workerElapsedMs: durationMs });
+    },
+    // A later init frame may identify a server whose connection clock was
+    // unavailable. This reports absence only, never a late timing mark.
+    missing(name) {
+      if (record.backendInvokedAt === null || record.endedAt !== null) return;
+      // Reserve one of 64 slots for visible loss; never retain oversized names
+      // or the unbounded set of omitted names. Check length before hashing.
+      if (typeof name !== "string" || name.length > 256 || Buffer.byteLength(name) > 256 || name === "additional_missing_evidence_omitted") { omitMissing(); return; }
+      if (missingNames.has(name)) return;
+      if (missingNames.size >= 63) { omitMissing(); return; }
+      missingNames.add(name); record.backendMissingEvidence!.push(name);
+    },
+    received() {
+      if (!backendOpen()) return;
+      const at = clock(); record.firstRelayRequestAt = at;
+      addOpenStep({ phase: "backend", name: "first_relay_request", startedAt: record.backendInvokedAt!, endedAt: at, elapsedMs: null });
+      persist();
+    },
+  };
   return {
+    startupTiming,
     recordHostEvent,
     recordCancellation(principalId: string, kind: "turn" | "ask_user" = "turn") {
       recordHostEvent(kind === "turn" ? "turn_cancelled" : "ask_user_cancelled", principalId);
@@ -42,19 +92,14 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
       record[milestone] = at;
       persist();
     },
-    timer(phase: "governed" | "journal"): PhaseTimer {
-      return name => {
-        if (record.endedAt !== null) return () => {};
-        const step = { phase, name, startedAt: clock(), endedAt: null as number | null, elapsedMs: null };
-        (record.subPhases ??= []).push(step);
-        return () => { if (record.endedAt === null && step.endedAt === null) step.endedAt = clock(); };
-      };
-    },
+    timer: phaseTimer,
     bindSession(id: string) { if (record.endedAt === null) { record.sessionId = id; persist(); } },
     linkBackend(id: string) { if (record.endedAt === null) { record.backendRunId = id; persist(); } },
     firstFrame(id: string | null) {
       if (record.endedAt !== null || record.firstFrameAt !== null) return;
-      record.firstFrameAt = clock(); record.backendRunId = id; persist();
+      const at = clock();
+      if (backendOpen()) addOpenStep({ phase: "backend", name: "first_backend_frame", startedAt: record.backendInvokedAt!, endedAt: at, elapsedMs: null });
+      record.firstFrameAt = at; record.backendRunId = id; persist();
     },
     finish(outcome: ActivitySpanOutcome, reason: string | null = null) {
       if (record.endedAt !== null) return;
@@ -78,5 +123,7 @@ export function lifecycleTiming(record: ActivityTurnLifecycle): ActivityTurnLife
     backendStartupMs: phase(record.backendInvokedAt, record.firstFrameAt),
     // A step follows its phase's rules: unfinished, it measures to the failure boundary.
     ...(record.subPhases ? { subPhases: record.subPhases.map(step => ({ ...step, elapsedMs: phase(step.startedAt, step.endedAt) })) } : {}),
+    ...(record.openSubPhases ? { openSubPhases: record.openSubPhases.map(step => ({ ...step, elapsedMs: step.timeBase === "worker" ? step.workerElapsedMs ?? null
+      : phase(step.startedAt, step.endedAt ?? (step.phase === "backend" ? record.firstRelayRequestAt ?? null : null)) })) } : {}),
   };
 }
