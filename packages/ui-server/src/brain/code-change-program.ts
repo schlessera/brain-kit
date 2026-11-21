@@ -51,7 +51,17 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
     # returned non-thin pack includes every reachable endpoint object.
     env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = os.path.join(source, "objects")
     def git(*values, data=None): return command(args + list(values), data)
-    if request.get("pack"):
+    if request.get("pack_path"):
+        fd = os.open(request["pack_path"], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as previous_pack:
+            if not stat.S_ISREG(os.fstat(fd).st_mode): fail("Invalid previous endpoint pack")
+            digest = hashlib.sha256()
+            while chunk := previous_pack.read(64 * 1024): digest.update(chunk)
+            if digest.hexdigest() != request["pack_hash"]: fail("Previous endpoint pack checksum changed")
+            previous_pack.seek(0)
+            result = subprocess.run(["/usr/bin/git", "--git-dir=" + repository, "unpack-objects", "-q"], stdin=previous_pack, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+            if result.returncode: fail("Previous endpoint unpack refused")
+    elif request.get("pack"):
         git("unpack-objects", "-q", data=base64.b64decode(request["pack"], validate=True))
     tree_head = oid(git("rev-parse", commit + "^{tree}").decode().strip())
     tree_before = oid(request.get("tree_before", tree_head))
@@ -230,7 +240,7 @@ import json, os, sys
 root = sys.argv[1]
 result = []
 try:
-    with os.scandir(os.path.join(root, "workspaces")) as entries:
+    with os.scandir(root) as entries:
         for entry in entries:
             if len(result) >= 1024: raise RuntimeError("Too many writable checkouts")
             if entry.is_dir(follow_symlinks=False):

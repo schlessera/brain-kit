@@ -208,6 +208,7 @@ test("managed checkout receipts capture at release and turn end without per-resu
     expect(pool.events.filter(event => event.operation === "checkpoint").length, "NO_GIT_CHECKPOINT_PER_TOOL_OBSERVATION").toBe(checkpoints);
     await journal.releaseWorktree("sail", tree.id);
     expect(journal.details("ithaca", "sail")!.codeChanges![0]).toMatchObject({ checkout: key, paths: [{ path: "chart.md", kind: "modified" }] });
+    expect([journal.summary("sail").changedFiles, journal.summary("sail").changedFiles, journal.summary("sail").changedFiles], "RECEIPT_SUMMARY_READS_NEVER_MUTATE_CACHED_COUNTS").toEqual([1, 1, 1]);
     writeFileSync(join(tree.path!, "raft.md"), "The raft\n"); await journal.finish("sail");
     expect(journal.details("ithaca", "sail")!.codeChanges![0]).toMatchObject({ state: "complete", paths: [{ path: "chart.md", kind: "modified" }, { path: "raft.md", kind: "added" }] });
     expect(journal.details("ithaca", "sail")!.changes, "MANAGED_CHECKOUT_HAS_NO_FILE_ROWS").toEqual([]);
@@ -351,4 +352,172 @@ test("receipt restores a file over an empty replacement directory", () => {
     expect(readFileSync(path, "utf8"), "EMPTY_DIRECTORY_REPLACEMENT_RESTORES_ORIGINAL_FILE").toBe("Ithaca\n");
     expect(capture(f.checkout).tree_after).toBe(receipt.tree_before);
   } finally { f.close(); }
+});
+
+function inBrainCodeJournal() {
+  const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db");
+  mkdirSync(join(brain, "workspaces"), { recursive: true });
+  const checkout = join(brain, "workspaces", "argo"); renameSync(f.checkout, checkout);
+  const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
+  db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
+  return { ...f, brain, dbPath, checkout, native, maintenance, db, journal, async close() { await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); } };
+}
+const codeMetadata = { sessionId: "ithaca", actor: "interactive" as const, profile: "governed" as const, model: null, policyHash: null, workspaceReadOnly: false };
+
+test("receipt-covered checkout growth pauses the live turn at its byte cap without retaining file bytes", async () => {
+  const f = inBrainCodeJournal(), events: string[] = [], exited = Promise.withResolvers<number>();
+  const scope = createTurnScope(f.db, { brainPath: f.brain, journal: f.journal, connected: () => true, changed: () => {}, space: () => ({ total: 1e12, free: 1e12 }) });
+  try {
+    await f.journal.begin("sail", codeMetadata, () => {});
+    await scope.begin("sail", { sessionId: "ithaca", principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1, scope: { max_bytes_written: 16 * 1024 * 1024 } }), source: "policy", hardTimeoutMs: 3600_000, current: () => true, stop: () => {} });
+    scope.workerStarted("sail", { exited: exited.promise, freeze: () => { events.push("freeze"); }, resume: () => { events.push("resume"); }, kill: () => { events.push("kill"); } } as Parameters<typeof scope.workerStarted>[1]);
+    writeFileSync(join(f.checkout, "cargo.bin"), Buffer.alloc(17 * 1024 * 1024, 65));
+    await f.journal.observe();
+    expect(scope.isPaused("sail"), "EXCLUDED_CHECKOUT_BYTES_ENFORCE_LIVE_SCOPE_CAP").toBe(true);
+    expect(events).not.toContain("resume");
+    const facts = f.journal.summary("sail").scope!;
+    expect(facts.observedBytes).toBe(17 * 1024 * 1024);
+    expect(facts.changedPaths, "EXCLUDED_CHECKOUT_PATHS_CHARGE_SCOPE").toBe(1);
+    expect(facts.receipts[0]).toMatchObject({ state: "paused", dimension: "turn_bytes", cap: 16 * 1024 * 1024, count: 17 * 1024 * 1024 });
+    expect(f.journal.details("ithaca", "sail")!.changes, "EXCLUDED_CHECKOUT_CONTENT_IS_NOT_RETAINED").toEqual([]);
+    // A later observation of the unchanged file must not charge its bytes again.
+    await f.journal.observe();
+    expect(f.journal.summary("sail").scope!.observedBytes).toBe(17 * 1024 * 1024);
+  } finally { exited.resolve(0); await scope.finish("sail"); scope.close(); await f.close(); }
+});
+
+import { symlinkSync } from "node:fs";
+test("final capture refuses a checkout replaced with a parent symlink and retains no outside endpoint", async () => {
+  const f = inBrainCodeJournal();
+  try {
+    await f.journal.begin("sail", codeMetadata, () => {});
+    const baseline = f.journal.details("ithaca", "sail")!.codeChanges![0]!;
+    renameSync(f.checkout, join(f.brain, "workspaces", "moored"));
+    // The parent is itself a valid repository, so following the link would
+    // capture unrelated source rather than failing merely for lack of .git.
+    cpSync(join(f.brain, "workspaces", "moored", ".git"), join(f.brain, ".git"), { recursive: true });
+    rmSync(join(f.brain, "workspaces", "moored"), { recursive: true });
+    writeFileSync(join(f.brain, "outside.md"), "The Sirens\n");
+    symlinkSync("..", f.checkout);
+    await f.journal.finish("sail");
+    const details = f.journal.details("ithaca", "sail")!;
+    expect(details.summary.state, "SYMLINK_CHECKOUT_NEVER_BECOMES_COMPLETE").toBe("partial");
+    expect(details.codeChanges![0]!.tree_after, "SYMLINK_CHECKOUT_RETAINS_ONLY_ADMITTED_ENDPOINT").toBe(baseline.tree_after);
+    expect(details.codeChanges![0]!.paths).toEqual([]);
+    expect(details.missing).toContainEqual(expect.objectContaining({ reason: expect.stringContaining("not a real directory") }));
+  } finally { await f.close(); }
+});
+
+import * as workerSdk from "@schlessera/brain-ui-sdk/internal";
+import { spyOn } from "bun:test";
+import { listCodeCheckouts } from "../src/brain/code-change-worker.js";
+test("checkout discovery mounts only workspaces and cannot read checkpoint root env files", async () => {
+  const f = inBrainCodeJournal(), original = workerSdk.runMaintenanceWorker;
+  writeFileSync(join(f.brain, ".env"), "ARGO_SECRET=the-bow\\n"); writeFileSync(join(f.brain, ".env.local"), "ARGO_SECRET=the-raft\\n");
+  const checkpoint = await f.native.manager.checkpoint("discovery");
+  let probes = 0;
+  const spy = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
+    probes++;
+    const probe = await original({ ...input, command: ["/usr/bin/python3", "-I", "-S", "-c", 'import json,sys; result=[]\nfor path in sys.argv[1:]:\n try:\n  with open(path) as file: file.read(1)\n  result.append(True)\n except OSError: result.append(False)\nprint(json.dumps(result))', join(checkpoint.path, ".env"), join(checkpoint.path, ".env.local")] });
+    expect(probe.exitCode, probe.stderr).toBe(0);
+    expect(JSON.parse(probe.stdout), "DISCOVERY_CANNOT_READ_ROOT_ENV_ALIASES").toEqual([false, false]);
+    return original(input);
+  });
+  try {
+    expect(await listCodeCheckouts(f.brain, checkpoint.path, f.maintenance)).toEqual(["workspaces/argo"]);
+    expect(probes).toBe(1);
+  } finally { spy.mockRestore(); await f.native.manager.release(checkpoint.id); await f.close(); }
+});
+
+test("checkout discovery refuses a symlinked workspaces directory before launch", async () => {
+  const f = inBrainCodeJournal(), original = workerSdk.runMaintenanceWorker;
+  renameSync(join(f.brain, "workspaces"), join(f.brain, "moored")); symlinkSync("moored", join(f.brain, "workspaces"));
+  const checkpoint = await f.native.manager.checkpoint("discovery"), spy = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(original);
+  try {
+    await expectRejection(listCodeCheckouts(f.brain, checkpoint.path, f.maintenance), "not a real directory");
+    expect(spy, "UNVERIFIED_WORKSPACES_NEVER_REACHES_MAINTENANCE").not.toHaveBeenCalled();
+  } finally { spy.mockRestore(); await f.native.manager.release(checkpoint.id); await f.close(); }
+});
+
+test("a worker-forced release capture failure stops only its holding turn and rejects later writes", async () => {
+  const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db"); mkdirSync(brain);
+  const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
+  const pool = referencePoolDouble(join(f.root, "pool")), source = await pool.poolCreate(crypto.randomUUID(), "source", null, 1024 * 1024);
+  cpSync(f.checkout, source.path!, { recursive: true }); await pool.poolSeal(source.id);
+  const tree = await pool.poolCreate(crypto.randomUUID(), "worktree", source.id, 1024 * 1024);
+  const unsupported = async () => { throw Error("No private reader in this fixture"); };
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance }, referencePool: {
+    ...pool, poolReadCheckpoint: unsupported, poolStatCheckpoint: unsupported, poolListCheckpoint: unsupported,
+  } });
+  let current = true, stopped = "", worker: Awaited<ReturnType<typeof workerSdk.launchMaintenanceWorkerAsync>> | undefined;
+  let stdoutDrain: Promise<void> | undefined, stderrDrain: Promise<string> | undefined;
+  try {
+    await journal.begin("sail", { ...codeMetadata, workspaceReadOnly: true }, error => { current = false; stopped = error.message; worker?.kill("SIGKILL"); });
+    await journal.begin("other", { ...codeMetadata, workspaceReadOnly: true }, () => {});
+    await journal.attachWorktree("sail", tree.id);
+    // The real credential-free worker mutates only this fixture checkout.
+    // Its pipe remains open so it can attempt another write unless stop kills it.
+    worker = await workerSdk.launchMaintenanceWorkerAsync({ ...maintenance, brainPath: brain, credentials: false, env: { PATH: "/usr/bin:/bin" },
+      readPaths: [tree.path!], writeDirectories: [tree.path!], tempKind: "git", tempDomain: { statePath: join(f.root, "productive-worker.db") },
+      command: ["/bin/sh", "-c", 'printf unsupported > "$1/.gitmodules"; printf ready; while IFS= read -r command; do printf later > "$1/later.md"; done', "odysseus-worker", tree.path!] });
+    const ready = Promise.withResolvers<string>();
+    void worker.exited.then(() => ready.reject(Error("Worker ended before its unsupported-entry write")));
+    stdoutDrain = (async () => { for await (const chunk of worker!.stdout) ready.resolve(new TextDecoder().decode(chunk)); })();
+    stderrDrain = new Response(worker.stderr).text();
+    expect(await ready.promise).toBe("ready");
+    await journal.releaseWorktree("sail", tree.id);
+    expect(current, "FAILED_RELEASE_ENDS_HOLDING_TURN").toBe(false);
+    expect(stopped).toContain("Submodule receipts are unsupported");
+    expect(await worker.exited, "FAILED_RELEASE_KILLS_PRODUCTIVE_WORKER").not.toBe(0);
+    await worker.input("write again\n");
+    await Promise.all([stdoutDrain, stderrDrain]); await worker.released();
+    expect(existsSync(join(tree.path!, "later.md")), "ENDED_CODE_TURN_ACCEPTS_NO_LATER_WRITES").toBe(false);
+    expect(journal.summary("sail").state).toBe("partial");
+    expect(journal.summary("other").state, "FAILED_RELEASE_LEAVES_OTHER_TURN_USABLE").toBe("recording");
+    await journal.finish("sail"); await journal.finish("other");
+  } finally { worker?.kill("SIGKILL"); if (worker) { await worker.input(""); await Promise.allSettled([worker.exited, stdoutDrain, stderrDrain]); await worker.released(); } await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); }
+});
+
+import { createCodeChangeHistory } from "../src/brain/code-change-history.js";
+import { createWriterGate } from "../src/brain/writer-gate.js";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+test("code history rejects voice-turn receipts before dispatching a filesystem effect", async () => {
+  const f = inBrainCodeJournal(), gate = createWriterGate(f.db, f.brain);
+  try {
+    await f.journal.begin("voice", { ...codeMetadata, actor: "voice" }, () => {});
+    writeFileSync(join(f.checkout, "chart.md"), "Scheria\n"); await f.journal.finish("voice");
+    let effects = 0;
+    const history = createCodeChangeHistory(f.db, { brainPath: f.brain, journal: f.journal, gate, lock: createKeyedLock(), nativeManager: f.native.client, maintenance: f.maintenance,
+      boundary: { run: async () => { effects++; return { exitCode: 0, stdout: JSON.stringify({ status: "restored" }), stderr: "" }; } } as unknown as Parameters<typeof createCodeChangeHistory>[1]["boundary"], isAuthorized: () => true });
+    const id = crypto.randomUUID();
+    await expectRejection(history.revert(id, "odysseus", "ithaca", "voice", "workspaces/argo"), "not available for a user history operation", "VOICE_CODE_HISTORY_REFUSES_ORIGINAL_VOICE_TURN");
+    expect(effects, "VOICE_CODE_HISTORY_NEVER_DISPATCHES_EFFECT").toBe(0);
+    expect(f.db.query("SELECT count(*) AS n FROM turn_journal_code_reverts WHERE id=?").get(id)).toEqual({ n: 0 });
+    expect(readFileSync(join(f.checkout, "chart.md"), "utf8")).toBe("Scheria\n");
+  } finally { await gate.settled(); await f.close(); }
+});
+
+import * as fs from "node:fs";
+import { randomBytes } from "node:crypto";
+test("large endpoint capture and previous-pack reads yield to the event loop without synchronous pack I/O", async () => {
+  const f = inBrainCodeJournal();
+  writeFileSync(join(f.checkout, "cargo.bin"), randomBytes(4 * 1024 * 1024));
+  let ticks = 0, synchronousPackIO = 0;
+  const originalWrite = fs.writeSync, originalSync = fs.fsyncSync, originalRead = fs.readSync;
+  const large = (fd: number) => { try { return fs.fstatSync(fd).size >= 1024 * 1024; } catch { return false; } };
+  const writeSpy = spyOn(fs, "writeSync").mockImplementation(((...args: Parameters<typeof fs.writeSync>) => { if (large(args[0])) synchronousPackIO++; return (originalWrite as any)(...args); }) as typeof fs.writeSync);
+  const syncSpy = spyOn(fs, "fsyncSync").mockImplementation(fd => { if (large(fd)) synchronousPackIO++; return originalSync(fd); });
+  const readSpy = spyOn(fs, "readSync").mockImplementation(((...args: Parameters<typeof fs.readSync>) => { if (large(args[0])) synchronousPackIO++; return (originalRead as any)(...args); }) as typeof fs.readSync);
+  const timer = setInterval(() => ticks++, 1);
+  try {
+    await f.journal.begin("sail", codeMetadata, () => {});
+    const firstTicks = ticks; writeFileSync(join(f.checkout, "chart.md"), "Scheria\n");
+    await f.journal.finish("sail");
+    expect(ticks, "LARGE_ENDPOINT_CAPTURE_SERVICES_EVENT_LOOP").toBeGreaterThan(firstTicks);
+    expect(synchronousPackIO, "ENDPOINT_PACK_IO_NEVER_BLOCKS_SERVER_LOOP").toBe(0);
+    const preview = await f.journal.codePreview("ithaca", "sail", "workspaces/argo");
+    expect(preview).toMatchObject({ inline: true, diff: expect.stringContaining("Binary files") });
+    expect(synchronousPackIO, "PREVIOUS_PACK_ENCODING_READS_ASYNCHRONOUSLY").toBe(0);
+  } finally { clearInterval(timer); writeSpy.mockRestore(); syncSpy.mockRestore(); readSpy.mockRestore(); await f.close(); }
 });

@@ -44,6 +44,7 @@ export function createCodeChangeHistory(db: Database, options: {
     let recorded = false;
     try {
       return await options.lock.withLock(BRAIN_LOCK_KEY, () => options.lock.withLock(GIT_LOCK_KEY, () => journal.withCodeEvidence(sessionId, turnId, checkout, async (receipt, pack) => {
+        if (!["interactive", "user"].includes(journal.summary(turnId).actor ?? "")) throw Error("This turn is not available for a user history operation.");
         if (!options.isAuthorized(principalId) || receipt.state !== "complete" || journal.summary(turnId).state === "recording") throw Error("A current owner and a completed checkout receipt are required");
         // A lost response or process death leaves this operation unknown. Reusing
         // its identity can only read it, never dispatch its filesystem effect again.

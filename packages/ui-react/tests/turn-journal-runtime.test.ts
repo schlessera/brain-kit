@@ -566,3 +566,23 @@ test("code changes stay in turn history and require owner confirmation; later ch
     expect(outside).toEqual([]);
   } finally { await context.close(); }
 });
+
+
+test("voice checkout history allows preview and hides code revert controls", async () => {
+  const { context, page, outside } = await scene();
+  const details = app.wsHost.journal!.details("ithaca", turnId)!;
+  const oid = "a".repeat(40);
+  try {
+    await page.route(`**/api/sessions/ithaca/turns/${turnId}/journal`, route => route.fulfill({ json: {
+      ...details, summary: { ...details.summary, actor: "voice" },
+      codeChanges: [{ checkout: "workspaces/argo", state: "complete", head_before: { commit: oid, ref: null }, head_after: { commit: oid, ref: null }, tree_before: oid, tree_after: oid,
+        paths: [{ path: "chart.md", kind: "modified", untracked: false }], bytes: 16, untracked: 0, ignore_changed: false }],
+    } }));
+    await page.getByRole("button", { name: /changed file/ }).click();
+    await page.getByRole("heading", { name: "Code changes · workspaces/argo" }).waitFor({ state: "visible" });
+    expect(await page.getByRole("button", { name: "Review code changes", exact: true }).count()).toBe(1);
+    expect(await page.getByRole("button", { name: "Revert code changes", exact: true }).count(), "VOICE_HISTORY_HAS_NO_CODE_REVERT_CONTROL").toBe(0);
+    expect(await page.getByRole("button", { name: "Confirm code revert", exact: true }).count()).toBe(0);
+    expect(outside).toEqual([]);
+  } finally { await context.close(); }
+});

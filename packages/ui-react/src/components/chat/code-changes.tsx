@@ -4,7 +4,7 @@ import { Button, DiffBlock } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 
 /** One checkout entry inside the existing turn history. */
-export function CodeChanges({ receipt, sessionId, turnId }: { receipt: CodeChangeReceipt; sessionId: string; turnId: string }) {
+export function CodeChanges({ receipt, sessionId, turnId, canRevert }: { receipt: CodeChangeReceipt; sessionId: string; turnId: string; canRevert: boolean }) {
   const root = useBrainUiRoot();
   const [preview, setPreview] = useState<{ inline: boolean; diff?: string; reason?: string } | null>(null);
   const [confirming, setConfirming] = useState(false), [pending, setPending] = useState(false);
@@ -44,10 +44,10 @@ export function CodeChanges({ receipt, sessionId, turnId }: { receipt: CodeChang
     <ul>{receipt.paths.map(path => <li key={path.path} className="break-all">{path.path} · {path.kind}{path.untracked ? " · untracked" : ""}</li>)}</ul>
     <div className="flex flex-wrap gap-2">
       <Button label="Review code changes" size="sm" reach block={false} disabled={pending} onClick={() => { void review(); }} />
-      {receipt.state === "complete" && receipt.paths.length > 0 && !operation && <Button label="Revert code changes" size="sm" reach block={false} disabled={pending} onClick={() => setConfirming(true)} />}
+      {canRevert && receipt.state === "complete" && receipt.paths.length > 0 && !operation && <Button label="Revert code changes" size="sm" reach block={false} disabled={pending} onClick={() => setConfirming(true)} />}
       {operation && <Button label="Check original operation" size="sm" reach block={false} disabled={pending} onClick={() => { void reconcile(); }} />}
     </div>
-    {confirming && <div className="grid gap-2" role="group" aria-label="Confirm code revert">
+    {canRevert && confirming && <div className="grid gap-2" role="group" aria-label="Confirm code revert">
       <p>Restore these paths to their earlier tree and remove files this receipt added? A fresh comparison refuses later changes.</p>
       <div className="flex flex-wrap gap-2"><Button label="Confirm code revert" reach block={false} disabled={pending} onClick={() => { void revert(); }} /><Button label="Cancel" reach block={false} onClick={() => setConfirming(false)} /></div>
     </div>}

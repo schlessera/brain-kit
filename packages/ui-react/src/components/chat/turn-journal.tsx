@@ -117,7 +117,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {error && <p role="status">{error}</p>}
         {details && <h3 className="font-medium">What changed</h3>}
         {revert.controls}
-        {details?.codeChanges?.map(receipt => <CodeChanges key={receipt.checkout} receipt={receipt} sessionId={sessionId!} turnId={turnId!} />)}
+        {details?.codeChanges?.map(receipt => <CodeChanges key={receipt.checkout} canRevert={details.summary.actor === "interactive" || details.summary.actor === "user"} receipt={receipt} sessionId={sessionId!} turnId={turnId!} />)}
         {details && !details.codeChanges?.length && groups.slice(0,4).every(([,entries]) => !entries.length) && <p>No retained content, steering, policy or workspace changes.</p>}
         {groups.map(([name, entries]) => entries.length > 0 && <section key={name} className="min-w-0"><h3 className="font-medium">{name}</h3>
           {name.startsWith("Search index") && <p>The search index is rebuilt from your notes, so only its size and timestamps were recorded. Its bytes were not kept; it cannot be reviewed or restored, and history revert leaves it for the next rebuild.</p>}

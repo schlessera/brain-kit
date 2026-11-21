@@ -228,7 +228,8 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
     },
     stream(hash, released) {
       const fd = openObject(hash), bytes = fstatSync(fd).size;
-      let position = 0, ended = false;
+      let position = 0, ended = false, cancelled = false;
+      let reading: Promise<{ bytesRead: number }> | undefined;
       const digest = createHash("sha256");
       const finish = async () => { if (!ended) { ended = true; closeSync(fd); await released(); } };
       const body = new ReadableStream<Uint8Array>({
@@ -239,12 +240,15 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
               await finish(); controller.close(); return;
             }
             const chunk = Buffer.alloc(Math.min(64 * 1024, bytes - position));
-            const count = readSync(fd, chunk, 0, chunk.length, position);
+            reading = readAsync(fd, chunk, 0, chunk.length, position);
+            const { bytesRead: count } = await reading;
+            reading = undefined;
+            if (cancelled) return;
             if (!count) throw new Error("Journal object ended before its recorded size.");
             const observed = chunk.subarray(0, count); digest.update(observed); position += count; controller.enqueue(observed);
           } catch (error) { await finish(); controller.error(error); }
         },
-        async cancel() { await finish(); },
+        async cancel() { cancelled = true; await reading?.catch(() => {}); await finish(); },
       });
       return { body, bytes };
     },

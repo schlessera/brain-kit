@@ -6,7 +6,7 @@ import { BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-a
 import { JournalObservationCounters } from "./journal-observation-counters.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
-import { captureCodeChanges, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES, CODE_EVIDENCE_BYTES } from "./code-change-worker.js";
+import { captureCodeChanges, checkedCodeDirectory, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES, CODE_EVIDENCE_BYTES } from "./code-change-worker.js";
 import type { MaintenanceHost, WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { randomUUID } from "node:crypto";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
@@ -241,7 +241,34 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
 
   const checkoutKey = (turnId: string, checkout: string) => JSON.stringify([turnId, checkout]);
-  const packBytes = (hash: string) => objects.read(hash, CODE_EVIDENCE_BYTES).toString("base64");
+  async function packBytes(hash: string): Promise<string> {
+    const { body, bytes } = objects.stream(hash, () => {});
+    if (bytes > CODE_EVIDENCE_BYTES) { await body.cancel(); throw Error("Endpoint pack exceeds byte bound"); }
+    const chunks: string[] = []; let remainder = Buffer.alloc(0);
+    for await (const chunk of body) {
+      const joined = Buffer.concat([remainder, chunk]), length = joined.length - joined.length % 3;
+      chunks.push(joined.subarray(0, length).toString("base64")); remainder = joined.subarray(length);
+    }
+    if (remainder.length) chunks.push(remainder.toString("base64"));
+    return chunks.join("");
+  }
+  async function retainPack(pack: string, turnId: string, signal?: AbortSignal): Promise<string> {
+    const bytes = Buffer.byteLength(pack, "base64"), temporary = await readIdentity.createTemporary(bytes);
+    try {
+      for (let offset = 0; offset < pack.length; offset += 64 * 1024) {
+        signal?.throwIfAborted();
+        const chunk = Buffer.from(pack.slice(offset, offset + 64 * 1024), "base64");
+        let written = 0;
+        while (written < chunk.length) {
+          const result = await temporary.file.write(chunk, written, chunk.length - written, null);
+          if (!result.bytesWritten) throw Error("Endpoint pack write made no progress");
+          written += result.bytesWritten;
+        }
+      }
+      return await retain(() => objects.putFileAsync(temporary.file.fd, bytes, signal, [turnId]));
+    } finally { await temporary.file.close(); await temporary.release(); }
+  }
+  const codeScopeFacts = new Map<string, { paths: Set<string>; bytes: number }>();
   async function captureCheckout(turnId: string, checkout: string, manager: NativeJournalManager, relative: string, signal?: AbortSignal, final = false): Promise<void> {
     const key = checkoutKey(turnId, checkout), held = checkouts.get(key);
     const previous = held ?? (db.query(`SELECT c.receipt,c.pack_hash FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
@@ -250,14 +277,17 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const previousHash = previous ? "hash" in previous ? previous.hash : previous.pack_hash : undefined;
     const checkpointId = randomUUID();
     const maximum = relative ? CODE_CHECKOUT_BYTES : (db.query("SELECT allowance FROM reference_worktrees WHERE id=?").get(checkout.split("/")[2]!) as { allowance: number } | null)?.allowance ?? CODE_CHECKOUT_BYTES;
+    let packLease: string | undefined;
     try {
       const checkpoint = await manager.checkpoint(checkpointId, signal);
-      const result = await withCodeMaintenance(host => captureCodeChanges(options.brainPath, relative ? join(checkpoint.path, relative) : checkpoint.path,
-        earlier && previousHash ? { tree_before: held ? earlier.tree_before : earlier.tree_after, head_before: held ? earlier.head_before : undefined, pack: packBytes(previousHash) } : undefined,
+      const directory = await checkedCodeDirectory(checkpoint.path, relative);
+      if (previousHash) packLease = await call<string>("openRead", previousHash);
+      const result = await withCodeMaintenance(host => captureCodeChanges(options.brainPath, directory,
+        earlier && previousHash ? { tree_before: held ? earlier.tree_before : earlier.tree_after, head_before: held ? earlier.head_before : undefined, pack_path: join(options.objectsRoot, previousHash), pack_hash: previousHash } : undefined,
         host, signal, maximum), signal);
       const { pack, ...facts } = result;
       const receipt: CodeChangeReceipt = { ...facts, checkout, state: final ? "complete" : "recording" };
-      const hash = await retain(() => objects.putBytes(Buffer.from(pack, "base64"), [turnId]));
+      const hash = await retainPack(pack, turnId, signal);
       // FULL commit pins the self-contained endpoint pack before coverage can
       // exclude a path or the source checkpoint can be released. A crash before
       // this commit retains file coverage; one after leaves a partial receipt.
@@ -277,7 +307,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND checkout=?", turnId, checkout),
       ]); } catch { /* The preallocated turn failure slot remains authoritative. */ }
       throw error;
-    } finally { await releaseCodeCheckpoint(checkpointId, manager); }
+    } finally { if (packLease) await releaseRead(packLease); await releaseCodeCheckpoint(checkpointId, manager); }
   }
   async function attachBrainCheckouts(turnId: string, signal?: AbortSignal): Promise<void> {
     const id = randomUUID();
@@ -430,9 +460,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow | null;
     if (!row) return { state: "unknown", changedFiles: null, steeringFiles: null, keptFiles: null, costUsd: null, costIsEstimate: null, profile: null, actor: null, model: null, policyHash: null, sharedAttribution: false, observedAt: null };
     const retained = row.summary ? JSON.parse(row.summary) as { changedFiles: number; steeringFiles: number; keptFiles?: number | null; sharedAttribution: boolean } : undefined;
-    const counts = (active.has(turnId) ? advanceCounters(turnId).counts : undefined) ?? db.query(`SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,
+    const counts = { ...((active.has(turnId) ? advanceCounters(turnId).counts : undefined) ?? db.query(`SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,
       count(DISTINCT CASE WHEN ${KEPT_CHANGE} THEN path END) AS keptFiles,max(overlaps!='[]') AS sharedAttribution FROM turn_journal_changes WHERE turn_id=?`)
-      .get(DISPOSABLE_INDEX_PATHS, INDEX_PUBLICATION_COPY, turnId) as { changedFiles: number; steeringFiles: number; keptFiles: number; sharedAttribution: number };
+      .get(DISPOSABLE_INDEX_PATHS, INDEX_PUBLICATION_COPY, turnId) as { changedFiles: number; steeringFiles: number; keptFiles: number; sharedAttribution: number }) };
     const codeCount = (db.query("SELECT coalesce(sum(json_array_length(receipt,'$.paths')),0) AS n FROM turn_journal_code_receipts WHERE turn_id=?").get(turnId) as { n: number }).n;
     counts.changedFiles += codeCount; counts.keptFiles += codeCount;
     const cost = db.query("SELECT effective_cost_usd,pricing_estimate FROM activity_run_rollups WHERE run_id=?").get(turnId) as { effective_cost_usd: number | null; pricing_estimate: number | null } | null;
@@ -585,9 +615,22 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         publish(turnId);
         step?.(); step = timing?.("observe_facts");
         const facts = { ...advanceCounters(turnId).facts };
-        const codeFacts = db.query("SELECT checkout,json_array_length(receipt,'$.paths') AS paths FROM turn_journal_code_receipts WHERE turn_id=?").all(turnId) as { checkout: string; paths: number }[];
-        facts.changedPaths += codeFacts.reduce((sum, receipt) => sum + receipt.paths, 0);
-        facts.workspacePaths += codeFacts.filter(receipt => isWithin(BRAIN_WORKSPACES_DIR, receipt.checkout)).reduce((sum, receipt) => sum + receipt.paths, 0);
+        const code = codeScopeFacts.get(turnId) ?? { paths: new Set<string>(), bytes: 0 };
+        const covered = [...checkouts.values()].filter(root => root.turnId === turnId && root.relative);
+        for (const change of observation.metadataChanges) {
+          if (!covered.some(root => isWithin(root.relative, change.path)) || change.path.split("/").includes(".git")) continue;
+          if (change.before?.kind === "directory" && change.after?.kind === "directory") continue;
+          if (change.before?.stamp === change.after?.stamp && change.before?.kind === change.after?.kind) continue;
+          code.paths.add(change.path);
+          if (change.after?.kind === "file") code.bytes += change.after.bytes;
+        }
+        codeScopeFacts.set(turnId, code);
+        facts.observedBytes += code.bytes;
+        const paths = new Set(code.paths);
+        const codeFacts = db.query("SELECT checkout,json_extract(receipt,'$.paths') AS paths FROM turn_journal_code_receipts WHERE turn_id=?").all(turnId) as { checkout: string; paths: string }[];
+        for (const receipt of codeFacts) for (const item of JSON.parse(receipt.paths) as { path: string }[]) paths.add(`${receipt.checkout.replace(/\/$/, "")}/${item.path}`);
+        facts.changedPaths += paths.size;
+        facts.workspacePaths += [...paths].filter(path => isWithin(BRAIN_WORKSPACES_DIR, path)).length;
         for (const observer of observers) observer(turnId, { ...facts, workspacePaths: turn.ordinaryWorkspaces ? 0 : facts.workspacePaths, indexBytes: observation.indexBytes, partial: summary(turnId).state === "partial" });
         step?.();
       }
@@ -741,7 +784,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         const root = checkouts.get(checkoutKey(turnId, checkout));
         if (root) {
           try { await captureCheckout(turnId, checkout, root.manager, ""); }
-          catch (error) { await fail(turnId, error); }
+          catch (error) {
+            await fail(turnId, error);
+            try { active.get(turnId)?.stop(storageError(error)); } catch { /* The partial cause remains durable. */ }
+          }
         }
       });
     },
@@ -832,7 +878,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       finally {
         for (const [key, root] of checkouts) if (root.turnId === turnId) checkouts.delete(key);
         await write([statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND json_extract(receipt,'$.state')='recording'", turnId)]);
-        active.delete(turnId); counters.delete(turnId); lasting.delete(turnId);
+        active.delete(turnId); counters.delete(turnId); codeScopeFacts.delete(turnId); lasting.delete(turnId);
         for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
         let step = worktrees.size ? timing?.("finish_worktrees") : undefined;
         await dropWorktrees(turnId);
@@ -973,7 +1019,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const row = db.query("SELECT receipt,pack_hash FROM turn_journal_code_receipts WHERE turn_id=? AND checkout=?").get(turnId, checkout) as { receipt: string; pack_hash: string } | null;
       if (!row) throw new JournalStorageUnavailable("checkout receipt unavailable");
       const lease = await call<string>("openRead", row.pack_hash, turnId);
-      try { return await operation(JSON.parse(row.receipt) as CodeChangeReceipt, packBytes(row.pack_hash)); }
+      try { return await operation(JSON.parse(row.receipt) as CodeChangeReceipt, await packBytes(row.pack_hash)); }
       finally { await releaseRead(lease); }
     },
     async codePreview(sessionId: string, turnId: string, checkout: string) {
