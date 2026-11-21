@@ -29,8 +29,9 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
     // (applications, policy publication, compute and actors). Caller metadata
     // cannot opt a card out of withdrawal or supply its authority.
     const bridge=self();
-    let safety:ReturnType<typeof toolAdmissionSafety>,snapshot:AdmissionSafetySnapshot|undefined;
+    let safety:ReturnType<typeof toolAdmissionSafety>,snapshot:AdmissionSafetySnapshot|undefined,hostSnapshot:AdmissionSafetySnapshot|undefined;
     try {
+      hostSnapshot=bridge.admissionSafety?.read();
       // Policy and actor cards represent host operations, not backend input.
       safety=req.kind==='policy'||req.kind==='actor'?bridge.admissionSafety:toolAdmissionSafety(bridge,req.toolUseId,req.toolName);snapshot=safety?.read();
       // A current root receipt from a compatible caller may be normalized,
@@ -138,8 +139,8 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
         // publishing the outcome or settling the backend wait.
         const committed = writes && snapshot ? Promise.resolve().then(() => writes.record({ kind: "safety_admission_expired", turnId,
           sessionId: sessionId ?? null, actor: "server", model: null, profile: null,
-          payload: { toolUseId: req.toolUseId, evidenceRevision: snapshot.evidenceRevision,
-            trustRevision: snapshot.trustRevision, authorityEpoch: snapshot.authorityEpoch, reason: cause } }))
+          payload: { toolUseId: req.toolUseId, evidenceRevision: hostSnapshot?.evidenceRevision ?? snapshot.evidenceRevision,
+            trustRevision: hostSnapshot?.trustRevision ?? snapshot.trustRevision, authorityEpoch: hostSnapshot?.authorityEpoch ?? snapshot.authorityEpoch, reason: cause } }))
           : snapshot ? Promise.reject(new Error("Safety withdrawal storage is unavailable")) : Promise.resolve();
         void committed.then(() => {
           coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, reason });

@@ -1001,6 +1001,7 @@ for(const seeded of [false,true])for(const independent of [false,true])for(const
   if(seeded)await f.add('before_host_card');const id='host-causal-card';f.collector.admitting!(id,'Bash');
   const causal=f.collector.forAdmission!(id,'Bash',f.safety),request={toolUseId:id,toolName:'Bash',kind:'command' as const,input:{command},description:'Review the outward command'};
   if(legacy&&seeded){const stale=f.safety.read();await f.add('before_current_host_receipt');expect(await bridge.requestPermission({...request,admissionSnapshot:stale}),'STALE_ROOT_METADATA_CANNOT_SELECT_A_FRESH_BASELINE').toMatchObject({behavior:'deny'});}
+  const hostSnapshot=f.safety.read();
   work=legacy?bridge.requestPermission({...request,admissionSnapshot:f.safety.read()}):requestToolPermission({...bridge,admissionSafety:causal},request);
   await Promise.race([raised.promise,work.then(result=>{throw new Error('HOST_CARD_MUST_ACCEPT_THE_CURRENT_SNAPSHOT '+JSON.stringify(result));})]);
   const before=causal.read();await f.collector.begin(id,'Bash',{command});
@@ -1009,6 +1010,7 @@ for(const seeded of [false,true])for(const independent of [false,true])for(const
   if(independent)await f.add('independent_host_card');
   if(!independent)await handleToolApproval({host,ws,requireEcho:true,connection:{principal:f.principal,authorization}} as never,{type:'tool_approval',toolUseId:id,turnId:'voyage',channel:'card'});
   expect(await work,'HOST_OWNER_RESPONSE_USES_THE_RETAINED_CAUSAL_VIEW').toMatchObject({behavior:independent?'deny':'allow'});
+  if(independent){const events=queryGovernanceEvents(f.db,{kinds:['safety_admission_expired'],limit:20});expect(events.at(-1)?.payload).toMatchObject({evidenceRevision:hostSnapshot.evidenceRevision,trustRevision:hostSnapshot.trustRevision,authorityEpoch:hostSnapshot.authorityEpoch});}
  }finally{authorization.release();host.close();await work;await f.close();}
 });
 for(const perUse of [false,true])for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: first own input admission (perUse=${perUse})`,async()=>{
