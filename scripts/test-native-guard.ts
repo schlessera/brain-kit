@@ -903,6 +903,10 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       audited = auditNativeLaunch(workerArgv, expected, bridge.dispose);
       launch.argv = audited.argv;
     }
-    return { env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) }, dispose: audited.dispose, beforeLaunch };
+    const encoded=JSON.stringify(launch);
+    console.error(JSON.stringify({kind:"native-offline-worker-plan",head:nativeTestHead(),
+      bootstrapArgc:launch.argv!.length,bootstrapArgvBytes:Buffer.byteLength(JSON.stringify(launch.argv)),
+      sandboxArgc:workerArgv.length,sandboxArgvBytes:Buffer.byteLength(JSON.stringify(workerArgv)),metadataBytes:Buffer.byteLength(encoded)}));
+    return { env: { ...env, BRAIN_WORKER_LAUNCH: encoded }, dispose: audited.dispose, beforeLaunch };
   } catch (error) { bridge.dispose(); throw error; }
 }

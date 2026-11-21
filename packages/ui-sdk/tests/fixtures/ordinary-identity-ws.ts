@@ -18,6 +18,11 @@ import { serializeSigned } from "hono/utils/cookie";
 import { bundledClaudeBinary } from "../../../core/src/providers/agents/claude-binary.js";
 import { nativeScriptedService, nativeScriptedQuery } from "../../../../scripts/test-native-guard.ts";
 
+import { observeNativeWorkerStartup } from "./native-worker-startup-diagnostics.js";
+import type { LaunchedWorker } from "../../src/server/worker-launcher.js";
+import { isNativeClaude } from "../../../../scripts/test-native-guard.ts";
+const nativeBootstraps=new Map<number,Bun.Subprocess>();
+
 const sharedGit = new URL(import.meta.url).searchParams.has("shared-git");
 const bootPruneCapture = sharedGit && process.argv.includes("--boot-prune-capture");
 let ownedBootPrune: ReturnType<typeof installBootPruneCapture> | undefined;
@@ -89,6 +94,14 @@ const observedBackend = { ...backend, startTurn(request: Parameters<typeof backe
       return value;
     };
   }
+  const started=request.workerStarted;
+  request.workerStarted=worker=>{
+    started?.(worker);
+    // The existing callback receives the full worker at runtime; its public
+    // request type intentionally exposes only control/lifecycle operations.
+    const full=worker as LaunchedWorker,bootstrap=nativeBootstraps.get(full.pid);
+    if(bootstrap)observeNativeWorkerStartup(full,bootstrap,[secret,"odysseus-fictional-api-key"]);
+  };
   return backend.startTurn(request);
 } };
 const observability = createRecordingObservability(), secret = "odysseus-fixture-cookie-secret-0123456789";
@@ -113,7 +126,16 @@ Object.defineProperty(Bun, "spawn", { ...spawnDescriptor, value: (...args: any[]
         classes: ["attested-stage-container", "git-adapter", "frozen-config"], nodes } }));
     }
   }
-  return Reflect.apply(spawn, Bun, args);
+  const child=Reflect.apply(spawn, Bun, args) as Bun.Subprocess;
+  if(launch) {
+    const command=JSON.parse(launch).command as string[]|undefined;
+    if(command?.[0] && isNativeClaude(command[0],command.slice(1))) {
+      nativeBootstraps.set(child.pid,child);
+      void child.exited.then(code=>console.error(JSON.stringify({kind:"native-fixture-bootstrap-exit",exitCode:code,signal:child.signalCode})),
+        ()=>console.error(JSON.stringify({kind:"native-fixture-bootstrap-exit",exitCode:null,signal:child.signalCode})));
+    }
+  }
+  return child;
 } });
 // Local diagnostic artifact only: fixed disposable fixture root, no contents or recursion.
 function recordFixtureRootMetadata(phase: "before-app" | "after-app") {

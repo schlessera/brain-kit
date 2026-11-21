@@ -332,6 +332,10 @@ test("guard worker binds follow every covering mount", async()=>{
    if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+1]?.endsWith("/native-connect"))||!mounts.includes("/tmp/native-relay"))throw Error("guard input missing from plan");
    plan.beforeLaunch();writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();`,scratch);
   expect(result.code,result.output).toBe(0);
+  const receipt=JSON.parse(result.output.split("\n").find(line=>line.startsWith('{"kind":"native-offline-worker-plan"'))!);
+  expect(Object.keys(receipt).sort()).toEqual(["kind","head","bootstrapArgc","bootstrapArgvBytes","sandboxArgc","sandboxArgvBytes","metadataBytes"].sort());
+  for(const [key,value] of Object.entries(receipt))if(key!=="kind"&&key!=="head")expect(typeof value==="number"&&Number.isSafeInteger(value)&&value>0).toBe(true);
+  expect(JSON.stringify(receipt)).not.toContain(runtime!);
  }finally{rmSync(scratch,{recursive:true,force:true});}
 });
 
