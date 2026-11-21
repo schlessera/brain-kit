@@ -63,6 +63,16 @@ test("a conflicted path stores one relation as a thousand solo versions follow",
     expect(db.query("SELECT count(*) AS n FROM turn_journal_path_conflicts").get(), "CONFLICT_RELATION_STORED_ONCE").toEqual({ n: 1 });
     expect(db.query("SELECT count(*) AS n FROM turn_journal_path_peers").get()).toEqual({ n: 1 });
     expect(db.query("SELECT sum(length(conflict_observations)) AS bytes FROM turn_journal_changes").get(), "SOLO_SUCCESSORS_DO_NOT_COPY_CONFLICT_LISTS").toEqual({ bytes: 2 * 1002 });
+    const { exportInboxSnapshot } = await import("../src/inbox/snapshot.js"), { Database } = await import("bun:sqlite");
+    const backup = await exportInboxSnapshot(db, root, 1000), image = Database.deserialize(Buffer.from(backup.database.data, "base64"));
+    try {
+      expect(image.query("SELECT * FROM turn_journal_path_conflicts").all(), "BACKUP_PRESERVES_SINGLE_CONFLICT_BOUNDARY").toEqual([{ turn_id: "voyage", path: "notes/ithaca.md", first_sequence: 1 }]);
+      expect(image.query("SELECT count(*) AS n FROM turn_journal_path_peers").get(), "BACKUP_PRESERVES_PEER_BASELINE").toEqual({ n: 1 });
+    } finally { image.close(); }
+    ledger.write(() => db.exec("ALTER TABLE journal.turn_journal_path_peers ADD COLUMN forged TEXT"));
+    await expect(exportInboxSnapshot(db, root, 1001), "BACKUP_REJECTS_ALTERED_CONFLICT_SCHEMA").rejects.toThrow("inbox_snapshot_schema");
+    ledger.write(() => db.exec("DROP TABLE journal.turn_journal_path_peers"));
+    await expect(exportInboxSnapshot(db, root, 1002), "BACKUP_REJECTS_PARTIAL_CONFLICT_SCHEMA").rejects.toThrow("inbox_snapshot_schema");
   } finally { await store.close?.(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 

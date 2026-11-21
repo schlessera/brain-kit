@@ -9,7 +9,7 @@ import { z } from "zod";
 import { brainApplicationInput } from "@schlessera/brain-ui-sdk/server";
 import { COMPLETE_SHARE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import { JOURNAL_CHANGE_PATH_INDEX, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { pauseRestoredSchedules, validateScheduleRelations } from "../schedules/recovery.js";
 import { invalidateRestoredStorage, parseStoredHistory } from "../storage/history-store.js";
@@ -88,7 +88,7 @@ function attachJournalFile(db: Database): void {
   if (existsSync(path)) db.query(`ATTACH DATABASE ? AS ${JOURNAL_SCHEMA}`).run(path);
 }
 /** The live layout keeps the journal in its own file; an image keeps it with the UI database. */
-function schema(db: Database, journal = false): unknown[] {
+function schema(db: Database, journal = false): SchemaRow[] {
   const rows = db.query("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all() as SchemaRow[];
   if (journal && journalAttached(db)) rows.push(...(db.query(`SELECT type, name, tbl_name, sql FROM ${JOURNAL_SCHEMA}.sqlite_master WHERE name GLOB 'turn_journal_*'`).all() as SchemaRow[]).filter(row => !derivedJournalIndex(row)));
   return rows.sort((a, b) => a.type === b.type ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : a.type < b.type ? -1 : 1);
@@ -103,7 +103,13 @@ function logicalState(db: Database): unknown[] {
 function validateDatabase(db: Database): void {
   const expected = createUiDb(":memory:");
   try {
-    if (JSON.stringify(schema(db, true)) !== JSON.stringify(schema(expected, true)) ||
+    const actual = schema(db, true);
+    const admitted = JOURNAL_CONFLICT_TABLES.filter(table => actual.some(row => row.type === "table" && row.name === table.name));
+    if (admitted.length && admitted.length !== JOURNAL_CONFLICT_TABLES.length) throw new Error("inbox_snapshot_schema");
+    // Both absent is an older image. When present, compare canonical SQL and
+    // preserve every row; runtime admission never weakens schema validation.
+    for (const table of admitted) expected.exec(table.sql.replace("CREATE TABLE ", "CREATE TABLE journal."));
+    if (JSON.stringify(actual) !== JSON.stringify(schema(expected, true)) ||
         JSON.stringify(db.query("SELECT filename FROM _migrations ORDER BY filename").all()) !==
         JSON.stringify(expected.query("SELECT filename FROM _migrations ORDER BY filename").all()))
       throw new Error("inbox_snapshot_schema");

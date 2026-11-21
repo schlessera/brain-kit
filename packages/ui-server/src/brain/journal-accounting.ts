@@ -2,7 +2,7 @@ import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { attachJournalDatabase, JOURNAL_CHANGE_PATH_INDEX, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { attachJournalDatabase, JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { JournalCapacityError, type JournalObjectAccounting } from "./journal-objects.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
@@ -215,13 +215,10 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     ensureConflictTables() {
       const row = db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='table' AND name IN ('turn_journal_path_peers','turn_journal_path_conflicts')").get() as { n: number };
       if (row.n === 2) return true;
-      write(() => db.exec(`CREATE TABLE IF NOT EXISTS journal.turn_journal_path_peers (
-        turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
-        path TEXT NOT NULL, peer_id TEXT NOT NULL, first_sequence INTEGER NOT NULL, after_json TEXT NOT NULL,
-        PRIMARY KEY(turn_id,path,peer_id));
-        CREATE TABLE IF NOT EXISTS journal.turn_journal_path_conflicts (
-        turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
-        path TEXT NOT NULL, first_sequence INTEGER NOT NULL, PRIMARY KEY(turn_id,path));`));
+      write(() => {
+        for (const table of JOURNAL_CONFLICT_TABLES) if (!db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='table' AND name=?").get(table.name))
+          db.exec(table.sql.replace("CREATE TABLE ", "CREATE TABLE journal."));
+      });
       installEscapeGuard(db); return true;
     },
     ensureObjectRefIndex: () => ensureIndex(JOURNAL_OBJECT_REFS_INDEX, "SELECT coalesce(sum(length(CAST(hash AS BLOB))+32),0) AS bytes FROM turn_journal_object_refs"),

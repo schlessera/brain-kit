@@ -118,3 +118,9 @@ export const JOURNAL_OBJECT_REFS_INDEX = {
   name: "turn_journal_object_refs_hash",
   sql: "CREATE INDEX turn_journal_object_refs_hash ON turn_journal_object_refs(hash)",
 } as const;
+
+/** Admitted journal state; backups preserve rows and validate these exact definitions when present. */
+export const JOURNAL_CONFLICT_TABLES = [
+  { name: "turn_journal_path_peers", sql: "CREATE TABLE turn_journal_path_peers (turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE, path TEXT NOT NULL, peer_id TEXT NOT NULL, first_sequence INTEGER NOT NULL, after_json TEXT NOT NULL, PRIMARY KEY(turn_id,path,peer_id))" },
+  { name: "turn_journal_path_conflicts", sql: "CREATE TABLE turn_journal_path_conflicts (turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE, path TEXT NOT NULL, first_sequence INTEGER NOT NULL, PRIMARY KEY(turn_id,path))" },
+] as const;

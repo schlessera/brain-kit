@@ -173,7 +173,7 @@ independent 4 GiB bound, scope pauses with optional receipt
 `result: "index_capacity"` under the existing `turn_bytes` dimension. Optional
 scope fields `indexBytes` (nullable while unconfirmed) and `indexLimitBytes`
 disclose that independent size and ceiling. The existing one-time finite
-continuation doubles only the index ceiling; the prompt names that ceiling and preserves the content allowance. Independent pending content and index pauses must both be answered before workers resume. Unknown measurement has no grant. Optional receipt and scope-event `measurement: "unknown"` names that state; numeric count/observed and overshoot are zero compatibility placeholders, not measurements. UI and voice say the size is unknown. Each server-side open pause keeps an answerable card; a newer continued receipt does not hide an older pause.
+continuation doubles only the index ceiling; the prompt names that ceiling and preserves the content allowance. Independent pending content and index pauses must both be answered before workers resume. Unknown measurement has no grant. Optional receipt and scope-event `measurement: "unknown"` names that state; numeric count/observed and overshoot are zero compatibility placeholders, not measurements. UI and voice say the size is unknown. Operational backups retain admitted conflict state with exact schema validation and accept earlier images without those tables. Each server-side open pause keeps an answerable card; a newer continued receipt does not hide an older pause.
 The closed dimension enum is unchanged, and old parsers accept the records.
 The bound matches the former default byte scope; checks occur at observations,
 so writes may overshoot between them. The free-space floor remains binding.
