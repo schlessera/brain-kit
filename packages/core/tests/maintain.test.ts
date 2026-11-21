@@ -159,7 +159,7 @@ for arg in "$@"; do
   if [ "$arg" = maintenance ]; then
     printf incomplete > '${root}/.git/objects/pack/tmp_pack_Attempt'
     printf companion > '${root}/.git/objects/pack/.tmp-Attempt'
-    mkdir -p '${root}/.git/objects/pack/multi-pack-index.d'
+    /bin/mkdir -p '${root}/.git/objects/pack/multi-pack-index.d'
     printf companion > '${root}/.git/objects/pack/multi-pack-index.d/tmp_midx_Attempt'
     for kind in idx rev bitmap mtimes; do
       printf companion > '${root}/.git/objects/pack/tmp_'"$kind"'_Attempt'

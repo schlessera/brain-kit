@@ -471,7 +471,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         // Changed-byte copies yield; the final inode/stat predicate immediately precedes publication.
         const pending: { rel: string; fd: number; name: string; temporary?: string; next?: Entry; recovery?: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> }[] = [];
         const directoryModes: { fd: number; mode: number; rel: string; parent: number; name: string; temporaryMode: number }[] = [];
-        let publicationError: unknown, installedAll = false;
+        let publicationError: unknown, installedAll = false, replacedPackMetadata = false;
         const installedPackFiles: { fd: number; name: string; installed: boolean }[] = [];
         const finalizeDirectory = (directory: (typeof directoryModes)[number]) => {
           const held = fstatSync(directory.fd), visible = lstatSync(at(directory.parent,directory.name));
@@ -554,7 +554,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           }
           // Install indexes before their packs. If any installation fails,
           // remove this attempt's new pack files before any loose deletion.
-          const priority = (rel: string) => rel.endsWith(".pack") ? 1 : 0;
+          const packMetadata = (rel: string) => rel.endsWith("/multi-pack-index") || rel.endsWith("/multi-pack-index-chain");
+          const priority = (rel: string) => packMetadata(rel) ? 3 : rel.endsWith(".pack") ? 1
+            : [".idx", ".rev", ".bitmap", ".mtimes"].some(extension => rel.endsWith(extension)) ? 0 : 2;
           for (const item of pending.sort((a,b) => priority(a.rel)-priority(b.rel))) {
             const destination = parent(brain, item.rel);
             try {
@@ -570,6 +572,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               if (before.get(item.rel)!.entry) renameSync(item.temporary!, at(destination.fd,destination.name));
               else { try { linkSync(item.temporary!, at(destination.fd,destination.name)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw Error(`stale maintenance output: ${item.rel}`); throw error; } }
               if (packFile) packFile.installed = true;
+              if (packMetadata(item.rel) && before.get(item.rel)!.entry) replacedPackMetadata = true;
               fsyncSync(destination.fd);
             } finally { closeSync(destination.fd); }
           }
@@ -589,8 +592,11 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           }
         } catch (error) { publicationError = error; }
         finally {
+          // An overwritten MIDX may already select the new packs. Keep that
+          // complete indexed set on a metadata flush refusal; old loose copies
+          // are still intact, and either durable metadata version is readable.
           for (const item of installedPackFiles.reverse()) {
-            try { if (!installedAll && item.installed) { unlinkSync(at(item.fd,item.name)); fsyncSync(item.fd); } }
+            try { if (!installedAll && !replacedPackMetadata && item.installed) { unlinkSync(at(item.fd,item.name)); fsyncSync(item.fd); } }
             catch (error) { publicationError ??= error; }
             finally { closeSync(item.fd); }
           }

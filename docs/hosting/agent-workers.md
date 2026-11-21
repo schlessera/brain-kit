@@ -943,8 +943,10 @@ writer may own them. Historical garbage is
 never removed. Failed worker commands discard Git publication while retaining
 other validated output. Successful publication installs and syncs indexes before the corresponding
 pack data and removes superseded loose objects only after every replacement
-is installed. A failed install removes newly installed pack companions while
-retaining the original loose objects.
+is installed. Before metadata activation, a failed install removes newly installed
+pack companions while retaining the original loose objects. Existing MIDX
+replacement happens last. If its flush fails, the complete indexed pack set and
+old loose copies remain, so either durable metadata version stays readable.
 `brain maintain`'s git result and
 `brain storage pack --json` report existing garbage count and bytes from
 `git count-objects -v`. Cleanup of existing garbage requires a separate backed-up

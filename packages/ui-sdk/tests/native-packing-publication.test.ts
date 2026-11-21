@@ -8,13 +8,19 @@ import { prepareNativeWorkerOutput } from "../src/server/worker-native-output.js
 import type { NativeStageChange } from "../src/server/native-brain-manager-protocol.js";
 import { packRepository } from "../../core/src/lib/git-storage.js";
 
-for (const interrupt of [false,".idx",".pack"] as const) test(`replacement packs precede loose-object removal, interrupted=${interrupt}`,async()=>{
+for (const interrupt of [false,".idx",".pack","multi-pack-index","flush"] as const) test(`replacement packs precede loose-object removal, interrupted=${interrupt}`,async()=>{
  const root=fs.mkdtempSync(join(tmpdir(),"odysseus-pack-publication-")),brain=join(root,"brain");fs.mkdirSync(brain);
  const git=(directory:string,...args:string[])=>Bun.spawnSync(["git","-C",directory,...args],{stdout:"pipe",stderr:"pipe"});
  expect(git(brain,"init","-q").exitCode).toBe(0);
  const blob=Bun.spawnSync(["git","-C",brain,"hash-object","-w","--stdin"],{stdin:Buffer.from("Odysseus retains the harbour chart."),stdout:"pipe",stderr:"pipe"});expect(blob.exitCode).toBe(0);
- const hash=blob.stdout.toString().trim(),loose=join(brain,".git/objects",hash.slice(0,2),hash.slice(2));
+ let hash=blob.stdout.toString().trim();
  expect(git(brain,"update-ref","refs/odysseus/chart",hash).exitCode).toBe(0);
+ if(interrupt==="flush"){
+  packRepository(brain);expect(git(brain,"multi-pack-index","write").exitCode).toBe(0);
+  const added=Bun.spawnSync(["git","-C",brain,"hash-object","-w","--stdin"],{stdin:Buffer.from("Athena revises the chart."),stdout:"pipe",stderr:"pipe"});expect(added.exitCode).toBe(0);hash=added.stdout.toString().trim();
+  expect(git(brain,"update-ref","refs/athena/chart",hash).exitCode).toBe(0);
+ }
+ const loose=join(brain,".git/objects",hash.slice(0,2),hash.slice(2));
  const actualStat=fs.statfsSync,stat=spyOn(fs,"statfsSync").mockImplementation(((...args:any[])=>{const value=Reflect.apply(actualStat,fs,args);return {...value,type:typeof value.type==="bigint"?0x9123683en:0x9123683e};}) as typeof fs.statfsSync);
  const checkpoints=new Map<string,string>(),uuid="a".repeat(32),sourceUuid="b".repeat(32);
  let stageRoot="",lowerId="";
@@ -27,24 +33,31 @@ for (const interrupt of [false,".idx",".pack"] as const) test(`replacement packs
   async inspectStage(){const source=join(stageRoot,"merged"),before=files(checkpoints.get(lowerId)!),after=new Set(files(source));return{checkpointId:lowerId,checkpointUuid:uuid,changes:(async function*(){for(const rel of new Set([...before,...after]))yield {pathHex:Buffer.from(rel).toString("hex"),kind:after.has(rel)?"entry":"whiteout"} as NativeStageChange;})(),completed:Promise.resolve({exitCode:0 as const,bytes:0})};},
   async releaseStage(id:string){fs.rmSync(join(root,".brain-native/stages",id),{recursive:true,force:true});return{id,state:"deleted" as const};},
  };
- let view:Awaited<ReturnType<typeof prepareNativeWorkerStartupView>>|undefined,output:Awaited<ReturnType<typeof prepareNativeWorkerOutput>>|undefined,link:ReturnType<typeof spyOn>|undefined;
+ let view:Awaited<ReturnType<typeof prepareNativeWorkerStartupView>>|undefined,output:Awaited<ReturnType<typeof prepareNativeWorkerOutput>>|undefined,link:ReturnType<typeof spyOn>|undefined,sync:ReturnType<typeof spyOn>|undefined,rename:ReturnType<typeof spyOn>|undefined;
  try{
   view=await prepareNativeWorkerStartupView(brain,manager);output=await prepareNativeWorkerOutput(brain,{startupView:view,areas:[".git"]});
-  packRepository(output.output.source);
+  packRepository(output.output.source);expect(git(output.output.source,"multi-pack-index","write").exitCode).toBe(0);
   const original=fs.linkSync;
+  if(interrupt==="flush"){
+   const renameFile=fs.renameSync,syncFile=fs.fsyncSync;let renamed=false;
+   rename=spyOn(fs,"renameSync").mockImplementation((from,to)=>{const result=renameFile(from,to);if(String(to).endsWith("/multi-pack-index"))renamed=true;return result;});
+   sync=spyOn(fs,"fsyncSync").mockImplementation(fd=>{if(renamed){renamed=false;throw Error("Ithaca metadata flush fault");}return syncFile(fd);});
+  }
   link=spyOn(fs,"linkSync").mockImplementation((from,to)=>{
    if(String(to).endsWith(".idx")){
     expect(fs.existsSync(loose),"LOOSE_OBJECT_SURVIVES_UNTIL_REPLACEMENT_INDEX").toBe(true);
 
    }
+   if(String(to).endsWith("multi-pack-index"))expect(fs.readdirSync(join(brain,".git/objects/pack")).some(name=>name.endsWith(".pack")),"PACK_METADATA_FOLLOWS_PACK_FILES").toBe(true);
    if(interrupt && String(to).endsWith(interrupt))throw Error("Ithaca pack publication fault");
    return original(from,to);
   });
-  if(interrupt)await expect(output.publish()).rejects.toThrow("Ithaca pack publication fault");else await output.publish();
+  if(interrupt)await expect(output.publish()).rejects.toThrow(interrupt==="flush"?"Ithaca metadata flush fault":"Ithaca pack publication fault");else await output.publish();
   expect(git(brain,"cat-file","-e",hash).exitCode,"LIVE_REF_NEVER_LOSES_ITS_OBJECT").toBe(0);
-  expect(fs.readdirSync(join(brain,".git/objects/pack")).some(name=>name.endsWith(".pack")),"REPLACEMENT_PACK_INSTALLED_BEFORE_DELETE").toBe(!interrupt);
-  if(interrupt)expect(fs.readdirSync(join(brain,".git/objects/pack")),"FAILED_INSTALL_PUBLISHES_NO_PACK_GARBAGE").toEqual([]);
+  expect(fs.readdirSync(join(brain,".git/objects/pack")).some(name=>name.endsWith(".pack")),"REPLACEMENT_PACK_INSTALLED_BEFORE_DELETE").toBe(!interrupt||interrupt==="flush");
+  if(interrupt&&interrupt!=="flush")expect(fs.readdirSync(join(brain,".git/objects/pack")),"FAILED_INSTALL_PUBLISHES_NO_PACK_GARBAGE").toEqual([]);
   expect(fs.existsSync(loose)).toBe(Boolean(interrupt));
+  if(!interrupt||interrupt==="flush")expect(git(brain,"multi-pack-index","verify").exitCode,"PUBLISHED_MIDX_NEVER_REFERENCES_MISSING_PACKS").toBe(0);
   expect(git(brain,"count-objects","-v").stdout.toString(),"FAILED_PUBLICATION_LEAVES_NO_GIT_GARBAGE").toMatch(/^garbage: 0$/m);
- }finally{link?.mockRestore();await output?.cleanup();await view?.cleanup();stat.mockRestore();fs.rmSync(root,{recursive:true,force:true});}
+ }finally{link?.mockRestore();sync?.mockRestore();rename?.mockRestore();await output?.cleanup();await view?.cleanup();stat.mockRestore();fs.rmSync(root,{recursive:true,force:true});}
 });
