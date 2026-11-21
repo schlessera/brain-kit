@@ -2,6 +2,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+// Capture the outer invocation before a measurement changes its environment.
+// Only the existing hosted pair is carried across bwrap's --clearenv; a local
+// or self-hosted invocation cannot acquire it from a later fixture mutation.
+const hostedRunner = process.env.GITHUB_ACTIONS === "true" && process.env.RUNNER_ENVIRONMENT === "github-hosted";
+const hostedEnvironment = hostedRunner ? ["--setenv", "GITHUB_ACTIONS", "true", "--setenv", "RUNNER_ENVIRONMENT", "github-hosted"] : [];
+
 /** Re-enter a disposable system view; never install an oracle on the host. */
 export async function enterMeasurementRtkView(): Promise<void> {
   if (process.argv.includes("--native-rtk-view")) return;
@@ -39,7 +45,7 @@ int main(int argc,char **argv) {
       "--dir", "/usr/local/bin", "--ro-bind", binary, "/usr/local/bin/rtk",
       "--ro-bind", root, root, "--bind", join(root, "tmp"), join(root, "tmp"),
       "--ro-bind", process.execPath, process.execPath, "--clearenv",
-      "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin", "--setenv", "HOME", "/nonexistent",
+      "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin", "--setenv", "HOME", "/nonexistent", ...hostedEnvironment,
       "--chdir", root, "--", process.execPath, ...process.argv.slice(1), "--native-rtk-view"],
     { env: {}, stdout: "inherit", stderr: "inherit" });
     process.exitCode = await child.exited;
