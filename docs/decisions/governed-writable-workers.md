@@ -4389,7 +4389,7 @@ turn's connection passes deny, `allowlist` mode and the byte ceiling but
 matches neither `taint.egress.allow` nor a contacted host, the proxy asks
 through the turn's tool-permission card (`toolName: "Network"`, `kind:
 "command"`, never remembered as a tool grant) before refusing
-(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:380-385`). The
+(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:387-392`). The
 card names the destination, the session's first taint source and the
 consequence of allowing it
 (`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:46-51`).
@@ -4586,9 +4586,9 @@ authorization, the byte ceilings, budget admission, cancellation and
 accounting. It keeps its own `egress_connection` record, which carries
 `provider: true` and never `inference: true`. The exemption belongs to the operation, never to a
 hostname. Only the relay's validated routes reach the proxy's provider
-admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:607`), and
+admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:615`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
-(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:379`). Turn egress
+(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:386`). Turn egress
 records neither a taint nor a contacted host for the operation
 (`admitted`, `packages/ui-server/src/brain/turn-egress.ts:310-315`). So in a
 tainted session, the worker's own traffic stays narrowed away from the

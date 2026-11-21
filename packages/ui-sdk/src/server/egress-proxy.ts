@@ -357,7 +357,14 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
     const approvalRevision = (own = false, outward = false) => options.taint?.approvalRevision?.(own ? connectionId : undefined, outward ? "outward" : "network") ?? JSON.stringify(options.admissionSafety?.read());
-    const grantCurrent = (own = false) => { if (!granted && !outwardApproved) return true; try { return (!granted || grantRevision === approvalRevision(own)) && (!outwardApproved || outwardRevision === approvalRevision(own,true)); } catch { return false; } };
+    const grantCurrent = (own = false) => {
+      if (!granted && !outwardApproved) return true;
+      try {
+        // After handoff, an explicit Network answer is the standing session grant.
+        const sessionGrant=granted&&lifecycle.dispatched()&&options.taint?.contacted(host);
+        return (!granted||sessionGrant||grantRevision===approvalRevision(own))&&(!outwardApproved||outwardRevision===approvalRevision(own,true));
+      } catch { return false; }
+    };
     // A marker can change because recording or authority disappeared while a
     // card was pending. Classify that live failure before a generic stale card.
     const refuseStaleApproval = () => {
@@ -414,7 +421,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!await narrowing() || !lifecycle.active()) return false;
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
         outwardRevision = approvalRevision(false,true);
-        if (!await approval(options.approveOutward)) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
+        const approveOutward=options.approveOutward;
+        if (!await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
         outwardApproved = true;
         if (!grantCurrent()) { refuseStaleApproval(); return false; }
       }

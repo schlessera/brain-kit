@@ -65,3 +65,5 @@ Add remainingBytes as an optional SDK route reader, preserving older operation-o
 Require a confirmed durable occurrence before trusted dispatch; false or failed source writes refuse the affected operation as recording unavailable, including permanently restricted turns and legacy recorder adapters.
 
 Keep an approved connection valid across only its own occurrence and initial collection write. Restore safety-changed 403 for peer recorder loss or independent pending input while preserving operation-specific recorder-unavailable 503.
+
+Preserve a committed explicit session recipient grant across later input without relaxing the first-dispatch fence. Keep outward callback payloads compatible and align peer-loss audit/status assertions and received-header byte-cap expectations with their contract.

@@ -6138,3 +6138,11 @@ recorder’s loss or an independent pending input changes the safety context and
 refuses with 403 safety_changed. The internal optional
 AdmissionSafetySnapshot.operationRecordingAvailable distinguishes the two;
 legacy snapshots without that detail retain conservative unavailable behavior.
+
+Once a successfully dispatched explicit Network approval has become the session
+contacted-host grant, later independent input does not revoke that recipient
+grant or truncate the approved stream. Pre-dispatch approval freshness, source
+rule removal, authority, recorder availability, outward permission and byte
+ceilings remain independently fenced. Outward callbacks retain their original
+{host, port, method} shape; transport metadata is confined to source/recipient
+matching and the corresponding Network-card identity.

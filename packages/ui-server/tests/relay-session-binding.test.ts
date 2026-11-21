@@ -201,7 +201,7 @@ for (const kind of ["inference", "provider"] as const) {
         payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus harbour notice" } }));
       expect(f.writes.recordingAvailable("voyage", "ithaca")).toBe(false);
       const result = await f.send();
-      expect(result.status).toBe(503);expect(result.body).toContain("unavailable");
+      expect(result.status).toBe(403);expect(result.body).toContain("safety");
       expect(f.requests(), "INDEPENDENT_PENDING_INPUT_NEVER_REACHES_PROVIDER").toBe(0);
       expect(f.reads.some(value => !value.recordingAvailable)).toBe(true);
       held.release();
@@ -233,7 +233,7 @@ for (const kind of ["inference", "provider"] as const) {
           await f.catalog.settled!();
         }
         f.releaseFinal();
-        expect((await response).status).toBe(mode === "recording-loss" || mode === "own-recording-loss" ? 503 : 403);
+        expect((await response).status).toBe(mode === "own-recording-loss" ? 503 : 403);
         expect(f.requests(), "FINAL_SAFETY_CHANGE_NEVER_REACHES_PROVIDER").toBe(0);
         await f.proxy.settled();
         if (mode === "changed-scope") {
@@ -243,7 +243,7 @@ for (const kind of ["inference", "provider"] as const) {
           expect(f.proxy.recordingFailure()).toBeDefined();
           expect(f.controller.signal.aborted).toBe(true);
         } else {
-          const reason = mode === "recording-loss" || mode === "own-recording-loss" ? "egress_unavailable" : "safety_changed";
+          const reason = mode === "own-recording-loss" ? "egress_unavailable" : "safety_changed";
           expect(f.db.query("SELECT json_extract(payload,'$.reason') reason FROM governance_events WHERE kind='egress_connection'").all())
             .toEqual([{ reason }]);
         }
