@@ -67,7 +67,7 @@ test("an inaccessible hardlink never suppresses the readable alias's before and 
   };
   const helper = spyOn(identity, "workerIdentityHelper").mockReturnValue("/odysseus/identity"), verified = spyOn(launcher, "verifiedWorkerIdentity").mockReturnValue({ identity: "separate_uid", workerUid: 42 });
   const open = fs.open, denied = spyOn(fs, "open").mockImplementation(((path: string, ...args: unknown[]) => {
-    if (/\/note\.md$/.test(String(path))) return Promise.reject(Object.assign(new Error("worker-private directory"), { code: "EACCES" }));
+    if (String(path).endsWith("/note.md")) return Promise.reject(Object.assign(new Error("worker-private directory"), { code: "EACCES" }));
     return Reflect.apply(open, fs, [path, ...args]);
   }) as typeof fs.open);
   const db = createUiDb(":memory:"), objects = createJournalObjects(join(root, "objects"), createJournalAccounting(db, ":memory:"));
