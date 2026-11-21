@@ -53,9 +53,9 @@ keeper=subprocess.Popen(["/usr/bin/setpriv","--reuid="+str(uid),"--regid="+str(g
 try:
  line=keeper.stdout.readline(65537)
  if not line or len(line)>65536:raise RuntimeError("stage keeper did not prove readiness")
- keeper_identity=json.loads(line);pid=keeper_identity["pid"];info=os.stat(mount);space=os.statvfs(mount);merged=os.stat(mount+"/merged")
+ keeper_identity=json.loads(line);pid=keeper_identity["pid"];info=os.stat(mount);space=os.statvfs(mount+"/merged");merged=os.stat(mount+"/merged")
  if (packing!="1" and space.f_blocks*space.f_frsize!=allowance) or space.f_blocks*space.f_frsize>allowance:raise RuntimeError("stage exceeds its fixed filesystem capacity")
- print(json.dumps({"pid":pid,"start":identity(pid),"device":str(info.st_dev),"inode":str(info.st_ino),"mountNamespaceInode":keeper_identity["mountNamespaceInode"],"mergedDevice":str(merged.st_dev),"mergedInode":str(merged.st_ino)}),flush=True)
+ print(json.dumps({"pid":pid,"start":identity(pid),"device":str(info.st_dev),"inode":str(info.st_ino),"mountNamespaceInode":keeper_identity["mountNamespaceInode"],"mergedDevice":str(merged.st_dev),"mergedInode":str(merged.st_ino),"filesystemBytes":space.f_blocks*space.f_frsize}),flush=True)
  for line in sys.stdin.buffer:
   if line==b"release\n":break
   if line.startswith(b"reader "):
@@ -165,19 +165,22 @@ export async function startNativeStage(options: { id: string; checkpointId: stri
     try { return await Promise.race([fn(), failure]); }
     finally { clearTimeout(timer); if (stop) signal?.removeEventListener("abort", stop); }
   }
-  let stage: NativeStage, mountNamespaceInode: string, mergedDevice: string, mergedInode: string;
+  let stage: NativeStage, mountNamespaceInode: string, mergedDevice: string, mergedInode: string, filesystemBytes: number;
   try {
     const ready = JSON.parse(await bounded(line, options.signal));
     if (!Number.isSafeInteger(ready.pid) || ready.pid <= 0 || !/^[1-9][0-9]*$/.test(ready.start) || processStart(ready.pid) !== ready.start)
       throw new NativeBrainManagerError("unavailable", "Stage keeper identity could not be verified in this PID namespace.");
     if (!/^[1-9][0-9]*$/.test(ready.mergedDevice) || !/^[1-9][0-9]*$/.test(ready.mergedInode) || !/^[1-9][0-9]*$/.test(ready.mountNamespaceInode) || !/^[1-9][0-9]*$/.test(ready.device) || !/^[1-9][0-9]*$/.test(ready.inode))
       throw new NativeBrainManagerError("unknown", "Stage helper did not return its fixed mounted-root identity.");
+    if (!Number.isSafeInteger(ready.filesystemBytes) || ready.filesystemBytes <= 0 || ready.filesystemBytes > options.allowanceBytes)
+      throw new NativeBrainManagerError("unknown", "Stage helper did not prove its bounded filesystem capacity.");
+    filesystemBytes = ready.filesystemBytes;
     mountNamespaceInode = ready.mountNamespaceInode; mergedDevice = ready.mergedDevice; mergedInode = ready.mergedInode;
     stage = { id: options.id, checkpointId: options.checkpointId, checkpointUuid: options.checkpointUuid, sourceUuid: options.sourceUuid,
       path: options.path, namespacePid: ready.pid, namespaceStart: ready.start, appUid: options.appUid, appGid: options.appGid,
       allowanceBytes: options.allowanceBytes, rootDevice: ready.device, rootInode: ready.inode };
   } catch (error) { child.kill("SIGKILL"); await child.exited; throw error; }
-  return { stage, mountNamespaceInode, mergedDevice, mergedInode,
+  return { stage, mountNamespaceInode, mergedDevice, mergedInode, ...(options.packing ? { filesystemBytes } : {}),
     async read(request: { id: string; token: string; socketPath: string; request: NativeCheckpointReadRequest }, signal?: AbortSignal) {
       if (!options.workerUid || closed || failed || processStart(stage.namespacePid) !== stage.namespaceStart)
         throw new NativeBrainManagerError("unavailable", "Stage reader requires a live owned stage and fixed worker identity.");

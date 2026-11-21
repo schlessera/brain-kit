@@ -948,7 +948,9 @@ stage/tree allowances (including uncertain cleanup charges) plus this stage
 against observed free space, preserving that floor and recovery allocation.
 Packing uses an exclusively created, fully allocated fixed-size ext4 image on
 the managed store, mounted through an owned autoclear loop device. The image's
-capacity enforces the write quota without enabling Btrfs qgroups on the brain
+capacity enforces the write quota; the sealed worker-identity ticket attests
+the exact usable filesystem capacity after ext4 metadata, bounded by the image.
+This avoids enabling Btrfs qgroups on the brain
 volume. Its reservation also covers one complete publication copy; later turn
 trees subtract that reservation and preserve the same floor. Ordinary stages
 keep their existing tmpfs budget. Memory headroom is not a packing skip condition.

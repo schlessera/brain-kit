@@ -581,7 +581,9 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
             keeper: { pid: stage.namespacePid, start: stage.namespaceStart, mountNamespaceInode: handle.mountNamespaceInode },
             root: { path: stage.path + "/merged", dev: handle.mergedDevice, ino: handle.mergedInode },
             checkpoint: { path: checkpoint.path, dev: String(info.dev), ino: String(info.ino), uuid: checkpoint.uuid },
-            allowanceBytes: stage.allowanceBytes };
+            // Identity helpers attest the exact mounted filesystem capacity.
+            // ext4 metadata consumes part of the reserved image's byte bound.
+            allowanceBytes: handle.filesystemBytes ?? stage.allowanceBytes };
           const id = randomUUID(), token = randomUUID(), socketPath = nativeCheckpointReaderPath(fixed.socketPath, id);
           const transfer = await startNativeCheckpointRead({ id, token, socketPath, workerUid: fixed.workerUid, maximum: NATIVE_CONTROL_BYTES, rootFd,
             appUid: fixed.appUid, appGid: fixed.appGid, timeoutMs: fixed.operationTimeoutMs, request: { action: "authority", authority } });
