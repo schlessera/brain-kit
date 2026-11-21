@@ -216,7 +216,7 @@ must be tested through their installed runtime, not inferred from directory name
   readable projections according to the adopted extent. Retained digests can
   reveal guessed short text; discard unnecessary hashes, not just plaintext.
   Native history joins several of these owners
-  (`prepareHistory`, `packages/ui-server/src/ws/host.ts:685-697`).
+  (`prepareHistory`, `packages/ui-server/src/ws/host.ts:690-702`).
 - **Independent session ledgers.** `retry_receipts`, `session_work`, `turn_boundaries`,
   draft send/save/upload receipts and revisions, handoff IDs/lineage, Claude usage
   deduplication, worker profiles, provider-exposure and born-masked lineage are
@@ -303,7 +303,7 @@ The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`, with one
 handler per frame under `ws/handlers/`; gating its resume handler alone would leave HTTP, background readers and provider startup open.
 
 Existing ordinary history publication checks concurrent turn changes
-(`publishHistory`, `packages/ui-server/src/ws/host.ts:629-663`). Future deletion
+(`publishHistory`, `packages/ui-server/src/ws/host.ts:634-668`). Future deletion
 must additionally invalidate it even when no turn starts or ends. Startup reads
 native history, canonical evidence and completed facts, and freezes a snapshot
 (`readLiveHistory`, `packages/ui-server/src/ws/live-history.ts:9-74`). Recheck the

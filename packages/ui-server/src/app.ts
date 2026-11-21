@@ -43,7 +43,9 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { createGoogleCredential } from "./google/credential.js";
+import { googleHomeMask, googleWorkerMounts } from "./google/home.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, googleHostEnv, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
@@ -415,7 +417,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   }
   // The manager verifies its fixed topology and root-private state. These are
   // exact masks, not app-owned directories to enumerate or mask by parent.
-  const nativeMaskPaths = nativeReady.privatePaths;
+  // The Google home (#4206) is one too: the configured home as it resolves at
+  // boot, wherever the operator put it, and never a reason to refuse the boot.
+  const googleEnv = googleHostEnv(config.dbPath);
+  const googleMask = googleHomeMask(googleEnv.home, config.brainPath);
+  const nativeMaskPaths = [...nativeReady.privatePaths, ...(googleMask ? [googleMask] : [])];
   try { assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }); }
   catch (error) {
     if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true });
@@ -824,6 +830,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     },
     report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
+  // The host's Google credential (#4206): the home is checked at first use,
+  // and a home that fails a check makes Google unavailable with its reason,
+  // never this boot. Its mask is in nativeMaskPaths above.
+  const google = createGoogleCredential({ env: googleEnv,
+    layout: { brainPath: config.brainPath, dbPath: config.dbPath, workerMounts: googleWorkerMounts(subprocessEnv("brainCli").HOME) },
+    report: (message, status) => brainLog.emit({ severityText: status.state === "available" ? "INFO" : "WARN", body: message,
+      attributes: { "google.state": status.state, ...(status.state === "unavailable" ? { "google.reason": status.reason } : {}) } }) });
   const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());
   const accountSeed = await accountWrites(db).partitionSeed();
   const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, accountSeed);
@@ -870,6 +883,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     ...(referenceTools ? { referenceTools } : {}),
     apify: apifyHost,
     githubTools,
+    google,
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,

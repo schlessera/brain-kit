@@ -765,6 +765,41 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: null,
     required: false,
   },
+  // Google (#4206): the host's own gog home, keyring and binary.
+  {
+    name: "BRAIN_UI_GOOGLE_HOME",
+    description:
+      "Absolute path of the gog home the host's Google tools use: gog's configuration and its encrypted file keyring, written by `brain google connect --remote` from the host's shell. " +
+      "It must be a directory with mode 0700, owned by the user the server runs as, and neither inside nor holding the brain, the database directory, a directory the server binds into workers (its HOME, the Bun runtime) or a temp area (/tmp, /var/tmp, /dev/shm, TMPDIR). " +
+      "It is checked at first use and on every later use, never at boot: a home that fails a check makes the Google tools answer unavailable with the reason, and the server boots and serves chats as usual. " +
+      "Every worker's view covers it, a cron job's included: the cron runner reads it from the emitted environment for that alone. Never passed to any subprocess or worker.",
+    default: "(unset — the Google tools answer unavailable)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_GOOGLE_KEYRING_PASSWORD",
+    description:
+      "Password of the encrypted file keyring in BRAIN_UI_GOOGLE_HOME, used verbatim. Read once at boot and handed only to the host's own gog process; " +
+      "never passed to any other subprocess, worker, prompt, log or response.",
+    default: "(unset — the Google tools answer unavailable)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_GOG_PATH",
+    description:
+      "Absolute path of the gog release binary the host runs. It must be a listed gog release with its published checksum, and it and its directory must be owned by root or the server's user " +
+      "and writable by no one else; the host checks this at first use and refuses anything else as transport_incompatible. Package-manager builds do not match.",
+    default: "(unset — the Google tools answer unavailable)",
+    required: false,
+  },
+  {
+    name: "BRAIN_GOOGLE_LEDGER",
+    description:
+      "Absolute path of the shared Google ledger: remembered approvals, sent-message digests and standalone inverses, private to the host user and outside every brain. " +
+      "A standalone `brain google` process that sets the same path shares it with the server. Never passed to a worker.",
+    default: "DB_PATH.google-ledger.sqlite",
+    required: false,
+  },
   // voice
   {
     name: "DEEPGRAM_API_KEY",
@@ -1050,6 +1085,8 @@ export interface CronConfig {
   moduleRepositories: { allowed: string[]; invalid: string[] };
   /** The module GitHub relay's credential and enabled writes (#4259); the token is read only here. */
   moduleGitHub: { token: () => string | undefined; writes: Map<string, Set<ModuleGitHubWrite>>; invalid: string[] };
+  /** BRAIN_UI_GOOGLE_HOME (#4206): covered in every job's worker view, as in the server's; never forwarded to a job. */
+  googleHome?: string;
 }
 
 function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
@@ -1415,6 +1452,7 @@ export function resolveCronConfig(
     cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
     moduleRepositories: parseRepositoryAllowList(env.BRAIN_UI_MODULE_REPOSITORIES),
     moduleGitHub: { token: moduleGitHubTokenSource(env), ...parseModuleGitHubWrites(env.BRAIN_UI_MODULE_GITHUB_WRITES) },
+    ...(env.BRAIN_UI_GOOGLE_HOME?.trim() ? { googleHome: env.BRAIN_UI_GOOGLE_HOME.trim() } : {}),
   };
 }
 
@@ -1506,6 +1544,34 @@ export function apifyTokenSource(env: NodeJS.ProcessEnv = process.env): () => st
 export function githubToolsTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
   const token = env.BRAIN_UI_GITHUB_TOOLS_TOKEN?.trim() || undefined;
   return () => token;
+}
+
+/**
+ * The host's Google configuration (#4206), read once at the edge. The
+ * keyring password stays in a closure, as the GitHub tools' token does, so it
+ * is in no configuration object a caller can print; the home, binary and
+ * ledger are paths. Blank values are unset. Nothing here checks the home:
+ * that happens at first use, and a failure there never fails the boot.
+ */
+export interface GoogleHostEnv {
+  /** BRAIN_UI_GOOGLE_HOME, trimmed. */
+  home: string | undefined;
+  /** BRAIN_UI_GOG_PATH, trimmed. */
+  gogPath: string | undefined;
+  /** BRAIN_GOOGLE_LEDGER, trimmed, or beside the UI database. */
+  ledgerPath: string;
+  /** BRAIN_UI_GOOGLE_KEYRING_PASSWORD, verbatim. */
+  keyringPassword: () => string | undefined;
+}
+
+export function googleHostEnv(dbPath: string, env: NodeJS.ProcessEnv = process.env): GoogleHostEnv {
+  const password = env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD || undefined;
+  return {
+    home: env.BRAIN_UI_GOOGLE_HOME?.trim() || undefined,
+    gogPath: env.BRAIN_UI_GOG_PATH?.trim() || undefined,
+    ledgerPath: env.BRAIN_GOOGLE_LEDGER?.trim() || `${dbPath}.google-ledger.sqlite`,
+    keyringPassword: () => password,
+  };
 }
 
 /**

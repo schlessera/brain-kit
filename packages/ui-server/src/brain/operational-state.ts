@@ -7,8 +7,12 @@ import { mountPointsUnder, workerIdentityHelper } from "@schlessera/brain-ui-sdk
 import type { GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { journalDatabasePath } from "../db/journal-database.js";
 
-/** Follow filesystem components in order: link/.. must traverse the link first. */
-function canonical(path: string, links = 0): string {
+/**
+ * Follow filesystem components in order: link/.. must traverse the link
+ * first. A missing tail stays as written, so a path not created yet resolves
+ * too. Also the Google home's containment checks (#4206).
+ */
+export function canonical(path: string, links = 0): string {
   if (links > 40) throw new Error("Operational state path has too many symbolic links");
   const parts = (isAbsolute(path) ? path : `${process.cwd()}/${path}`).split("/");
   let current = "/";

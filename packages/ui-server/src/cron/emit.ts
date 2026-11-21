@@ -322,6 +322,8 @@ export const CRON_CONTROL_ENV_NAMES: readonly string[] = [
   // The module GitHub relay's credential and enabled writes (#4259): the runner reads them, no job receives them.
   "BRAIN_UI_MODULE_GITHUB_TOKEN",
   "BRAIN_UI_MODULE_GITHUB_WRITES",
+  // The host's gog home (#4206): the runner covers it in every job's worker view; no job receives it.
+  "BRAIN_UI_GOOGLE_HOME",
 ];
 
 export function emitEnvironment(
