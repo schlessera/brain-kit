@@ -55,6 +55,26 @@ describe("parseGoogleMailbox", () => {
     test(name, () => expect(address(input)).toBe(expected));
   }
 
+  const display = (text: string) => {
+    const parsed = parseGoogleMailbox(text);
+    return parsed.ok ? parsed.mailbox.display_name : `refused: ${parsed.reason}`;
+  };
+
+  test("whitespace between adjacent encoded words in a display name is dropped", () => {
+    expect(display("=?utf-8?Q?Pene?= =?utf-8?Q?lope?= <penelope@example.com>")).toBe("Penelope");
+  });
+
+  test("whitespace between an encoded word and ordinary text is kept", () => {
+    expect([
+      display("=?utf-8?Q?Pene?= =?utf-8?Q?lope?= of Ithaca <penelope@example.com>"),
+      display("\"Queen\" =?utf-8?Q?Pene?=\t=?utf-8?Q?lope?= <penelope@example.com>"),
+    ]).toEqual(["Penelope of Ithaca", "Queen Penelope"]);
+  });
+
+  test("an encoded word inside a quoted string is not decoded", () => {
+    expect(display("\"=?utf-8?Q?Pene?=\" =?utf-8?Q?lope?= <penelope@example.com>")).toBe("=?utf-8?Q?Pene?= lope");
+  });
+
   test("the display name is parsed and kept for display, with encoded words decoded", () => {
     const parsed = parseGoogleMailbox("=?utf-8?Q?Odysseus_=E2=9A=93?= <odysseus@example.com>");
     expect(parsed.ok ? parsed.mailbox : parsed).toEqual({ address: "odysseus@example.com", local: "odysseus", domain: "example.com", display_name: "Odysseus \u2693" });

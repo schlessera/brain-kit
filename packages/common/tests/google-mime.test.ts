@@ -481,3 +481,20 @@ describe("parseGmailRawDraft: only parameters and encodings the parser understan
     });
   }
 });
+
+describe("parseGmailRawDraft: adjacent encoded words", () => {
+  test("whitespace between adjacent encoded words in a display name is dropped", async () => {
+    const parsed = await parseGmailRawDraft(message("To: =?utf-8?Q?Pene?= =?utf-8?Q?lope?= <penelope@example.com>", "", ""));
+    expect([parsed.to.map(mailbox => mailbox.display_name), flags(parsed)]).toEqual([["Penelope"], CLEAN]);
+  });
+
+  test("a folded display name of adjacent encoded words is joined", async () => {
+    const parsed = await parseGmailRawDraft(message("To: =?utf-8?Q?Pene?=", " =?utf-8?B?bG9wZQ==?= <penelope@example.com>", "", ""));
+    expect([parsed.to.map(mailbox => mailbox.display_name), flags(parsed)]).toEqual([["Penelope"], CLEAN]);
+  });
+
+  test("whitespace between adjacent encoded words in a subject is dropped, tabs included", async () => {
+    const parsed = await parseGmailRawDraft(message("Subject: =?utf-8?Q?Pene?=\t =?utf-8?Q?lope?= waits", "", ""));
+    expect([parsed.subject, flags(parsed)]).toEqual(["Penelope waits", CLEAN]);
+  });
+});

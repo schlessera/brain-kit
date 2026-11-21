@@ -103,9 +103,25 @@ function parseAddrSpec(spec: string): { ok: true; local: string; domain: string 
   return { ok: true, local, domain: domain.domain };
 }
 
-/** A display name: words that are atoms (`.` allowed) or quoted strings. Null when it cannot be read. */
+/**
+ * A display name: words that are atoms (`.` allowed) or quoted strings. Null
+ * when it cannot be read. Encoded words are decoded only in atoms (RFC 2047
+ * section 5), after the structure is fixed. Each run of consecutive atoms
+ * goes through the shared decoder as one text, so the whitespace between
+ * adjacent encoded words is dropped there (section 6.2) exactly as in a
+ * subject; quoted strings are kept literally.
+ */
 function parseDisplayName(phrase: string): string | null {
   const words: string[] = [];
+  let atoms: string[] = [];
+  const flush = (): boolean => {
+    if (atoms.length === 0) return true;
+    const decoded = decodeEncodedWords(atoms.join(" "));
+    atoms = [];
+    if (decoded === null) return false;
+    words.push(decoded);
+    return true;
+  };
   let at = 0;
   while (at < phrase.length) {
     const char = phrase[at]!;
@@ -114,6 +130,7 @@ function parseDisplayName(phrase: string): string | null {
       continue;
     }
     if (char === "\"") {
+      if (!flush()) return null;
       let word = "";
       let closed = false;
       for (at++; at < phrase.length; at++) {
@@ -136,11 +153,9 @@ function parseDisplayName(phrase: string): string | null {
       if (PHRASE_SPECIALS.test(phrase[at]!)) return null;
       atom += phrase[at++];
     }
-    // Encoded words are decoded only in atoms (RFC 2047 §5), after the structure is fixed.
-    const decoded = decodeEncodedWords(atom);
-    if (decoded === null) return null;
-    words.push(decoded);
+    atoms.push(atom);
   }
+  if (!flush()) return null;
   return words.join(" ");
 }
 
