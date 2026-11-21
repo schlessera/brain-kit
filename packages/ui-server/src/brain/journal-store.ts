@@ -102,7 +102,9 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   // Refusing this optional migration must never prevent recovery/expiry.
   accounting.ensureObjectRefIndex();
   accounting.ensureChangePathIndex();
-  let conflictsReady = accounting.ensureConflictTables();
+  let conflictsReady = false;
+  try { conflictsReady = accounting.ensureConflictTables(); }
+  catch (error) { if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error; }
   const objects = createJournalObjects(options.objectsRoot, accounting);
   const reservations = new Map<string, JournalObjectReservation>();
   const temporary = new Map<string, { release(): void }>();

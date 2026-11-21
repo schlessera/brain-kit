@@ -13481,6 +13481,7 @@ signatures (every public export and the types it is made of)
     }
   ScopeCapReceipt (packages/ui-sdk/src/turn-journal.ts)
     export interface ScopeCapReceipt {
+        measurement?: "unknown";
         result?: "index_capacity";
         eventId: string;
         dimension: ScopeDimension;
@@ -23826,6 +23827,7 @@ signatures (every public export and the types it is made of)
                     }>;
                     eventId: z.ZodString;
                     frozen: z.ZodBoolean;
+                    measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                     newCap: z.ZodOptional<z.ZodNumber>;
                     observedAt: z.ZodNumber;
                     overshoot: z.ZodNumber;
@@ -24851,6 +24853,7 @@ signatures (every public export and the types it is made of)
                         }>;
                         eventId: z.ZodString;
                         frozen: z.ZodBoolean;
+                        measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                         newCap: z.ZodOptional<z.ZodNumber>;
                         observedAt: z.ZodNumber;
                         overshoot: z.ZodNumber;
@@ -28503,6 +28506,7 @@ signatures (every public export and the types it is made of)
                         }>;
                         eventId: z.ZodString;
                         frozen: z.ZodBoolean;
+                        measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                         newCap: z.ZodOptional<z.ZodNumber>;
                         observedAt: z.ZodNumber;
                         overshoot: z.ZodNumber;
@@ -28934,6 +28938,7 @@ signatures (every public export and the types it is made of)
                     }>;
                     eventId: z.ZodString;
                     frozen: z.ZodBoolean;
+                    measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                     newCap: z.ZodOptional<z.ZodNumber>;
                     observedAt: z.ZodNumber;
                     overshoot: z.ZodNumber;
@@ -29269,6 +29274,7 @@ signatures (every public export and the types it is made of)
                 }>;
                 eventId: z.ZodString;
                 frozen: z.ZodBoolean;
+                measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                 newCap: z.ZodOptional<z.ZodNumber>;
                 observedAt: z.ZodNumber;
                 overshoot: z.ZodNumber;
@@ -29332,6 +29338,7 @@ signatures (every public export and the types it is made of)
             }>;
             eventId: z.ZodString;
             frozen: z.ZodBoolean;
+            measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
             newCap: z.ZodOptional<z.ZodNumber>;
             observedAt: z.ZodNumber;
             overshoot: z.ZodNumber;

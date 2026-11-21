@@ -1013,6 +1013,7 @@ signatures (every public export and the types it is made of)
                 }>;
                 frozen: z.ZodBoolean;
                 limit: z.ZodNumber;
+                measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                 observed: z.ZodNumber;
                 outcome: z.ZodEnum<{
                     continued: "continued";

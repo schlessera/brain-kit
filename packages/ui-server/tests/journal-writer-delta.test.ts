@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
-import { journalStatement } from "../src/brain/journal-store.js";
+import { setup, journalStatement, type ObservationRecord } from "../src/brain/journal-store.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+const recordObservation = (store: ReturnType<typeof setup>, record: ObservationRecord) => (store.recordObservation as (entry: ObservationRecord) => number)(record);
 
 test("one changed shared path uses point peer lookups on the actual writer after ten thousand unrelated rows", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-writer-delta-")), brain = join(root, "brain"); mkdirSync(join(brain, "notes"), { recursive: true });
@@ -35,7 +36,7 @@ test("one changed shared path uses point peer lookups on the actual writer after
 });
 
 test("a solo rewrite never traverses its ten thousand previous versions", async () => {
-  const { spyOn } = await import("bun:test"), { setup } = await import("../src/brain/journal-store.js"), { createJournalAccounting } = await import("../src/brain/journal-accounting.js");
+  const { spyOn } = await import("bun:test"), { createJournalAccounting } = await import("../src/brain/journal-accounting.js");
   const root = mkdtempSync(join(tmpdir(), "odysseus-solo-history-")), db = createUiDb(":memory:"), objectsRoot = join(root, "objects");
   const store = setup(db, { dbPath: ":memory:", objectsRoot }), ledger = createJournalAccounting(db, ":memory:");
   ledger.write(() => {
@@ -46,17 +47,17 @@ test("a solo rewrite never traverses its ten thousand previous versions", async 
   const query = db.query.bind(db), history: string[] = [];
   const observed = spyOn(db, "query").mockImplementation(((sql: string, ...args: unknown[]) => { if (/SELECT.*FROM turn_journal_changes/i.test(sql)) history.push(sql); return Reflect.apply(query, db, [sql, ...args]); }) as typeof db.query);
   try {
-    store.recordObservation({ turnId: "voyage", sequence: 10000, at: 1, userPolicy: false, changed: [{ path: "notes/ithaca.md", scope: "", before: null, after: { kind: "file", bytes: 10001, mode: 420, ignored: true } }], overlaps: ["voyage"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] });
+    recordObservation(store, { turnId: "voyage", sequence: 10000, at: 1, userPolicy: false, changed: [{ path: "notes/ithaca.md", scope: "", before: null, after: { kind: "file", bytes: 10001, mode: 420, ignored: true } }], overlaps: ["voyage"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] });
     expect(history, "SOLO_REWRITE_DOES_NOT_SCAN_VERSION_HISTORY").toEqual([]);
   } finally { observed.mockRestore(); await store.close?.(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test("a conflicted path stores one relation as a thousand solo versions follow", async () => {
-  const { setup } = await import("../src/brain/journal-store.js"), { createJournalAccounting } = await import("../src/brain/journal-accounting.js");
+  const { createJournalAccounting } = await import("../src/brain/journal-accounting.js");
   const root = mkdtempSync(join(tmpdir(), "odysseus-conflict-growth-")), db = createUiDb(":memory:"), store = setup(db, { dbPath: ":memory:", objectsRoot: join(root, "objects") }), ledger = createJournalAccounting(db, ":memory:");
   ledger.write(() => db.query("INSERT INTO turn_journal_turns(turn_id,actor,profile,started_at,state) VALUES ('voyage','interactive','governed',0,'recording')").run());
   try {
-    for (let n = 1; n <= 1002; n++) { store.recordObservation({ turnId: "voyage", sequence: n - 1, at: n, userPolicy: false, changed: [{ path: "notes/ithaca.md", scope: "", before: null, after: { kind: "file", bytes: n, mode: 420, ignored: true } }], overlaps: n <= 2 ? ["voyage", "peer"] : ["voyage"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] });
+    for (let n = 1; n <= 1002; n++) { recordObservation(store, { turnId: "voyage", sequence: n - 1, at: n, userPolicy: false, changed: [{ path: "notes/ithaca.md", scope: "", before: null, after: { kind: "file", bytes: n, mode: 420, ignored: true } }], overlaps: n <= 2 ? ["voyage", "peer"] : ["voyage"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] });
       if (n === 20) expect(db.query("SELECT sum(length(conflict_observations)) AS bytes FROM turn_journal_changes").get(), "SOLO_SUCCESSORS_DO_NOT_COPY_CONFLICT_LISTS").toEqual({ bytes: 2 * n });
     }
     expect(db.query("SELECT count(*) AS n FROM turn_journal_path_conflicts").get(), "CONFLICT_RELATION_STORED_ONCE").toEqual({ n: 1 });
@@ -66,13 +67,16 @@ test("a conflicted path stores one relation as a thousand solo versions follow",
 });
 
 test("new conflict metadata cannot bypass physical journal admission on a full existing journal", async () => {
-  const { setup } = await import("../src/brain/journal-store.js"), { createJournalAccounting } = await import("../src/brain/journal-accounting.js"), { JournalCapacityError } = await import("../src/brain/journal-objects.js");
+  const { createJournalAccounting } = await import("../src/brain/journal-accounting.js"), { JournalCapacityError } = await import("../src/brain/journal-objects.js");
   const root = mkdtempSync(join(tmpdir(), "odysseus-conflict-admission-")), path = join(root, "ui.db"), db = createUiDb(path), ledger = createJournalAccounting(db, path);
-  ledger.write(() => db.query("INSERT INTO turn_journal_turns(turn_id,actor,profile,started_at,state) VALUES ('voyage','interactive','governed',0,'complete')").run());
+  ledger.write(() => db.query("INSERT INTO turn_journal_turns(turn_id,session_id,actor,profile,started_at,ended_at,state) VALUES ('voyage','ithaca','interactive','governed',0,1,'complete')").run());
   const store = setup(db, { dbPath: path, objectsRoot: join(root, "objects"), capBytes: 0 });
+  let journal: ReturnType<typeof createTurnJournal> | undefined; const brain = join(root, "brain"); mkdirSync(brain); const native = createNativeJournalFixture(brain, root);
   try {
     expect(db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE name IN ('turn_journal_path_peers','turn_journal_path_conflicts')").get(), "CONFLICT_SCHEMA_NEVER_ESCAPES_CAPACITY_ADMISSION").toEqual({ n: 0 });
     expect(db.query("SELECT state FROM turn_journal_turns WHERE turn_id='voyage'").get()).toEqual({ state: "complete" });
-    expect(() => store.recordObservation({ turnId: "voyage", sequence: 0, at: 1, userPolicy: false, changed: [], overlaps: ["voyage"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] }), "FULL_JOURNAL_REFUSES_ONLY_NEW_OBSERVATION").toThrow(JournalCapacityError);
-  } finally { await store.close?.(); db.close(); rmSync(root, { recursive: true, force: true }); }
+    expect(() => recordObservation(store, { turnId: "voyage", sequence: 0, at: 1, userPolicy: false, changed: [], overlaps: ["voyage"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] }), "FULL_JOURNAL_REFUSES_ONLY_NEW_OBSERVATION").toThrow(JournalCapacityError);
+    journal = createTurnJournal(db, { brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes: 0, nativeManager: native.manager }); await journal.ready;
+    expect(journal.details("ithaca", "voyage")?.summary.state, "FULL_JOURNAL_STILL_BOOTS_TO_SERVE_HISTORICAL_RECORDS").toBe("complete");
+  } finally { await journal?.close(); await store.close?.(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

@@ -215,16 +215,14 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     ensureConflictTables() {
       const row = db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='table' AND name IN ('turn_journal_path_peers','turn_journal_path_conflicts')").get() as { n: number };
       if (row.n === 2) return true;
-      try {
-        write(() => db.exec(`CREATE TABLE IF NOT EXISTS journal.turn_journal_path_peers (
-          turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
-          path TEXT NOT NULL, peer_id TEXT NOT NULL, first_sequence INTEGER NOT NULL, after_json TEXT NOT NULL,
-          PRIMARY KEY(turn_id,path,peer_id));
-          CREATE TABLE IF NOT EXISTS journal.turn_journal_path_conflicts (
-          turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
-          path TEXT NOT NULL, first_sequence INTEGER NOT NULL, PRIMARY KEY(turn_id,path));`));
-        installEscapeGuard(db); return true;
-      } catch (error) { if (error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable) return false; throw error; }
+      write(() => db.exec(`CREATE TABLE IF NOT EXISTS journal.turn_journal_path_peers (
+        turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
+        path TEXT NOT NULL, peer_id TEXT NOT NULL, first_sequence INTEGER NOT NULL, after_json TEXT NOT NULL,
+        PRIMARY KEY(turn_id,path,peer_id));
+        CREATE TABLE IF NOT EXISTS journal.turn_journal_path_conflicts (
+        turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
+        path TEXT NOT NULL, first_sequence INTEGER NOT NULL, PRIMARY KEY(turn_id,path));`));
+      installEscapeGuard(db); return true;
     },
     ensureObjectRefIndex: () => ensureIndex(JOURNAL_OBJECT_REFS_INDEX, "SELECT coalesce(sum(length(CAST(hash AS BLOB))+32),0) AS bytes FROM turn_journal_object_refs"),
     ensureChangePathIndex: () => ensureIndex(JOURNAL_CHANGE_PATH_INDEX, "SELECT coalesce(sum(length(CAST(turn_id AS BLOB))+length(CAST(path AS BLOB))+48),0) AS bytes FROM turn_journal_changes"),

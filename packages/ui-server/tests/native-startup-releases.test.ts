@@ -220,10 +220,10 @@ for (const mode of ["empty_paths", "boundary_fallback"] as const) test(`resolved
   if (mode === "boundary_fallback") for (const id of ["one", "two"]) (await queue.reserve()).handoff(id, { root: id, cleanup: () => deletion.promise } as startup.WorkerStartupView);
   const tryReserve = spyOn(queue, "tryReserve"), reserve = spyOn(queue, "reserve").mockRejectedValue(new Error("retained profile waited for release"));
   const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
-    const cp = await native.client.checkpoint(crypto.randomUUID()); return { brain, root: cp.path, storage: { root: cp.path, retain() {}, release() {} }, cleanup: () => native.client.release(cp.id) };
+    const cp = await native.client.checkpoint(crypto.randomUUID()); return { brain, root: cp.path, storage: { root: cp.path, retain() {}, release() {} }, async cleanup() { await native.client.release(cp.id); } };
   });
   const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
-  const resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockImplementation(async (_path, options) => ({ profile: options.profile, areas: [], protection: { paths: [] } }) as never);
+  const resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockImplementation(async (_path, options) => ({ profile: options!.profile, areas: [], protection: { paths: [] } }) as never);
   const tree = spyOn(trees, "createTurnDataTree").mockResolvedValue({ async close() {} } as never);
   const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, profile: "governed", maskPaths: [], async index() {}, report() {}, execution: {
     boundary: { async prepare() { return { available: mode !== "boundary_fallback", detail: "Ithaca boundary unavailable" }; }, maintenance: {} },

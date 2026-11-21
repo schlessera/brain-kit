@@ -205,4 +205,5 @@ test("unknown index size is displayed as unknown rather than an exact byte count
   const f = await mount(1280); f.frame(cap({ dimension: "turn_bytes", result: "index_capacity", measurement: "unknown", count: 0, cap: 4294967296, newCap: undefined }));
   await expect.poll(() => host.querySelector('[id="athena-cap-question"]')?.textContent, { message: "UNKNOWN_INDEX_SIZE_VISIBLE_IN_PAUSE_PROMPT" }).toContain("Observed: unknown.");
   expect(option("Continue")).toBeUndefined(); expect(option("Stop here")).toBeDefined();
+  expect(host.querySelector('[id="athena-cap-question"]')?.textContent, "UNKNOWN_SIZE_HAS_NO_NUMERIC_OVERSHOOT_CLAIM").not.toContain("Observed overshoot");
 });
