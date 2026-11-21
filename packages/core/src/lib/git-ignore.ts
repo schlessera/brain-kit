@@ -1,6 +1,7 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 /** Git ignore decisions for the entries the discovery walk actually reaches. */
-import { existsSync, readdirSync, type Dirent } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 import { ASSET_EXTENSIONS } from "./types.js";
 
 export type IgnoredMatcher = (path: string) => boolean;
@@ -13,20 +14,42 @@ const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
  * in its own worktree. Markdown discovery does not use this matcher.
  */
 export function gitIgnoredMatcher(root: string, excludedDirectory: (path: string) => boolean = () => false): IgnoredMatcher {
-  const cache = new Map<string, Set<string>>();
+  const cache = new Map<string, Set<string>>(), modules = new Map<string, string[]>();
+  function declaredModules(worktree: string): string[] {
+    let paths=modules.get(worktree); if(paths) return paths;
+    let text="";
+    try { text=readFileSync(join(root,worktree,".gitmodules"),"utf8"); } catch { /* No declaration. */ }
+    paths=[...text.matchAll(/^\s*path\s*=\s*(.+?)\s*$/gm)].map(match=>match[1]!.replace(/\/+$/, ""))
+      .filter(path=>path && !isAbsolute(path) && !path.split("/").includes(".."))
+      .map(path=>join(worktree,path)).filter(path=>!excludedDirectory(path) && existsSync(join(root,path,".git")));
+    modules.set(worktree,paths); return paths;
+  }
+  function worktreeFor(directory: string): string {
+    let worktree="";
+    for(let depth=0;depth<8;depth++) {
+      const nested=declaredModules(worktree).find(path=>isWithin(path,directory));
+      if(!nested) break;worktree=nested;
+    }
+    return worktree;
+  }
   function ignoredIn(directory: string): Set<string> {
     const cached = cache.get(directory); if (cached) return cached;
     const ignored = new Set<string>(); cache.set(directory, ignored);
-    // A child is queried only after discovery admitted its parent. Finding a
-    // submodule boundary reads metadata along this already admitted path.
-    let worktree = directory;
-    while (worktree && !existsSync(join(root, worktree, ".git"))) worktree = dirname(worktree) === "." ? "" : dirname(worktree);
+    // Only declared initialized submodules establish another Git context.
+    const worktree=worktreeFor(directory);
+    // ls-files stopped at undeclared repositories. Preserve that boundary:
+    // their contents remain discoverable, but inner ignore rules do not apply.
+    let prefix=worktree;
+    for(const part of relative(worktree,directory).split("/").filter(Boolean)) {
+      prefix=join(prefix,part);
+      if(existsSync(join(root,prefix,".git")))return ignored;
+    }
     let entries: Dirent[];
     try { entries = readdirSync(join(root, directory), { withFileTypes: true }); }
     catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return ignored; throw error; }
     const paths = entries
       .filter(entry => !entry.name.startsWith(".") && (!entry.isDirectory() || !excludedDirectory(join(directory, entry.name))))
-      .map(entry => relative(worktree, join(directory, entry.name)) + (entry.isDirectory() ? "/" : ""));
+      .map(entry => "./" + relative(worktree, join(directory, entry.name)) + (entry.isDirectory() ? "/" : ""));
     if (!paths.length) return ignored;
     let result: ReturnType<typeof Bun.spawnSync>;
     try { result = Bun.spawnSync(["git", "-C", join(root, worktree), "check-ignore", "--stdin", "-z"], {
@@ -42,7 +65,7 @@ export function gitIgnoredMatcher(root: string, excludedDirectory: (path: string
     const parts = normalized.split("/");
     for (let n = 1; n <= parts.length; n++) {
       const selected = parts.slice(0, n).join("/"), parent = parts.slice(0, n - 1).join("/");
-      if (excludedDirectory(selected) || ignoredIn(parent).has(selected)) return true;
+      if (((n < parts.length || path.endsWith("/")) && excludedDirectory(selected)) || ignoredIn(parent).has(selected)) return true;
     }
     return false;
   };

@@ -8,7 +8,7 @@ import { prepareNativeWorkerOutput } from "../src/server/worker-native-output.js
 import type { NativeStageChange } from "../src/server/native-brain-manager-protocol.js";
 import { packRepository } from "../../core/src/lib/git-storage.js";
 
-for (const interrupt of [false,true]) test(`replacement packs precede loose-object removal, interrupted=${interrupt}`,async()=>{
+for (const interrupt of [false,".idx",".pack"] as const) test(`replacement packs precede loose-object removal, interrupted=${interrupt}`,async()=>{
  const root=fs.mkdtempSync(join(tmpdir(),"odysseus-pack-publication-")),brain=join(root,"brain");fs.mkdirSync(brain);
  const git=(directory:string,...args:string[])=>Bun.spawnSync(["git","-C",directory,...args],{stdout:"pipe",stderr:"pipe"});
  expect(git(brain,"init","-q").exitCode).toBe(0);
@@ -35,13 +35,16 @@ for (const interrupt of [false,true]) test(`replacement packs precede loose-obje
   link=spyOn(fs,"linkSync").mockImplementation((from,to)=>{
    if(String(to).endsWith(".idx")){
     expect(fs.existsSync(loose),"LOOSE_OBJECT_SURVIVES_UNTIL_REPLACEMENT_INDEX").toBe(true);
-    if(interrupt)throw Error("Ithaca index publication fault");
+
    }
+   if(interrupt && String(to).endsWith(interrupt))throw Error("Ithaca pack publication fault");
    return original(from,to);
   });
-  if(interrupt)await expect(output.publish()).rejects.toThrow("Ithaca index publication fault");else await output.publish();
+  if(interrupt)await expect(output.publish()).rejects.toThrow("Ithaca pack publication fault");else await output.publish();
   expect(git(brain,"cat-file","-e",hash).exitCode,"LIVE_REF_NEVER_LOSES_ITS_OBJECT").toBe(0);
-  expect(fs.readdirSync(join(brain,".git/objects/pack")).some(name=>name.endsWith(".pack")),"REPLACEMENT_PACK_INSTALLED_BEFORE_DELETE").toBe(true);
-  expect(fs.existsSync(loose)).toBe(interrupt);
+  expect(fs.readdirSync(join(brain,".git/objects/pack")).some(name=>name.endsWith(".pack")),"REPLACEMENT_PACK_INSTALLED_BEFORE_DELETE").toBe(!interrupt);
+  if(interrupt)expect(fs.readdirSync(join(brain,".git/objects/pack")),"FAILED_INSTALL_PUBLISHES_NO_PACK_GARBAGE").toEqual([]);
+  expect(fs.existsSync(loose)).toBe(Boolean(interrupt));
+  expect(git(brain,"count-objects","-v").stdout.toString(),"FAILED_PUBLICATION_LEAVES_NO_GIT_GARBAGE").toMatch(/^garbage: 0$/m);
  }finally{link?.mockRestore();await output?.cleanup();await view?.cleanup();stat.mockRestore();fs.rmSync(root,{recursive:true,force:true});}
 });

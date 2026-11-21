@@ -24,7 +24,6 @@ if (RETAIN_INDEX_NAMESPACE && !DESCENDANT_CONTROL) throw Error("Namespace retent
 const APPLY_TIMING = process.env.BRAIN_NATIVE_PROOF_APPLY_TIMING === "1";
 // #2834 measurement: pi's per-call journal observation cost by tool, and journal begin + finish for both backends.
 const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
-const CAPACITY_BYTES = (OBSERVATION_TIMING ? 8 : 4) * 1024 ** 3;
 const releaseObservations = nativeReleaseObservations(ARTIFACTS);
 let releasePinnedNamespace: (() => void) | undefined;
 const recordedSpawn = Bun.spawn;
@@ -80,7 +79,7 @@ print(json.dumps(result))`;
   const managerSpans: ManagerSpan[] = [];
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath: socket,
     appUid: APP_UID, appGid: APP_UID, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
-    capacityBytes: CAPACITY_BYTES, recoveryReserveBytes: 16 * 1024 ** 2 }, OBSERVATION_TIMING ? { trace: (span: ManagerSpan) => { managerSpans.push(span); } } : {});
+    capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 }, OBSERVATION_TIMING ? { trace: (span: ManagerSpan) => { managerSpans.push(span); } } : {});
   const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
   const admitted = await createNativeBrainManagerClient({ socketPath: socket }).ready();
   expect(admitted.privatePaths, "NATIVE_ADMITTED_EXACT_BACKING_PRIVATE_PATH").toContain("/native-backing/fixture.img");
@@ -512,14 +511,6 @@ print(json.dumps(result))`;
     writeFileSync(join(ARTIFACTS, "receipt.json"), JSON.stringify(receipt, null, 2));
     console.log(JSON.stringify({ ...receipt, results: results.map(r => ({ ...r, health: { count: r.health.length, timeoutCount: r.timeoutCount, maxMs: Math.max(...r.health.map((p: any) => p.elapsedMs)) } })) }));
     expect(receipt.workerFiles, "REAL_ISOLATED_WORKER_EXECUTED_FIRST_WARM_AND_CANCEL").toHaveLength(3);
-    // Keep large maintenance I/O after every admission/observation timing sample.
-    if (OBSERVATION_TIMING && BACKEND === "claude" && APP_UID === 1000) {
-      const packing = await fetch(origin + "/native-proof/maintenance-packing").then(response => response.json()) as { bytes: number; packBytes: number; garbage: { count: number } };
-      writeFileSync(join(ARTIFACTS, "maintenance-packing.json"), JSON.stringify(packing, null, 2));
-      expect(packing.packBytes, "NATIVE_PACKING_EXCEEDS_GENERIC_STAGE").toBeGreaterThan(staging.allowanceBytes);
-      expect(packing.garbage.count, "NATIVE_PACKING_GARBAGE_FREE").toBe(0);
-
-    }
     hostProofPassed = true;
   } finally {
     for (const socket of sockets) socket.close();
@@ -636,7 +627,7 @@ if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] 
   const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(fs.stdout.toString())![1]!;
   const socketPath = "/native-runtime/release-observation.sock";
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
-    appGid: APP_UID, capacityBytes: CAPACITY_BYTES, recoveryReserveBytes: 16 * 1024 ** 2 });
+    appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
   const client = createNativeBrainManagerClient({ socketPath }), id = randomUUID();
   let fd: number | undefined, holder: ReturnType<typeof Bun.spawn> | undefined;
   try {
@@ -678,7 +669,7 @@ if (BACKEND === "pi" && APP_UID === 0) test("a native checkpoint descriptor rele
   const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(fs.stdout.toString())![1]!;
   const socketPath = "/native-runtime/release-transient.sock";
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
-    appGid: APP_UID, capacityBytes: CAPACITY_BYTES, recoveryReserveBytes: 16 * 1024 ** 2 });
+    appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
   const client = createNativeBrainManagerClient({ socketPath }), id = randomUUID();
   let fd: number | undefined;
   try {
@@ -719,7 +710,7 @@ if (BACKEND === "pi" && APP_UID === 0) test("every native manager check still re
     .filter(row => row.stage === "start" && row.command[0] === "identity-inspect").length;
   const launchedBefore = inspectors(), socketPath = "/native-runtime/identity-checks.sock";
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
-    appGid: APP_UID, capacityBytes: CAPACITY_BYTES, recoveryReserveBytes: 16 * 1024 ** 2 });
+    appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
   const client = createNativeBrainManagerClient({ socketPath }), first = randomUUID(), second = randomUUID();
   const changed = "Recorded checkpoint native identity or immutability changed";
   let paths: string[] = [];

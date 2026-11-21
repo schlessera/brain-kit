@@ -113,11 +113,11 @@ function current(root: string, rel: string): Entry | undefined {
 }
 
 /** Shared snapshots stay private, including the writable output workspace. */
-export function prepareWorkerOutput(brain: string, options: { startupView?: WorkerStartupView; areas?: readonly string[]; packingAllowanceBytes?: number } = {}) {
+export function prepareWorkerOutput(brain: string, options: { startupView?: WorkerStartupView; areas?: readonly string[] } = {}) {
   const view = options.startupView ?? createWorkerStartupView(brain);
   let output: WorkerStartupView;
   try {
-    const storage = createOutputStagingStorage(options.packingAllowanceBytes ? {allowanceBytes:options.packingAllowanceBytes,budgetBytes:options.packingAllowanceBytes} : undefined, view.root);
+    const storage = createOutputStagingStorage(undefined, view.root);
     storage.retain();
     output = { brain: view.brain, root: `${storage.root}/merged`, storage, cleanup() { storage.release(); } };
   } catch (error) { if (!options.startupView) view.cleanup(); throw error; }

@@ -243,7 +243,7 @@ function walIndexEntry(root: string, rel: string): Entry | undefined {
 }
 function processStart(pid: number) { return Bun.file(`/proc/${pid}/stat`).text().then(t => t.replace(/^.*\) /s, "").split(" ")[19]); }
 /** Acquisition completes before any synchronous SDK spawn callback. No copy/userxattr fallback. */
-export async function prepareNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; folderPaths?: readonly string[]; signal?: AbortSignal; packingAllowanceBytes?: number }): Promise<PreparedWorkerOutput> {
+export async function prepareNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; folderPaths?: readonly string[]; signal?: AbortSignal }): Promise<PreparedWorkerOutput> {
   options.signal?.throwIfAborted();
   const retainedFolders = Object.freeze([...(options.folderPaths ?? [])]);
   if (retainedFolders.some(rel => !rel || rel.startsWith("/") || rel.startsWith("~") || /^[A-Za-z]:/.test(rel) || rel.includes("\\")
@@ -276,20 +276,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
   };
   try {
     let limits = hostOutputStagingLimits();
-    if (options.packingAllowanceBytes !== undefined) {
-      const status = await native.manager.ready(options.signal);
-      const maximum = Math.floor((status.capacityBytes - status.recoveryReserveBytes - Math.max(status.capacityBytes * .05, 2 * 1024 ** 3)) / 2 / 4096) * 4096;
-      const bytes = options.packingAllowanceBytes;
-      if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes % 4096 || bytes > maximum)
-        throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy, "packing_headroom: dedicated packing stage exceeds the managed store's finite capacity above its floor");
-      limits = { allowanceBytes: bytes, budgetBytes: maximum };
-    }
-    // Disk packing is charged by the durable manager reservation, including
-    // publication copies. It must not spend the ordinary tmpfs memory budget.
-    reservation = options.packingAllowanceBytes === undefined ? processStateLedger().reserve(undefined, undefined, limits)
-      : { bytes: 0, turnTempBytes: 0, outputStagingBytes: limits.allowanceBytes, release() {} };
+    reservation = processStateLedger().reserve(undefined, undefined, limits);
     stageRequested = true;
-    stage = await native.manager.prepareStage(id, native.checkpoint.id, reservation.outputStagingBytes, options.signal, options.packingAllowanceBytes !== undefined ? true : undefined);
+    stage = await native.manager.prepareStage(id, native.checkpoint.id, reservation.outputStagingBytes, options.signal);
     options.signal?.throwIfAborted();
     const expected = join(dirname(brain), ".brain-native", "stages", id);
     if (stage.id !== id || stage.path !== expected || stage.checkpointId !== native.checkpoint.id || stage.checkpointUuid !== native.checkpoint.uuid
@@ -482,13 +471,8 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         // Changed-byte copies yield; the final inode/stat predicate immediately precedes publication.
         const pending: { rel: string; fd: number; name: string; temporary?: string; next?: Entry; recovery?: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> }[] = [];
         const directoryModes: { fd: number; mode: number; rel: string; parent: number; name: string; temporaryMode: number }[] = [];
-        let publicationError: unknown, packingCopyBytes = 0;
-        const reservePackingCopy = (bytes: number) => {
-          if (options.packingAllowanceBytes === undefined) return;
-          packingCopyBytes += bytes;
-          if (!Number.isSafeInteger(packingCopyBytes) || packingCopyBytes > options.packingAllowanceBytes)
-            throw Error("Packing publication exceeds its reserved copy allowance; no output was installed");
-        };
+        let publicationError: unknown, installedAll = false;
+        const installedPackFiles: { fd: number; name: string; installed: boolean }[] = [];
         const finalizeDirectory = (directory: (typeof directoryModes)[number]) => {
           const held = fstatSync(directory.fd), visible = lstatSync(at(directory.parent,directory.name));
           if (!visible.isDirectory() || held.dev !== visible.dev || held.ino !== visible.ino || (held.mode & 0o7777) !== directory.temporaryMode) throw Error(`stale maintenance output: ${directory.rel}`);
@@ -505,9 +489,8 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               if (after.get(rel)!.stamp?.startsWith("worker:")) {
                 const beforeRead = await privateStat(true, rel);
                 if (`worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind}` !== after.get(rel)!.stamp) throw Error(`Native private output changed before copy: ${rel} (inspected ${after.get(rel)!.stamp}, found worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind})`);
-                reservePackingCopy(beforeRead!.bytes);
                 try {
-                  if (options.packingAllowanceBytes === undefined) pending.at(-1)!.recovery = processStateLedger().reserve(undefined, undefined, { allowanceBytes: beforeRead!.bytes, budgetBytes: hostOutputStagingLimits().budgetBytes });
+                  pending.at(-1)!.recovery = processStateLedger().reserve(undefined, undefined, { allowanceBytes: beforeRead!.bytes, budgetBytes: hostOutputStagingLimits().budgetBytes });
                 } catch { throw Error("Native private output recovery capacity unavailable; the turn already executed and its output was not published"); }
                 const target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode);
                 try {
@@ -532,7 +515,6 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               let target: Awaited<ReturnType<typeof open>> | undefined;
               try {
                 const inputInfo = await input.stat({ bigint: true });
-                reservePackingCopy(Number(inputInfo.size));
                 const found = stamp(inputInfo);
                 if (found !== after.get(rel)!.stamp) throw Error(`Native output changed before copy: ${rel} (inspected ${after.get(rel)!.stamp}, found ${found})`);
                 target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode);
@@ -570,10 +552,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               fchmodSync(directory, temporaryMode); directoryModes.push({ fd: directory, mode: entry.mode, rel, parent: openSync(at(handle.fd, "."), DIRECTORY), name: handle.name, temporaryMode });
             } finally { closeSync(handle.fd); }
           }
-          // Publish object data before indexes/refs. All replacements become
-          // durable before any source object is removed: an interrupted publish
-          // may leave redundant loose objects, never refs to absent objects.
-          const priority = (rel: string) => rel.endsWith(".pack") ? 0 : rel.endsWith(".idx") || rel.endsWith(".rev") ? 1 : 2;
+          // Install indexes before their packs. If any installation fails,
+          // remove this attempt's new pack files before any loose deletion.
+          const priority = (rel: string) => rel.endsWith(".pack") ? 1 : 0;
           for (const item of pending.sort((a,b) => priority(a.rel)-priority(b.rel))) {
             const destination = parent(brain, item.rel);
             try {
@@ -583,11 +564,16 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
                 renameSync(item.temporary!, at(destination.fd,destination.name)); continue;
               }
               if (versionAt(destination.fd, destination.name) !== authoritative.get(item.rel)!.stamp) throw Error(`stale maintenance output: ${item.rel}`);
+              const packFile = !before.get(item.rel)!.entry && isWithin(".git/objects/pack", item.rel)
+                ? { fd: openSync(at(destination.fd, "."), DIRECTORY), name: destination.name, installed: false } : undefined;
+              if (packFile) installedPackFiles.push(packFile);
               if (before.get(item.rel)!.entry) renameSync(item.temporary!, at(destination.fd,destination.name));
               else { try { linkSync(item.temporary!, at(destination.fd,destination.name)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw Error(`stale maintenance output: ${item.rel}`); throw error; } }
+              if (packFile) packFile.installed = true;
               fsyncSync(destination.fd);
             } finally { closeSync(destination.fd); }
           }
+          installedAll = true;
           for (const rel of changed.filter(p => !after.get(p)!.entry).sort((a,b) => b.split("/").length-a.split("/").length)) {
             const handle = parent(brain, rel); try {
               if (rel === WAL_INDEX) {
@@ -603,6 +589,11 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           }
         } catch (error) { publicationError = error; }
         finally {
+          for (const item of installedPackFiles.reverse()) {
+            try { if (!installedAll && item.installed) { unlinkSync(at(item.fd,item.name)); fsyncSync(item.fd); } }
+            catch (error) { publicationError ??= error; }
+            finally { closeSync(item.fd); }
+          }
           // Drain every retained descriptor; cleanup cannot replace the original refusal.
           for (const item of pending) {
             try { if (item.temporary) rmSync(item.temporary, { force: true }); item.recovery?.release(); } catch (error) { publicationError ??= error; }

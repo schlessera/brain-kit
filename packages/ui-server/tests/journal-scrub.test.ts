@@ -149,8 +149,27 @@ test("a corrupt pending quarantine copy cannot hide a recreated valid source",()
   expect(()=>f.store.scrubObjects()).toThrow("copy state interrupted");f.db.exec("DROP TRIGGER interrupt_copy");
   writeFileSync(join(f.objects,"quarantine",sha("orphan")),"broken");
   writeFileSync(join(f.objects,sha("orphan")),"orphan");
-  expect(f.store.scrubObjects(),"SCRUB_CORRUPT_COPY_CANNOT_HIDE_RECREATED_SOURCE").toMatchObject({unaccounted:1,quarantined:1,pending:1,state:"partial"});
+  const result=f.store.scrubObjects();
+  expect(result,"SCRUB_CORRUPT_COPY_CANNOT_HIDE_RECREATED_SOURCE").toMatchObject({unaccounted:1,quarantined:1,pending:1,state:"partial"});
+  expect(result,"SCRUB_COUNTS_EACH_CORRUPT_COPY_ONCE").toMatchObject({corrupt:1,corruptBytes:6});
   expect(f.db.query("SELECT sum(bytes) AS bytes FROM turn_journal_scrub_quarantine").get()).toEqual({bytes:12});
   expect(existsSync(join(f.objects,sha("orphan")))).toBe(false);
  }finally{f.close();}
+});
+
+test("accounting replay reserves the same frozen scrub batch without advancing its cursor twice",async()=>{
+ const {createJournalScrub}=await import("../src/brain/journal-scrub.js"),f=fixture();let replay=true;
+ const rollback=Symbol("accounted rollback"),accounting=createJournalAccounting(f.db,f.path);
+ const scrub=createJournalScrub(f.db,f.objects,operation=>{
+  if(replay){replay=false;try{accounting.write(()=>{operation();throw rollback;})}catch(error){if(error!==rollback)throw error;}}
+  return accounting.write(operation);
+ });
+ try{
+  for(let n=0;n<65;n++)writeFileSync(join(f.objects,sha(`Ithaca ${n}`)),`Ithaca ${n}`);
+  const first=scrub.run();
+  expect(first.quarantined,"SCRUB_ACCOUNTING_REPLAY_MOVES_COMMITTED_BATCH").toBeGreaterThan(0);
+  expect(first.unaccounted,"SCRUB_REPLAY_COUNTS_ONLY_COMMITTED_BATCH").toBe(first.quarantined);
+  let total=first.quarantined;for(let n=0;n<3;n++)total+=scrub.run().quarantined;
+  expect(total,"SCRUB_REPLAY_DOES_NOT_LOSE_CURSOR_ENTRIES").toBe(65);
+ }finally{scrub.close();f.close();}
 });

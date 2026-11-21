@@ -1788,7 +1788,6 @@ signatures (every public export and the types it is made of)
             checkpointId: string;
             checkpointUuid: string;
             allowanceBytes: number;
-            packing?: true;
         };
         treeRequest?: {
             allowanceBytes: number;
@@ -2587,7 +2586,7 @@ signatures (every public export and the types it is made of)
             view: string;
         }>;
         poolWithdraw: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
-        prepareStage: (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal, packing?: true) => Promise<NativeStage>;
+        prepareStage: (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeStage>;
         prepareTurnTree: (id: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeTurnTree>;
         readCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
         readStage: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;

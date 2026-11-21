@@ -244,18 +244,6 @@ test("a refused native stage deletion retries before releasing its checkpoint or
   } finally { await output?.cleanup().catch(() => {}); await view.cleanup(); f.cleanup(); }
 });
 
-for (const fault of ["readiness", "oversized"] as const) test(`packing ${fault} refusal releases its retained startup reference`, async () => {
- const f=fixture();
- const manager={...f.manager,async ready(){if(fault==="readiness")throw Error("Ithaca readiness fault");return {capacityBytes:3*1024**3,recoveryReserveBytes:4096};},
-  async prepareStage():Promise<never>{throw Error("stage must not start");},async inspectStage():Promise<never>{throw Error("unused");},async releaseStage():Promise<never>{throw Error("stage was not requested");}};
- const view=await prepareNativeWorkerStartupView(f.brain,manager);
- try {
-  await expect(prepareNativeWorkerOutput(f.brain,{startupView:view,packingAllowanceBytes:4*1024**3})).rejects.toThrow(fault==="readiness"?"readiness fault":"packing_headroom");
-  await view.cleanup();
-  expect(f.releases,"PACKING_PREFLIGHT_RELEASES_RETAINED_CHECKPOINT").toHaveLength(1);
- }finally{await view.cleanup();f.cleanup();}
-});
-
 test("staging configuration refusal releases its retained startup reference",async()=>{
  const f=fixture(),manager={...f.manager,async prepareStage():Promise<never>{throw Error("unused");},async inspectStage():Promise<never>{throw Error("unused");},async releaseStage():Promise<never>{throw Error("unused");}};
  const view=await prepareNativeWorkerStartupView(f.brain,manager),limits=await import("../src/server/worker-state-limits.js");

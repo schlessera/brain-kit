@@ -5982,14 +5982,3 @@ for every interactive session, so a new session's retained append contains
 the bullet. A session retained earlier keeps its append byte for byte. The
 same-commit API report records the additive types. See
 [the MCP component](mcp.md#raw-connections-to-githubs-api-0450-3799).
-
-## Dedicated maintenance packing stage (additive, #4288)
-
-The native manager client reached through server options accepts an optional
-fifth `prepareStage` argument, `packing?: true`. Its recovery record's
-`stageRequest` gains optional `packing?: true`. These optional additions select
-the host-calculated packing reservation; existing calls retain their generic
-stage bounds. No existing enum value or required field changes. Packing still
-requires the matching native manager runtime; an older manager can refuse the
-new optional request, and the host records the step failure without publishing
-Git output. See [worker hosting](../hosting/agent-workers.md) for the store reservation, running-turn floor and disk-backed quota rules.

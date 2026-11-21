@@ -5,11 +5,11 @@ import { NativeBrainManagerError, NATIVE_CONTROL_BYTES, type NativeStage, type N
 
 // No repository code, caller program, environment, path discovery or shell
 // evaluation. Mount authority exists only during this root-owned setup.
-const STAGE_PROGRAM = String.raw`import ctypes,fcntl,json,os,pathlib,stat,struct,subprocess,sys
+const STAGE_PROGRAM = String.raw`import ctypes,json,os,pathlib,stat,subprocess,sys
 libc=ctypes.CDLL(None,use_errno=True)
 parent=os.getppid()
 if libc.prctl(1,9,0,0,0)!=0 or os.getppid()!=parent:raise RuntimeError("stage parent-death containment failed")
-mount,lower,uid,gid,allowance,worker_uid,reader_program,reader_timeout,packing=sys.argv[1:]
+mount,lower,uid,gid,allowance,worker_uid,reader_program,reader_timeout=sys.argv[1:]
 readers={}
 uid=int(uid);gid=int(gid);allowance=int(allowance);stage_uid=int(worker_uid) or uid
 if os.geteuid()!=0 or open("/proc/self/uid_map").read().split()!=["0","0","4294967295"]:
@@ -19,32 +19,7 @@ def command(argv):
  if result.returncode:raise RuntimeError(result.stderr.decode(errors="replace"))
 def identity(pid):
  text=open("/proc/"+str(pid)+"/stat").read();return text[text.rfind(")")+2:].split()[19]
-if packing=="1":
- image=mount+"/packing.img";device=mount+"/packing.loop"
- # Fixed-size ext4 is the kernel-enforced byte quota. Brain-volume qgroups
- # remain disabled. Full allocation is on the managed store, never RAM.
- image_fd=os.open(image,os.O_RDWR|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
- try:
-  os.ftruncate(image_fd,allowance);os.posix_fallocate(image_fd,0,allowance);os.fsync(image_fd)
-  tool=os.stat("/usr/sbin/mkfs.ext4")
-  if not stat.S_ISREG(tool.st_mode) or tool.st_uid!=0 or tool.st_mode&0o022:raise RuntimeError("packing requires trusted mkfs.ext4")
-  command(["/usr/sbin/mkfs.ext4","-q","-F","-b","4096","-m","0","-N",str(min(200000,max(4096,allowance//1024))),"-O","^has_journal",image])
-  control=os.open("/dev/loop-control",os.O_RDWR)
-  try: number=fcntl.ioctl(control,0x4C82)
-  finally:os.close(control)
-  os.mknod(device,stat.S_IFBLK|0o600,os.makedev(7,number))
-  loop=os.open(device,os.O_RDWR)
-  try:
-   # LOOP_CONFIGURE sets AUTOCLEAR atomically with attachment: even death
-   # between ioctls must not leave a permanently attached loop device.
-   info=struct.pack("=QQQQQIIII64s64s32sQQ",0,0,0,0,allowance,0,0,0,4,b"",b"",b"",0,0)
-   fcntl.ioctl(loop,0x4C0A,struct.pack("=II",image_fd,4096)+info+bytes(64))
-   command(["/usr/bin/mount","-i","-n","-t","ext4","-o","nosuid,nodev",device,mount])
-  finally:os.close(loop)
- finally:os.close(image_fd)
- os.chown(mount,uid,gid);os.chmod(mount,0o700)
-else:
- command(["/usr/bin/mount","-i","-n","-t","tmpfs","-o","size="+str(allowance)+",mode=700,uid="+str(uid)+",gid="+str(gid)+",nosuid,nodev","tmpfs",mount])
+command(["/usr/bin/mount","-i","-n","-t","tmpfs","-o","size="+str(allowance)+",mode=700,uid="+str(uid)+",gid="+str(gid)+",nosuid,nodev","tmpfs",mount])
 for name in ("upper","work","merged"):
  os.mkdir(mount+"/"+name,0o700);os.chown(mount+"/"+name,stage_uid,gid)
 command(["/usr/bin/mount","-i","-n","-t","overlay","overlay","-o","lowerdir="+lower+",upperdir="+mount+"/upper,workdir="+mount+"/work,redirect_dir=nofollow,metacopy=off,index=off",mount+"/merged"])
@@ -53,9 +28,9 @@ keeper=subprocess.Popen(["/usr/bin/setpriv","--reuid="+str(uid),"--regid="+str(g
 try:
  line=keeper.stdout.readline(65537)
  if not line or len(line)>65536:raise RuntimeError("stage keeper did not prove readiness")
- keeper_identity=json.loads(line);pid=keeper_identity["pid"];info=os.stat(mount);space=os.statvfs(mount+"/merged");merged=os.stat(mount+"/merged")
- if (packing!="1" and space.f_blocks*space.f_frsize!=allowance) or space.f_blocks*space.f_frsize>allowance:raise RuntimeError("stage exceeds its fixed filesystem capacity")
- print(json.dumps({"pid":pid,"start":identity(pid),"device":str(info.st_dev),"inode":str(info.st_ino),"mountNamespaceInode":keeper_identity["mountNamespaceInode"],"mergedDevice":str(merged.st_dev),"mergedInode":str(merged.st_ino),"filesystemBytes":space.f_blocks*space.f_frsize}),flush=True)
+ keeper_identity=json.loads(line);pid=keeper_identity["pid"];info=os.stat(mount);space=os.statvfs(mount);merged=os.stat(mount+"/merged")
+ if space.f_blocks*space.f_frsize!=allowance:raise RuntimeError("stage allowance differs from actual tmpfs capacity")
+ print(json.dumps({"pid":pid,"start":identity(pid),"device":str(info.st_dev),"inode":str(info.st_ino),"mountNamespaceInode":keeper_identity["mountNamespaceInode"],"mergedDevice":str(merged.st_dev),"mergedInode":str(merged.st_ino)}),flush=True)
  for line in sys.stdin.buffer:
   if line==b"release\n":break
   if line.startswith(b"reader "):
@@ -126,8 +101,6 @@ finally:
  except subprocess.TimeoutExpired:keeper.kill();keeper.wait()
  command(["/usr/bin/umount",mount+"/merged"])
  command(["/usr/bin/umount",mount])
- if packing=="1":
-  os.unlink(device);os.unlink(image)
 `;
 
 function processStart(pid: number): string {
@@ -136,11 +109,11 @@ function processStart(pid: number): string {
 
 /** The response identifies a fixed keeper, never a requester-selected PID or mount. */
 export async function startNativeStage(options: { id: string; checkpointId: string; checkpointUuid: string; sourceUuid: string;
-  path: string; lower: string; appUid: number; appGid: number; workerUid?: number; allowanceBytes: number; packing?: true; timeoutMs: number; signal?: AbortSignal }) {
+  path: string; lower: string; appUid: number; appGid: number; workerUid?: number; allowanceBytes: number; timeoutMs: number; signal?: AbortSignal }) {
   if (/[,:\\]/.test(options.path) || /[,:\\]/.test(options.lower))
     throw new NativeBrainManagerError("unsupported", "Trusted OverlayFS requires managed paths without mount-option delimiters.");
   const child = Bun.spawn(["/usr/bin/unshare", "--mount", "/usr/bin/python3", "-I", "-S", "-c", STAGE_PROGRAM,
-    options.path, options.lower, String(options.appUid), String(options.appGid), String(options.allowanceBytes), String(options.workerUid ?? 0), NATIVE_CHECKPOINT_READER_PROGRAM, String(options.timeoutMs / 1000), options.packing ? "1" : "0"], {
+    options.path, options.lower, String(options.appUid), String(options.appGid), String(options.allowanceBytes), String(options.workerUid ?? 0), NATIVE_CHECKPOINT_READER_PROGRAM, String(options.timeoutMs / 1000)], {
     cwd: "/", env: {}, stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   const reader = child.stdout.getReader(); let pending = new Uint8Array(0), closed = false, failed = false;
@@ -165,22 +138,19 @@ export async function startNativeStage(options: { id: string; checkpointId: stri
     try { return await Promise.race([fn(), failure]); }
     finally { clearTimeout(timer); if (stop) signal?.removeEventListener("abort", stop); }
   }
-  let stage: NativeStage, mountNamespaceInode: string, mergedDevice: string, mergedInode: string, filesystemBytes: number;
+  let stage: NativeStage, mountNamespaceInode: string, mergedDevice: string, mergedInode: string;
   try {
     const ready = JSON.parse(await bounded(line, options.signal));
     if (!Number.isSafeInteger(ready.pid) || ready.pid <= 0 || !/^[1-9][0-9]*$/.test(ready.start) || processStart(ready.pid) !== ready.start)
       throw new NativeBrainManagerError("unavailable", "Stage keeper identity could not be verified in this PID namespace.");
     if (!/^[1-9][0-9]*$/.test(ready.mergedDevice) || !/^[1-9][0-9]*$/.test(ready.mergedInode) || !/^[1-9][0-9]*$/.test(ready.mountNamespaceInode) || !/^[1-9][0-9]*$/.test(ready.device) || !/^[1-9][0-9]*$/.test(ready.inode))
       throw new NativeBrainManagerError("unknown", "Stage helper did not return its fixed mounted-root identity.");
-    if (!Number.isSafeInteger(ready.filesystemBytes) || ready.filesystemBytes <= 0 || ready.filesystemBytes > options.allowanceBytes)
-      throw new NativeBrainManagerError("unknown", "Stage helper did not prove its bounded filesystem capacity.");
-    filesystemBytes = ready.filesystemBytes;
     mountNamespaceInode = ready.mountNamespaceInode; mergedDevice = ready.mergedDevice; mergedInode = ready.mergedInode;
     stage = { id: options.id, checkpointId: options.checkpointId, checkpointUuid: options.checkpointUuid, sourceUuid: options.sourceUuid,
       path: options.path, namespacePid: ready.pid, namespaceStart: ready.start, appUid: options.appUid, appGid: options.appGid,
       allowanceBytes: options.allowanceBytes, rootDevice: ready.device, rootInode: ready.inode };
   } catch (error) { child.kill("SIGKILL"); await child.exited; throw error; }
-  return { stage, mountNamespaceInode, mergedDevice, mergedInode, ...(options.packing ? { filesystemBytes } : {}),
+  return { stage, mountNamespaceInode, mergedDevice, mergedInode,
     async read(request: { id: string; token: string; socketPath: string; request: NativeCheckpointReadRequest }, signal?: AbortSignal) {
       if (!options.workerUid || closed || failed || processStart(stage.namespacePid) !== stage.namespaceStart)
         throw new NativeBrainManagerError("unavailable", "Stage reader requires a live owned stage and fixed worker identity.");

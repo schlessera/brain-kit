@@ -86,3 +86,27 @@ test("ignore pruning preserves force-tracked assets below an ignored directory",
  expect(getAssetFiles(root,buildTaxonomy({})).map(asset=>asset.path),"IGNORE_PRUNING_RETAINS_TRACKED_DESCENDANTS").toEqual(["assets/ithaca.jpg"]);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test("literal pathspec-looking names cannot disable ignore filtering",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-literal-ignore-"));try{
+ expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+ writeFileSync(join(root,".gitignore"),"ithaca.jpg\n");
+ for(const name of ["ithaca.jpg",":(glob)ithaca",":(literal)athena.jpg","voyage.jpg"])writeFileSync(join(root,name),"");
+ expect(getAssetFiles(root,buildTaxonomy({})).map(a=>a.path),"LITERAL_NAMES_CANNOT_DISABLE_GIT_IGNORE").toEqual([":(literal)athena.jpg","voyage.jpg"]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+test("undeclared nested Git repositories retain the former outer ignore semantics",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-nested-ignore-"));try{
+ expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+ mkdirSync(join(root,"harbour"));expect(Bun.spawnSync(["git","-C",join(root,"harbour"),"init","-q"]).exitCode).toBe(0);
+ writeFileSync(join(root,"harbour/.gitignore"),"chart.jpg\n");writeFileSync(join(root,"harbour/chart.jpg"),"");
+ expect(getAssetFiles(root,buildTaxonomy({})).map(a=>a.path),"ONLY_DECLARED_SUBMODULES_HAVE_OWN_IGNORE_CONTEXT").toEqual(["harbour/chart.jpg"]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+test("directory exclusion segments do not apply to a regular asset basename",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-asset-segment-"));try{
+ writeFileSync(join(root,"ithaca.jpg"),"");const taxonomy=buildTaxonomy({user:{exclude:{segments:["ithaca.jpg"]}}} as never);
+ expect(taxonomy.isExcludedPath("ithaca.jpg")).toBe(false);
+ expect(getAssetFiles(root,taxonomy).map(a=>a.path),"DIRECTORY_SEGMENT_PREDICATE_NEVER_CLASSIFIES_FILES").toEqual(["ithaca.jpg"]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

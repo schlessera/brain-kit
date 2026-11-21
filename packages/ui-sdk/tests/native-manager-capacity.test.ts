@@ -24,7 +24,7 @@ function fixture() {
     appUid: 1000, appGid: 1000, stageAllowanceBytes: 4096, stageBudgetBytes: 4096 };
   const state = join(root, ".brain-native/state"), stageRoot = join(root, ".brain-native/stages");
   fs.mkdirSync(state, { recursive: true, mode: 0o700 }); fs.chmodSync(dirname(state), 0o710);
-  fs.mkdirSync(stageRoot, { mode: 0o710 }); fs.chmodSync(stageRoot, 0o710);
+  fs.mkdirSync(stageRoot, { mode: 0o710 });
   const lstat = fs.lstatSync, stat = fs.statSync, fstat = fs.fstatSync, read = fs.readFileSync, list = fs.readdirSync, exists = fs.existsSync;
   let inspectionError: string | undefined;
   const faults: Array<{ mockRestore(): void }> = [
@@ -33,7 +33,7 @@ function fixture() {
     spyOn(fs, "existsSync").mockImplementation(path => path === join(stageRoot, id(2)) && inspectionError ? false : exists(path)),
     spyOn(fs, "lstatSync").mockImplementation(((path: string, options?: never) => {
       if (path === join(stageRoot, id(2)) && inspectionError) throw Object.assign(Error(inspectionError), { code: inspectionError });
-      const value = lstat(path, options); if (!value) return value; value.uid = 0;
+      const value = lstat(path, options); value.uid = 0;
       if (!path.startsWith(root)) value.mode &= ~0o022;
       return value;
     }) as typeof fs.lstatSync),
@@ -53,7 +53,7 @@ function fixture() {
     }) as typeof fs.readFileSync),
     spyOn(fs, "readdirSync").mockImplementation(((path: string, options?: never) =>
       path === `/sys/fs/btrfs/${config.fsid}/devices` ? ["device"] : path === state ? list(path).sort() : list(path, options)) as typeof fs.readdirSync),
-    spyOn(fs, "statfsSync").mockReturnValue({ type: 0x9123683e, blocks: config.capacityBytes / 4096, bavail: 1000, bsize: 4096 } as fs.StatsFs),
+    spyOn(fs, "statfsSync").mockReturnValue({ type: 0x9123683e, bavail: 1000, bsize: 4096 } as fs.StatsFs),
     spyOn(inspection, "createNativeIdentityInspector").mockReturnValue({ launches: 0, async close() {}, async run(_program, path) {
       return { code: 0, errors: "", text: JSON.stringify({ fsid: config.fsid, devices: 1, uuid: path === join(root, "brain") ? config.brainUuid : "b".repeat(32),
         parentUuid: config.brainUuid, receivedUuid: "0".repeat(32), rootId: "256", transaction: "1", readOnly: path !== join(root, "brain") }) };

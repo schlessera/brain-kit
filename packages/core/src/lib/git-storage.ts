@@ -141,7 +141,7 @@ export function packRepository(root: string, headroom = gitPackingHeadroom(root)
     // Only a private output stage proves these new names belong to this
     // execution. A standalone Git writer may be racing another pack process.
     if (workerOutputAllowance()) for (const name of packNames())
-      if (!previous.has(name) && /^(tmp_pack_|\.tmp-)/.test(name)) unlinkSync(`${pack}/${name}`);
+      if (!previous.has(name) && /^(tmp_(?:pack|idx|rev|bitmap|mtimes)_|\.tmp-)/.test(name)) unlinkSync(`${pack}/${name}`);
     throw error;
   }
 }

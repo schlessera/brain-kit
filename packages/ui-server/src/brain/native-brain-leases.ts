@@ -141,10 +141,10 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       const lease = row(id); if (!lease || lease.kind !== "stage" || !mine(lease) || lease.state !== "sealed") throw new NativeBrainManagerError("unknown", "Stage inspection requires this owner's retained prepared stage lease.");
       return raw.inspectStage(id, signal);
     }); },
-    prepareStage(id, checkpointId, allowanceBytes, signal, packing) { return operation(async () => {
+    prepareStage(id, checkpointId, allowanceBytes, signal) { return operation(async () => {
       signal?.throwIfAborted();
       const lowerUuid = await leases.call<string>("stageIntent", id, checkpointId, allowanceBytes);
-      const stage = await raw.prepareStage(id, checkpointId, allowanceBytes, signal, packing);
+      const stage = await raw.prepareStage(id, checkpointId, allowanceBytes, signal);
       if (stage.id !== id || stage.checkpointId !== checkpointId || stage.checkpointUuid !== lowerUuid || stage.sourceUuid !== options.brainUuid || stage.allowanceBytes !== allowanceBytes) throw new NativeBrainManagerError("unknown", "Native stage reply does not match its durable lease identity.");
       await run("UPDATE native_root_leases SET state='sealed' WHERE id=? AND owner_pid=? AND owner_start=? AND owner_generation=? AND state='creating'", id, SELF.pid, SELF.start, generation);
       return stage;

@@ -91,8 +91,7 @@ test("output stages record ownership before creation and close releases stages b
   const release = f.native.client.release;
   f.native.client.release = async (...args) => { releases.push(`checkpoint:${args[0]}`); return release(...args); };
   f.native.client.releaseStage = async id => { releases.push(`stage:${id}`); return { id, state: "deleted" }; };
-  f.native.client.prepareStage = async (id, checkpointId, allowanceBytes, _signal, packing) => {
-    expect(packing, "LEASE_FORWARDS_PACKING_STAGE").toBe(true);
+  f.native.client.prepareStage = async (id, checkpointId, allowanceBytes) => {
     expect(f.state.query("SELECT kind,state,stage_lower_id,stage_allowance FROM native_root_leases WHERE id=?").get(id), "NATIVE_STAGE_OWNER_DURABLE_BEFORE_RPC")
       .toEqual({ kind: "stage", state: "creating", stage_lower_id: checkpointId, stage_allowance: allowanceBytes });
     const checkpoint = await f.native.client.checkpoint(checkpointId);
@@ -101,7 +100,7 @@ test("output stages record ownership before creation and close releases stages b
   };
   try {
     await expectRejection(f.owner.client.prepareStage(OTHER, ID, 4096), "retained sealed");
-    await f.owner.client.checkpoint(ID); await f.owner.client.prepareStage(OTHER, ID, 4096, undefined, true);
+    await f.owner.client.checkpoint(ID); await f.owner.client.prepareStage(OTHER, ID, 4096);
     await expectRejection(f.owner.client.prepareStage(OTHER, ID, 8192), "another owner or deletion");
     await expectRejection(f.owner.client.release(OTHER), "no recorded checkpoint lease");
     await expectRejection(f.owner.client.release(ID), "stage still depends");

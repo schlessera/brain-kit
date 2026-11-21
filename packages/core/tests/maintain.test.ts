@@ -159,6 +159,9 @@ for arg in "$@"; do
   if [ "$arg" = maintenance ]; then
     printf incomplete > '${root}/.git/objects/pack/tmp_pack_Attempt'
     printf companion > '${root}/.git/objects/pack/.tmp-Attempt'
+    for kind in idx rev bitmap mtimes; do
+      printf companion > '${root}/.git/objects/pack/tmp_'"$kind"'_Attempt'
+    done
     echo "warning: packing 2 loose objects" >&2
     echo "fatal: sha1 file '.git/objects/pack/tmp_pack_Ithaca' write error. Out of diskspace" >&2
     exit 128
