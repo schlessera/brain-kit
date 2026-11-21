@@ -57,11 +57,13 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   const metadata = join(outputs.view.root, ".git");
   if (privateInputs ? !privateInputs.repository : !lstatSync(metadata, { throwIfNoEntry: false })?.isDirectory() || !existsSync(join(metadata, "config"))) return undefined;
   if (!binary) throw new Error("maintenance needs Git");
+  // Every preparation and the final launch must restore this exact selected
+  // executable before readonly runtime mounts make missing parents immutable.
+  command.readPaths=[...new Set([...(command.readPaths??[]),binary])];
   let config: [string, string][];
   if (privateInputs) config = privateInputs.config;
   else {
     const result = await runMaintenanceWorker({ ...command, tempKind: "git", startupView: outputs.view,
-      readPaths: [...(command.readPaths ?? []), binary],
       command: [binary, "-c", `safe.directory=${command.brainPath}`, "config", "--null", "--list", "--includes"], network: false, timeoutMs: 5000, ...(signal ? { signal } : {}) });
     if (result.exitCode !== 0 || result.killed) throw new Error(`cannot freeze Git configuration: ${result.stderr.slice(-400)}`);
     config = result.stdout.split("\0").filter(Boolean).map(record => { const separator = record.indexOf("\n");
