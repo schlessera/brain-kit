@@ -100,6 +100,11 @@
       "bun": "./src/safe-path.ts",
       "types": "./dist/safe-path.d.ts",
       "default": "./dist/safe-path.js"
+    },
+    "./internal/taint-trust": {
+      "bun": "./src/taint-trust.ts",
+      "types": "./dist/taint-trust.d.ts",
+      "default": "./dist/taint-trust.js"
     }
   },
   "files": [

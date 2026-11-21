@@ -16,6 +16,7 @@ import { publishProtectedPolicy } from "./policy-publication.js";
 import * as writes from "./trust-settings-writes.js";
 import type { createTrustGitHubIdentity, TrustGitHubIdentity } from "./trust-github-identity.js";
 import { ReferenceTransportError } from "./reference-transport.js";
+import { resolvePrincipal, isUsablePrincipal } from "../db/principals.js";
 const hash = (s: string | Uint8Array) => createHash("sha256").update(s).digest("hex");
 const id = () => randomBytes(24).toString("base64url");
 const exactDiff = (before: string | null, after: string) => (before ?? "").split("\n").map(line => `- ${line}`).concat(after.split("\n").map(line => `+ ${line}`)).join("\n");
@@ -233,8 +234,25 @@ export function createTrustSettings(options: {
       const row = options.db.query("SELECT selector,identity,proof FROM trust_settings_github_boundaries WHERE brain_id=? AND rule_id=?").get(brain, ruleId) as { selector: string; identity: string; proof: string } | null;
       return row && row.selector === JSON.stringify(rule.selector) ? { identity: JSON.parse(row.identity) as TrustGitHubIdentity, proof: JSON.parse(row.proof) as unknown } : null;
     }); },
-    async list(principal: string) { authority(principal); const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh); authority(principal);
-      return { ...p, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
+    async list(principal: string) {
+      const access = () => {
+        const mutationAllowed = !!options.authority(principal);
+        if (!mutationAllowed) {
+          const reader = resolvePrincipal(options.db, principal);
+          if (!reader || !["owner", "agent", "ambient"].includes(reader.kind) || !isUsablePrincipal(reader, now()))
+            throw new TrustSettingsError("unauthorized", 403);
+        }
+        return mutationAllowed;
+      };
+      access();
+      const p = await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+        const snapshot = await refresh();
+        // Observation-only incarnation tokens, captured with the same policy.
+        // The internal stream-fence projection remains non-enumerable.
+        return { ...snapshot, instances: { ...(snapshot as LiveProjection).ruleInstances } };
+      });
+      const mutationAllowed = access();
+      return { ...p, mutationAllowed, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
     read,
     async prepare(principal: string, raw: unknown, signal?: AbortSignal) {
       const auth = authority(principal), input = TrustPrepareSchema.parse(raw);

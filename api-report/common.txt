@@ -266,6 +266,25 @@ export "./internal/safe-path" (./src/safe-path.ts)
   resolveContained
   resolveContainedSync
 
+export "./internal/taint-trust" (./src/taint-trust.ts)
+  TRUST_LIMITS
+  TRUST_RUNTIME_CAPABILITIES
+  type TrustAdmission
+  type TrustMatch
+  type TrustProvenance
+  TrustProvenanceSchema
+  type TrustRule
+  TrustRuleSchema
+  type TrustSelector
+  TrustSelectorSchema
+  type TrustVerification
+  TrustedSourcesSchema
+  canonicalTrustHost
+  matchTrustRules
+  parseTrustGithub
+  parseTrustOrigin
+  parseTrustTunnel
+
 export "./internal/worker-areas" (./src/worker-areas.ts)
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR

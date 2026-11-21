@@ -920,6 +920,89 @@ signatures (every public export and the types it is made of)
         view: TrackFileView;
         props: TrackMapProps;
     }
+  TrustCapabilities (packages/ui-react/src/lib/trust-settings.ts)
+    export interface TrustCapabilities {
+        originRules: boolean;
+        repositoryRules: boolean;
+        recipientRules: boolean;
+        repositoryIdentity: boolean;
+        readOnlyReason: string | null;
+    }
+  TrustChange (packages/ui-react/src/lib/trust-settings.ts)
+    export type TrustChange = {
+        action: "create" | "edit";
+        rule: TrustRule;
+    } | {
+        action: "remove";
+        ruleId: string;
+    };
+  TrustOperation (packages/ui-react/src/lib/trust-settings.ts)
+    export interface TrustOperation {
+        receipt: {
+            requestId: string;
+            stage: "prepared" | "file_published" | "committed" | "partial" | "unknown" | "refused";
+            publication: "not_published" | "proved" | "unknown";
+            currentRule: "present" | "removed" | "changed" | "unknown";
+            enforcement: "enforced" | "unavailable";
+            reason: string | null;
+        };
+        review: {
+            reviewId: string;
+            reviewedBytesHash: string;
+            base: string | null;
+            proposed: string;
+            diff: string;
+            expiresAt: number;
+            includesFutureRepositories: boolean;
+        };
+        policy: TrustPolicy;
+        capabilities: TrustCapabilities;
+    }
+  TrustPolicy (packages/ui-react/src/lib/trust-settings.ts)
+    export interface TrustPolicy {
+        revision: string;
+        policyHash: string | null;
+        error: string | null;
+        rules: TrustRule[];
+    }
+  TrustRule (packages/ui-react/src/lib/trust-settings.ts)
+    export interface TrustRule {
+        id: string;
+        label: string;
+        selector: TrustSelector;
+        incomingContent: boolean;
+        recipientWhileRestricted: boolean;
+    }
+  TrustSelector (packages/ui-react/src/lib/trust-settings.ts)
+    export type TrustSelector = {
+        kind: "web_origin";
+        scheme: "http" | "https";
+        host: string;
+        port: number;
+    } | {
+        kind: "tunnel_authority";
+        host: string;
+        port: number;
+    } | {
+        kind: "github_repository";
+        host: "github.com";
+        owner: string;
+        repository: string;
+        repositoryId: string;
+    } | {
+        kind: "github_owner";
+        host: "github.com";
+        owner: string;
+        ownerId: string;
+    };
+  TrustSettingsRead (packages/ui-react/src/lib/trust-settings.ts)
+    export interface TrustSettingsRead extends TrustPolicy {
+        origins: TrustRule[];
+        repositories: TrustRule[];
+        capabilities: TrustCapabilities;
+        mutationAllowed?: boolean;
+        instances?: Record<string, string>;
+    }
   TurnNotice (packages/ui-react/src/stores/chat-state.ts)
     export interface TurnNotice {
         cause: "timeout" | "aborted" | "unspecified";
@@ -1651,6 +1734,10 @@ signatures (every public export and the types it is made of)
         toolPermissions: () => Promise<{
             tools: string[];
         }>;
+        trustCommit: (operation: TrustOperation, signal?: AbortSignal) => Promise<TrustOperation>;
+        trustPrepare: (change: TrustChange, expectedTrustRevision: string, expectedPolicyHash: null | string, signal?: AbortSignal) => Promise<TrustOperation>;
+        trustReceipt: (requestId: string, signal?: AbortSignal) => Promise<TrustOperation>;
+        trustSettings: (signal?: AbortSignal) => Promise<TrustSettingsRead>;
         turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnJournalDetails>;
         turnJournalPreview: (sessionId: string, turnId: string, sequence: number, signal?: AbortSignal) => Promise<{
             after?: string;
@@ -2472,6 +2559,10 @@ signatures (every public export and the types it is made of)
         toolPermissions: () => Promise<{
             tools: string[];
         }>;
+        trustCommit: (operation: import("./lib/trust-settings.js").TrustOperation, signal?: AbortSignal) => Promise<import("./lib/trust-settings.js").TrustOperation>;
+        trustPrepare: (change: import("./lib/trust-settings.js").TrustChange, expectedTrustRevision: string, expectedPolicyHash: null | string, signal?: AbortSignal) => Promise<import("./lib/trust-settings.js").TrustOperation>;
+        trustReceipt: (requestId: string, signal?: AbortSignal) => Promise<import("./lib/trust-settings.js").TrustOperation>;
+        trustSettings: (signal?: AbortSignal) => Promise<import("./lib/trust-settings.js").TrustSettingsRead>;
         turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnJournalDetails>;
         turnJournalPreview: (sessionId: string, turnId: string, sequence: number, signal?: AbortSignal) => Promise<{
             after?: string;

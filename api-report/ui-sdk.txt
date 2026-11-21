@@ -2177,6 +2177,8 @@ export "./schemas" (./src/schemas.ts)
   MAX_PROMPT_CHARS
   MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
+  TrustRuleSchema
+  TrustedSourcesSchema
   approvalDisplaySchema
   attachmentFileSchema
   attachmentLimitsSchema
@@ -2286,6 +2288,9 @@ export "./schemas" (./src/schemas.ts)
   messageSourceSchema
   parseClientMessage
   parseServerMessage
+  parseTrustGithub
+  parseTrustOrigin
+  parseTrustTunnel
   queueAddRequestSchema
   queueAddResultSchema
   queuedFollowUpViewSchema
@@ -14944,6 +14949,68 @@ signatures (every public export and the types it is made of)
     }
   TranscriptionFailureReason (packages/ui-sdk/src/protocol.ts)
     export type TranscriptionFailureReason = "provider_error" | "rate_limit" | "provider_timeout" | "media" | "parameters" | "validation" | "authentication" | "outcome_unknown";
+  TrustRuleSchema (packages/common/src/taint-trust.ts)
+    const TrustRuleSchema: z.ZodObject<{
+        id: z.ZodString;
+        incomingContent: z.ZodDefault<z.ZodBoolean>;
+        label: z.ZodString;
+        recipientWhileRestricted: z.ZodDefault<z.ZodBoolean>;
+        selector: z.ZodDiscriminatedUnion<[z.ZodObject<{
+            host: z.ZodString;
+            kind: z.ZodLiteral<"web_origin">;
+            port: z.ZodNumber;
+            scheme: z.ZodEnum<{
+                http: "http";
+                https: "https";
+            }>;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodString;
+            kind: z.ZodLiteral<"tunnel_authority">;
+            port: z.ZodNumber;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodLiteral<"github.com">;
+            kind: z.ZodLiteral<"github_repository">;
+            owner: z.ZodString;
+            repository: z.ZodString;
+            repositoryId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodLiteral<"github.com">;
+            kind: z.ZodLiteral<"github_owner">;
+            owner: z.ZodString;
+            ownerId: z.ZodString;
+        }, z.core.$strict>], "kind">;
+    }, z.core.$strict>;
+  TrustedSourcesSchema (packages/common/src/taint-trust.ts)
+    const TrustedSourcesSchema: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        incomingContent: z.ZodDefault<z.ZodBoolean>;
+        label: z.ZodString;
+        recipientWhileRestricted: z.ZodDefault<z.ZodBoolean>;
+        selector: z.ZodDiscriminatedUnion<[z.ZodObject<{
+            host: z.ZodString;
+            kind: z.ZodLiteral<"web_origin">;
+            port: z.ZodNumber;
+            scheme: z.ZodEnum<{
+                http: "http";
+                https: "https";
+            }>;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodString;
+            kind: z.ZodLiteral<"tunnel_authority">;
+            port: z.ZodNumber;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodLiteral<"github.com">;
+            kind: z.ZodLiteral<"github_repository">;
+            owner: z.ZodString;
+            repository: z.ZodString;
+            repositoryId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodLiteral<"github.com">;
+            kind: z.ZodLiteral<"github_owner">;
+            owner: z.ZodString;
+            ownerId: z.ZodString;
+        }, z.core.$strict>], "kind">;
+    }, z.core.$strict>>;
   TurnBudgetCoverage (packages/ui-sdk/src/turn-budgets.ts)
     export type TurnBudgetCoverage = "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" | "Built-in inference only; provider and tool spend is not metered";
   TurnBudgetReceipt (packages/ui-sdk/src/turn-budgets.ts)
@@ -21086,6 +21153,16 @@ signatures (every public export and the types it is made of)
     export function parseSubprocessEnvExtra(value: string | undefined): string[];
   parseToolPayload (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function parseToolPayload<Contract extends ToolComponentContract>(contract: Contract, output: string | undefined): ToolPayload<Contract> | null;
+  parseTrustGithub (packages/common/src/taint-trust.ts)
+    export function parseTrustGithub(input: string): {
+        host: "github.com";
+        owner: string;
+        repository?: string;
+    };
+  parseTrustOrigin (packages/common/src/taint-trust.ts)
+    export function parseTrustOrigin(input: string): z.output<typeof web>;
+  parseTrustTunnel (packages/common/src/taint-trust.ts)
+    export function parseTrustTunnel(input: string): z.output<typeof tunnel>;
   parseWebToolInput (packages/ui-sdk/src/tool-contracts/web.ts)
     export function parseWebToolInput(name: WebToolName, input: unknown): WebToolParse;
   planPlaces (packages/ui-sdk/src/places.ts)
@@ -29157,6 +29234,12 @@ signatures (every public export and the types it is made of)
     export function toolBriefLines(contracts: readonly ToolContract[], available: (contract: ToolContract) => string | false | undefined): string[];
   toolInputJsonSchema (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function toolInputJsonSchema(contract: ToolContract | z.ZodObject): Record<string, unknown>;
+  tunnel (packages/common/src/taint-trust.ts)
+    const tunnel: z.ZodObject<{
+        host: z.ZodString;
+        kind: z.ZodLiteral<"tunnel_authority">;
+        port: z.ZodNumber;
+    }, z.core.$strict>;
   turnBudgetReceiptSchema (packages/ui-sdk/src/schemas.ts)
     const turnBudgetReceiptSchema: z.ZodObject<{
         coverage: z.ZodEnum<{
@@ -29462,6 +29545,16 @@ signatures (every public export and the types it is made of)
         }, z.core.$strip>;
         revision: z.ZodNumber;
     }, z.core.$loose>;
+  web (packages/common/src/taint-trust.ts)
+    const web: z.ZodObject<{
+        host: z.ZodString;
+        kind: z.ZodLiteral<"web_origin">;
+        port: z.ZodNumber;
+        scheme: z.ZodEnum<{
+            http: "http";
+            https: "https";
+        }>;
+    }, z.core.$strict>;
   webToolProviders (packages/ui-sdk/src/tool-contracts/web.ts)
     export function webToolProviders(input: Record<string, unknown>): readonly string[];
   wrapCommand (packages/ui-sdk/src/server/exec-wrapper.ts)
