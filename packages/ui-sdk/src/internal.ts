@@ -25,7 +25,8 @@ export type { InferenceRelay, InferenceRelayEvent } from "./server/inference-rel
 export { startEgressProxy, egressAddressRefusal, egressBootstrapEntry, EgressAdmissionRefused, WORKER_EGRESS_DIR, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
 export { startProviderRelay, parseCliProviderOrigins, relayedProviderKeys, heldCustomProviderKeys, PROVIDER_RELAY_KEYS_NAME, FIRST_PARTY_PROVIDER_RECIPIENTS, PROVIDER_RELAY_SOCKET_NAME, type ProviderRelay, type ProviderRelayOptions, type ProviderRelayReceipt, type ProviderRelayRefusal } from "./server/provider-relay.js";
 export { hostProviderCredential, hostComputeCredential } from "./config/env.js";
-export type { EgressDestinationPolicy, EgressRecord, EgressRefusal } from "./server/egress-proxy.js";
+export type { EgressDestinationPolicy, EgressRecord, EgressRefusal, InferenceTimingMark } from "./server/egress-proxy.js";
+export type { InferenceUsage } from "./server/inference-usage.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "./server/worker-launcher.js";
 export { resolveWorkspacesMount, workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
