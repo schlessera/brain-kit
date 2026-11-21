@@ -8,3 +8,6 @@ export function observationSample(db: Database, turnId: string, before: number, 
   const changedPaths = (db.query("SELECT count(DISTINCT path) AS n FROM turn_journal_changes WHERE turn_id=? AND sequence>?").get(turnId, before) as { n: number }).n;
   return { changedPaths, requestedPaths, sample, toolUseId, ...physical };
 }
+
+/** Periodic overlap does not invalidate a confirmed physical hold's measured paths. */
+export const observationSampleAccepted = (sample: { changedPaths: number; requestedPaths: number }) => sample.changedPaths === sample.requestedPaths;

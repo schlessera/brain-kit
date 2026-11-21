@@ -83,9 +83,10 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const selectedObservation=selected?.conflict?.versions.find(ref=>ref.sequence===selected.sequence);
   const otherObservations=selected?.conflict?.versions.filter(ref=>ref.sequence!==selectedObservation?.sequence)??[];
   const otherObservation=otherObservations.find(ref=>ref.sequence===otherSequence)??otherObservations[0];
+  const lastPause = summary?.scope?.receipts.findLast(receipt => receipt.state === "paused");
   return <div ref={wrapper} className="mt-3 min-w-0" data-turn-journal={turnId ?? "unrecorded"}>
     {live && <span className="sr-only" role="status" aria-live="polite">{announcement}</span>}
-    {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== summary.scope?.receipts.at(-1)?.eventId ? summary.scope?.receipts.at(-1) : undefined} />)}
+    {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== lastPause?.eventId ? lastPause : undefined} />)}
     <ApifyTurnNotice state={apify} />
     <Disclosure label={label} badge={summary?.configurationCoverage === "incomplete" ? { icon: "unproven", label: "configuration coverage incomplete" } : undefined} open={open} onOpenChange={setOpen}>
       <div className="grid gap-3 text-sm min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr)", overflowWrap: "anywhere" }}>

@@ -66,6 +66,8 @@ for (const indexBytes of [INDEX_OBSERVATION_CAP_BYTES + 1, null]) test(`a conten
     if (indexBytes !== null) {
       const reply = await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: index.eventId, submissionId: "index-grant", action: "continue" }, true);
       expect(reply.state).toBe("accepted"); expect(frozen, "INDEX_GRANT_STILL_RESPECTS_PENDING_CONTENT_CAP").toBe(true);
+      const older = await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: content.eventId, submissionId: "older-content-grant", action: "continue" }, true);
+      expect(older.state, "OLDER_OPEN_PAUSE_IS_STILL_ANSWERABLE").toBe("accepted"); expect(frozen).toBe(false);
     } else expect(index.newCap).toBeUndefined();
     await scope.finish("voyage");
   } finally { scope.close(); db.close(); }
@@ -91,6 +93,30 @@ test("an index grant cannot bypass shared content added while its worker is paus
     expect((await decide(content.eventId)).state, "CONTENT_GRANT_DOES_NOT_CREATE_DUPLICATE_INDEX_PAUSE").toBe("accepted"); expect(frozen).toBe(true);
     expect(saved().receipts).toHaveLength(2);
     expect((await decide(index.eventId)).state).toBe("accepted"); expect(frozen, "BOTH_INDEPENDENT_GRANTS_RESUME_WORKER").toBe(false);
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});
+
+for (const [contentPaused, origin] of [[false, "interactive"], [true, "interactive"], [false, "voice"]] as const) test(`unknown index measurement stays unknown in durable compatible receipts: pending=${contentPaused}, origin=${origin}`, async () => {
+  const db = createUiDb(":memory:"); db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
+  let observed!: Parameters<TurnJournal["onObservation"]>[0], periodic!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observed, hold: typeof periodic) { observed = callback; periodic = hold; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  const saved = () => JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary);
+  try {
+    await scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin, profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1, scope: { max_bytes_written: 10 } }), source: "policy", hardTimeoutMs: 3600000, current: () => true, stop() {} });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() {}, resume() {}, kill() {} } as never);
+    periodic.before(); observed("voyage", { changedPaths: 1, observedBytes: contentPaused ? 11 : 0, workspacePaths: 0, indexBytes: null, partial: false }); periodic.after(true);
+    if (contentPaused) await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: saved().receipts[0].eventId, submissionId: "grant", action: "continue" }, true);
+    const receipt = saved().receipts.at(-1);
+    expect(receipt, "UNREADABLE_INDEX_IS_NOT_AN_EXACT_CAP_MEASUREMENT").toMatchObject({ result: "index_capacity", measurement: "unknown", count: 0, overshoot: 0 });
+    expect(receipt.newCap).toBeUndefined();
+    if (origin === "voice") expect(receipt.reason, "VOICE_STOP_DOES_NOT_CLAIM_A_MEASURED_BREACH").toContain("could not be measured");
+    expect(previousScopeSummarySchema.safeParse(saved()).success, "OLD_SCOPE_PARSER_ACCEPTS_UNKNOWN_MEASUREMENT_FIELD").toBe(true);
+    expect(turnScopeSummarySchema.safeParse(saved()).success).toBe(true);
+    const invalid = saved(); invalid.receipts.at(-1).measurement = "unverified"; expect(turnScopeSummarySchema.safeParse(invalid).success).toBe(false);
+    const event = db.query("SELECT payload FROM governance_events WHERE kind='scope_cap' ORDER BY id DESC LIMIT 1").get() as { payload: string };
+    expect(JSON.parse(event.payload), "DURABLE_SCOPE_EVENT_LABELS_UNKNOWN_MEASUREMENT").toMatchObject({ observed: 0, measurement: "unknown" });
     await scope.finish("voyage");
   } finally { scope.close(); db.close(); }
 });

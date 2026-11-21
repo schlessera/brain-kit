@@ -1,6 +1,6 @@
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as startup from "../../ui-sdk/src/server/worker-startup-view.js";
@@ -195,27 +195,6 @@ test("release frees its slot before reporting while close joins the durable rece
   } finally { report.resolve(); await queue.close(); }
 });
 
-test("ten real admissions reserve release ownership before acquiring disposable views", async () => {
-  const { mkdirSync } = await import("node:fs"), root = mkdtempSync(join(tmpdir(), "odysseus-bounded-admissions-")), brain = join(root, "brain"); mkdirSync(brain);
-  const native = createNativeJournalFixture(brain, root), queue = createNativeStartupReleases(), deletion = deferred(), full = deferred();
-  setNativeStartupReleases(native.client, queue);
-  let views = 0, maximum = 0;
-  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
-    const checkpoint = await native.client.checkpoint(crypto.randomUUID()); views++; maximum = Math.max(maximum, views); if (views === 2) full.resolve();
-    return { brain, root: checkpoint.path, storage: { root: checkpoint.path, retain() {}, release() {} }, async cleanup() { await deletion.promise; await native.client.release(checkpoint.id); views--; } };
-  });
-  const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
-  const resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockResolvedValue({ profile: "governed", areas: [], protection: { paths: [] } } as never);
-  const execution = { boundary: { async prepare() { return { available: true }; }, maintenance: {} }, gate() { return { async acquire() { return { release() {} }; } }; }, manifests() { return { async begin() {}, async end() { return null; } }; } };
-  const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, execution: execution as never, profile: "governed", maskPaths: [], async index() {}, report() {} });
-  const admissions = Array.from({ length: 10 }, (_, i) => turns.begin(`voyage-${i}`, new AbortController().signal));
-  try {
-    await full.promise; await new Promise<void>(resolve => setImmediate(resolve));
-    expect(views, "ADMISSION_VIEWS_ARE_BOUNDED_BEFORE_RELEASE_SLOTS_FILL").toBe(2);
-    deletion.resolve(); for (const hold of await Promise.all(admissions)) await hold.end(); await queue.drain();
-    expect(maximum, "TEN_ADMISSIONS_NEVER_CREATE_TEN_PENDING_VIEWS").toBe(2);
-  } finally { deletion.resolve(); for (const hold of await Promise.all(admissions)) await hold.end(); await turns.close(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
-});
 
 test("early policy failure releases the admission gate and index watermark", async () => {
   const governance = await import("../src/brain/governance-policy.js");
@@ -231,4 +210,66 @@ test("early policy failure releases the admission gate and index watermark", asy
     expect(released, "EARLY_POLICY_FAILURE_RELEASES_ADMISSION_GATE").toBe(1);
     expect(watermarks, "EARLY_POLICY_FAILURE_RELEASES_INDEX_WATERMARK").toBe(1);
   } finally { load.mockRestore(); await turns.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const mode of ["empty_paths", "boundary_fallback"] as const) test(`resolved startup branch gets correct release ownership: ${mode}`, async () => {
+  const trees = await import("../src/brain/turn-data-tree.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-resolved-view-")), brain = join(root, "brain"); mkdirSync(join(brain, "context/policies"), { recursive: true });
+  if (mode === "empty_paths") writeFileSync(join(brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [], allow: [] }]\n---\n");
+  const native = createNativeJournalFixture(brain, root), queue = createNativeStartupReleases(), deletion = deferred(); setNativeStartupReleases(native.client, queue);
+  if (mode === "boundary_fallback") for (const id of ["one", "two"]) (await queue.reserve()).handoff(id, { root: id, cleanup: () => deletion.promise } as startup.WorkerStartupView);
+  const tryReserve = spyOn(queue, "tryReserve"), reserve = spyOn(queue, "reserve").mockRejectedValue(new Error("retained profile waited for release"));
+  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
+    const cp = await native.client.checkpoint(crypto.randomUUID()); return { brain, root: cp.path, storage: { root: cp.path, retain() {}, release() {} }, cleanup: () => native.client.release(cp.id) };
+  });
+  const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
+  const resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockImplementation(async (_path, options) => ({ profile: options.profile, areas: [], protection: { paths: [] } }) as never);
+  const tree = spyOn(trees, "createTurnDataTree").mockResolvedValue({ async close() {} } as never);
+  const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, profile: "governed", maskPaths: [], async index() {}, report() {}, execution: {
+    boundary: { async prepare() { return { available: mode !== "boundary_fallback", detail: "Ithaca boundary unavailable" }; }, maintenance: {} },
+    gate() { return { async acquire() { return { release() {} }; } }; }, manifests() { return { async begin() {}, async end() { return null; } }; },
+  } as never });
+  try {
+    const result = await turns.begin("voyage", new AbortController().signal).then(hold => ({ hold, error: null }), error => ({ hold: null, error: String(error) }));
+    expect(result.error, mode === "empty_paths" ? "EMPTY_PROVIDER_PATHS_HAVE_RELEASE_OWNER" : "BOUNDARY_FALLBACK_IGNORES_RELEASE_BACKLOG").toBeNull();
+    expect(reserve).not.toHaveBeenCalled();
+    if (mode === "boundary_fallback") { expect(tryReserve, "FALLBACK_RETAINS_VIEW_WITHOUT_RELEASE_SLOT").not.toHaveBeenCalled(); expect(result.hold?.dataTree).toBeDefined(); }
+    else expect(tryReserve, "UNMASKED_EMPTY_RULE_HANDS_OFF_VIEW").toHaveBeenCalledTimes(1);
+    await result.hold!.end();
+  } finally { deletion.resolve(); await turns.close(); tryReserve.mockRestore(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); tree.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("three type-selector admissions finish peer plans before waiting outside the writer gate", async () => {
+  const { createUiDb } = await import("../src/db/client.js"), { createWriterGate } = await import("../src/brain/writer-gate.js"), translation = await import("../src/brain/provider-types.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-release-peer-")), brain = join(root, "brain"); mkdirSync(join(brain, "context/policies"), { recursive: true }); mkdirSync(join(brain, "me"));
+  writeFileSync(join(brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ types: [identity], allow: [anthropic] }]\n---\n");
+  const db = createUiDb(":memory:"), gate = createWriterGate(db, brain, { pollMs: 1 });
+  const native = createNativeJournalFixture(brain, root), queue = createNativeStartupReleases(), deletion = deferred(), prepared = deferred(), waiting = deferred(); setNativeStartupReleases(native.client, queue);
+  for (const id of ["one", "two"]) (await queue.reserve()).handoff(id, { root: id, cleanup: () => deletion.promise } as startup.WorkerStartupView);
+  let checkpoints = 0, waits = 0, views = 0; const recordedPolicies: string[] = [];
+  const reserveOriginal = queue.reserve.bind(queue), reserve = spyOn(queue, "reserve").mockImplementation(signal => { if (++waits === 3) waiting.resolve(); return reserveOriginal(signal); });
+  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
+    const cp = await native.client.checkpoint(crypto.randomUUID()); views++; if (++checkpoints === 3) prepared.resolve(); await prepared.promise;
+    return { brain, root: cp.path, storage: { root: cp.path, retain() {}, release() {} }, async cleanup() { await native.client.release(cp.id); views--; } };
+  });
+  const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
+  const resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockResolvedValue({ profile: "governed", areas: [], protection: { paths: [] } } as never);
+  const translated = spyOn(translation, "translateProviderTypesInView").mockResolvedValue({ folders: { identity: ["me"] }, refused: [] });
+  const abort = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
+  const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, profile: "governed", maskPaths: [], async index() {}, report() {},
+    recordPolicy(id) { recordedPolicies.push(id); },
+    exposures: { async settled() {}, forSessions() { return []; }, async record() {} } as never, peerFolderPlanWaitMs: watchdogMs(10000), execution: {
+      gate() { return gate; }, boundary: { async prepare() { return { available: true }; }, maintenance: {} }, manifests() { return { async begin() {}, async end() { return null; }, appearedIn() { return false; } }; },
+    } as never });
+  const work = Array.from({ length: 3 }, (_, i) => turns.begin(`voyage-${i}`, abort.signal, "interactive", "governed", { inferenceOrigin: "https://api.anthropic.com" }).then(hold => ({ hold, error: null }), error => ({ hold: null, error })));
+  try {
+    const reached = await Promise.race([waiting.promise.then(() => true), new Promise<boolean>(r => { timer = setTimeout(() => r(false), watchdogMs(5000)); })]);
+    expect(reached, "ALL_PEER_PLANS_COMPLETE_WITH_RELEASE_SLOTS_FULL").toBe(true);
+    expect(db.query("SELECT count(*) AS n FROM writer_gate").get(), "RELEASE_CAPACITY_WAIT_HOLDS_NO_WRITER_GATE").toEqual({ n: 0 });
+    expect(views, "RELEASE_CAPACITY_WAIT_RETAINS_NO_UNUSED_VIEWS").toBe(0);
+    expect(queue.pending()).toBe(2);
+    deletion.resolve(); const result = await Promise.all(work); expect(result.map(item => item.error), "PEER_ADMISSIONS_RECOVER_WITHOUT_TIMEOUT").toEqual([null,null,null]);
+    expect(recordedPolicies.sort(), "THROWAWAY_PROBE_DOES_NOT_RECORD_A_TURN_POLICY").toEqual(["voyage-0", "voyage-1", "voyage-2"]);
+    for (const item of result) await item.hold!.end();
+  } finally { clearTimeout(timer); prepared.resolve(); deletion.resolve(); abort.abort(); for (const item of await Promise.all(work)) await item.hold?.end(); await turns.close(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); translated.mockRestore(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

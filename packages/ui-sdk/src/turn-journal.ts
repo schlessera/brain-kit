@@ -150,6 +150,8 @@ export interface TurnRevertReceipt {
 /** Scope facts come from the host's frozen turn policy and shared journal observations. */
 export type ScopeDimension = "files_changed" | "minutes" | "tool_calls" | "turn_bytes" | "free_space_floor";
 export interface ScopeCapReceipt {
+  /** Unknown measurements use the numeric compatibility placeholder zero. */
+  measurement?: "unknown";
   /** Separate live-index size cap; dimension keeps the existing byte-cap vocabulary. */
   result?: "index_capacity";
   eventId: string;

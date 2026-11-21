@@ -49,7 +49,23 @@ export function createNativeStartupReleases(report: (result: StartupReleaseResul
       waiters.add(wake); signal?.addEventListener("abort", abort, { once: true });
     });
   }
+  function tryReserve(signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    if (closing) throw new Error("Startup checkpoint releases are closing");
+    if (owners >= STARTUP_RELEASE_BACKLOG) return undefined;
+    owners++;
+    let owned = true;
+    return {
+      handoff(turnId: string, view: WorkerStartupView) {
+        if (!owned || pending.has(turnId)) throw new Error("Startup checkpoint already has a release owner");
+        const entry = { view, attempt: 0 }; pending.set(turnId, entry); owned = false;
+        void start(turnId, entry);
+      },
+      release() { if (owned) { owned = false; owners--; changed(); } },
+    };
+  }
   return {
+    tryReserve,
     async reserve(signal?: AbortSignal) {
       const retried = new Set<string>();
       while (owners >= STARTUP_RELEASE_BACKLOG) {
@@ -62,18 +78,7 @@ export function createNativeStartupReleases(report: (result: StartupReleaseResul
         }
         await wake;
       }
-      signal?.throwIfAborted();
-      if (closing) throw new Error("Startup checkpoint releases are closing");
-      owners++;
-      let owned = true;
-      return {
-        handoff(turnId: string, view: WorkerStartupView) {
-          if (!owned || pending.has(turnId)) throw new Error("Startup checkpoint already has a release owner");
-          const entry = { view, attempt: 0 }; pending.set(turnId, entry); owned = false;
-          void start(turnId, entry);
-        },
-        release() { if (owned) { owned = false; owners--; changed(); } },
-      };
+      return tryReserve(signal)!;
     },
     /** Called only after the manager positively refuses a checkpoint for space. */
     async reclaim(signal?: AbortSignal): Promise<boolean> {

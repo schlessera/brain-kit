@@ -6,7 +6,7 @@
  * in-memory turn state and every read.
  */
 import type { Database, SQLQueryBindings } from "bun:sqlite";
-import type { JournalRecoveryStatus, JournalObservationReference, JournalVersion } from "@schlessera/brain-ui-sdk/protocol";
+import type { JournalRecoveryStatus, JournalVersion } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { WireError, WriteProcedures } from "../db/write-worker.js";
 import { recordGovernanceEvent } from "../governance/events.js";
@@ -102,6 +102,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   // Refusing this optional migration must never prevent recovery/expiry.
   accounting.ensureObjectRefIndex();
   accounting.ensureChangePathIndex();
+  let conflictsReady = accounting.ensureConflictTables();
   const objects = createJournalObjects(options.objectsRoot, accounting);
   const reservations = new Map<string, JournalObjectReservation>();
   const temporary = new Map<string, { release(): void }>();
@@ -260,6 +261,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
       const { turnId, at } = record;
       const steering = new Set(record.steeringPaths);
       let sequence = record.sequence;
+      if (!conflictsReady) { conflictsReady = accounting.ensureConflictTables(); if (!conflictsReady) throw new JournalCapacityError(); }
       accounting.write(() => {
         const { row: metadata, taint } = turnContext(turnId);
         for (const item of record.changed) {
@@ -276,21 +278,17 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
             actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at, dedupeKey: `${turnId}:${sequence}`,
             payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds, ...(restricted ? { tainted: true } : {}) } });
           pin(turnId, item.before); pin(turnId, item.after);
-          if (!overlappingTurnIds.length && !db.query("SELECT 1 FROM turn_journal_changes WHERE turn_id=? AND path=? AND overlaps!='[]' LIMIT 1").get(turnId, item.path)) continue;
-          const observed = db.query("SELECT sequence,after_json,overlaps FROM turn_journal_changes WHERE turn_id=? AND path=? ORDER BY sequence").all(turnId, item.path) as {sequence:number;after_json:string|null;overlaps:string}[];
-          const participants = new Set(observed.flatMap(row => JSON.parse(row.overlaps) as string[]));
-          const conflicting = new Map<number, JournalObservationReference>();
-          for (const other of participants) {
-            const shared = observed.filter(row => (JSON.parse(row.overlaps) as string[]).includes(other));
-            if (new Set(shared.map(row => row.after_json ?? "null")).size < 2) continue;
-            for (const row of shared) conflicting.set(row.sequence, {turnId, sequence:row.sequence, side:"after"});
-          }
-          if (conflicting.size) {
-            let earliest = Infinity;
-            for (const sequence of conflicting.keys()) earliest = Math.min(earliest, sequence);
-            for (const row of observed) if (row.sequence >= earliest) conflicting.set(row.sequence, { turnId, sequence: row.sequence, side: "after" });
-            db.query("UPDATE turn_journal_changes SET conflict_observations=? WHERE turn_id=? AND path=?")
-              .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
+          // Solo writes need no history lookup. One peer baseline detects a
+          // conflict; one per-path boundary serves all subsequent versions.
+          for (const other of overlappingTurnIds) {
+            const after = item.after ? JSON.stringify(item.after) : "null";
+            db.query("INSERT OR IGNORE INTO turn_journal_path_peers (turn_id,path,peer_id,first_sequence,after_json) VALUES (?,?,?,?,?)")
+              .run(turnId, item.path, other, sequence, after);
+            const first = db.query("SELECT first_sequence,after_json FROM turn_journal_path_peers WHERE turn_id=? AND path=? AND peer_id=?")
+              .get(turnId, item.path, other) as { first_sequence: number; after_json: string };
+            if (first.after_json !== after) db.query(`INSERT INTO turn_journal_path_conflicts (turn_id,path,first_sequence) VALUES (?,?,?)
+              ON CONFLICT(turn_id,path) DO UPDATE SET first_sequence=min(first_sequence,excluded.first_sequence)`)
+              .run(turnId, item.path, first.first_sequence);
           }
         }
         // Intentional worktree edits are editable workspace content of their holding turn only.

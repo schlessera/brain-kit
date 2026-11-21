@@ -142,14 +142,14 @@ test("true voice exposes no grant card; ended-before-answer and incomplete cover
   expect(f.socket.decisions()).toEqual([]);
 });
 
-test("a floor reached during another pause leaves one Stop-only card and focuses the refused attempt's receipt", async () => {
+test("a floor reached during another pause keeps both open cards Stop-only and focuses the refused attempt's receipt", async () => {
   const f = await mount(320); f.frame(cap()); option("Continue").focus(); await userEvent.keyboard(" "); const sent = f.socket.decisions()[0];
   const floor = cap({ eventId: "disk-floor", dimension: "free_space_floor", count: 2000000000, cap: 2147483648, overshoot: 147483648, newCap: undefined });
   f.socket.receive({ type: "turn_journal", sessionId: "ithaca", turnId: "voyage", journal: summary([cap(), floor]) });
   f.socket.receive({ ...sent, type: "scope_decision_receipt", state: "refused", reason: "The free-space floor now requires Stop only." });
   await expect.poll(() => document.activeElement?.getAttribute("data-scope-receipt")).toBe("athena-cap");
   expect(option("Continue"), "SCOPE_SUPERSEDING_FLOOR_HAS_NO_CONTINUE").toBeUndefined();
-  expect(host.querySelectorAll('[role="radio"]')).toHaveLength(1); expect(option("Stop here")).toBeDefined();
+  expect(host.querySelectorAll('[role="radio"]'), "EVERY_OPEN_PAUSE_RETAINS_STOP").toHaveLength(2); expect(option("Stop here")).toBeDefined();
   expect(f.field.value).toBe("Ask Penelope about the shroud."); expect(f.socket.decisions()).toHaveLength(1);
 });
 
@@ -186,4 +186,23 @@ test("index capacity prompt names the independent ceiling and preserves content 
   expect(host.textContent, "INDEX_CONTINUE_NAMES_THE_CEILING_IT_RAISES").toContain("Raises the index ceiling to exactly 8,589,934,592 bytes");
   expect(host.textContent).toContain("The content write allowance is unchanged.");
   expect(host.textContent).not.toContain("This turn reached its write allowance.");
+});
+
+test("both independent pause cards remain answerable after the newer grant", async () => {
+  const f = await mount(1280), content = cap({ eventId: "content-cap", dimension: "turn_bytes", count: 11, cap: 10, newCap: 20 }), index = cap({ eventId: "index-cap", dimension: "turn_bytes", result: "index_capacity", count: 4294967297, cap: 4294967296, newCap: 8589934592 });
+  f.socket.receive({ type: "turn_journal", sessionId: "ithaca", turnId: "voyage", journal: summary([content, index]) });
+  const card = (id: string) => host.querySelector<HTMLElement>(`[data-scope-event="${id}"]`)!;
+  await expect.poll(() => card("index-cap")?.querySelectorAll('[role="radio"]').length).toBe(2);
+  const newerContinue = [...card("index-cap").querySelectorAll<HTMLElement>('[role="radio"]')].find(el => el.querySelector("b")?.textContent === "Continue")!;
+  newerContinue.focus(); await userEvent.keyboard(" "); const sent = f.socket.decisions().at(-1)!;
+  f.socket.receive({ type: "turn_journal", sessionId: "ithaca", turnId: "voyage", journal: summary([content, { ...index, state: "continued", submissionId: sent.submissionId }]) });
+  await expect.poll(() => card("content-cap")?.querySelectorAll('[role="radio"]').length, { message: "NEWER_GRANT_DOES_NOT_HIDE_OLDER_OPEN_PAUSE" }).toBe(2);
+  const olderContinue = [...card("content-cap").querySelectorAll<HTMLElement>('[role="radio"]')].find(el => el.querySelector("b")?.textContent === "Continue")!;
+  olderContinue.focus(); await userEvent.keyboard(" "); expect(f.socket.decisions().at(-1)!.eventId).toBe("content-cap");
+});
+
+test("unknown index size is displayed as unknown rather than an exact byte count", async () => {
+  const f = await mount(1280); f.frame(cap({ dimension: "turn_bytes", result: "index_capacity", measurement: "unknown", count: 0, cap: 4294967296, newCap: undefined }));
+  await expect.poll(() => host.querySelector('[id="athena-cap-question"]')?.textContent, { message: "UNKNOWN_INDEX_SIZE_VISIBLE_IN_PAUSE_PROMPT" }).toContain("Observed: unknown.");
+  expect(option("Continue")).toBeUndefined(); expect(option("Stop here")).toBeDefined();
 });

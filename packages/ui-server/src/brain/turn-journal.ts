@@ -123,6 +123,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   /** Startup recovery commits before any later write; `ready` reports its refusal. */
   const ready = (async () => {
     await ledger.ready;
+    if (writer.offloop) installEscapeGuard(db);
     recoveryStatus = await ledger.call<JournalRecoveryStatus>("recover");
     // Governance events live in the UI database; a commit split between the
     // two files is completed from the journal's rows (#2789).
@@ -374,6 +375,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   async function expire(turnId: string, removeSummary = false) {
     const before = summary(turnId);
     await write([
+      ...(db.query("SELECT 1 FROM journal.sqlite_schema WHERE name='turn_journal_path_peers'").get() ? [statement("DELETE FROM turn_journal_path_peers WHERE turn_id=?", turnId), statement("DELETE FROM turn_journal_path_conflicts WHERE turn_id=?", turnId)] : []),
       statement("DELETE FROM turn_journal_changes WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_claude_memory WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
@@ -852,10 +854,25 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     details(sessionId: string, turnId: string): TurnJournalDetails | null {
       const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND session_id=?").get(turnId, sessionId) as TurnRow | null;
       if (!row) return null;
-      const changes = (db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[]).map(item => ({ sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
-        before: presented(item.path, item.before_json), after: presented(item.path, item.after_json), overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.effective_taint === 1 || item.taint_source_event_id ? { tainted: true as const } : {}), ...(item.taint_source_event_id ? { taintSourceEventId: item.taint_source_event_id } : {}),
-        ...(JSON.parse(item.conflict_observations).length && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: JSON.parse(item.conflict_observations) as JournalObservationReference[],
-          latest: { turnId, sequence: (db.query("SELECT max(sequence) AS sequence FROM turn_journal_changes WHERE turn_id=? AND path=?").get(turnId,item.path) as {sequence:number}).sequence, side:"after" as const } } } : {}) }));
+      const recorded = db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[];
+      const hasConflicts = db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='table' AND name='turn_journal_path_conflicts'").get();
+      const boundaries = new Map((hasConflicts ? db.query("SELECT path,first_sequence FROM turn_journal_path_conflicts WHERE turn_id=?").all(turnId) as {path:string;first_sequence:number}[] : []).map(item => [item.path,item.first_sequence]));
+      const conflicts = new Map<string, JournalObservationReference[]>(), latest = new Map<string, number>();
+      for (const item of recorded) {
+        latest.set(item.path, item.sequence);
+        const first = boundaries.get(item.path);
+        if (first !== undefined && item.sequence >= first) {
+          let refs = conflicts.get(item.path); if (!refs) { refs = []; conflicts.set(item.path, refs); }
+          refs.push({ turnId, sequence: item.sequence, side: "after" });
+        }
+      }
+      const changes = recorded.map(item => {
+        const refs = conflicts.get(item.path) ?? JSON.parse(item.conflict_observations) as JournalObservationReference[];
+        return { sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
+          before: presented(item.path, item.before_json), after: presented(item.path, item.after_json), overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.effective_taint === 1 || item.taint_source_event_id ? { tainted: true as const } : {}), ...(item.taint_source_event_id ? { taintSourceEventId: item.taint_source_event_id } : {}),
+          ...(refs.length && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: refs,
+            latest: { turnId, sequence: latest.get(item.path)!, side:"after" as const } } } : {}) };
+      });
       const failure = failures.get(turnId) ?? row.failure.trim();
       const outward = queryGovernanceEvents(db, { sessionId, turnId, kinds: ["outward_action"], limit: 1001 });
       const outwardActions: JournalOutwardAction[] = outward.slice(0, 1000).map(event => ({ id: event.id, at: event.at,

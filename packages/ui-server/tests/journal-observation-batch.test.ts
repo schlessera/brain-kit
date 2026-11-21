@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { closeSync, copyFileSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -17,40 +17,40 @@ test("ready reservations share one durable batch and every caller receives its o
   expect(committed, "TWENTY_READY_PATHS_ONE_COMMIT").toEqual([Array.from({ length: 20 }, (_, i) => i)]);
 });
 
-for (const boundary of ["reserved", "first_published", "all_published", "finished"] as const) test(`batched retention recovers and retries both versions after a crash at ${boundary}`, async () => {
-  const root = mkdtempSync(join(tmpdir(), "odysseus-batch-crash-")), path = join(root, "ui.db"), objects = join(root, "objects");
-  const db = createUiDb(path), accounting = createJournalAccounting(db, path), store = createJournalObjects(objects, accounting);
-  const brain = join(root, "brain"); mkdirSync(brain);
+for (const boundary of ["reserved", "first_published", "all_published", "finished"] as const) test(`production startup recovery leaves an interrupted batch honestly partial at ${boundary}`, async () => {
+  const { Database } = await import("bun:sqlite"), { createNativeBrainLeaseManager } = await import("../src/brain/native-brain-leases.js"), { createTurnJournal } = await import("../src/brain/turn-journal.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-batch-startup-")), path = join(root, "ui.db"), objects = join(root, "objects"), brain = join(root, "brain"); mkdirSync(brain);
   writeFileSync(join(brain, "before.md"), "Ithaca before"); writeFileSync(join(brain, "after.md"), "Ithaca after");
-  const native = createNativeJournalFixture(brain, root), checkpoint = await native.manager.checkpoint(crypto.randomUUID());
+  const db = createUiDb(path), accounting = createJournalAccounting(db, path), store = createJournalObjects(objects, accounting), native = createNativeJournalFixture(brain, root);
+  const ready = await native.client.ready(), leasePath = join(root, "native-leases.sqlite"), options = { statePath: leasePath, brainPath: brain, fsid: ready.fsid, brainUuid: ready.brainUuid };
+  const owner = await createNativeBrainLeaseManager(native.client, options), checkpoint = await owner.client.checkpoint(crypto.randomUUID()), leases = new Database(leasePath);
   const content = ["Ithaca before", "Ithaca after"], entries = content.map(text => ({ hash: sha(text), bytes: Buffer.byteLength(text) }));
+  let successor: Awaited<ReturnType<typeof createNativeBrainLeaseManager>> | undefined, journal: ReturnType<typeof createTurnJournal> | undefined;
   try {
-    accounting.write(() => db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,state) VALUES ('voyage','interactive','governed',0,'recording')").run());
+    accounting.write(() => db.query("INSERT INTO turn_journal_turns (turn_id,session_id,actor,profile,started_at,state,pid,pid_start) VALUES ('voyage','ithaca','interactive','governed',0,'recording',2147483647,'dead')").run());
     const ids = accounting.reserveBatch(entries);
     if (boundary !== "reserved") copyFileSync(join(checkpoint.path, "before.md"), join(objects, entries[0]!.hash));
     if (boundary === "all_published" || boundary === "finished") copyFileSync(join(checkpoint.path, "after.md"), join(objects, entries[1]!.hash));
     if (boundary === "finished") accounting.finishBatch(entries.map((entry, i) => ({ ...entry, id: ids[i]! })), ["voyage"]);
-    // Simulated process death at a durable boundary; startup is the same
-    // recovery routine used for individually reserved objects.
-    accounting.write(() => db.query("UPDATE turn_journal_reservations SET pid=2147483647,pid_start='ended'").run());
-    expect(accounting.recover(store), "BATCH_CRASH_RECOVERY_RESOLVES_EVERY_RESERVATION").toEqual({ unresolvedRecords: 0, firstCause: null });
-    expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
-    const published = boundary === "reserved" ? [] : boundary === "first_published" ? entries.slice(0, 1) : entries;
-    expect(published.map(entry => store.has(entry.hash)), "PUBLISHED_VERSIONS_SURVIVE_RECOVERY").toEqual(published.map(() => true));
-    expect(published.map(entry => store.read(entry.hash, 1024).toString()), "RECOVERED_BYTES_EXIST_BEFORE_RETRY").toEqual(boundary === "first_published" ? ["Ithaca before"] : boundary === "reserved" ? [] : ["Ithaca before", "Ithaca after"]);
-    if (boundary === "finished") expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='voyage'").get(), "FINISHED_PINS_SURVIVE_RECOVERY").toEqual({ n: 2 });
+    accounting.write(() => db.query("UPDATE turn_journal_reservations SET pid=2147483647,pid_start='dead'").run());
+    leases.query("UPDATE native_root_leases SET owner_start=owner_start||'-dead'").run();
+    // The app recovers dead native owners before creating the journal. No
+    // checkpoint is reopened and no pin or retry is manufactured by the test.
+    successor = await createNativeBrainLeaseManager(native.client, options);
+    expect(await successor.recoverDeadOwners(), "NATIVE_STARTUP_RELEASES_DEAD_BATCH_SOURCE_FIRST").toMatchObject({ released: [checkpoint.id], unknown: [] });
+    expect(existsSync(checkpoint.path), "INTERRUPTED_CAPTURE_HAS_NO_STARTUP_RETRY_SOURCE").toBe(false);
     writeFileSync(join(brain, "before.md"), "live overwrite"); writeFileSync(join(brain, "after.md"), "different live bytes");
-    for (const [index, name] of ["before.md", "after.md"].entries()) {
-      const fd = openSync(join(checkpoint.path, name), "r");
-      try {
-        const hash = await store.putFileAsync(fd, entries[index]!.bytes);
-        accounting.write(() => db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES ('voyage',?)").run(hash));
-      } finally { closeSync(fd); }
-    }
-    expect(db.query("SELECT hash FROM turn_journal_object_refs WHERE turn_id='voyage' ORDER BY hash").all(), "BOTH_VERSIONS_DURABLY_PINNED_AFTER_RETRY").toEqual(entries.map(entry => ({ hash: entry.hash })).sort((a,b) => a.hash.localeCompare(b.hash)));
-    expect(entries.map(entry => store.verify(entry.hash, entry.bytes)), "RECOVERED_VERSION_BYTES_EXACT").toEqual([true, true]);
-    expect(content.map(text => store.read(sha(text), 1024).toString())).toEqual(content);
-  } finally { await native.close(); store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+    journal = createTurnJournal(db, { brainPath: brain, dbPath: path, objectsRoot: objects, nativeManager: successor.client }); await journal.ready;
+    expect(journal.summary("voyage").state, "STARTUP_MARKS_INTERRUPTED_TURN_PARTIAL").toBe("partial");
+    const row = db.query("SELECT ended_at,missing FROM turn_journal_turns WHERE turn_id='voyage'").get() as { ended_at: number; missing: string };
+    expect(row.ended_at).not.toBeNull(); expect(JSON.parse(row.missing)).toContainEqual({ path: ".", reason: "interrupted_observation" });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
+    const published = boundary === "reserved" ? [] : boundary === "first_published" ? entries.slice(0,1) : entries;
+    expect(published.map(entry => store.read(entry.hash, 100).toString()), "STARTUP_RECOVERS_ONLY_ACTUALLY_PUBLISHED_BYTES").toEqual(content.slice(0,published.length));
+    expect(entries.map(entry => store.has(entry.hash)), "UNPUBLISHED_VERSION_IS_NEVER_FABRICATED_FROM_LIVE_BYTES").toEqual(entries.map(entry => published.includes(entry)));
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='voyage'").get(), "ONLY_COMMITTED_COMPLETION_PINS_SURVIVE").toEqual({ n: boundary === "finished" ? 2 : 0 });
+    expect(journal.details("ithaca", "voyage")!.changes, "UNCOMMITTED_WINDOW_IS_NOT_REPORTED_AS_CAPTURED_HISTORY").toEqual([]);
+  } finally { await journal?.close(); await successor?.close(); await owner.close(); leases.close(); store.close(); db.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test("a mismatched second batch completion rolls back the first object's pin and reservation", () => {

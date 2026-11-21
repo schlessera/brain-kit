@@ -479,10 +479,10 @@ print(json.dumps(result))`;
           if (!trace) throw Error(`OBSERVATION_PATH_MATRIX_TRACE_MISSING ${sample.toolUseId}`);
           return { phases: observationPhases(trace, managerSpans), measuredMs: sample.sharedHold ? null : sample.frozenMs };
         });
-        return { changedPaths, samples: samples.length, sharedHolds: samples.filter(sample => sample.sharedHold).length, medianMs: median(samples.filter(sample => !sample.sharedHold).map(sample => sample.frozenMs)), physicalHoldMedianMs: median(samples.map(sample => sample.frozenMs)), p95Ms: p95(samples.filter(sample => !sample.sharedHold).map(sample => sample.frozenMs)), phases: summarizePhases(attributed) };
+        return { changedPaths, samples: samples.length, sharedHolds: samples.filter(sample => sample.sharedHold).length, medianMs: median(samples.map(sample => sample.frozenMs)), physicalHoldMedianMs: median(samples.map(sample => sample.frozenMs)), p95Ms: p95(samples.map(sample => sample.frozenMs)), phases: summarizePhases(attributed) };
       });
-      const warmOnePath = pathMatrix.samples.filter(sample => sample.changedPaths === 1 && !sample.sharedHold).map(sample => sample.frozenMs);
-      const loadedOnePath = pathMatrix.loadedSamples.filter(sample => !sample.sharedHold).map(sample => sample.frozenMs);
+      const warmOnePath = pathMatrix.samples.filter(sample => sample.changedPaths === 1).map(sample => sample.frozenMs);
+      const loadedOnePath = pathMatrix.loadedSamples.map(sample => sample.frozenMs);
       const onePathHistory = { historyRows: pathMatrix.historyRows, warmMedianMs: median(warmOnePath), loadedMedianMs: median(loadedOnePath),
         addedMedianMs: loadedOnePath.length && warmOnePath.length ? median(loadedOnePath)! - median(warmOnePath)! : null, loadedP95Ms: p95(loadedOnePath),
         phases: summarizePhases(pathMatrix.loadedSamples.map(sample => {

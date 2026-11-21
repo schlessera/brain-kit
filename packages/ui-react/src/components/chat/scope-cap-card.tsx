@@ -16,6 +16,7 @@ export function scopeNumber(dimension: ScopeCapReceipt["dimension"], value: numb
 export function scopeReceiptText(receipt: ScopeCapReceipt): string {
   const state = receipt.state === "continued" ? `continued · limit ${scopeNumber(receipt.dimension, receipt.newCap!)} for this turn`
     : receipt.state === "ended_before_answer" ? "the turn ended before an answer" : receipt.state === "paused" ? "turn paused" : "turn stopped";
+  if (receipt.measurement === "unknown") return `Index capacity measurement unknown · ${state}`;
   return `${receipt.result === "index_capacity" ? "Index capacity" : scopeLimitName[receipt.dimension]} reached at ${scopeNumber(receipt.dimension, receipt.count)} · ${state}`;
 }
 export function ScopeCapCard({ receipt, turnId, sessionId, blockedBy }: { receipt: ScopeCapReceipt; turnId: string; sessionId: string; blockedBy?: ScopeCapReceipt }) {
@@ -27,8 +28,8 @@ export function ScopeCapCard({ receipt, turnId, sessionId, blockedBy }: { receip
   const [announcement, setAnnouncement] = useState("");
   const activated = useRef(false), submission = useRef<string | undefined>(undefined), action = useRef<"continue" | "stop">("stop");
   const row = useRef<HTMLParagraphElement>(null), announced = useRef<string | undefined>(undefined);
-  const paused = receipt.state === "paused" && !blockedBy;
-  const canContinue = receipt.newCap !== undefined;
+  const paused = receipt.state === "paused";
+  const canContinue = receipt.newCap !== undefined && blockedBy?.dimension !== "free_space_floor";
   const staleContinue = action.current === "continue" && !canContinue;
   useEffect(() => {
     // Counts may refresh without another alert; changed eligibility must replace
@@ -39,11 +40,11 @@ export function ScopeCapCard({ receipt, turnId, sessionId, blockedBy }: { receip
     setAnnouncement(paused ? `Turn paused: ${scopeReceiptText(receipt)}. ${canContinue ? "Continue or stop." : receipt.reason ?? "Stop only."}` : scopeReceiptText(receipt));
   }, [receipt, paused, canContinue]);
   useEffect(() => {
-    if (paused || !activated.current) return;
+    if (paused && !blockedBy || !activated.current) return;
     setPending(false);
     if (root.stores.chat.getState().activeSessionId === sessionId) row.current?.focus();
     setAnnouncement(scopeReceiptText(receipt)); activated.current = false;
-  }, [receipt, paused, root, sessionId]);
+  }, [receipt, paused, blockedBy, root, sessionId]);
   useEffect(() => {
     if (!delivery || delivery.submissionId !== submission.current || delivery.turnId !== turnId || delivery.sessionId !== sessionId) return;
     setPending(false);
@@ -68,15 +69,16 @@ export function ScopeCapCard({ receipt, turnId, sessionId, blockedBy }: { receip
   return <div className="brain-scope-card min-w-0 break-words" data-scope-event={receipt.eventId}>
     <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
     {paused ? <>
+      {blockedBy && <p ref={row} tabIndex={-1} data-scope-receipt={receipt.eventId} className="text-sm">{blockedBy.dimension === "free_space_floor" ? "The free-space floor now requires Stop only." : "Another independent scope limit must be answered first."}</p>}
       <AskUserCard id={receipt.eventId} tone="amber" prompt={pending ? "Continuing or stopping…" : "▲ Turn paused"}
-        question={`${receipt.dimension === "free_space_floor" ? "This turn reached the brain's free-space floor." : `This turn reached its ${receipt.result === "index_capacity" ? "index capacity" : scopeLimitName[receipt.dimension].toLowerCase()}.`} Observed: ${scopeNumber(receipt.dimension, receipt.count)}. Limit: ${scopeNumber(receipt.dimension, receipt.cap)}. ${receipt.frozen ? "Nothing in the worker is running while it waits." : "A frozen worker was not confirmed."}${receipt.overshoot > 0 ? ` Observed overshoot: ${scopeNumber(receipt.dimension, receipt.overshoot)}.` : ""}${receipt.reason ? ` ${receipt.reason}` : ""} Partial work and observed journal versions remain.`}
+        question={`${receipt.measurement === "unknown" ? "This turn's index size could not be measured." : receipt.dimension === "free_space_floor" ? "This turn reached the brain's free-space floor." : `This turn reached its ${receipt.result === "index_capacity" ? "index capacity" : scopeLimitName[receipt.dimension].toLowerCase()}.`} Observed: ${receipt.measurement === "unknown" ? "unknown" : scopeNumber(receipt.dimension, receipt.count)}. Limit: ${scopeNumber(receipt.dimension, receipt.cap)}. ${receipt.frozen ? "Nothing in the worker is running while it waits." : "A frozen worker was not confirmed."}${receipt.overshoot > 0 ? ` Observed overshoot: ${scopeNumber(receipt.dimension, receipt.overshoot)}.` : ""}${receipt.reason ? ` ${receipt.reason}` : ""} Partial work and observed journal versions remain.`}
         showActions={false} options={[
-          ...(receipt.newCap === undefined ? [] : [{ title: "Continue", subtitle: `Raises ${receipt.result === "index_capacity" ? "the index ceiling" : "this limit"} to exactly ${scopeNumber(receipt.dimension, receipt.newCap)} for this turn only.${receipt.result === "index_capacity" ? " The content write allowance is unchanged." : " Your policy is unchanged."}`, disabled, onClick: () => send("continue") }]),
+          ...(!canContinue ? [] : [{ title: "Continue", subtitle: `Raises ${receipt.result === "index_capacity" ? "the index ceiling" : "this limit"} to exactly ${scopeNumber(receipt.dimension, receipt.newCap)} for this turn only.${receipt.result === "index_capacity" ? " The content write allowance is unchanged." : " Your policy is unchanged."}`, disabled, onClick: () => send("continue") }]),
           { title: "Stop here", subtitle: !canContinue ? "This limit allows Stop only. Partial work remains." : "Ends this turn. Partial work remains.", disabled, onClick: () => send("stop") },
         ]} />
       {reason && <p className="mt-2 text-sm">{reason}</p>}
       {(pending || error) && <Button label="Check status" disabled={!connected || activeSession !== sessionId} reach onClick={() => send("readback")} />}
       {error && !pending && connected && !staleContinue && <Button label={`Try ${action.current === "continue" ? "Continue" : "Stop"} again`} disabled={activeSession !== sessionId} reach onClick={() => send(action.current)} />}
-    </> : <p ref={row} tabIndex={-1} data-scope-receipt={receipt.eventId} className="text-sm break-words">{scopeReceiptText(receipt)}{blockedBy ? blockedBy?.dimension === "free_space_floor" ? ". The free-space floor now requires Stop only." : ". Another independent scope limit must be answered first." : ""}{receipt.reason ? `. ${receipt.reason}` : ""}</p>}
+    </> : <p ref={row} tabIndex={-1} data-scope-receipt={receipt.eventId} className="text-sm break-words">{scopeReceiptText(receipt)}{receipt.reason ? `. ${receipt.reason}` : ""}</p>}
   </div>;
 }

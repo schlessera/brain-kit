@@ -130,6 +130,237 @@ export function createGovernedTurns(options: {
     current = recordIndexUpdate(() => options.index(lock), receipt => options.indexReceipt?.(receipt, turns), options.indexCancellation).catch(error => { if (!options.indexCancellation?.some(signal => signal.aborted && signal.reason === error)) options.report(`governed index refresh failed: ${String(error)}`); })
       .finally(() => { current = undefined; if (again) refresh(lock); else if (!closing) advance(); });
   };
+  const waitForRelease = Symbol("startup release capacity");
+  async function begin(...args: Parameters<GovernedTurns["begin"]>): Promise<GovernedTurnHold> { return admit(args); }
+  async function admit(args: Parameters<GovernedTurns["begin"]>, releaseSlot?: Awaited<ReturnType<typeof startupReleases.reserve>>): Promise<GovernedTurnHold> {
+    const [turnId, signal, origin = "interactive", preference, route, timing] = args;
+
+    const step = async <T>(name: string, work: () => Promise<T>): Promise<T> => {
+      const end = timing?.(name); const result = await work(); end?.(); return result;
+    };
+    const gate = options.execution.gate();
+    const manifests = options.execution.manifests();
+    if (!gate || !manifests) throw new Error("Hosted turns require the writer gate and durable manifests");
+    // Governed turns that end from here on may have written into this
+    // turn's checkpoints before their quarantine (#2699).
+    const since = Date.now();
+    const hold = await step("gate_acquire", () => gate.acquire("shared", `turn:${turnId}`, { signal, turn: true }));
+    let startupView: WorkerStartupView | undefined, privateIndex: string | undefined, indexOutcome: PrivateIndexOutcome | undefined;
+    // A governed masked turn's own checkpoint, kept only to update its private index (#2846).
+    let indexView: WorkerStartupView | undefined, dataTree: TurnDataTree | undefined;
+    const discardPrivateIndex = () => { if (privateIndex) { const dir = privateIndex; privateIndex = undefined; removePrivateIndexDirectory(dir); } };
+    let gateReleased = false;
+    const releaseGate = async () => { if (!gateReleased) { gateReleased = true; await hold.release(); } };
+    const release = async () => {
+      try { await dataTree?.close(); } finally {
+        try { await startupView?.cleanup(); } finally { try { await indexView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { await releaseGate(); } } }
+      }
+    };
+    // Marked before the checkpoint: its index may lack what is queued (#2848).
+    const watermark = options.indexBatch?.watermark();
+    try {
+      const policy = policyReader.load();
+      startupView = await step("startup_checkpoint", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
+      // Every governed and strict turn runs on the turn egress proxy and the
+      // host inference relay (#1665), which need a view the configured native
+      // manager acquired with its stage operations. Boot refuses a host
+      // without managed native storage (#1793); a turn whose view still lacks
+      // it is refused here, never run on its own network (#3314).
+      assertManagedTurnStartupView(startupView);
+      signal.throwIfAborted();
+      const availability = await step("boundary_prepare", () => options.execution.boundary.prepare(signal, startupView!));
+      // A provider rule masks its folders from every turn whose recipient it
+      // does not allow (#1668). Only the exact origin of the host inference
+      // relay proves a recipient (#2695); any other turn is denied every
+      // folder. A masked
+      // turn indexes into its own directory from the masked view. A selector
+      // that does not map exactly onto folders refuses admission (#2694).
+      const recipient = options.exposures && route?.inferenceOrigin
+        ? providerRecipient(route.inferenceOrigin, options.recipientOrigins) : undefined;
+      const refused = unsupportedProviderSelectors(policy.policy);
+      const types = providerTypeSelectors(policy.policy);
+      const translate = (view: WorkerStartupView) => translateProviderTypesInView({ brainPath: options.brainPath, policy: policy.policy, view,
+        maskPaths: options.maskPaths, signal, appeared: root => manifests.appearedIn(root, since),
+        ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
+      let typeFolders: Record<string, string[]> = {};
+      if (types.length && !refused.length) {
+        const translated = await step("type_translation", () => translate(startupView!));
+        refused.push(...translated.refused);
+        typeFolders = translated.folders;
+      }
+      if (refused.length) throw new ProviderPolicyRefusedError(refused);
+      const typeFolderList = [...new Set(Object.values(typeFolders).flat())].sort();
+      // Writers admitted later, by any process and after a restart, plan
+      // these folders while the policy is unchanged (#2836).
+      if (types.length) await gate.rememberTypeFolders(policy.hash, typeFolderList);
+      const providerFolders = providerMaskedFolders(policy.policy, typeFolders);
+      const maskedFolders = providerDeniedFolders(policy.policy, typeFolders, recipient);
+      // A conversation's provider history keeps what its earlier turns, or a
+      // handoff's source, were shown; this turn's recipient would receive it.
+      const continued = [...(route?.sessionId ? [route.sessionId] : []), ...(route?.inherit ?? [])];
+      await step("exposure_settle", async () => options.exposures?.settled());
+      const inherited = route?.inherit?.length ? options.exposures?.forSessions(route.inherit) ?? [] : [];
+      const conflicts = exposureConflicts(continued.length ? options.exposures?.forSessions(continued) ?? [] : [], maskedFolders);
+      if (conflicts.length) throw new ProviderRecipientRefusedError(conflicts, recipient);
+      // A masked turn continues a conversation only if every folder it masks
+      // was masked from every earlier turn of it, or of a handoff's source
+      // (#2726). Only a conversation born masked has that record; one from
+      // before the policy, or without a record, refuses before its history
+      // is copied anywhere. A matching policy is no proof.
+      const lineages = continued.map(id => options.exposures?.maskedThroughout(id));
+      if (maskedFolders.length) for (const always of lineages) {
+        const uncovered = uncoveredFolders(maskedFolders, always ?? []);
+        if (uncovered.length) throw new ProviderContinuationRefusedError(uncovered, always ? "shown" : "unrecorded", !route?.sessionId);
+      }
+      // Born masked, or continuing a lineage: this turn's own masked set
+      // narrows it, on an allowed route too. A handoff starts its own from
+      // what its source kept masked.
+      const lineage = !continued.length ? (maskedFolders.length ? maskedFolders : undefined)
+        : lineages.every(always => always !== undefined) ? lineages.reduce<string[]>((kept, always) => maskedInBoth(kept, always!), maskedFolders) : undefined;
+      const folderPaths = await step("folder_retention", async () => hold.retainFolders?.(retainedFolderRoots(policy.policy, typeFolderList)))
+        ?? [...new Set([...(hold.folderPaths ?? []), ...retainedFolderRoots(policy.policy, typeFolderList)])];
+      // Retention needs the directory to exist; the host creates the index
+      // and cache directories (never a provider folder) before the layout
+      // is resolved. An alias or file under a name stays for the resolver
+      // to refuse.
+      try { ensureRetainedDirectories(options.brainPath, folderPaths); } catch { /* resolver refuses */ }
+      const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
+      const selected = requested === "governed" && !availability.available ? "strict" : requested;
+      const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected,
+        protectedPaths: protectedPaths(policy.policy), folderPaths,
+        maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
+      let resolved = await step("sandbox_resolve", resolveSandbox);
+      const missingWritableRoot = () => resolved.areas.find(area => area.mount.writable
+        && !lstatSync(join(startupView!.root, area.rel), { throwIfNoEntry: false })?.isDirectory());
+      // Host setup may create scratch after the initial admission checkpoint.
+      // Refresh only those first-turn sealed consumers, then validate against
+      // the refreshed complete view. Two fixed area roots, no inventory walk.
+      if (workerProfile(resolved) !== "governed" && missingWritableRoot()) {
+        await startupView.cleanup(); startupView = undefined;
+        startupView = await step("startup_checkpoint_refresh", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
+        signal.throwIfAborted(); resolved = await step("sandbox_resolve_refresh", resolveSandbox);
+        const missing = missingWritableRoot();
+        if (missing) throw new Error(`The immutable worker checkpoint does not include writable ${missing.rel} after host setup; retry admission once concurrent setup has settled.`);
+        // The turn runs on this newer checkpoint, so its types are judged
+        // again there; retention was planned for the first translation.
+        if (types.length) {
+          const again = await step("type_translation_refresh", () => translate(startupView!));
+          if (again.refused.length) throw new ProviderPolicyRefusedError(again.refused);
+          if (JSON.stringify(providerMaskedFolders(policy.policy, again.folders)) !== JSON.stringify(providerMaskedFolders(policy.policy, typeFolders)))
+            throw new Error("The brain's document types changed during turn admission; retry once concurrent changes have settled.");
+          // The same folders, but the newer translation names their types (#2690).
+          typeFolders = again.folders;
+        }
+      }
+      if (workerProfile(resolved) === "governed" && folderPaths.length) {
+        if (!hold.assertPeerFolderPlans) throw new Error("Provider folder admission cannot check active peer plans with this writer gate; retry using the qualified gate");
+        // A writer admitted before this turn retained its folders, such as
+        // one started with the server before any turn had translated a type
+        // selector, finishes rather than refusing the turn (#2832).
+        await step("peer_folder_plans", async () => {
+          if (hold.waitForPeerFolderPlans) await hold.waitForPeerFolderPlans(folderPaths, { signal, ...(options.peerFolderPlanWaitMs !== undefined ? { timeoutMs: options.peerFolderPlanWaitMs } : {}) });
+          else await hold.assertPeerFolderPlans!(folderPaths);
+        });
+      }
+      const commandPolicy = Object.freeze({ hash: policy.hash,
+        outwardAllow: Object.freeze(policy.policy.outward.allow.map((rule, index) => Object.freeze({ ...rule, remotes: Object.freeze([...rule.remotes]), index: policy.outwardRuleIndices[index]! }))),
+        deny: Object.freeze(policy.policy.commands.deny.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.deny[index]! }))),
+        confirm: Object.freeze(policy.policy.commands.confirm.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.confirm[index]! }))),
+      });
+      if (workerProfile(resolved) !== "governed" || maskedFolders.length) { releaseSlot?.release(); releaseSlot = undefined; }
+      if (maskedFolders.length) {
+        // A mask hides names, not inodes (#2700). The private index below is
+        // built from the final checkpoint; a governed worker also sees the
+        // live brain, which may differ from it.
+        const roots = [startupView!.root, ...(workerProfile(resolved) === "governed" ? [options.brainPath] : [])];
+        const hardlinks = [...new Map(roots.flatMap(root => providerHardlinks(root, maskedFolders)).map(link => [link.path, link])).values()];
+        if (hardlinks.length) throw ProviderPolicyRefusedError.hardlinks(hardlinks);
+        privateIndex = createPrivateIndexDirectory();
+        // Reused only when the base provably indexes to what a clean build
+        // of this final view would (#2833); otherwise built from nothing.
+        const runOn = (view: WorkerStartupView, index: string, runSignal: AbortSignal) => ({ brainPath: options.brainPath, startupView: view,
+          folders: privateIndexBuildFolders(maskedFolders, view.root), index, maskPaths: options.maskPaths, signal: runSignal,
+          ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
+        const run = runOn(startupView!, privateIndex, signal), indexDirectory = privateIndex;
+        indexOutcome = await step("private_index", () => privateIndexes.prepare({ startupView: startupView!, index: indexDirectory, signal,
+          identity: { brain: canonicalBrain, policyHash: policy.hash, folders: maskedFolders, ...(recipient ? { recipient } : {}),
+            maskPaths: options.maskPaths, command: privateIndexArgv(options.brainPath, options.privateIndexCommand) },
+          build: () => buildPrivateIndex(run), update: () => updatePrivateIndex(run),
+          runner: (view, index, runSignal) => { const next = runOn(view, index, runSignal); return { build: () => buildPrivateIndex(next), update: () => updatePrivateIndex(next) }; } }));
+        if (indexOutcome.kind === "partial") options.report(`turn ${turnId} starts with an incomplete private search index: ${indexOutcome.detail}`);
+      }
+      // A turn allowed every provider folder keeps empty masks, so whatever
+      // every provider-rule turn hides regardless of recipient still applies.
+      const providerMasks = privateIndex ? Object.freeze({ folders: Object.freeze(maskedFolders), index: privateIndex })
+        : providerFolders.length ? Object.freeze({ folders: Object.freeze([] as string[]) }) : undefined;
+      const inferenceRecipient = recipient !== undefined && providerFolders.length ? Object.freeze({ name: recipient, origin: route!.inferenceOrigin! }) : undefined;
+      // Every turn that does not read the live brain gets a data tree with
+      // this turn's own applications (#2848); a masked one keeps its private
+      // index current from it (#2846). Built from this final checkpoint.
+      if (workerProfile(resolved) !== "governed" || privateIndex) {
+        dataTree = await step("data_tree", () => createTurnDataTree({ brainPath: options.brainPath, view: startupView!, maskPaths: options.maskPaths, mount: workerProfile(resolved) !== "governed", signal,
+          ...(privateIndex ? { index: privateIndex, masks: { folders: maskedFolders, buildFolders: privateIndexBuildFolders(maskedFolders, startupView!.root),
+            types: providerDeniedTypes(policy.policy, recipient) } } : {}),
+          // A recipient allowed every folder still never sees the generated-text caches.
+          providerRules: providerFolders.length > 0, pending: watermark?.paths() ?? [], ...(options.turnIndexUpdate ? { update: options.turnIndexUpdate } : {}),
+          ...(options.turnPlan ? { plan: options.turnPlan } : {}) }));
+      }
+      const sandbox = { ...resolved, commandPolicy, scopePolicy: policy.policy.scope,
+        ...(providerMasks ? { providerMasks } : {}), ...(inferenceRecipient ? { inferenceRecipient } : {}), ...(dataTree?.mount ? { dataTree: dataTree.mount } : {}),
+        ...(!availability.available && requested === "governed" ? { fallbackReason: availability.detail } : {}) };
+      const governed = workerProfile(sandbox) === "governed";
+      if (governed && !dataTree) {
+        releaseSlot ??= await step("startup_release_reserve", async () => startupReleases.tryReserve(signal));
+        if (!releaseSlot) throw waitForRelease;
+      }
+      await step("record_policy", async () => options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy));
+      if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);
+      for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
+      // The final checkpoint may have replaced the first; it must be managed too.
+      assertManagedTurnStartupView(startupView);
+      if (governed) {
+        if (dataTree) indexView = startupView;
+        else {
+          if (!releaseSlot) throw new Error("A governed startup handoff lacks its release reservation");
+          await step("startup_view_cleanup", async () => { releaseSlot!.handoff(turnId, startupView!); });
+        }
+        startupView = undefined;
+      }
+      signal.throwIfAborted();
+      // Recorded before the turn can read anything; a new conversation's rows bind when it is named.
+      const shown: ProviderExposure | undefined = inferenceRecipient ? { recipient: inferenceRecipient.name, visible: providerFolders, hidden: maskedFolders } : undefined;
+      // Each commits before the turn goes on (#2850).
+      await step("exposure_records", async () => {
+        for (const exposure of [...inherited, ...(shown && exposedAnything(shown) ? [shown] : [])]) await options.exposures!.record(turnId, route?.sessionId ?? null, exposure);
+        // A turn that fails later in admission still narrows: that only refuses more.
+        if (lineage && route?.sessionId) await options.exposures?.narrowMasked(turnId, route.sessionId, lineage);
+        else if (lineage) await options.exposures?.startMasked(turnId, lineage);
+      });
+      if (governed) await step("manifest_begin", () => manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel)));
+      let ended = false;
+      return { sandbox, policy, managedStorage: true, typeFolders, ...(startupView ? { startupView } : {}), ...(indexOutcome ? { privateIndex: indexOutcome } : {}),
+        ...(dataTree ? { dataTree } : {}), async end() {
+        if (ended) return null;
+        ended = true;
+        try {
+          const result = governed ? await manifests.end(turnId) : null;
+          if (result) assertReconciled([result]);
+          return result;
+        } finally { await release(); }
+      } };
+    } catch (error) {
+      // A capacity wait owns neither the writer gate nor an unused view.
+      if (error === waitForRelease) await releaseGate();
+      await release();
+      if (error === waitForRelease) {
+        watermark?.release();
+        const slot = await step("startup_release_reserve", () => startupReleases.reserve(signal));
+        try { return await admit(args, slot); } finally { slot.release(); }
+      }
+      throw error;
+    }
+    finally { releaseSlot?.release(); watermark?.release(); }
+  }
   return {
     refresh,
     facts(origin = "interactive") {
@@ -158,223 +389,7 @@ export function createGovernedTurns(options: {
       const always = options.exposures?.maskedThroughout(sessionId);
       return !always || uncoveredFolders(providerMaskedFolders(policy.policy), always).length > 0;
     },
-    async begin(turnId, signal, origin = "interactive", preference, route, timing) {
-      const step = async <T>(name: string, work: () => Promise<T>): Promise<T> => {
-        const end = timing?.(name); const result = await work(); end?.(); return result;
-      };
-      const gate = options.execution.gate();
-      const manifests = options.execution.manifests();
-      if (!gate || !manifests) throw new Error("Hosted turns require the writer gate and durable manifests");
-      // Governed turns that end from here on may have written into this
-      // turn's checkpoints before their quarantine (#2699).
-      const since = Date.now();
-      const hold = await step("gate_acquire", () => gate.acquire("shared", `turn:${turnId}`, { signal, turn: true }));
-      let startupView: WorkerStartupView | undefined, privateIndex: string | undefined, indexOutcome: PrivateIndexOutcome | undefined;
-      // A governed masked turn's own checkpoint, kept only to update its private index (#2846).
-      let indexView: WorkerStartupView | undefined, dataTree: TurnDataTree | undefined;
-      const discardPrivateIndex = () => { if (privateIndex) { const dir = privateIndex; privateIndex = undefined; removePrivateIndexDirectory(dir); } };
-      const release = async () => {
-        try { await dataTree?.close(); } finally {
-          try { await startupView?.cleanup(); } finally { try { await indexView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { await hold.release(); } } }
-        }
-      };
-      // Marked before the checkpoint: its index may lack what is queued (#2848).
-      const watermark = options.indexBatch?.watermark();
-      let releaseSlot: Awaited<ReturnType<typeof startupReleases.reserve>> | undefined;
-      try {
-        const policy = policyReader.load();
-        const plannedProfile = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
-        const plannedRecipient = options.exposures && route?.inferenceOrigin ? providerRecipient(route.inferenceOrigin, options.recipientOrigins) : undefined;
-        const keepsPrivateIndex = policy.policy.providers.some(rule => plannedRecipient === undefined || !rule.allow.includes(plannedRecipient));
-        // Bound the disposable governed views before acquiring them. Strict
-        // and masked consumers retain their view and never enter this queue.
-        if (plannedProfile === "governed" && !keepsPrivateIndex)
-          releaseSlot = await step("startup_release_reserve", () => startupReleases.reserve(signal));
-        startupView = await step("startup_checkpoint", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
-        // Every governed and strict turn runs on the turn egress proxy and the
-        // host inference relay (#1665), which need a view the configured native
-        // manager acquired with its stage operations. Boot refuses a host
-        // without managed native storage (#1793); a turn whose view still lacks
-        // it is refused here, never run on its own network (#3314).
-        assertManagedTurnStartupView(startupView);
-        signal.throwIfAborted();
-        const availability = await step("boundary_prepare", () => options.execution.boundary.prepare(signal, startupView!));
-        // A provider rule masks its folders from every turn whose recipient it
-        // does not allow (#1668). Only the exact origin of the host inference
-        // relay proves a recipient (#2695); any other turn is denied every
-        // folder. A masked
-        // turn indexes into its own directory from the masked view. A selector
-        // that does not map exactly onto folders refuses admission (#2694).
-        const recipient = options.exposures && route?.inferenceOrigin
-          ? providerRecipient(route.inferenceOrigin, options.recipientOrigins) : undefined;
-        const refused = unsupportedProviderSelectors(policy.policy);
-        const types = providerTypeSelectors(policy.policy);
-        const translate = (view: WorkerStartupView) => translateProviderTypesInView({ brainPath: options.brainPath, policy: policy.policy, view,
-          maskPaths: options.maskPaths, signal, appeared: root => manifests.appearedIn(root, since),
-          ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
-        let typeFolders: Record<string, string[]> = {};
-        if (types.length && !refused.length) {
-          const translated = await step("type_translation", () => translate(startupView!));
-          refused.push(...translated.refused);
-          typeFolders = translated.folders;
-        }
-        if (refused.length) throw new ProviderPolicyRefusedError(refused);
-        const typeFolderList = [...new Set(Object.values(typeFolders).flat())].sort();
-        // Writers admitted later, by any process and after a restart, plan
-        // these folders while the policy is unchanged (#2836).
-        if (types.length) await gate.rememberTypeFolders(policy.hash, typeFolderList);
-        const providerFolders = providerMaskedFolders(policy.policy, typeFolders);
-        const maskedFolders = providerDeniedFolders(policy.policy, typeFolders, recipient);
-        // A conversation's provider history keeps what its earlier turns, or a
-        // handoff's source, were shown; this turn's recipient would receive it.
-        const continued = [...(route?.sessionId ? [route.sessionId] : []), ...(route?.inherit ?? [])];
-        await step("exposure_settle", async () => options.exposures?.settled());
-        const inherited = route?.inherit?.length ? options.exposures?.forSessions(route.inherit) ?? [] : [];
-        const conflicts = exposureConflicts(continued.length ? options.exposures?.forSessions(continued) ?? [] : [], maskedFolders);
-        if (conflicts.length) throw new ProviderRecipientRefusedError(conflicts, recipient);
-        // A masked turn continues a conversation only if every folder it masks
-        // was masked from every earlier turn of it, or of a handoff's source
-        // (#2726). Only a conversation born masked has that record; one from
-        // before the policy, or without a record, refuses before its history
-        // is copied anywhere. A matching policy is no proof.
-        const lineages = continued.map(id => options.exposures?.maskedThroughout(id));
-        if (maskedFolders.length) for (const always of lineages) {
-          const uncovered = uncoveredFolders(maskedFolders, always ?? []);
-          if (uncovered.length) throw new ProviderContinuationRefusedError(uncovered, always ? "shown" : "unrecorded", !route?.sessionId);
-        }
-        // Born masked, or continuing a lineage: this turn's own masked set
-        // narrows it, on an allowed route too. A handoff starts its own from
-        // what its source kept masked.
-        const lineage = !continued.length ? (maskedFolders.length ? maskedFolders : undefined)
-          : lineages.every(always => always !== undefined) ? lineages.reduce<string[]>((kept, always) => maskedInBoth(kept, always!), maskedFolders) : undefined;
-        const folderPaths = await step("folder_retention", async () => hold.retainFolders?.(retainedFolderRoots(policy.policy, typeFolderList)))
-          ?? [...new Set([...(hold.folderPaths ?? []), ...retainedFolderRoots(policy.policy, typeFolderList)])];
-        // Retention needs the directory to exist; the host creates the index
-        // and cache directories (never a provider folder) before the layout
-        // is resolved. An alias or file under a name stays for the resolver
-        // to refuse.
-        try { ensureRetainedDirectories(options.brainPath, folderPaths); } catch { /* resolver refuses */ }
-        const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
-        const selected = requested === "governed" && !availability.available ? "strict" : requested;
-        const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected,
-          protectedPaths: protectedPaths(policy.policy), folderPaths,
-          maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
-        let resolved = await step("sandbox_resolve", resolveSandbox);
-        const missingWritableRoot = () => resolved.areas.find(area => area.mount.writable
-          && !lstatSync(join(startupView!.root, area.rel), { throwIfNoEntry: false })?.isDirectory());
-        // Host setup may create scratch after the initial admission checkpoint.
-        // Refresh only those first-turn sealed consumers, then validate against
-        // the refreshed complete view. Two fixed area roots, no inventory walk.
-        if (workerProfile(resolved) !== "governed" && missingWritableRoot()) {
-          await startupView.cleanup(); startupView = undefined;
-          startupView = await step("startup_checkpoint_refresh", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
-          signal.throwIfAborted(); resolved = await step("sandbox_resolve_refresh", resolveSandbox);
-          const missing = missingWritableRoot();
-          if (missing) throw new Error(`The immutable worker checkpoint does not include writable ${missing.rel} after host setup; retry admission once concurrent setup has settled.`);
-          // The turn runs on this newer checkpoint, so its types are judged
-          // again there; retention was planned for the first translation.
-          if (types.length) {
-            const again = await step("type_translation_refresh", () => translate(startupView!));
-            if (again.refused.length) throw new ProviderPolicyRefusedError(again.refused);
-            if (JSON.stringify(providerMaskedFolders(policy.policy, again.folders)) !== JSON.stringify(providerMaskedFolders(policy.policy, typeFolders)))
-              throw new Error("The brain's document types changed during turn admission; retry once concurrent changes have settled.");
-            // The same folders, but the newer translation names their types (#2690).
-            typeFolders = again.folders;
-          }
-        }
-        if (workerProfile(resolved) === "governed" && folderPaths.length) {
-          if (!hold.assertPeerFolderPlans) throw new Error("Provider folder admission cannot check active peer plans with this writer gate; retry using the qualified gate");
-          // A writer admitted before this turn retained its folders, such as
-          // one started with the server before any turn had translated a type
-          // selector, finishes rather than refusing the turn (#2832).
-          await step("peer_folder_plans", async () => {
-            if (hold.waitForPeerFolderPlans) await hold.waitForPeerFolderPlans(folderPaths, { signal, ...(options.peerFolderPlanWaitMs !== undefined ? { timeoutMs: options.peerFolderPlanWaitMs } : {}) });
-            else await hold.assertPeerFolderPlans!(folderPaths);
-          });
-        }
-        const commandPolicy = Object.freeze({ hash: policy.hash,
-          outwardAllow: Object.freeze(policy.policy.outward.allow.map((rule, index) => Object.freeze({ ...rule, remotes: Object.freeze([...rule.remotes]), index: policy.outwardRuleIndices[index]! }))),
-          deny: Object.freeze(policy.policy.commands.deny.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.deny[index]! }))),
-          confirm: Object.freeze(policy.policy.commands.confirm.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.confirm[index]! }))),
-        });
-        if (maskedFolders.length) {
-          // A mask hides names, not inodes (#2700). The private index below is
-          // built from the final checkpoint; a governed worker also sees the
-          // live brain, which may differ from it.
-          const roots = [startupView!.root, ...(workerProfile(resolved) === "governed" ? [options.brainPath] : [])];
-          const hardlinks = [...new Map(roots.flatMap(root => providerHardlinks(root, maskedFolders)).map(link => [link.path, link])).values()];
-          if (hardlinks.length) throw ProviderPolicyRefusedError.hardlinks(hardlinks);
-          privateIndex = createPrivateIndexDirectory();
-          // Reused only when the base provably indexes to what a clean build
-          // of this final view would (#2833); otherwise built from nothing.
-          const runOn = (view: WorkerStartupView, index: string, runSignal: AbortSignal) => ({ brainPath: options.brainPath, startupView: view,
-            folders: privateIndexBuildFolders(maskedFolders, view.root), index, maskPaths: options.maskPaths, signal: runSignal,
-            ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
-          const run = runOn(startupView!, privateIndex, signal), indexDirectory = privateIndex;
-          indexOutcome = await step("private_index", () => privateIndexes.prepare({ startupView: startupView!, index: indexDirectory, signal,
-            identity: { brain: canonicalBrain, policyHash: policy.hash, folders: maskedFolders, ...(recipient ? { recipient } : {}),
-              maskPaths: options.maskPaths, command: privateIndexArgv(options.brainPath, options.privateIndexCommand) },
-            build: () => buildPrivateIndex(run), update: () => updatePrivateIndex(run),
-            runner: (view, index, runSignal) => { const next = runOn(view, index, runSignal); return { build: () => buildPrivateIndex(next), update: () => updatePrivateIndex(next) }; } }));
-          if (indexOutcome.kind === "partial") options.report(`turn ${turnId} starts with an incomplete private search index: ${indexOutcome.detail}`);
-        }
-        // A turn allowed every provider folder keeps empty masks, so whatever
-        // every provider-rule turn hides regardless of recipient still applies.
-        const providerMasks = privateIndex ? Object.freeze({ folders: Object.freeze(maskedFolders), index: privateIndex })
-          : providerFolders.length ? Object.freeze({ folders: Object.freeze([] as string[]) }) : undefined;
-        const inferenceRecipient = recipient !== undefined && providerFolders.length ? Object.freeze({ name: recipient, origin: route!.inferenceOrigin! }) : undefined;
-        // Every turn that does not read the live brain gets a data tree with
-        // this turn's own applications (#2848); a masked one keeps its private
-        // index current from it (#2846). Built from this final checkpoint.
-        if (workerProfile(resolved) !== "governed" || privateIndex) {
-          dataTree = await step("data_tree", () => createTurnDataTree({ brainPath: options.brainPath, view: startupView!, maskPaths: options.maskPaths, mount: workerProfile(resolved) !== "governed", signal,
-            ...(privateIndex ? { index: privateIndex, masks: { folders: maskedFolders, buildFolders: privateIndexBuildFolders(maskedFolders, startupView!.root),
-              types: providerDeniedTypes(policy.policy, recipient) } } : {}),
-            // A recipient allowed every folder still never sees the generated-text caches.
-            providerRules: providerFolders.length > 0, pending: watermark?.paths() ?? [], ...(options.turnIndexUpdate ? { update: options.turnIndexUpdate } : {}),
-            ...(options.turnPlan ? { plan: options.turnPlan } : {}) }));
-        }
-        const sandbox = { ...resolved, commandPolicy, scopePolicy: policy.policy.scope,
-          ...(providerMasks ? { providerMasks } : {}), ...(inferenceRecipient ? { inferenceRecipient } : {}), ...(dataTree?.mount ? { dataTree: dataTree.mount } : {}),
-          ...(!availability.available && requested === "governed" ? { fallbackReason: availability.detail } : {}) };
-        const governed = workerProfile(sandbox) === "governed";
-        await step("record_policy", async () => options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy));
-        if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);
-        for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
-        // The final checkpoint may have replaced the first; it must be managed too.
-        assertManagedTurnStartupView(startupView);
-        if (governed) {
-          if (dataTree) indexView = startupView;
-          else {
-            if (!releaseSlot) throw new Error("A governed startup view has no bounded release owner");
-            await step("startup_view_cleanup", async () => { releaseSlot!.handoff(turnId, startupView!); });
-          }
-          startupView = undefined;
-        }
-        signal.throwIfAborted();
-        // Recorded before the turn can read anything; a new conversation's rows bind when it is named.
-        const shown: ProviderExposure | undefined = inferenceRecipient ? { recipient: inferenceRecipient.name, visible: providerFolders, hidden: maskedFolders } : undefined;
-        // Each commits before the turn goes on (#2850).
-        await step("exposure_records", async () => {
-          for (const exposure of [...inherited, ...(shown && exposedAnything(shown) ? [shown] : [])]) await options.exposures!.record(turnId, route?.sessionId ?? null, exposure);
-          // A turn that fails later in admission still narrows: that only refuses more.
-          if (lineage && route?.sessionId) await options.exposures?.narrowMasked(turnId, route.sessionId, lineage);
-          else if (lineage) await options.exposures?.startMasked(turnId, lineage);
-        });
-        if (governed) await step("manifest_begin", () => manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel)));
-        let ended = false;
-        return { sandbox, policy, managedStorage: true, typeFolders, ...(startupView ? { startupView } : {}), ...(indexOutcome ? { privateIndex: indexOutcome } : {}),
-          ...(dataTree ? { dataTree } : {}), async end() {
-          if (ended) return null;
-          ended = true;
-          try {
-            const result = governed ? await manifests.end(turnId) : null;
-            if (result) assertReconciled([result]);
-            return result;
-          } finally { await release(); }
-        } };
-      } catch (error) { await release(); throw error; }
-      finally { releaseSlot?.release(); watermark?.release(); }
-    },
+    begin,
+
   };
 }

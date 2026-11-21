@@ -54,3 +54,30 @@ for (const readerLimit of [8, 1000]) test(`private changed-file batches respect 
     await outcome.value!.commit();
   } finally { await capture.close(); denied.mockRestore(); verified.mockRestore(); helper.mockRestore(); objects.close(); db.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("an inaccessible hardlink never suppresses the readable alias's before and after bytes", async () => {
+  const { cpSync, linkSync } = await import("node:fs");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-hardlink-reader-")), brain = join(root, "brain"); mkdirSync(join(brain, "a-denied"), { recursive: true }); mkdirSync(join(brain, "z-readable"));
+  writeFileSync(join(brain, "a-denied/note.md"), "Ithaca before"); linkSync(join(brain, "a-denied/note.md"), join(brain, "z-readable/note.md"));
+  const native = createNativeJournalFixture(brain, root, (source, target) => { cpSync(source, target, { recursive: true }); unlinkSync(join(target, "z-readable/note.md")); linkSync(join(target, "a-denied/note.md"), join(target, "z-readable/note.md")); });
+  const roots = new Map<string,string>(), checkpoint = native.manager.checkpoint; native.manager.checkpoint = async (...args) => { const cp = await checkpoint(...args); roots.set(cp.id, cp.path); return cp; };
+  native.manager.readCheckpoint = async (id, path, _maximum, workerUid) => {
+    if (path.startsWith("a-denied/")) throw Object.assign(new Error("denied directory"), { code: "EACCES" });
+    const bytes = readFileSync(join(roots.get(id)!, path)); return { workerUid, stream: new Response(bytes).body!, completed: Promise.resolve({ bytes: bytes.length, workerUid }) };
+  };
+  const helper = spyOn(identity, "workerIdentityHelper").mockReturnValue("/odysseus/identity"), verified = spyOn(launcher, "verifiedWorkerIdentity").mockReturnValue({ identity: "separate_uid", workerUid: 42 });
+  const open = fs.open, denied = spyOn(fs, "open").mockImplementation(((path: string, ...args: unknown[]) => {
+    if (/\/note\.md$/.test(String(path))) return Promise.reject(Object.assign(new Error("worker-private directory"), { code: "EACCES" }));
+    return Reflect.apply(open, fs, [path, ...args]);
+  }) as typeof fs.open);
+  const db = createUiDb(":memory:"), objects = createJournalObjects(join(root, "objects"), createJournalAccounting(db, ":memory:"));
+  const capture = createNativeJournalCapture(native.manager, (fd, size, signal) => objects.putFileAsync(fd, size, signal), {}, { brainPath: brain, async createTemporary() {
+    const path = join(root, crypto.randomUUID()), file = await open(path, "wx+", 0o600); unlinkSync(path); return { file, release() {} };
+  } }, { steering: false, index: false });
+  try {
+    await capture.initialize(); const policy = await capture.policy(); writeFileSync(join(brain, "a-denied/note.md"), "Ithaca after");
+    const result = await capture.observe(new Map([["voyage",policy]])), alias = result.changes.get("voyage")!.find(item => item.path === "z-readable/note.md")!;
+    expect(alias.before?.hash, "READABLE_HARDLINK_RETAINS_BEFORE_BYTES").toBeDefined(); expect(alias.after?.hash, "READABLE_HARDLINK_RETAINS_AFTER_BYTES").toBeDefined();
+    expect(objects.read(alias.before!.hash!, 100).toString()).toBe("Ithaca before"); expect(objects.read(alias.after!.hash!, 100).toString()).toBe("Ithaca after"); await result.commit();
+  } finally { await capture.close(); denied.mockRestore(); verified.mockRestore(); helper.mockRestore(); objects.close(); db.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});

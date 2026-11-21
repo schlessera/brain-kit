@@ -58,6 +58,16 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+The path matrix records 12 physical worker-freeze samples for each actual 0,
+1, 20 and 200 changed-path window, then 12 one-path windows after 10,000 rows.
+Counts come from committed sequence deltas, not requested writes. A periodic
+observation joining a slow window keeps its `sharedHold` label and remains a
+valid physical-stop sample; all such windows contribute to cell medians/p95s.
+Individual tool-phase attribution remains separate when a physical hold spans
+several observations. Partial/count-mismatched windows are retained in
+`rejectedSamples` and retried. The request's explicit watchdog owns the matrix;
+server and client idle deadlines are disabled for that request only.
+
 The `backendStartup` section (#4285/#4286) includes the first turn after
 server start and those five warm turns. Each sample carries invocation to
 first relay receipt when observed, the observed turn `endedAt`, the `openSubPhases` backend steps, their host receipt timestamps and

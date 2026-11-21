@@ -1,4 +1,4 @@
-import { observationCursor, observationSample } from "./observation-sample.js";
+import { observationCursor, observationSample, observationSampleAccepted } from "./observation-sample.js";
 import type { Database } from "bun:sqlite";
 import { INDEX_OBSERVATION_CAP_BYTES, type TurnScope } from "../../packages/ui-server/src/brain/turn-scope.js";
 import { rmSync } from "node:fs";
@@ -49,10 +49,10 @@ export async function observationPathMatrix(brain: string, journal: TurnJournal,
         journal.toolStarted(turnId, toolUseId, "Bash", true);
         await journal.toolEnded(turnId, toolUseId); await holds.idle();
         const result = observationSample(db, turnId, beforeSequence, requestedPaths, sample, toolUseId, holds.sample());
-        if (result.changedPaths === requestedPaths && !result.sharedHold) return result;
+        if (observationSampleAccepted(result)) return result;
         rejectedSamples.push(result);
       }
-      throw new Error(`PATH_MATRIX_NO_EXCLUSIVE_${requestedPaths}_PATH_SAMPLE`);
+      throw new Error(`PATH_MATRIX_NO_MATCHING_${requestedPaths}_PATH_SAMPLE`);
     }
     detach = journal.onObservation(() => {}, holds);
     for (const changedPaths of [0, 1, 20, 200]) for (let sample = 0; sample < 12; sample++)

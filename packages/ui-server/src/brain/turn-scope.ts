@@ -81,6 +81,8 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     const index = receipt.result === "index_capacity";
     const observed = index ? turn.summary.indexBytes ?? null : dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
       : dimension === "files_changed" ? turn.filesChanged : turn.summary.observedBytes;
+    if (index && observed === null) { receipt.measurement = "unknown"; receipt.count = 0; receipt.overshoot = 0; }
+    else delete receipt.measurement;
     // Incomplete captures retain the last reliable receipt, never imply headroom.
     if (observed !== null && Number.isFinite(observed)) {
       receipt.count = observed; receipt.overshoot = Math.max(0, observed - receipt.cap); receipt.observedAt = now();
@@ -115,12 +117,12 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       // unmeasurable index cap from this same observation.
       if (fs.free >= floor && pending.dimension !== "free_space_floor" && pending.result !== "index_capacity" && !turn.summary.receipts.some(item => item.state === "paused" && item.result === "index_capacity") && turn.summary.indexBytes !== undefined &&
           (turn.summary.indexBytes === null || turn.summary.indexBytes > turn.summary.indexLimitBytes!)) {
-        const cap = turn.summary.indexLimitBytes!, count = turn.summary.indexBytes ?? cap;
+        const cap = turn.summary.indexLimitBytes!, count = turn.summary.indexBytes ?? 0;
         const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension: "turn_bytes", result: "index_capacity", count, cap,
           overshoot: Math.max(0, count - cap), frozen: pending.frozen, observedAt: now(), state: "paused" };
         refreshHeadroom(turn, receipt); turn.summary.receipts.push(receipt);
         scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
-          dedupeKey: receipt.eventId, payload: { cap: "turn_bytes", limit: cap, observed: count, overshoot: receipt.overshoot,
+          dedupeKey: receipt.eventId, payload: { cap: "turn_bytes", limit: cap, observed: count, ...(receipt.measurement ? { measurement: receipt.measurement } : {}), overshoot: receipt.overshoot,
             frozen: receipt.frozen, outcome: "paused", source: "default" } });
       }
       // A peer can add shared content while an index-paused worker is frozen.
@@ -134,7 +136,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
           const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension, count, cap, overshoot: Math.max(0, count - cap), frozen: pending.frozen, observedAt: now(), state: "paused" };
           refreshHeadroom(turn, receipt); turn.summary.receipts.push(receipt);
           scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
-            dedupeKey: receipt.eventId, payload: { cap: dimension, limit: cap, observed: count, overshoot: receipt.overshoot, frozen: receipt.frozen, outcome: "paused", source: turn.source } });
+            dedupeKey: receipt.eventId, payload: { cap: dimension, limit: cap, observed: count, ...(receipt.measurement ? { measurement: receipt.measurement } : {}), overshoot: receipt.overshoot, frozen: receipt.frozen, outcome: "paused", source: turn.source } });
           break;
         }
       }
@@ -166,15 +168,15 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       turn.summary.minutes = Math.max(0, (now() - turn.startedAt) / 60_000);
       const measured = result ? turn.summary.indexBytes : dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
         : dimension === "files_changed" ? turn.filesChanged : dimension === "turn_bytes" ? turn.summary.observedBytes : space().free;
-      const observed = measured ?? count ?? cap;
+      const observed = result ? measured ?? 0 : measured ?? count ?? cap;
       const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension, ...(result ? { result } : {}), count: observed, cap,
         overshoot: Math.max(0, dimension === "free_space_floor" ? cap - observed : observed - cap), frozen, observedAt: now(), state: "paused" };
       refreshHeadroom(turn, receipt);
       turn.summary.receipts.push(receipt);
       scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
-        dedupeKey: receipt.eventId, payload: { cap: dimension, limit: cap, observed, overshoot: receipt.overshoot,
+        dedupeKey: receipt.eventId, payload: { cap: dimension, limit: cap, observed, ...(receipt.measurement ? { measurement: receipt.measurement } : {}), overshoot: receipt.overshoot,
           frozen, outcome: turn.origin === "voice" ? "voice_stopped" : frozen ? "paused" : "stopped", source: turn.source } });
-      if (turn.origin === "voice") stop(turnId, turn, receipt, "voice_stopped", `I stopped because this turn reached its limit of ${cap} ${dimension === "tool_calls" ? "tool calls" : dimension === "minutes" ? "wall minutes" : dimension === "files_changed" ? "distinct changed paths" : "bytes"}${dimension === "free_space_floor" ? " of free space" : ""}. Ask again to carry on.`);
+      if (turn.origin === "voice") stop(turnId, turn, receipt, "voice_stopped", receipt.measurement === "unknown" ? "I stopped because the index size could not be measured. Ask again once it can be confirmed." : `I stopped because this turn reached its limit of ${cap} ${dimension === "tool_calls" ? "tool calls" : dimension === "minutes" ? "wall minutes" : dimension === "files_changed" ? "distinct changed paths" : "bytes"}${dimension === "free_space_floor" ? " of free space" : ""}. Ask again to carry on.`);
       else if (!frozen) stop(turnId, turn, receipt, "stopped", freezeFailure ?? "The host could not confirm a running worker to freeze; the turn stopped.");
       else { turn.disconnectedAt = options.connected(turn.sessionId) ? undefined : now(); save(turnId, turn); }
       return;

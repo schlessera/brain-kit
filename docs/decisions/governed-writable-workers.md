@@ -1864,7 +1864,7 @@ summaries add optional `indexBytes` (null when unconfirmed) and
 `indexLimitBytes`. An interactive turn can receive the existing one-time finite
 doubling for this independent resource only; that grant never raises the content
 byte allowance. Independent content and index pauses both require an answer; granting one cannot resume past the other. The prompt names the ceiling Continue raises. A second hit, unknown measurement or absent worker has no
-continuation grant. Voice stops by its existing scope rule. Old clients retain
+continuation grant. An unknown index size is explicit as optional `measurement: "unknown"` on receipts and scope events, with numeric compatibility placeholders zero for count/overshoot; these placeholders are not measurements. Current prompts and voice outcomes say unknown. Voice stops by its existing scope rule. Old clients retain
 their enum vocabulary and parse the optional fields without dropping records.
 This is an observation-time guard, so an opaque command can overshoot between
 observations, just as it could under the former byte scope. The separate disk
@@ -1893,8 +1893,8 @@ space pressure reservations shrink to one copy and wait for in-flight copies
 before refusing or expiring history. Every file and its object directory remain synced before completion.
 The observation rows commit before advancing the native checkpoint or resuming
 workers. A failed batch joins all started readers before aborting its roots.
-Existing per-reservation startup recovery reconciles any interrupted batch;
-a quarantined hash refuses only that version, preserving healthy batch peers. Recovery removes a dead reservation's exact pending hardlink before checking its published digest, so a crash between link and unlink is recoverable. Scheduling ownership settles even if directory sync fails after publication; its durable storage charge remains until recovery.
+Startup releases dead native leases before journal recovery. The journal recovers only actually published objects and committed pins, marks an interrupted turn partial, and never reopens a released checkpoint or fabricates an unpublished version from live bytes. An uncommitted observation has no complete-history guarantee. Existing per-reservation recovery reconciles any interrupted batch;
+a quarantined hash refuses only that version, preserving healthy batch peers. Inode caching shares successful retained hashes only: a directory permission failure at one name never suppresses a readable hardlink. Recovery removes a dead reservation's exact pending hardlink before checking its published digest, so a crash between link and unlink is recoverable. Scheduling ownership settles even if directory sync fails after publication; its durable storage charge remains until recovery.
 
 Active-turn summary and scope counters advance from committed change rows.
 Distinct paths, steering/kept/shared state, repeated hashed versions, ignored
@@ -1903,16 +1903,12 @@ semantics. Historical reads use the existing aggregation; restart rebuilds
 active state from durable history rather than trusting a cached total.
 Receipt-only operation writes preserve every cursor; operation changes reset
 only the changed turns. An admitted `(turn_id,path,sequence)` index bounds
-same-path conflict lookups on the writer, with the existing safe fallback if
-schema admission cannot fit.
+same-path history reads. New writes keep a first after-version per `(turn_id,path,peer_id)` and one first-conflict boundary per `(turn_id,path)` in admitted journal tables. Solo successors perform no version-history query. Shared writes use primary-key point lookups; they never copy a growing conflict list into change rows. History materializes the existing conflict references at read time; older stored lists remain readable. If the table admission cannot fit, historical reads and expiry remain available and only a new observation refuses until room returns. Table creation and every relation update use the existing FULL accounted writer; no unconditional startup migration allocates their pages. Capacity failure keeps the previous history readable, records the ordinary journal-capacity result on the uncertain observation, and retries admission automatically after ordinary expiry frees room.
 
 A governed admission that needs no data tree hands its unused startup view to
 a bounded background release owner. The durable native lease remains the same
 through handoff and deletion, so startup recovery still finds an interrupted
-release. At most two startup checkpoints are pending or being admitted through
-this owner. Only an admission handing off an unused governed view takes a
-slot before acquiring its checkpoint; strict and data-tree consumers take none. Admission waits for the first
-free slot and observes cancellation. Observations request capacity first and
+release. At most two release owners are reserved or pending. Only the final governed branch with no data tree takes a slot, after boundary, profile, provider masks and peer folder plans resolve. Empty provider path sets mask nothing; strict fallback and data-tree consumers take no slot. If no slot is immediately free, admission releases its writer gate and discards its qualification checkpoint before waiting, then repeats admission against a fresh checkpoint with the reserved slot. No release-capacity wait holds the writer gate or an unused checkpoint. Qualification views retain their ordinary native capacity admission; the release-owner bound counts only actual handoffs/reservations. Admission waits for the first free slot and observes cancellation. Observations request capacity first and
 join a release in `observe_reserve` only after a positive native capacity refusal;
 room already available never waits for deletion. Native deletion persists its `deleting` intent under the request lock, then deletes and syncs outside it. The intent fences reuse, duplicate releases join one owner, and final confirmation reacquires the lock. Unrelated checkpoint admission can proceed during reclamation.
 Failed deletion keeps the lease and physical charge, retries automatically,

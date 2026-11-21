@@ -66,36 +66,31 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
       const observation = await observer.observe(signal, timing);
       const end = timing?.("observe_capture");
       try {
-        const captured = new Map<string, Promise<string | undefined>>();
-        const unreadableKeys = new Map<string, NativeJournalUnreadable>();
+        const captured = new Map<string, string>();
         const unreadable = new Map<string, NativeJournalUnreadable>(observation.unreadable.map(item => [item.path, item]));
         async function version(metadata: NativeJournalMetadata | null, policy: NativeJournalPolicy, root: { id: string; path: string }, deferPrivate = false): Promise<JournalSnapshotEntry | undefined> {
           if (!metadata) return undefined;
           const result = entry(metadata, policy);
           if (!result || !retained(result)) return result;
           const key = `${root.id}:${metadata.inode}`;
-          let pending = captured.get(key);
-          if (!pending) {
-            pending = (async () => {
-              const baseRead = context(root, signal), privateRead = baseRead ? { ...baseRead, deferPrivate } : undefined, started = performance.now();
-              try { return await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead, file => retain(file.fd, metadata.bytes, signal)); }
-              catch (error) {
-                if (error instanceof NativeJournalPrivateRead) { captured.delete(key); throw error; }
-                if (error instanceof JournalObjectQuarantined) {
-                  const cause = { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "retained_object_corrupt" as const, ms: 0 };
-                  unreadable.set(metadata.path, cause); unreadableKeys.set(key, cause);
-                  return undefined;
-                }
-                if (!privateRead || !nativeJournalPermissionDenied(error)) throw error;
-                const cause = { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "worker_reader_unavailable" as const, ms: Math.max(0, Math.round(performance.now() - started)) };
-                unreadable.set(metadata.path, cause); unreadableKeys.set(key, cause);
-                return undefined;
+          let hash = captured.get(key);
+          if (!hash) {
+            const privateRead = context(root, signal), started = performance.now();
+            try { hash = await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead ? { ...privateRead, deferPrivate } : undefined,
+              file => retain(file.fd, metadata.bytes, signal)); }
+            catch (error) {
+              if (error instanceof NativeJournalPrivateRead) throw error;
+              if (error instanceof JournalObjectQuarantined) {
+                unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "retained_object_corrupt", ms: 0 });
+                return result;
               }
-            })();
-            captured.set(key, pending);
+              if (!privateRead || !nativeJournalPermissionDenied(error)) throw error;
+              unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "worker_reader_unavailable", ms: Math.max(0, Math.round(performance.now() - started)) });
+              return result;
+            }
+            // A failed name says nothing about another hardlink's accessibility.
+            captured.set(key, hash);
           }
-          const hash = await pending;
-          if (!hash) { const cause = unreadableKeys.get(key); if (cause) unreadable.set(metadata.path, { ...cause, path: metadata.path }); return result; }
           return { ...result, hash };
         }
         const changes = new Map<string, { path: string; before?: JournalSnapshotEntry; after?: JournalSnapshotEntry }[]>();
