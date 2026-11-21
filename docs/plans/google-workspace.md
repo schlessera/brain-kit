@@ -62,13 +62,13 @@ grants authority nor guarantees every effect can be undone).
   behind a policy allow-list and one exact-payload card per use, voice never
   approving, autonomous turns with no write surface.
 - **G5 and G6.** Mail and calendar effects are outward
-  (`MCP tools whose descriptors declare an external effect`, `governed-writable-workers.md:4086-4087`);
+  (`MCP tools whose descriptors declare an external effect`, `governed-writable-workers.md:4239-4240`);
   an outward action raises a card unless a rule lists it
-  (`An outward action raises the existing approval card`, `governed-writable-workers.md:4090-4091`)
+  (`An outward action raises the existing approval card`, `governed-writable-workers.md:4243-4244`)
   and is journaled as irreversible
-  (`Each outward action is recorded with its attribution`, `governed-writable-workers.md:4103-4104`);
+  (`Each outward action is recorded with its attribution`, `governed-writable-workers.md:4256-4257`);
   and a tainted session asks for every outward action even when a rule allows it
-  (`every outward action asks, even if`, `governed-writable-workers.md:4318`).
+  (`every outward action asks, even if`, `governed-writable-workers.md:4471`).
   This plan amends both, narrowly, by the maintainer's 2026-11-17 ruling (§14):
   structured reads do not taint, and own-account reversible Google writes are a
   separate class with their own rules. Everything else applies as written.
