@@ -2,7 +2,7 @@ import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { attachJournalDatabase, JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_CONFLICT_GUARDS, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCRUB_QUARANTINE, JOURNAL_SCRUB_GUARDS, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { attachJournalDatabase, codeReceiptTablesExist, JOURNAL_CODE_TABLES, JOURNAL_CODE_GUARDS, JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_CONFLICT_GUARDS, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCRUB_QUARANTINE, JOURNAL_SCRUB_GUARDS, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { JournalCapacityError, type JournalObjectAccounting } from "./journal-objects.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
@@ -45,6 +45,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   /** Admitted, retryable schema upgrade; false leaves integrity-checked collection usable. */
   ensureObjectRefIndex(): boolean;
   ensureScrubQuarantine(): boolean;
+  ensureCodeReceiptTables(): boolean;
   ensureChangePathIndex(): boolean;
   ensureConflictTables(): boolean;
   openRead(hash: string, assertOwner?: () => void): string;
@@ -250,6 +251,32 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       return false;
     }
   }
+  /** Like scrub DDL, receipt tables cannot consume an upgrade's unadmitted
+   * pages. Sixteen pages cover the three tables, primary keys and schema;
+   * reserve their FULL WAL and measure the actual extent before commit.
+   */
+  const codeSchemaReady = () => codeReceiptTablesExist(db) &&
+    (db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='trigger' AND name IN (SELECT value FROM json_each(?))").get(JSON.stringify(JOURNAL_CODE_GUARDS.map(guard => guard.name))) as { n: number }).n === JOURNAL_CODE_GUARDS.length;
+  function ensureCodeReceiptTables(): boolean {
+    if (codeSchemaReady()) return true;
+    try {
+      write(() => {
+        if (codeSchemaReady()) return;
+        const pages = 16, before = measure(), projected = measure(pages), debt = wal();
+        if (projected.bytes + debt > cap) { if (debt > 0) throw new WalDebt(); throw new JournalCapacityError(); }
+        for (const table of JOURNAL_CODE_TABLES) if (!db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='table' AND name=?").get(table.name))
+          db.exec(table.sql.replace("CREATE TABLE ", "CREATE TABLE journal."));
+        for (const guard of JOURNAL_CODE_GUARDS) if (!db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='trigger' AND name=?").get(guard.name))
+          db.exec(guard.sql.replace("CREATE TRIGGER ", "CREATE TRIGGER journal."));
+        installEscapeGuard(db);
+        if (measure().pages > before.pages + pages) throw new JournalCapacityError("The checkout receipt schema exceeded its admitted page allowance.");
+      });
+      return true;
+    } catch (error) {
+      if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error;
+      return false;
+    }
+  }
   // While the server starts, truncate and return the pages released before
   // the last stop to the file system, as one admitted FULL write. A pinned
   // WAL or an over-cap store leaves this to the first write, which refuses
@@ -260,7 +287,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     if (!memory) db.query(`PRAGMA ${JOURNAL_SCHEMA}.wal_checkpoint(TRUNCATE)`).get();
   } catch (error) { if (!(error instanceof JournalStorageUnavailable || error instanceof JournalCapacityError)) throw error; }
   return {
-    write, usage, ensureScrubQuarantine,
+    write, usage, ensureScrubQuarantine, ensureCodeReceiptTables,
     ensureConflictTables() {
       const row = db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='table' AND name IN ('turn_journal_path_peers','turn_journal_path_conflicts')").get() as { n: number };
       const guards = db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='trigger' AND name IN (SELECT value FROM json_each(?))").get(JSON.stringify(JOURNAL_CONFLICT_GUARDS.map(guard => guard.name))) as { n: number };
@@ -369,7 +396,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
             const owners = db.query("SELECT t.turn_id,t.missing FROM turn_journal_turns t JOIN turn_journal_object_refs r ON r.turn_id=t.turn_id WHERE r.hash=?").all(row.hash) as {turn_id:string;missing:string}[];
             for (const owner of owners) {
               const paths = db.query(`SELECT path FROM turn_journal_changes WHERE turn_id=?1 AND (json_extract(before_json,'$.hash')=?2 OR json_extract(after_json,'$.hash')=?2)
-                UNION SELECT checkout AS path FROM turn_journal_code_receipts WHERE turn_id=?1 AND pack_hash=?2
+                ${codeReceiptTablesExist(db) ? "UNION SELECT checkout AS path FROM turn_journal_code_receipts WHERE turn_id=?1 AND pack_hash=?2" : ""}
                 UNION SELECT path FROM turn_journal_claude_memory WHERE turn_id=?1 AND (json_extract(before_json,'$.hash')=?2 OR json_extract(after_json,'$.hash')=?2)
                 UNION SELECT p.path FROM turn_journal_revert_paths p JOIN turn_journal_revert_operations o ON o.id=p.operation_id WHERE o.journal_turn_id=?1 AND (json_extract(p.before_json,'$.hash')=?2 OR json_extract(p.after_json,'$.hash')=?2)`)
                 .all(owner.turn_id, row.hash) as {path:string}[];
