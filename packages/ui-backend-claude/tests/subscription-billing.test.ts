@@ -144,7 +144,8 @@ function observedQuery(observed: SDKMessage[]): typeof query {
 
 async function runTurn(
   { brainPath }: { brainPath: string },
-  profileId?: string
+  profileId?: string,
+  witnessProfile?: "governed"
 ): Promise<{ frames: ServerMessage[]; observed: SDKMessage[]; activity: BackendActivityEvent[] }> {
   const frames: ServerMessage[] = [];
   const observed: SDKMessage[] = [];
@@ -166,7 +167,12 @@ async function runTurn(
     log: () => {},
   });
   const workerStartupView = createFixtureWorkerStartupView(brainPath);
-  try { await backend.startTurn({ workerStartupView, workerSandbox: prepareFixtureWorkerSandbox(brainPath, { home: process.env.HOME, areas: [] }),
+  try {
+  // Only helper twins need a shared writable witness. Subscription admission
+  // branches on billing/account/settings, independently of the worker profile.
+  const workerSandbox=prepareFixtureWorkerSandbox(brainPath,{home:process.env.HOME,areas:[],...(witnessProfile?{profile:witnessProfile}:{})});
+  if(witnessProfile)expect(workerSandbox.profile,"HELPER_PROTECTED_VIEW_IS_GOVERNED").toBe("governed");
+  await backend.startTurn({ workerStartupView, workerSandbox: { ...workerSandbox, areas: [] },
     prompt: "Reply with the single word ok.",
     signal: new AbortController().signal,
     bridge,
@@ -257,7 +263,7 @@ describe("a profile without its own credential bills the subscription", () => {
     const fixture = arrange({});
     const marker = installSubscriptionHelperWitness(fixture.brainPath, HELPER_KEY);
     // (The helper fixture is proven live by the control test below.)
-    const { frames } = await runTurn(fixture);
+    const { frames } = await runTurn(fixture, undefined, "governed");
 
     expect(seen).toEqual([]);
     expectAuthFailure(frames);
@@ -271,7 +277,7 @@ describe("a profile without its own credential bills the subscription", () => {
     // killed during the sleep.
     const fixture = arrange({ oauth: OAUTH });
     const marker = installSubscriptionHelperWitness(fixture.brainPath, HELPER_KEY, true);
-    const { frames } = await runTurn(fixture);
+    const { frames } = await runTurn(fixture, undefined, "governed");
 
     expect(seen).toEqual([]);
     expectAuthFailure(frames);
