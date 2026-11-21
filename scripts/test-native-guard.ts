@@ -527,9 +527,9 @@ function assertNativeMountSockets(mounts: readonly string[], origin: string): vo
   const visited = new Set<string>();
   const visit = (path: string): boolean => {
     let real: string;
-    try { real = realpathSync(path); } catch {
-      // A dangling symlink cannot expose a socket in the mounted view.
-      return lstatSync(path).isSymbolicLink();
+    try { real = realpathSync(path); } catch (error) {
+      // Only proven absence is harmless; permission and I/O uncertainty refuse.
+      return (error as NodeJS.ErrnoException).code === "ENOENT" && lstatSync(path).isSymbolicLink();
     }
     // An absolute alias into unmounted storage is inaccessible in the child.
     if (!roots.some(root => within(root, real))) return true;
