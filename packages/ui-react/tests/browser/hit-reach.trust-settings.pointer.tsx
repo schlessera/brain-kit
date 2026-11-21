@@ -132,3 +132,27 @@ test("keyboard review and cancel retain focus without changing the policy", asyn
   await expect.poll(() => document.activeElement?.textContent).toContain("Add origin");
   expect(s.calls.filter(c => c.path.endsWith("/commit"))).toHaveLength(0);
 });
+
+for (const kind of ["github_repository", "github_owner"] as const) test(`qualified host exposes bounded ${kind} CRUD without recipient permission`, async ctx => {
+  const s = await scene(ctx, 320, "light");
+  s.setRead({ capabilities: { originRules: true, recipientRules: true, repositoryRules: true, repositoryIdentity: true, readOnlyReason: null } });
+  window.dispatchEvent(new Event("focus"));
+  await expect.element(button("Add repository or organization")).toBeEnabled();
+  await button("Add repository or organization").click();
+  if (kind === "github_owner") await page.getByRole("combobox", { name: /Target type/ }).selectOptions("github_owner");
+  await page.getByLabelText(kind === "github_owner" ? "GitHub owner" : "GitHub owner/repository", { exact: true }).fill(kind === "github_owner" ? "Odysseus" : "Odysseus/Navigation.git");
+  await page.getByLabelText("Stable provider ID (verified independently by the host)", { exact: true }).fill("12");
+  await expect.element(page.getByRole("checkbox", { name: /Allow sending data while restricted/ })).toBeDisabled();
+  if (kind === "github_owner") expect(s.host.textContent).toContain("includes present and future repositories");
+  await button("Review change").click();
+  const prepared = s.calls.find(c => c.path.endsWith("/prepare"))!.body!.change as TrustChange;
+  expect(prepared).toMatchObject({ action: "create", rule: { incomingContent: true, recipientWhileRestricted: false, selector: { kind, owner: "odysseus" } } });
+  await button("Save rule").click();
+  const target = kind === "github_owner" ? "github.com/odysseus · owner ID 12 · includes future repositories" : "github.com/odysseus/navigation · repository ID 12";
+  await button(`Edit ${target}`).click(); await page.getByLabelText("Label", { exact: true }).fill("Argo");
+  await button("Review change").click(); await button("Save rule").click();
+  await expect.poll(() => s.host.textContent).toContain("Argo");
+  await button(`Remove ${target}`).click(); await button("Review change").click(); await button("Remove rule").click();
+  await expect.element(button("Add repository or organization")).toBeEnabled();
+  expect(s.host.textContent).not.toContain(target);
+});
