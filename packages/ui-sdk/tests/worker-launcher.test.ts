@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard";
 import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
 import { closeSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
@@ -167,10 +168,13 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
         "@schlessera/brain-backend-claude", "@schlessera/brain-backend-pi"].map(name =>
         [name, JSON.parse(readFileSync(join(ROOT, "node_modules", name, "package.json"), "utf8")).version]));
       // Version observation uses the same qualified native boundary as SDK turns.
+      const service = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
+      const restoreService = nativeScriptedService(service.url.origin);
       const native = Bun.spawn([
         join(ROOT, "node_modules", `@anthropic-ai/claude-agent-sdk-linux-${process.arch}`, "claude"), "--version"],
         { env: {}, stdout: "pipe", stderr: "pipe" });
       const [code, version] = await Promise.all([native.exited, new Response(native.stdout).text()]);
+      restoreService(); service.stop(true);
       expect(code).toBe(0);
       versions["claude-code"] = version.trim();
       const mount = Bun.spawnSync([Bun.which("findmnt")!, "--target", f.brain, "--noheadings", "--output", "FSTYPE"]);

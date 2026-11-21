@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
@@ -93,6 +94,7 @@ interface Setup {
 
 /** A fresh HOME, config dir and brain repo, and the process env a host would have. */
 function arrange(setup: Setup): { brainPath: string; home: string } {
+  nativeScriptedService(server.url.origin);
   const home = tempDir("sub-home-");
   const configDir = join(home, ".claude");
   mkdirSync(configDir, { recursive: true });

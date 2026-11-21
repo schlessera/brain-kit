@@ -1,3 +1,5 @@
+import "../../scripts/test-network-child-preload.ts";
+import {nativeScriptedService} from "../../scripts/test-native-guard.ts";
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
 import { replaceNativeStartupAcquisitionForFixture } from "../../packages/ui-server/tests/helpers/fixture-native-startup.js";
 const restoreNativeAcquisition = replaceNativeStartupAcquisitionForFixture();
@@ -415,6 +417,7 @@ async function server(): Promise<void> {
     events.push({ type: "message_delta", delta: { stop_reason: chosen.length ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
     return new Response(events.map((e: any) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   } });
+  nativeScriptedService(inference.url.origin);
   const url = `http://127.0.0.1:${inference.port}`;
   const configDir = join(root, "claude"), agentDir = join(root, "pi");
   mkdirSync(configDir, { recursive: true }); mkdirSync(agentDir, { recursive: true });

@@ -139,7 +139,7 @@ function qualify(): void {
   // Positive native proof is reserved for disposable hosted runners. Namespace
   // availability on a developer machine never authorizes a native test launch.
   if (process.env.GITHUB_ACTIONS !== "true" || process.env.RUNNER_ENVIRONMENT !== "github-hosted") {
-    refuse("positive native proof requires a hosted runner");
+    refuse("isolation unavailable: positive native proof requires a hosted runner");
   }
   if (qualified) return;
   let result: ReturnType<typeof Bun.spawnSync>;
@@ -298,6 +298,8 @@ function expectedNativeExec(command: string, args: readonly string[], options: S
 export function nativeClaudeBoundary(command: string, args: string[], options: { cwd?: string; env?: Record<string, string | undefined>; managedSettings?: string }): Boundary {
   qualify();
   const env = options.env ?? process.env;
+  const route = scriptedRoute.getStore();
+  if (!route) refuse("scripted service authority was not registered");
   const versionOnly = args.at(-1) === "--version";
   const versionHome = versionOnly ? mkdtempSync(join(tmpdir(), "odysseus-native-version-")) : undefined;
   const cwd = versionHome ?? realpathSync(options.cwd ?? process.cwd());
@@ -309,7 +311,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   const inheritedOrigin = inheritedSocket ? ownedSocketOrigin(inheritedSocket) : undefined;
   if (inheritedSocket && !inheritedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (inheritedOrigin && (!scriptedRoute.getStore() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(scriptedRoute.getStore()!.origin))) refuse("native relay did not match scripted authority");
-  const bridge = startNativeTestRelay(versionOnly ? "http://127.0.0.1:1" : inheritedOrigin ?? env.ANTHROPIC_BASE_URL ?? scriptedRoute.getStore()?.origin);
+  const bridge = startNativeTestRelay(route.origin);
   try {
     const tools = fixtureToolView(env, cwd, home);
     command = resolveExecutable(command, options);
@@ -438,9 +440,9 @@ export function assertNativeRelaySocket(host: string, port: unknown): void {
 export function assertNativeRelayUnix(path: string): void {
   const route = relayForwarding.getStore();
   if (!route) return;
-  let authority: { origin: string } | undefined;
-  try { authority = ownedRelaySockets.get(realpathSync(path)); } catch { /* Unknown socket. */ }
-  if (authority?.origin === route.origin) return;
+  let origin: string | undefined;
+  try { origin = ownedSocketOrigin(path); } catch { /* Unknown socket. */ }
+  if (origin && normalizedOrigin(origin) === normalizedOrigin(route.origin)) return;
   assertNativeRelayDestination(new URL("http://unowned-native-ipc.invalid"));
 }
 
@@ -468,17 +470,31 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
     const authority = ownedRelaySockets.get(socketIdentity(stat));
     if (!authority?.isLive()) continue;
     if (!stat.isSocket() || stat.dev !== authority.dev || stat.ino !== authority.ino) continue;
-    // A directory mount exposes every socket it contains, not only the name
-    // in ANTHROPIC_UNIX_SOCKET. Every such capability needs the same authority.
+    // A directory bind exposes its whole subtree, including symlink aliases.
+    // No socket in that view may escape the same live scripted authority.
     const directory = statSync(argv[i + 1]!).isDirectory() ? argv[i + 1]! : undefined;
-    for (const name of directory ? readdirSync(directory) : []) {
-      const sibling = join(directory!, name), info = lstatSync(sibling, { bigint: true });
-      if (!info.isSocket()) continue;
-      const peer = ownedRelaySockets.get(socketIdentity(info));
-      if (!peer?.isLive() || peer.origin !== authority.origin || peer.dev !== info.dev || peer.ino !== info.ino) return;
-    }
+    if (directory && !relaySubtreeOwned(directory, authority.origin)) return;
     return authority.origin;
   }
+}
+
+function relaySubtreeOwned(directory: string, origin: string): boolean {
+  const root = realpathSync(directory), visited = new Set<string>();
+  const visit = (path: string): boolean => {
+    const real = realpathSync(path);
+    if (!within(root, real)) return false;
+    const info = lstatSync(real, { bigint: true });
+    if (info.isSocket()) {
+      const peer = ownedSocketOrigin(real);
+      return Boolean(peer && normalizedOrigin(peer) === normalizedOrigin(origin));
+    }
+    if (!info.isDirectory()) return true;
+    const key = socketIdentity(info);
+    if (visited.has(key)) return true;
+    visited.add(key);
+    return readdirSync(real).every(name => visit(join(real, name)));
+  };
+  try { return visit(root); } catch { return false; }
 }
 
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */
@@ -509,11 +525,12 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   // Do not rely on SDK options or the production profile to establish this.
   const socket = launch.env?.ANTHROPIC_UNIX_SOCKET;
   const route = scriptedRoute.getStore();
+  if (!route) refuse("scripted service authority was not registered");
   const ownedOrigin = socket ? admittedRelay(workerArgv, socket) : undefined;
   if (socket && !ownedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (ownedOrigin && (!route || normalizedOrigin(ownedOrigin) !== normalizedOrigin(route.origin))) refuse("native relay did not match scripted authority");
   qualify();
-  const bridge = startNativeTestRelay(ownedOrigin ?? route?.origin ?? launch.env?.ANTHROPIC_BASE_URL);
+  const bridge = startNativeTestRelay(route.origin);
   try {
     const tools = fixtureToolView(launch.env ?? {}, launch.brainPath ?? ROOT, launch.hostHome ?? launch.env?.HOME);
     for (let i = bwrap + 1; i < workerArgv.indexOf("--", bwrap); i++) {

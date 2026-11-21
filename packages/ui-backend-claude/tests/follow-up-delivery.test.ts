@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
@@ -176,6 +177,7 @@ function tempDir(prefix: string): string {
 }
 
 function arrange(): string {
+  nativeScriptedService(server.url.origin);
   const home = tempDir("follow-home-");
   mkdirSync(join(home, ".claude"), { recursive: true });
   const brainPath = tempDir("follow-brain-");

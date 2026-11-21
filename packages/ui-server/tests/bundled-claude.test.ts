@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /**
  * With `CLAUDE_CODE_PATH` unset, a turn runs the Agent SDK's built-in Claude
@@ -76,6 +77,7 @@ function tempDir(prefix: string): string {
 
 /** The environment a host would give the server, with every credential bogus. */
 function arrangeHost(extra: Record<string, string> = {}): string {
+  nativeScriptedService(server.url.origin);
   const home = tempDir("bundled-home-");
   mkdirSync(join(home, ".claude"), { recursive: true });
   const brainPath = tempDir("bundled-brain-");

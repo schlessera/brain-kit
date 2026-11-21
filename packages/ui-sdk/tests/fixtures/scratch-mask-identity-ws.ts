@@ -1,3 +1,5 @@
+import "../../../../scripts/test-network-child-preload.ts";
+import {nativeScriptedService} from "../../../../scripts/test-native-guard.ts";
 import { prepareNativeScratchMask, answerNativeScratchMask, exerciseNativeScratchMask } from "./scratch-mask-native.js";
 import { defaultIdentityPhase } from "./default-identity-phases.js";
 import { installDbRepeatObservation, repeatWarmIndex } from "./db-repeat-observation.js";
@@ -37,6 +39,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   requests.push({ model: body.model, history: body.messages.length, apiCredential: request.headers.get("x-api-key") === "odysseus-fictional-api-key" });
   return nativeModelReply();
 } });
+nativeScriptedService(provider.url.origin);
 const backend = createClaudeBackend({ brainPath: brain, profiles: [{ id: "odysseus-haiku", label: "Odysseus Haiku", billing: "api",
   requiredEnvKeys: [], model: "claude-haiku-4-5", buildEnv: () => ({ ANTHROPIC_BASE_URL: provider.url.origin,
     ANTHROPIC_API_KEY: "odysseus-fictional-api-key", HOME: home, CLAUDE_CONFIG_DIR: config, PATH: "/usr/local/bin:/usr/bin:/bin",

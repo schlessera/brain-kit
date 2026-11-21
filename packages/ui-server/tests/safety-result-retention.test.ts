@@ -1,3 +1,4 @@
+import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /** A tool result that reaches the host already exists in the runtime's own
  * session: the installed Claude runtime replays it on resume. So its record
  * must be written whatever happened to the turn, and a record that cannot be
@@ -150,6 +151,7 @@ esac
   // Stop the turn the moment the search has printed its matches.
   const watching=interrupt&&interruption==="running"?setInterval(()=>{if(existsSync(searched))controller.abort(new Error("Odysseus stopped the turn while the search ran"));},5):undefined;
   const timer=setTimeout(()=>controller.abort(),20000);
+  nativeScriptedService(origin.url.origin);
   try{for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:tools,...wiring,abortController:controller,
    ...(resume?{resume}:{}),
    env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"||interruption==="denied"||interruption==="retooled"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
@@ -315,6 +317,7 @@ for(const late of [false,true])test(`a denied shell call reusing a search's id c
  }});
  const timer=setTimeout(()=>controller.abort(),20000);
  try{
+  nativeScriptedService(origin.url.origin);
   for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:4,permissionMode:"default",allowedTools:["Grep","Bash"],...wiring,abortController:controller,
    env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),PATH:process.env.PATH??"/usr/bin:/bin",ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
    if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;

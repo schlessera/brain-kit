@@ -1,3 +1,4 @@
+import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /** Installed Claude file tools against a scripted loopback model and the real host ledger. */
 import {expect,test} from "bun:test";
 import {request as httpRequest} from "node:http";
@@ -62,6 +63,7 @@ for(const mode of ["complete","writer-loss"] as const)test(`installed Claude ${m
    const response=await post(...args);await slow;trace.push(`post-response:${JSON.stringify(response)}`);return response;
   }];
   let failure:unknown;
+  nativeScriptedService(ingress.url.origin);
   try{for await(const message of query({prompt:"Read the raft plan.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:["Read"],...wiring,abortController:controller,
    env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),PATH:process.env.PATH??"/usr/bin:/bin",ANTHROPIC_BASE_URL:ingress.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
     if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;

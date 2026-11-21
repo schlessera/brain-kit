@@ -1,3 +1,4 @@
+import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /**
  * The four ask tools key their request by the model's tool_use id (#910).
  *
@@ -169,6 +170,7 @@ test("each ask tool hands the bridge the tool_use id the model sent", async () =
   const toolUses: string[] = [];
   let resultSubtype: string | undefined;
   try {
+    nativeScriptedService(server.url.origin);
     const stream = query({
       prompt: "Ask the planned questions.",
       options: {
