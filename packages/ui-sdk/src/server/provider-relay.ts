@@ -1,4 +1,4 @@
-import { chargeReceivedBytes } from "./egress-accounting.js";
+import { chargeReceivedBytes, relayAllowance } from "./egress-accounting.js";
 import { readRelayResponse, readRelayRequestHead, relayHeaderBytes } from "./relay-response.js";
 /**
  * The metered host relay for the `brain` CLI's paid providers (#1673).
@@ -210,7 +210,7 @@ export interface ProviderRelayOptions {
   /** Host credential lookup by name. Default: the server's own environment. */
   credential?(name: string): string | undefined;
   /** The concrete turn proxy: share its destination admission, byte ceiling and connection records. */
-  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "relayed" | "remainingBytes">;
+  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "relayed"> & Partial<Pick<Awaited<ReturnType<typeof startEgressProxy>>, "remainingBytes">>;
   /**
    * Called before each dispatch, and awaited. A refusal is answered with
    * `budget_exceeded` and nothing is sent.
@@ -438,8 +438,9 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     if (!budget.allowed) return refuse(403, "budget_exceeded", budget.message);
     const operation = options.egress?.relayed(request.method, target, request.signal);
     const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
-    const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
-    const receivedFailure=(count:number)=>chargeReceivedBytes(count,{charge:chargeFailure,remaining:()=>options.egress?options.egress.remainingBytes():Infinity});
+    const allowance=relayAllowance(operation,options.egress?.remainingBytes?.bind(options.egress),MAX_PROVIDER_REQUEST_BYTES);
+    const chargeFailure=allowance.charge;
+    const receivedFailure=(count:number)=>chargeReceivedBytes(count,{charge:chargeFailure,remaining:allowance.remaining});
     const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Provider"); return refuse(detail.status,failure.reason==="cancelled"?"cancelled":"egress_refused",detail.message,operation?.refusal()); };
     if (operation && !await operation.admit()) return chargeDenied(operation.failure() ?? {ok:false,reason:"unavailable"});
     const initialDecision = operation?.charge(0);
@@ -449,7 +450,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       return refuse(status, reason === "provider_request_too_large" ? "request_too_large" : "egress_refused",
         reason === "max_bytes_per_turn" ? "Provider egress limit exceeded" : "Provider request refused", operation?.refusal());
     };
-    const requestHead=readRelayRequestHead(`${request.method} ${url.pathname}${url.search} HTTP/1.1`,request.headers,{charge:chargeFailure,remaining:()=>options.egress?options.egress.remainingBytes():Infinity});
+    const requestHead=readRelayRequestHead(`${request.method} ${url.pathname}${url.search} HTTP/1.1`,request.headers,{charge:chargeFailure,remaining:allowance.remaining});
     if(requestHead.failure)return chargeDenied(requestHead.failure);
     if (Number(request.headers.get("content-length") ?? "0") > MAX_PROVIDER_REQUEST_BYTES) return denied("provider_request_too_large", 413);
     // Charge each received chunk before retaining or forwarding it, against
@@ -557,7 +558,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider upstream unreachable");
     }
     free();
-    const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:()=>options.egress?options.egress.remainingBytes():Infinity,maxBytes:files?MAX_FILES_RESPONSE_BYTES:undefined});
+    const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining,maxBytes:files?MAX_FILES_RESPONSE_BYTES:undefined});
     if(incoming.headerFailure){await incoming.cancel().catch(()=>{});report("cancelled",null);return chargeDenied(incoming.headerFailure);}
     if (response.status >= 300 && response.status < 400) {
       operation?.finish("failed", "upstream_redirected");
@@ -702,14 +703,14 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       observe("cancelled"); return;
     }
     const headers = new Headers(PLACEMENT.gemini(secret));
-    const cleanupCharge = operation?.charge(relayHeaderBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));
-    if (cleanupCharge && !cleanupCharge.ok) { observe("cancelled"); return; }
+    const allowance=relayAllowance(operation,options.egress?.remainingBytes?.bind(options.egress),MAX_PROVIDER_REQUEST_BYTES);
+    const cleanupCharge = allowance.charge(relayHeaderBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));
+    if (cleanupCharge) { observe("cancelled"); return; }
     const cleanupDecision = operation?.prepare();
     if (cleanupDecision && !cleanupDecision.ok) { observe("cancelled"); return; }
     try{options.preparing?.({attemptId,family:"gemini",operation:"files",origin:entry.origin,key:entry.key,model:null,status:0,usage:null,inlineMedia:false});}catch{/* Diagnostics only. */}
     try {
-      const finalDecision=operation?.charge(0);
-      const finalFailure=finalDecision&&!finalDecision.ok?finalDecision:captureEgressFailure(signal).failure;
+      const finalFailure=allowance.charge(0)??captureEgressFailure(signal).failure;
       if(finalFailure){observe("cancelled");return;}
       let pending!:Promise<Response>;
       const send=()=>{pending=fetch(target,{method:"DELETE",headers,redirect:"manual",signal});};
@@ -718,7 +719,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       observe("dispatched");
       const response=await pending;
       upstreamStatus=response.status;
-      const incoming=readRelayResponse(response,{charge:count=>{const decision=operation?.charge(count);return decision&&!decision.ok?decision:undefined;},remaining:()=>options.egress?options.egress.remainingBytes():Infinity});
+      const incoming=readRelayResponse(response,{charge:allowance.charge,remaining:allowance.remaining});
       if(incoming.headerFailure){await incoming.cancel().catch(()=>{});observe("cancelled");return;}
       try{for(;;){const next=await incoming.read();if(next.done){const failure=next.deliver(()=>{operation?.finish("completed");observe(response.ok?"completed":"failed");});if(failure)observe("cancelled");break;}}}finally{incoming.release();}
     } catch {

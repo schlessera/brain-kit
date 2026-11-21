@@ -517,6 +517,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     op.signal.addEventListener("abort", () => { if (response.headersSent) response.destroy(); }, { once: true });
     response.once("close", () => op.finish(stopped ? "cancelled" : response.writableFinished ? "completed" : "cancelled"));
     const refuse = () => {
+      if(response.destroyed||response.writableEnded)return;
+      if(response.headersSent){response.destroy();return;}
       const declined = refusalHead(op.refusal(), op.reason(), op.failure());
       if (declined) response.writeHead(declined.code, declined.status, { "content-type": "text/plain; charset=utf-8" }).end(declined.body);
       else { response.writeHead(403); response.end(); }
@@ -554,6 +556,16 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         incoming.once("error", () => { op.finish("failed", "upstream_response_failed"); response.destroy(); });
       });});
       if(!dispatched)return;
+      outgoing.on("information",incoming=>{
+        if(!op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders).ok){refuse();outgoing.destroy();}
+      });
+      // 101 uses upgrade rather than information; this HTTP path never tunnels it.
+      outgoing.once("upgrade",(incoming,socket,head)=>{
+        socket.on("error",()=>{});
+        const received=op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders);
+        if(received.ok&&head.length)op.receive(head.length);
+        socket.destroy();if(op.failure())refuse();else upstreamFailed();
+      });
       op.signal.addEventListener("abort", () => { outgoing.destroy(); if (op.outcome() === "cancelled") response.destroy(); }, { once: true });
       outgoing.once("error",upstreamFailed);
       response.once("close", () => outgoing.destroy());

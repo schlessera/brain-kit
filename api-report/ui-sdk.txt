@@ -15314,7 +15314,7 @@ signatures (every public export and the types it is made of)
     export interface WebModelEgress {
         dir: string;
         inference(method: string, target: URL, signal: AbortSignal): unknown;
-        remainingBytes(): number;
+        remainingBytes?(): number;
     }
   WebModelGrant (packages/ui-sdk/src/tool-contracts/web.ts)
     export interface WebModelGrant {

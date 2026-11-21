@@ -122,8 +122,10 @@ export async function admitConnection(broker: WebBroker, owner: { principalId: s
   call.authority.attempt({ recipient, host, callId: call.callId });
 }
 
+type HostWebModelEgress = WebModelEgress & { remainingBytes():number };
+
 /** One session's lent model relay (#3688): one turn's model at a time, stopped with that turn's last call. */
-function modelLender(egress: WebModelEgress) {
+function modelLender(egress: HostWebModelEgress) {
   let lent: { key: string; users: number; ready: Promise<{ grant: WebModelGrant; stop(): void }> } | undefined;
   const release = (current: NonNullable<typeof lent>) => {
     if (--current.users > 0 || lent !== current) return;
@@ -155,7 +157,7 @@ export function createHostWebTools(options: HostWebToolsOptions): WebBroker {
   const credentialEnv = Object.fromEntries(Object.entries(options.env).filter(([name]) => !["PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "HOME"].includes(name)));
   const ownerKey = (owner: { principalId: string; sessionId: string }) => `${owner.principalId}\0${owner.sessionId}`;
   // Each launching session's egress route, until its executor has opened.
-  const routes = new Map<string, WebModelEgress>();
+  const routes = new Map<string, HostWebModelEgress>();
   const child = createChildWebExecutor({
     launch: async owner => {
       const configPath = options.hostConfigPath();
@@ -186,7 +188,7 @@ export function createHostWebTools(options: HostWebToolsOptions): WebBroker {
   });
   const executor: WebExecutor = {
     async open(owner, signal) {
-      let session: Awaited<ReturnType<WebExecutor["open"]>>, route: WebModelEgress | undefined;
+      let session: Awaited<ReturnType<WebExecutor["open"]>>, route: HostWebModelEgress | undefined;
       try { session = await child.open(owner, signal); }
       finally { route = routes.get(ownerKey(owner)); routes.delete(ownerKey(owner)); }
       const lender = route ? modelLender(route) : undefined;

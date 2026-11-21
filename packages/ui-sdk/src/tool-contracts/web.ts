@@ -255,8 +255,8 @@ export interface WebModelEgress {
    * which hands it to its inference relay unchanged.
    */
   inference(method: string, target: URL, signal: AbortSignal): unknown;
-  /** The same executor route's current shared byte allowance. */
-  remainingBytes():number;
+  /** Additive reader for the shared allowance. Older routes retain the relay compatibility limit. */
+  remainingBytes?():number;
 }
 
 /** What the executor is told about the relayed model: never a credential. */

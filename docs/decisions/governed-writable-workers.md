@@ -4586,7 +4586,7 @@ authorization, the byte ceilings, budget admission, cancellation and
 accounting. It keeps its own `egress_connection` record, which carries
 `provider: true` and never `inference: true`. The exemption belongs to the operation, never to a
 hostname. Only the relay's validated routes reach the proxy's provider
-admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:587`), and
+admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:607`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
 (`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:379`). Turn egress
 records neither a taint nor a contacted host for the operation

@@ -169,3 +169,31 @@ for(const provider of [false,true])test(`review29: injected credential head grow
  const relay=provider?startProviderRelay({origins:new Map([['ANTHROPIC_API_KEY',[origin]]]),credential:()=>secret,egress:proxy}):startInferenceRelay({upstream:origin,routes:['/v1/messages'],credentials:{'x-api-key':secret},egress:proxy});
  try{const answer=await send(relay.socketPath,'/v1/messages','{}',provider?{'x-brain-provider':'anthropic','x-brain-provider-key':'ANTHROPIC_API_KEY','x-brain-provider-origin':origin}:{});expect(answer.status,'UPSTREAM_HEAD_GROWTH_CANNOT_ESCAPE_RECEIVED_HEAD_BOUND').toBe(403);expect(contacts).toBe(0);}finally{await relay.stop();proxy.stop();spy.mockRestore();}
 });
+
+for(const status of [100,103])test(`review30: proxy meters informational ${status} head before final response`,async()=>{
+ const rows:EgressRecord[]=[];const server=createServer(socket=>{socket.on('error',()=>{});socket.once('data',()=>socket.end(`HTTP/1.1 ${status} ${status===100?'Continue':'Early Hints'}\r\nX-Ithaca-Interim: ${'x'.repeat(8192)}\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`));});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const upstream=`http://127.0.0.1:${(server.address() as {port:number}).port}`;const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:4096,outwardHosts:[],observe:r=>rows.push(r)});
+ try{const answer=await send(proxy.socketPath,upstream+'/','{}',{});expect(answer.status,'INFORMATIONAL_HEAD_DEBITS_BEFORE_FINAL_RESPONSE').toBe(403);expect(proxy.remainingBytes()).toBe(0);expect(rows.at(-1)).toMatchObject({outcome:'denied',reason:'max_bytes_per_turn',bytes:4096,dispatched:true});}finally{proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+for(const provider of [false,true])test(`review30: old-shape ${provider?'provider':'web inference'} egress route remains usable without remainingBytes`,async()=>{
+ const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe(){}});const route:import('../src/tool-contracts/web').WebModelEgress={dir:proxy.dir,inference:proxy.inference};const original=globalThis.fetch;const spy=spyOn(globalThis,'fetch').mockImplementation(Object.assign(async()=>Response.json({}),{preconnect:original.preconnect}));const relay=provider?startProviderRelay({origins:new Map([['ANTHROPIC_API_KEY',[origin]]]),credential:()=> 'odysseus-key',egress:{relayed:proxy.relayed}}):startInferenceRelay({upstream:origin,routes:['/v1/messages'],credentials:{'x-api-key':'odysseus-key'},egress:{inference:route.inference as typeof proxy.inference}});
+ try{const answer=await send(relay.socketPath,'/v1/messages','{}',provider?{'x-brain-provider':'anthropic','x-brain-provider-key':'ANTHROPIC_API_KEY','x-brain-provider-origin':origin}:{});expect(answer.status,'OLD_ROUTE_WITHOUT_READER_RETAINS_RUNTIME_COMPATIBILITY').toBe(200);}finally{await relay.stop();proxy.stop();spy.mockRestore();}
+});
+
+
+test('review30: legacy allowance is finite, cumulative and saturates received overflow',async()=>{
+ const {relayAllowance,chargeReceivedBytes}=await import('../src/server/egress-accounting');const charged:number[]=[],terminal:string[]=[];
+ const allowance=relayAllowance({charge:count=>{charged.push(count);return {ok:true};},finish:(_outcome,reason)=>{terminal.push(reason);}},undefined,10);
+ expect(chargeReceivedBytes(7,allowance)).toBeUndefined();expect(allowance.remaining()).toBe(3);expect(chargeReceivedBytes(7,allowance),'LEGACY_READER_FALLBACK_IS_A_FINITE_PER_REQUEST_LIMIT').toEqual({ok:false,reason:'budget'});expect(allowance.remaining()).toBe(0);expect(charged).toEqual([7,3,0]);expect(terminal).toEqual(['max_bytes_per_turn']);
+});
+
+for(const status of [100,103])test(`review30: bounded informational ${status} head adds its complete received cost`,async()=>{
+ let calls=0;const rows:EgressRecord[]=[],interim=`HTTP/1.1 ${status} ${status===100?'Continue':'Early Hints'}\r\nX-Ithaca-Interim: Ithaca\r\n\r\n`;const final='HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}';const server=createServer(socket=>{socket.on('error',()=>{});socket.once('data',()=>socket.end((calls++?interim:'')+final));});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const upstream=`http://127.0.0.1:${(server.address() as {port:number}).port}`;const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe:r=>rows.push(r)});
+ try{for(let i=0;i<2;i++)expect((await send(proxy.socketPath,upstream+'/','{}',{})).status).toBe(200);await proxy.settled();expect(rows).toHaveLength(2);expect(rows[1]!.bytes-rows[0]!.bytes,'INTERIM_AUDIT_COUNTS_RAW_HEAD_AND_FRAMING_ALLOWANCE').toBe(Buffer.byteLength(interim)+64);}finally{proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+
+for(const oversized of [false,true])test(`review30: unsupported 101 upgrade is metered before refusal (oversized ${oversized})`,async()=>{
+ const rows:EgressRecord[]=[];const server=createServer(socket=>{socket.on('error',()=>{});socket.once('data',()=>socket.end(`HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: ithaca\r\nX-Ithaca-Interim: ${'x'.repeat(oversized?8192:8)}\r\n\r\n`));});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const upstream=`http://127.0.0.1:${(server.address() as {port:number}).port}`;const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:4096,outwardHosts:[],observe:r=>rows.push(r)});
+ try{const answer=await send(proxy.socketPath,upstream+'/','{}',{});expect(answer.status,'UPGRADE_HEAD_IS_METERED_WITHOUT_OPENING_A_TUNNEL').toBe(oversized?403:502);if(oversized){expect(proxy.remainingBytes()).toBe(0);expect(rows.at(-1)).toMatchObject({reason:'max_bytes_per_turn',bytes:4096});}else expect(rows.at(-1)).toMatchObject({outcome:'failed',reason:'upstream_unreachable'});}finally{proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});

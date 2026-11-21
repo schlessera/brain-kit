@@ -59,3 +59,5 @@ Publish dispatched exposure and contacted-host grants only after the transport c
 Bind recipient receipts to the final dispatch authority and share verified, bounded admission validation between durable ingestion, projection and history, including retained provenance after pruning.
 
 Meter relay worker request headers before filtering and cover upstream credential/header growth with the same shared head meter.
+
+Add remainingBytes as an optional SDK route reader, preserving older operation-only routes with a documented 32 MiB per-request compatibility ceiling; host builders require it internally. Meter informational HTTP response heads before the final response.

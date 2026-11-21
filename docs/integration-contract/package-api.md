@@ -464,7 +464,7 @@ admitted model as its backend lends it on the host, and `handleWebTool` takes
 it as an optional fifth argument, `model`. `WebModelAccess` is
 `{ provider, model, open(egress, signal?) }`; `open` starts a host relay for
 exactly that model into a web executor's egress route (`WebModelEgress`:
-`{ dir, inference, remainingBytes }`) and resolves to `{ grant, stop() }`. `WebModelGrant`
+`{ dir, inference, remainingBytes? }`) and resolves to `{ grant, stop() }`. `WebModelGrant`
 (`{ provider, model, credential: "api_key" | "oauth", basePath, socket }`) is
 everything the executor is told, and never holds a credential. A backend that
 does not set `model` behaves as before.
@@ -6059,11 +6059,15 @@ size checks, and EOF revalidates live admission before completion. Incoming
 bytes beyond the remaining turn allowance consume the available allowance and
 refuse the excess. Files cleanup drains through the same metered reader.
 
-Governed relay `egress` options and `WebModelEgress` require the concrete
-route's `remainingBytes()` reader alongside its operation factory. Every route
-builder, including the host web-model route and Pi host inference, carries that
-same reader. Operation-only adapters must now provide it; an absent reader is
-never treated as infinite capacity. Ungoverned relays without an egress route
+`WebModelEgress.remainingBytes()` and the reader on governed relay `egress`
+options are optional additive minor-version fields. Existing operation-only
+adapters still compile and run. Without a reader, each relay operation uses a
+32 MiB compatibility ceiling (the existing per-request limit) across its
+accounted request and response bytes, while the route's own charge/admission
+checks still apply. This fallback cannot know or saturate an older adapter's
+remaining shared turn allowance; adapters should supply the reader for exact
+shared accounting. Host web-model routes require it through an internal type,
+and Pi forwards it unchanged. Ungoverned relays without an egress route
 retain their existing behavior. Received proxy HTTP/CONNECT bytes and both
 relay uploads/responses share the same saturating allowance accounting.
 
@@ -6109,3 +6113,9 @@ least the larger of that received head and the constructed upstream head,
 including the framing allowance; upstream growth is charged before dispatch.
 The local relay hop does not count the same logical head twice. Generated
 cleanup requests have no worker head and charge their constructed upstream head.
+
+The native HTTP proxy also meters every informational response head (including
+100 Continue and 103 Early Hints) through the same raw-head meter, before the
+final response. A 101 upgrade head is also metered; this HTTP route refuses
+protocol switching and closes that socket. An interim refusal cannot be overwritten by a final head that
+arrives in the same packet.
