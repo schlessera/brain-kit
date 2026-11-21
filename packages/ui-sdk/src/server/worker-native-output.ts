@@ -573,7 +573,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           // Publish object data before indexes/refs. All replacements become
           // durable before any source object is removed: an interrupted publish
           // may leave redundant loose objects, never refs to absent objects.
-          const priority = (rel: string) => /\.pack$/.test(rel) ? 0 : /\.(idx|rev)$/.test(rel) ? 1 : 2;
+          const priority = (rel: string) => rel.endsWith(".pack") ? 0 : rel.endsWith(".idx") || rel.endsWith(".rev") ? 1 : 2;
           for (const item of pending.sort((a,b) => priority(a.rel)-priority(b.rel))) {
             const destination = parent(brain, item.rel);
             try {
