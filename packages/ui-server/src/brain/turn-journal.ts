@@ -643,7 +643,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       gateFor(turnId);
       const relay = { ...transport, messages: false, generation: 0, armedAt: 0, toolUseId: "", operations: new Set<object>() };
       relays.set(turnId, relay);
-      const abort = () => { void flushDeferred().catch(() => {}); if (relays.get(turnId) === relay) relays.delete(turnId); };
+      const abort = () => {
+        void flushDeferred().catch(() => {});
+        if (relays.get(turnId) === relay) relays.delete(turnId);
+        if (!active.has(turnId) && !relays.has(turnId)) gates.delete(turnId);
+      };
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
       return () => { signal.removeEventListener("abort", abort); abort(); };
@@ -941,6 +945,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       try { const end = bothTimers(lifecycle)?.("final_observation"); await observe(false, timing); end?.(); }
       finally {
         active.delete(turnId); counters.delete(turnId); lasting.delete(turnId); immediateOnly.delete(turnId);
+        if (!relays.has(turnId)) gates.delete(turnId);
         for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
         let step = [...worktrees.values()].some(root => root.turnId === turnId) ? timing?.("finish_worktrees") : undefined;
         if (await dropWorktrees(turnId)) step?.();
