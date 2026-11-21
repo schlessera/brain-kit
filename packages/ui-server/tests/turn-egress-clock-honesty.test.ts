@@ -35,14 +35,14 @@ test("stop and settled cannot outrun a denied inference audit", async () => {
 test("a session-binding refusal includes its completed admission clock", async () => {
   let now = 1000;
   const clock = spyOn(performance, "now").mockImplementation(() => now);
-  const ready = Promise.withResolvers<boolean>(), entered = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<binding.SessionBindingRefusal | null>(), entered = Promise.withResolvers<void>();
   const bindingWait = spyOn(binding, "settleTurnSessionBinding").mockImplementation(async () => { entered.resolve(); return ready.promise; });
   const records: GovernanceEventInput[] = [];
   const proxy = await prepareTurnEgress({ ...inputs(new AbortController()), record(event) { if (event.kind === "egress_connection") records.push(event); } });
   try {
     const op = proxy.inference("POST", new URL("https://api.anthropic.com/v1/messages"), new AbortController().signal);
-    const admission = op.admit(); await entered.promise; now += 250; ready.resolve(false);
+    const admission = op.admit(); await entered.promise; now += 250; ready.resolve("session_binding_unavailable");
     expect(await admission).toBe(false); await proxy.settled();
     expect(records[0]?.payload, "BINDING_REFUSAL_RETAINS_ADMISSION_CLOCK").toMatchObject({ outcome: "denied", reason: "session_binding_unavailable", admitMs: 250 });
-  } finally { ready.resolve(false); proxy.stop(); bindingWait.mockRestore(); clock.mockRestore(); }
+  } finally { ready.resolve("session_binding_unavailable"); proxy.stop(); bindingWait.mockRestore(); clock.mockRestore(); }
 });

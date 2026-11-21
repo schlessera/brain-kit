@@ -612,8 +612,7 @@ The version 1 governance taint payload optionally adds strict host occurrence
 metadata; the source enum adds `legacy_unknown`. Every input/output/path/mark
 signal is independent, including later signals from the same source. Exact
 host-key retries deduplicate; changed identity/payload retries refuse. Admission
-records `trusted: false`, the admitted policy hash (or `null`) and trust revision
-`"0"`. Runtime source trust remains disabled. Verified proxy provenance records
+records the host admission decision. Unmatched input retains `trusted:false` and the policy hash (or `null`) and trust revision from the same live projection snapshot used for matching. Since #3609, verified exact-origin/tunnel matches retain `trusted:true`, `ruleId`, exact trust policy hash, `trustRevision` and `collectionRevision`; these immutable facts survive rule removal and detail pruning. The wire validator discriminates `trusted:true` (all evidence fields required, non-null hash) from `trusted:false` (no rule ID or collection revision); malformed trusted evidence is refused rather than shown as trusted. The existing v1 detector field continues accepting any valid ID; admission negotiation does not narrow it. Trusted admissions remain inspectable and do not contribute unresolved triggers. Unknown or independent signals stay restrictive. Verified proxy provenance records
 only the actual web origin or opaque tunnel authority; worker tool arguments
 never establish transport or repository provenance. The proxy's optional
 `connectionId` relates its admission and receipt, without guessing a tool call.
@@ -831,9 +830,10 @@ stored events keep their recorded sources.
 behind the proxy, a connection to a host outside `taint.egress.allow` and the
 session's contacted hosts now raises the existing tool-permission request
 before it is refused: `toolName: "Network"`, `kind: "command"`, `input` of
-`{ host, port, method, target }` with `target` as `host:port`, and a
+`{ host, port, method, protocol, managedReference, target }` with `target` as
+`host:port` (bracketed for IPv6), and a
 `description` naming what tainted the session and what allowing does. No
-request field, kind or card variant is added. An allowed connection records
+new card kind or variant is added. An allowed connection records
 `egress_connection` as any admitted one does; a declined one records
 `egress_connection` with `reason: "taint_not_approved"` and the existing
 `egress_denial` with `reason: "taint_allowlist"`. A turn stopped while the card
@@ -1462,3 +1462,129 @@ Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains
 `retrying: true` at the time it was recorded. The historical cause survives
 recovery and restart; it does not assert a currently blocked turn. Current
 charges remain separate in `retained`. No field changes public `/health`.
+
+
+### Prospective origin enforcement (breaking before 1.0, #3609)
+
+The composed host enables incoming-source and explicit restricted-recipient
+rules for verified exact web origins and explicitly selected opaque tunnel
+authorities. Repository enforcement stays unavailable pending its independent
+read qualification. A CONNECT authority never asserts HTTPS or a Git path.
+Redirects and concurrent traffic receive independent decisions; scheme, port
+and subdomain cannot borrow another selector's permission.
+
+Standing recipient permission bypasses only the taint-network card. Source-only
+trust grants no recipient permission after unrelated input restricts a chat.
+Egress evidence retains `trustedSource` and/or `standingRecipient` markers; a standing recipient decision also records `recipientAdmission` with its rule ID, exact policy hash, trust revision and collection revision. A standing capability alone creates no legacy hostname grant. An explicit
+Network card approval independently records `recipientApproved:true` and
+retains its legacy session grant, including when source trust also matched.
+Transport receipt hosts use lowercase DNS or canonical bare IP literals.
+Deny/allowlists, byte ceilings, provider credentials and outward-action approval
+remain independent. Removing a standing capability affects future admissions;
+source streams revalidate their admitted incoming-content rule when trust changes.
+They stop before later bytes if that same rule no longer matches; unrelated
+recipient edits alone do not revoke that source decision. Historical admission
+facts remain unchanged, and independent recipient/approval fences still apply.
+Approval and recording waits recheck live authority and recipient permission at
+final dispatch. No earlier trigger, verdict or provider message is rewritten.
+
+
+Origin admission also fences a valid disk/projection mismatch while publication
+is being durably projected. The other protected policy publisher joins the same
+trust refresh before reporting its update; each qualified proxy turn refreshes
+this slice before starting. Invalid policy retains last-valid rules and an
+honest error. No ordinary admitted governance setting reloads live.
+
+Both taint-network and outward cards bind committed evidence, independent
+pending/coverage state, trust and authority through later writes and connection
+setup. Only the exact connection's own immutable occurrence may be excluded
+from its marker; another signal never borrows that exclusion. Cancellation
+destroys both tunnel sockets before a delayed connect callback can return 200.
+Managed HTTPS reference traffic carries a host-only verified transport tag for
+recipient matching and audit, independently of its opaque wire accounting; it
+cannot borrow a raw CONNECT selector or grant source/private/write authority.
+
+Pending network cards coalesce only for the same destination and immutable live
+approval context; later evidence cannot join an earlier card. Fork reconstruction
+copies unresolved untrusted occurrences only, with identical admission handling
+before and after detail pruning. CONNECT and relay rechecks revalidate every time
+but notify the host's committed observer exactly once per operation.
+
+Mixed history groups count trusted admissions and human safe verdicts separately.
+An unresolved group names an actually unresolved input for review; a trusted or
+reviewed row cannot supply that label. Historical source trust is not relabelled
+as a human decision, and a human verdict is not relabelled as source trust.
+
+
+## Egress charge failures
+
+Egress charge refusals retain their cause. Before response headers, a changed
+safety/authority decision reports 403 (including `safety_changed`), and unavailable
+recording/admission reports 503 with `egress_unavailable`. These never claim a
+network byte limit was exhausted. A byte ceiling retains its existing refusal.
+A stream which already began terminates; its relay error and connection evidence
+retain the corresponding safety, unavailable or budget classification.
+
+
+Source trust revocation uses one path whether a publication notification or a
+send fence or post-write admission check observes it first: connection evidence records `source_trust_changed`
+and subsequent charge results classify it as safety, never turn cancellation
+or unavailable recording. The turn and unrelated connections remain active.
+
+Active trusted inputs retain a durable source-rule instance (rule ID plus its
+creation revision). Removing, disabling or retargeting that source retires the
+instance even if another publisher restores the same ID before the next chunk.
+Recipient-only edits preserve the source instance. Instance metadata stays out
+of Settings responses and never grants trust independently of policy files.
+
+New egress records carry optional `dispatched` evidence. Charged preparation
+with `dispatched:false` never grants contacted-host permission in later turns;
+older records without the field retain their existing interpretation. Historical
+contacted hosts use the same canonical comparison key as current destinations,
+including legacy bracketed IPv6 literals. This operation's recording
+unavailability is 503 `egress_unavailable`, including initial admission.
+Another recorder's loss or an independent pending input is a safety change,
+403 `safety_changed`.
+
+A shared Network card excludes every occurrence admitted under that exact
+card from its approval-evidence marker, including completed peers, their
+initial collection metadata, and their exact in-flight write reservation IDs.
+The host tracks reservation ownership through occurrence IDs; both local
+overlays and durable pending rows are excluded from only that group's pending
+count, recording-pending reason and recording-availability send fence. Global
+projection/history reads, failures and capacity are unchanged. Host-only read
+arguments are additive and optional; callers that omit them retain the global
+view. Independent inputs, cards, human decisions and
+authority or trust changes still invalidate the pending approval. These host
+exclusions never remove occurrences from safety history or effective taint.
+Inference refusal wire messages retain their existing fixed text (including
+`Inference network admission refused`); the specific cause stays in the host's
+`denialReason`, preserving runtime classification and stored-history readers.
+
+Egress audit records add optional `failureReason` with the stored terminal
+category: `budget`, `safety_changed`, `policy_denied`, `unavailable` or
+`cancelled`. This category is captured before abort listeners run and is shared
+by every caller; reading it never retries admission or recomputes a cause.
+Outward approval markers include the active call-classification generation,
+so a covering call ending or an opaque call starting withdraws its exemption
+even across a durable occurrence write.
+
+Malformed proxy destination fields return HTTP 400 before recording input
+evidence. They cannot poison a safety-history page or stop later valid
+requests in the turn. Authority loss while settling a binding reports 403
+`safety_changed`; an aborted wait reports 499/cancelled. Only pending, failed
+or missing session binding reports 503 `egress_unavailable`, on both initial
+and repeated inference admission. A cancelled cleanup cannot
+send its credentialed DELETE, and cancellation interrupts an in-flight DELETE.
+
+A credential resolver or upstream transport failure is a failed attempt, not
+cancellation caused by the proxy closing its own signal. Before response
+headers it reports 502; cancellation reports 499 and existing admission
+refusals retain their typed cause. Provider receipts keep 0 when no upstream
+HTTP status was observed, or the observed status for interrupted responses.
+
+`egress_connection.accounting: "http_wire_bound"` counts received headers before
+hop-by-hop filtering. The Node proxy meters `rawHeaders`, its actual HTTP start
+line and framing; Fetch relays meter all unfiltered header pairs exposed by
+Fetch with a runtime framing allowance. The bound is not an exact TLS/wire-byte
+measurement and does not reconstruct formatting that Fetch does not expose.

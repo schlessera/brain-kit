@@ -1,14 +1,16 @@
 /** One admitted turn's concrete proxy, approval surface and durable records. */
-import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
-import { startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
+import { originTrustMatchSnapshot, type OriginTrust, type OriginDestination } from "./origin-trust.js";
+import type { EffectiveGovernancePolicy, TrustMatch } from "@schlessera/brain-common/internal/governance-policy";
+import { startEgressProxy, canonicalEgressHost, validatedEgressProvenance, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
-import { safetyProjection } from "../governance/safety-store.js";
-import { settleTurnSessionBinding } from "../ws/bridge-session-binding.js";
+import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
+import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
+import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { createTurnExtraction } from "./turn-extraction.js";
 import type { ExtractionJudge } from "../governance/extraction-judge.js";
@@ -34,6 +36,8 @@ const TAINT_SOURCE_WORDING: Readonly<Record<TaintSource, string>> = {
   chat_attachment: "opened a chat attachment", apify_result: "received Apify results", github_result: "read GitHub issues or pull requests", compute_output: "collected an external compute job's output",
 };
 
+const networkAuthority = (destination: {host:string;port:number}) => `${destination.host.includes(":") ? `[${destination.host}]` : destination.host}:${destination.port}`;
+
 /**
  * The card a tainted interactive session raises for a destination outside its
  * taint allow-list (#3430): the destination, what tainted the session, and
@@ -42,7 +46,7 @@ const TAINT_SOURCE_WORDING: Readonly<Record<TaintSource, string>> = {
 export function taintedDestinationDescription(destination: { host: string; port: number; method: string }, source: TaintSource | null): string {
   const cause = source ? `This session ${TAINT_SOURCE_WORDING[source]}, so content you did not write may be steering it.`
     : "This session read content you did not write, which may be steering it.";
-  return `${cause} Allow it to connect to ${destination.host}:${destination.port}? `
+  return `${cause} Allow it to connect to ${networkAuthority(destination)}? `
     + `Allowing lets it send data to ${destination.host} for the rest of this session without asking again.`;
 }
 
@@ -62,9 +66,11 @@ function actionHosts(action: Classification["actions"][number]): readonly string
  */
 export function createOutwardCalls() {
   const calls = new Map<string, { read: boolean; hosts: readonly string[] } | null>();
+  let generation=0n;
   return {
     activity(event: BackendActivityEvent): void {
       if (event.kind !== "outward_classification") return;
+      generation++;
       // A refused or declined call never runs.
       if (event.decision !== "allow") { calls.delete(event.toolUseId); return; }
       const classification = event.classification;
@@ -73,8 +79,9 @@ export function createOutwardCalls() {
         : classification.kind === "outward" ? { read: false, hosts: classification.actions.flatMap(actionHosts) } : null);
     },
     emitted(message: Parameters<BackendBridge["emit"]>[0]): void {
-      if (message.type === "tool_result") calls.delete(message.toolUseId);
+      if (message.type === "tool_result" && calls.delete(message.toolUseId)) generation++;
     },
+    generation:()=>generation.toString(),
     covers(host: string): boolean {
       const active = [...calls.values()];
       // Every call in progress must be a read or name this host: another
@@ -85,6 +92,7 @@ export function createOutwardCalls() {
 }
 
 export async function prepareTurnEgress(options: {
+  trust?: OriginTrust;
   policy: EffectiveGovernancePolicy; policyHash?:string|null; bridge: BackendBridge; controller: AbortController;
   turnId: string; sessionId: () => string | null; model: () => string | null;
   profile: "governed" | "strict"; origin: "interactive" | "voice";
@@ -118,40 +126,91 @@ export async function prepareTurnEgress(options: {
   const record = options.record;
   const writes: typeof options.governanceWrites = options.governanceWrites ?? (db && record ? {
     taint: (turnId: string | null, sessionId: string | null) => sessionTaint(db, turnId, sessionId),
-    firstTaint: (event: GovernanceEventInput<"taint">) => { recordFirstTaint(db, event, record); return Promise.resolve(true); },
+    firstTaint: async (event: GovernanceEventInput<"taint">) => {
+      let pending:unknown;
+      recordFirstTaint(db,event,input=>{pending=record(input);});
+      const result=await pending;
+      if(typeof result === "boolean")return result;
+      if(result&&typeof result === "object"&&"recorded" in result)return result.recorded === true;
+      const input=event.payload.occurrence;
+      return !input?.admission?.trusted || db.query("SELECT id FROM safety_records WHERE id=? AND kind='occurrence'").get(input.id) !== null;
+    },
   } : undefined);
   const recording = new Set<Promise<unknown>>();
   // Hosts earlier turns of the session reached, then every host this turn admits.
   const contacted = new Set(db ? contactedHosts(db, options.sessionId()) : []);
   const collectionEpoch = (db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId) as {id:string}|null)?.id??crypto.randomUUID();
   const exposures = new Map<string, Occurrence>();
+  const ownCollectionStarts = new Map<string,string>();
+  // Each card owns its peer inputs until its last connection terminates. Keep
+  // their immutable ids after a peer finishes so a slower peer sees the same
+  // reviewed context; independent cards and independent input remain evidence.
+  type ApprovalGroup = { members:Set<string>; occurrences:Set<string>; starts:Set<string>;pending?:{generation:bigint;size:number;ids:readonly string[]} };
+  const approvalGroups = new Map<string,ApprovalGroup>();
+  const pendingReservations = (connectionId?:string):readonly string[] => {
+    const group=connectionId?approvalGroups.get(connectionId):undefined;if(!db||!group)return [];
+    const queue=safetyQueue(db);
+    if(group.pending?.generation===queue.generation&&group.pending.size===group.occurrences.size)return group.pending.ids;
+    const ids=Object.freeze([...queue.pending].filter(p=>p.occurrenceId!==null&&group.occurrences.has(p.occurrenceId)).map(p=>p.id));
+    group.pending={generation:queue.generation,size:group.occurrences.size,ids};return ids;
+  };
+  const exposureCommits = new Map<string, Promise<unknown>>();
   const normalBefore = new Set<string>();
+  const standingRecipients = new Map<string, Pick<TrustMatch, "ruleId" | "policyHash" | "trustRevision" | "collectionRevision">>();
+  const trustedInputs = new Map<string, { destination: OriginDestination; revision: string; ruleId: string; instance: string }>();
+  const inputCurrent = (connectionId: string) => {
+    const input = trustedInputs.get(connectionId); if (!input) return true;
+    let current:ReturnType<OriginTrust["read"]> | undefined;
+    try { current = options.trust?.read(); } catch { return false; }
+    if (!current || current.ruleInstances[input.ruleId] !== input.instance) return false;
+    if (current.revision === input.revision) return true;
+    // Revalidate this admission's own source rule, never borrow a replacement
+    // rule or rewrite the historical admission. Recipient-only edits are independent.
+    const match = originTrustMatchSnapshot({ ...current, ruleInstances:current.ruleInstances, rules: current.rules.filter(rule => rule.id === input.ruleId) }, input.destination, "incomingContent", "0");
+    if (!match) return false;
+    input.revision = current.revision; return true;
+  };
+  let releaseTrust: (() => void) | undefined;
   const base = () => ({ turnId: options.turnId, sessionId: options.sessionId(), model: options.model(),
     actor: options.origin, profile: options.profile });
   const fail = () => {
-    recordingFailure ??= new Error("Turn egress recording is unavailable");
+    recordingFailure ??= new EgressAdmissionRefused("Turn egress recording is unavailable","egress_unavailable");
     options.controller.abort(recordingFailure);
   };
   const track = (committed: unknown) => {
-    if (!(committed instanceof Promise)) return;
-    const pending = committed.catch(fail).finally(() => recording.delete(pending));
+    const confirm=(result:unknown)=>{
+      // A positive existing id is a durable replay, not a lost write.
+      if(result===false||result&&typeof result === "object"&&"recorded" in result&&result.recorded===false&&(!("id" in result)||typeof result.id !== "number"||result.id<=0))throw new Error("Egress audit was not durably recorded");
+    };
+    if (!(committed instanceof Promise)) {try{confirm(committed);}catch{fail();}return;}
+    const pending = committed.then(confirm).catch(fail).finally(() => recording.delete(pending));
     recording.add(pending);
   };
+  const releaseConnection = (connectionId?: string) => {
+    if (!connectionId) return;
+    trustedInputs.delete(connectionId);standingRecipients.delete(connectionId);
+    exposures.delete(connectionId);ownCollectionStarts.delete(connectionId);exposureCommits.delete(connectionId);normalBefore.delete(connectionId);
+    approvalGroups.get(connectionId)?.members.delete(connectionId);approvalGroups.delete(connectionId);
+    approvalMarkers.delete(`${connectionId}:network`);approvalMarkers.delete(`${connectionId}:outward`);
+  };
   const report = (record: EgressRecord): void => {
-    if (!options.record) return;
     try {
-      track(options.record({ ...base(), kind: "egress_connection", payload: record }));
+      if (!options.record) return;
+      const trustedSource = record.connectionId ? trustedInputs.has(record.connectionId) : false;
+      track(options.record({ ...base(), kind: "egress_connection", payload: { ...record, ...(trustedSource ? { trustedSource: true } : {}), ...(record.connectionId && standingRecipients.has(record.connectionId) ? { standingRecipient: true, recipientAdmission: standingRecipients.get(record.connectionId) } : {}) } }));
       const exposure = record.connectionId ? exposures.get(record.connectionId) : undefined;
       if (exposure) {
-        exposures.delete(record.connectionId!);
-        normalBefore.delete(record.connectionId!);
         // A clean HTTP completion proves bounded input ended. A tunnel close
         // or cancellation alone cannot prove all opaque delivery completed.
-        track(options.record({ ...base(), kind: "taint_exposure", dedupeKey: exposure.id,
-          payload: { occurrenceId: exposure.id, state: record.method !== "CONNECT" && record.outcome === "completed" ? "finalized" : "interrupted_unknown" } }));
+        const terminal = () => options.record!({ ...base(), kind: "taint_exposure", dedupeKey: exposure.id,
+          payload: { occurrenceId: exposure.id, state: record.method !== "CONNECT" && record.outcome === "completed" ? "finalized" : "interrupted_unknown" } });
+        // Removal can close the transport while its initial occurrence is
+        // still committing. Terminal evidence must join that exact write.
+        const initial = exposureCommits.get(record.connectionId!);
+        track(initial ? initial.then(recorded=>recorded===true?terminal():undefined,()=>undefined) : terminal());
       }
       const denied = options.policy.egress.deny.some(pattern => {
-        const normalized = pattern.toLowerCase().replace(/\.$/, "");
+        const normalized = canonicalEgressHost(pattern);
         return normalized.startsWith("*.") ? record.host.endsWith(normalized.slice(1)) && record.host !== normalized.slice(2) : record.host === normalized;
       });
       const reason = record.reason === "destination_not_allowed" ? denied ? "denied_host" : "not_allowlisted"
@@ -160,32 +219,70 @@ export async function prepareTurnEgress(options: {
       if (reason) track(options.record({ ...base(), kind: "egress_denial", payload: {
         host: record.host, port: record.port, method: record.method, reason, bytes: record.bytes,
       } }));
-    } catch { fail(); }
+    } catch { fail(); } finally { releaseConnection(record.connectionId); }
   };
   /**
    * Any admitted connection other than a host relay taints the session (G6),
    * recorded before its first byte. Each connection keeps independent evidence.
    */
   // A taint submitted but not yet committed counts (#2850).
-  const firstTaint = () => db ? writes ? writes.taint(options.turnId, options.sessionId()) : sessionTaint(db, options.turnId, options.sessionId()) : null;
+  let taintRead: { version:string; value:ReturnType<typeof sessionTaint> } | undefined;
+  const firstTaint = () => {
+    if (!db) return null;
+    const sessionId = options.sessionId(), version = JSON.stringify([safetyReadVersion(db),sessionId]);
+    if (taintRead?.version === version) return taintRead.value;
+    const value = writes ? writes.taint(options.turnId,sessionId) : sessionTaint(db,options.turnId,sessionId);
+    taintRead = {version,value}; return value;
+  };
+  let projectionRead: {version:string;value:ReturnType<typeof safetyProjection>} | undefined;
+  const currentProjection = () => {
+    const sessionId = options.sessionId(), version = JSON.stringify([safetyReadVersion(db!),sessionId]);
+    if (projectionRead?.version === version) return projectionRead.value;
+    const value = writes?.safety?.(options.turnId,sessionId) ?? safetyProjection(db!,options.turnId,sessionId);
+    projectionRead = {version,value}; return value;
+  };
   /**
-   * One card per destination host at a time: concurrent connections to the
-   * same new host share its answer. An allowed connection's admission adds
+   * One card per exact destination and live approval revision: concurrent
+   * connections share only the same reviewed context. An allowed connection's admission adds
    * its host to `contacted`, so the rest of this turn admits it, and its
    * charged `egress_connection` record carries it into later turns
    * (`contactedHosts`).
    */
-  const asking = new Map<string, Promise<boolean>>();
-  const approveTainted = async (destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean> => {
-    let pending = asking.get(destination.host);
+  const approvalMarkers = new Map<string,{version:string;marker:string}>();
+  const approvalRevision = (connectionId?: string,kind: "network" | "outward" = "network") => {
+      const callGeneration=kind==="outward"?calls.generation():"0";
+      if (!db) return `unrecorded:${callGeneration}`;
+      const excludedPending=kind==="network"?pendingReservations(connectionId):[];
+      const safety = options.bridge.admissionSafety?.read(excludedPending);
+      const key = `${connectionId ?? "global"}:${kind}`, version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString(),callGeneration]);
+      const cached = approvalMarkers.get(key); if (cached?.version === version) return cached.marker;
+      const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId(),excludedPending) ?? safetyProjection(db, options.turnId, options.sessionId(),excludedPending);
+      const group=connectionId&&kind==="network"?approvalGroups.get(connectionId):undefined;
+      const ownStart=connectionId?ownCollectionStarts.get(connectionId):undefined;
+      const starts=new Set(group?.starts);if(ownStart)starts.add(ownStart);
+      const inputs=new Set(group?.occurrences);const ownInput=connectionId?exposures.get(connectionId)?.id:undefined;if(ownInput)inputs.add(ownInput);
+      // An uninstrumented turn was already unknown before its first record.
+      // Creating its sole incomplete epoch is metadata of this same input.
+      const coverage=state.coverage.epochs.length===1&&starts.has(state.coverage.epochs[0]!.id)&&state.coverage.state==="incomplete"?"unknown":state.coverage.state;
+      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
+        options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
+        writes?.recordingAvailable?.(options.turnId, options.sessionId(),excludedPending) ?? safety?.recordingAvailable,callGeneration]);
+      approvalMarkers.set(key,{version,marker}); return marker;
+    };
+  const asking = new Map<string, {decision:Promise<boolean>;group:ApprovalGroup}>();
+  const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?:string): Promise<boolean> => {
+    const key = JSON.stringify([destination.host, destination.port, destination.method, destination.protocol, destination.managedReference, approvalRevision()]);
+    let pending = asking.get(key);
     if (!pending) {
-      pending = requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network", kind: "command",
-        input: { ...destination, target: `${destination.host}:${destination.port}` },
+      const decision = requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network", kind: "command",
+        input: { ...destination, target: networkAuthority(destination) },
         description: taintedDestinationDescription(destination, firstTaint()?.source ?? null),
-      }).then(decision => decision.behavior === "allow", () => false).finally(() => asking.delete(destination.host));
-      asking.set(destination.host, pending);
+      }).then(decision => decision.behavior === "allow", () => false).finally(() => asking.delete(key));
+      pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set()}};
+      asking.set(key, pending);
     }
-    const allowed = await pending;
+    if(connectionId){pending.group.members.add(connectionId);approvalGroups.set(connectionId,pending.group);}
+    const allowed = await pending.decision;
     return allowed && !signal.aborted;
   };
   // The extraction classifier (#4088), off unless the policy turns it on. It
@@ -197,9 +294,17 @@ export async function prepareTurnEgress(options: {
     ...(options.policy.taint.judge.mode === "jev" && options.extractionJudge ? { judge: options.extractionJudge } : {}) }) : null;
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
+    approvalRevision,
+    recipient: (destination: OriginDestination) => {
+      const snapshot=options.trust?.read();
+      const match=originTrustMatchSnapshot(snapshot,destination,"recipientWhileRestricted",options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
+      if(!match||!snapshot?.ruleInstances[match.ruleId])return false;
+      const {ruleId,policyHash,trustRevision,collectionRevision}=match;
+      return {ruleId,policyHash,trustRevision,collectionRevision,instance:snapshot.ruleInstances[ruleId]!};
+    },
     tainted: (connectionId?: string) => {
       if (connectionId && normalBefore.has(connectionId)) {
-        const projection = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
+        const projection = currentProjection();
         // Only this request's own newly recorded input may be excluded from
         // its first-byte check. A second connection gets no such authority.
         if (projection.coverage.state === "complete" && projection.unresolvedCount === 1 &&
@@ -222,6 +327,8 @@ export async function prepareTurnEgress(options: {
    * moment it is submitted.
    */
   const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?:string }): Promise<void> => {
+    let provenance:ReturnType<typeof validatedEgressProvenance>;
+    try { provenance=validatedEgressProvenance(destination); } catch { throw new EgressAdmissionRefused("Invalid egress destination"); }
     // A host relay's operation neither taints the session nor makes its host
     // one the worker's own traffic may reach once tainted (G6, #3246).
     // A managed acquisition has not delivered source content to the model.
@@ -233,35 +340,60 @@ export async function prepareTurnEgress(options: {
     if (firstTaint() === null) normalBefore.add(destination.connectionId);
     if (!writes) return;
     const exposure = occurrence(collectionEpoch, "proxy_input", destination.connectionId, "open");
-    exposure.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
-    exposure.provenance=destination.method==="CONNECT"
-      ? {kind:"tunnel_authority",authority:{host:destination.host,port:destination.port},verifiedBy:"host_proxy"}
-      : destination.protocol==="http:"||destination.protocol==="https:"
-        ? {kind:"web_origin",origin:{scheme:destination.protocol==="http:"?"http":"https",host:destination.host,port:destination.port},verifiedBy:"host_transport"}:null;
+    const trustSnapshot = options.trust?.read();
+    const candidate = originTrustMatchSnapshot(trustSnapshot, destination, "incomingContent", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
+    const instance = candidate ? trustSnapshot?.ruleInstances[candidate.ruleId] : undefined;
+    const match = typeof instance === "string" ? candidate : null;
+    exposure.admission = match ? { trusted: true, ruleId: match.ruleId, policyHash: match.policyHash, trustRevision: match.trustRevision, collectionRevision: match.collectionRevision }
+      : { trusted: false, policyHash: trustSnapshot ? trustSnapshot.policyHash : options.policyHash ?? null, trustRevision: trustSnapshot?.revision ?? "0" };
+    exposure.provenance=provenance;
     exposures.set(destination.connectionId, exposure);
+    const group=approvalGroups.get(destination.connectionId);
+    if(group){group.occurrences.add(exposure.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}
+    const hadCollection=db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId);
     try {
-      await writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
+      const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
         detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } });
-    } catch (error) { fail(); throw error; }
+      exposureCommits.set(destination.connectionId, initial);
+      if(await initial !== true)throw new EgressAdmissionRefused("Input occurrence was not durably recorded","egress_unavailable");
+    } catch {
+      // No occurrence means no trusted fact and no terminal exposure to append.
+      exposures.delete(destination.connectionId);
+      throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
+    }
+    finally { exposureCommits.delete(destination.connectionId); }
+    if(db&&!hadCollection){
+      const created=db.query("SELECT c.id FROM safety_collections c WHERE c.turn_id=? AND (SELECT r.id FROM safety_records r WHERE r.collection_id=c.id AND r.kind='occurrence' ORDER BY length(r.sequence),r.sequence LIMIT 1)=?").get(options.turnId,exposure.id) as {id:string}|null;
+      if(created){ownCollectionStarts.set(destination.connectionId,created.id);if(group){group.starts.add(created.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}}
+    }
+    if(match)trustedInputs.set(destination.connectionId,{destination,revision:match.trustRevision,ruleId:match.ruleId,instance:instance!});
+    if (match && !inputCurrent(destination.connectionId)) throw new EgressAdmissionRefused("Source trust changed before dispatch","source_trust_changed");
   };
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */
-  const settled = async () => { while (recording.size) await Promise.all([...recording]); };
-  const proxy = await startEgressProxy({ mode: options.policy.egress.mode, allow: options.policy.egress.allow,
+  const settled = async () => { await proxy.settled(); while (recording.size) await Promise.all([...recording]); };
+  const proxy = await startEgressProxy({ pendingReservations, mode: options.policy.egress.mode, allow: options.policy.egress.allow,
     ...(options.bridge.admissionSafety ? { admissionSafety: options.bridge.admissionSafety } : {}),
     deny: options.policy.egress.deny, maxBytes: options.policy.egress.max_bytes_per_turn ?? Number.MAX_SAFE_INTEGER,
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
-    committed: destination => { if (!destination.inference && !destination.provider && !destination.managedReference) contacted.add(destination.host); }, ...(taint ? { taint } : {}),
+    inputCurrent,
+    committed:destination=>{
+      if(destination.inference||destination.provider)return;
+      if(destination.recipientAuthority.kind === "rule")standingRecipients.set(destination.connectionId,destination.recipientAuthority.admission);
+      if (!destination.managedReference && (destination.recipientApproved || !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId))) contacted.add(destination.host);
+    }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
         kind: "command", input: destination,
-        description: `${destination.method} to ${destination.host}:${destination.port}`,
+        description: `${destination.method} to ${networkAuthority(destination)}`,
       }, { noGrantSurface: options.origin === "voice" });
       return !signal.aborted && decision.behavior === "allow";
     },
   });
+  releaseTrust = options.trust?.subscribe(() => proxy.invalidateInputs());
+  options.controller.signal.addEventListener("abort", () => releaseTrust?.(), { once: true });
   const original = options.bridge;
   /** The bridge the backend receives, so its classifications and results open and close each call. */
   const bridge: BackendBridge = { ...original,
@@ -292,17 +424,17 @@ export async function prepareTurnEgress(options: {
       if (operation.signal.aborted) return false;
       let abort: (() => void) | undefined;
       try {
-        const ready = await Promise.race([settled().then(() => settleTurnSessionBinding(original, operation.signal)).catch(() => false), new Promise<false>(resolve => {
-          abort = () => resolve(false);
+        const refusal = await Promise.race([settled().then(() => settleTurnSessionBinding(original, operation.signal)).catch(() => "session_binding_unavailable" as const), new Promise<SessionBindingRefusal>(resolve => {
+          abort = () => resolve("turn_cancelled");
           operation.signal.addEventListener("abort", abort, { once: true });
-          if (operation.signal.aborted) resolve(false);
+          if (operation.signal.aborted) resolve("turn_cancelled");
         })]);
-        if (!ready) { operation.mark("admitMs"); operation.finish("denied", "session_binding_unavailable"); return false; }
+        if (refusal !== null) { operation.mark("admitMs"); operation.finish(refusal === "turn_cancelled" ? "cancelled" : "denied", refusal); return false; }
         return !operation.signal.aborted && await operation.admit();
       } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
     } };
   };
-  return { ...proxy, bridge, recordingFailure: () => recordingFailure, settled,
+  return { ...proxy, stop() { releaseTrust?.(); proxy.stop(); }, bridge, recordingFailure: () => recordingFailure, settled,
     inference: (method: string, target: URL, signal: AbortSignal) => relayOperation("inference", method, target, signal),
     relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal),
     managedReference: (target: URL, signal: AbortSignal) => settleOperation(proxy.managedReference(target, signal)) };

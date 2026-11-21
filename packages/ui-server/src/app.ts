@@ -2,6 +2,7 @@ import { credentialedIndexRefresh } from "./brain/credentialed-index-refresh.js"
 import { recordMaintenanceReceipt, startupReleaseFailure } from "./brain/host-maintenance-receipts.js";
 import { createNativeStartupReleases, setNativeStartupReleases } from "./brain/native-startup-releases.js";
 import type { IndexUpdateReceipt } from "./brain/index-update-receipt.js";
+import { createReferenceOwnerContinuity } from "./brain/reference-owner-resolution.js";
 import { createTrustSettings } from "./brain/trust-settings.js";
 import { createTrustSettingsRoutes } from "./routes/trust-settings.js";
 import { createTrustGitHubIdentity } from "./brain/trust-github-identity.js";
@@ -430,6 +431,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const nativeLeases = await createNativeBrainLeaseManager(nativeClient, { statePath: nativeLeasePath, brainPath: nativeReady.brainPath, fsid: nativeReady.fsid, brainUuid: nativeReady.brainUuid })
     .catch(error => { if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true }); throw error; });
   const bootCleanup: (() => void | Promise<void>)[] = [];
+  const ownerContinuity = await createReferenceOwnerContinuity(config.brainPath, nativeReady);
+  bootCleanup.push(() => ownerContinuity.close());
   try {
   const nativeRecovery = await nativeLeases.recoverDeadOwners();
   if (nativeRecovery.unknown.length || nativeRecovery.retainedUnverifiable) observability.logger("brain").emit({ severityText: "WARN",
@@ -567,7 +570,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   }
   // The agent tools (#2432) reach both services only through the turn's own access.
   const referenceTools = referenceSources ? createReferenceTools({ sources: referenceSources, ...(referenceWorktrees ? { worktrees: referenceWorktrees } : {}),
-    reads: createReferenceReads({ db, brain: nativeReady.brainUuid, sources: referenceSources, pool: nativeManager, transport: referenceTransport }),
+    reads: createReferenceReads({ db, ownerRoot: ownerContinuity.root, ownerPolicy: () => trustSettings.ownerPolicy(), brain: nativeReady.brainUuid, sources: referenceSources, pool: nativeManager, transport: referenceTransport }),
     log: brainLog }) : undefined;
   if (referenceWorktrees) {
     bootCleanup.push(() => referenceWorktrees.close());
@@ -784,7 +787,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => journal.close());
   // Startup recovery commits, or refuses boot, before any turn can run.
   await journal.ready;
-  const policyProposals = createPolicyProposals({ root: config.brainPath, db, writer,
+  const policyProposals = createPolicyProposals({ afterPublication: () => trustSettings.refreshLocked(), root: config.brainPath, db, writer,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
     recordEvent: (review, turn) => activity.governanceWrites.record({ kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,
@@ -1356,7 +1359,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const piExcluded = () => unavailableBackends.some(failure => failure.backendId === "pi");
   app.route("/api", createPiAuthRoutes({ agent: config.agent, excluded: piExcluded }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent, excluded: piExcluded }));
-  const trustSettings = createTrustSettings({ root: config.brainPath, db, writer, lock: workerLock,
+  const trustSettings = createTrustSettings({ root: config.brainPath, ownerRoot: ownerContinuity.root, db, writer, lock: workerLock, originEnforcement: true,
     github: createTrustGitHubIdentity({ root: config.brainPath, access: githubReferenceAccess }),
     authority: id => {
       if (authMode !== "password") return null;
@@ -1364,6 +1367,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       return p?.kind === "owner" && ["password", "passkey"].includes(p.authMethod) && isUsablePrincipal(p, Date.now())
         ? JSON.stringify([p.id, p.authMethod, p.credentialId, p.createdAt, p.expiresAt]) : null;
     }, observe: (id, publish) => journal.observeSettingsPolicy(id, publish) });
+  await trustSettings.snapshot();
+  host.originTrust = trustSettings.live;
+  host.safetyTrust = trustSettings.live;
   app.route("/api", createTrustSettingsRoutes({ settings: trustSettings, trustProxy: auth.trustProxy }));
   const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.
@@ -1557,6 +1563,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Consumers have drained; close the shared write connection before its reader.
       await attempt(() => writer.close());
       await attempt(() => db.close());
+      await attempt(() => ownerContinuity.close());
       clearTimeout(grace);
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, "Application shutdown retained failed cleanup outcomes.");
