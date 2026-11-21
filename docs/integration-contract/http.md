@@ -1399,3 +1399,9 @@ by every caller; reading it never retries admission or recomputes a cause.
 Outward approval markers include the active call-classification generation,
 so a covering call ending or an opaque call starting withdraws its exemption
 even across a durable occurrence write.
+
+Malformed proxy destination fields return HTTP 400 before recording input
+evidence. They cannot poison a safety-history page or stop later valid
+requests in the turn. Failed session binding remains 503 `egress_unavailable`
+on both initial and repeated inference admission. A cancelled cleanup cannot
+send its credentialed DELETE, and cancellation interrupts an in-flight DELETE.

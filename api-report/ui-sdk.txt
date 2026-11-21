@@ -1590,6 +1590,7 @@ export "./internal" (./src/internal.ts)
   runMaintenanceWorker
   runMaintenanceWorkerSync
   safetyAdmissionRefusal
+  safetyRecordSchema
   sameSafetyAdmission
   sessionPromptContext
   sessionPromptContextLocation
@@ -1601,6 +1602,7 @@ export "./internal" (./src/internal.ts)
   stripHostContextFromTitle
   turnTempLimit
   turnTempSpace
+  validatedEgressProvenance
   verifiedWorkerIdentity
   webSearchBrief
   webSearchKeySource

@@ -1,7 +1,7 @@
 /** One admitted turn's concrete proxy, approval surface and durable records. */
 import { originTrustMatch, originTrustMatchSnapshot, type OriginTrust, type OriginDestination } from "./origin-trust.js";
 import type { EffectiveGovernancePolicy, TrustMatch } from "@schlessera/brain-common/internal/governance-policy";
-import { startEgressProxy, canonicalEgressHost, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
+import { startEgressProxy, canonicalEgressHost, validatedEgressProvenance, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
@@ -285,6 +285,8 @@ export async function prepareTurnEgress(options: {
    * moment it is submitted.
    */
   const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?:string }): Promise<void> => {
+    let provenance:ReturnType<typeof validatedEgressProvenance>;
+    try { provenance=validatedEgressProvenance(destination); } catch { throw new EgressAdmissionRefused("Invalid egress destination"); }
     // A host relay's operation neither taints the session nor makes its host
     // one the worker's own traffic may reach once tainted (G6, #3246).
     // A managed acquisition has not delivered source content to the model.
@@ -303,10 +305,7 @@ export async function prepareTurnEgress(options: {
     exposure.admission = match ? { trusted: true, ruleId: match.ruleId, policyHash: match.policyHash, trustRevision: match.trustRevision, collectionRevision: match.collectionRevision }
       : { trusted: false, policyHash: trustSnapshot ? trustSnapshot.policyHash : options.policyHash ?? null, trustRevision: trustSnapshot?.revision ?? "0" };
     if (match) trustedInputs.set(destination.connectionId, { destination, revision: match.trustRevision, ruleId: match.ruleId, instance:instance! });
-    exposure.provenance=destination.method==="CONNECT"
-      ? {kind:"tunnel_authority",authority:{host:destination.host,port:destination.port},verifiedBy:"host_proxy"}
-      : destination.protocol==="http:"||destination.protocol==="https:"
-        ? {kind:"web_origin",origin:{scheme:destination.protocol==="http:"?"http":"https",host:destination.host,port:destination.port},verifiedBy:"host_transport"}:null;
+    exposure.provenance=provenance;
     exposures.set(destination.connectionId, exposure);
     try {
       const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,

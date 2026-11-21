@@ -11,3 +11,12 @@ test('review7: trusted wire admission requires complete immutable evidence',()=>
 test('review9: version-one history retains arbitrary valid detector IDs without admissions',()=>{
  const prior={...record,detector:'prior_detector_v1'};expect(safetyRecordSchema.parse(prior),'OLDER_V1_DETECTOR_IDS_REMAIN_READABLE').toEqual(prior);expect(safetyRecordSchema.safeParse({...prior,detector:'invalid/id'}).success).toBe(false);
 });
+
+for(const method of ['GET','CONNECT'])for(const port of [0,1,65535,65536,-1,1.5,NaN])test(`review17: ${method} destination port ${port} shares wire validation`,async()=>{
+ const {validatedEgressProvenance}=await import('../src/server/egress-proxy');const destination={method,protocol:'http:',host:'ithaca.example.org',port};
+ if(port===1||port===65535)expect(()=>validatedEgressProvenance(destination)).not.toThrow();else expect(()=>validatedEgressProvenance(destination),'DESTINATION_AND_WIRE_PORT_BOUNDS_AGREE').toThrow();
+});
+for(const method of ['GET','CONNECT'])for(const host of ['a'.repeat(253),'a'.repeat(254),'λ'.repeat(126),'λ'.repeat(127)])test(`review17: ${method} hostname ${Buffer.byteLength(host)} bytes shares wire validation`,async()=>{
+ const {validatedEgressProvenance}=await import('../src/server/egress-proxy');const destination={method,protocol:'http:',host,port:443};
+ if(Buffer.byteLength(host)<=253)expect(()=>validatedEgressProvenance(destination)).not.toThrow();else expect(()=>validatedEgressProvenance(destination),'DESTINATION_AND_WIRE_HOST_BYTE_BOUNDS_AGREE').toThrow();
+});

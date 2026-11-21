@@ -52,7 +52,7 @@ test("fixed metadata GET meters actual TLS, HTTP framing and both anonymous and 
     expect(authority).toContainEqual(["metadata", false]); expect(authority).toContainEqual(["metadata", true]);
     expect(f.wire.bytes().chargedBytes, "REFERENCE_TLS_AND_METADATA_WIRE_ACCOUNTED").toBeGreaterThan(JSON.stringify(metadata).length * 2);
     expect(f.egress.usedBytes()).toBe(f.wire.bytes().chargedBytes);
-    expect(f.destinations).toEqual([{ host: publicAddress, port: 443 }, { host: publicAddress, port: 443 }]);
+    expect(f.destinations).toEqual([{ host: publicAddress, port: 443,signal:expect.any(AbortSignal) }, { host: publicAddress, port: 443,signal:expect.any(AbortSignal) }]);
   } finally { await f.close(); server.stop(true); }
 });
 

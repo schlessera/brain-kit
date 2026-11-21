@@ -4,6 +4,7 @@ import { BlockList, connect, isIP, type Socket } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { safetyRecordSchema } from "../safety.js";
 import { createEgressOperation } from "./egress-operation.js";
 import { workerIdentityHelper } from "./worker-identity.js";
 import { join } from "node:path";
@@ -163,6 +164,14 @@ export const canonicalEgressHost = (value: string) => {
   const host = normalized.startsWith("[") && normalized.endsWith("]") ? normalized.slice(1, -1) : normalized;
   return isIP(host) === 6 ? new URL(`http://[${host}]`).hostname.slice(1, -1) : host;
 };
+/** The history wire schema is also the host's destination admission validator. */
+export function validatedEgressProvenance(destination:{method:string;protocol?:string;host:string;port:number}) {
+  const host=canonicalEgressHost(destination.host),port=destination.port;
+  if(destination.method!=="CONNECT"&&destination.protocol!=="http:"&&destination.protocol!=="https:")throw new Error("Invalid destination protocol");
+  return safetyRecordSchema.options[0].shape.provenance.parse(destination.method==="CONNECT"
+    ? {kind:"tunnel_authority",authority:{host,port},verifiedBy:"host_proxy"}
+    : {kind:"web_origin",origin:{scheme:destination.protocol==="https:"?"https":"http",host,port},verifiedBy:"host_transport"});
+}
 function matches(host: string, patterns: readonly string[]): boolean {
   return patterns.some(value => {
     const pattern = canonicalEgressHost(value);
@@ -432,7 +441,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     try {
       if (!request.url || !/^(?:[a-zA-Z0-9.-]+|\[[0-9a-fA-F:.]+\]):[0-9]+$/.test(request.url)) throw new Error();
       target = new URL(`http://${request.url}`);
-      if (!Number(target.port || 80)) throw new Error();
+      validatedEgressProvenance({method:"CONNECT",protocol:target.protocol,host:target.hostname,port:Number(target.port||80)});
     } catch { client.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"); return; }
     const op = operation("CONNECT", target);
     let connected = false, upstream: Socket | undefined;
@@ -446,7 +455,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         return;
       }
       const address = op.pinned();
-      upstream = track(connect({ host: address?.address ?? op.dialHost, port: Number(target.port || 80) }));
+      upstream = track(connect({ host: address?.address ?? op.dialHost, port: Number(target.port || 80), signal:op.signal }));
       const tunnel = upstream;
       tunnel.once("connect", () => {
         if (stopped || op.signal.aborted || client.destroyed || !op.charge(0).ok) { tunnel.destroy(); return; }
@@ -469,6 +478,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     try {
       target = new URL(request.url!);
       if (target.protocol !== "http:" || target.username || target.password || target.hash) throw new Error();
+      validatedEgressProvenance({method:request.method??"GET",protocol:target.protocol,host:target.hostname,port:Number(target.port||80)});
     } catch { response.writeHead(400); response.end(); return; }
     const op = operation(request.method ?? "GET", target);
     op.signal.addEventListener("abort", () => { if (response.headersSent) response.destroy(); }, { once: true });
@@ -495,7 +505,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       const upstreamTarget = new URL(target);
       if (address) upstreamTarget.hostname = address.family === 6 ? `[${address.address}]` : address.address;
       if (!op.commit().ok) { refuse(); return; }
-      const outgoing = httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders }, incoming => {
+      const outgoing = httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal }, incoming => {
         if (!op.charge(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming))).ok) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
         }
@@ -559,6 +569,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     },
   };
   function relayedOperation(method: string, target: URL, signal: AbortSignal, relay: "inference" | "provider" | "reference") {
+    validatedEgressProvenance({method,protocol:target.protocol,host:target.hostname,port:Number(target.port||(target.protocol==="https:"?443:80))});
     const op = operation(method, new URL(target), relay);
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });

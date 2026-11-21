@@ -111,7 +111,7 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
         check(recipient, capability.credentialed);
         const beforeConnection = operation.commit(); if (!beforeConnection.ok) throw chargeError(beforeConnection);
         if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed before connection");
-        upstream = track((options.connect ?? connect)({ host: addresses[0]!.address, port: 443 }));
+        upstream = track((options.connect ?? connect)({ host: addresses[0]!.address, port: 443,signal:AbortSignal.any([controller.signal,operation.signal]) }));
         const heldUpstream = upstream; upstreams.add(heldUpstream);
         heldUpstream.once("close", () => {
           upstreams.delete(heldUpstream); outgoingWireBytes += heldUpstream.bytesWritten; incomingWireBytes += heldUpstream.bytesRead;

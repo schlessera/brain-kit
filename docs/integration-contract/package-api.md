@@ -6015,3 +6015,11 @@ zero-byte ceiling exception applies only to an already-dispatched stream.
 Admission effects already started are joined before terminal observation and
 cleanup. Proxy `settled()` joins those effects before the host joins its durable
 records. Each operation owns and releases all of its per-connection keys once.
+
+Proxy destination admission and server occurrence provenance use the history
+record schema itself: host names fit 253 UTF-8 bytes and ports are integers
+from 1 through 65535. Invalid destinations are refused before admission effects
+or durable occurrence writes. Relay retries use the same stored-failure
+classification as initial admission. All upstream requests use operation
+cancellation together with their existing request/deadline signal, and check
+cancellation again after observer callbacks immediately before dispatch.

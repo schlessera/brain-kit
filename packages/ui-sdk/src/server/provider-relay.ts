@@ -532,13 +532,19 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     let response: Response;
     try {
       // Never follow a redirect: the upstream must not choose another host.
+      if (signal.aborted) {
+        const failure=operation?.failure() ?? {ok:false as const,reason:"cancelled" as const};
+        report("cancelled",egressChargeRefusal(failure,"Provider").status,null);return chargeDenied(failure);
+      }
       response = await fetch(target, { method: request.method, headers, ...(request.method === "POST" ? { body } : {}), redirect: "manual", signal });
     } catch {
       operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
       // The request may have reached the provider: its spend is unknown, never zero.
-      report(signal.aborted ? "cancelled" : "failed", 0, null);
-      return refuse(signal.aborted ? 499 : 502, signal.aborted ? "cancelled" : "upstream_unreachable",
-        signal.aborted ? "Provider request cancelled" : "Provider upstream unreachable");
+      if (signal.aborted) {
+        const failure=operation?.failure() ?? {ok:false as const,reason:"cancelled" as const};
+        report("cancelled",egressChargeRefusal(failure,"Provider").status,null);return chargeDenied(failure);
+      }
+      report("failed",0,null);return refuse(502,"upstream_unreachable","Provider upstream unreachable");
     }
     free();
     if (response.status >= 300 && response.status < 400) {
@@ -667,16 +673,17 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     return new Response(output, { status: response.status, headers: out });
   }
   /**
-   * Delete one Files handle a turn left behind, with the host's key and a
-   * fresh deadline, recorded as its own attempt. A worker that was cancelled
-   * or killed before its own cleanup ran leaves nothing on the host's account.
+   * Delete one owned Files handle while the turn still authorizes it, with
+   * the host's key and a fresh deadline, recorded as its own attempt.
+   * Turn cancellation revokes that authority and interrupts the DELETE.
    */
   async function cleanup(entry: { key: string; origin: string; name: string }): Promise<void> {
     const secret = credential(entry.key)?.trim();
     if (!secret || /[\r\n]/.test(secret)) return;
     const target = new URL(`/v1beta/${entry.name}`, entry.origin);
-    const signal = AbortSignal.timeout(FILES_CLEANUP_MS);
-    const operation = options.egress?.relayed("DELETE", target, signal);
+    const timeout = AbortSignal.timeout(FILES_CLEANUP_MS);
+    const operation = options.egress?.relayed("DELETE", target, timeout);
+    const signal=operation?AbortSignal.any([timeout,operation.signal]):timeout;
     const attemptId = crypto.randomUUID();
     const observe = (outcome: ProviderRelayReceipt["outcome"], status: number): void => {
       try { options.observe?.({ attemptId, family: "gemini", operation: "files", origin: entry.origin, key: entry.key, model: null, outcome, status, usage: null, inlineMedia: false }); }
@@ -692,13 +699,14 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     if (cleanupDecision && !cleanupDecision.ok) { observe("cancelled",egressChargeRefusal(cleanupDecision,"Provider").status); return; }
     observe("dispatched", 0);
     try {
+      if (signal.aborted) { observe("cancelled",egressChargeRefusal(operation?.failure() ?? {ok:false,reason:"cancelled"},"Provider").status);return; }
       const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
       await response.body?.cancel().catch(() => {});
       operation?.finish("completed");
       observe(response.ok ? "completed" : "failed", response.status);
     } catch {
       operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
-      observe("failed", 0);
+      observe(signal.aborted?"cancelled":"failed",signal.aborted?egressChargeRefusal(operation?.failure() ?? {ok:false,reason:"cancelled"},"Provider").status:0);
     }
   }
   chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);

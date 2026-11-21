@@ -124,7 +124,9 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         };
         const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
         const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Inference"); return refuse(request.method,path,detail.status,detail.message,operation?.reason?.() ?? detail.reason); };
-        if (operation && !await operation.admit()) return chargeDenied(operation.failure() ?? {ok:false,reason:"unavailable"});
+        const admitFailure = async ():Promise<EgressChargeFailure|undefined> => operation && !await operation.admit() ? operation.failure() ?? {ok:false,reason:"unavailable"} : undefined;
+        const initialAdmissionFailure=await admitFailure();
+        if (initialAdmissionFailure) return chargeDenied(initialAdmissionFailure);
         const initialDecision = operation?.charge(0);
         if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
         const declared = Number(request.headers.get("content-length") ?? "0");
@@ -189,17 +191,19 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         if (requestChargeFailure) return chargeDenied(requestChargeFailure);
         // Body/credential waits may have crossed an input-recording failure.
         // Re-enter the concrete host admission at the last dispatch boundary.
-        if(operation&&!await operation.admit())return denied("inference_admission_refused");
+        const finalAdmissionFailure=await admitFailure();
+        if (finalAdmissionFailure) return chargeDenied(finalAdmissionFailure);
         const dispatchDecision = operation?.commit();
         if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
         let response: Response;
         try {
           // Never follow a redirect: the upstream must not choose another host.
+          signal.throwIfAborted();
           response = await fetch(target, { method: "POST", headers, body, redirect: "manual", signal });
         } catch {
           operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
-          return refuse(request.method, path, signal.aborted ? 499 : 502,
-            signal.aborted ? "Inference request cancelled" : "Inference upstream unreachable");
+          if (signal.aborted) return chargeDenied(operation?.failure() ?? {ok:false,reason:"cancelled"});
+          return refuse(request.method,path,502,"Inference upstream unreachable");
         }
         if (response.status >= 300 && response.status < 400) {
           operation?.finish("failed", "upstream_redirected");

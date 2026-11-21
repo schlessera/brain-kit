@@ -33,3 +33,5 @@ Separate preparation byte charging from dispatch notification and contacted-host
 Capture one immutable typed refusal per egress operation before abort, preserve it through every caller and audit record, and fence outward exemptions with the active call-classification generation.
 
 Guard the concrete proxy lifecycle through pending, admitted, dispatched and terminal states; distinguish exhausted new dispatch from exact-cap stream completion, fence closed wait continuations, and release all per-operation admission keys after terminal evidence.
+
+Validate destination provenance through the wire schema before durable writes, cancel every upstream cleanup/request with its operation and deadline, and preserve unavailable classifications through repeated inference admission.
