@@ -49,3 +49,7 @@ test('review22: final fence precedes send, dispatched state and notification',as
  const order:string[]=[],rows:EgressOperationTerminal[]=[];const op=createEgressOperation({decide(){},abort(){},observe:r=>rows.push(r)});expect(await op.admit(async()=>true)).toBe(true);op.prepare(()=>{order.push('prepare');});
  expect(op.dispatch(8,()=>{expect(op.dispatched(),'NO_DISPATCH_FACT_BEFORE_FINAL_FENCE').toBe(false);order.push('fence');return true;},()=>{expect(op.dispatched()).toBe(false);order.push('send');},()=>{expect(op.dispatched()).toBe(true);order.push('notify');})).toBe(true);op.finish('failed','upstream_unreachable');expect(order).toEqual(['prepare','fence','send','notify']);expect(rows).toMatchObject([{dispatched:true,outcome:'failed'}]);
 });
+
+test('review25: a synchronous handoff failure leaves classification to its caller',async()=>{
+ const rows:EgressOperationTerminal[]=[];let grants=0;const op=createEgressOperation({decide(){},abort(){},observe:r=>rows.push(r)});expect(await op.admit(async()=>true)).toBe(true);expect(()=>op.dispatch(8,()=>true,()=>{throw new Error('Odysseus transport unavailable');},()=>{grants++;})).toThrow('Upstream transport handoff failed');expect(op.state(),'TRANSPORT_THROW_CANNOT_PREEMPT_CALLER_CLASSIFICATION').toBe('dispatched');expect(rows).toEqual([]);expect(grants).toBe(1);op.finish('failed','upstream_unreachable');expect(rows).toEqual([{outcome:'failed',reason:'upstream_unreachable',dispatched:true}]);
+});

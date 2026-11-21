@@ -1,3 +1,7 @@
+/** Distinguishes a transport constructor/write failure from an admission refusal. */
+export class TransportHandoffFailed extends Error {
+ constructor(){super("Upstream transport handoff failed");this.name="TransportHandoffFailed";}
+}
 /** One concrete proxy operation's lifecycle; transport callbacks never advance state themselves. */
 export type EgressOperationState = 'pending' | 'admitted' | 'dispatched' | 'finished' | 'aborted';
 export interface EgressOperationTerminal {
@@ -80,8 +84,10 @@ export function createEgressOperation(options: {
       const first=state!=='dispatched';
       effectCount++;
       try{
-        send();
+        let failed=false;
+        try{send();}catch{failed=true;}
         if(first){if(terminal)terminal.dispatched=true;else state='dispatched';notify();}
+        if(failed)throw new TransportHandoffFailed();
         return true;
       }finally{effectCount--;flush();}
     },

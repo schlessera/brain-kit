@@ -6076,3 +6076,11 @@ constructs it inside `dispatch(send)` after the final fence, even if the
 client's body is still pending. That connection attempt is dispatched and
 contacted exposure; later cancellation cannot erase it. Subsequent writes and
 end still revalidate through the same send fence.
+
+A synchronous transport-handoff throw is classified by the same caller path
+as an asynchronous upstream rejection. Dispatch records the attempted handoff
+but does not abort or store an admission refusal before the caller classifies
+that transport error. Both report failed upstream attempts (502 before response
+headers), with provider receipt status 0 when no upstream response was seen.
+The final fence and transport invocation remain synchronous. Proxy HTTP and
+CONNECT use their ordinary upstream-failure handler for either failure order.

@@ -49,3 +49,5 @@ Separate preparation from actual dispatch facts and fence streaming delivery in 
 Fence upstream HTTP request construction and prove in-place selector edits retire source instances.
 
 Require remaining allowance on every governed web/relay route and debit received overflow consistently across proxy and relay traffic.
+
+Preserve ordinary upstream-failure classification for synchronous transport handoff errors.

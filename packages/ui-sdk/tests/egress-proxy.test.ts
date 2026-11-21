@@ -1,4 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
+import * as nodeHttp from "node:http";
+import * as nodeNet from "node:net";
 import { connect, createServer } from "node:net";
 import { request } from "node:http";
 import { existsSync } from "node:fs";
@@ -509,4 +511,11 @@ test('review23: HTTP connection attempt is recorded while client body is pending
 for(const opaque of [false,true])test(`review24: received ${opaque?'CONNECT':'HTTP'} overflow consumes remaining allowance`,async()=>{
  const records:EgressRecord[]=[];const origin=createServer(socket=>{socket.on('error',()=>{});if(opaque)socket.end('Ithaca '.repeat(2048));else socket.once('data',()=>socket.end('HTTP/1.1 200 OK\r\nContent-Length: 14336\r\n\r\n'+'Ithaca '.repeat(2048)));});await new Promise<void>(r=>origin.listen(0,'127.0.0.1',r));const port=(origin.address() as {port:number}).port;const proxy=await startEgressProxy({...defaults(records),maxBytes:4096});
  try{if(opaque)await tunnel(proxy.socketPath,`127.0.0.1:${port}`,'');else await get(proxy.socketPath,`http://127.0.0.1:${port}/`).catch(()=>undefined);await recorded(records,1);expect(proxy.remainingBytes(),'RECEIVED_PROXY_BYTES_CANNOT_LEAVE_LATER_ALLOWANCE').toBe(0);expect(records[0]).toMatchObject({outcome:'denied',failureReason:'budget',bytes:4096});}finally{proxy.stop();await new Promise<void>(r=>origin.close(()=>r()));}
+});
+
+
+for(const opaque of [false,true])for(const synchronous of [false,true])test(`review25: proxy ${opaque?'CONNECT':'HTTP'} ${synchronous?'sync throw':'async refusal'} is 502`,async()=>{
+ const reserved=createServer();await new Promise<void>(r=>reserved.listen(0,'127.0.0.1',r));const port=(reserved.address() as {port:number}).port;await new Promise<void>(r=>reserved.close(()=>r()));const records:EgressRecord[]=[];const proxy=await startEgressProxy(defaults(records));const originalHttp=nodeHttp.request,originalConnect=nodeNet.connect;
+ const mocked=synchronous?(opaque?spyOn(nodeNet,'connect').mockImplementation(((...args:unknown[])=>{if(typeof args[0]==='object'&&args[0]!==null&&'port' in args[0]&&Number(args[0].port)===port)throw new Error('Odysseus dial unavailable');return Reflect.apply(originalConnect,nodeNet,args);}) as typeof nodeNet.connect):spyOn(nodeHttp,'request').mockImplementation(((...args:Parameters<typeof nodeHttp.request>)=>{if(args[0] instanceof URL&&Number(args[0].port)===port)throw new Error('Odysseus HTTP unavailable');return Reflect.apply(originalHttp,nodeHttp,args);}) as typeof nodeHttp.request)):undefined;
+ try{const status=opaque?Number(/^HTTP\/1.1 (\d+)/.exec(await tunnel(proxy.socketPath,`127.0.0.1:${port}`,'').catch(()=>''))?.[1]??0):(await get(proxy.socketPath,`http://127.0.0.1:${port}/`).catch(()=>({status:0}))).status;expect(status,'PROXY_SYNC_AND_ASYNC_TRANSPORT_FAILURE_ARE_502').toBe(502);await recorded(records,1);expect(records[0]).toMatchObject({outcome:'failed',reason:'upstream_unreachable',dispatched:true});}finally{mocked?.mockRestore();proxy.stop();}
 });
