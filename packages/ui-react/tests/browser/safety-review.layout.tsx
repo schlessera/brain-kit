@@ -1,5 +1,6 @@
 /// <reference types="@vitest/browser-playwright" />
 import {afterAll,afterEach,beforeAll,expect,test} from 'vitest';
+import {watchdogMs} from '../../../../scripts/test-deadlines.js';
 import {commands,page,userEvent} from 'vitest/browser';
 import {createRoot,type Root} from 'react-dom/client';
 import {flushSync} from 'react-dom';
@@ -339,12 +340,22 @@ for(const future of [false,true])test(`fable F1 browser: ${future?'combined':'in
  await patch({action:'add_verified'});await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
  await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
  const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
- commitBarrier=async result=>{const p=(result.body as {currentProjection:{evidenceRevision:string}}).currentProjection;await expect.poll(()=>ui!.stores.safety.getState().revision).toBe(p.evidenceRevision);};
+ let responseObserved=false;
+ commitBarrier=async result=>{
+  const receipt=result.body as {stage?:string;receipt?:{stage:string};currentProjection:{evidenceRevision:string}};
+  expect(result.status).toBe(200);expect(receipt.stage??receipt.receipt?.stage).toBe('verdict_committed');
+  await expect.poll(()=>ui!.stores.safety.getState().revision,{timeout:watchdogMs(5000)}).toBe(receipt.currentProjection.evidenceRevision);
+  responseObserved=true;
+ };
  await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);
  if(future){await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Save future source rule and mark this trigger safe',exact:true}));}
  else await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
- await expect.poll(()=>section().textContent).toContain(future?'This operation recorded a safe verdict':'Decision recorded');expect(section().textContent).not.toContain('Review cancelled');
-});
+ // Protected publication and response delivery have no one-second product deadline.
+ // First await the real committed response with its own live update observed;
+ // then await React's acknowledgement. Both are bounded hang watchdogs.
+ await expect.poll(()=>responseObserved,{timeout:watchdogMs(5000)}).toBe(true);
+ await expect.poll(()=>section().textContent,{timeout:watchdogMs(5000)}).toContain(future?'This operation recorded a safe verdict':'Decision recorded');expect(section().textContent).not.toContain('Review cancelled');
+},watchdogMs(20000));
 test('fable F2 browser: cancel future preparation then individual review remains Decision recorded',async()=>{
  await page.viewport(320,900);fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view();await patch({action:'add_verified'});await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
  await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
