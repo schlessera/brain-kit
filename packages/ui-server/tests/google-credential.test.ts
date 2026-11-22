@@ -271,7 +271,8 @@ describe("google home validation", () => {
     rmSync(f.home, { recursive: true }); mkdirSync(f.home, { mode: 0o700 }); chmodSync(f.home, 0o700);
     expect(checkGoogleHome(f.home, areas, { mask }), "RECREATED_HOME_REFUSED").toMatchObject({ ok: false, reason: "home_created_after_boot" });
     // A mask nothing holds open cannot tell them apart, so it is never accepted.
-    expect(checkGoogleHome(f.home, areas, { mask: googleHomeMask(f.home, areas) }), "UNHELD_MASK_REFUSED").toMatchObject({ ok: false, reason: "home_unresolvable" });
+    expect(checkGoogleHome(f.home, areas, { mask: googleHomeMask(f.home, areas) }), "UNHELD_MASK_REFUSED").toMatchObject({ ok: false, reason: "home_unresolvable",
+      detail: expect.stringContaining("was not held open") });
     const closed = googleWorkerMasks(f.home, f.homeLayout, { hold: true });
     closed.close(); closed.close();
     expect(closed.home.descriptor, "CLOSE_RELEASES_THE_DESCRIPTOR").toBeNull();
@@ -360,6 +361,9 @@ describe("google home validation", () => {
     expect(googleHomeMask(f.serverHome, areas), "NO_MASK_AT_THE_SERVER_HOME").toEqual({ path: null });
     expect(googleHomeMask(f.state, areas), "NO_MASK_AT_THE_DATABASE_DIRECTORY").toEqual({ path: null });
     // Below a root every worker replaces with its own: in no worker's view, and a mask under /proc breaks every launch.
+    // (/proc and /dev are worker mounts too; /tmp, a temp area elsewhere, is not one in this layout.)
+    const inTmp = mkdtempSync("/tmp/odysseus-gog-home-"); cleanups.push(() => rmSync(inTmp, { recursive: true, force: true }));
+    expect(googleHomeMask(inTmp, areas), "NO_MASK_UNDER_TMP").toEqual({ path: null });
     expect(googleHomeMask("/proc/self", areas), "NO_MASK_UNDER_PROC").toEqual({ path: null });
     expect(googleHomeMask("/dev/shm", areas), "NO_MASK_UNDER_DEV").toEqual({ path: null });
     // The brain, either way round.
@@ -761,14 +765,19 @@ describe("google and the host", () => {
     expect(run(outcome.maskPaths.filter(path => path !== home)).read, "UNMASKED_GOG_HOME_READABLE_CONTROL").toBe(PASSWORD);
   });
 
-  test("google: a host with a good gog home masks it in every worker view and gets past the home to the binary", async () => {
+  test("google: a host with a good gog home masks it in every worker view, gets past the home to the binary, and releases the home on close", async () => {
     let status: GoogleAvailabilityStatus | undefined;
+    let whileServing: string[] = [];
     const f = layout();
+    /** This process's descriptors open on the home. */
+    const holding = () => readdirSync("/proc/self/fd").filter(fd => { try { return fs.readlinkSync(`/proc/self/fd/${fd}`) === f.home; } catch { return false; } });
     const outcome = await hostedApp(() => ({ BRAIN_UI_GOOGLE_HOME: f.home, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: PASSWORD, BRAIN_UI_GOG_PATH: join(f.root, "no-gog") }),
-      async app => { status = await app.wsHost.google!.status("ithaca"); });
+      async app => { status = await app.wsHost.google!.status("ithaca"); whileServing = holding(); });
     expect(served(outcome.frames), "CHAT_SERVED_WITH_A_GOOD_HOME").toBe(true);
     expect(outcome.maskPaths, "GOOD_HOME_IS_A_WORKER_MASK").toContain(f.home);
     expect(status, "GOOD_HOME_REACHES_THE_PIN").toMatchObject({ state: "unavailable", reason: "binary_refused", cause: "binary_missing" });
+    expect(whileServing, "APP_HOLDS_THE_HOME_WHILE_SERVING").toHaveLength(1);
+    expect(holding(), "APP_CLOSE_RELEASES_THE_HOME").toEqual([]);
   });
 
   test("google: a host boundary's child never holds a google name its caller passed", async () => {
@@ -811,8 +820,6 @@ describe("google masks under a separate worker identity", () => {
     expect(seen.closed.plan, "LAUNCH_PLAN_STANDS_WITHOUT_THE_UNREACHABLE_MASK").toMatchObject({ ok: true });
     // The control: with that mask the launcher widens it over the brain and refuses the launch.
     expect(seen.closed.control, "CONTROL_WIDENED_MASK_REFUSED").toEqual({ ok: false, error: expect.stringContaining("a private mask ancestor overlaps the brain or required runtime") });
-    // Opened to the worker identity after boot: the unmasked home is refused until a restart.
-    expect(seen.reopened, "REOPENED_HOME_REFUSED").toMatchObject({ ok: false, reason: "home_moved", detail: expect.stringContaining("no longer behind a directory workers cannot pass") });
     // A searchable chain: the home is masked and the launcher covers exactly it.
     expect(seen.open.masks, "MASK_FOR_A_REACHABLE_HOME").toContain(seen.open.home);
     expect(seen.open.check, "REACHABLE_HOME_PASSES_ITS_CHECK").toEqual({ ok: true, path: seen.open.home });
@@ -823,6 +830,8 @@ describe("google masks under a separate worker identity", () => {
       expect(booted.masks, "NO_MASK_FOR_AN_UNREACHABLE_DEFAULT").not.toContain("/opt/server-home/.local/share/gogcli");
     }
     expect(seen.open.plan.ok && seen.open.plan.tmpfs, "LAUNCH_PLAN_COVERS_THE_REACHABLE_DEFAULT").toContain("/opt/server-home/.config/gogcli");
+    // Opened to the worker identity after boot: the unmasked home is refused until a restart.
+    expect(seen.reopened, "REOPENED_HOME_REFUSED").toMatchObject({ ok: false, reason: "home_moved", detail: expect.stringContaining("no longer behind a directory workers cannot pass") });
   });
 });
 
