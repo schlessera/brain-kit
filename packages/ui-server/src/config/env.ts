@@ -770,9 +770,11 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "BRAIN_UI_GOOGLE_HOME",
     description:
       "Absolute path of the gog home the host's Google tools use: gog's configuration and its encrypted file keyring, written by `brain google connect --remote` from the host's shell. " +
-      "It must be a directory with mode 0700, owned by the user the server runs as, and neither inside nor holding the brain, the database directory, a directory the server binds into workers (its HOME, the Bun runtime) or a temp area (/tmp, /var/tmp, /dev/shm, TMPDIR). " +
+      "It must exist before the server starts, as a directory with mode 0700 owned by the user the server runs as, neither inside nor holding the brain, the database directory, a host path workers see " +
+      "(the server's HOME, the Bun runtime, the system directories and the /etc files workers bind, /proc, /dev) or a temp area (/tmp, /var/tmp, /dev/shm, TMPDIR). " +
       "It is checked at first use and on every later use, never at boot: a home that fails a check makes the Google tools answer unavailable with the reason, and the server boots and serves chats as usual. " +
-      "Every worker's view covers it, a cron job's included: the cron runner reads it from the emitted environment for that alone. Never passed to any subprocess or worker.",
+      "Every worker's view covers it from boot, a cron job's included (the cron runner reads it from the emitted environment for that alone), so a home created, replaced or moved after the server started is refused until a restart. " +
+      "gog's own default directories under the server's HOME (~/.config/gogcli, ~/.local/share/gogcli, ~/.local/state/gogcli, ~/.cache/gogcli) are covered too, where they exist at boot. Never passed to any subprocess or worker.",
     default: "(unset — the Google tools answer unavailable)",
     required: false,
   },
@@ -788,7 +790,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "BRAIN_UI_GOG_PATH",
     description:
       "Absolute path of the gog release binary the host runs. It must be a listed gog release with its published checksum, and it and its directory must be owned by root or the server's user " +
-      "and writable by no one else; the host checks this at first use and refuses anything else as transport_incompatible. Package-manager builds do not match.",
+      "and writable by no one else; the host checks this at first use and refuses anything else as transport_incompatible. Package-manager builds do not match. Never passed to any subprocess or worker.",
     default: "(unset — the Google tools answer unavailable)",
     required: false,
   },

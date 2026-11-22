@@ -44,7 +44,7 @@ import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
 import { createGoogleCredential } from "./google/credential.js";
-import { googleHomeMask, googleWorkerMounts } from "./google/home.js";
+import { googleHostLayout, googleWorkerMasks } from "./google/home.js";
 import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, googleHostEnv, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
@@ -418,10 +418,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // The manager verifies its fixed topology and root-private state. These are
   // exact masks, not app-owned directories to enumerate or mask by parent.
   // The Google home (#4206) is one too: the configured home as it resolves at
-  // boot, wherever the operator put it, and never a reason to refuse the boot.
+  // boot, and gog's default directories under the server's HOME, each only where a
+  // mask is safe to lay; never a reason to refuse the boot or a launch.
   const googleEnv = googleHostEnv(config.dbPath);
-  const googleMask = googleHomeMask(googleEnv.home, config.brainPath);
-  const nativeMaskPaths = [...nativeReady.privatePaths, ...(googleMask ? [googleMask] : [])];
+  const googleLayout = googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: subprocessEnv("brainCli").HOME });
+  const googleMasks = googleWorkerMasks(googleEnv.home, googleLayout);
+  const nativeMaskPaths = [...nativeReady.privatePaths, ...googleMasks.paths];
   try { assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }); }
   catch (error) {
     if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true });
@@ -832,9 +834,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
   // The host's Google credential (#4206): the home is checked at first use,
   // and a home that fails a check makes Google unavailable with its reason,
-  // never this boot. Its mask is in nativeMaskPaths above.
-  const google = createGoogleCredential({ env: googleEnv,
-    layout: { brainPath: config.brainPath, dbPath: config.dbPath, workerMounts: googleWorkerMounts(subprocessEnv("brainCli").HOME) },
+  // never this boot. Its masks are in nativeMaskPaths above.
+  const google = createGoogleCredential({ env: googleEnv, layout: googleLayout, masks: googleMasks,
     report: (message, status) => brainLog.emit({ severityText: status.state === "available" ? "INFO" : "WARN", body: message,
       attributes: { "google.state": status.state, ...(status.state === "unavailable" ? { "google.reason": status.reason } : {}) } }) });
   const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());

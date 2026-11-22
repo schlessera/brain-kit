@@ -12,11 +12,13 @@
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { GOG_ENVIRONMENT_NAMES } from "@schlessera/brain-common/internal/google-gog";
+import { GOG_ENVIRONMENT_NAMES, type GogTransport } from "@schlessera/brain-common/internal/google-gog";
+import { workerSystemPaths } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import { createFakeGog, type FakeGog, type FakeGogScenario } from "../../common/tests/support/fake-gog.ts";
 import { createApp } from "../src/app.js";
@@ -30,8 +32,8 @@ import {
   type GoogleAvailabilityStatus, type GoogleCredentialOptions, type GoogleUnavailableReason,
 } from "../src/google/credential.js";
 import {
-  checkGoogleHome, googleHomeAreas, googleHomeMask, googleTempAreas, googleWorkerMounts,
-  type GoogleHomeCheck, type GoogleHomeCheckOptions, type GoogleHomeLayout, type GoogleHomeReason,
+  checkGoogleHome, GOG_DEFAULT_DIRS, googleHomeAreas, googleHomeMask, googleHostLayout, googleTempAreas, googleWorkerMasks, googleWorkerMounts,
+  type GoogleHomeCheck, type GoogleHomeCheckOptions, type GoogleHomeLayout, type GoogleHomeMask, type GoogleHomeReason,
 } from "../src/google/home.js";
 import { createRecordingObservability } from "../src/observability/index.js";
 import type { WSContext } from "../src/ws/clients.js";
@@ -41,9 +43,11 @@ import { makeFakeBackend } from "./helpers/fake-backend.js";
 const ROOT = resolve(import.meta.dir, "../../..");
 const LABELS = JSON.parse(readFileSync(join(ROOT, "packages/common/tests/fixtures/gog/labels-list.json"), "utf8"));
 const PASSWORD = "penelope-weaves-by-day-and-unweaves-by-night";
-const GOOGLE_NAMES = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER", "GOG_HOME", "GOG_ACCESS_TOKEN", "GOG_KEYRING_PASSWORD", "BRAIN_GOOGLE_HOME"] as const;
+const GOOGLE_NAMES = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER", "BRAIN_UI_GOG_PATH", "GOG_HOME", "GOG_ACCESS_TOKEN", "GOG_KEYRING_PASSWORD", "BRAIN_GOOGLE_HOME"] as const;
 const GUARD = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE)$/;
-const leaked = (env: Record<string, string | undefined>) => Object.keys(env).filter(name => /^(GOG_|BRAIN_UI_GOOGLE_|BRAIN_GOOGLE_)/.test(name) || String(env[name]).includes(PASSWORD));
+const leaked = (env: Record<string, string | undefined>) => Object.keys(env).filter(name => /^(GOG_|BRAIN_UI_GOOGLE_|BRAIN_GOOGLE_|BRAIN_UI_GOG_PATH$)/.test(name) || String(env[name]).includes(PASSWORD));
+/** The Bun runtime's directory, which every worker binds, and its parent. */
+const RUNTIME = dirname(realpathSync(process.execPath));
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -137,6 +141,11 @@ describe("google home validation", () => {
     ["inside the database directory", f => { const home = join(f.state, "gog"); mkdirSync(home, { mode: 0o700 }); return home; }, "home_overlaps_database"],
     ["inside a worker mount", f => { const home = join(f.serverHome, ".config/gogcli"); mkdirSync(home, { recursive: true, mode: 0o700 }); chmodSync(home, 0o700); return home; }, "home_overlaps_worker_mount"],
     ["holding a worker mount", f => { const home = join(f.root, "outer"); mkdirSync(home, { mode: 0o700 }); return home; }, "home_overlaps_worker_mount"],
+    // The default inventory: what a transport worker binds whatever its masks.
+    ["inside a system directory", () => "/usr/share/odysseus-gog-home", "home_overlaps_worker_mount"],
+    ["inside the certificate store a transport binds", () => "/etc/ssl/certs/odysseus-gog-home", "home_overlaps_worker_mount"],
+    ["holding the Bun runtime", () => dirname(RUNTIME), "home_overlaps_worker_mount"],
+    ["under /proc", () => "/proc/self", "home_overlaps_worker_mount"],
     ["inside a temp area", f => { const home = join(f.temp, "gog"); mkdirSync(home, { mode: 0o700 }); return home; }, "home_overlaps_temp"],
     ["a symlink into the brain", f => { const target = join(f.brain, ".gog"); mkdirSync(target, { mode: 0o700 }); symlinkSync(target, join(f.root, "linked")); return join(f.root, "linked"); }, "home_overlaps_brain"],
     ["a symlink into a temp area", f => { const target = join(f.temp, "gog"); mkdirSync(target, { mode: 0o700 }); symlinkSync(target, join(f.root, "linked")); return join(f.root, "linked"); }, "home_overlaps_temp"],
@@ -144,19 +153,24 @@ describe("google home validation", () => {
     ["missing", f => join(f.root, "absent"), "home_missing"],
     ["a file", f => { writeFileSync(join(f.root, "file"), "Argos"); return join(f.root, "file"); }, "home_not_directory"],
   ];
-  // "holding a worker mount" needs the worker mount below it.
+  const DEFAULT_INVENTORY = new Set(["inside a system directory", "inside the certificate store a transport binds", "holding the Bun runtime", "under /proc"]);
+  // "holding a worker mount" needs the worker mount below it; the default-inventory rows the server's own.
   const prepared = (row: Row, f: ReturnType<typeof layout>) => {
     if (row[0] === "holding a worker mount") return { ...f, homeLayout: { ...f.homeLayout, workerMounts: [join(f.root, "outer/server-home")] } };
+    if (DEFAULT_INVENTORY.has(row[0])) return { ...f, homeLayout: { ...f.homeLayout, workerMounts: googleWorkerMounts(f.serverHome) } };
     return f;
   };
 
   for (const row of rows) test(`google: a home ${row[0]} is refused as ${row[2]}, and Google answers unavailable with it`, async () => {
     const f = prepared(row, layout());
     const home = row[1](f);
-    const check: GoogleHomeCheck = checkGoogleHome(home, googleHomeAreas(f.homeLayout), { ...row[3], masked: googleHomeMask(home, f.brain) ?? null });
+    const areas = googleHomeAreas(f.homeLayout);
+    const check: GoogleHomeCheck = checkGoogleHome(home, areas, { ...row[3], mask: googleHomeMask(home, areas) });
     expect(check.ok ? "ok" : check.reason, `HOME_CHECK: ${row[0]}`).toBe(row[2]);
     if (!check.ok) expect(check.detail, "DETAIL_NAMES_THE_SETTING_NOT_THE_PATH").toStartWith("BRAIN_UI_GOOGLE_HOME ");
     if (!check.ok && home) expect(check.detail).not.toContain(f.root);
+    // An overlap means a worker may already hold the token: the detail says so.
+    if (!check.ok && check.reason.startsWith("home_overlaps_")) expect(check.detail, "OVERLAP_TOKEN_EXPOSED").toContain("treat any token stored there as exposed");
     // Through the probe: the same reason, and gog never runs.
     const fake = fakeGog({ "gmail.labels.list": { stdout: LABELS } });
     const { google } = credential(home, f.homeLayout, { binary: fake.binary, ...(row[3] ?? {}) });
@@ -169,34 +183,110 @@ describe("google home validation", () => {
     const f = layout();
     const link = join(f.root, "linked-home"); symlinkSync(f.home, link);
     const areas = googleHomeAreas(f.homeLayout);
-    expect(checkGoogleHome(f.home, areas, { masked: f.home }), "GOOD_HOME_PASSES").toEqual({ ok: true, path: f.home });
-    expect(checkGoogleHome(link, areas, { masked: googleHomeMask(link, f.brain)! }), "LINKED_HOME_RESOLVED").toEqual({ ok: true, path: f.home });
+    const mask = googleHomeMask(f.home, areas);
+    expect(checkGoogleHome(f.home, areas, { mask }), "GOOD_HOME_PASSES").toEqual({ ok: true, path: f.home });
+    expect(checkGoogleHome(link, areas, { mask: googleHomeMask(link, areas) }), "LINKED_HOME_RESOLVED").toEqual({ ok: true, path: f.home });
     const elsewhere = join(f.root, "elsewhere"); mkdirSync(elsewhere, { mode: 0o700 });
-    expect(checkGoogleHome(elsewhere, areas, { masked: f.home }), "MOVED_HOME_REFUSED").toMatchObject({ ok: false, reason: "home_moved" });
-    expect(checkGoogleHome(f.home, areas, { masked: null }), "UNMASKED_HOME_REFUSED").toMatchObject({ ok: false, reason: "home_moved" });
+    expect(checkGoogleHome(elsewhere, areas, { mask }), "MOVED_HOME_REFUSED").toMatchObject({ ok: false, reason: "home_moved" });
+    expect(checkGoogleHome(f.home, areas, { mask: { path: null } }), "UNMASKED_HOME_REFUSED").toMatchObject({ ok: false, reason: "home_moved" });
   });
 
-  test("google: the default temp areas are the process temp directory and the shared temp roots", () => {
+  test("google: a home missing at boot and created later is refused until a restart, and never becomes available", async () => {
+    const f = layout();
+    const later = join(f.root, "later");
+    const areas = googleHomeAreas(f.homeLayout);
+    const mask: GoogleHomeMask = googleHomeMask(later, areas);
+    expect(mask, "NO_MASK_FOR_A_MISSING_HOME").toEqual({ path: null, absentAtBoot: true });
+    expect(checkGoogleHome(later, areas, { mask }), "MISSING_HOME_SAYS_CREATE_BEFORE_START").toMatchObject({ ok: false, reason: "home_missing",
+      detail: expect.stringContaining("exists when the server starts") });
+    // Built while the home is missing, as at boot; then the operator creates it right.
+    const fake = fakeGog({ "gmail.labels.list": { stdout: LABELS } });
+    const { google } = credential(later, f.homeLayout, { binary: fake.binary });
+    expect(google.maskPaths, "NOTHING_MASKED_FOR_A_MISSING_HOME").toEqual([]);
+    mkdirSync(later, { mode: 0o700 }); chmodSync(later, 0o700);
+    expect(checkGoogleHome(later, areas, { mask }), "CREATED_HOME_REFUSED").toMatchObject({ ok: false, reason: "home_created_after_boot",
+      detail: expect.stringContaining("did not exist when the server started") });
+    for (let call = 0; call < 2; call++) {
+      expect(await google.status(alias()), `CREATED_HOME_UNAVAILABLE_UNTIL_RESTART: ${call}`).toMatchObject({ state: "unavailable", reason: "home_created_after_boot" });
+    }
+    expect(fake.calls(), "NO_GOG_FOR_A_HOME_CREATED_AFTER_BOOT").toEqual([]);
+    // A restart lays the mask, and the same home is available.
+    const restarted = credential(later, f.homeLayout, { binary: fake.binary }).google;
+    expect(restarted.maskPaths, "RESTART_MASKS_IT").toEqual([later]);
+    expect(reasonOf(await restarted.status(alias())), "AVAILABLE_AFTER_A_RESTART").toBe("available");
+  });
+
+  test("google: a home replaced after boot is refused until a restart, though it has the same path, mode and owner", async () => {
+    const f = layout();
+    const fake = fakeGog({ "gmail.labels.list": { stdout: LABELS } });
+    const account = alias();
+    const { google } = credential(f.home, f.homeLayout, { binary: fake.binary });
+    expect(reasonOf(await google.status(account))).toBe("available");
+    rmSync(f.home, { recursive: true }); mkdirSync(f.home, { mode: 0o700 }); chmodSync(f.home, 0o700);
+    expect(await google.status(account), "REPLACED_HOME_REFUSED").toMatchObject({ state: "unavailable", reason: "home_created_after_boot",
+      detail: expect.stringContaining("was replaced after the server started") });
+    expect(fake.calls(), "NO_GOG_FOR_A_REPLACED_HOME").toHaveLength(1);
+  });
+
+  test("google: the default temp areas and worker mounts", () => {
     expect(googleTempAreas(), "GOOGLE_TEMP_AREAS").toEqual(expect.arrayContaining([tmpdir(), "/tmp", "/var/tmp", "/dev/shm"]));
     const f = layout();
     const inTemp = mkdtempSync(join(tmpdir(), "odysseus-gog-home-")); chmodSync(inTemp, 0o700);
     cleanups.push(() => rmSync(inTemp, { recursive: true, force: true }));
     const defaults = googleHomeAreas({ brainPath: f.brain });
-    expect(checkGoogleHome(inTemp, defaults, { masked: realpathSync(inTemp) }), "DEFAULT_TEMP_REFUSED").toMatchObject({ ok: false, reason: "home_overlaps_temp" });
-    expect(googleWorkerMounts("/srv/ithaca/home"), "WORKER_MOUNTS_NAME_THE_SERVER_HOME_AND_RUNTIME")
-      .toEqual(["/srv/ithaca/home", dirname(realpathSync(process.execPath))]);
-    expect(googleWorkerMounts("/"), "A_ROOT_HOME_IS_NO_MOUNT").toEqual([dirname(realpathSync(process.execPath))]);
+    expect(checkGoogleHome(inTemp, defaults, { mask: googleHomeMask(inTemp, defaults) }), "DEFAULT_TEMP_REFUSED").toMatchObject({ ok: false, reason: "home_overlaps_temp" });
+    // Every host path a worker sees whatever its masks: the server's HOME, the
+    // runtime, and the system paths a transport binds with no mask at all.
+    const mounts = googleWorkerMounts("/srv/ithaca/home");
+    expect(mounts, "WORKER_MOUNTS_NAME_THE_SERVER_HOME_RUNTIME_AND_SYSTEM").toEqual(["/srv/ithaca/home", RUNTIME, ...workerSystemPaths()]);
+    expect(mounts, "WORKER_MOUNTS_HOLD_THE_SYSTEM_PATHS").toEqual(expect.arrayContaining(["/usr", "/bin", "/lib", "/etc/passwd", "/etc/resolv.conf", "/etc/ssl/certs", "/proc", "/dev"]));
+    expect(googleWorkerMounts("/"), "A_ROOT_HOME_IS_NO_MOUNT").toEqual([RUNTIME, ...workerSystemPaths()]);
+    expect(googleHostLayout({ brainPath: f.brain, dbPath: join(f.state, "ui.db"), serverHome: f.serverHome }), "HOST_LAYOUT").toEqual({
+      brainPath: f.brain, dbPath: join(f.state, "ui.db"), workerMounts: googleWorkerMounts(f.serverHome), serverHome: f.serverHome });
   });
 
-  test("google: the worker mask is the home as it resolves at boot, and none for a home in the brain", () => {
+  test("google: the worker mask is the home as it resolves at boot, and only where a mask is safe to lay", () => {
     const f = layout();
     const link = join(f.root, "linked-home"); symlinkSync(f.home, link);
-    expect(googleHomeMask(link, f.brain), "MASK_IS_RESOLVED_HOME").toBe(f.home);
-    expect(googleHomeMask(join(f.root, "not-yet"), f.brain), "MASK_FOR_A_HOME_NOT_CREATED_YET").toBe(join(f.root, "not-yet"));
-    expect(googleHomeMask(join(f.brain, ".gog"), f.brain), "NO_MASK_INSIDE_THE_BRAIN").toBeUndefined();
-    expect(googleHomeMask(f.root, f.brain), "NO_MASK_HOLDING_THE_BRAIN").toBeUndefined();
-    expect(googleHomeMask(undefined, f.brain)).toBeUndefined();
-    expect(googleHomeMask("gog-home", f.brain)).toBeUndefined();
+    const areas = googleHomeAreas({ ...f.homeLayout, workerMounts: googleWorkerMounts(f.serverHome) });
+    expect(googleHomeMask(link, areas).path, "MASK_IS_RESOLVED_HOME").toBe(f.home);
+    // Mode and owner do not make a mask unsafe: a 0755 home is still covered while its check refuses it.
+    chmodSync(f.home, 0o755);
+    expect(googleHomeMask(f.home, areas).path, "MASK_FOR_A_WRONG_MODE_HOME").toBe(f.home);
+    expect(googleHomeMask(join(f.root, "not-yet"), areas), "NO_MASK_FOR_A_HOME_NOT_CREATED_YET").toEqual({ path: null, absentAtBoot: true });
+    writeFileSync(join(f.root, "file"), "Argos");
+    expect(googleHomeMask(join(f.root, "file"), areas), "NO_MASK_FOR_A_FILE").toEqual({ path: null, absentAtBoot: true });
+    expect(googleHomeMask("/bin/sh", areas), "NO_MASK_FOR_THE_SHELL").toEqual({ path: null });
+    expect(googleHomeMask(dirname(RUNTIME), areas), "NO_MASK_HOLDING_THE_RUNTIME").toEqual({ path: null });
+    expect(googleHomeMask("/usr", areas), "NO_MASK_FOR_A_SYSTEM_DIRECTORY").toEqual({ path: null });
+    expect(googleHomeMask(join(f.brain, ".gog"), areas), "NO_MASK_INSIDE_THE_BRAIN").toEqual({ path: null });
+    expect(googleHomeMask(f.root, areas), "NO_MASK_HOLDING_THE_BRAIN").toEqual({ path: null });
+    expect(googleHomeMask(undefined, areas)).toEqual({ path: null });
+    expect(googleHomeMask("gog-home", areas)).toEqual({ path: null });
+  });
+
+  test("google: gog's default directories under the server's HOME are masked where they are, alongside the configured home", () => {
+    const f = layout();
+    const homeLayout = { ...f.homeLayout, serverHome: f.serverHome };
+    expect(GOG_DEFAULT_DIRS, "GOG_DEFAULT_DIRS").toEqual([".config/gogcli", ".local/share/gogcli", ".local/state/gogcli", ".cache/gogcli"]);
+    expect(googleWorkerMasks(f.home, homeLayout).paths, "NO_DEFAULT_HOME_NO_MASK").toEqual([f.home]);
+    // gog's configuration and its data, where the keyring and OAuth client live.
+    const [config, data] = [join(f.serverHome, ".config/gogcli"), join(f.serverHome, ".local/share/gogcli")];
+    for (const path of [config, data]) mkdirSync(path, { recursive: true, mode: 0o700 });
+    const masks = googleWorkerMasks(f.home, homeLayout);
+    expect(masks.paths, "DEFAULT_DIRECTORIES_MASKED").toEqual([f.home, config, data]);
+    expect(masks.home.path, "CONFIGURED_HOME_MASKED").toBe(f.home);
+    // Configured as the home itself: refused, and still covered.
+    expect(googleWorkerMasks(config, homeLayout).paths, "REFUSED_DEFAULT_HOME_STILL_MASKED").toEqual([config, data]);
+    // Linked into the brain, a mask would refuse every launch: none for it.
+    rmSync(config, { recursive: true });
+    const intoBrain = join(f.brain, "gogcli"); mkdirSync(intoBrain);
+    symlinkSync(intoBrain, config);
+    expect(googleWorkerMasks(f.home, homeLayout).paths, "NO_DEFAULT_MASK_INTO_THE_BRAIN").toEqual([f.home, data]);
+    // A brain that is the server's HOME, or lies inside it, holds its gog defaults: a mask there would refuse every launch.
+    expect(googleWorkerMasks(undefined, { ...homeLayout, brainPath: f.serverHome }).paths, "NO_DEFAULT_MASK_IN_A_BRAIN_AT_HOME").toEqual([]);
+    expect(googleWorkerMasks(undefined, { ...homeLayout, brainPath: join(f.serverHome, ".local") }).paths, "NO_DEFAULT_MASK_IN_A_BRAIN_INSIDE_HOME").toEqual([]);
+    expect(googleWorkerMasks(undefined, f.homeLayout).paths).toEqual([]);
   });
 });
 
@@ -302,6 +392,83 @@ describe("google availability probe", () => {
   });
 });
 
+describe("google availability probe failures", () => {
+  type Steps = Pick<GogTransport, "availability" | "execute">;
+  const settled = (pending: Promise<GoogleAvailabilityStatus>) => pending.then(status => status, (error: unknown) => ({ rejected: String(error) }));
+
+  test("google: a probe step that throws answers probe_failed without its text, drops a cached success, and the next call recovers", async () => {
+    const f = layout();
+    const fake = fakeGog({ "gmail.labels.list": { stdout: LABELS } });
+    let clock = 1_000_000;
+    const account = alias();
+    const { google, reports } = credential(f.home, f.homeLayout, { binary: fake.binary, now: () => clock });
+    expect(reasonOf(await google.status(account)), "AVAILABLE_FIRST").toBe("available");
+    const opened = google.transport(account);
+    if (!opened.ok) throw new Error(opened.status.detail);
+    const steps = opened.transport as Steps, { availability, execute } = steps;
+    const secret = join(f.root, "penelope@example.com");
+    // A synchronous throw from the pin step, within the connected check's window.
+    steps.availability = () => { throw new Error(`pin exploded at ${secret}`); };
+    const pin = await settled(google.status(account));
+    expect(pin, "PIN_THROW_UNAVAILABLE").toEqual({ state: "unavailable", reason: "probe_failed", detail: expect.any(String), cause: "pin" });
+    expect(JSON.stringify(pin), "PIN_THROW_TEXT_WITHHELD").not.toContain("exploded");
+    steps.availability = availability;
+    expect(reasonOf(await google.status(account)), "RECOVERED_AFTER_PIN_THROW").toBe("available");
+    expect(fake.calls(), "PIN_THROW_DROPPED_THE_CACHED_SUCCESS").toHaveLength(2);
+    // An asynchronous rejection from the connected check, after the window.
+    clock += GOOGLE_CONNECTED_TTL_MS;
+    steps.execute = (async () => { throw new Error(`labels exploded for ${secret}`); }) as Steps["execute"];
+    const labels = await settled(google.status(account));
+    expect(labels, "CONNECTED_CHECK_THROW_UNAVAILABLE").toEqual({ state: "unavailable", reason: "probe_failed", detail: expect.any(String), cause: "connected_check" });
+    expect(JSON.stringify(labels), "CONNECTED_CHECK_THROW_TEXT_WITHHELD").not.toContain("exploded");
+    steps.execute = execute;
+    expect(reasonOf(await google.status(account)), "RECOVERED_AFTER_CONNECTED_CHECK_THROW").toBe("available");
+    expect(fake.calls(), "RECHECKED_AFTER_THE_THROW").toHaveLength(3);
+    for (const report of reports) expect(report.message, "REPORT_HOLDS_NO_EXCEPTION_TEXT").not.toMatch(/exploded|penelope@/);
+  });
+
+  test("google: a throw while opening the transport, or from the log, still answers", async () => {
+    const f = layout();
+    const fake = fakeGog({ "gmail.labels.list": { stdout: LABELS } });
+    const broken = { ...env(f.home), keyringPassword: () => { throw new Error(`keyring exploded: ${PASSWORD}`); } };
+    const opening = createGoogleCredential({ env: broken, layout: f.homeLayout, binary: fake.binary });
+    const status = await settled(opening.status(alias()));
+    expect(status, "OPEN_THROW_UNAVAILABLE").toEqual({ state: "unavailable", reason: "probe_failed", detail: expect.any(String), cause: "transport" });
+    expect(JSON.stringify(status), "OPEN_THROW_TEXT_WITHHELD").not.toContain(PASSWORD);
+    const loud = credential(f.home, f.homeLayout, { binary: fake.binary, report: () => { throw new Error("the log is down"); } }).google;
+    expect(await settled(loud.status(alias())), "A_FAILING_LOG_NEVER_CHANGES_THE_ANSWER").toMatchObject({ state: "available" });
+    // A throw outside every named step (here the clock, after a successful connected check) still answers.
+    const clockless = credential(f.home, f.homeLayout, { binary: fake.binary, now: () => { throw new Error(`no clock at ${f.root}`); } }).google;
+    const late = await settled(clockless.status(alias()));
+    expect(late, "UNNAMED_STEP_THROW_UNAVAILABLE").toEqual({ state: "unavailable", reason: "probe_failed", detail: expect.any(String), cause: "probe" });
+    expect(JSON.stringify(late), "UNNAMED_STEP_TEXT_WITHHELD").not.toContain(f.root);
+  });
+
+  test("google: a home the server may not inspect is home_unresolvable, never a throw, and recovers on the next call", async () => {
+    const f = layout();
+    const fake = fakeGog({ "gmail.labels.list": { stdout: LABELS } });
+    const account = alias();
+    // Built first, as at boot, so the mask is laid before the home goes uninspectable.
+    const { google } = credential(f.home, f.homeLayout, { binary: fake.binary });
+    const real = fs.lstatSync;
+    // Only the home's own final look fails, as when it changes between resolution and inspection.
+    const spy = spyOn(fs, "lstatSync").mockImplementation(((path: fs.PathLike, options?: fs.StatSyncOptions) => {
+      if (String(path) === f.home && options?.throwIfNoEntry === false) throw Object.assign(new Error(`EACCES: permission denied, lstat '${f.home}'`), { code: "EACCES" });
+      return real(path, options as never);
+    }) as typeof fs.lstatSync);
+    cleanups.push(() => spy.mockRestore());
+    const areas = googleHomeAreas(f.homeLayout);
+    const check = (() => { try { return checkGoogleHome(f.home, areas); } catch (error) { return { threw: String(error) }; } })();
+    expect(check, "UNINSPECTABLE_HOME_REFUSED").toMatchObject({ ok: false, reason: "home_unresolvable" });
+    const status = await settled(google.status(account));
+    expect(status, "UNINSPECTABLE_HOME_UNAVAILABLE").toMatchObject({ state: "unavailable", reason: "home_unresolvable" });
+    expect(JSON.stringify(status), "UNINSPECTABLE_DETAIL_HOLDS_NO_PATH").not.toContain(f.root);
+    spy.mockRestore();
+    expect(reasonOf(await google.status(account)), "INSPECTABLE_HOME_RECOVERS").toBe("available");
+    expect(fake.calls(), "ONE_CONNECTED_CHECK_AFTER_RECOVERY").toHaveLength(1);
+  });
+});
+
 describe("google and the host", () => {
   /** A real app on the fixture native manager, with a fake backend whose one turn runs `script`. */
   async function hostedApp(google: (paths: { root: string; brain: string }) => Record<string, string>,
@@ -366,6 +533,24 @@ describe("google and the host", () => {
     expect(outcome.warnings.join("\n"), "LOG_HOLDS_NO_SECRET").not.toContain(PASSWORD);
     // A worker view cannot cover part of the brain it binds; nothing was laid.
     expect(outcome.maskPaths, "NO_MASK_INSIDE_THE_BRAIN").not.toContain(home);
+  });
+
+  // Placements a mask must never be laid over: a file, the runtime, a system
+  // path every worker needs. The host masks nothing, boots, serves a chat and says why.
+  const unsafe: [name: string, home: () => string, reason: GoogleUnavailableReason][] = [
+    ["a regular file", () => { const f = layout(); writeFileSync(join(f.root, "gog-file"), "Argos"); return join(f.root, "gog-file"); }, "home_not_directory"],
+    ["an ancestor of the Bun runtime", () => dirname(RUNTIME), "home_overlaps_worker_mount"],
+    ["a system directory", () => "/usr/lib", "home_overlaps_worker_mount"],
+  ];
+  for (const [name, home, reason] of unsafe) test(`google: a host whose gog home is ${name} masks nothing, boots, serves a chat, and answers unavailable with the reason`, async () => {
+    let status: GoogleAvailabilityStatus | undefined;
+    const configured = home();
+    const outcome = await hostedApp(() => ({ BRAIN_UI_GOOGLE_HOME: configured, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: PASSWORD, BRAIN_UI_GOG_PATH: "/opt/gog/bin/gog" }),
+      async app => { status = await app.wsHost.google!.status("ithaca"); });
+    expect(served(outcome.frames), `CHAT_SERVED_WITH_AN_UNSAFE_HOME: ${name}`).toBe(true);
+    expect(status, `UNSAFE_HOME_UNAVAILABLE_WITH_REASON: ${name}`).toMatchObject({ state: "unavailable", reason });
+    expect(outcome.maskPaths, `NO_MASK_FOR_AN_UNSAFE_HOME: ${name}`).not.toContain(realpathSync(configured));
+    expect(outcome.warnings.some(line => line.includes(`Google is unavailable on this host (${reason})`)), `UNSAFE_CAUSE_IN_THE_SERVER_LOG: ${name}`).toBe(true);
   });
 
   test("google: a host with a good gog home masks it in every worker view and gets past the home to the binary", async () => {

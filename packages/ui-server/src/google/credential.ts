@@ -14,23 +14,29 @@
  *
  * The mask is fixed at boot: the configured home with its symbolic links
  * resolved, laid over every worker view as an exact mask (like the native
- * manager's private paths). A home that later resolves somewhere else is
- * `home_moved` until the server restarts, because no worker view covers the
- * new place. A home inside or holding the brain gets no mask, since a worker
- * view cannot cover part of the brain it binds, and its check refuses it.
+ * manager's private paths), but only where a mask is safe to lay: an existing
+ * directory clear of the brain, the database directory, every host path
+ * workers see and every temp area (`googleWorkerMasks`). A home that later
+ * resolves somewhere else is `home_moved`, and one created or replaced after
+ * boot `home_created_after_boot`, until the server restarts, because no
+ * worker view covers it. A misplaced home gets no mask and its check refuses
+ * it.
+ *
+ * `status()` never rejects: an exception anywhere in the probe answers
+ * `probe_failed`, with a fixed detail and the step that failed as its cause.
  */
 import {
   createGogTransport, isGogAccountAlias, type GogBinary, type GogTransport, type GogTransportOptions,
 } from "@schlessera/brain-common/internal/google-gog";
 import type { GoogleError } from "@schlessera/brain-common/internal/google-operations";
 import type { GoogleHostEnv } from "../config/env.js";
-import { checkGoogleHome, googleHomeAreas, googleHomeMask, GOOGLE_HOME_REASONS, type GoogleHomeArea, type GoogleHomeLayout } from "./home.js";
+import { checkGoogleHome, googleHomeAreas, googleWorkerMasks, GOOGLE_HOME_REASONS, type GoogleHomeArea, type GoogleHomeLayout, type GoogleWorkerMasks } from "./home.js";
 
 /** Why Google is unavailable on this host. */
 export const GOOGLE_UNAVAILABLE_REASONS = [
   ...GOOGLE_HOME_REASONS,
   "keyring_password_unset", "keyring_password_invalid", "gog_path_unset", "account_unset", "account_invalid",
-  "binary_refused", "transport_incompatible", "not_connected", "account_unverified",
+  "binary_refused", "transport_incompatible", "not_connected", "account_unverified", "probe_failed",
 ] as const;
 export type GoogleUnavailableReason = typeof GOOGLE_UNAVAILABLE_REASONS[number];
 
@@ -48,6 +54,8 @@ export type GoogleAvailabilityStatus =
 export interface GoogleCredentialOptions {
   env: GoogleHostEnv;
   layout: GoogleHomeLayout;
+  /** The masks boot laid in every worker view. Default: {@link googleWorkerMasks} of the env's home and the layout, now. */
+  masks?: GoogleWorkerMasks;
   /** A test's fake (`createFakeGog().binary`). Never configuration: production always runs the pinned BRAIN_UI_GOG_PATH. */
   binary?: GogBinary;
   hostUid?: number;
@@ -60,11 +68,11 @@ export interface GoogleCredentialOptions {
 }
 
 export interface GoogleCredential {
-  /** The exact worker masks: the home as resolved at boot, or none. */
+  /** The exact worker masks boot laid: the home as resolved at boot and gog's default directories under the server's HOME, each where safe. */
   readonly maskPaths: readonly string[];
   /** Configuration and home only, then the account's transport. The pin runs at the transport's first use. */
   transport(account: string | null | undefined): { ok: true; transport: GogTransport } | { ok: false; status: Extract<GoogleAvailabilityStatus, { state: "unavailable" }> };
-  /** The full probe: configuration, home, the pinned binary and whether the account is connected. */
+  /** The full probe: configuration, home, the pinned binary and whether the account is connected. Never rejects. */
   status(account: string | null | undefined): Promise<GoogleAvailabilityStatus>;
 }
 
@@ -73,6 +81,9 @@ export const GOOGLE_CONNECTED_TTL_MS = 5 * 60_000;
 
 type Unavailable = Extract<GoogleAvailabilityStatus, { state: "unavailable" }>;
 const unavailable = (reason: GoogleUnavailableReason, detail: string, cause: string | null = null): Unavailable => ({ state: "unavailable", reason, detail, cause });
+/** An exception in one step of the probe. Its text is never kept: it may hold a path or an address. */
+const failed = (step: "transport" | "pin" | "connected_check" | "probe"): Unavailable =>
+  unavailable("probe_failed", "The Google availability check failed unexpectedly; the next call checks again.", step);
 
 /** The connected check's error, as a reason. A refusal from Google itself is not a disconnected account. */
 function connectedFailure(error: GoogleError): Unavailable {
@@ -92,7 +103,7 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
   const { env, layout } = options;
   const now = options.now ?? Date.now;
   const ttl = options.connectedTtlMs ?? GOOGLE_CONNECTED_TTL_MS;
-  const masked = googleHomeMask(env.home, layout.brainPath);
+  const masks = options.masks ?? googleWorkerMasks(env.home, layout);
   const transports = new Map<string, GogTransport>();
   const connected = new Map<string, number>();
   const inflight = new Map<string, Promise<GoogleAvailabilityStatus>>();
@@ -102,14 +113,21 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
     const key = status.state === "available" ? "available" : `${status.reason}:${status.cause ?? ""}`;
     if (reported.get(account) !== key) {
       reported.set(account, key);
-      options.report?.(status.state === "available"
-        ? `Google is available for account alias ${account}.`
-        : `Google is unavailable on this host (${status.reason}${status.cause ? `: ${status.cause}` : ""}): ${status.detail}`, status);
+      try {
+        options.report?.(status.state === "available"
+          ? `Google is available for account alias ${account}.`
+          : `Google is unavailable on this host (${status.reason}${status.cause ? `: ${status.cause}` : ""}): ${status.detail}`, status);
+      } catch { /* A failing log never changes the answer. */ }
     }
     return status;
   }
 
   function transport(account: string | null | undefined): ReturnType<GoogleCredential["transport"]> {
+    try { return openTransport(account); }
+    catch { return { ok: false, status: failed("transport") }; }
+  }
+
+  function openTransport(account: string | null | undefined): ReturnType<GoogleCredential["transport"]> {
     const refused = (status: Unavailable) => ({ ok: false as const, status });
     if (!env.home) return refused(unavailable("home_unset", "BRAIN_UI_GOOGLE_HOME is not set."));
     const password = env.keyringPassword();
@@ -120,7 +138,7 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
     let areas: GoogleHomeArea[];
     try { areas = googleHomeAreas(layout); }
     catch { return refused(unavailable("home_unresolvable", "A directory BRAIN_UI_GOOGLE_HOME is checked against cannot be resolved.")); }
-    const home = checkGoogleHome(env.home, areas, { ...(options.hostUid !== undefined ? { hostUid: options.hostUid } : {}), masked: masked ?? null });
+    const home = checkGoogleHome(env.home, areas, { ...(options.hostUid !== undefined ? { hostUid: options.hostUid } : {}), mask: masks.home });
     if (!home.ok) return refused(unavailable(home.reason, home.detail));
     const key = `${account}\0${home.path}`;
     let found = transports.get(key);
@@ -137,7 +155,9 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
   }
 
   async function probe(account: string, open: GogTransport): Promise<GoogleAvailabilityStatus> {
-    const pin = await open.availability();
+    let pin: Awaited<ReturnType<GogTransport["availability"]>>;
+    try { pin = await open.availability(); }
+    catch { connected.delete(account); return failed("pin"); }
     if (!pin.ok) {
       connected.delete(account);
       return pin.error.code === "transport_incompatible"
@@ -148,7 +168,9 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
     const since = connected.get(account);
     if (since !== undefined && now() - since < ttl) return { state: "available", account, binary, connected_at: since };
     // The narrowest read the transport has: label ids and names, read-only, one command allowed.
-    const labels = await open.execute("gmail.labels.list", {});
+    let labels: Awaited<ReturnType<GogTransport["execute"]>>;
+    try { labels = await open.execute("gmail.labels.list", {}); }
+    catch { connected.delete(account); return failed("connected_check"); }
     if (!labels.ok) {
       connected.delete(account);
       return connectedFailure(labels.error);
@@ -160,19 +182,21 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
 
   async function status(account: string | null | undefined): Promise<GoogleAvailabilityStatus> {
     const label = account ?? "";
-    const open = transport(account);
-    if (!open.ok) {
+    const opened = transport(account);
+    if (!opened.ok) {
       connected.delete(label);
-      return report(label, open.status);
+      return report(label, opened.status);
     }
     const key = account!;
     let running = inflight.get(key);
     if (!running) {
-      running = probe(key, open.transport).finally(() => inflight.delete(key));
+      // Anything the probe's own steps did not catch still answers, and drops a cached success.
+      running = probe(key, opened.transport).catch(() => { connected.delete(key); return failed("probe"); })
+        .finally(() => inflight.delete(key));
       inflight.set(key, running);
     }
     return report(key, await running);
   }
 
-  return { maskPaths: masked ? [masked] : [], transport, status };
+  return { maskPaths: masks.paths, transport, status };
 }
