@@ -56,9 +56,14 @@ test("an inspect-only capture never retains checkout bytes while notes keep exac
   writeFileSync(join(brain, "notes/voyage.md"), "Odysseus");
   writeFileSync(join(brain, "workspaces/ithaca/source.ts"), "checkout before");
   const native = createNativeJournalFixture(brain, root);
-  const retained: string[] = [];
+  const retained: string[] = [], afterRetained = Promise.withResolvers<void>();
   const capture = createNativeJournalCapture(native.manager, async fd => {
-    retained.push(readFileSync(fd, "utf8")); return String(retained.length);
+    const bytes = readFileSync(fd, "utf8");
+    // Retention is batched: force the after-version to finish first.
+    if (bytes === "Odysseus") await afterRetained.promise;
+    retained.push(bytes);
+    if (bytes === "Athena") afterRetained.resolve();
+    return bytes;
   });
   try {
     await capture.initialize();
@@ -67,9 +72,11 @@ test("an inspect-only capture never retains checkout bytes while notes keep exac
     writeFileSync(join(brain, "workspaces/ithaca/source.ts"), "checkout after");
     const observation = await capture.observe(new Map([["inspect", policy]]));
     expect(observation.changes.get("inspect")!.map(change => change.path), "INSPECT_CAPTURE_HAS_NO_CHECKOUT_ROWS").toEqual(["notes/voyage.md"]);
-    expect(retained, "INSPECT_RETAINS_ONLY_EXACT_NOTE_BYTES").toEqual(["Odysseus", "Athena"]);
+    expect(retained, "INSPECT_RETAINS_ONLY_EXACT_NOTE_BYTES").toEqual(["Athena", "Odysseus"]);
+    expect(observation.changes.get("inspect")![0], "INSPECT_VERSIONS_KEEP_THEIR_IDENTITY_WHEN_RETENTION_FINISHES_OUT_OF_ORDER")
+      .toMatchObject({ before: { hash: "Odysseus" }, after: { hash: "Athena" } });
     await observation.commit();
-  } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+  } finally { afterRetained.resolve(); await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test("an inspect overlap does not unignore a writer's checkout steering files", async () => {
