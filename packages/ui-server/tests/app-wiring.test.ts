@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, spyOn } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import * as nativeStartup from "../../ui-sdk/src/server/worker-startup-view.js";
 import * as nativeOutput from "../../ui-sdk/src/server/worker-native-output.js";
 import { join } from "path";
@@ -41,8 +41,11 @@ const ENV = [
   "BRAIN_UI_PRICING_DISCOVERY",
 ] as const;
 const saved: Record<string, string | undefined> = {};
-const TEST_DB = join(tmpdir(), `app-wiring-test-${process.pid}.db`);
-const TEST_BRAIN = join(tmpdir(), `app-wiring-brain-${process.pid}`);
+// Every repetition owns the complete SQLite family, including the journal's
+// separate database and migration receipts. Never delete only its main file.
+const TEST_ROOT = mkdtempSync(join(tmpdir(), "odysseus-app-wiring-"));
+const TEST_DB = join(TEST_ROOT, "ui.db");
+const TEST_BRAIN = join(TEST_ROOT, "brain");
 const ownedApps: Awaited<ReturnType<typeof createFixtureApp>>[] = [];
 let startupBeforeTest = nativeStartup.prepareNativeWorkerStartupView;
 let outputBeforeTest = nativeOutput.prepareNativeWorkerOutput;
@@ -103,10 +106,7 @@ afterAll(async () => {
   try {
     await closeOwnedApps();
   } finally {
-    rmSync(TEST_BRAIN, { recursive: true, force: true });
-    for (const suffix of ["", "-shm", "-wal"]) {
-      rmSync(TEST_DB + suffix, { force: true });
-    }
+    rmSync(TEST_ROOT, { recursive: true, force: true });
     for (const key of ENV) {
       if (saved[key] === undefined) delete process.env[key];
       else process.env[key] = saved[key]!;
@@ -538,10 +538,8 @@ describe("createApp refuses unsafe configuration", () => {
 
 describe("createApp principal retention", () => {
   test("boot prunes an inactive ambient principal through the production path", async () => {
-    const dbPath = join(
-      tmpdir(),
-      `app-wiring-principal-retention-${process.pid}-${Date.now()}.db`
-    );
+    const root = mkdtempSync(join(TEST_ROOT, "principal-retention-"));
+    const dbPath = join(root, "ui.db");
     const seed = createUiDb(dbPath);
     const inactive = resolveAmbientPrincipal(
       seed,
@@ -565,9 +563,7 @@ describe("createApp principal retention", () => {
       expect(resolvePrincipal(wired.db, inactive.id)).toBeNull();
     } finally {
       await wired?.close();
-      for (const suffix of ["", "-shm", "-wal"]) {
-        rmSync(dbPath + suffix, { force: true });
-      }
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
