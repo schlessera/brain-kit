@@ -86,6 +86,8 @@ test("real original and variant boundary methods preserve owned operation order,
     const calls: string[] = [], view = { async cleanup() { calls.push("view-cleanup"); } };
     const output = { view, output: {}, async publish() { calls.push("publish"); }, async cleanup() { calls.push("output-cleanup"); } };
     const dependencies = {
+      // The routine-maintenance classifier was added with #4287; scratch prune is not a routine run.
+      routineMaintenanceRequest: () => undefined,
       gated: async (_: unknown, work: (hold: null) => unknown) => { calls.push("gate"); return work(null); }, isolated: () => true,
       credentialed: async (_: unknown, work: () => unknown) => { calls.push("credential"); return work(); },
       prepareInput: async () => { calls.push("view"); return view; }, prepareMaintenanceOutput: async (_: unknown, options: { areas: string[]; signal: AbortSignal; startupView: unknown }) => {

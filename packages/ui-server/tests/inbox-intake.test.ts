@@ -7,6 +7,7 @@ import { createRecordingObservability } from "../src/observability/index.js";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInboxStore } from "../src/inbox/store.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
@@ -40,6 +41,8 @@ function share(url: string, extras: Record<string, string> = {}) {
 test("mounted share replay creates one untrusted thread, triage item and staging area", async () => {
   // The app is shared by every test in this file, so count only what this share adds.
   const before = createInboxStore(fixture.app.db).snapshot();
+  // Boot maintenance owns its own activity; intake must add no agent run.
+  const runsBefore = fixture.app.db.query("SELECT * FROM activity_run_rollups WHERE origin != 'cron' ORDER BY run_id").all();
   const added = (snapshot: typeof before) => ({
     threads: snapshot.threads.filter(thread => !before.threads.some(prior => prior.id === thread.id)),
     items: snapshot.items.filter(item => !before.items.some(prior => prior.id === item.id)),
@@ -66,7 +69,7 @@ test("mounted share replay creates one untrusted thread, triage item and staging
   expect(repeatedAdded.items).toHaveLength(1);
   expect(repeatedAdded.threads[0]!.lastSeenAt).toBeGreaterThanOrEqual(firstAdded.threads[0]!.lastSeenAt);
   expect((await readdir(join(fixture.brainPath, ".brain-ui/inbox"))).filter(name => !name.startsWith(".") && !dirsBefore.includes(name))).toEqual([firstBody.id]);
-  expect(fixture.app.db.query("SELECT COUNT(*) AS n FROM activity_run_rollups").get()).toEqual({ n: 0 });
+  expect(fixture.app.db.query("SELECT * FROM activity_run_rollups WHERE origin != 'cron' ORDER BY run_id").all()).toEqual(runsBefore);
   expect(startedTurns).toBe(0);
 });
 
@@ -273,13 +276,11 @@ test("real CLI queues trusted work, survives a lost response and rejects wrong, 
     expect(startedTurns).toBe(0);
     expect(await Bun.file(join(fixture.brainPath, ".brain-index", "brain.db")).exists()).toBe(false);
     // Boot prepares the (empty) index directory with the brain root's mode (#1668).
-    expect((await readdir(fixture.brainPath)).filter(name => ![".brain-ui", ".brain", "queue-credential.json"].includes(name)).sort()).toEqual([".brain-index", ".claude", ".git", "context", "node_modules"]);
+    expect((await readdir(fixture.brainPath)).filter(name => ![".brain-ui", ".brain", "queue-credential.json"].includes(name)).sort()).toEqual([".brain-index"]);
     expect(await readdir(join(fixture.brainPath, ".brain-index"))).toEqual([]);
-    expect(await readdir(join(fixture.brainPath, "node_modules"))).toEqual([]);
-    expect(await readdir(join(fixture.brainPath, ".claude"))).toEqual([]);
-    expect((await readdir(join(fixture.brainPath, ".git"))).sort()).toEqual(["hooks", "info", "modules"]);
-    for (const path of [".git/hooks", ".git/info", ".git/modules", "context/policies"]) expect(await readdir(join(fixture.brainPath, path))).toEqual([]);
-    expect(await readdir(join(fixture.brainPath, "context"))).toEqual(["policies"]);
+    // Admission creates only qualified roots actually needed by its plan.
+    // Queue intake must not create those roots or any contents inside them.
+    for (const path of ["node_modules", ".claude", ".git", "context"]) expect(existsSync(join(fixture.brainPath, path)), path).toBe(false);
     // Startup's pin metadata is the sole additional operational write. Do not
     // let a broad .brain exclusion hide queue-triggered scratch/content writes.
     expect((await readdir(join(fixture.brainPath, ".brain"))).sort()).toEqual(["scratch-pins", "scratch-pins-required"]);

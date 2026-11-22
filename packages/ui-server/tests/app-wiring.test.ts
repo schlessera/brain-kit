@@ -682,7 +682,7 @@ describe("app wiring — request logging", () => {
     expect(response.status).toBe(200);
 
     const row = wired.db
-      .prepare("SELECT kind, label FROM principals")
+      .prepare("SELECT kind, label FROM principals WHERE kind='ambient'")
       .get() as { kind: string; label: string };
     expect(row).toEqual({ kind: "ambient", label: expectedLabel });
     expect(row.label).toHaveLength(64);

@@ -172,7 +172,7 @@ test.skipIf(!native)("a turn without a host sandbox awaits its own scratch check
     expect(blocking, "CLAUDE_FALLBACK_SANDBOX_NEVER_BLOCKS").not.toHaveBeenCalled();
     expect(prepare.seen.ticks, "CLAUDE_FALLBACK_SANDBOX_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
     // XDG planning uses the maintenance host; runtime HOME belongs to the backend.
-    const inputs = { maintenance };
+    const inputs = { maintenance, codeChanges: false, legacyWorkspaceNote: false };
     expect(prepare.seen.args, "CLAUDE_FALLBACK_SANDBOX_SAME_INPUTS").toEqual([f.brain, inputs]);
     blocking.mockRestore();
     expect(prepare.seen.result, "CLAUDE_FALLBACK_SANDBOX_SAME_AREAS").toEqual(prepareWorkerSandbox(f.brain, inputs));

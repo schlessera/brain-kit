@@ -73,7 +73,7 @@ test("mounted authenticated status exposes real write-worker journal I/O recover
       try {
         ledger.write(() => {
           db.query("INSERT INTO turn_journal_objects VALUES (?,8,'pending')").run(hash);
-          for (const id of ["odysseus", "athena"]) db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(id,process.pid,hash);
+          for (const id of ["17920000-0000-4000-8000-000000100001", "17920000-0000-4000-8000-000000100002"]) db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(id,process.pid,hash);
         });
         // O_NOFOLLOW produces real ELOOP in the separate write worker. No
         // process-local spy can substitute the app's recovery result.
