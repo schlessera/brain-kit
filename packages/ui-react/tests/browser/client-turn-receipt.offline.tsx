@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "vitest";
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 import { commands, page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -37,13 +38,13 @@ async function scene(request?: (url: string, init?: RequestInit) => Promise<Resp
   fixture = await commands.clientTurnServer({ op: "start" }) as typeof fixture;
   ui = createBrainUiRoot({ storage: null, config: { backendUrl: fixture!.url }, ...(request ? { request } : {}) });
   ui.connection.connect();
-  await expect.poll(() => ui!.stores.connection.getState().wsStatus).toBe("connected");
+  await expect.poll(() => ui!.stores.connection.getState().wsStatus, { timeout: watchdogMs(5000) }).toBe("connected");
 }
 
 test("a real browser turn stores frame-arrival pairs including the backend's known content delay", async () => {
   await scene();
   expect(ui!.connection.send({ type: "chat_message", text: "Plan Ithaca", requestId: "voyage" })).toBe(true);
-  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming).toBeDefined();
+  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming, { timeout: watchdogMs(5000) }).toBeDefined();
   const lifecycle = (await read()).lifecycles[0]!;
   expect(lifecycle.outcome).toBe("success");
   const timing = lifecycle.clientTiming!;
@@ -62,10 +63,10 @@ test("a real browser turn stores frame-arrival pairs including the backend's kno
 test("a turn finishing after its initiating browser disconnects keeps its host outcome without client pairs", async () => {
   await scene();
   expect(ui!.connection.send({ type: "chat_message", text: "Hold the voyage", requestId: "held-voyage" })).toBe(true);
-  await expect.poll(async () => (await read()).held).toBe(true);
+  await expect.poll(async () => (await read()).held, { timeout: watchdogMs(5000) }).toBe(true);
   ui!.dispose(); ui = undefined;
   await commands.clientTurnServer({ op: "release", id: fixture!.id });
-  await expect.poll(async () => (await read()).lifecycles[0]?.outcome).toBe("success");
+  await expect.poll(async () => (await read()).lifecycles[0]?.outcome, { timeout: watchdogMs(5000) }).toBe("success");
   const lifecycle = (await read()).lifecycles[0]!;
   expect(lifecycle.clientTiming).toBeUndefined();
   expect(lifecycle.backendRunId).toBe(lifecycle.turnId);
@@ -75,15 +76,15 @@ test("a turn finishing after its initiating browser disconnects keeps its host o
 test("backend idle and result before delayed teardown cannot send the once-only receipt early", async () => {
   await scene();
   expect(ui!.connection.send({ type: "chat_message", text: "Delay host idle", requestId: "closing-voyage" })).toBe(true);
-  await expect.poll(async () => (await read()).earlyIdleHeld).toBe(true);
-  await expect.poll(() => ui!.stores.chat.getState().buffers.ithaca?.messages.at(-1)?.content).toContain("Sail at dawn");
-  await expect.poll(async () => (await read()).lifecycles[0]?.outcome).toBeNull();
+  await expect.poll(async () => (await read()).earlyIdleHeld, { timeout: watchdogMs(5000) }).toBe(true);
+  await expect.poll(() => ui!.stores.chat.getState().buffers.ithaca?.messages.at(-1)?.content, { timeout: watchdogMs(5000) }).toContain("Sail at dawn");
+  await expect.poll(async () => (await read()).lifecycles[0]?.outcome, { timeout: watchdogMs(5000) }).toBeNull();
   const before = await read();
   expect(before.lifecycles[0]?.outcome).toBeNull();
   expect(before.reportsReceived).toBe(0);
   expect(before.lifecycles[0]?.clientTiming).toBeUndefined();
   await commands.clientTurnServer({ op: "release", id: fixture!.id });
-  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming).toBeDefined();
+  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming, { timeout: watchdogMs(5000) }).toBeDefined();
   const after = await read();
   expect(after.reportsReceived).toBe(1);
   expect(after.lifecycles[0]?.outcome).toBe("success");
@@ -98,15 +99,15 @@ test("composer Send includes the snapshot-save wait in both send-based arrival p
   const sentAt = performance.now();
   await userEvent.click(page.getByRole("button", { name: /^Send/ }));
   const heldAt = performance.now();
-  await expect.poll(() => drafts.calls.some(call => call.startsWith("PUT "))).toBe(true);
+  await expect.poll(() => drafts.calls.some(call => call.startsWith("PUT ")), { timeout: watchdogMs(5000) }).toBe(true);
   expect(ui!.stores.drafts.getState().snapshotsOn).toBe(true);
   expect((await read()).lifecycles).toEqual([]);
   // A controlled save barrier, released after a measured 500ms. This is an
   // input delay to the product, not a watchdog or a fixed scheduling sleep.
-  await expect.poll(() => performance.now() - heldAt).toBeGreaterThanOrEqual(500);
+  await expect.poll(() => performance.now() - heldAt, { timeout: watchdogMs(5000) }).toBeGreaterThanOrEqual(500);
   const savedAt = performance.now();
   releaseSave(); releaseSave = undefined;
-  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming).toBeDefined();
+  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming, { timeout: watchdogMs(5000) }).toBeDefined();
   const timing = (await read()).lifecycles[0]!.clientTiming!;
   console.info("COMPOSER_SEND_ARRIVAL_PAIRS", JSON.stringify({ savedWaitMs: savedAt - sentAt, ...timing }));
   expect(timing.sendToFirstHostFrameMs).toBeGreaterThanOrEqual(450);
@@ -142,14 +143,14 @@ test("only the browser that dispatches a shared snapshot reports its receipt", a
   await userEvent.fill(page.getByRole("textbox"), "Plan Ithaca");
   releaseSave = drafts.holdSaves();
   await userEvent.click(page.getByRole("button", { name: /^Send/ }));
-  await expect.poll(() => drafts.calls.some(call => call.startsWith("PUT "))).toBe(true);
+  await expect.poll(() => drafts.calls.some(call => call.startsWith("PUT ")), { timeout: watchdogMs(5000) }).toBe(true);
   const state = ui!.stores.drafts.getState();
   const snapshot = Object.values(state.drafts).flatMap(draft => draft.snapshots ?? [])[0]!;
   expect(snapshot).toBeDefined();
   expect((await read()).lifecycles).toEqual([]);
   peer = createBrainUiRoot({ storage: null, request: drafts.request, config: { backendUrl: fixture!.url } });
   peer.connection.connect();
-  await expect.poll(() => peer!.stores.connection.getState().wsStatus).toBe("connected");
+  await expect.poll(() => peer!.stores.connection.getState().wsStatus, { timeout: watchdogMs(5000) }).toBe("connected");
   const completed = new Set<number>();
   sockets.forEach((socket, index) => socket.addEventListener("message", event => {
     const message = JSON.parse(String(event.data));
@@ -157,14 +158,14 @@ test("only the browser that dispatches a shared snapshot reports its receipt", a
   }));
   expect(sockets).toHaveLength(2);
   expect(peer.connection.send({ type: "chat_message", text: snapshot.text, requestId: snapshot.requestId })).toBe(true);
-  await expect.poll(() => completed.size).toBe(2);
+  await expect.poll(() => completed.size, { timeout: watchdogMs(5000) }).toBe(2);
   // Each ping follows that socket's idle handler, so server-side FIFO proves
   // every possible receipt was observed before the count is asserted.
   ui!.connection.send({ type: "ping", probeId: "observer-drained" });
   peer.connection.send({ type: "ping", probeId: "sender-drained" });
-  await expect.poll(async () => (await read()).drained.sort()).toEqual(["observer-drained", "sender-drained"]);
+  await expect.poll(async () => (await read()).drained.sort(), { timeout: watchdogMs(5000) }).toEqual(["observer-drained", "sender-drained"]);
   // Socket FIFO proves receipt arrival, not the off-loop persistence commit.
-  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming).toBeDefined();
+  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming, { timeout: watchdogMs(5000) }).toBeDefined();
   const result = await read();
   expect(result.reportsReceived).toBe(1);
   expect(result.lifecycles[0]?.clientTiming).toBeDefined();
@@ -176,7 +177,7 @@ test("six turns on one socket retain every receipt with the real file-backed wri
   for (let index = 0; index < 6; index++) {
     expect(ui!.connection.send({ type: "chat_message", text: "Plan Ithaca", requestId: `voyage-${index}`,
       ...(index ? { sessionId: "ithaca" } : {}) })).toBe(true);
-    await expect.poll(async () => (await read()).lifecycles.filter(record => record.clientTiming).length).toBe(index + 1);
+    await expect.poll(async () => (await read()).lifecycles.filter(record => record.clientTiming).length, { timeout: watchdogMs(5000) }).toBe(index + 1);
   }
   const result = await read();
   expect(result.reportsReceived).toBe(6);
