@@ -405,8 +405,9 @@ describe("google home validation", () => {
     rmSync(join(f.serverHome, ".ssh")); symlinkSync("loop", join(f.serverHome, "loop")); symlinkSync(join(f.serverHome, "loop"), join(f.serverHome, ".ssh"));
     expect(syncTransportCommand({ brain: f.brain, mirror: join(f.state, "mirror.git"), remote: "git@github.com:odysseus/ithaca.git", env: { HOME: f.serverHome }, args: [] }).transport?.readPaths,
       "UNRESOLVABLE_SSH_NOT_BOUND").toEqual([]);
-    expect(googleHomeAreas(googleHostLayout({ brainPath: f.brain, serverHome: f.serverHome, transportEnv: { HOME: f.serverHome } })).filter(area => area.path.includes("/.ssh") || area.path.endsWith("/loop")),
-      "UNRESOLVABLE_SSH_SKIPPED").toEqual([]);
+    const looping = googleHostLayout({ brainPath: f.brain, serverHome: f.serverHome, transportEnv: { HOME: f.serverHome } });
+    expect(() => googleHomeAreas(looping), "UNRESOLVABLE_SSH_NEVER_THROWS").not.toThrow();
+    expect(googleHomeAreas(looping).filter(area => area.path.includes("/.ssh") || area.path.endsWith("/loop")), "UNRESOLVABLE_SSH_SKIPPED").toEqual([]);
   });
 
   test("google: the worker mask is the home as it resolves at boot, and only where a mask is safe for every launcher to lay", () => {
