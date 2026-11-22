@@ -13,7 +13,7 @@ import { runMaintenanceWorker, prepareNativeWorkerStartupView, ProtectedMaintena
 import { GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { prepareMaintenanceGit } from "./maintenance-git.js";
+import { prepareMaintenanceGit, prepareMaintenanceGitTargets } from "./maintenance-git.js";
 import type { ExecutionResult } from "./host-boundary.js";
 
 const MIRROR_CONFIG = `[core]
@@ -205,6 +205,8 @@ async function protectedRefusal(local: ExecutionResult, error: ProtectedMaintena
 async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal; timeoutMs?: number; onPolicyChange?: (change: IncomingPolicyChange) => void; upstream?: string | null;
   verify?: (content: Uint8Array) => Promise<boolean> }, nativeManager: Parameters<typeof prepareNativeWorkerStartupView>[1] | undefined, folderPaths?: readonly string[], log?: import("@opentelemetry/api-logs").Logger): Promise<ExecutionResult> {
   if (!nativeManager) throw new Error("Local sync requires the configured native managed-storage manager; full-copy fallback is unavailable.");
+  command.signal?.throwIfAborted();
+  prepareMaintenanceGitTargets(command.brainPath);
   const view = await prepareNativeWorkerStartupView(command.brainPath, nativeManager, command.signal);
   let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
   try {
@@ -239,6 +241,8 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
   const { command, mirror } = input;
   const brain = realpathSync(command.brainPath);
   if (!input.nativeManager) throw new Error("Hosted sync requires the configured native managed-storage manager; full-copy fallback is unavailable.");
+  input.signal?.throwIfAborted();
+  prepareMaintenanceGitTargets(brain);
   const originView = await prepareNativeWorkerStartupView(brain, input.nativeManager, input.signal);
   let remote: string | null;
   try { input.signal?.throwIfAborted(); remote = await origin({ ...command, startupView: originView }); }

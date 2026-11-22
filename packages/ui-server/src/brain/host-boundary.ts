@@ -442,9 +442,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const prepareInput = (signal?: AbortSignal) => {
     if (!options.nativeManager) throw new Error("Maintenance execution requires the configured native managed-storage manager; full-copy fallback is unavailable.");
     signal?.throwIfAborted();
-    // Status is read-only. The server owns these empty protected mount targets;
-    // a separate-UID installer cannot create them below private Git metadata.
-    prepareMaintenanceGitTargets(brain);
     return prepareNativeWorkerStartupView(brain, options.nativeManager, signal);
   };
   // Sticky: a host whose worker boundary a real probe proved could have run a
@@ -687,6 +684,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           const run = async () => {
             admissionSignal?.throwIfAborted();
             execution.assertAuthorized?.();
+            prepareMaintenanceGitTargets(brain);
             const view = await prepareInput(execution.signal);
             let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
             let relay: ProviderRelay | undefined;
@@ -785,6 +783,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       let relay: ProviderRelay | undefined;
       try {
         execution.signal?.throwIfAborted();
+        prepareMaintenanceGitTargets(brain);
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
         outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
