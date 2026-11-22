@@ -1,0 +1,183 @@
+{
+  "downloaded": null,
+  "thread": {
+    "historyId": "5752",
+    "id": "19a0c3d2e4f50c01",
+    "messages": [
+      {
+        "historyId": "5751",
+        "id": "19a0c3d2e4f50c01",
+        "internalDate": "1783854000000",
+        "labelIds": [
+          "SENT"
+        ],
+        "payload": {
+          "body": {},
+          "headers": [
+            {
+              "name": "From",
+              "value": "Penelope <penelope@example.com>"
+            },
+            {
+              "name": "To",
+              "value": "Telemachus <telemachus@example.com>"
+            },
+            {
+              "name": "Subject",
+              "value": "The ship for Pylos"
+            },
+            {
+              "name": "Date",
+              "value": "Sun, 12 Jul 2026 11:00:00 +0000"
+            },
+            {
+              "name": "Message-ID",
+              "value": "<pylos-ship-0712@example.com>"
+            },
+            {
+              "name": "MIME-Version",
+              "value": "1.0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "multipart/alternative; boundary=\"oar\""
+            }
+          ],
+          "mimeType": "multipart/alternative",
+          "parts": [
+            {
+              "body": {
+                "data": "VGFrZSB0aGUgc3dpZnQgc2hpcCBhbmQgdHdlbnR5IG9hcnNtZW4uDQpDb21lIGhvbWUgYnkgdGhlIG5ldyBtb29uLg0K",
+                "size": 69
+              },
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/plain; charset=\"UTF-8\""
+                },
+                {
+                  "name": "Content-Transfer-Encoding",
+                  "value": "7bit"
+                }
+              ],
+              "mimeType": "text/plain",
+              "partId": "0"
+            },
+            {
+              "body": {
+                "data": "PGRpdj5UYWtlIHRoZSBzd2lmdCBzaGlwIGFuZCB0d2VudHkgb2Fyc21lbi48L2Rpdj48ZGl2PkNvbWUgaG9tZSBieSB0aGUgbmV3IG1vb24uPC9kaXY-",
+                "size": 87
+              },
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/html; charset=\"UTF-8\""
+                },
+                {
+                  "name": "Content-Transfer-Encoding",
+                  "value": "7bit"
+                }
+              ],
+              "mimeType": "text/html",
+              "partId": "1"
+            }
+          ]
+        },
+        "sizeEstimate": 3310,
+        "snippet": "Take the swift ship and twenty oarsmen. Come home by the new moon.",
+        "threadId": "19a0c3d2e4f50c01"
+      },
+      {
+        "historyId": "5752",
+        "id": "19a0c3d2e4f50c02",
+        "internalDate": "1783855200000",
+        "labelIds": [
+          "INBOX",
+          "UNREAD"
+        ],
+        "payload": {
+          "body": {},
+          "headers": [
+            {
+              "name": "From",
+              "value": "Telemachus <telemachus@example.com>"
+            },
+            {
+              "name": "To",
+              "value": "Penelope <penelope@example.com>"
+            },
+            {
+              "name": "Subject"
+            },
+            {
+              "name": "Date",
+              "value": "Sun, 12 Jul 2026 11:20:00 +0000"
+            },
+            {
+              "name": "Message-ID",
+              "value": "<pylos-dusk-0712@example.com>"
+            },
+            {
+              "name": "In-Reply-To",
+              "value": "<pylos-ship-0712@example.com>"
+            },
+            {
+              "name": "References",
+              "value": "<pylos-ship-0712@example.com>"
+            },
+            {
+              "name": "MIME-Version",
+              "value": "1.0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "multipart/alternative; boundary=\"dusk\""
+            }
+          ],
+          "mimeType": "multipart/alternative",
+          "parts": [
+            {
+              "body": {
+                "data": "TW90aGVyLCB0aGUgb2Fyc21lbiBhcmUgcmVhZHkuIFdlIHNhaWwgYXQgZHVzay4NCg",
+                "size": 49
+              },
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/plain; charset=\"UTF-8\""
+                },
+                {
+                  "name": "Content-Transfer-Encoding",
+                  "value": "7bit"
+                }
+              ],
+              "mimeType": "text/plain",
+              "partId": "0"
+            },
+            {
+              "body": {
+                "data": "PGRpdj5Nb3RoZXIsIHRoZSBvYXJzbWVuIGFyZSByZWFkeS4gV2Ugc2FpbCBhdCBkdXNrLjwvZGl2Pg",
+                "size": 58
+              },
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/html; charset=\"UTF-8\""
+                },
+                {
+                  "name": "Content-Transfer-Encoding",
+                  "value": "7bit"
+                }
+              ],
+              "mimeType": "text/html",
+              "partId": "1"
+            }
+          ]
+        },
+        "sizeEstimate": 2980,
+        "snippet": "Mother, the oarsmen are ready. We sail at dusk.",
+        "threadId": "19a0c3d2e4f50c01"
+      }
+    ]
+  }
+}

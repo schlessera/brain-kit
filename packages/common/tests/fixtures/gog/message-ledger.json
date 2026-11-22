@@ -1,0 +1,144 @@
+{
+  "attachments": [
+    {
+      "filename": "ledger.pdf",
+      "size": 18432,
+      "sizeHuman": "18.0 KB",
+      "mimeType": "application/pdf",
+      "attachmentId": "ANGjdJ9ledger0712"
+    }
+  ],
+  "body": "Master,\r\nthe ledger for July is attached. Two sows farrowed; the herd stands at 960.\r\nEumaeus\r\n",
+  "headers": {
+    "bcc": "",
+    "cc": "",
+    "date": "Sun, 12 Jul 2026 07:30:00 +0000",
+    "from": "Eumaeus <eumaeus@example.com>",
+    "in_reply_to": "",
+    "message_id": "<ledger-0712@example.com>",
+    "references": "",
+    "reply_to": "",
+    "subject": "Herd ledger for July",
+    "to": "Odysseus <odysseus@example.com>"
+  },
+  "message": {
+    "historyId": "5451",
+    "id": "19a0c3d2e4f50b01",
+    "internalDate": "1783841400000",
+    "labelIds": [
+      "INBOX",
+      "IMPORTANT"
+    ],
+    "payload": {
+      "body": {},
+      "headers": [
+        {
+          "name": "From",
+          "value": "Eumaeus <eumaeus@example.com>"
+        },
+        {
+          "name": "To",
+          "value": "Odysseus <odysseus@example.com>"
+        },
+        {
+          "name": "Subject",
+          "value": "Herd ledger for July"
+        },
+        {
+          "name": "Date",
+          "value": "Sun, 12 Jul 2026 07:30:00 +0000"
+        },
+        {
+          "name": "Message-ID",
+          "value": "<ledger-0712@example.com>"
+        },
+        {
+          "name": "MIME-Version",
+          "value": "1.0"
+        },
+        {
+          "name": "Content-Type",
+          "value": "multipart/mixed; boundary=\"pen\""
+        }
+      ],
+      "mimeType": "multipart/mixed",
+      "parts": [
+        {
+          "body": {},
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "multipart/alternative; boundary=\"sty\""
+            }
+          ],
+          "mimeType": "multipart/alternative",
+          "partId": "0",
+          "parts": [
+            {
+              "body": {
+                "data": "TWFzdGVyLA0KdGhlIGxlZGdlciBmb3IgSnVseSBpcyBhdHRhY2hlZC4gVHdvIHNvd3MgZmFycm93ZWQ7IHRoZSBoZXJkIHN0YW5kcyBhdCA5NjAuDQpFdW1hZXVzDQo",
+                "size": 95
+              },
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/plain; charset=\"UTF-8\""
+                },
+                {
+                  "name": "Content-Transfer-Encoding",
+                  "value": "7bit"
+                }
+              ],
+              "mimeType": "text/plain",
+              "partId": "0.0"
+            },
+            {
+              "body": {
+                "data": "PGRpdj5NYXN0ZXIsPC9kaXY-PGRpdj50aGUgbGVkZ2VyIGZvciBKdWx5IGlzIGF0dGFjaGVkLiBUd28gc293cyBmYXJyb3dlZDsgdGhlIGhlcmQgc3RhbmRzIGF0IDk2MC48L2Rpdj48ZGl2PkV1bWFldXM8L2Rpdj4",
+                "size": 122
+              },
+              "headers": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/html; charset=\"UTF-8\""
+                },
+                {
+                  "name": "Content-Transfer-Encoding",
+                  "value": "7bit"
+                }
+              ],
+              "mimeType": "text/html",
+              "partId": "0.1"
+            }
+          ]
+        },
+        {
+          "body": {
+            "attachmentId": "ANGjdJ9ledger0712",
+            "size": 18432
+          },
+          "filename": "ledger.pdf",
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "application/pdf; name=\"ledger.pdf\""
+            },
+            {
+              "name": "Content-Disposition",
+              "value": "attachment; filename=\"ledger.pdf\""
+            },
+            {
+              "name": "Content-Transfer-Encoding",
+              "value": "base64"
+            }
+          ],
+          "mimeType": "application/pdf",
+          "partId": "1"
+        }
+      ]
+    },
+    "sizeEstimate": 26240,
+    "snippet": "Master, the ledger for July is attached. Two sows farrowed; the herd stands at 960. Eumaeus",
+    "threadId": "19a0c3d2e4f50b01"
+  }
+}

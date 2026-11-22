@@ -33,6 +33,7 @@ afterAll(() => {
       cleanupCliUtilities();
       rmSync(privateAdmission, { recursive: true, force: true });
       testHome.dispose();
+      guard.disposeGogHome();
     }
   }
 });

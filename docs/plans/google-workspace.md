@@ -786,7 +786,7 @@ Keyless, offline and deterministic.
   shaped from real gog 0.48 output by the live shape check, never copied from it.
 - **No real gog in tests.** The test network guard refuses to spawn any
   executable named `gog` that is not a registered fake, as it refuses `curl`
-  (`for (const key of ["spawn", "spawnSync"]`, `scripts/test-network-guard.ts:132-138`).
+  (`for (const key of ["spawn", "spawnSync"]`, `scripts/test-network-guard.ts:392-400`).
 - **Discipline tables.** Every catalog operation's argv uses only snapshot flags;
   reads carry `--readonly`; everything but the host send path carries
   `--gmail-no-send`; every call carries `--enable-commands-exact` for exactly its
@@ -834,10 +834,11 @@ Keyless, offline and deterministic.
 - **Live shape check (maintainer-run, read-only).**
   `scripts/google-shape-check.ts` runs each read operation against a real account
   with `--readonly` and the exact command allow-list, and prints only the JSON key
-  paths per operation compared with the fixtures'. Its output holds no values and
-  is safe to paste into a PR after the leakage gate. It gates every gog upgrade and
-  every landing. Live writes are proven on a disposable account only, as a
-  `needs: human` step.
+  paths per operation compared with the fixtures', and the transport codec's
+  verdict on each answer: accepted, or the refusal's code and key path. Its
+  output holds no values and is safe to paste into a PR after the leakage gate.
+  It gates every gog upgrade and every landing. Live writes are proven on a
+  disposable account only, as a `needs: human` step.
 
 ## 12. Delivery
 

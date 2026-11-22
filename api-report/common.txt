@@ -171,6 +171,40 @@ export "./internal/frontmatter-block" (./src/frontmatter-block.ts)
   frontmatterBlock
   frontmatterLength
 
+export "./internal/google-gog" (./src/google/gog/index.ts)
+  GOG_CONCURRENCY
+  GOG_ENVIRONMENT_NAMES
+  GOG_EXIT_CODES
+  GOG_OPERATION_INPUTS
+  GOG_PINS
+  GOG_PIN_REFUSALS
+  GOG_PLATFORMS
+  GOG_READ_OPERATIONS
+  type GogAvailability
+  type GogBinary
+  type GogBinaryIdentity
+  type GogDraftRead
+  type GogEnvironment
+  type GogEnvironmentConfig
+  type GogEnvironmentName
+  type GogExitClass
+  type GogLogEvent
+  type GogOperationInput
+  type GogPin
+  type GogPinRefusal
+  type GogPinResult
+  type GogPlatform
+  type GogReadOperation
+  type GogReadResults
+  type GogResult
+  type GogTransport
+  type GogTransportOptions
+  createGogTransport
+  gogEnvironment
+  gogPlatform
+  isGogAccountAlias
+  verifyGogBinary
+
 export "./internal/google-operations" (./src/google/index.ts)
   GMAIL_DRAFT_ACTIONS
   GMAIL_DRAFT_ID_PATTERN

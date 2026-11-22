@@ -1,0 +1,278 @@
+/**
+ * The live shape check (plan §11): maintainer-run and read-only. Runs each
+ * Gmail read operation once against a real account, with exactly the
+ * transport's argv (`--readonly`, `--no-input`, `--gmail-no-send` and the
+ * per-operation `--enable-commands-exact`), and prints only the JSON key
+ * paths of each answer beside the fixtures' key paths
+ * (packages/common/tests/fixtures/gog), with the difference, and the
+ * transport's own codec's verdict on the answer: `codec: "accepted"`, or
+ * `codec: {refused: <code>, at: <key path>}`. No value, no id and no stderr
+ * is ever printed, and a key is printed only when it is one of the
+ * structural names gog and Gmail use (`GOG_KEY_NAMES`, codecs.ts) and sits
+ * in an object where the fixtures have an object too, so the output can be
+ * pasted into a PR after `bun scripts/check-leakage.ts`.
+ *
+ * The second condition is what keeps data out. A map's keys are data (a
+ * label's name, say), and some will be structural words: a label named
+ * `draft`. A map sits where the fixtures have something else (an array, a
+ * number, nothing), so its keys are `<key>`, whether the codec refuses the
+ * answer or accepts it, as it does a map under a field it ignores inside a
+ * Gmail resource. A new field where the fixtures have an object is still
+ * named, which is the difference the check exists to show. The codec's own
+ * error path names a key only in an envelope it reads, which is such an
+ * object by construction.
+ *
+ *   bun scripts/google-shape-check.ts --gog <gog binary> --account <alias> [--home <gog home>] [--query <gmail query>]
+ *
+ * It gates every gog upgrade and every landing. It refuses to run in CI and
+ * under the offline test guard: no test may reach a real account. The ids
+ * it needs for the next read (a thread from the search, its first message,
+ * a draft from `gmail drafts list`) stay in memory.
+ *
+ * Unlike the transport, it runs gog in the maintainer's own environment
+ * ({@link shapeCheckEnvironment}): their gog home and keyring are what
+ * authenticate the read, and a desktop keyring is reached through the
+ * session's D-Bus and XDG variables, which the transport's allow-list never
+ * carries. Its argv, output cap and codecs are the transport's own.
+ */
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { GOG_OPERATION_INPUTS, gogArgv, gogInvocation, isGogAccountAlias, type GogInvocation } from "../packages/common/src/google/gog/argv.ts";
+import { GOG_KEY_NAMES, GOG_READ_CODECS, GogShapeError } from "../packages/common/src/google/gog/codecs.ts";
+import { GOG_PINS } from "../packages/common/src/google/gog/pins.ts";
+import { GOG_STDOUT_CAP, runGogProcess } from "../packages/common/src/google/gog/runner.ts";
+
+export const FIXTURE_DIR = resolve(import.meta.dir, "../packages/common/tests/fixtures/gog");
+
+/** The read operations it checks, with the fixtures each is compared with. */
+export const SHAPE_FIXTURES = Object.freeze({
+  "gmail.labels.list": ["labels-list.json"],
+  "gmail.search": ["search-ids.json", "search-empty.json"],
+  "gmail.thread.get": ["thread-hall.json", "thread-swine.json", "thread-pylos.json"],
+  "gmail.message.get": ["message-get.json", "message-herald.json", "message-ledger.json"],
+  "gmail.draft.get": ["draft-raw.json"],
+} as const);
+export type ShapeOperation = keyof typeof SHAPE_FIXTURES;
+
+const typeOf = (value: unknown) => value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+
+/** A path in key-path form: a MIME part tree's nesting collapses to `parts[]*`. */
+const collapse = (at: string) => at.replace(/(?:\.parts\[\])+/g, ".parts[]*");
+
+/**
+ * Every key path of a JSON value with its leaf type, sorted and unique:
+ * `$.thread.messages[].payload.parts[]*.body.data: string`. Arrays collapse
+ * to `[]` and a MIME part tree's nesting to `parts[]*`. A key is named only
+ * when it is one of `GOG_KEY_NAMES` and, given `positions`, only in an object
+ * at one of them; any other key is `<key>`, and so is every key below it.
+ * Never a value. A live answer is always read with the fixtures' positions
+ * ({@link fixturePositions}); the fixtures themselves are read without.
+ */
+export function keyPaths(value: unknown, positions?: ReadonlySet<string>): string[] {
+  const out = new Set<string>();
+  const add = (at: string, type: string) => out.add(`${collapse(at)}: ${type}`);
+  const visit = (node: unknown, at: string) => {
+    if (Array.isArray(node)) {
+      if (node.length === 0) add(at, "[]");
+      for (const item of node) visit(item, `${at}[]`);
+    } else if (node !== null && typeof node === "object") {
+      const entries = Object.entries(node);
+      if (entries.length === 0) add(at, "{}");
+      const known = !positions || positions.has(collapse(at));
+      for (const [key, child] of entries) visit(child, `${at}.${known && GOG_KEY_NAMES.has(key) ? key : "<key>"}`);
+    } else {
+      add(at, typeOf(node));
+    }
+  };
+  visit(value, "$");
+  return [...out].sort();
+}
+
+const readFixture = (dir: string, name: string): unknown => JSON.parse(readFileSync(join(dir, name), "utf8"));
+
+export function fixtureKeyPaths(operation: ShapeOperation, dir = FIXTURE_DIR): string[] {
+  return [...new Set(SHAPE_FIXTURES[operation].flatMap(name => keyPaths(readFixture(dir, name))))].sort();
+}
+
+/** Every place the fixtures have an object, reached through structural names only, in key-path form: where a live answer's keys may be named. */
+export function fixturePositions(operation: ShapeOperation, dir = FIXTURE_DIR): Set<string> {
+  const out = new Set<string>();
+  const visit = (node: unknown, at: string) => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, `${at}[]`);
+    } else if (node !== null && typeof node === "object") {
+      out.add(collapse(at));
+      for (const [key, child] of Object.entries(node)) if (GOG_KEY_NAMES.has(key)) visit(child, `${at}.${key}`);
+    }
+  };
+  for (const name of SHAPE_FIXTURES[operation]) visit(readFixture(dir, name), "$");
+  return out;
+}
+
+export function diffKeyPaths(live: readonly string[], fixtures: readonly string[]): { only_live: string[]; only_fixtures: string[] } {
+  const known = new Set(fixtures);
+  const seen = new Set(live);
+  return { only_live: live.filter(path => !known.has(path)), only_fixtures: fixtures.filter(path => !seen.has(path)) };
+}
+
+/**
+ * What the transport's own codec (`GOG_READ_CODECS`) makes of one answer:
+ * accepted, or refused with the code the transport would answer and where,
+ * as a key path. A codec that throws anything but a shape error is
+ * `codec_error`; its message is never carried.
+ */
+export type CodecVerdict = "accepted" | { refused: "transport_incompatible"; at: string } | { refused: "codec_error" };
+
+const SHAPE_SEGMENT = /^([^.[\]]+)(?:\[\]\*?)*$/;
+
+/**
+ * A codec error path in key-path form: indexes collapse to `[]` and a MIME
+ * part tree's nesting to `parts[]*`, as {@link keyPaths} writes them. A path
+ * that is not `GOG_KEY_NAMES`, `<key>` and indexes alone is `<path>`.
+ */
+export function shapePath(path: string): string {
+  const collapsed = path.replace(/\[\d+\]/g, "[]").replace(/(?:\.parts\[\])+/g, ".parts[]*");
+  if (!collapsed.startsWith("$")) return "<path>";
+  const rest = collapsed.slice(1);
+  if (rest === "") return collapsed;
+  if (!rest.startsWith(".")) return "<path>";
+  for (const segment of rest.slice(1).split(".")) {
+    const name = SHAPE_SEGMENT.exec(segment)?.[1];
+    if (name === undefined || (name !== "<key>" && !GOG_KEY_NAMES.has(name))) return "<path>";
+  }
+  return collapsed;
+}
+
+export async function codecVerdict(operation: ShapeOperation, json: unknown): Promise<CodecVerdict> {
+  try {
+    await GOG_READ_CODECS[operation](json);
+    return "accepted";
+  } catch (error) {
+    if (error instanceof GogShapeError) return { refused: "transport_incompatible", at: shapePath(error.path) };
+    return { refused: "codec_error" };
+  }
+}
+
+/** One operation's answer as the script saw it: gog's exit, how it ended, and its JSON (null when there was none). */
+export interface ShapeAnswer {
+  exit: number | null;
+  end: string;
+  json: unknown;
+}
+
+/** One operation's report: the key paths, their difference from the fixtures', and the codec's verdict. */
+export async function operationReport(operation: ShapeOperation, answer: ShapeAnswer, dir = FIXTURE_DIR): Promise<Record<string, unknown>> {
+  if (answer.json === null) return { exit: answer.exit, end: answer.end };
+  const live = keyPaths(answer.json, fixturePositions(operation, dir));
+  return { exit: answer.exit, live, ...diffKeyPaths(live, fixtureKeyPaths(operation, dir)), codec: await codecVerdict(operation, answer.json) };
+}
+
+/** Why it must not run here, or null. */
+export function shapeCheckRefusal(env: Readonly<Record<string, string | undefined>>, guardInstalled: boolean): string | null {
+  if (env.CI || env.GITHUB_ACTIONS) return "google-shape-check refuses to run in CI: it reaches a real Google account.";
+  if (guardInstalled || env.NODE_ENV === "test") return "google-shape-check refuses to run under the offline test guard: no test may reach a real Google account.";
+  return null;
+}
+
+/** What reaches gog from the maintainer's shell: what finds their gog home and keyring, and no other GOG_* name. */
+const PASSED = ["HOME", "PATH", "LANG", "LC_ALL", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
+  "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "GOG_HOME", "GOG_KEYRING_BACKEND", "GOG_KEYRING_PASSWORD", "GOG_TIMEZONE"];
+
+const FLAGS = ["--gog", "--account", "--home", "--query"];
+
+/** The arguments, or an error that names a flag at most: never a value it was given, which may be a path, an address or a query. */
+export function parseShapeCheckArgs(argv: readonly string[]): { ok: true; args: Record<string, string> } | { ok: false; error: string } {
+  const out: Record<string, string> = {};
+  for (let at = 0; at < argv.length; at += 2) {
+    const name = argv[at]!;
+    if (!FLAGS.includes(name)) return { ok: false, error: `argument ${at + 1} is not one of ${FLAGS.join(", ")}` };
+    const value = argv[at + 1];
+    if (value === undefined) return { ok: false, error: `${name} needs a value` };
+    out[name.slice(2)] = value;
+  }
+  return { ok: true, args: out };
+}
+
+/**
+ * The environment gog gets: the maintainer's, narrowed to {@link PASSED}.
+ * `home` names a gog home other than their own; like the transport, it is
+ * then both `GOG_HOME` and `HOME`, so gog reads nothing from the real home.
+ */
+export function shapeCheckEnvironment(env: Readonly<Record<string, string | undefined>>, home?: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of PASSED) if (env[name] !== undefined) out[name] = env[name]!;
+  if (home) out.GOG_HOME = out.HOME = resolve(home);
+  return out;
+}
+
+/** One live read, under the transport's 8 MiB answer cap: gog's exit, how it ended, and its JSON (null when there was none). */
+export async function liveRead(gog: string, argv: readonly string[], env: Readonly<Record<string, string>>): Promise<ShapeAnswer> {
+  const result = await runGogProcess(gog, argv, { env, stdin: null, timeoutMs: 60_000, stdoutCap: GOG_STDOUT_CAP });
+  const exit = result.end.kind === "exit" ? result.end.exitCode : null;
+  if (exit !== 0 || !result.stdout) return { exit, end: result.end.kind, json: null };
+  try {
+    return { exit, end: result.end.kind, json: JSON.parse(new TextDecoder().decode(result.stdout)) as unknown };
+  } catch {
+    return { exit, end: "not_json", json: null };
+  }
+}
+
+async function main(): Promise<number> {
+  const refusal = shapeCheckRefusal(process.env, Boolean((globalThis as Record<symbol, unknown>)[Symbol.for("brain-kit.test-network-guard.installed")]));
+  if (refusal) {
+    console.error(refusal);
+    return 2;
+  }
+  const parsed = parseShapeCheckArgs(process.argv.slice(2));
+  if (!parsed.ok) {
+    console.error(`${parsed.error}\nusage: bun scripts/google-shape-check.ts --gog <gog binary> --account <alias> [--home <gog home>] [--query <gmail query>]`);
+    return 2;
+  }
+  const args = parsed.args;
+  if (!args.gog || !existsSync(args.gog)) return console.error("--gog must name an existing gog binary"), 2;
+  if (!isGogAccountAlias(args.account)) return console.error("--account must be a gog account alias, not an address or auto"), 2;
+  const gog = realpathSync(resolve(args.gog));
+  const env = shapeCheckEnvironment(process.env, args.home);
+  const run = (call: GogInvocation | string[]) => liveRead(gog, Array.isArray(call) ? call : gogArgv(call, args.account!), env);
+
+  const version = await runGogProcess(gog, ["version"], { env, stdin: null, timeoutMs: 30_000, stdoutCap: 64 * 1024 });
+  const sha256 = new Bun.CryptoHasher("sha256").update(readFileSync(gog)).digest("hex");
+  const report: Record<string, unknown> = {
+    gog: version.stdout ? new TextDecoder().decode(version.stdout).trim().split("\n")[0] : null,
+    pinned: GOG_PINS.some(pin => Object.values(pin.sha256).includes(sha256)),
+    operations: {} as Record<string, unknown>,
+  };
+  const operations = report.operations as Record<string, unknown>;
+
+  // A live id goes back into argv only through the transport's own input
+  // schema; one that does not have the catalog's id shape is reported, never printed.
+  const read = async (operation: ShapeOperation, input: Record<string, unknown>) => {
+    const parsed = GOG_OPERATION_INPUTS[operation].safeParse(input);
+    if (!parsed.success) {
+      operations[operation] = { refused: "the live id does not have the catalog's id shape" };
+      return null;
+    }
+    const answer = await run(gogInvocation(operation, parsed.data as never));
+    operations[operation] = await operationReport(operation, answer);
+    return answer.json;
+  };
+  await read("gmail.labels.list", {});
+  const search = await read("gmail.search", { query: args.query ?? "newer_than:30d", limit: 3 });
+  const threadId = (search as { threads?: { id?: unknown }[] } | null)?.threads?.[0]?.id;
+  if (threadId !== undefined) {
+    const thread = await read("gmail.thread.get", { thread_id: threadId });
+    const messageId = (thread as { thread?: { messages?: { id?: unknown }[] } } | null)?.thread?.messages?.[0]?.id;
+    if (messageId !== undefined) await read("gmail.message.get", { message_id: messageId });
+  }
+  // Not a catalog operation: a read-only listing, under its own exact allow-list, to find one draft id.
+  const drafts = await run(["--no-input", "--json", "--color=never", `--account=${args.account}`, "--enable-commands-exact=gmail.drafts.list",
+    "--readonly", "--gmail-no-send", "gmail", "drafts", "list", "--max=1"]);
+  const draftId = (drafts.json as { drafts?: { id?: unknown }[] } | null)?.drafts?.[0]?.id;
+  if (draftId !== undefined) await read("gmail.draft.get", { draft_id: draftId });
+  for (const operation of Object.keys(SHAPE_FIXTURES)) operations[operation] ??= { skipped: "no item to read" };
+
+  console.log(JSON.stringify(report, null, 2));
+  return 0;
+}
+
+if (import.meta.main) process.exit(await main());

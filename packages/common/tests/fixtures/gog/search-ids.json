@@ -1,0 +1,13 @@
+{
+  "count": 2,
+  "has_more": true,
+  "nextPageToken": "09876543210987654321",
+  "threads": [
+    {
+      "id": "19a0c3d2e4f50601"
+    },
+    {
+      "id": "19a0c3d2e4f50700"
+    }
+  ]
+}
