@@ -1,8 +1,8 @@
 /** Frozen Git configuration: read by a worker, never by a host Git process. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
-import { existsSync, lstatSync, statSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, statSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { maintenanceGitEntry, nativeWorkerStartupInput, workerIdentityHelper, prepareMaintenanceGitInput, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
+import { maintenanceGitEntry, mountPointsUnder, nativeWorkerStartupInput, workerIdentityHelper, prepareMaintenanceGitInput, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import type { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { collectOwnedGitAttributes, parseMaintenanceGitSources, reportMaintenanceGitFailure, reportOwnedGitFailure, type MaintenanceGitSources } from "./maintenance-git-source.js";
 
@@ -118,4 +118,34 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   writeFileSync(join(root, "config.json"), JSON.stringify(frozen), { mode: 0o600 });
   await refreshInput();
   return spec;
+}
+
+/** Prepare only fixed empty mask targets, as their owner, before sealing inputs. */
+export function prepareMaintenanceGitTargets(brain: string): void {
+  const flags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+  const root = openSync(brain, flags);
+  try {
+    const path = `/proc/self/fd/${root}/.git`, node = lstatSync(path, { throwIfNoEntry: false });
+    // A checkout without directory metadata has no concrete adapter to prepare.
+    if (!node || node.isFile()) return;
+    // Worker-owned private metadata stays on the existing worker installer path.
+    if (node.isDirectory() && node.uid !== process.getuid?.()) return;
+    if (mountPointsUnder(join(brain, ".git")).length) throw Error("Maintenance Git targets contain a mount point");
+    const metadata = openSync(path, flags);
+    try {
+      const held = fstatSync(metadata);
+      if (node.dev !== held.dev || node.ino !== held.ino) throw Error("Changed maintenance Git target parent");
+      for (const name of ["hooks", "info", "modules"]) {
+        const target = `/proc/self/fd/${metadata}/${name}`;
+        if (!lstatSync(target, { throwIfNoEntry: false })) {
+          try { mkdirSync(target, { mode: 0o755 }); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+        }
+        // No enumeration, permission repair or traversal of existing targets.
+        if (!lstatSync(target).isDirectory()) throw Error("Invalid maintenance Git mask target");
+      }
+      const visible = lstatSync(path);
+      if (visible.dev !== held.dev || visible.ino !== held.ino) throw Error("Changed maintenance Git target parent");
+    } finally { closeSync(metadata); }
+  } finally { closeSync(root); }
 }

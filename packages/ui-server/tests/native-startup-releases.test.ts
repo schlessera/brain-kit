@@ -368,3 +368,32 @@ for (const mode of ["release_wait", "checkpoint_refresh"] as const) test(`reacqu
     expect(db.query("SELECT count(*) AS n FROM writer_gate WHERE purpose='turn:voyage'").get()).toEqual({ n: 0 });
   } finally { first.resolve(); second.resolve(); await peer?.release(); await admission.then(value => value.hold?.end()); await turns.close(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); tree.mockRestore(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test("sequential provider-index proof cases acquire independent admission lifetimes over the same manager", async () => {
+  const { createProviderIndexTurns } = await import("../../../scripts/native-proof/provider-index-turns.js");
+  const { createFixtureWorkerStartupView } = await import("../../ui-sdk/tests/helpers/worker-startup-view-fixture.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-provider-lifetime-")), brain = join(root, "brain"); mkdirSync(brain);
+  const native = createNativeJournalFixture(brain, root);
+  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => createFixtureWorkerStartupView(brain));
+  const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
+  const resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockResolvedValue({ profile: "strict", areas: [], protection: { paths: [] } } as never);
+  const execution = { boundary: { async prepare() { return { available: true }; }, maintenance: {} },
+    gate() { return { async acquire() { return { release() {} }; } }; }, manifests() { return {}; } };
+  const views: string[] = [], outcomes: (string | null)[] = [], closedOutcomes: (string | null)[] = [];
+  try {
+    for (const id of ["strict-case", "governed-case"]) {
+      const turns = createProviderIndexTurns({ nativeManager: native.client, brainPath: brain, profile: "strict", maskPaths: [], execution: execution as never, async index() {}, report() {} });
+      try {
+        const result = await turns.begin(id, new AbortController().signal).then(hold => ({ hold, error: null }), error => ({ hold: undefined, error: String(error) }));
+        outcomes.push(result.error);
+        if (result.hold) { views.push(result.hold.startupView!.root); await result.hold.end(); }
+      } finally { await turns.close(); }
+      closedOutcomes.push(await turns.begin(`${id}-after-close`, new AbortController().signal).then(() => null, error => String(error)));
+    }
+    expect(closedOutcomes, "CLOSED_CASES_STILL_REFUSE_ADMISSION").toEqual(["Error: Startup qualifications are closing", "Error: Startup qualifications are closing"]);
+    expect(outcomes, "EACH_PROVIDER_INDEX_CASE_CAN_BEGIN_AFTER_PREVIOUS_CLOSE").toEqual([null, null]);
+    expect(views).toHaveLength(2);
+    expect(views[0]).not.toBe(views[1]);
+  } finally { resolve.mockRestore(); managed.mockRestore(); acquire.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});

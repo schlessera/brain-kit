@@ -222,8 +222,13 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
           db.exec("DELETE FROM temp.journal_index_purge");
           db.query(`INSERT OR IGNORE INTO temp.journal_index_purge ${indexPins}`).run(family, INDEX_PUBLICATION_COPY);
           let versions = 0;
-          for (const table of ["turn_journal_changes", "turn_journal_revert_paths"]) versions += db.query(`UPDATE ${table} SET before_json=${metadataOnly("before_json")},after_json=${metadataOnly("after_json")}
-            WHERE ${INDEX_PATH} AND (${legacy("before_json")} OR ${legacy("after_json")})`).run(family, INDEX_PUBLICATION_COPY).changes;
+          for (const table of ["turn_journal_changes", "turn_journal_revert_paths"]) {
+            db.query(`UPDATE ${table} SET before_json=${metadataOnly("before_json")},after_json=${metadataOnly("after_json")}
+              WHERE ${INDEX_PATH} AND (${legacy("before_json")} OR ${legacy("after_json")})`).run(family, INDEX_PUBLICATION_COPY);
+            // Bun 1.4.2's run().changes includes the accounting triggers' writes.
+            // SQLite changes() counts only the index-version rows just updated.
+            versions += (db.query("SELECT changes() AS n").get() as { n: number }).n;
+          }
           // Index versions name no hash any more: whatever still does is another record's content.
           db.exec(`DELETE FROM temp.journal_index_purge WHERE hash IN (${namedHashes(codeReceiptTablesExist(db))})`);
           // Only the pin of the turn that recorded the index version: a pin

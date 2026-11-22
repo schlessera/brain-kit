@@ -302,7 +302,9 @@ for (const later of ["replayed", "stopped", "denied", "unrecordable"] as const) 
     const allowedTools = new Set(["grep"]);
     const turn = { bridge: { inputSafety: f.collector, emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Penelope declines the later request" }) },
       signal: f.controller.signal, enforceAllowedTools: false, noGrantSurface: false };
-    const dispatch = createPiWorkerRpcDispatcher({ turn, grants: new Map(), allowedTools, confirmPatterns: [], admitTool() {}, autonomous: false,
+    const dispatch = createPiWorkerRpcDispatcher({ turn, grants: new Map(),
+      executed: (msg: PiWorkerRpc) => ({ name: msg.toolName, input: msg.input, host: false, lock: false, phases: new Set() }),
+      allowedTools, confirmPatterns: [], admitTool() {}, autonomous: false,
       live() { if (f.controller.signal.aborted) throw new Error("Pi worker RPC refused: turn is inactive, cancelled or revoked."); } } as unknown as PiWorkerRpcContext);
     const ask = { type: "rpc", id: 1, method: "permission", toolName: "grep", toolCallId: "call_raft", input: { pattern: "sirens" } } as PiWorkerRpc;
     expect(await dispatch(ask), "SAFETY_PI_CALL_IS_ALLOWED").toEqual({ behavior: "allow" });
