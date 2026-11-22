@@ -16,7 +16,7 @@ const SECRET = "odysseus-probe-cookie-secret-0123456789";
 // #4206: the host's Google settings, GOG_* names and the operator extra asking
 // for them, set here because the test guard drops every inherited GOG_* name;
 // and the witness each actual worker runs.
-const googleProof = JSON.parse(readFileSync(process.env.BRAIN_NATIVE_PROOF_GOOGLE!, "utf8")) as { env: Record<string, string>; witness: object; home: string; canary: string };
+const googleProof = JSON.parse(readFileSync(process.env.BRAIN_NATIVE_PROOF_GOOGLE!, "utf8")) as { env: Record<string, string>; witness: { files: Record<string, string> }; home: string; canary: string };
 Object.assign(process.env, googleProof.env);
 const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 const googleWitnessProgram = readFileSync(join(import.meta.dir, "google-witness.py"), "utf8");
@@ -262,7 +262,9 @@ child = params.options.spawnClaudeCodeProcess({
     });
   },
 });
-let app: any, server: any, googleHolderPid: number | undefined;
+let app: any, server: any, googleHolderPid: number | undefined, googleReady: any;
+/** A process's start time in clock ticks (`/proc/<pid>/stat` field 22): with the pid, its identity. */
+const googleHolderStart = (pid: number) => readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
 try {
   const appCreateStartedAt = performance.now();
   app = await createApp({
@@ -338,8 +340,11 @@ try {
   while (!holderGog.calls()[0]?.pid && performance.now() < holderDeadline) await Bun.sleep(10);
   googleHolderPid = holderGog.calls()[0]?.pid;
   const holderEnviron = googleHolderPid ? readFileSync(`/proc/${googleHolderPid}/environ`) : Buffer.alloc(0);
-  const googleReady = { holder: { pid: googleHolderPid ?? null, hostReadsCanary: holderEnviron.includes(googleProof.canary) },
-    hostReadsHome: readFileSync(join(googleProof.home, "config.json"), "utf8").includes(googleProof.canary),
+  // The holder's identity (its start time), so the end of the run can show the same process was still alive.
+  googleReady = { holder: { pid: googleHolderPid ?? null, start: googleHolderPid ? googleHolderStart(googleHolderPid) : null,
+      hostReadsCanary: holderEnviron.includes(googleProof.canary), at: Date.now() },
+    // The control for every canary file: the host reads each one in this run.
+    hostReads: Object.fromEntries(Object.entries(googleProof.witness.files).map(([name, path]) => [name, readFileSync(path, "utf8").includes(googleProof.canary)])),
     masked: (app.wsHost.maintenance?.maskPaths ?? []).includes(googleProof.home), status: await app.wsHost.google.status("ithaca") };
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus admission", ttlSeconds: 3600 });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
@@ -354,9 +359,19 @@ try {
   let closing = false;
   process.on("SIGTERM", async () => {
     if (closing) return; closing = true;
-    if (googleHolderPid) try { process.kill(-googleHolderPid, "SIGKILL"); } catch { /* already gone */ }
-    try { server.stop(true); await app.close(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
-    catch (error) { event("close_error", { error: String(error) }); process.exit(1); }
+    // After the app has closed, so every worker, the last automatic index's
+    // included, has ended: whether the holder that ran since ready is still
+    // the same process and still holds the canary, then stop it.
+    const stopHolder = () => {
+      if (!googleHolderPid) return;
+      let alive = false;
+      try { alive = googleHolderStart(googleHolderPid) === googleReady?.holder.start && readFileSync(`/proc/${googleHolderPid}/environ`).includes(googleProof.canary); } catch { alive = false; }
+      event("google_holder_stop", { alive, start: googleReady?.holder.start ?? null });
+      try { process.kill(-googleHolderPid, "SIGKILL"); } catch { /* already gone */ }
+      googleHolderPid = undefined;
+    };
+    try { server.stop(true); await app.close(); stopHolder(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
+    catch (error) { stopHolder(); event("close_error", { error: String(error) }); process.exit(1); }
   });
 } catch (error) {
   writeFileSync(join(dir!, "boot-error.txt"), String(error));

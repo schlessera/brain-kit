@@ -35,14 +35,15 @@ const GOOGLE_CANARY = `odysseus-keyring-canary-${randomUUID()}`;
 function googleFixture(dir: string) {
   mkdirSync(GOOGLE_FIXTURE, { mode: 0o755 });
   const home = join(GOOGLE_FIXTURE, "gog-home");
-  const homes = { googleHome: home, gogDefault: join(dir, "home/.config/gogcli"), standalone: join(dir, "home/.local/share/brain/google") };
+  // gog's own defaults (v0.48.1): configuration under ~/.config/gogcli, the keyring under ~/.local/share/gogcli.
+  const homes = { googleHome: home, gogDefault: join(dir, "home/.config/gogcli"), gogDefaultData: join(dir, "home/.local/share/gogcli"), standalone: join(dir, "home/.local/share/brain/google") };
   mkdirSync(join(home, "keyring"), { recursive: true, mode: 0o700 }); chmodSync(home, 0o700);
-  for (const path of [homes.gogDefault, homes.standalone]) mkdirSync(path, { recursive: true, mode: 0o700 });
+  for (const path of [homes.gogDefault, join(homes.gogDefaultData, "keyring"), homes.standalone]) mkdirSync(path, { recursive: true, mode: 0o700 });
   const files = { googleConfig: join(home, "config.json"), googleKeyring: join(home, "keyring/token-ithaca"),
-    gogDefault: join(homes.gogDefault, "config.json"), standalone: join(homes.standalone, "config.json") };
+    gogDefault: join(homes.gogDefault, "config.json"), gogDefaultKeyring: join(homes.gogDefaultData, "keyring/token-ithaca"), standalone: join(homes.standalone, "config.json") };
   for (const path of Object.values(files)) writeFileSync(path, JSON.stringify({ account: "ithaca", canary: GOOGLE_CANARY }), { mode: 0o600 });
   const identities = Object.fromEntries(Object.entries(homes).map(([name, path]) => { const info = statSync(path); return [name, [info.dev, info.ino]]; }));
-  const witness = { homes, identities, files, canary: GOOGLE_CANARY };
+  const witness = { homes, identities, files, canary: GOOGLE_CANARY, fixture: GOOGLE_FIXTURE };
   // Every name a worker must never hold, and the operator escape hatch asking for each of them.
   const names = { BRAIN_UI_GOOGLE_HOME: home, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: GOOGLE_CANARY, BRAIN_UI_GOG_PATH: join(GOOGLE_FIXTURE, "absent-gog"),
     BRAIN_GOOGLE_LEDGER: join(GOOGLE_FIXTURE, "ledger.sqlite"), BRAIN_GOOGLE_HOME: homes.standalone, BRAIN_UI_GOOGLE_ITHACA: GOOGLE_CANARY,
@@ -52,15 +53,37 @@ function googleFixture(dir: string) {
   writeFileSync(settings, JSON.stringify({ env, witness, home, canary: GOOGLE_CANARY }));
   return { home, witness, settings };
 }
-/** A worker's Google witness output that shows any credential, home, variable or host environment. */
-function googleExposure(witness: any) {
-  return {
-    canaries: Object.entries(witness.files).filter(([, read]) => read).map(([name]) => name),
-    homes: Object.entries(witness.homes).filter(([, seen]: [string, any]) => seen.stat === "ok" && (seen.hostInode || (Array.isArray(seen.entries) && seen.entries.length > 0))).map(([name]) => name),
-    variables: [...witness.envNames, ...(witness.envCanary ? ["<canary value>"] : [])],
-    environ: witness.procEnvironCanary,
-  };
+const GOOGLE_WITNESS_HOMES = ["gogDefault", "gogDefaultData", "googleHome", "standalone", "workerGogDefault", "workerGogDefaultData", "workerStandalone"];
+const GOOGLE_WITNESS_FILES = ["gogDefault", "gogDefaultKeyring", "googleConfig", "googleKeyring", "standalone"];
+/**
+ * Every claim one worker's Google witness must hold, each under its own name.
+ * The shape is exact first, so a missing, renamed or empty collection fails
+ * rather than passing for want of anything to check.
+ */
+function expectGoogleWitness(witness: any, where: string) {
+  expect(Object.keys(witness).sort(), `NATIVE_GOOGLE_WITNESS_KEYS: ${where}`).toEqual(["envCanary", "envFixture", "envNames", "files", "homes", "procEnvironCanary", "procEnvironScanned", "scanEndedAt", "scanStartedAt"]);
+  expect(Object.keys(witness.homes).sort(), `NATIVE_GOOGLE_WITNESS_HOMES: ${where}`).toEqual(GOOGLE_WITNESS_HOMES);
+  expect(Object.keys(witness.files).sort(), `NATIVE_GOOGLE_WITNESS_FILES: ${where}`).toEqual(GOOGLE_WITNESS_FILES);
+  for (const seen of Object.values<any>(witness.homes)) expect(Object.keys(seen).sort(), `NATIVE_GOOGLE_WITNESS_HOME_SHAPE: ${where}`).toEqual(["entries", "fstype", "hostInode", "lstat", "stat"]);
+  for (const seen of Object.values<any>(witness.files)) expect(Object.keys(seen).sort(), `NATIVE_GOOGLE_WITNESS_FILE_SHAPE: ${where}`).toEqual(["lstat", "read", "stat"]);
+  expect([Array.isArray(witness.envNames), typeof witness.envCanary, typeof witness.envFixture, Array.isArray(witness.procEnvironCanary), Number.isInteger(witness.procEnvironScanned),
+    typeof witness.scanStartedAt, typeof witness.scanEndedAt], `NATIVE_GOOGLE_WITNESS_TYPES: ${where}`).toEqual([true, "boolean", "boolean", true, true, "number", "number"]);
+  const files = (pick: (seen: any) => unknown) => Object.fromEntries(Object.entries<any>(witness.files).map(([name, seen]) => [name, pick(seen)]));
+  expect(files(seen => seen.read), `NATIVE_WORKER_READS_NO_GOOGLE_CANARY: ${where}`).toEqual(Object.fromEntries(GOOGLE_WITNESS_FILES.map(name => [name, false])));
+  // Not merely unreadable: no canary file exists in the worker's view at all.
+  expect(files(seen => [seen.stat, seen.lstat]), `NATIVE_WORKER_CANNOT_STAT_GOOGLE_FILES: ${where}`).toEqual(Object.fromEntries(GOOGLE_WITNESS_FILES.map(name => [name, ["ENOENT", "ENOENT"]])));
+  // The gog home is an empty tmpfs mounted at its path: neither the host's directory nor another empty one.
+  expect(witness.homes.googleHome, `NATIVE_WORKER_SEES_GOOGLE_HOME_AS_EMPTY_TMPFS: ${where}`).toEqual({ stat: "ok", lstat: "ok", entries: [], hostInode: false, fstype: "tmpfs" });
+  // gog's default home and the standalone default home, under the host's HOME and under the worker's own: absent.
+  for (const name of GOOGLE_WITNESS_HOMES.filter(name => name !== "googleHome")) {
+    expect(witness.homes[name], `NATIVE_WORKER_DEFAULT_GOOGLE_HOME_ABSENT: ${where} ${name}`).toEqual({ stat: "ENOENT", lstat: "ENOENT", entries: null, hostInode: false, fstype: null });
+  }
+  expect({ names: witness.envNames, canary: witness.envCanary, fixture: witness.envFixture }, `NATIVE_WORKER_HOLDS_NO_GOOGLE_VARIABLE: ${where}`).toEqual({ names: [], canary: false, fixture: false });
+  expect(witness.procEnvironCanary, `NATIVE_WORKER_CANNOT_READ_HOST_GOG_ENVIRON: ${where}`).toEqual([]);
+  expect(witness.procEnvironScanned, `NATIVE_WORKER_SCANNED_ITS_PROC: ${where}`).toBeGreaterThan(0);
 }
+/** A process's start time in clock ticks (`/proc/<pid>/stat` field 22): with the pid, its identity. */
+const processStart = (pid: number) => readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
 let releasePinnedNamespace: (() => void) | undefined;
 const recordedSpawn = Bun.spawn;
 Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd; const native = argv[0]?.endsWith("/btrfs") || argv[0]?.endsWith("/python3"); const observeRelease = releaseObservations.prepare(argv); const start = performance.now(), child = Reflect.apply(recordedSpawn, Bun, args); observeRelease?.(child); if (native) { const command = argv[0].endsWith("/btrfs") ? argv.slice(1) : ["identity-inspect"]; appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "start", at: start, wallAt: Date.now(), command }) + "\n"); void child.exited.then((code: number) => { if (code !== 0 && argv[1] === "subvolume" && argv[2] === "sync") releasePinnedNamespace?.(); return appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "end", at: performance.now(), wallAt: Date.now(), ms: performance.now() - start, code, command }) + "\n"); }); } return child; }) as typeof Bun.spawn;
@@ -133,7 +156,7 @@ print(json.dumps(result))`;
   const output = new Response(child.stdout).text(), errors = new Response(child.stderr).text();
   let exited = false; void child.exited.then(() => { exited = true; });
   const sockets: WebSocket[] = [], results: any[] = [];
-  let receipt: any;
+  let receipt: any, googleReady: any;
   let cleanExit = false;
   let hostProofPassed = false;
   let expectedProviderAttempts: number | null = null;
@@ -141,6 +164,7 @@ print(json.dumps(result))`;
     await until(() => existsSync(join(dir, "ready.json")) || exited, 30000);
     if (exited) throw Error(`HOSTED_PROBE_PREREQUISITE: ${await errors}`);
     const ready = JSON.parse(readFileSync(join(dir, "ready.json"), "utf8"));
+    googleReady = ready.google;
     expect(ready.rootWarnings.length, "NATIVE_ROOT_APP_WARNED_ONCE_AT_BOOT").toBe(APP_UID === 0 ? 1 : 0);
     const origin = `http://127.0.0.1:${ready.port}`;
     const cookie = await serializeSigned("brain_ui_session", ready.principalId, ready.secret);
@@ -249,19 +273,16 @@ print(json.dumps(result))`;
     // canary keyring password ran, saw no Google credential, home, variable or environment.
     const googleWitnesses = [1, 2].map(attempt => JSON.parse(readFileSync(join(brain, `.brain/google-witness-${attempt}.json`), "utf8")));
     writeFileSync(join(ARTIFACTS, "google-witness.json"), JSON.stringify({ ready: ready.google, agents: googleWitnesses }, null, 2));
-    for (const witness of googleWitnesses) {
-      const exposed = googleExposure(witness);
-      expect(exposed.canaries, "NATIVE_WORKER_READS_NO_GOOGLE_CANARY").toEqual([]);
-      expect(exposed.homes, "NATIVE_WORKER_CANNOT_STAT_A_GOOGLE_HOME").toEqual([]);
-      expect(exposed.variables, "NATIVE_WORKER_HOLDS_NO_GOOGLE_VARIABLE").toEqual([]);
-      expect(exposed.environ, "NATIVE_WORKER_CANNOT_READ_HOST_GOG_ENVIRON").toEqual([]);
-      expect(witness.procEnvironScanned, "NATIVE_WORKER_SCANNED_ITS_PROC").toBeGreaterThan(0);
-    }
-    // The controls: the host reads its home, its gog's environment holds the
-    // canary, and that gog was still running after both workers had looked.
-    expect(ready.google.hostReadsHome, "NATIVE_HOST_READS_ITS_GOG_HOME").toBe(true);
+    expect(googleWitnesses, "NATIVE_GOOGLE_WITNESS_PER_AGENT_WORKER").toHaveLength(2);
+    for (const [index, witness] of googleWitnesses.entries()) expectGoogleWitness(witness, `agent ${index + 1}`);
+    // The controls: the host reads every canary file in this run, its gog's
+    // environment holds the canary, and that same gog was running before
+    // either worker looked and is still running after both had.
+    expect(ready.google.hostReads, "NATIVE_HOST_READS_EVERY_GOOGLE_CANARY").toEqual(Object.fromEntries(GOOGLE_WITNESS_FILES.map(name => [name, true])));
     expect(ready.google.holder.hostReadsCanary, "NATIVE_HOST_GOG_ENVIRON_HOLDS_CANARY").toBe(true);
-    expect(readFileSync(`/proc/${ready.google.holder.pid}/environ`).includes(GOOGLE_CANARY), "NATIVE_HOST_GOG_RAN_THROUGH_BOTH_WORKERS").toBe(true);
+    expect(googleWitnesses.every(witness => witness.scanStartedAt > ready.google.holder.at), "NATIVE_HOST_GOG_RAN_BEFORE_BOTH_WORKERS").toBe(true);
+    expect({ start: processStart(ready.google.holder.pid), canary: readFileSync(`/proc/${ready.google.holder.pid}/environ`).includes(GOOGLE_CANARY) },
+      "NATIVE_HOST_GOG_RAN_THROUGH_BOTH_WORKERS").toEqual({ start: ready.google.holder.start, canary: true });
     expect(ready.google.masked, "NATIVE_APP_MASKS_THE_GOG_HOME").toBe(true);
     expect(ready.google.status, "NATIVE_GOG_HOME_PASSES_ITS_CHECKS").toMatchObject({ state: "unavailable", reason: "binary_refused", cause: "binary_missing" });
     // Each governed turn's connections are durable per-connection governance records (#1665).
@@ -617,7 +638,11 @@ print(json.dumps(result))`;
         // #4206: the automatic index's maintenance worker sees no Google credential either.
         const maintenanceGoogle = JSON.parse(readFileSync(join(brain, ".brain/maintenance-google.json"), "utf8"));
         writeFileSync(join(ARTIFACTS, "maintenance-google-witness.json"), JSON.stringify(maintenanceGoogle, null, 2));
-        expect(googleExposure(maintenanceGoogle), "NATIVE_MAINTENANCE_SEES_NO_GOOGLE_CREDENTIAL").toEqual({ canaries: [], homes: [], variables: [], environ: [] });
+        expectGoogleWitness(maintenanceGoogle, "maintenance");
+        // The same host gog was alive from before the maintenance worker's scan began until after it ended.
+        const holderStop = finalEvents.filter(row => row.kind === "google_holder_stop");
+        expect(holderStop.map(row => ({ alive: row.alive, start: row.start, startedBeforeScan: googleReady.holder.at < maintenanceGoogle.scanStartedAt, stoppedAfterScan: row.wallAt > maintenanceGoogle.scanEndedAt })),
+          "NATIVE_MAINTENANCE_HOST_GOG_ALIVE_THROUGH_SCAN").toEqual([{ alive: true, start: googleReady.holder.start, startedBeforeScan: true, stoppedAfterScan: true }]);
         const workerLaunches = finalEvents.filter(row=>row.kind==="app_spawn_start"&&row.tail.some((value:string)=>value.endsWith("/ui-sdk/src/server/worker-entry.ts")));
         expect(workerLaunches.length, "NATIVE_REAL_AGENT_AND_MAINTENANCE_WORKERS_LAUNCHED").toBeGreaterThanOrEqual(3);
         expect(workerLaunches.every(row=>row.kernelUid===APP_UID), "NATIVE_WORKERS_KEEP_FIXED_KERNEL_UID").toBe(true);
