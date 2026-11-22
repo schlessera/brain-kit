@@ -1279,6 +1279,8 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   third-party classes still appear as `unknown` in the default outgoing review;
   the wire field remains free-form. This additive SDK export ships in a minor
   release under the contract versioning rules.
+  `code_receipt_malformed` identifies an unusable retained checkout receipt;
+  the journal keeps that turn partial and records the recovery cause.
   `input_safety_unavailable` identifies refusal because the runtime's input
   collector is unqualified or unavailable, including externally configured Pi
   extensions. It is a registered host safety failure, not a provider error or
