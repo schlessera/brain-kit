@@ -17,7 +17,7 @@ import { workerCommand, type WorkerLaunch } from "../src/server/worker-launcher.
 const CANARY = "penelope-unweaves-the-shroud-by-night";
 /** The listed names, gog's own names, and unlisted names under each host-only prefix. */
 const GOOGLE_NAMES = [
-  "BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER",
+  "BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER", "BRAIN_UI_GOG_PATH",
   "GOG_HOME", "GOG_ACCESS_TOKEN", "GOG_KEYRING_PASSWORD", "GOG_KEYRING_BACKEND", "GOG_ACCOUNT", "GOG_CLIENT", "GOG_TIMEZONE",
   "GOG_ITHACA", "BRAIN_UI_GOOGLE_ITHACA", "BRAIN_GOOGLE_HOME", "BRAIN_GOOGLE_ITHACA",
 ] as const;
@@ -33,8 +33,8 @@ describe("google host-only environment", () => {
     expect(HOST_ONLY_SECRET_ENV, "GOOGLE_HOST_ONLY_NAMES").toEqual(expect.arrayContaining(["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER"]));
     expect([...HOST_ONLY_ENV_PREFIXES].sort(), "GOOGLE_HOST_ONLY_PREFIXES").toEqual(["BRAIN_GOOGLE_", "BRAIN_UI_GOOGLE_", "GOG_"]);
     for (const name of GOOGLE_NAMES) expect(isHostOnlyEnv(name), `HOST_ONLY: ${name}`).toBe(true);
-    // The pinned binary's path is no secret; a worker still never gets it statically.
-    expect(isHostOnlyEnv("BRAIN_UI_GOG_PATH")).toBe(false);
+    // The pinned binary's path is no secret, but no extra may hand a worker the host's gog either.
+    expect(isHostOnlyEnv("BRAIN_UI_GOG_PATH"), "GOG_PATH_HOST_ONLY").toBe(true);
     expect(SUBPROCESS_ENV.BRAIN_UI_GOG_PATH, "GOG_PATH_NO_AUDIENCE").toEqual([]);
   });
 

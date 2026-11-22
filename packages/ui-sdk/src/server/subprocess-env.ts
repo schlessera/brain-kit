@@ -33,13 +33,14 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * The Google credential home, its keyring password and the Google ledger
  * (#4206) are host-only the same way: the host runs gog itself, and a
  * worker's own `gog` or `brain google` finds no home, no keyring and no
- * ledger.
+ * ledger. The pinned gog binary's path is no secret, but it is host-only
+ * too: no worker runs the host's gog, so no extra may name it.
  *
  * @internal First-party implementation; no compatibility guarantee.
  */
 export const HOST_ONLY_SECRET_ENV: readonly string[] = Object.freeze([
   "APIFY_TOKEN", "BRAIN_APIFY_LEDGER", "BRAIN_UI_GITHUB_TOOLS_TOKEN", "BRAIN_UI_MODULE_GITHUB_TOKEN",
-  "BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER",
+  "BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER", "BRAIN_UI_GOG_PATH",
 ]);
 /**
  * Name prefixes no subprocess may receive (#4206, plan
@@ -146,7 +147,8 @@ export const SUBPROCESS_ENV = Object.freeze({
   BRAIN_UI_GOOGLE_HOME: NONE,
   BRAIN_UI_GOOGLE_KEYRING_PASSWORD: NONE,
   BRAIN_GOOGLE_LEDGER: NONE,
-  // The pinned gog binary the host runs (#4206). Not a secret, and no worker needs it.
+  // Host-only: the pinned gog binary the host runs (#4206). Not a secret, but
+  // no worker runs it; see HOST_ONLY_SECRET_ENV.
   BRAIN_UI_GOG_PATH: NONE,
 
   // Claude profile overrides built by the backend.

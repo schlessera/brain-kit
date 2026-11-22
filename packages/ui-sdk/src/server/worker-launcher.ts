@@ -255,6 +255,22 @@ export interface RestrictedEnvelope {
 const SYSTEM_DIRECTORIES = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
 const SYSTEM_ETC = ["ld.so.cache", "ld.so.conf", "ld.so.conf.d", "alternatives", "passwd", "group",
   "nsswitch.conf", "hosts", "localtime", "os-release"];
+/** What a transport worker binds besides the system view: the resolver and the certificate store. */
+const TRANSPORT_ETC = ["/etc/resolv.conf", "/etc/ssl/certs"];
+
+/**
+ * The host paths workers see whatever their masks (#4206): the system
+ * directories and `/etc` entries a restricted or transport worker binds, a
+ * transport's resolver and certificates, and `/proc` and `/dev`, which every
+ * worker mounts its own of. A transport launch lays no host mask, so a
+ * private directory at or under one of these is in its view, and a mask
+ * over one would hide what every worker needs to start.
+ *
+ * @internal First-party implementation; no compatibility guarantee.
+ */
+export function workerSystemPaths(): string[] {
+  return [...SYSTEM_DIRECTORIES, ...SYSTEM_ETC.map(name => `/etc/${name}`), ...TRANSPORT_ETC, "/proc", "/dev"];
+}
 
 /**
  * The restricted envelope hides the brain's `.git` (maintainer ruling 1A on
@@ -323,7 +339,7 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
 /** No bind, including a system bind, may expose the brain or an ancestor of it. */
 function transportMounts(envelope: NonNullable<WorkerLaunch["transport"]>, brain: string): string[] {
   const argv = systemMounts();
-  for (const requested of ["/etc/resolv.conf", "/etc/ssl/certs", ...envelope.readPaths]) {
+  for (const requested of [...TRANSPORT_ETC, ...envelope.readPaths]) {
     if (existsSync(requested)) argv.push("--ro-bind", realpathSync(requested), requested);
   }
   for (const requested of [envelope.mirror, ...(envelope.writePaths ?? [])]) {
