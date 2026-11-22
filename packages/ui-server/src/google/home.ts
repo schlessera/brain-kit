@@ -175,19 +175,42 @@ export function checkGoogleHome(home: string | undefined, areas: readonly Google
 }
 
 /**
+ * Roots every worker replaces with its own: a private `/tmp` (the launcher
+ * skips a mask there) and a fresh `/proc` and `/dev`. A host path below them
+ * is in no worker's view, and a mask there can only break launches: bwrap
+ * cannot create a host process's directory in the worker's own `/proc`.
+ */
+const WORKER_PRIVATE_ROOTS: readonly string[] = ["/tmp", "/proc", "/dev"];
+
+/**
+ * Whether a mask over `path` is safe to lay. Never over the brain or inside
+ * it: every launch refuses a mask there. Never over a place that is or holds
+ * another area (the database directory, the server's HOME, the Bun runtime,
+ * a system path, a temp area): it would hide what workers need to start.
+ * Never below a worker-private root, which no worker sees anyway. Strictly
+ * inside another area is safe and needed: a credentialed maintenance worker
+ * binds the server's HOME back and the launcher lays every mask inside it
+ * again; a nested mask in the masked database directory is laid again the
+ * same way when that HOME lies inside it.
+ */
+function maskable(path: string, areas: readonly GoogleHomeArea[]): boolean {
+  return !areas.some(area => area.kind === "brain" ? overlaps(area.path, path) : within(path, area.path))
+    && !WORKER_PRIVATE_ROOTS.some(root => within(root, path));
+}
+
+/**
  * The exact worker mask for a configured home, fixed at boot: its canonical
- * path, only where a mask is safe to lay. That is an existing directory, its
- * links resolved, that is neither inside nor holding any area: a mask over
- * the brain is refused by every launch, and one over the runtime, a system
- * path or a file every worker needs would stop every worker from starting.
- * Mode and owner do not matter here, so a home with the wrong mode is still
- * covered while its check refuses it.
+ * path, only where a mask is safe to lay ({@link maskable}) and only for an
+ * existing directory, its links resolved: a file mask over something every
+ * worker runs would stop them all. Mode, owner and the check's own verdict do
+ * not matter here, so a misplaced home inside the server's HOME, or one with
+ * the wrong mode, is still covered while its check refuses it.
  */
 export function googleHomeMask(home: string | undefined, areas: readonly GoogleHomeArea[]): GoogleHomeMask {
   if (!home || !isAbsolute(home)) return { path: null };
   let path: string;
   try { path = canonical(home); } catch { return { path: null, absentAtBoot: true }; }
-  if (areas.some(area => overlaps(area.path, path))) return { path: null };
+  if (!maskable(path, areas)) return { path: null };
   let stats: Stats | undefined;
   try { stats = lstatSync(path, { throwIfNoEntry: false }); } catch { return { path: null, absentAtBoot: true }; }
   if (!stats?.isDirectory()) return { path: null, absentAtBoot: true };
@@ -207,8 +230,8 @@ export const GOG_DEFAULT_DIRS: readonly string[] = Object.freeze([".config/gogcl
  * gog's default directories under the server's HOME, as masks: a
  * credentialed maintenance worker binds that HOME back read-only, so a token
  * an operator created there with a bare `gog` is otherwise in its view. Each
- * is laid only for an existing directory strictly inside that HOME and clear
- * of every other area. None with a separate worker identity, where the
+ * is laid only for an existing directory strictly inside that HOME where a
+ * mask is safe ({@link maskable}). None with a separate worker identity, where the
  * launcher may widen a mask to an unsearchable ancestor (which a worker of
  * another user cannot pass anyway) and refuse the launch if that ancestor
  * holds the brain or runtime.
@@ -220,7 +243,7 @@ function gogDefaultMasks(serverHome: string | undefined, areas: readonly GoogleH
   return GOG_DEFAULT_DIRS.flatMap(relative => {
     try {
       const path = canonical(join(serverHome, relative));
-      if (path === home || !within(home, path) || areas.some(area => !(area.kind === "worker_mount" && area.path === home) && overlaps(area.path, path))) return [];
+      if (path === home || !within(home, path) || !maskable(path, areas)) return [];
       return lstatSync(path, { throwIfNoEntry: false })?.isDirectory() ? [path] : [];
     } catch { return []; }
   });

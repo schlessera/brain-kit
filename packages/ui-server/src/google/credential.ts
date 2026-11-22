@@ -15,12 +15,14 @@
  * The mask is fixed at boot: the configured home with its symbolic links
  * resolved, laid over every worker view as an exact mask (like the native
  * manager's private paths), but only where a mask is safe to lay: an existing
- * directory clear of the brain, the database directory, every host path
- * workers see and every temp area (`googleWorkerMasks`). A home that later
- * resolves somewhere else is `home_moved`, and one created or replaced after
- * boot `home_created_after_boot`, until the server restarts, because no
- * worker view covers it. A misplaced home gets no mask and its check refuses
- * it.
+ * directory neither inside nor holding the brain and holding none of the
+ * database directory, the server's HOME, the runtime, the system paths or a
+ * temp area (`googleWorkerMasks`). A home strictly inside one of those is
+ * still masked while its check refuses it. A home that later resolves
+ * somewhere else is `home_moved`, and one created or replaced after boot
+ * `home_created_after_boot`, until the server restarts, because no worker
+ * view covers it. A home that overlaps an area is refused for that overlap
+ * whether or not boot masked it.
  *
  * `status()` never rejects: an exception anywhere in the probe answers
  * `probe_failed`, with a fixed detail and the step that failed as its cause.

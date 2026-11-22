@@ -14,7 +14,7 @@ installFixtureNativeStartupViews();
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { GOG_ENVIRONMENT_NAMES, type GogTransport } from "@schlessera/brain-common/internal/google-gog";
@@ -39,6 +39,7 @@ import { createRecordingObservability } from "../src/observability/index.js";
 import type { WSContext } from "../src/ws/clients.js";
 import { createWsHandlers } from "../src/ws/connection.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
+import { workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const LABELS = JSON.parse(readFileSync(join(ROOT, "packages/common/tests/fixtures/gog/labels-list.json"), "utf8"));
@@ -253,12 +254,30 @@ describe("google home validation", () => {
     // Mode and owner do not make a mask unsafe: a 0755 home is still covered while its check refuses it.
     chmodSync(f.home, 0o755);
     expect(googleHomeMask(f.home, areas).path, "MASK_FOR_A_WRONG_MODE_HOME").toBe(f.home);
+    // Strictly inside an area other than the brain: refused by its check, and covered.
+    const inHome = join(f.serverHome, "gog"), inDatabase = join(f.state, "gog");
+    for (const path of [inHome, inDatabase]) mkdirSync(path, { mode: 0o700 });
+    expect(googleHomeMask(inHome, areas).path, "MASK_INSIDE_THE_SERVER_HOME").toBe(inHome);
+    expect(googleHomeMask(inDatabase, areas).path, "MASK_INSIDE_THE_DATABASE_DIRECTORY").toBe(inDatabase);
+    // A directory under /usr that holds nothing workers bind (not /usr/share itself, which holds /etc/localtime's zone file).
+    const holdsNone = (path: string) => areas.every(area => area.path !== path && !area.path.startsWith(`${path}/`));
+    const inSystem = readdirSync("/usr/share").sort().map(name => join("/usr/share", name)).find(path => lstatSync(path).isDirectory() && holdsNone(path))!;
+    expect(googleHomeMask(inSystem, areas).path, "MASK_INSIDE_A_SYSTEM_DIRECTORY").toBe(inSystem);
+    expect(googleHomeMask("/usr/share", areas), "NO_MASK_HOLDING_A_FILE_WORKERS_BIND").toEqual({ path: null });
     expect(googleHomeMask(join(f.root, "not-yet"), areas), "NO_MASK_FOR_A_HOME_NOT_CREATED_YET").toEqual({ path: null, absentAtBoot: true });
     writeFileSync(join(f.root, "file"), "Argos");
     expect(googleHomeMask(join(f.root, "file"), areas), "NO_MASK_FOR_A_FILE").toEqual({ path: null, absentAtBoot: true });
-    expect(googleHomeMask("/bin/sh", areas), "NO_MASK_FOR_THE_SHELL").toEqual({ path: null });
+    expect(googleHomeMask("/bin/sh", areas), "NO_MASK_FOR_THE_SHELL").toEqual({ path: null, absentAtBoot: true });
+    // Holding an area: the runtime, a system directory, the server's HOME, the database directory.
     expect(googleHomeMask(dirname(RUNTIME), areas), "NO_MASK_HOLDING_THE_RUNTIME").toEqual({ path: null });
     expect(googleHomeMask("/usr", areas), "NO_MASK_FOR_A_SYSTEM_DIRECTORY").toEqual({ path: null });
+    expect(googleHomeMask(f.serverHome, areas), "NO_MASK_AT_THE_SERVER_HOME").toEqual({ path: null });
+    expect(googleHomeMask(f.state, areas), "NO_MASK_AT_THE_DATABASE_DIRECTORY").toEqual({ path: null });
+    // Below a root every worker replaces with its own: in no worker's view, and a mask under /proc breaks every launch.
+    expect(googleHomeMask("/proc/self", areas), "NO_MASK_UNDER_PROC").toEqual({ path: null });
+    expect(googleHomeMask("/dev/shm", areas), "NO_MASK_UNDER_DEV").toEqual({ path: null });
+    // The brain, either way round.
+    mkdirSync(join(f.brain, ".gog"));
     expect(googleHomeMask(join(f.brain, ".gog"), areas), "NO_MASK_INSIDE_THE_BRAIN").toEqual({ path: null });
     expect(googleHomeMask(f.root, areas), "NO_MASK_HOLDING_THE_BRAIN").toEqual({ path: null });
     expect(googleHomeMask(undefined, areas)).toEqual({ path: null });
@@ -477,9 +496,12 @@ describe("google and the host", () => {
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
     await createFixtureBrain(ROOT, brain);
     const names = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_UI_GOG_PATH"] as const;
-    const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
+    const previous: Record<string, string | undefined> = Object.fromEntries(names.map(name => [name, process.env[name]]));
     for (const name of names) delete process.env[name];
-    Object.assign(process.env, google({ root, brain }));
+    // Whatever else a case sets (the server's HOME) is restored too.
+    const settings = google({ root, brain });
+    for (const name of Object.keys(settings)) if (!(name in previous)) previous[name] = process.env[name];
+    Object.assign(process.env, settings);
     let finished = false, scriptError: unknown;
     let app!: Awaited<ReturnType<typeof createApp>>;
     const backend = makeFakeBackend({ id: "claude", startTurn: async ({ bridge }) => {
@@ -515,7 +537,7 @@ describe("google and the host", () => {
       } finally { await app.close(); }
     } finally {
       broker.close(); await native.close();
-      for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; }
+      for (const [name, value] of Object.entries(previous)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
     }
   }
   const served = (frames: Record<string, unknown>[]) => frames.some(frame => frame.type === "result" && frame.outcome === "success");
@@ -540,7 +562,7 @@ describe("google and the host", () => {
   const unsafe: [name: string, home: () => string, reason: GoogleUnavailableReason][] = [
     ["a regular file", () => { const f = layout(); writeFileSync(join(f.root, "gog-file"), "Argos"); return join(f.root, "gog-file"); }, "home_not_directory"],
     ["an ancestor of the Bun runtime", () => dirname(RUNTIME), "home_overlaps_worker_mount"],
-    ["a system directory", () => "/usr/lib", "home_overlaps_worker_mount"],
+    ["a system directory", () => "/usr", "home_overlaps_worker_mount"],
   ];
   for (const [name, home, reason] of unsafe) test(`google: a host whose gog home is ${name} masks nothing, boots, serves a chat, and answers unavailable with the reason`, async () => {
     let status: GoogleAvailabilityStatus | undefined;
@@ -551,6 +573,32 @@ describe("google and the host", () => {
     expect(status, `UNSAFE_HOME_UNAVAILABLE_WITH_REASON: ${name}`).toMatchObject({ state: "unavailable", reason });
     expect(outcome.maskPaths, `NO_MASK_FOR_AN_UNSAFE_HOME: ${name}`).not.toContain(realpathSync(configured));
     expect(outcome.warnings.some(line => line.includes(`Google is unavailable on this host (${reason})`)), `UNSAFE_CAUSE_IN_THE_SERVER_LOG: ${name}`).toBe(true);
+  });
+
+  test("google: a host whose gog home is inside its own HOME masks it, and a credentialed maintenance worker built from that list cannot read it", async () => {
+    const f = layout();
+    const home = join(f.serverHome, "gog-home"); mkdirSync(home, { mode: 0o700 }); chmodSync(home, 0o700);
+    writeFileSync(join(home, "keyring.json"), PASSWORD, { mode: 0o600 });
+    let status: GoogleAvailabilityStatus | undefined;
+    const outcome = await hostedApp(() => ({ HOME: f.serverHome, BRAIN_UI_GOOGLE_HOME: home, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: PASSWORD, BRAIN_UI_GOG_PATH: "/opt/gog/bin/gog" }),
+      async app => { status = await app.wsHost.google!.status("ithaca"); });
+    expect(served(outcome.frames), "CHAT_SERVED_WITH_A_HOME_INSIDE_THE_SERVER_HOME").toBe(true);
+    // Refused for the overlap, whether or not boot masked it: a worker may already have read it.
+    expect(status, "HOME_INSIDE_THE_SERVER_HOME_REFUSED").toMatchObject({ state: "unavailable", reason: "home_overlaps_worker_mount" });
+    expect(outcome.maskPaths, "HOME_INSIDE_THE_SERVER_HOME_IS_A_WORKER_MASK").toContain(home);
+    // Credentialed maintenance binds that HOME back read-only; the launcher lays the masks inside it again.
+    const program = `const fs = require("node:fs"); const attempt = f => { try { return f(); } catch { return null; } };
+      console.log(JSON.stringify({ read: attempt(() => fs.readFileSync(${JSON.stringify(join(home, "keyring.json"))}, "utf8")), entries: attempt(() => fs.readdirSync(${JSON.stringify(home)})) }));`;
+    const run = (maskPaths: readonly string[]) => {
+      const result = Bun.spawnSync(workerCommand({ brainPath: f.brain, command: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program], env: { PATH: "/usr/bin:/bin" },
+        maintenance: { network: false, credentials: true, home: { path: f.serverHome, overlay: false }, readPaths: [process.execPath], maskPaths } }),
+      { env: {}, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 20_000 });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      return JSON.parse(result.stdout.toString().trim().split("\n").at(-1)!) as { read: string | null; entries: string[] | null };
+    };
+    expect(run(outcome.maskPaths), "APP_MASKS_HIDE_THE_HOME_FROM_CREDENTIALED_MAINTENANCE").toEqual({ read: null, entries: [] });
+    // The control: the same worker, without the Google mask, reads the token.
+    expect(run(outcome.maskPaths.filter(path => path !== home)).read, "UNMASKED_GOG_HOME_READABLE_CONTROL").toBe(PASSWORD);
   });
 
   test("google: a host with a good gog home masks it in every worker view and gets past the home to the binary", async () => {

@@ -132,4 +132,27 @@ describe("google host-only environment in a real worker", () => {
     // The control: the same worker, as the same user, reads it when nothing covers it.
     expect(run([]).read, "UNMASKED_GOG_HOME_READABLE_CONTROL").toBe(CANARY);
   });
+
+  test("google: a gog home mask nested in a masked database directory is laid again over a server home inside it", () => {
+    // A server whose HOME lies inside its database directory: the directory
+    // mask alone does not hold once credentialed maintenance binds that HOME back.
+    const f = fixture();
+    const database = join(f.brain, "..", "state"), serverHome = join(database, "server-home"), home = join(serverHome, "gog-home");
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    writeFileSync(join(home, "keyring.json"), CANARY, { mode: 0o600 });
+    const program = `const fs = require("node:fs"); const attempt = f => { try { return f(); } catch { return null; } };
+      console.log(JSON.stringify({ read: attempt(() => fs.readFileSync(${JSON.stringify(join(home, "keyring.json"))}, "utf8")), entries: attempt(() => fs.readdirSync(${JSON.stringify(home)})) }));`;
+    const run = (maskPaths: string[]) => {
+      const result = Bun.spawnSync(workerCommand({ brainPath: f.brain, command: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program], env: { PATH: "/usr/bin:/bin" },
+        maintenance: { network: false, credentials: true, home: { path: serverHome, overlay: false }, readPaths: [process.execPath], maskPaths } }),
+      { env: {}, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 20_000 });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      return JSON.parse(result.stdout.toString().trim().split("\n").at(-1)!) as { read: string | null; entries: string[] | null };
+    };
+    // Either order: nested, the gog home mask neither throws nor is dropped.
+    expect(run([database, home]), "NESTED_GOG_HOME_MASK_LAID_AGAIN").toEqual({ read: null, entries: [] });
+    expect(run([home, database]), "NESTED_GOG_HOME_MASK_LAID_AGAIN_EITHER_ORDER").toEqual({ read: null, entries: [] });
+    // The control: the database directory's mask alone leaves the home readable through the bound HOME.
+    expect(run([database]).read, "DATABASE_MASK_ALONE_READABLE_CONTROL").toBe(CANARY);
+  });
 });
