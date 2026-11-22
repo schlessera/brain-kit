@@ -1611,6 +1611,7 @@ export "./internal" (./src/internal.ts)
   workerIdentityHelper
   workerLimitsPlan
   workerLimitsStatus
+  workerMaskCover
   workerNoteLimits
   workerOutwardNote
   workerProfile

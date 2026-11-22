@@ -437,6 +437,38 @@ function serverSocketDirectory(requested: string, socket: string, brain: string,
 }
 
 /**
+ * What a maintenance worker's mask over `path` (canonical) actually covers:
+ * `path` itself, unless a separate worker identity is configured and an
+ * ancestor is one that identity cannot search. Then the highest such ancestor
+ * is covered with an empty tmpfs instead, never its real contents: a worker
+ * of another user could not pass it anyway. The launcher refuses the launch
+ * when that wider cover overlaps the brain or the runtime (#4206 lets the
+ * host's Google masks skip a path no worker can reach on this rule).
+ *
+ * Throws {@link WorkerHostError} when an ancestor changed or is linked, or an
+ * unsearchable ancestor is not server-owned.
+ *
+ * @internal First-party implementation; no compatibility guarantee.
+ */
+export function workerMaskCover(path: string): string {
+  if (!workerIdentityHelper()) return path;
+  const serverUid = process.getuid?.(), sharedGid = process.getgid?.();
+  let covered = path;
+  for (let parent = dirname(path); parent !== "/"; parent = dirname(parent)) {
+    const info = lstatSync(parent);
+    if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(parent) !== parent) {
+      throw new WorkerHostError("a private mask ancestor changed or is linked");
+    }
+    // The verified helper keeps only the server's primary shared group.
+    const searchable = info.gid === sharedGid ? info.mode & 0o010 : info.mode & 0o001;
+    if (searchable) continue;
+    if (info.uid !== serverUid) throw new WorkerHostError("a private mask ancestor is not server-owned");
+    covered = parent;
+  }
+  return covered;
+}
+
+/**
  * The mounts of a maintenance worker (#1648), after the read-only host root:
  * the host masks, the runtime bound back below them, the server's home for a
  * credentialed worker, then the brain read-write. A credential-free worker
@@ -447,23 +479,8 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
   const fileMasks = new Set<string>();
   // Every mask as asked, before nested ones fold into an ancestor.
   const resolved: string[] = [];
-  const separateIdentity = Boolean(workerIdentityHelper());
-  const serverUid = process.getuid?.(), sharedGid = process.getgid?.();
   const coverageRoot = (path: string): string => {
-    if (!separateIdentity) return path;
-    let covered = path;
-    for (let parent = dirname(path); parent !== "/"; parent = dirname(parent)) {
-      const info = lstatSync(parent);
-      if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(parent) !== parent) {
-        throw new WorkerHostError("a private mask ancestor changed or is linked");
-      }
-      // The verified helper keeps only the server's primary shared group.
-      // Cover an inaccessible parent with empty tmpfs, never its real contents.
-      const searchable = info.gid === sharedGid ? info.mode & 0o010 : info.mode & 0o001;
-      if (searchable) continue;
-      if (info.uid !== serverUid) throw new WorkerHostError("a private mask ancestor is not server-owned");
-      covered = parent;
-    }
+    const covered = workerMaskCover(path);
     if (covered !== path && (holds(covered, brain) || holds(brain, covered) || envelope.readPaths.some(requested => {
       const runtime = realpathSync(requested);
       return holds(covered, runtime) || holds(runtime, covered);
