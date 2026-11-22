@@ -259,7 +259,7 @@ function holdOpen(path: string): number | null {
 }
 
 /** Whether boot should hold the configured home open, for a check that will run against it. */
-export interface GoogleMaskOptions {
+interface GoogleMaskOptions {
   /** Hold the masked directory open ({@link GoogleHomeMask.descriptor}). Only where a check runs; whoever asks closes it. */
   hold?: boolean;
 }
