@@ -22,7 +22,7 @@ import { discoverModules, persistModuleDiscovery, readModuleList } from "../cron
 import { runJob } from "../cron/run-job.js";
 import { createUiDb } from "../db/client.js";
 import { createHostExecution } from "../brain/host-execution.js";
-import { googleHostLayout, googleWorkerMasks } from "../google/home.js";
+import { cronWorkerMaskPaths } from "../google/home.js";
 import type { Reconciliation } from "../brain/governed-manifest.js";
 
 /**
@@ -127,8 +127,7 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
   const providerRelay = maintenanceProviderMeter({ brainPath: config.brainPath, origins: config.cliProviderOrigins, budgets: () => relayBudgets,
     report: message => process.stderr.write(`[brain-ui-cron] ${message}\n`) });
   // Every job's worker view covers the host's gog home, as the server's do (#4206).
-  const google = googleWorkerMasks(config.googleHome, googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: config.moduleDiscoveryEnv.HOME }));
-  const execution = createHostExecution({ nativeManager: leases.client, nativeMaskPaths: [...ready.privatePaths, ...google.paths], privateStatePaths, providerRelay,
+  const execution = createHostExecution({ nativeManager: leases.client, nativeMaskPaths: cronWorkerMaskPaths(config, ready.privatePaths), privateStatePaths, providerRelay,
     brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, requireGate: options.gate });
   const report = (results: Reconciliation[]) => {
     for (const result of results) {

@@ -33,7 +33,7 @@ import {
   type GoogleAvailabilityStatus, type GoogleCredentialOptions, type GoogleUnavailableReason,
 } from "../src/google/credential.js";
 import {
-  BRAIN_GOOGLE_DEFAULT_DIR, checkGoogleHome, GOG_DEFAULT_DIRS, GOOGLE_DEFAULT_DIRS, googleHomeAreas, googleHomeMask, googleHostLayout, googleTempAreas, googleWorkerMasks, googleWorkerMounts,
+  BRAIN_GOOGLE_DEFAULT_DIR, checkGoogleHome, cronWorkerMaskPaths, GOG_DEFAULT_DIRS, GOOGLE_DEFAULT_DIRS, googleHomeAreas, googleHomeMask, googleHostLayout, googleTempAreas, googleWorkerMasks, googleWorkerMounts,
   type GoogleHomeArea, type GoogleHomeCheck, type GoogleHomeCheckOptions, type GoogleHomeLayout, type GoogleHomeMask, type GoogleHomeReason, type GoogleWorkerMasks,
 } from "../src/google/home.js";
 import { serverInstallation } from "../src/brain/host-boundary.js";
@@ -827,6 +827,18 @@ describe("google masks under a separate worker identity", () => {
 });
 
 describe("google and the cron runner", () => {
+  test("google: the runner masks the gog home and the default homes in every job's worker view, as the server does", () => {
+    const f = layout();
+    const data = join(f.serverHome, ".local/share/gogcli"); mkdirSync(data, { recursive: true, mode: 0o700 });
+    const source = { PATH: "/usr/bin:/bin", HOME: f.serverHome, BRAIN_PATH: f.brain, DB_PATH: join(f.state, "ui.db"), BRAIN_UI_GOOGLE_HOME: ` ${f.home} ` };
+    const config = resolveCronConfig(source);
+    // The list the runner hands its host execution: the native manager's private paths, then the Google masks.
+    const paths = cronWorkerMaskPaths(config, ["/odysseus/native-private"]);
+    expect(paths, "CRON_RUNNER_MASKS_THE_GOG_HOME_AND_DEFAULTS").toEqual(["/odysseus/native-private", f.home, data]);
+    expect(paths, "CRON_RUNNER_MASKS_MATCH_THE_SERVER").toEqual(["/odysseus/native-private",
+      ...googleWorkerMasks(f.home, googleHostLayout({ brainPath: f.brain, dbPath: join(f.state, "ui.db"), serverHome: f.serverHome })).paths]);
+  });
+
   test("google: the runner reads the gog home, emits it as control configuration, and no job receives a google name", () => {
     const source = { PATH: "/usr/bin:/bin", BRAIN_PATH: "/srv/ithaca/brain", BRAIN_UI_GOOGLE_HOME: " /srv/ithaca/gog ", BRAIN_UI_GOOGLE_KEYRING_PASSWORD: PASSWORD,
       GOG_ACCESS_TOKEN: PASSWORD, BRAIN_UI_SUBPROCESS_ENV_EXTRA: "BRAIN_UI_GOOGLE_HOME,BRAIN_UI_GOOGLE_KEYRING_PASSWORD,GOG_ACCESS_TOKEN" };

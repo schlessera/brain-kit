@@ -16,6 +16,7 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { workerMaskCover, workerSystemPaths } from "@schlessera/brain-ui-sdk/internal";
 import { serverInstallation } from "../brain/host-boundary.js";
 import { canonical } from "../brain/operational-state.js";
+import type { CronConfig } from "../config/env.js";
 
 /** Why a configured home is refused. Each names the setting, never the path. */
 export const GOOGLE_HOME_REASONS = [
@@ -350,4 +351,14 @@ export function googleWorkerMasks(home: string | undefined, layout: GoogleHomeLa
   let defaults: string[];
   try { defaults = defaultMasks(layout.serverHome, areas); } catch { defaults = []; }
   return { home: mask, paths: [...new Set([...(mask.path && !mask.unreachable ? [mask.path] : []), ...defaults])], close: () => closeMask(mask) };
+}
+
+/**
+ * The cron runner's worker masks: the native manager's private paths and the
+ * Google masks for its brain, database and HOME, as the server lays them. It
+ * runs no gog and checks no home, so it holds nothing open.
+ */
+export function cronWorkerMaskPaths(config: Pick<CronConfig, "googleHome" | "brainPath" | "dbPath" | "moduleDiscoveryEnv">, privatePaths: readonly string[]): string[] {
+  const google = googleWorkerMasks(config.googleHome, googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: config.moduleDiscoveryEnv.HOME }));
+  return [...privatePaths, ...google.paths];
 }
