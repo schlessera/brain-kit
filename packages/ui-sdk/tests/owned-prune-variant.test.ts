@@ -83,13 +83,20 @@ test("real original and variant boundary methods preserve owned operation order,
   async function execute(source: string, fail: boolean, publish = true) {
     const signal = new AbortController().signal, logger = { emit() {} }, launch = { command: ["/bin/true"] };
     const areas = ["scratch"];
+    const enteredCleanup = Promise.withResolvers<void>(), releaseCleanup = Promise.withResolvers<void>();
     const calls: string[] = [], view = { async cleanup() { calls.push("view-cleanup"); } };
-    const output = { view, output: {}, async publish() { calls.push("publish"); }, async cleanup() { calls.push("output-cleanup"); } };
+    const output = { view, output: {}, async publish() { calls.push("publish"); }, async cleanup() {
+      calls.push("output-cleanup"); enteredCleanup.resolve(); await releaseCleanup.promise;
+    } };
     const dependencies = {
       // The routine-maintenance classifier was added with #4287; scratch prune is not a routine run.
       routineMaintenanceRequest: () => undefined,
       gated: async (_: unknown, work: (hold: null) => unknown) => { calls.push("gate"); return work(null); }, isolated: () => true,
       credentialed: async (_: unknown, work: () => unknown) => { calls.push("credential"); return work(); },
+      prepareMaintenanceGitTargets: (brain: string) => {
+        expect(brain, "OWNED_PRUNE_TARGET_PREPARATION_USES_SELECTED_BRAIN").toBe("Odysseus brain");
+        calls.push("git-targets");
+      },
       prepareInput: async () => { calls.push("view"); return view; }, prepareMaintenanceOutput: async (_: unknown, options: { areas: string[]; signal: AbortSignal; startupView: unknown }) => {
         expect(options.areas, "OWNED_PRUNE_OUTPUT_AREAS_PRESERVED").toBe(areas);
         expect(options.signal).toBe(signal); expect(options.startupView).toBe(view);
@@ -114,15 +121,26 @@ test("real original and variant boundary methods preserve owned operation order,
     const start = source.indexOf("    async run(execution) {"), end = source.indexOf("    async launch(execution) {", start);
     const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync("const operation = {" + source.slice(start, end) + "}; return operation.run;");
     const operation = new Function(...Object.keys(dependencies), javascript)(...Object.values(dependencies));
-    try { return { result: await operation({ purpose: "brain scratch prune", signal, outputAreas: areas, outputBytes: 4096, timeoutMs: 1000, publish,
-      assertAuthorized() { calls.push("authorize"); }, onExecute() { calls.push("on-execute"); } }), calls }; }
-    catch (error) { return { error, calls }; }
+    const flight = Promise.resolve(operation({ purpose: "brain scratch prune", signal, outputAreas: areas, outputBytes: 4096, timeoutMs: 1000, publish,
+      assertAuthorized() { calls.push("authorize"); }, onExecute() { calls.push("on-execute"); } }))
+      .then(result => ({ result, error: undefined, calls }), error => ({ error, result: undefined, calls }));
+    try {
+      // Force asynchronous output cleanup to remain pending. View cleanup
+      // must wait for it, on success, worker failure and discarded output.
+      const early = await Promise.race([enteredCleanup.promise.then(() => undefined), flight]);
+      expect(early?.error, "OWNED_PRUNE_REACHES_OUTPUT_CLEANUP_WITHOUT_EARLY_FAILURE").toBeUndefined();
+      expect(early, "OWNED_PRUNE_REACHES_OUTPUT_CLEANUP").toBeUndefined();
+      expect(calls.at(-1), "OWNED_PRUNE_VIEW_CLEANUP_WAITS_FOR_OUTPUT_CLEANUP").toBe("output-cleanup");
+    } finally { releaseCleanup.resolve(); await flight; }
+    return flight;
   }
   try {
     Object.defineProperty(console, "log", { ...descriptor, value: (line: string) => diagnostics.push(JSON.parse(line)) });
     const original = await execute(boundary, false), observed = await execute(variant, false);
+    expect(original.error, "OWNED_PRUNE_ORIGINAL_REACHES_SUCCESS").toBeUndefined();
+    expect(observed.error, "OWNED_PRUNE_VARIANT_REACHES_SUCCESS").toBeUndefined();
     expect(observed, "OWNED_PRUNE_AUTHORITY_AND_EXECUTION_PRESERVED").toEqual(original);
-    expect(observed.calls).toEqual(["authorize", "gate", "credential", "output-lock", "authorize", "view", "output", "git", "authorize", "authorize", "on-execute", "worker", "authorize", "publish", "output-cleanup", "view-cleanup"]);
+    expect(observed.calls).toEqual(["authorize", "gate", "credential", "output-lock", "authorize", "git-targets", "view", "output", "git", "authorize", "authorize", "on-execute", "worker", "authorize", "publish", "output-cleanup", "view-cleanup"]);
     const failedOriginal = await execute(boundary, true), failedObserved = await execute(variant, true);
     expect(failedObserved.calls).toEqual(failedOriginal.calls); expect(failedObserved.error).toBe(failure); expect(failedOriginal.error).toBe(failure);
     expect(failedObserved.calls.slice(-2)).toEqual(["output-cleanup", "view-cleanup"]);
