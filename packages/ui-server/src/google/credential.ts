@@ -14,11 +14,14 @@
  *
  * The mask is fixed at boot: the configured home with its symbolic links
  * resolved, laid over every worker view as an exact mask (like the native
- * manager's private paths), but only where a mask is safe to lay: an existing
- * directory neither inside nor holding the brain and holding none of the
- * database directory, the server's HOME, the runtime, the system paths or a
- * temp area (`googleWorkerMasks`). A home strictly inside one of those is
- * still masked while its check refuses it. A home that later resolves
+ * manager's private paths), but only where a mask is safe for every launcher
+ * to lay (`googleWorkerMasks`): an existing directory neither inside nor
+ * holding the brain, holding no other area, inside no worker mount but the
+ * server's HOME, and below no worker-private root. A home strictly inside
+ * the server's HOME, the database directory or another temp area is still
+ * masked while its check refuses it. With a separate worker identity, a home
+ * behind a directory that identity cannot search gets no mask: no worker can
+ * reach it. Boot holds the home open, so a home that later resolves
  * somewhere else is `home_moved`, and one created or replaced after boot
  * `home_created_after_boot`, until the server restarts, because no worker
  * view covers it. A home that overlaps an area is refused for that overlap
@@ -32,7 +35,7 @@ import {
 } from "@schlessera/brain-common/internal/google-gog";
 import type { GoogleError } from "@schlessera/brain-common/internal/google-operations";
 import type { GoogleHostEnv } from "../config/env.js";
-import { checkGoogleHome, googleHomeAreas, googleWorkerMasks, GOOGLE_HOME_REASONS, type GoogleHomeArea, type GoogleHomeLayout, type GoogleWorkerMasks } from "./home.js";
+import { checkGoogleHome, googleHomeAreas, GOOGLE_HOME_REASONS, type GoogleHomeArea, type GoogleHomeLayout, type GoogleWorkerMasks } from "./home.js";
 
 /** Why Google is unavailable on this host. */
 export const GOOGLE_UNAVAILABLE_REASONS = [
@@ -56,8 +59,12 @@ export type GoogleAvailabilityStatus =
 export interface GoogleCredentialOptions {
   env: GoogleHostEnv;
   layout: GoogleHomeLayout;
-  /** The masks boot laid in every worker view. Default: {@link googleWorkerMasks} of the env's home and the layout, now. */
-  masks?: GoogleWorkerMasks;
+  /**
+   * The masks boot laid in every worker view, the home held open
+   * (`googleWorkerMasks(home, layout, { hold: true })`). The caller closes
+   * them when it is done with the credential.
+   */
+  masks: GoogleWorkerMasks;
   /** A test's fake (`createFakeGog().binary`). Never configuration: production always runs the pinned BRAIN_UI_GOG_PATH. */
   binary?: GogBinary;
   hostUid?: number;
@@ -105,7 +112,7 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
   const { env, layout } = options;
   const now = options.now ?? Date.now;
   const ttl = options.connectedTtlMs ?? GOOGLE_CONNECTED_TTL_MS;
-  const masks = options.masks ?? googleWorkerMasks(env.home, layout);
+  const masks = options.masks;
   const transports = new Map<string, GogTransport>();
   const connected = new Map<string, number>();
   const inflight = new Map<string, Promise<GoogleAvailabilityStatus>>();

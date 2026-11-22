@@ -380,9 +380,11 @@ function childEnv(env: Readonly<Record<string, string | undefined>>): Record<str
  * here. Only the server chooses these paths. Neither an argument (a search
  * query can look like a path) nor a path the brain supplies (a CLI link in
  * its `node_modules`) earns a bind: either would let something other than
- * the server choose what of the host the worker sees.
+ * the server choose what of the host the worker sees. Every maintenance
+ * worker binds these, so the Google home check counts them among the host
+ * paths workers see (#4206).
  */
-function serverInstallation(): string[] {
+export function serverInstallation(): string[] {
   return serverRuntime ??= restrictedReadPaths([MAINTENANCE_ENTRY]);
 }
 

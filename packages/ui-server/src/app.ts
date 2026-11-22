@@ -418,22 +418,24 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // The manager verifies its fixed topology and root-private state. These are
   // exact masks, not app-owned directories to enumerate or mask by parent.
   // The Google home (#4206) is one too: the configured home as it resolves at
-  // boot, and gog's default directories under the server's HOME, each only where a
-  // mask is safe to lay; never a reason to refuse the boot or a launch.
+  // boot, held open so a directory put in its place is told from it, and the
+  // default homes under the server's HOME, each only where a mask is safe for
+  // every launcher and a worker can reach it; never a reason to refuse the boot or a launch.
   const googleEnv = googleHostEnv(config.dbPath);
   const googleLayout = googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: subprocessEnv("brainCli").HOME });
-  const googleMasks = googleWorkerMasks(googleEnv.home, googleLayout);
+  const googleMasks = googleWorkerMasks(googleEnv.home, googleLayout, { hold: true });
   const nativeMaskPaths = [...nativeReady.privatePaths, ...googleMasks.paths];
   try { assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }); }
   catch (error) {
+    googleMasks.close();
     if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true });
     observability.logger("brain").emit({ severityText: "ERROR", body: (error as Error).message,
       attributes: { "boot.refusal": (error as Error).name } });
     throw error;
   }
   const nativeLeases = await createNativeBrainLeaseManager(nativeClient, { statePath: nativeLeasePath, brainPath: nativeReady.brainPath, fsid: nativeReady.fsid, brainUuid: nativeReady.brainUuid })
-    .catch(error => { if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true }); throw error; });
-  const bootCleanup: (() => void | Promise<void>)[] = [];
+    .catch(error => { googleMasks.close(); if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true }); throw error; });
+  const bootCleanup: (() => void | Promise<void>)[] = [() => googleMasks.close()];
   try {
   const nativeRecovery = await nativeLeases.recoverDeadOwners();
   if (nativeRecovery.unknown.length || nativeRecovery.retainedUnverifiable) observability.logger("brain").emit({ severityText: "WARN",
@@ -1557,6 +1559,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Consumers have drained; close the shared write connection before its reader.
       await attempt(() => writer.close());
       await attempt(() => db.close());
+      await attempt(() => googleMasks.close());
       clearTimeout(grace);
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, "Application shutdown retained failed cleanup outcomes.");
