@@ -18,6 +18,7 @@ import { createUiDb } from "../src/db/client.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import * as journalStore from "../src/brain/journal-store.js";
 import { SELF } from "../src/brain/writer-gate.js";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 
 const sha = (bytes: string) => createHash("sha256").update(bytes).digest("hex");
 const COPY = ".brain-index/.maintenance-41b2dd7f-9913-4151-b5bf-53aad064cd96";
@@ -395,7 +396,8 @@ test("the purge of a large journal completes at open (#2903)", async () => {
     expect(index.filter(bytes => f.files().has(sha(bytes))), "LARGE_PURGE_REMOVES_INDEX_OBJECTS").toEqual([]);
     expect(ordinary.filter(bytes => !f.files().has(sha(bytes))), "LARGE_PURGE_KEEPS_ORDINARY_OBJECTS").toEqual([]);
     expect((f.db.query("SELECT count(*) AS n FROM turn_journal_changes WHERE json_extract(after_json,'$.metadataOnly')=1").get() as { n: number }).n, "LARGE_PURGE_REWRITES_EVERY_INDEX_VERSION").toBe(TURNS * INDEX);
-    // Timing is informational. The deterministic work bound above guards the
-    // per-object pin search that once made this open take about 27 seconds.
+    // Complexity proxy: a single index-defeating join can evade the work
+    // counters and plan check. Scale for deliberate CPU load, not product time.
+    expect(elapsed, "LARGE_PURGE_BOUNDED_AT_OPEN").toBeLessThan(watchdogMs(15_000));
   } finally { await f.close(); }
 }, 120_000);
