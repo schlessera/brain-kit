@@ -518,6 +518,56 @@ describe("google availability probe", () => {
     expect(reasonOf(await google.status(account))).toBe("available");
     expect(fake.calls(), "RECHECKED_AFTER_A_REFUSAL").toHaveLength(2);
   });
+
+  /** Holds every connected check at its labels call until released. */
+  function gatedConnectedCheck(google: ReturnType<typeof credential>["google"], account: string) {
+    const opened = google.transport(account);
+    if (!opened.ok) throw new Error(opened.status.detail);
+    const steps = opened.transport as Pick<GogTransport, "execute">, execute = steps.execute;
+    let release!: () => void, reached!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; }), atCheck = new Promise<void>(resolve => { reached = resolve; });
+    steps.execute = (async (...args: Parameters<GogTransport["execute"]>) => { reached(); await gate; return execute(...args); }) as GogTransport["execute"];
+    cleanups.push(() => { release(); steps.execute = execute; });
+    return { atCheck, release: () => release(), restore: () => { steps.execute = execute; } };
+  }
+
+  test("google: a connected check overtaken by an unavailable answer neither answers available nor stands as the cached success", async () => {
+    const f = layout();
+    const fake = fakeGog({ "gmail.labels.list": [{ stdout: LABELS }, { exit: 4, stderr: "no token" }] });
+    const account = alias();
+    const { google } = credential(f.home, f.homeLayout, { binary: fake.binary });
+    const gated = gatedConnectedCheck(google, account);
+    const first = google.status(account);
+    await gated.atCheck;
+    chmodSync(f.home, 0o755);
+    expect(reasonOf(await google.status(account)), "REFUSED_WHILE_A_CHECK_RUNS").toBe("home_mode");
+    gated.release();
+    expect(await first, "OVERTAKEN_CHECK_NOT_AVAILABLE").toMatchObject({ state: "unavailable", reason: "home_mode" });
+    expect(fake.calls(), "OVERTAKEN_CHECK_RAN_ONCE").toHaveLength(1);
+    gated.restore();
+    // Repaired, with the account since disconnected: nothing cached stands in for a new check.
+    chmodSync(f.home, 0o700);
+    expect(await google.status(account), "REPAIRED_HOME_CHECKS_AGAIN").toMatchObject({ state: "unavailable", reason: "not_connected" });
+    expect(fake.calls(), "LABELS_REQUESTED_AGAIN").toHaveLength(2);
+  });
+
+  test("google: a call after a refusal runs its own connected check rather than waiting on the one the refusal overtook", async () => {
+    const f = layout();
+    const fake = fakeGog({ "gmail.labels.list": [{ stdout: LABELS }, { stdout: LABELS }] });
+    const account = alias();
+    const { google } = credential(f.home, f.homeLayout, { binary: fake.binary });
+    const gated = gatedConnectedCheck(google, account);
+    const first = google.status(account);
+    await gated.atCheck;
+    chmodSync(f.home, 0o755);
+    expect(reasonOf(await google.status(account))).toBe("home_mode");
+    chmodSync(f.home, 0o700);
+    const second = google.status(account);
+    gated.release();
+    expect(reasonOf(await first), "OVERTAKEN_CHECK_KEEPS_THE_REFUSAL").toBe("home_mode");
+    expect(reasonOf(await second), "LATER_CALL_RUNS_ITS_OWN_CHECK").toBe("available");
+    expect(fake.calls(), "TWO_CONNECTED_CHECKS").toHaveLength(2);
+  });
 });
 
 describe("google availability probe failures", () => {

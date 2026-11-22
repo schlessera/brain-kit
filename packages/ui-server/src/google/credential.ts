@@ -29,6 +29,8 @@
  *
  * `status()` never rejects: an exception anywhere in the probe answers
  * `probe_failed`, with a fixed detail and the step that failed as its cause.
+ * A connected check that began before an unavailable answer for its account
+ * neither answers available nor stands as the cached success.
  */
 import {
   createGogTransport, isGogAccountAlias, type GogBinary, type GogTransport, type GogTransportOptions,
@@ -117,6 +119,22 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
   const connected = new Map<string, number>();
   const inflight = new Map<string, Promise<GoogleAvailabilityStatus>>();
   const reported = new Map<string, string>();
+  // Bumped on every unavailable answer for an account. A connected check that
+  // began under an older generation was overtaken by that answer: it neither
+  // answers available nor stands as the cached success, and its callers get
+  // the answer that overtook it.
+  const generations = new Map<string, number>();
+  const overtaken = new Map<string, Unavailable>();
+  const generation = (account: string) => generations.get(account) ?? 0;
+
+  /** An unavailable answer: no cached success and no outstanding check outlives it. */
+  function refusal(account: string, status: Unavailable): Unavailable {
+    generations.set(account, generation(account) + 1);
+    overtaken.set(account, status);
+    connected.delete(account);
+    inflight.delete(account);
+    return status;
+  }
 
   function report(account: string, status: GoogleAvailabilityStatus): GoogleAvailabilityStatus {
     const key = status.state === "available" ? "available" : `${status.reason}:${status.cause ?? ""}`;
@@ -164,26 +182,27 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
   }
 
   async function probe(account: string, open: GogTransport): Promise<GoogleAvailabilityStatus> {
+    const began = generation(account);
+    // Overtaken by an unavailable answer since it began: that answer stands.
+    const current = () => generation(account) === began;
     let pin: Awaited<ReturnType<GogTransport["availability"]>>;
     try { pin = await open.availability(); }
-    catch { connected.delete(account); return failed("pin"); }
+    catch { return refusal(account, failed("pin")); }
     if (!pin.ok) {
-      connected.delete(account);
-      return pin.error.code === "transport_incompatible"
+      return refusal(account, pin.error.code === "transport_incompatible"
         ? unavailable("binary_refused", "BRAIN_UI_GOG_PATH is not a gog release this host accepts, or it or its directory is writable by another user.", pin.error.reason)
-        : connectedFailure(pin.error);
+        : connectedFailure(pin.error));
     }
     const binary = pin.fake ? { kind: "fake" as const } : { kind: "pinned" as const, version: pin.pin.version, commit: pin.pin.commit, sha256: pin.pin.sha256 };
+    if (!current()) return overtaken.get(account)!;
     const since = connected.get(account);
     if (since !== undefined && now() - since < ttl) return { state: "available", account, binary, connected_at: since };
     // The narrowest read the transport has: label ids and names, read-only, one command allowed.
     let labels: Awaited<ReturnType<GogTransport["execute"]>>;
     try { labels = await open.execute("gmail.labels.list", {}); }
-    catch { connected.delete(account); return failed("connected_check"); }
-    if (!labels.ok) {
-      connected.delete(account);
-      return connectedFailure(labels.error);
-    }
+    catch { return refusal(account, failed("connected_check")); }
+    if (!labels.ok) return refusal(account, connectedFailure(labels.error));
+    if (!current()) return overtaken.get(account)!;
     const at = now();
     connected.set(account, at);
     return { state: "available", account, binary, connected_at: at };
@@ -192,16 +211,14 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
   async function status(account: string | null | undefined): Promise<GoogleAvailabilityStatus> {
     const label = account ?? "";
     const opened = transport(account);
-    if (!opened.ok) {
-      connected.delete(label);
-      return report(label, opened.status);
-    }
+    if (!opened.ok) return report(label, refusal(label, opened.status));
     const key = account!;
     let running = inflight.get(key);
     if (!running) {
       // Anything the probe's own steps did not catch still answers, and drops a cached success.
-      running = probe(key, opened.transport).catch(() => { connected.delete(key); return failed("probe"); })
-        .finally(() => inflight.delete(key));
+      const started: Promise<GoogleAvailabilityStatus> = probe(key, opened.transport).catch(() => refusal(key, failed("probe")))
+        .finally(() => { if (inflight.get(key) === started) inflight.delete(key); });
+      running = started;
       inflight.set(key, running);
     }
     return report(key, await running);
