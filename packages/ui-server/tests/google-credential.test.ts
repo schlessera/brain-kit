@@ -37,6 +37,7 @@ import {
   type GoogleHomeArea, type GoogleHomeCheck, type GoogleHomeCheckOptions, type GoogleHomeLayout, type GoogleHomeMask, type GoogleHomeReason, type GoogleWorkerMasks,
 } from "../src/google/home.js";
 import { serverInstallation } from "../src/brain/host-boundary.js";
+import { syncTransportCommand } from "../src/brain/sync-mirror.js";
 import { createRecordingObservability } from "../src/observability/index.js";
 import type { WSContext } from "../src/ws/clients.js";
 import { createWsHandlers } from "../src/ws/connection.js";
@@ -368,6 +369,44 @@ describe("google home validation", () => {
     expect(googleWorkerMounts("/"), "A_ROOT_HOME_IS_NO_MOUNT").toEqual([...new Set([RUNTIME, ...installation, ...workerSystemPaths()])]);
     expect(googleHostLayout({ brainPath: f.brain, dbPath: join(f.state, "ui.db"), serverHome: f.serverHome }), "HOST_LAYOUT").toEqual({
       brainPath: f.brain, dbPath: join(f.state, "ui.db"), workerMounts: googleWorkerMounts(f.serverHome), serverHome: f.serverHome });
+  });
+
+  test("google: a home inside or holding what the SSH sync transport binds, through any link, is refused and not masked", () => {
+    const f = layout();
+    // The server's `.ssh` is a link, through another link, to the directory that holds the home.
+    const credentials = join(f.root, "ithaca-credentials"), home = join(credentials, "google");
+    mkdirSync(home, { recursive: true, mode: 0o700 }); chmodSync(home, 0o700);
+    symlinkSync(credentials, join(f.root, "credentials-link"));
+    symlinkSync(join(f.root, "credentials-link"), join(f.serverHome, ".ssh"));
+    // An agent socket inside another home.
+    const agentHome = join(f.root, "agent-home"); mkdirSync(agentHome, { mode: 0o700 }); chmodSync(agentHome, 0o700);
+    writeFileSync(join(agentHome, "agent.sock"), "");
+    const transportEnv = { HOME: f.serverHome, SSH_AUTH_SOCK: join(agentHome, "agent.sock") };
+    const withTransport = googleHostLayout({ brainPath: f.brain, dbPath: join(f.state, "ui.db"), serverHome: f.serverHome, transportEnv });
+    // What the transport binds for an SSH remote comes from the same function as the validation's inventory.
+    const command = syncTransportCommand({ brain: f.brain, mirror: join(f.state, "mirror.git"), remote: "git@github.com:odysseus/ithaca.git", env: transportEnv, args: [] });
+    expect(command.transport?.readPaths, "SSH_TRANSPORT_BINDS_ITS_READS").toEqual([join(f.serverHome, ".ssh"), join(agentHome, "agent.sock")]);
+    expect(withTransport.transportReads, "LAYOUT_LISTS_THE_SSH_READS").toEqual(command.transport?.readPaths);
+    const areas = googleHomeAreas(withTransport);
+    const alias = join(f.root, "alias"); symlinkSync(credentials, alias);
+    for (const [name, configured] of [["the home", home], ["the home through another link", join(alias, "google")]] as const) {
+      expect(checkGoogleHome(configured, areas, { mask: heldMask(configured, areas) }), `HOME_INSIDE_THE_LINKED_SSH_REFUSED: ${name}`).toMatchObject({ ok: false, reason: "home_overlaps_worker_mount" });
+    }
+    expect(checkGoogleHome(agentHome, areas, { mask: heldMask(agentHome, areas) }), "HOME_HOLDING_THE_AGENT_SOCKET_REFUSED").toMatchObject({ ok: false, reason: "home_overlaps_worker_mount" });
+    // Refused, and not masked: no mask reaches a transport worker.
+    expect(googleWorkerMasks(home, withTransport).paths, "NO_MASK_INSIDE_THE_LINKED_SSH").not.toContain(home);
+    // The control: the same homes with no SSH transport in the layout pass, and are masked.
+    const without = googleHostLayout({ brainPath: f.brain, dbPath: join(f.state, "ui.db"), serverHome: f.serverHome });
+    const plain = googleHomeAreas(without);
+    expect(checkGoogleHome(home, plain, { mask: heldMask(home, plain) }), "CONTROL_HOME_PASSES_WITHOUT_THE_TRANSPORT").toEqual({ ok: true, path: home });
+    expect(checkGoogleHome(agentHome, plain, { mask: heldMask(agentHome, plain) }), "CONTROL_AGENT_HOME_PASSES_WITHOUT_THE_TRANSPORT").toEqual({ ok: true, path: agentHome });
+    expect(googleWorkerMasks(home, without).paths, "CONTROL_HOME_MASKED_WITHOUT_THE_TRANSPORT").toContain(home);
+    // A read that does not resolve is bound by no transport, and refuses nothing.
+    rmSync(join(f.serverHome, ".ssh")); symlinkSync("loop", join(f.serverHome, "loop")); symlinkSync(join(f.serverHome, "loop"), join(f.serverHome, ".ssh"));
+    expect(syncTransportCommand({ brain: f.brain, mirror: join(f.state, "mirror.git"), remote: "git@github.com:odysseus/ithaca.git", env: { HOME: f.serverHome }, args: [] }).transport?.readPaths,
+      "UNRESOLVABLE_SSH_NOT_BOUND").toEqual([]);
+    expect(googleHomeAreas(googleHostLayout({ brainPath: f.brain, serverHome: f.serverHome, transportEnv: { HOME: f.serverHome } })).filter(area => area.path.includes("/.ssh") || area.path.endsWith("/loop")),
+      "UNRESOLVABLE_SSH_SKIPPED").toEqual([]);
   });
 
   test("google: the worker mask is the home as it resolves at boot, and only where a mask is safe for every launcher to lay", () => {

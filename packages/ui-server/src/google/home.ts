@@ -16,6 +16,7 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { workerMaskCover, workerSystemPaths } from "@schlessera/brain-ui-sdk/internal";
 import { serverInstallation } from "../brain/host-boundary.js";
 import { canonical } from "../brain/operational-state.js";
+import { sshTransportReads } from "../brain/sync-mirror.js";
 import type { CronConfig } from "../config/env.js";
 
 /** Why a configured home is refused. Each names the setting, never the path. */
@@ -52,6 +53,14 @@ export interface GoogleHomeLayout {
    * ({@link googleWorkerMasks}), and a mask strictly inside it is safe.
    */
   serverHome?: string;
+  /**
+   * Host paths a transport binds read-only and under no mask, as the
+   * transport's own variables name them: the SSH sync transport's
+   * `$HOME/.ssh` and agent socket ({@link googleHostLayout}). Each is a worker
+   * mount, resolved at every check, so a link changed after boot is followed.
+   * One that does not resolve is skipped: the transport binds only what exists.
+   */
+  transportReads?: readonly string[];
 }
 
 /**
@@ -71,7 +80,8 @@ export function googleTempAreas(): string[] {
  * into it), and the system paths every restricted or transport worker binds,
  * with `/proc` and `/dev` (`workerSystemPaths`). A transport worker lays no
  * host mask at all, and a bound-back runtime restores a directory mask laid
- * at its own path, so these are the places no mask can cover.
+ * at its own path, so these are the places no mask can cover. What one
+ * transport reads besides is listed apart ({@link GoogleHomeLayout.transportReads}).
  */
 export function googleWorkerMounts(home: string | undefined): string[] {
   const mounts: string[] = [];
@@ -83,10 +93,15 @@ export function googleWorkerMounts(home: string | undefined): string[] {
   return [...new Set(mounts)];
 }
 
-/** A host process's layout: its brain, its database and its HOME, with the worker mounts that follow from them. */
-export function googleHostLayout(input: { brainPath: string; dbPath?: string; serverHome?: string | undefined }): GoogleHomeLayout {
+/**
+ * A host process's layout: its brain, its database and its HOME, with the
+ * worker mounts that follow from them, and what its SSH sync transport reads
+ * (`sshTransportReads`) with the environment that transport gets.
+ */
+export function googleHostLayout(input: { brainPath: string; dbPath?: string; serverHome?: string | undefined; transportEnv?: Readonly<Record<string, string | undefined>> }): GoogleHomeLayout {
   return { brainPath: input.brainPath, ...(input.dbPath !== undefined ? { dbPath: input.dbPath } : {}),
-    workerMounts: googleWorkerMounts(input.serverHome), ...(input.serverHome ? { serverHome: input.serverHome } : {}) };
+    workerMounts: googleWorkerMounts(input.serverHome), ...(input.serverHome ? { serverHome: input.serverHome } : {}),
+    ...(input.transportEnv ? { transportReads: sshTransportReads(input.transportEnv).map(read => read.path) } : {}) };
 }
 
 export function googleHomeAreas(layout: GoogleHomeLayout): GoogleHomeArea[] {
@@ -97,6 +112,12 @@ export function googleHomeAreas(layout: GoogleHomeLayout): GoogleHomeArea[] {
     if (!isAbsolute(path)) continue;
     const resolved = canonical(path);
     areas.push({ kind: "worker_mount", path: resolved, ...(resolved === serverHome && resolved !== "/" ? { serverHome: true as const } : {}) });
+  }
+  for (const path of layout.transportReads ?? []) {
+    if (!isAbsolute(path)) continue;
+    let resolved: string;
+    try { resolved = canonical(path); } catch { continue; }
+    areas.push({ kind: "worker_mount", path: resolved });
   }
   for (const path of layout.tempAreas ?? googleTempAreas()) if (isAbsolute(path)) areas.push({ kind: "temp", path: canonical(path) });
   return areas;
@@ -369,7 +390,8 @@ export function googleWorkerMasks(home: string | undefined, layout: GoogleHomeLa
  * Google masks for its brain, database and HOME, as the server lays them. It
  * runs no gog and checks no home, so it holds nothing open.
  */
-export function cronWorkerMaskPaths(config: Pick<CronConfig, "googleHome" | "brainPath" | "dbPath" | "moduleDiscoveryEnv">, privatePaths: readonly string[]): string[] {
-  const google = googleWorkerMasks(config.googleHome, googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: config.moduleDiscoveryEnv.HOME }));
+export function cronWorkerMaskPaths(config: Pick<CronConfig, "googleHome" | "brainPath" | "dbPath" | "moduleDiscoveryEnv" | "childEnv">, privatePaths: readonly string[]): string[] {
+  // A sync job's SSH transport gets the job's environment.
+  const google = googleWorkerMasks(config.googleHome, googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: config.moduleDiscoveryEnv.HOME, transportEnv: config.childEnv }));
   return [...privatePaths, ...google.paths];
 }

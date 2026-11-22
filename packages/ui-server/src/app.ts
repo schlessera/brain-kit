@@ -422,7 +422,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // default homes under the server's HOME, each only where a mask is safe for
   // every launcher and a worker can reach it; never a reason to refuse the boot or a launch.
   const googleEnv = googleHostEnv(config.dbPath);
-  const googleLayout = googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: subprocessEnv("brainCli").HOME });
+  // The CLI's environment is the one a hosted sync's SSH transport gets: its HOME and agent socket.
+  const cliEnv = subprocessEnv("brainCli");
+  const googleLayout = googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: cliEnv.HOME, transportEnv: cliEnv });
   const googleMasks = googleWorkerMasks(googleEnv.home, googleLayout, { hold: true });
   const nativeMaskPaths = [...nativeReady.privatePaths, ...googleMasks.paths];
   try { assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }); }
