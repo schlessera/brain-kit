@@ -743,9 +743,9 @@ users, which suits a personal instance. A Google Workspace owner can use an
 - `BRAIN_UI_GOOGLE_HOME`: the gog home (config and file keyring). Absolute, mode
   0700, owned by the host user, outside the brain root, the database directory,
   every worker mount and every temp area. A violation disables the Google tools
-  with a status reason; it never fails the boot. Worker views cover it from boot,
-  so it must exist before the server starts: a home created, replaced or moved
-  later is refused until a restart.
+  with a status reason; it never fails the boot. Worker views cover it from boot
+  wherever a worker could reach it, so it must exist before the server starts: a
+  home created, replaced or moved later is refused until a restart.
 - `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`: host-only. It, the home and
   `BRAIN_GOOGLE_LEDGER` join the host-only list
   (`HOST_ONLY_SECRET_ENV`, `packages/ui-sdk/src/server/subprocess-env.ts:41-44`), so
