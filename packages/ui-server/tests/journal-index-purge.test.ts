@@ -11,7 +11,7 @@ import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js"
 import { expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -51,7 +51,7 @@ function fixture() {
     async shut() { if (!open) return; await open.journal.close(); open.db.close(); open = undefined; },
     /** A plain connection with no journal ledger on it, standing in for an earlier release's rows. */
     raw<T>(operation: (db: Database) => T): T { const db = createUiDb(path); try { return operation(db); } finally { db.close(); } },
-    write: (file: string, bytes: string) => writeFileSync(join(brain, file), bytes),
+    write: (file: string, bytes: string) => { writeFileSync(join(brain, file), bytes); chmodSync(join(brain, file), 0o644); },
     begin: (id: string) => open!.journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; }),
     files: () => existsSync(objects) ? new Set(readdirSync(objects)) : new Set<string>(),
     async close() { await f.shut(); await native.close(); rmSync(root, { recursive: true, force: true }); },

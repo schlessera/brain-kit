@@ -68,29 +68,37 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
       const end = timing?.("observe_capture");
       try {
         const captured = new Map<string, string>();
+        const capturing = new Map<string, Promise<void>>();
         const unreadable = new Map<string, NativeJournalUnreadable>(observation.unreadable.map(item => [item.path, item]));
         async function version(metadata: NativeJournalMetadata | null, policy: NativeJournalPolicy, root: { id: string; path: string }, deferPrivate = false): Promise<JournalSnapshotEntry | undefined> {
           if (!metadata) return undefined;
           const result = entry(metadata, policy);
           if (!result || !retained(result)) return result;
           const key = `${root.id}:${metadata.inode}`;
+          // Join an in-flight alias before consulting the completed hash. A
+          // failed name releases the slot so the next alias can try its own path.
+          while (capturing.has(key)) await capturing.get(key);
           let hash = captured.get(key);
           if (!hash) {
-            const privateRead = context(root, signal), started = performance.now();
-            try { hash = await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead ? { ...privateRead, deferPrivate } : undefined,
-              file => retain(file.fd, metadata.bytes, signal)); }
-            catch (error) {
-              if (error instanceof NativeJournalPrivateRead) throw error;
-              if (error instanceof JournalObjectQuarantined) {
-                unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "retained_object_corrupt", ms: 0 });
+            const completion = Promise.withResolvers<void>();
+            capturing.set(key, completion.promise);
+            try {
+              const privateRead = context(root, signal), started = performance.now();
+              try { hash = await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead ? { ...privateRead, deferPrivate } : undefined,
+                file => retain(file.fd, metadata.bytes, signal)); }
+              catch (error) {
+                if (error instanceof NativeJournalPrivateRead) throw error;
+                if (error instanceof JournalObjectQuarantined) {
+                  unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "retained_object_corrupt", ms: 0 });
+                  return result;
+                }
+                if (!privateRead || !nativeJournalPermissionDenied(error)) throw error;
+                unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "worker_reader_unavailable", ms: Math.max(0, Math.round(performance.now() - started)) });
                 return result;
               }
-              if (!privateRead || !nativeJournalPermissionDenied(error)) throw error;
-              unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "worker_reader_unavailable", ms: Math.max(0, Math.round(performance.now() - started)) });
-              return result;
-            }
-            // A failed name says nothing about another hardlink's accessibility.
-            captured.set(key, hash);
+              // A failed name says nothing about another hardlink's accessibility.
+              captured.set(key, hash);
+            } finally { capturing.delete(key); completion.resolve(); }
           }
           return { ...result, hash };
         }

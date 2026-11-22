@@ -81,3 +81,31 @@ test("an inaccessible hardlink never suppresses the readable alias's before and 
     expect(objects.read(alias.before!.hash!, 100).toString()).toBe("Ithaca before"); expect(objects.read(alias.after!.hash!, 100).toString()).toBe("Ithaca after"); await result.commit();
   } finally { await capture.close(); denied.mockRestore(); verified.mockRestore(); helper.mockRestore(); objects.close(); db.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("concurrent readable hardlinks retain each sealed inode version once", async () => {
+  const { cpSync, linkSync } = await import("node:fs");
+  const { createHash } = await import("node:crypto");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-hardlink-batch-")), brain = join(root, "brain"); mkdirSync(brain);
+  writeFileSync(join(brain, "raft.md"), "Ithaca before"); linkSync(join(brain, "raft.md"), join(brain, "loom.md"));
+  const native = createNativeJournalFixture(brain, root, (source, target) => {
+    cpSync(source, target, { recursive: true }); unlinkSync(join(target, "loom.md")); linkSync(join(target, "raft.md"), join(target, "loom.md"));
+  });
+  const retained: string[] = [];
+  const capture = createNativeJournalCapture(native.manager, async fd => {
+    // Keep both aliases' work in flight, as the real asynchronous object store does.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const bytes = readFileSync(`/proc/self/fd/${fd}`); retained.push(bytes.toString());
+    return createHash("sha256").update(bytes).digest("hex");
+  }, {}, undefined, { steering: false, index: false });
+  try {
+    await capture.initialize(); const policy = await capture.policy(); writeFileSync(join(brain, "raft.md"), "Ithaca after");
+    const result = await capture.observe(new Map([["voyage", policy]])), changes = result.changes.get("voyage")!;
+    expect(changes.map(change => change.path).sort()).toEqual(["loom.md", "raft.md"]);
+    for (const change of changes) {
+      expect(change.before?.hash).toBe(createHash("sha256").update("Ithaca before").digest("hex"));
+      expect(change.after?.hash).toBe(createHash("sha256").update("Ithaca after").digest("hex"));
+    }
+    expect(retained.sort(), "ONE_RETAIN_PER_SEALED_INODE_VERSION").toEqual(["Ithaca after", "Ithaca before"]);
+    await result.commit();
+  } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
