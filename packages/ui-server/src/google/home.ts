@@ -130,12 +130,15 @@ export interface GoogleHomeMask {
    */
   unreachable?: true;
   /**
-   * The directory at {@link path}, held open from boot (`O_RDONLY`,
+   * The directory at {@link path}, held open from boot (`O_PATH`,
    * `O_DIRECTORY`, `O_NOFOLLOW`, close-on-exec) when a check will run
    * against it. While the descriptor is open the kernel cannot free that
    * directory's inode and hand the number to another, so a directory put in
    * its place always has another device or inode, and a chmod or chown
-   * changes neither. Null when boot could not open it, or once closed.
+   * changes neither. `O_PATH` needs no permission on the directory itself, so
+   * a home the server could not read at boot is held, and a repaired mode or
+   * owner clears without a restart. Null when boot could not open it (an
+   * ancestor it cannot search), or once closed.
    */
   descriptor?: number | null;
   /** Boot laid none because no directory was there (missing, not a directory or unresolvable), not because the place was unsafe. */
@@ -252,10 +255,18 @@ function reachable(path: string): boolean {
 
 /** Linux's close-on-exec open flag: `node:fs` does not export it, and Bun's `openSync` does not add it. */
 const O_CLOEXEC = 0o2000000;
+/**
+ * Linux's path-only open flag: `node:fs` does not export it, and Bun's
+ * `openSync` passes it through. It needs no permission on the directory
+ * itself, so a home the server cannot read at boot (mode 0000, or another
+ * user's) is held too, and `fstat` still works on it. It still serves as the
+ * directory for `openat`, so close-on-exec stays.
+ */
+const O_PATH = 0o10000000;
 
-/** The directory at `path`, opened for the server's lifetime; null when it cannot be. */
+/** The directory at `path`, held for the server's lifetime without reading it; null when it cannot be. */
 function holdOpen(path: string): number | null {
-  try { return openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | O_CLOEXEC); } catch { return null; }
+  try { return openSync(path, O_PATH | constants.O_DIRECTORY | constants.O_NOFOLLOW | O_CLOEXEC); } catch { return null; }
 }
 
 /** Whether boot should hold the configured home open, for a check that will run against it. */

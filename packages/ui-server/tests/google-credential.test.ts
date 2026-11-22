@@ -279,6 +279,50 @@ describe("google home validation", () => {
     expect(checkGoogleHome(f.home, areas, { mask: closed.home }), "CLOSED_MASK_REFUSED").toMatchObject({ ok: false, reason: "home_unresolvable" });
   });
 
+  /** The open flags the kernel records for one of this process's descriptors. */
+  const openFlags = (descriptor: number) => parseInt(/^flags:\s+([0-7]+)$/m.exec(readFileSync(`/proc/self/fdinfo/${descriptor}`, "utf8"))![1]!, 8);
+  /** Linux's path-only open flag (octal 010000000): a hold that needs no permission on the directory. */
+  const O_PATH = 0o10000000;
+
+  test("google: a home the server cannot read at boot (mode 0000) is held, and a repaired mode clears without a restart", async () => {
+    const f = layout();
+    chmodSync(f.home, 0o000);
+    cleanups.push(() => { try { chmodSync(f.home, 0o700); } catch { /* removed already */ } });
+    // Boot, as the app does it: the masks hold the home open, then the credential checks it at every use.
+    const masks = heldMasks(f.home, f.homeLayout);
+    const fake = fakeGog({ "gmail.labels.list": { stdout: LABELS } });
+    const { google } = credential(f.home, f.homeLayout, { binary: fake.binary, masks });
+    expect(reasonOf(await google.status(alias())), "UNREADABLE_HOME_REFUSED_FOR_ITS_MODE").toBe("home_mode");
+    chmodSync(f.home, 0o700);
+    expect(reasonOf(await google.status(alias())), "UNREADABLE_AT_BOOT_REPAIR_CLEARS").toBe("available");
+    const descriptor = masks.home.descriptor;
+    if (typeof descriptor !== "number") throw new Error("UNREADABLE_HOME_HELD");
+    expect(`${fstatSync(descriptor).dev}:${fstatSync(descriptor).ino}`, "HELD_DESCRIPTOR_IS_THE_HOME").toBe(`${lstatSync(f.home).dev}:${lstatSync(f.home).ino}`);
+    expect(openFlags(descriptor) & O_PATH, "HELD_BY_PATH_ONLY").toBe(O_PATH);
+  });
+
+  test("google: a home another user owns at boot is held, and a repaired owner clears without a restart", () => {
+    const f = layout();
+    const uid = process.getuid!();
+    const areas = googleHomeAreas(f.homeLayout);
+    // Without root nothing can be chowned, so the server stands for another user (`hostUid`). The kernel
+    // refuses that user every open that reads a 0700 home it does not own, and allows a path-only one.
+    const real = fs.openSync;
+    const spy = spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, flags?: fs.OpenMode, mode?: fs.Mode) => {
+      if (String(path) === f.home && typeof flags === "number" && !(flags & O_PATH)) throw Object.assign(new Error(`EACCES: permission denied, open '${f.home}'`), { code: "EACCES" });
+      return real(path, flags, mode);
+    }) as typeof fs.openSync);
+    cleanups.push(() => spy.mockRestore());
+    const mask = heldMask(f.home, areas);
+    const opens = spy.mock.calls.filter(([path]) => String(path) === f.home).length;
+    spy.mockRestore();
+    expect(opens, "BOOT_OPENED_THE_HOME").toBe(1);
+    expect(checkGoogleHome(f.home, areas, { hostUid: uid + 1, mask }), "FOREIGN_HOME_REFUSED_FOR_ITS_OWNER").toMatchObject({ ok: false, reason: "home_owner" });
+    // Repaired: the home is chowned to the user the server runs as.
+    expect(checkGoogleHome(f.home, areas, { hostUid: uid, mask }), "FOREIGN_OWNER_REPAIR_CLEARS").toEqual({ ok: true, path: f.home });
+    expect(typeof mask.descriptor, "FOREIGN_HOME_HELD").toBe("number");
+  });
+
   test("google: the home boot holds open is close-on-exec, and no child the host spawns holds it", async () => {
     const f = layout();
     const masks = heldMasks(f.home, f.homeLayout);
@@ -287,8 +331,7 @@ describe("google home validation", () => {
     const home = lstatSync(f.home), id = `${home.dev}:${home.ino}`;
     expect(`${fstatSync(descriptor).dev}:${fstatSync(descriptor).ino}`, "DESCRIPTOR_IS_THE_HOME").toBe(id);
     // The kernel's own record of the open: O_CLOEXEC (octal 02000000) is set, so no exec carries it.
-    const flags = parseInt(/^flags:\s+([0-7]+)$/m.exec(readFileSync(`/proc/self/fdinfo/${descriptor}`, "utf8"))![1]!, 8);
-    expect(flags & 0o2000000, "HELD_HOME_IS_CLOSE_ON_EXEC").toBe(0o2000000);
+    expect(openFlags(descriptor) & 0o2000000, "HELD_HOME_IS_CLOSE_ON_EXEC").toBe(0o2000000);
     // Each child lists the device and inode behind every descriptor it holds.
     const scan = 'for f in /proc/$$/fd/*; do stat -L -c %d:%i "$f" 2>/dev/null; done; exit 0';
     const held = (out: string) => out.trim().split("\n").filter(Boolean);
