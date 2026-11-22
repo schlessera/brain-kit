@@ -309,7 +309,7 @@ describe("google home validation", () => {
     // Without root nothing can be chowned, so the server stands for another user (`hostUid`). The kernel
     // refuses that user every open that reads a 0700 home it does not own, and allows a path-only one.
     const real = fs.openSync;
-    const spy = spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, flags?: fs.OpenMode, mode?: fs.Mode) => {
+    const spy = spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
       if (String(path) === f.home && typeof flags === "number" && !(flags & O_PATH)) throw Object.assign(new Error(`EACCES: permission denied, open '${f.home}'`), { code: "EACCES" });
       return real(path, flags, mode);
     }) as typeof fs.openSync);
