@@ -8,7 +8,7 @@
  * resumes at the next open, and a second open changes nothing.
  */
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
@@ -311,7 +311,55 @@ test("a crash between the purge's commits, or while collecting, resumes at the n
   }
 });
 
-test("the purge of a large journal stays bounded at open (#2903)", async () => {
+test.each([128, 256])("index purge reads pins once for %i collectible objects (#2903)", objects => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-purge-work-")), db = createUiDb(":memory:");
+  let store: ReturnType<typeof journalStore.setup> | undefined;
+  let observed: { mockRestore(): void } | undefined;
+  try {
+    db.transaction(() => {
+      const object = db.query("INSERT INTO turn_journal_objects VALUES (?,0,'present')");
+      for (let n = 0; n < objects; n++) { object.run(sha(`Ithaca kept ${n}`)); object.run(sha(`Ithaca unused ${n}`)); }
+      const turn = db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,ended_at,state) VALUES (?,'interactive','governed',0,1,'complete')");
+      const pin = db.query("INSERT INTO turn_journal_object_refs VALUES (?,?)");
+      for (let t = 0; t < 32; t++) {
+        turn.run(`voyage-${t}`);
+        for (let n = 0; n < objects; n++) pin.run(`voyage-${t}`, sha(`Ithaca kept ${n}`));
+      }
+      // Resume at the collection step, after the versions commit dropped its
+      // index-only pins. Missing object files model a retried unlink.
+      db.query("UPDATE turn_journal_allocation SET index_purge=1 WHERE id=1").run();
+    })();
+    store = journalStore.setup(db, { dbPath: ":memory:", objectsRoot: join(root, "objects") });
+    const query = db.query.bind(db), pinQueries = new Set<string>(); let pinReads = 0, candidateRows = 0;
+    observed = spyOn(db, "query").mockImplementation(((sql: string, ...args: unknown[]) => {
+      const statement = Reflect.apply(query, db, [sql, ...args]);
+      if (!/^\s*SELECT\b/i.test(sql) || !/\bturn_journal_object_refs\b/i.test(sql)) return statement;
+      pinQueries.add(sql);
+      // Count executions, including reuse of a prepared per-object lookup,
+      // rather than just counting statement preparation.
+      return new Proxy(statement, { get(target, key) {
+        const value = Reflect.get(target, key, target);
+        if (typeof value !== "function") return value;
+        return (...parameters: unknown[]) => {
+          if (["all", "get", "values", "iterate"].includes(String(key))) pinReads++;
+          const result = Reflect.apply(value, target, parameters);
+          if (key === "all" && Array.isArray(result)) candidateRows += result.length;
+          return result;
+        };
+      } });
+    }) as typeof db.query);
+    const result = store.purgeIndexVersions!() as journalStore.IndexPurgeResult;
+    expect(result, "PURGE_WORK_COLLECTS_EVERY_UNPINNED_OBJECT").toMatchObject({ step: "objects", objects });
+    expect(pinReads, "PURGE_PIN_READS_INDEPENDENT_OF_OBJECT_COUNT").toBe(1);
+    expect(candidateRows, "PURGE_CANDIDATE_ROWS_LINEAR_IN_OBJECT_COUNT").toBe(objects);
+    const plans = [...pinQueries].flatMap(sql => db.query(`EXPLAIN QUERY PLAN ${sql}`).all() as { detail: string }[]);
+    expect(plans.filter(row => /CORRELATED/i.test(row.detail)), "PURGE_PIN_READ_HAS_NO_PER_OBJECT_SUBQUERY").toEqual([]);
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_objects").get(), "PURGE_WORK_KEEPS_PINNED_OBJECTS").toEqual({ n: objects });
+    console.log(`index purge work: ${objects} collected objects, ${32 * objects} pins, ${pinReads} pin read, ${candidateRows} candidate rows`);
+  } finally { observed?.mockRestore(); store?.close?.(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("the purge of a large journal completes at open (#2903)", async () => {
   const f = fixture();
   const TURNS = 2_000, ORDINARY = 50, INDEX = 10, OBJECTS = 2_000;
   try {
@@ -347,8 +395,7 @@ test("the purge of a large journal stays bounded at open (#2903)", async () => {
     expect(index.filter(bytes => f.files().has(sha(bytes))), "LARGE_PURGE_REMOVES_INDEX_OBJECTS").toEqual([]);
     expect(ordinary.filter(bytes => !f.files().has(sha(bytes))), "LARGE_PURGE_KEEPS_ORDINARY_OBJECTS").toEqual([]);
     expect((f.db.query("SELECT count(*) AS n FROM turn_journal_changes WHERE json_extract(after_json,'$.metadataOnly')=1").get() as { n: number }).n, "LARGE_PURGE_REWRITES_EVERY_INDEX_VERSION").toBe(TURNS * INDEX);
-    // Generous for a shared host (measured under a second; the time is printed
-    // above). Searching every pin per object made this open take ~27 s.
-    expect(elapsed, "LARGE_PURGE_BOUNDED_AT_OPEN").toBeLessThan(5_000);
+    // Timing is informational. The deterministic work bound above guards the
+    // per-object pin search that once made this open take about 27 seconds.
   } finally { await f.close(); }
 }, 120_000);
