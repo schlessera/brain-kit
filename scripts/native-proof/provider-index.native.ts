@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import type { createNativeBrainManagerClient } from "../../packages/ui-sdk/src/server/native-brain-manager-client.js";
 import { launchAgentWorker, workerCommand } from "../../packages/ui-sdk/src/server/worker-launcher.js";
 import { prepareNativeWorkerOutput } from "../../packages/ui-sdk/src/server/worker-native-output.js";
-import { createGovernedTurns } from "../../packages/ui-server/src/brain/governed-turn.js";
+import { createProviderIndexTurns } from "./provider-index-turns.js";
 import { createProviderExposures } from "../../packages/ui-server/src/brain/provider-exposure.js";
 import { createHostExecution } from "../../packages/ui-server/src/brain/host-execution.js";
 import { createUiDb } from "../../packages/ui-server/src/db/client.js";
@@ -55,7 +55,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       const reports: string[] = [];
       const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, nativeMaskPaths: privatePaths, profile, requireGate: true });
       execution.attach(db);
-      const turns = createGovernedTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: privatePaths,
+      const turns = createProviderIndexTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: privatePaths,
         index: async () => {}, report: message => reports.push(message),
         privateIndexCommand: [process.execPath, "/repo/packages/core/src/cli/brain.ts"] });
       let hold: Awaited<ReturnType<typeof turns.begin>> | undefined;
@@ -166,7 +166,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
       const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, profile, requireGate: true });
       execution.attach(db);
-      const turns = createGovernedTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: [],
+      const turns = createProviderIndexTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: [],
         index: async () => {}, report: () => {}, privateIndexCommand: [process.execPath, "/repo/packages/core/src/cli/brain.ts"],
         exposures: createProviderExposures(db) });
       let hold: Awaited<ReturnType<typeof turns.begin>> | undefined;
@@ -213,7 +213,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
       const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, profile, requireGate: true });
       execution.attach(db);
-      const turns = createGovernedTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: [],
+      const turns = createProviderIndexTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: [],
         index: async () => {}, report: () => {}, privateIndexCommand: [process.execPath, "/repo/packages/core/src/cli/brain.ts"] });
       let refusal: unknown;
       try {
