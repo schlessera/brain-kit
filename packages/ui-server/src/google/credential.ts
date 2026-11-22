@@ -29,8 +29,9 @@
  *
  * `status()` never rejects: an exception anywhere in the probe answers
  * `probe_failed`, with a fixed detail and the step that failed as its cause.
- * A connected check that began before an unavailable answer for its account
- * neither answers available nor stands as the cached success.
+ * A connected check that began before an unavailable answer for its account,
+ * from `status()` or from `transport()`, neither answers available nor stands
+ * as the cached success.
  */
 import {
   createGogTransport, isGogAccountAlias, type GogBinary, type GogTransport, type GogTransportOptions,
@@ -81,7 +82,12 @@ export interface GoogleCredentialOptions {
 export interface GoogleCredential {
   /** The exact worker masks boot laid: the home as resolved at boot and gog's default directories under the server's HOME, each where safe. */
   readonly maskPaths: readonly string[];
-  /** Configuration and home only, then the account's transport. The pin runs at the transport's first use. */
+  /**
+   * Configuration and home only, then the account's transport. The pin runs at
+   * the transport's first use. An unavailable answer here is one for the
+   * account, as from `status()`: it drops the cached success and overtakes the
+   * check running.
+   */
   transport(account: string | null | undefined): { ok: true; transport: GogTransport } | { ok: false; status: Extract<GoogleAvailabilityStatus, { state: "unavailable" }> };
   /** The full probe: configuration, home, the pinned binary and whether the account is connected. Never rejects. */
   status(account: string | null | undefined): Promise<GoogleAvailabilityStatus>;
@@ -149,11 +155,20 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
     return status;
   }
 
+  /**
+   * The one way to the account's transport, for `status()` and every caller
+   * outside it: each unavailable answer it gives, a refusal or an exception,
+   * passes through {@link refusal}, so it overtakes any check already running.
+   */
   function transport(account: string | null | undefined): ReturnType<GoogleCredential["transport"]> {
-    try { return openTransport(account); }
-    catch { return { ok: false, status: failed("transport") }; }
+    let opened: ReturnType<GoogleCredential["transport"]>;
+    try { opened = openTransport(account); }
+    catch { opened = { ok: false, status: failed("transport") }; }
+    if (!opened.ok) refusal(account ?? "", opened.status);
+    return opened;
   }
 
+  /** Only {@link transport} calls it: what it refuses is not yet an answer. */
   function openTransport(account: string | null | undefined): ReturnType<GoogleCredential["transport"]> {
     const refused = (status: Unavailable) => ({ ok: false as const, status });
     if (!env.home) return refused(unavailable("home_unset", "BRAIN_UI_GOOGLE_HOME is not set."));
@@ -209,9 +224,9 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
   }
 
   async function status(account: string | null | undefined): Promise<GoogleAvailabilityStatus> {
-    const label = account ?? "";
     const opened = transport(account);
-    if (!opened.ok) return report(label, refusal(label, opened.status));
+    // Already a refusal: `transport` overtook any check running for the account.
+    if (!opened.ok) return report(account ?? "", opened.status);
     const key = account!;
     let running = inflight.get(key);
     if (!running) {

@@ -572,6 +572,37 @@ describe("google availability probe", () => {
     expect(reasonOf(await second), "LATER_CALL_RUNS_ITS_OWN_CHECK").toBe("available");
     expect(fake.calls(), "TWO_CONNECTED_CHECKS").toHaveLength(2);
   });
+
+  // The same race, overtaken through `transport()` rather than `status()`: by a refusal, and by an exception while it opens.
+  const overtakers: [name: string, reason: GoogleUnavailableReason, overtake: (f: ReturnType<typeof layout>, hostEnv: GoogleCredentialOptions["env"]) => () => void][] = [
+    ["a refused transport", "home_mode", f => { chmodSync(f.home, 0o755); return () => chmodSync(f.home, 0o700); }],
+    ["a transport that throws while it opens", "probe_failed", (_f, hostEnv) => {
+      const password = hostEnv.keyringPassword;
+      hostEnv.keyringPassword = () => { throw new Error("the keyring exploded"); };
+      return () => { hostEnv.keyringPassword = password; };
+    }],
+  ];
+  for (const [name, reason, overtake] of overtakers) test(`google: a connected check overtaken by ${name} neither answers available nor stands as the cached success`, async () => {
+    const f = layout();
+    const fake = fakeGog({ "gmail.labels.list": [{ stdout: LABELS }, { exit: 4, stderr: "no token" }] });
+    const account = alias();
+    const hostEnv = env(f.home);
+    const { google } = credential(f.home, f.homeLayout, { binary: fake.binary, env: hostEnv });
+    const gated = gatedConnectedCheck(google, account);
+    const first = google.status(account);
+    await gated.atCheck;
+    const repair = overtake(f, hostEnv);
+    const refused = google.transport(account);
+    expect(refused.ok ? "opened" : refused.status.reason, `TRANSPORT_REFUSED_WHILE_A_CHECK_RUNS: ${name}`).toBe(reason);
+    gated.release();
+    expect(await first, `OVERTAKEN_BY_THE_TRANSPORT_NOT_AVAILABLE: ${name}`).toMatchObject({ state: "unavailable", reason });
+    expect(fake.calls(), "OVERTAKEN_CHECK_RAN_ONCE").toHaveLength(1);
+    gated.restore();
+    // Repaired, with the account since disconnected: the success the overtaken check saw is not cached.
+    repair();
+    expect(await google.status(account), `TRANSPORT_REFUSAL_LEAVES_NOTHING_CACHED: ${name}`).toMatchObject({ state: "unavailable", reason: "not_connected" });
+    expect(fake.calls(), "LABELS_REQUESTED_AGAIN").toHaveLength(2);
+  });
 });
 
 describe("google availability probe failures", () => {
