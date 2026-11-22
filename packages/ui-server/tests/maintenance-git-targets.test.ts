@@ -100,7 +100,7 @@ for (const alias of [".git", ".git/modules"] as const) test(`maintenance target 
 test("a linked Git target permits app boot and health while refusing and recording one maintenance operation", async () => {
   const observability = createRecordingObservability();
   const probe = spyOn(sdk.workerHostBoundary, "probe").mockReturnValue({ ok: true });
-  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockResolvedValue({ ok: true });
+  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(() => Promise.resolve<sdk.WorkerHostProbe>({ ok: true }));
   let app: Awaited<ReturnType<typeof createTestApp>> | undefined, failure: unknown;
   try {
     try {
