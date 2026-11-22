@@ -44,7 +44,7 @@ import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./mod
 import { resolveWorkspacesMount, resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
-import { prepareMaintenanceGit } from "./maintenance-git.js";
+import { prepareMaintenanceGit, prepareMaintenanceGitTargets } from "./maintenance-git.js";
 import { createScratchIgnoreQuery } from "./scratch-mask-query.js";
 
 /** Why `governed` cannot run on this server. */
@@ -441,6 +441,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const governed = (startupView?: WorkerStartupView) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, workerHost: () => workerHost(startupView) });
   const prepareInput = (signal?: AbortSignal) => {
     if (!options.nativeManager) throw new Error("Maintenance execution requires the configured native managed-storage manager; full-copy fallback is unavailable.");
+    signal?.throwIfAborted();
+    // Status is read-only. The server owns these empty protected mount targets;
+    // a separate-UID installer cannot create them below private Git metadata.
+    prepareMaintenanceGitTargets(brain);
     return prepareNativeWorkerStartupView(brain, options.nativeManager, signal);
   };
   // Sticky: a host whose worker boundary a real probe proved could have run a
