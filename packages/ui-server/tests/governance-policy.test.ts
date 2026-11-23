@@ -731,12 +731,13 @@ for (const profile of ["governed", "strict"] as const) test(`${profile} turns re
   const f = fixture(); f.write(`profiles: { interactive: ${profile} }`);
   const unavailable = { available: false as const, reason: "private_state_unverified" as const, detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
   const changed = spyOn(f.execution.boundary, "prepare").mockResolvedValue(unavailable);
-  const status = spyOn(f.execution.boundary, "governed").mockReturnValue(unavailable);
+  const status = spyOn(f.execution.boundary, "governed").mockReturnValue({ available: true });
   const acquisition = spyOn(startupViews, "prepareNativeWorkerStartupView");
   try {
     const error = await f.turns.begin("alias-refusal", new AbortController().signal).then(async hold => { await hold.end(); return undefined; }, error => error);
-    expect(error?.reason, "EVERY_TURN_PROFILE_REFUSES_UNVERIFIED_PRIVATE_STATE").toBe("private_state_unverified");
-    expect(acquisition, "UNVERIFIED_TURN_ACQUIRES_NO_BRAIN_STARTUP_VIEW").not.toHaveBeenCalled();
+    expect(changed, "ADMISSION_REACHES_THE_PREPARE_VERDICT").toHaveBeenCalledTimes(1);
+    expect(error?.reason, "BOTH_PROFILES_REFUSE_THE_POST_PREPARE_UNVERIFIED_VERDICT").toBe("private_state_unverified");
+    expect(acquisition, "UNVERIFIED_PREPARE_FOLLOWS_STARTUP_CHECKPOINT").toHaveBeenCalledTimes(1);
     changed.mockRestore(); status.mockRestore();
     const recovered = await f.turns.begin("alias-recovery", new AbortController().signal);
     await recovered.end();
