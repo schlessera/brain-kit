@@ -761,7 +761,7 @@ users, which suits a personal instance. A Google Workspace owner can use an
   PID namespace and `/proc`).
 - A worker's own `gog` finds no home and no keyring. Its connection to
   `gmail.googleapis.com` is already outward and waits on a Network card
-  (`MAIL_SUBMISSION_HOSTS`, `packages/ui-server/src/brain/turn-egress.ts:24-26`),
+  (`MAIL_SUBMISSION_HOSTS`, `packages/ui-server/src/brain/turn-egress.ts:26-28`),
   and reaches Google unauthenticated if allowed. A worker's `brain google` finds
   no credential and answers `unavailable`.
 
