@@ -864,11 +864,15 @@ test("a throwing capture diagnostic cannot erase the durable checkout cause", as
   } finally { await journal.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
 });
 
-for (const kind of ["empty directory", "dangling gitfile", "invalid HEAD"] as const) test(`checkout discovery excludes ${kind} using Git's repository predicate`, () => {
+for (const kind of ["empty directory", "dangling gitfile", "invalid HEAD", "symlink loop", "link through file"] as const) test(`checkout discovery excludes ${kind} using Git's repository predicate`, () => {
   const f = fixture(), workspaces = join(f.root, "workspaces"), invalid = join(workspaces, "ithaca");
   mkdirSync(invalid, { recursive: true }); renameSync(f.checkout, join(workspaces, "argo"));
   try {
-    if (kind === "dangling gitfile") writeFileSync(join(invalid, ".git"), "gitdir: ../missing\n");
+    if (kind === "symlink loop") symlinkSync(".git", join(invalid, ".git"));
+    else if (kind === "link through file") {
+      writeFileSync(join(invalid, "marker"), "not a directory"); symlinkSync("marker/git", join(invalid, ".git"));
+    }
+    else if (kind === "dangling gitfile") writeFileSync(join(invalid, ".git"), "gitdir: ../missing\n");
     else { mkdirSync(join(invalid, ".git")); if (kind === "invalid HEAD") writeFileSync(join(invalid, ".git/HEAD"), "not a ref\n"); }
     const result = Bun.spawnSync(["python3", "-I", "-S", "-c", CODE_CHECKOUT_LIST_PROGRAM, workspaces], { env });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
