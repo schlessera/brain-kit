@@ -175,6 +175,18 @@ describe("hosted partitions by reviewed weight", () => {
     expect(planBrowserPartitions([heavy, ...light], { costs }).partitions.map(partition => [partition.pairs, partition.estimatedSeconds]), "UNSPLITTABLE_PAIR_ALONE").toEqual([[[heavy], 366], [light, 280]]);
   });
 
+  test("the reviewed table splits a selection that one job could not finish while a spec had no weight (#4484)", () => {
+    // The five pairs a sync of main selected. Costed at the 10 s default, the trust-settings spec's three pairs
+    // planned one job of five repetitions, which hit the step's time limit with every finished pass green.
+    const trust = ["rail-coarse", "rail-fine", "rail-mixed"].map(project => pair(project, `${browser}/hit-reach.trust-settings.pointer.tsx`));
+    const selection = [...trust, pair("ui-react-layout", `${browser}/safety-review.layout.tsx`), pair("ui-react-layout", `${browser}/settings-structure.layout.tsx`)];
+    const { seconds } = readBrowserCosts();
+    expect(selection.filter(spec => seconds[pairKey(spec)] === undefined), "EVERY_PAIR_HAS_A_REVIEWED_WEIGHT").toEqual([]);
+    expect(planBrowserPartitions(selection, { cadence: "draft", costs: seconds }).partitions.length, "THE_REVIEWED_WEIGHTS_SPLIT_IT").toBeGreaterThan(1);
+    const withoutTrust = Object.fromEntries(Object.entries(seconds).filter(([key]) => !trust.map(pairKey).includes(key)));
+    expect(planBrowserPartitions(selection, { cadence: "draft", costs: withoutTrust }).partitions, "AT_THE_DEFAULT_ONE_JOB").toHaveLength(1);
+  });
+
   test("a selection beyond the maximum partition count is refused, naming its weight and the limit", () => {
     const costs = fleet(400, 2400), pairs = pairsOf(costs);
     expect(planBrowserPartitions(pairs, { costs, maxPartitions: 16 }).partitions.length, "SIXTEEN_WOULD_HOLD_IT").toBe(16);
