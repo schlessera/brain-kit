@@ -284,7 +284,7 @@ describe("Settings drawer while a credential is protected", () => {
     const view = render(<SettingsPanel open onClose={onClose} />);
     await act(flushPromises);
     await act(async () => { await import("../../src/components/settings/devices-agents-tab.js"); await new Promise(resolve => setTimeout(resolve, 0)); });
-    expect(view.getByText("Could not read this brain's enforcing policy. Open Settings again to check.")).toBeTruthy();
+    expect(view.getByText("Could not read this brain's enforcing policy. Refresh Settings to check again.")).toBeTruthy();
     fireEvent.pointerDown(backdropOf(view));
     escape();
     expect(onClose).toHaveBeenCalledTimes(0);

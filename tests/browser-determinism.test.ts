@@ -175,6 +175,24 @@ describe("hosted partitions by reviewed weight", () => {
     expect(planBrowserPartitions([heavy, ...light], { costs }).partitions.map(partition => [partition.pairs, partition.estimatedSeconds]), "UNSPLITTABLE_PAIR_ALONE").toEqual([[[heavy], 366], [light, 280]]);
   });
 
+  test("a measured weight splits a selection that one job could not finish while a spec had none (#4484)", () => {
+    // The five pairs a sync of main selected. Costed at the 10 s default, the trust-settings spec's three pairs
+    // planned one job of five repetitions, which hit the step's time limit with every finished pass green.
+    const trust = ["rail-coarse", "rail-fine", "rail-mixed"].map(project => pair(project, `${browser}/hit-reach.trust-settings.pointer.tsx`));
+    const selection = [...trust, pair("ui-react-layout", `${browser}/safety-review.layout.tsx`), pair("ui-react-layout", `${browser}/settings-structure.layout.tsx`)];
+    const { seconds } = readBrowserCosts();
+    expect(selection.filter(spec => seconds[pairKey(spec)] === undefined), "EVERY_PAIR_HAS_A_REVIEWED_WEIGHT").toEqual([]);
+    // Fixed values, so a later refresh of the table cannot move them: the layout weights that planned that job, and
+    // the trust-settings weights first measured (main's CI run 44934429808 at 7e861bdb3).
+    const planned = { [pairKey(selection[3]!)]: 6.768, [pairKey(selection[4]!)]: 12.11 };
+    const measured = Object.fromEntries(trust.map((spec, index) => [pairKey(spec), [96.339, 90.435, 58.469][index]!]));
+    const atDefault = planBrowserPartitions(selection, { cadence: "draft", costs: planned });
+    expect([atDefault.repetitions, atDefault.partitions.length], "AT_THE_DEFAULT_ONE_JOB").toEqual([5, 1]);
+    expect(atDefault.partitions[0]!.estimatedSeconds, "AS_THE_JOB_PLANNED_IT").toBeCloseTo(244.39, 6);
+    const weighed = planBrowserPartitions(selection, { cadence: "draft", costs: { ...planned, ...measured } });
+    expect([weighed.repetitions, weighed.partitions.length], "THE_MEASURED_WEIGHTS_SPLIT_IT").toEqual([2, 2]);
+  });
+
   test("a selection beyond the maximum partition count is refused, naming its weight and the limit", () => {
     const costs = fleet(400, 2400), pairs = pairsOf(costs);
     expect(planBrowserPartitions(pairs, { costs, maxPartitions: 16 }).partitions.length, "SIXTEEN_WOULD_HOLD_IT").toBe(16);

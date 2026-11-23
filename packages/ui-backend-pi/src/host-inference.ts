@@ -244,7 +244,7 @@ export async function preparePiHostInference(options: {
   /** The origin turn admission proved the recipient from (#2695); any other endpoint refuses before a credential is read. */
   recipientOrigin?: string;
   /** The turn proxy's private directory; the relay socket is linked into it. */
-  egress: { dir: string; inference: NonNullable<Parameters<typeof startInferenceRelay>[0]["egress"]>["inference"] };
+  egress: { dir:string } & NonNullable<Parameters<typeof startInferenceRelay>[0]["egress"]>;
   environment: Readonly<Record<string, string | undefined>>;
   signal?: AbortSignal;
 }): Promise<PiHostInference> {

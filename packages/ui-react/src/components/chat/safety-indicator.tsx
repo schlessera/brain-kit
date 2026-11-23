@@ -1,3 +1,4 @@
+import type { SafetyFuturePrepared } from "@schlessera/brain-ui-sdk/protocol";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
@@ -6,6 +7,8 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { activeChat, useChatStore } from "../../stores/chat-store.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
+
+const formatAuthority = ({host,port}:{host:string;port:number}) => `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
 
 const sources:Record<SafetyEvidence["occurrence"]["source"],string>={web_fetch:"Web fetch",web_search:"Web search",staged_share:"Shared input",chat_attachment:"Chat attachment",
   workspace_read:"Workspace read",mcp_document:"External tool input",user_marked:"Marked untrusted",fetching_command:"Fetching command",unclassified_command:"Unclassified command",
@@ -70,9 +73,17 @@ function SafetyIndicator({entries:currentEntries}:{entries:SafetyEvidence[]}) {
   const entries=allowed?(currentEntries.length?currentEntries:open||readStatus!=="ready"?held.current.entries:[]):[];
   useEffect(()=>{if(!allowed)setOpen(false);},[allowed]);
   useEffect(()=>{setOpen(false);},[scope,auth]);
-  const unresolved=entries.filter(e=>!e.decision).length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
-  const name=unresolved?`Safety restrictions: ${unresolved} unresolved trigger${unresolved===1?"":"s"}`:`Marked safe by you${entries.length>1?`: ${entries.length} triggers`:""}: show details`;
-  const reason=unresolved?`${sources[entries.find(e=>!e.decision)!.occurrence.source]} · Only this trigger can be reviewed`:"Human decision retained; content remains in the model context";
+  const unresolvedEntries=entries.filter(e=>!e.decision&&!e.occurrence.admission?.trusted);
+  const unresolved=unresolvedEntries.length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
+  const trusted=entries.filter(e=>e.occurrence.admission?.trusted).length,reviewed=entries.filter(e=>e.decision).length;
+  const accepted=[...(trusted?[`${trusted} trusted at admission`]:[]),...(reviewed?[`${reviewed} marked safe by you`]:[])].join("; ");
+  const name=unresolved?`Safety restrictions: ${unresolved} unresolved trigger${unresolved===1?"":"s"}${accepted?`; ${accepted}`:""}`
+    :trusted===entries.length&&!reviewed?`Trusted at admission${entries.length>1?`: ${entries.length} inputs`:""}: show details`
+    :reviewed===entries.length&&!trusted?`Marked safe by you${entries.length>1?`: ${entries.length} triggers`:""}: show details`
+    :`Safety history: ${accepted}: show details`;
+  const reason=unresolved?`${sources[unresolvedEntries[0]!.occurrence.source]} · Only this trigger can be reviewed`
+    :trusted&&reviewed?"Historical source trust and human decisions retained; current rules may differ"
+    :trusted?"Historical source trust retained; current rules may differ":"Human decision retained; content remains in the model context";
   useLayoutEffect(()=>{
     if(!open)return;
     const place=()=>{const r=trigger.current?.getBoundingClientRect();if(r)setPosition({left:Math.max(12,Math.min(r.left,innerWidth-Math.min(384,innerWidth-24)-12)),top:Math.max(12,Math.min(r.bottom+4,innerHeight-Math.min(520,innerHeight*.65)-12))});};
@@ -102,33 +113,61 @@ function SafetyIndicator({entries:currentEntries}:{entries:SafetyEvidence[]}) {
 
 function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
   const root=useBrainUiRoot(),state=useStore(root.stores.safety),auth=useStore(root.authLock.state,s=>s.phase);
+  const [savedRule,setSavedRule]=useState<string|null>(null);
+  const [future,setFuture]=useState(false),[recipient,setRecipient]=useState(false),[prepared,setPrepared]=useState<SafetyFuturePrepared|null>(null);
   const [review,setReview]=useState(false),[progress,setProgress]=useState<SafetyReviewProgress|null>(null);
   const reviewer=useRef<ReturnType<typeof createSafetyReviewer>|null>(null);
   useEffect(()=>{const r=createSafetyReviewer(root,setProgress);reviewer.current=r;return ()=>{r.dispose();reviewer.current=null;};},[root]);
   useEffect(()=>{if(state.status!=="ready"||!state.capabilities?.review||auth!=="active")setReview(false);},[state.status,state.capabilities?.review,auth]);
+  useEffect(()=>{if(auth!=="active"){setPrepared(null);setProgress(null);setReview(false);}},[auth]);
   const r=entry.occurrence,session=state.identity&&"sessionId" in state.identity?state.identity:null;
   const readable=state.status==="ready"&&!!session,owner=state.capabilities?.review===true&&auth==="active";
-  const canReview=readable&&owner&&entry.exposure==="finalized"&&!entry.decision&&!state.projection?.pendingCount&&!state.projection?.reasons.includes("recording_failed");
+  const sessionKey=JSON.stringify(session);
+  useEffect(()=>{
+    if(!readable||!owner||!state.capabilities?.originRules||!session){setSavedRule(null);return;}
+    const controller=new AbortController();let sequence=0;
+    const read=()=>{
+      const request=++sequence;
+      void root.api.safetyFutureStatus({version:1,session,occurrenceId:r.id},controller.signal).then(result=>{
+        if(controller.signal.aborted||request!==sequence)return;
+        if(!result){setSavedRule(null);return;}
+        if(result.occurrenceId!==r.id||JSON.stringify(result.session)!==sessionKey)throw new Error("Different future review status");
+        const presence=result.rule.currentRule;
+        setSavedRule(`${result.stage==="prepared"?"Future rule prepared but not published; fresh review is required. ":result.stage==="partial"?"Rule publication proved; this operation's verdict is incomplete. ":result.stage==="unknown"?"Rule publication is unknown; fresh review is required. ":""}Future rule: ${presence}.`);
+      }).catch(()=>{if(!controller.signal.aborted&&request===sequence)setSavedRule("Could not verify future rule publication or current presence. Refresh evidence to try again.");});
+    };
+    read();window.addEventListener("focus",read);
+    return()=>{controller.abort();window.removeEventListener("focus",read);};
+  },[root,r.id,sessionKey,readable,owner,state.capabilities?.originRules,state.revision]);
+  const canReview=readable&&owner&&entry.exposure==="finalized"&&!entry.decision&&!r.admission?.trusted&&!state.projection?.pendingCount&&!state.projection?.reasons.includes("recording_failed");
+  const futureAvailable=state.capabilities?.originRules===true&&r.detector==="proxy_input"&&!!r.provenance;
   const busy=progress?.stage==="pending",unknown=progress?.stage==="unknown";
-  const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${r.provenance.origin.host}:${r.provenance.origin.port}`:
-    r.provenance?.kind==="tunnel_authority"?`${r.provenance.authority.host}:${r.provenance.authority.port}`:"Source provenance unavailable";
+  const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${formatAuthority(r.provenance.origin)}`:
+    r.provenance?.kind==="tunnel_authority"?formatAuthority(r.provenance.authority):"Source provenance unavailable";
   return <section data-safety-trigger={r.id} className="space-y-2 border-t border-border py-3">
-    <p className="font-medium">{entry.decision?"Marked safe by you":"Safety restrictions enabled"}</p>
+    <p className="font-medium">{r.admission?.trusted?"Trusted at admission":entry.decision?"Marked safe by you":"Safety restrictions enabled"}</p>
     <p>{sources[r.source]} · <time dateTime={new Date(r.observedAt).toISOString()}>{new Date(r.observedAt).toLocaleString()}</time></p>
     <p>{r.summary}</p><p>{provenance}</p>
+    {savedRule&&<p role="status">{savedRule}</p>}
+    {r.admission?.trusted&&<p>Source rule {r.admission.ruleId} · trust revision {r.admission.trustRevision}. This historical decision grants no current recipient permission.</p>}
     {r.detailPruned&&<p>Some source detail has expired. The trigger and any decision remain recorded.</p>}
     {entry.decision&&<p>Marked safe by you · <time dateTime={new Date(entry.decision.observedAt).toISOString()}>{new Date(entry.decision.observedAt).toLocaleString()}</time></p>}
-    {!entry.decision&&entry.exposure!=="finalized"&&<p>{entry.exposure==="open"?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This trigger cannot be marked safe."}</p>}
-    {!owner&&!entry.decision&&<p>Only the authenticated owner can mark this trigger safe.</p>}
+    {!r.admission?.trusted&&!entry.decision&&entry.exposure!=="finalized"&&<p>{entry.exposure==="open"?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This trigger cannot be marked safe."}</p>}
+    {!r.admission?.trusted&&!owner&&!entry.decision&&<p>Only the authenticated owner can mark this trigger safe.</p>}
     {!readable&&<p>Current evidence is unavailable or incomplete. Read it again before reviewing.</p>}
-    {canReview&&!review&&!progress&&<Button label="Mark as safe" reach onClick={()=>setReview(true)}/>}
+    {canReview&&!review&&!progress&&<Button label="Mark as safe" reach onClick={()=>{setReview(true);setFuture(false);setRecipient(false);setPrepared(null);}}/>}
     {review&&canReview&&!progress&&<div className="space-y-2" role="group" aria-label="Review safety decision">
-      <strong>Only this trigger</strong><p>Keep the original event and record your safe verdict for this trigger. Other triggers and incomplete coverage remain restrictive.</p>
-      <Button label="Mark this trigger as safe" reach onClick={()=>void reviewer.current?.markSafe(r.id)}/>
+      <label className="flex min-h-11 items-center gap-2"><input type="radio" name={`scope-${r.id}`} checked={!future} onChange={()=>setFuture(false)}/> Only this trigger</label>
+      {futureAvailable&&<label className="flex min-h-11 items-center gap-2"><input type="radio" name={`scope-${r.id}`} checked={future} onChange={()=>setFuture(true)}/> {r.provenance?.kind==="tunnel_authority"?"Trust this tunnel destination":"Trust this origin"}</label>}
+      {future&&<><p>Trust incoming content from {provenance} for future input. Resolve only this trigger. Other recorded triggers keep their existing verdicts.</p>
+        {state.capabilities?.recipientRules&&<label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={recipient} onChange={e=>setRecipient(e.target.checked)}/> Allow sending data while restricted</label>}</>}
+      <p>Keep the original event and record your safe verdict for this trigger. Other verdicts and coverage remain unchanged.</p>
+      <Button label={future?"Review future rule":"Mark this trigger as safe"} reach onClick={()=>{if(future)void reviewer.current?.prepareFuture(r.id,recipient).then(p=>setPrepared(p??null));else void reviewer.current?.markSafe(r.id);}}/>
       <Button label="Cancel safety review" tone="quiet" reach onClick={()=>setReview(false)}/>
     </div>}
-    {progress&&!(entry.decision&&state.status==="ready")&&<p role="status">{progress.message}</p>}
-    {(unknown||progress?.stage==="refused")&&!busy&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={()=>{setProgress(null);setReview(false);state.refresh();}}/>}
+    {prepared&&progress?.stage==="review"&&canReview&&<div role="group" aria-label="Exact future rule review"><p>Exact target: {provenance}. Other verdicts remain unchanged. Recipient permission: {recipient?"allow sending data while restricted":"off"}.</p><pre className="max-h-48 overflow-auto whitespace-pre-wrap">{prepared.review.diff}</pre><Button label={recipient?"Save rule, allow sending while restricted, and mark this trigger safe":"Save future source rule and mark this trigger safe"} reach onClick={()=>void reviewer.current?.commitFuture()}/><Button label="Cancel future rule review" tone="quiet" reach onClick={()=>{reviewer.current?.cancelFuture();setPrepared(null);setProgress(null);setReview(false);}}/></div>}
+    {progress&&<p role="status">{progress.message}</p>}
+    {(unknown||progress?.stage==="refused"||progress?.stage==="partial")&&!busy&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={()=>{setProgress(null);setReview(false);state.refresh();}}/>}
     <p className="text-xs">{state.normal&&state.status==="ready"?"Normal policy restored":`Still restricted${state.projection?` · ${state.projection.unresolvedCount} unresolved triggers`:" · current evidence unavailable"}`}</p>
   </section>;
 }

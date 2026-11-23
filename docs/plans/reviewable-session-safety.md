@@ -25,7 +25,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 - Taint recording retains every independently observed signal and reads a
   durable revisioned aggregate, including pending/failure and explicit unknown
   coverage (`safetyProjection`,
-  `packages/ui-server/src/governance/safety-store.ts:418-423`). Legacy rows prove
+  `packages/ui-server/src/governance/safety-store.ts:429-434`). Legacy rows prove
   their own event, never a complete history. Owner review transport and its
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
@@ -36,13 +36,13 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   never prove finalized delivery or complete coverage.
 - The turn proxy records each admitted non-provider connection and terminal
   exposure observation (`prepareTurnEgress`,
-  `packages/ui-server/src/brain/turn-egress.ts:86-295`). Relay admissions join
+  `packages/ui-server/src/brain/turn-egress.ts:94-389`). Relay admissions join
   this proxy's submitted terminal observations and its own announced session
   binding before reading fresh safety (`settleTurnSessionBinding`,
-  `packages/ui-server/src/ws/bridge-session-binding.ts:14-28`), without excluding
+  `packages/ui-server/src/ws/bridge-session-binding.ts:15-32`), without excluding
   independent pending input. A raw CONNECT reveals
   only an authority and opaque bytes, not a repository path or inner protocol
-  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:200-435`).
+  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:264-608`).
 - Outward decisions read session taint at admission (`prepareOutwardPlan`,
   `packages/ui-sdk/src/server/outward-policy.ts:47-94`). Existing historical
   steering attribution must remain attribution at the time of a write.

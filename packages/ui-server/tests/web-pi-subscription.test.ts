@@ -30,6 +30,7 @@ const MODEL = "gpt-6-luna";
 let root: string, brain: string, agentDir: string, hostConfig: string, stateRoot: string, broker: WebBroker | undefined;
 let upstream: ReturnType<typeof Bun.serve>, nativeFetch: typeof fetch;
 let refreshes: number, refreshFails: boolean, slow: boolean, aborted: number;
+let largeResponse=false;
 let requests: Array<{ path: string; authorization: string | null; account: string | null; model: unknown }>;
 let receipts: WebReceipt[], egress: import("@schlessera/brain-ui-sdk/internal").EgressRecord[];
 /** Everything the executor process could hold while it served a request: its files, environment and argv. */
@@ -64,7 +65,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "odysseus-web-subscription-"));
   brain = join(root, "brain"); agentDir = join(root, "agent"); stateRoot = join(root, "executor-state");
   mkdirSync(join(brain, "notes"), { recursive: true }); mkdirSync(agentDir); mkdirSync(join(root, "host"));
-  refreshes = 0; refreshFails = false; slow = false; aborted = 0; requests = []; receipts = []; egress = []; executorView = []; lentInto = [];
+  largeResponse=false;refreshes = 0; refreshFails = false; slow = false; aborted = 0; requests = []; receipts = []; egress = []; executorView = []; lentInto = [];
   writeLogin(login(1));
   hostConfig = join(root, "host", "web-search.json");
   writeFileSync(hostConfig, JSON.stringify({ searchRouting: { providers: ["openai"], fallbackOn: ["transient"] }, ssrf: { allowRanges: ["127.0.0.0/8"] } }));
@@ -87,7 +88,7 @@ beforeEach(() => {
     }
     return Response.json({ output: [
       { type: "web_search_call", id: "ws_1", status: "completed", action: { type: "search", query: "Odysseus raft", sources: [{ type: "url", url: "https://ithaca.example/log" }] } },
-      { type: "message", role: "assistant", content: [{ type: "output_text", text: "The raft reaches Ithaca at dawn.",
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: largeResponse?"Ithaca ".repeat(16000):"The raft reaches Ithaca at dawn.",
         annotations: [{ type: "url_citation", url: "https://ithaca.example/log", title: "Ithaca harbour log", start_index: 0, end_index: 31 }] }] },
     ] });
   } });
@@ -107,12 +108,12 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function startBroker(): WebBroker {
+function startBroker(extra: Partial<Parameters<typeof createHostWebTools>[0]> = {}): WebBroker {
   return broker = createHostWebTools({ module: piInternal, root: stateRoot, hostConfigPath: () => hostConfig, env: {}, runtime: process.execPath,
     path: process.env.PATH!, onReceipt: receipt => receipts.push(receipt), limits: { callDeadlineMs: 25_000 },
     // The relayed endpoint is admitted at its own name; the fixture answers for it on loopback.
     lookup: async host => { if (host === "chatgpt.com") return [{ address: "127.0.0.1", family: 4 }]; throw new Error(`ENOTFOUND ${host}`); },
-    egressPorts: [443], onEgress: record => egress.push(record) });
+    egressPorts: [443], onEgress: record => egress.push(record),...extra });
 }
 
 /** The egress directories the turn's model was lent into, to see its relay stop. */
@@ -234,3 +235,10 @@ test("a cancelled subscription search stops the relayed request and stops the re
   for (let wait = 0; wait < 100 && existsSync(link); wait++) await Bun.sleep(20);
   expect(existsSync(link), "WEB_SUBSCRIPTION_RELAY_STOPPED").toBe(false);
 }, 60_000);
+
+
+test("review24: web model route carries and exhausts its real remaining allowance",async()=>{
+ largeResponse=true;writeLogin(login(Date.now()+3600000));startBroker({maxEgressBytes:8192});const access=turnModel();let remaining:(()=>number)|undefined;
+ const model:WebModelAccess={...access,open:(route,signal)=>{remaining=route.remainingBytes;return access.open(route,signal);}};
+ const envelope=await search(model);expect(envelope.ok).toBe(false);expect(typeof remaining,"WEB_ROUTE_NEVER_DROPS_REMAINING_BYTES").toBe("function");expect(requests.length,"OVERFLOW_IS_AN_OBSERVED_PROVIDER_RESPONSE").toBeGreaterThan(0);expect(remaining!(),"RECEIVED_WEB_RESPONSE_EXHAUSTS_EXECUTOR_ALLOWANCE").toBe(0);expect(egress.at(-1)).toMatchObject({outcome:"denied",failureReason:"budget"});const attempts=requests.length;expect((await search(model)).ok).toBe(false);expect(requests.length,"RECEIVED_OVERFLOW_CANNOT_FINANCE_ANOTHER_REQUEST").toBe(attempts);
+},60000);
