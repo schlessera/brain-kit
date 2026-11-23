@@ -39,6 +39,9 @@ async function scene(request?: (url: string, init?: RequestInit) => Promise<Resp
   ui = createBrainUiRoot({ storage: null, config: { backendUrl: fixture!.url }, ...(request ? { request } : {}) });
   ui.connection.connect();
   await expect.poll(() => ui!.stores.connection.getState().wsStatus, { timeout: watchdogMs(5000) }).toBe("connected");
+  // Socket open precedes server_hello. Wait for its handlers before a test
+  // enables the REST snapshot fixture: this host does not advertise drafts.
+  await expect.poll(() => ui!.stores.connection.getState().chatRequestAck, { timeout: watchdogMs(5000) }).toBe(true);
 }
 
 test("a real browser turn stores frame-arrival pairs including the backend's known content delay", async () => {
@@ -151,6 +154,7 @@ test("only the browser that dispatches a shared snapshot reports its receipt", a
   peer = createBrainUiRoot({ storage: null, request: drafts.request, config: { backendUrl: fixture!.url } });
   peer.connection.connect();
   await expect.poll(() => peer!.stores.connection.getState().wsStatus, { timeout: watchdogMs(5000) }).toBe("connected");
+  await expect.poll(() => peer!.stores.connection.getState().chatRequestAck, { timeout: watchdogMs(5000) }).toBe(true);
   const completed = new Set<number>();
   sockets.forEach((socket, index) => socket.addEventListener("message", event => {
     const message = JSON.parse(String(event.data));
