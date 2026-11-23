@@ -749,7 +749,7 @@ for (const profile of ["governed", "strict"] as const) test(`${profile} turns re
 test("one warm admitted turn walks private state exactly once", async () => {
   const f = fixture(); f.write("profiles: { interactive: strict }");
   const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: true });
-  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockResolvedValue({ ok: true });
+  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(async () => ({ ok: true }));
   let walk: ReturnType<typeof spyOn<typeof operationalState, "operationalStateRefusal">> | undefined;
   try {
     const first = await f.turns.begin("alias-warmup", new AbortController().signal);
