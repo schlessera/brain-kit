@@ -21,6 +21,12 @@ event("first_import_complete", { elapsedMs: performance.now() - firstImportStart
 // Observe real index completion, including guarded publication, without changing the call.
 const { spyOn } = await import("bun:test");
 const brainClients = await import(join(source!, "packages/ui-server/src/brain/client.ts"));
+// The app keeps its host execution boundary private; capture the instance it
+// creates so the proofs below time and drive the production boundary.
+const hostExecutions = await import(join(source!, "packages/ui-server/src/brain/host-execution.ts"));
+const createHostExecution = hostExecutions.createHostExecution;
+let hostExecution: ReturnType<typeof createHostExecution> | undefined;
+spyOn(hostExecutions, "createHostExecution").mockImplementation((...args: Parameters<typeof createHostExecution>) => (hostExecution = createHostExecution(...args)));
 const createBrainClient = brainClients.createBrainClient;
 let indexOrdinal = 0;
 spyOn(brainClients, "createBrainClient").mockImplementation((...args: Parameters<typeof createBrainClient>) => {
@@ -280,7 +286,7 @@ try {
   });
   if (OBSERVATION_TIMING) {
     const { proveCodeChangeReceipts } = await import("./code-change-receipts.js");
-    await proveCodeChangeReceipts(app, event);
+    await proveCodeChangeReceipts({ db: app.db, journal: app.wsHost.journal, execution: hostExecution }, event);
   }
   const {spyOn} = await import("bun:test");
   const workerSandbox = await import(join(source!,"packages/ui-sdk/src/server/worker-sandbox.ts"));
@@ -331,7 +337,7 @@ try {
       return workerStarted(turnId, worker);
     };
   }
-  for (const [owner, method, label] of [[app.wsHost.execution?.boundary, "governed", "boundary_governed"], [app.wsHost.governedTurns, "facts", "governed_facts"]] as any[]) {
+  for (const [owner, method, label] of [[hostExecution!.boundary, "governed", "boundary_governed"], [app.wsHost.governedTurns, "facts", "governed_facts"]] as any[]) {
     if (!owner?.[method]) continue; const original = owner[method].bind(owner); owner[method] = (...args: any[]) => { const start = performance.now(); event(label + "_start"); try { const answer = original(...args); event(label + "_end", { elapsedMs: performance.now() - start }); return answer; } catch (error) { event(label + "_error", { error: String(error), elapsedMs: performance.now() - start }); throw error; } };
   }
   const replayBegin = app.wsHost.failureReplay.begin.bind(app.wsHost.failureReplay);
