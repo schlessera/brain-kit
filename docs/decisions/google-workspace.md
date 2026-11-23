@@ -4,7 +4,7 @@
 after three review rounds of the plan in
 [`docs/plans/google-workspace.md`](../plans/google-workspace.md). Binds the
 Gmail epic (#4201), the Calendar epic (#4220) and later Contacts and Tasks work.
-Nothing here is built yet; this is the record the build is held to.
+This is the record the build is held to.
 
 ## The shape
 

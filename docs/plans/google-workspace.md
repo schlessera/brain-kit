@@ -1,8 +1,8 @@
 # Google Workspace: Gmail, Calendar, Contacts and Tasks
 
 Design for giving a brain governed access to Gmail and Google Calendar first,
-then Google Contacts and Google Tasks. Nothing here is built. The open work is
-in two epics: [Gmail (#4201)](https://github.com/schlessera/brain-kit/issues/4201),
+then Google Contacts and Google Tasks. The open work is in two epics:
+[Gmail (#4201)](https://github.com/schlessera/brain-kit/issues/4201),
 which also builds the shared foundation, and
 [Calendar (#4220)](https://github.com/schlessera/brain-kit/issues/4220), which
 depends on it. Contacts and Tasks reuse the same foundation and are
@@ -339,9 +339,10 @@ google:
   only where the operation's effective mode is also `allow`, because `ask`
   refuses in a terminal.
 - **Search results are filtered on per-thread labels.** gog's search output
-  carries each thread's labels, so `hidden_labels` costs no extra read per hit;
-  the transport task proves those labels are the union of the thread's message
-  labels, or the filter falls back to a capped pre-read.
+  carries only the first message's labels, by name, so the transport reads each
+  hit's thread and filters on the union of its messages' label ids:
+  `hidden_labels` costs one thread read per hit, at most 25 a page, and a page
+  with more hits than it asked for is refused before any read.
 
 ## 6. Deciding a call
 
@@ -637,8 +638,9 @@ supervise), and REST-only from day one (most of the work before the first read).
   `GOG_KEYRING_PASSWORD`, `GOG_TIMEZONE`, a minimal `PATH`, `LANG`.
   `GOG_ACCESS_TOKEN` and every other `GOG_*` name in the host environment are
   dropped.
-- stdout is capped (8 MiB) and parsed; stderr never reaches the model, only a
-  coded error and a scrubbed, truncated host log line.
+- stdout is capped (8 MiB) and parsed; stderr is drained and dropped, so
+  neither the model nor the host log sees its text: the model gets a coded
+  error, and the host log an event with the exit code and byte counts.
 - Timeouts: reads 30 s, writes 60 s, process-group kill. A read may retry once on
   exit `8`; a write never retries.
 - `--wrap-untrusted` is not used. The contract marks untrusted strings itself, and
@@ -789,7 +791,7 @@ Keyless, offline and deterministic.
   shaped from real gog 0.48 output by the live shape check, never copied from it.
 - **No real gog in tests.** The test network guard refuses to spawn any
   executable named `gog` that is not a registered fake, as it refuses `curl`
-  (`for (const key of ["spawn", "spawnSync"]`, `scripts/test-network-guard.ts:392-400`).
+  (`for (const key of ["spawn", "spawnSync"]`, `scripts/test-network-guard.ts:425-433`).
 - **Discipline tables.** Every catalog operation's argv uses only snapshot flags;
   reads carry `--readonly`; everything but the host send path carries
   `--gmail-no-send`; every call carries `--enable-commands-exact` for exactly its
