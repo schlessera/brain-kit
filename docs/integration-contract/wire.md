@@ -1281,6 +1281,10 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   release under the contract versioning rules.
   `code_receipt_malformed` identifies an unusable retained checkout receipt;
   the journal keeps that turn partial and records the recovery cause.
+  `private_state_unverified` identifies a turn refused because the private-state
+  alias check could not finish. `OperationalStateAliasVerificationUnavailable`
+  identifies its retained status diagnostic and persistent boot refusal. Both
+  are registered so reviewed diagnostics preserve their named causes.
   `input_safety_unavailable` identifies refusal because the runtime's input
   collector is unqualified or unavailable, including externally configured Pi
   extensions. It is a registered host safety failure, not a provider error or
