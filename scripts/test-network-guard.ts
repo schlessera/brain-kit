@@ -1,4 +1,5 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
+import { randomBytes } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -24,9 +25,10 @@ import { inheritWorkspaceLease } from "./workspace-lease.mjs";
  *    and the rest of ui-sdk's list, {@link GUARD_HOST_ONLY_ENV}) and points
  *    each XDG base directory it inherited at an empty one of its own, so a
  *    child whose environment a product filter stripped of `GOG_HOME` still
- *    resolves gog's directories only there or under the test HOME. A Bun
- *    descendant that may have read a `.env` file does the same
- *    ({@link isolateGogEnvironment}).
+ *    resolves gog's directories only there or under the test HOME. Every
+ *    guarded descendant does the same, because Bun may have read a `.env`
+ *    file into it, and then takes back only the values its spawner chose,
+ *    from a file the spawn wrapper wrote ({@link isolateGogEnvironment}).
  *
  * Token matching cannot read a shell: quoting (`go""g`), expansion
  * (`$(printf gog)`, variables), functions, aliases, a script on disk that
@@ -273,28 +275,29 @@ type XdgBase = keyof typeof XDG_BASES;
  * A test process makes the home under `parent`; its descendants share it.
  * A `GOG_HOME` that is a home a guard made ({@link isGuardGogHome}) is kept,
  * and the spawn wrapper hands this process's home to every guarded Bun
- * child, even one started with another environment. A descendant still
- * drops every `GOG_*` name. It keeps the other host-only names and the XDG
- * bases it was given only when no `.env` file can have added to them
- * (`envFiles: false`): Bun loads `.env`, `.env.local` and the like from the
- * working directory before any preload runs, without overriding a name
- * already set, so an environment that may hold a dotenv file's values says
- * nothing about what a test chose. The spawn wrapper starts every guarded
- * Bun child with `--no-env-file` and tells its guard so, so what such a child
- * holds is exactly what its spawner passed, and a synthetic value a test
- * chose survives. A Bun the wrapper did not start (through a shell, say) may
- * have read one, so its guard drops and repoints as the maker does. Only the maker's `dispose`
- * removes the home, so a descendant killed with SIGKILL, which runs no exit
- * hook, leaves nothing behind.
+ * child, even one started with another environment. Only the maker's
+ * `dispose` removes it, so a descendant killed with SIGKILL, which runs no
+ * exit hook, leaves nothing behind.
+ *
+ * A descendant drops and repoints exactly as the maker does. Nothing in its
+ * environment says what a test chose: Bun reads `.env`, `.env.local` and the
+ * like, an explicit `--env-file` and one in `BUN_OPTIONS` before any preload
+ * runs, expands variables in them, and `bun run` hands its script the
+ * environment without running a preload at all. So the spawn wrapper writes
+ * the host-only names and XDG bases a guarded Bun child is given into a file
+ * of its own ({@link recordChosenEnv}) and passes only its path; the
+ * child's guard applies those values over whatever it dropped or repointed,
+ * and only from a file the wrapper could have written
+ * ({@link readChosenEnv}). A synthetic value a test chose survives; one a
+ * dotenv file supplied does not, and a forged path names nothing a guard did
+ * not write.
  */
-export function isolateGogEnvironment(
-  env: Record<string, string | undefined>, parent: string, options: { envFiles?: boolean } = {},
-): { home: string; xdg: Readonly<Record<XdgBase, string>>; dispose(): void } {
+export function isolateGogEnvironment(env: Record<string, string | undefined>, parent: string): { home: string; xdg: Readonly<Record<XdgBase, string>>; dispose(): void } {
   const inherited = env.GOG_HOME;
   const descendant = isGuardGogHome(inherited);
-  // What a test chose, and nothing a dotenv file may have added: only then is any host-only name or XDG base kept.
-  const chosen = descendant && options.envFiles === false;
-  for (const name of Object.keys(env)) if (name.startsWith("GOG_") || (!chosen && isHostOnlyEnv(name))) delete env[name];
+  const chosen = env[CHOSEN_ENV];
+  delete env[CHOSEN_ENV];
+  for (const name of Object.keys(env)) if (isHostOnlyEnv(name)) delete env[name];
   let home: string;
   let dispose = () => {};
   if (descendant) {
@@ -307,14 +310,58 @@ export function isolateGogEnvironment(
     chmodSync(dir, 0o700);
     chmodSync(home, 0o700);
     for (const kind of Object.values(XDG_BASES)) mkdirSync(join(dir, "xdg", kind), { recursive: true, mode: 0o700 });
+    mkdirSync(join(dir, CHOSEN_DIR), { mode: 0o700 });
+    chmodSync(join(dir, CHOSEN_DIR), 0o700);
     writeFileSync(join(dir, "guard"), GOG_HOME_MARKER, { mode: 0o600 });
     dispose = () => rmSync(dir, { recursive: true, force: true });
   }
   const xdg = Object.fromEntries(Object.entries(XDG_BASES).map(([name, kind]) => [name, join(dirname(home), "xdg", kind)])) as Record<XdgBase, string>;
-  if (!chosen) for (const name of Object.keys(XDG_BASES) as XdgBase[]) if (name in env) env[name] = xdg[name];
+  for (const name of Object.keys(XDG_BASES) as XdgBase[]) if (name in env) env[name] = xdg[name];
+  if (descendant) Object.assign(env, readChosenEnv(chosen, home));
   env.GOG_HOME = home;
   env.GOG_KEYRING_BACKEND = "file";
   return { home, xdg, dispose };
+}
+
+/** The path of the file holding what a guarded Bun child's spawner chose; the child's guard reads and removes it. */
+const CHOSEN_ENV = "BRAIN_TEST_GUARD_CHOSEN_ENV";
+/** Where the spawn wrapper writes those files: beside the gog home, in the guard's own 0700 directory, and nothing else writes there. */
+const CHOSEN_DIR = "chosen";
+let chosenFiles = 0;
+
+/** The names a chosen-environment file may restore: host-only names other than `GOG_*`, which the guard always sets itself, and the XDG bases. */
+const restorable = (name: string) => !name.startsWith("GOG_") && (isHostOnlyEnv(name) || Object.prototype.hasOwnProperty.call(XDG_BASES, name));
+
+/**
+ * Writes the host-only names and XDG bases `env` holds into a new 0600 file
+ * in the guard's directory beside `home`, and returns its path; undefined
+ * when there are none. The spawn wrapper calls it for every guarded Bun
+ * child, with the environment that child is about to get.
+ */
+export function recordChosenEnv(env: Readonly<Record<string, string | undefined>>, home: string): string | undefined {
+  const chosen = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string" && restorable(entry[0])));
+  if (Object.keys(chosen).length === 0) return undefined;
+  const path = join(dirname(home), CHOSEN_DIR, `${process.pid}-${++chosenFiles}-${randomBytes(8).toString("hex")}.json`);
+  writeFileSync(path, JSON.stringify(chosen), { mode: 0o600, flag: "wx" });
+  return path;
+}
+
+/**
+ * The values a chosen-environment file holds, or none: only from a regular
+ * 0600 file owned by this user, directly in the guard's 0700 directory
+ * beside `home`, by a path with nothing to resolve, and only for the names
+ * {@link recordChosenEnv} writes.
+ */
+export function readChosenEnv(path: string | undefined, home: string): Record<string, string> {
+  const dir = join(dirname(home), CHOSEN_DIR);
+  if (!path || resolve(path) !== path || dirname(path) !== dir) return {};
+  const own = (stats: ReturnType<typeof lstatOrNull>, mode: number) => stats !== null && stats.uid === process.getuid?.() && (stats.mode & 0o777) === mode;
+  const folder = lstatOrNull(dir), file = lstatOrNull(path);
+  if (!folder?.isDirectory() || !own(folder, 0o700) || !file?.isFile() || !own(file, 0o600)) return {};
+  let parsed: unknown;
+  try { parsed = JSON.parse(readFileSync(path, "utf8")); } catch { return {}; }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+  return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string" && restorable(entry[0])));
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
@@ -339,9 +386,6 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
   };
 }
 
-/** Set by the spawn wrapper on a guarded Bun child it started with `--no-env-file`; that child's guard reads and removes it. */
-const ENV_FILES_OFF = "BRAIN_TEST_GUARD_ENV_FILES_OFF";
-
 /** Set while the guard is installed, so maintainer-only scripts can refuse to run under it. */
 export const NETWORK_GUARD_INSTALLED = Symbol.for("brain-kit.test-network-guard.installed");
 
@@ -350,14 +394,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
   (globalThis as Record<symbol, unknown>)[NETWORK_GUARD_INSTALLED] = true;
   Object.assign(process.env, testGitEnvironment(process.env));
   // A launcher-owned resource root outlives this process and is removed with the run.
-  // A guarded Bun child the spawn wrapper started with `--no-env-file` is told
-  // so here, with the home it was handed: a value no dotenv file can hold.
-  // (`bun test` does not show its own flags in execArgv.) Anything else may
-  // have read a `.env` file before this preload ran.
-  const started = process.env[ENV_FILES_OFF];
-  delete process.env[ENV_FILES_OFF];
-  const gogHome = isolateGogEnvironment(process.env, process.env.BRAIN_TEST_RESOURCE_ROOT ?? tmpdir(),
-    { envFiles: started === undefined || started !== process.env.GOG_HOME });
+  const gogHome = isolateGogEnvironment(process.env, process.env.BRAIN_TEST_RESOURCE_ROOT ?? tmpdir());
   const escapes: string[] = [];
   let reported = 0;
   const message = () => `Offline test guard: attempted real network access\n${escapes.join("\n")}`;
@@ -471,9 +508,12 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
       const guardedBun = basename(executable) === "bun" || executable === process.execPath;
       if (guardedBun) {
         // Bun treats `bun --preload FILE test` as a package script. Keep the
-        // builtin/subcommand first so child tests remain child tests. No
-        // `.env` file from the child's working directory is read: what it
-        // holds is what its spawner passed (see isolateGogEnvironment).
+        // builtin/subcommand first so child tests remain child tests. Nor
+        // does the child read a `.env` file from its working directory, so a
+        // name the guard leaves alone (HOME, a D-Bus address) comes only from
+        // its spawner. Nothing relies on that: an explicit `--env-file`, one in
+        // BUN_OPTIONS, or a Bun a script starts still reads one, and the
+        // child's guard sanitizes what it holds either way.
         const index = ["test", "run"].includes(cmd[1] ?? "") ? 2 : 1;
         const guarded = [...cmd.slice(0, index), "--preload", childPreload, "--no-env-file", ...cmd.slice(index)];
         args[0] = Array.isArray(first) ? guarded : { ...first, cmd: guarded };
@@ -490,11 +530,14 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
       // probes. Carry test Git policy through those children as well as shells.
       const childEnv = testGitEnvironment(options.env ?? process.env);
       // A guarded Bun child's own guard drops every GOG_* name it is given;
-      // this one makes it keep this process's gog home rather than make one,
-      // and the second tells it no `.env` file was read (`--no-env-file` above).
+      // this one makes it keep this process's gog home rather than make one.
+      // Its guard drops every host-only name and repoints every XDG base, then
+      // takes back what this spawn gave it from the file recorded here.
       if (guardedBun) {
         childEnv.GOG_HOME = gogHome.home;
-        childEnv[ENV_FILES_OFF] = gogHome.home;
+        const chosen = recordChosenEnv(childEnv, gogHome.home);
+        if (chosen) childEnv[CHOSEN_ENV] = chosen;
+        else delete childEnv[CHOSEN_ENV];
       }
       const inherited = inheritWorkspaceLease({ ...options, env: childEnv }, defaultStderr, pipeOnly);
       if (Array.isArray(first)) args[1] = inherited;

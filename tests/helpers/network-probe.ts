@@ -256,38 +256,50 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
       shell: fromChild(["/bin/sh", "-c", `exec ${JSON.stringify(process.execPath)} -e ${JSON.stringify(program).replaceAll("$", "\\$")}`]),
     })}`);
   } else if (scenario === "dotenv-descendants") {
-    // A sanitized test process starts Bun children in a directory whose .env
-    // holds host Google settings, another host-only secret, an XDG base, an
-    // ordinary name and a forged copy of the wrapper's "no .env read" note.
-    // Two are started by the spawn wrapper (bun -e, bun test), one through a
-    // shell that loads the guard itself. Each reports what it holds; the test
-    // passes one synthetic Google value explicitly.
-    const { mkdirSync, writeFileSync } = await import("node:fs");
+    // A sanitized test process starts Bun children that read host settings
+    // from a dotenv file before their preload runs: a .env in the working
+    // directory (with two forged notes, one by variable expansion), an
+    // explicit --env-file, one in BUN_OPTIONS, and a Bun that `bun run`'s
+    // package script starts. Each child reports the host-only names and XDG
+    // bases it holds. The test passes one synthetic Google value and one XDG
+    // base explicitly.
+    const { chmodSync, mkdirSync, writeFileSync } = await import("node:fs");
     const { dirname, join } = await import("node:path");
-    const dir = join(process.env.PROBE_DIR!, "dotenv");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, ".env"), [
-      "BRAIN_UI_GOOGLE_HOME=/srv/ithaca/gog", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD=suitors-feast", "BRAIN_UI_GOG_PATH=/srv/ithaca/bin/gog",
-      "BRAIN_GOOGLE_LEDGER=/srv/ithaca/google-ledger.sqlite", "APIFY_TOKEN=apify-suitor", "XDG_CONFIG_HOME=/srv/ithaca/xdg-config",
-      "ODYSSEUS_DOTENV=loaded", "BRAIN_TEST_GUARD_ENV_FILES_OFF=/srv/ithaca/forged", "",
-    ].join("\n"));
+    const root = join(process.env.PROBE_DIR!, "dotenv");
+    const host = ["BRAIN_UI_GOOGLE_HOME=/srv/ithaca/gog", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD=suitors-feast", "BRAIN_UI_GOG_PATH=/srv/ithaca/bin/gog",
+      "BRAIN_GOOGLE_LEDGER=/srv/ithaca/google-ledger.sqlite", "APIFY_TOKEN=apify-suitor", "XDG_CONFIG_HOME=/srv/ithaca/xdg-config", "ODYSSEUS_DOTENV=loaded"];
+    for (const dir of ["cwd", "run", "plain"]) mkdirSync(join(root, dir), { recursive: true });
+    // A file a guard did not write, shaped like one it did.
+    const forged = join(root, "forged-chosen.json");
+    writeFileSync(forged, JSON.stringify({ BRAIN_UI_GOOGLE_KEYRING_PASSWORD: "forged-feast", XDG_CONFIG_HOME: "/srv/ithaca/forged-config" }), { mode: 0o600 });
+    chmodSync(forged, 0o600);
+    writeFileSync(join(root, "cwd", ".env"), [...host, "BRAIN_TEST_GUARD_ENV_FILES_OFF=$GOG_HOME", `BRAIN_TEST_GUARD_CHOSEN_ENV=${forged}`, ""].join("\n"));
+    writeFileSync(join(root, "run", ".env"), [...host, ""].join("\n"));
+    writeFileSync(join(root, "run", "package.json"), JSON.stringify({ name: "ithaca-dotenv-probe", private: true,
+      scripts: { nested: 'exec "$ODYSSEUS_BUN" --preload "$ODYSSEUS_PRELOAD" -e "$ODYSSEUS_REPORT"' } }));
+    const hostFile = join(root, "host.env");
+    writeFileSync(hostFile, [...host, ""].join("\n"));
     const names = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_UI_GOG_PATH", "BRAIN_GOOGLE_LEDGER", "APIFY_TOKEN",
-      "XDG_CONFIG_HOME", "ODYSSEUS_DOTENV", "BRAIN_GOOGLE_HOME", "BRAIN_TEST_GUARD_ENV_FILES_OFF"];
+      "XDG_CONFIG_HOME", "XDG_DATA_HOME", "ODYSSEUS_DOTENV", "BRAIN_GOOGLE_HOME", "BRAIN_TEST_GUARD_CHOSEN_ENV"];
     const report = `console.log("DOTENV_CHILD=" + JSON.stringify(Object.fromEntries(${JSON.stringify(names)}.map(name => [name, process.env[name] ?? null]))))`;
-    writeFileSync(join(dir, "dotenv-child.test.ts"), `import { test } from "bun:test";\ntest("reports", () => { ${report}; });\n`);
-    const env = { ...process.env, BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home" } as Record<string, string>;
+    writeFileSync(join(root, "cwd", "dotenv-child.test.ts"), `import { test } from "bun:test";\ntest("reports", () => { ${report}; });\n`);
     const preload = join(import.meta.dir, "../../scripts/test-network-child-preload.ts");
-    const held = (cmd: string[]) => {
-      const child = Bun.spawnSync(cmd, { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
+    const env = { ...process.env, BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data",
+      ODYSSEUS_BUN: process.execPath, ODYSSEUS_PRELOAD: preload, ODYSSEUS_REPORT: report } as Record<string, string>;
+    const held = (cmd: string[], cwd: string, extra: Record<string, string> = {}) => {
+      const child = Bun.spawnSync(cmd, { cwd: join(root, cwd), env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe" });
       const line = `${child.stdout}${child.stderr}`.split("\n").find(text => text.startsWith("DOTENV_CHILD="));
       return line ? JSON.parse(line.slice("DOTENV_CHILD=".length)) : { exit: child.exitCode, output: `${child.stdout}${child.stderr}`.slice(-400) };
     };
     console.log(`DOTENV_CHILDREN=${JSON.stringify({
       guard: dirname(process.env.GOG_HOME!),
       children: {
-        "bun-eval": held([process.execPath, "-e", report]),
-        "bun-test": held([process.execPath, "test", "./dotenv-child.test.ts"]),
-        shell: held(["/bin/sh", "-c", 'exec "$0" --preload "$1" -e "$2"', process.execPath, preload, report]),
+        "bun-eval": held([process.execPath, "-e", report], "cwd"),
+        "bun-test": held([process.execPath, "test", "./dotenv-child.test.ts"], "cwd"),
+        shell: held(["/bin/sh", "-c", 'exec "$0" --preload "$1" -e "$2"', process.execPath, preload, report], "cwd"),
+        "bun-run": held([process.execPath, "run", "nested"], "run"),
+        "env-file": held([process.execPath, `--env-file=${hostFile}`, "-e", report], "plain"),
+        "bun-options": held([process.execPath, "-e", report], "plain", { BUN_OPTIONS: `--env-file=${hostFile}` }),
       },
     })}`);
   } else if (scenario === "gog-filtered-environment") {
