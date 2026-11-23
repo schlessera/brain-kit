@@ -1,11 +1,12 @@
 /** Real isolated test/runtime processes, with native sentinels under the guard. */
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { experimentRunArgv } from "../scripts/test-experiments";
-import { isolateGogEnvironment } from "../scripts/test-network-guard";
+import { HOST_ONLY_ENV_PREFIXES, HOST_ONLY_SECRET_ENV } from "../packages/ui-sdk/src/server/subprocess-env.ts";
+import { GUARD_HOST_ONLY_ENV, GUARD_HOST_ONLY_ENV_PREFIXES, isolateGogEnvironment, recordChosenEnv } from "../scripts/test-network-guard";
 
 const ROOT = join(import.meta.dir, "..");
 const sentinel = join(import.meta.dir, "helpers/network-sentinels.ts");
@@ -130,6 +131,73 @@ describe("offline test guard", () => {
       rmSync(temp, { recursive: true, force: true });
     }
   });
+  test("a test process started with the host's Google settings holds none of them, nor do its Bun and shell children, while an ordinary variable reaches all three", async () => {
+    const planted = {
+      BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog", BRAIN_UI_GOOGLE_KEYRING_PASSWORD: "suitors-feast", BRAIN_UI_GOG_PATH: "/srv/ithaca/bin/gog",
+      BRAIN_GOOGLE_LEDGER: "/srv/ithaca/google-ledger.sqlite", ODYSSEUS_VOYAGE: "ithaca",
+    };
+    const result = await run("google-host-environment", "direct", ROOT, planted);
+    const report = /GOOGLE_HOST_ENV=(\{[^\n]*\})/.exec(result.output);
+    expect(report, result.output).not.toBeNull();
+    expect(JSON.parse(report![1]!), "HOST_GOOGLE_SETTINGS_DROPPED_ORDINARY_KEPT").toEqual({ own: ["ODYSSEUS_VOYAGE"], bun: ["ODYSSEUS_VOYAGE"], shell: ["ODYSSEUS_VOYAGE"] });
+    expect(result.code, result.output).toBe(0);
+  });
+  test("a shell child given a product-filtered environment, which drops GOG_HOME, resolves gog's directories only under the guard's empty ones and the test HOME, with the file keyring", async () => {
+    // A desktop session's environment: XDG bases on the host and a D-Bus session bus.
+    const planted = {
+      XDG_CONFIG_HOME: "/srv/ithaca/xdg-config", XDG_DATA_HOME: "/srv/ithaca/xdg-data", XDG_STATE_HOME: "/srv/ithaca/xdg-state", XDG_CACHE_HOME: "/srv/ithaca/xdg-cache",
+      DBUS_SESSION_BUS_ADDRESS: "unix:path=/srv/ithaca/bus", GOG_HOME: "/srv/ithaca/gog",
+    };
+    const result = await run("gog-filtered-environment", "direct", ROOT, planted);
+    const report = /GOG_FILTERED=(\{[^\n]*\})/.exec(result.output);
+    expect(report, result.output).not.toBeNull();
+    type Report = { gog: string[]; home: string | null; xdg: Record<string, string | null>; dirs: Record<string, string>; entries: Record<string, number | null>; keyring: string };
+    const seen = JSON.parse(report![1]!) as { guard: string; home: string; filtered: string[]; reports: Record<string, Report | null> };
+    const guard = dirname(seen.guard);
+    // The filter is not what protects the child: it hands it HOME and XDG_CONFIG_HOME.
+    expect(seen.filtered, "FILTER_PASSES_HOME_AND_XDG_CONFIG_HOME").toEqual(expect.arrayContaining(["HOME", "XDG_CONFIG_HOME"]));
+    expect(Object.keys(seen.reports).sort(), result.output).toEqual(["bun-shell", "bun-spawn", "child-process"]);
+    for (const [label, got] of Object.entries(seen.reports)) {
+      expect(got, `GOG_STAND_IN_RAN: ${label}`).not.toBeNull();
+      expect(JSON.stringify(got), `NO_HOST_DIRECTORY_REACHES_GOG: ${label}`).not.toContain("/srv/ithaca");
+      expect({ gog: got!.gog, home: got!.home, xdg: got!.xdg, keyring: got!.keyring }, `FILTERED_CHILD_ENVIRONMENT: ${label}`).toEqual({
+        gog: [], home: seen.home, keyring: "file",
+        xdg: { XDG_CONFIG_HOME: join(guard, "xdg/config"), XDG_DATA_HOME: null, XDG_STATE_HOME: null, XDG_CACHE_HOME: null },
+      });
+      expect(got!.dirs, `GOG_DIRECTORIES: ${label}`).toEqual({
+        config: join(guard, "xdg/config/gogcli"), data: join(seen.home, ".local/share/gogcli"),
+        state: join(seen.home, ".local/state/gogcli"), cache: join(seen.home, ".cache/gogcli"),
+      });
+      expect(got!.entries, `GOG_DIRECTORIES_ABSENT: ${label}`).toEqual({ config: null, data: null, state: null, cache: null });
+    }
+    expect(result.code, result.output).toBe(0);
+  });
+  test("a Bun child that reads host settings from a dotenv file (a .env with forged notes, --env-file, BUN_OPTIONS, under bun run) holds none of them; what the test passed survives where the wrapper recorded it", async () => {
+    const result = await run("dotenv-descendants");
+    const report = /DOTENV_CHILDREN=(\{[^\n]*\})/.exec(result.output);
+    expect(report, result.output).not.toBeNull();
+    const seen = JSON.parse(report![1]!) as { guard: string; children: Record<string, Record<string, string | null>> };
+    const guardXdg = (kind: string) => join(seen.guard, "xdg", kind);
+    const none = { BRAIN_UI_GOOGLE_HOME: null, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: null, BRAIN_UI_GOG_PATH: null, BRAIN_GOOGLE_LEDGER: null, APIFY_TOKEN: null,
+      BRAIN_TEST_GUARD_CHOSEN_ENV: null };
+    const chosen = { BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data" };
+    expect(Object.keys(seen.children).sort(), result.output).toEqual(["bun-eval", "bun-options", "bun-run", "bun-test", "env-file", "shell"]);
+    // Started by the wrapper in a directory holding a .env: it reads none of it, and keeps what the test passed.
+    for (const label of ["bun-eval", "bun-test"]) {
+      expect(seen.children[label], `WRAPPER_STARTED_CHILD_READS_NO_DOTENV: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
+    }
+    // An env file the wrapper cannot switch off, and a Bun that bun run's script starts, which reads the .env: what the
+    // file supplied is dropped or repointed, and what the test passed comes back from the wrapper's record.
+    for (const label of ["env-file", "bun-options", "bun-run"]) {
+      expect(seen.children[label], `DOTENV_SUPPLIED_HOST_SETTINGS_DROPPED: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: guardXdg("config"), ODYSSEUS_DOTENV: "loaded" });
+    }
+    // Through a shell, with notes forged in the .env (one by expanding $GOG_HOME, one naming a file a guard did not write):
+    // nothing is taken back, so the test's own values go too and every XDG base is the guard's.
+    expect(seen.children.shell, "SHELL_STARTED_CHILD_TAKES_BACK_NOTHING").toEqual({
+      ...none, BRAIN_GOOGLE_HOME: null, XDG_CONFIG_HOME: guardXdg("config"), XDG_DATA_HOME: guardXdg("data"), ODYSSEUS_DOTENV: "loaded",
+    });
+    expect(result.code, result.output).toBe(0);
+  });
   for (const scenario of ["local-sockets", "local-tls", "local", "local-unix", "manual", "redirect-error"]) {
     test(`${scenario} retains real loopback fixture behavior`, async () => {
       const result = await run(scenario);
@@ -203,6 +271,86 @@ describe("the guard's gog home", () => {
       expect(env).toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file" });
       reused.dispose();
       expect(existsSync(made.home)).toBe(true);
+      made.dispose();
+      expect(readdirSync(parent)).toEqual([]);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("the guard's host-only names are exactly ui-sdk's, so a name the product withholds from every child no test process inherits", () => {
+    expect({ names: [...GUARD_HOST_ONLY_ENV].sort(), prefixes: [...GUARD_HOST_ONLY_ENV_PREFIXES].sort() }, "GUARD_HOST_ONLY_EQUALS_UI_SDK").toEqual(
+      { names: [...HOST_ONLY_SECRET_ENV].sort(), prefixes: [...HOST_ONLY_ENV_PREFIXES].sort() });
+  });
+
+  test("the test process drops every host-only name and points each XDG base it inherited at an empty directory of its own; a descendant does too, then takes back what its spawner recorded", () => {
+    const parent = mkdtempSync(join(tmpdir(), "network-guard-home-"));
+    try {
+      const host: Record<string, string | undefined> = {
+        BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog", BRAIN_UI_GOOGLE_KEYRING_PASSWORD: "suitors-feast", BRAIN_UI_GOG_PATH: "/srv/ithaca/bin/gog",
+        BRAIN_GOOGLE_LEDGER: "/srv/ithaca/google-ledger.sqlite", BRAIN_UI_GOOGLE_ITHACA: "suitors", APIFY_TOKEN: "apify-suitor",
+        XDG_CONFIG_HOME: "/srv/ithaca/xdg-config", XDG_STATE_HOME: "/srv/ithaca/xdg-state", ODYSSEUS_VOYAGE: "ithaca",
+      };
+      const made = isolateGogEnvironment(host, parent);
+      expect(host, "HOST_ONLY_DROPPED_XDG_REPOINTED_ORDINARY_KEPT").toEqual({
+        XDG_CONFIG_HOME: made.xdg.XDG_CONFIG_HOME, XDG_STATE_HOME: made.xdg.XDG_STATE_HOME, ODYSSEUS_VOYAGE: "ithaca",
+        GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file",
+      });
+      for (const dir of Object.values(made.xdg)) {
+        expect(dir.startsWith(`${dirname(made.home)}/`), dir).toBe(true);
+        expect([readdirSync(dir), (statSync(dir).mode & 0o777).toString(8)], dir).toEqual([[], "700"]);
+      }
+      // A descendant drops and repoints as its maker does: what it holds may have come from a dotenv file.
+      const read: Record<string, string | undefined> = { GOG_HOME: made.home, GOG_ACCOUNT: "suitor", BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog", XDG_CONFIG_HOME: "/srv/ithaca/xdg-config" };
+      isolateGogEnvironment(read, parent).dispose();
+      expect(read, "DESCENDANT_DROPS_AND_REPOINTS").toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file", XDG_CONFIG_HOME: made.xdg.XDG_CONFIG_HOME });
+      // What the spawn wrapper recorded for it comes back, over what a dotenv file set; only those names, never GOG_*.
+      const given = { GOG_HOME: made.home, GOG_ACCOUNT: "suitor", BRAIN_UI_GOOGLE_HOME: "/odysseus/gog", XDG_CONFIG_HOME: "/odysseus/config", ODYSSEUS_VOYAGE: "ithaca" };
+      const recorded = recordChosenEnv(given, made.home)!;
+      expect([dirname(recorded), (statSync(recorded).mode & 0o777).toString(8)], "RECORD_IN_THE_GUARD_DIRECTORY").toEqual([join(dirname(made.home), "chosen"), "600"]);
+      const restored: Record<string, string | undefined> = { ...given, BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog", APIFY_TOKEN: "apify-suitor", BRAIN_TEST_GUARD_CHOSEN_ENV: recorded };
+      isolateGogEnvironment(restored, parent).dispose();
+      expect(restored, "DESCENDANT_TAKES_BACK_WHAT_ITS_SPAWNER_CHOSE").toEqual({
+        GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file", BRAIN_UI_GOOGLE_HOME: "/odysseus/gog", XDG_CONFIG_HOME: "/odysseus/config", ODYSSEUS_VOYAGE: "ithaca",
+      });
+      expect(recordChosenEnv({ GOG_HOME: made.home, ODYSSEUS_VOYAGE: "ithaca" }, made.home), "NOTHING_TO_RECORD").toBeUndefined();
+      // A path naming anything but a file the wrapper wrote takes nothing back.
+      const chosenDir = join(dirname(made.home), "chosen");
+      // An XDG base already at the guard's own directory needs no record. Where the guard directory cannot be
+      // written, as in a sandbox that mounts it read-only, the spawn gets no record rather than an error. A file
+      // in the directory's place fails every write, root's included.
+      expect(recordChosenEnv({ GOG_HOME: made.home, XDG_CONFIG_HOME: made.xdg.XDG_CONFIG_HOME, ODYSSEUS_VOYAGE: "ithaca" }, made.home),
+        "THE_GUARDS_OWN_BASE_IS_NOT_RECORDED").toBeUndefined();
+      const aside = `${chosenDir}-aside`;
+      renameSync(chosenDir, aside);
+      writeFileSync(chosenDir, "");
+      try {
+        let unwritable: string | undefined = "not called";
+        expect(() => { unwritable = recordChosenEnv(given, made.home); }, "AN_UNWRITABLE_GUARD_DIRECTORY_REFUSES_NO_SPAWN").not.toThrow();
+        expect(unwritable, "AN_UNWRITABLE_GUARD_DIRECTORY_RECORDS_NOTHING").toBeUndefined();
+      } finally { rmSync(chosenDir, { force: true }); renameSync(aside, chosenDir); }
+      const outside = join(parent, "forged.json");
+      writeFileSync(outside, JSON.stringify({ BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog" }), { mode: 0o600 });
+      const linked = join(chosenDir, "linked.json");
+      symlinkSync(outside, linked);
+      const open = join(chosenDir, "open.json");
+      writeFileSync(open, JSON.stringify({ BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog" }), { mode: 0o644 });
+      chmodSync(open, 0o644);
+      const named = join(chosenDir, "named.json");
+      writeFileSync(named, JSON.stringify({ GOG_ACCESS_TOKEN: "ya29.suitor", PATH: "/srv/ithaca/bin" }), { mode: 0o600 });
+      for (const [label, path] of [["outside the guard", outside], ["a symlink", linked], ["readable by others", open],
+        ["through ..", `${chosenDir}/../chosen/${basename(recorded)}`], ["not GOG_* or another name", named]] as const) {
+        const forged: Record<string, string | undefined> = { GOG_HOME: made.home, BRAIN_TEST_GUARD_CHOSEN_ENV: path };
+        isolateGogEnvironment(forged, parent).dispose();
+        expect(forged, `FORGED_RECORD_TAKES_NOTHING_BACK: ${label}`).toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file" });
+      }
+      // Nor does a record the wrapper wrote, once the directory holding it is open to others.
+      chmodSync(chosenDir, 0o755);
+      const opened: Record<string, string | undefined> = { GOG_HOME: made.home, BRAIN_TEST_GUARD_CHOSEN_ENV: recorded };
+      isolateGogEnvironment(opened, parent).dispose();
+      chmodSync(chosenDir, 0o700);
+      expect(opened, "OPEN_RECORD_DIRECTORY_TAKES_NOTHING_BACK").toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file" });
+      rmSync(outside);
       made.dispose();
       expect(readdirSync(parent)).toEqual([]);
     } finally {

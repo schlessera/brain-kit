@@ -242,6 +242,113 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
       return { home: child.stdout.toString(), signal: child.signalCode ?? null, exit: child.exitCode };
     });
     console.log(`GOG_HOMES=${JSON.stringify({ own, children, own_after: existsSync(own) })}`);
+  } else if (scenario === "google-host-environment") {
+    // Which of the host's Google settings this test process, a Bun child and
+    // a shell child it starts with its environment hold, and whether an
+    // ordinary variable reached all three.
+    const names = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_UI_GOG_PATH", "BRAIN_GOOGLE_LEDGER", "ODYSSEUS_VOYAGE"];
+    const held = (env: Record<string, string | undefined>) => names.filter(name => env[name] !== undefined);
+    const fromChild = (cmd: string[]) => held(JSON.parse(Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" }).stdout.toString()));
+    const program = `console.log(JSON.stringify(process.env))`;
+    console.log(`GOOGLE_HOST_ENV=${JSON.stringify({
+      own: held(process.env),
+      bun: fromChild([process.execPath, "-e", program]),
+      shell: fromChild(["/bin/sh", "-c", `exec ${JSON.stringify(process.execPath)} -e ${JSON.stringify(program).replaceAll("$", "\\$")}`]),
+    })}`);
+  } else if (scenario === "dotenv-descendants") {
+    // A sanitized test process starts Bun children that read host settings
+    // from a dotenv file before their preload runs: a .env in the working
+    // directory (with two forged notes, one by variable expansion), an
+    // explicit --env-file, one in BUN_OPTIONS, and a Bun that `bun run`'s
+    // package script starts. Each child reports the host-only names and XDG
+    // bases it holds. The test passes one synthetic Google value and one XDG
+    // base explicitly.
+    const { chmodSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const { dirname, join } = await import("node:path");
+    const root = join(process.env.PROBE_DIR!, "dotenv");
+    const host = ["BRAIN_UI_GOOGLE_HOME=/srv/ithaca/gog", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD=suitors-feast", "BRAIN_UI_GOG_PATH=/srv/ithaca/bin/gog",
+      "BRAIN_GOOGLE_LEDGER=/srv/ithaca/google-ledger.sqlite", "APIFY_TOKEN=apify-suitor", "XDG_CONFIG_HOME=/srv/ithaca/xdg-config", "ODYSSEUS_DOTENV=loaded"];
+    for (const dir of ["cwd", "run", "plain"]) mkdirSync(join(root, dir), { recursive: true });
+    // A file a guard did not write, shaped like one it did.
+    const forged = join(root, "forged-chosen.json");
+    writeFileSync(forged, JSON.stringify({ BRAIN_UI_GOOGLE_KEYRING_PASSWORD: "forged-feast", XDG_CONFIG_HOME: "/srv/ithaca/forged-config" }), { mode: 0o600 });
+    chmodSync(forged, 0o600);
+    writeFileSync(join(root, "cwd", ".env"), [...host, "BRAIN_TEST_GUARD_ENV_FILES_OFF=$GOG_HOME", `BRAIN_TEST_GUARD_CHOSEN_ENV=${forged}`, ""].join("\n"));
+    writeFileSync(join(root, "run", ".env"), [...host, ""].join("\n"));
+    writeFileSync(join(root, "run", "package.json"), JSON.stringify({ name: "ithaca-dotenv-probe", private: true,
+      scripts: { nested: 'exec "$ODYSSEUS_BUN" --preload "$ODYSSEUS_PRELOAD" -e "$ODYSSEUS_REPORT"' } }));
+    const hostFile = join(root, "host.env");
+    writeFileSync(hostFile, [...host, ""].join("\n"));
+    const names = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_UI_GOG_PATH", "BRAIN_GOOGLE_LEDGER", "APIFY_TOKEN",
+      "XDG_CONFIG_HOME", "XDG_DATA_HOME", "ODYSSEUS_DOTENV", "BRAIN_GOOGLE_HOME", "BRAIN_TEST_GUARD_CHOSEN_ENV"];
+    const report = `console.log("DOTENV_CHILD=" + JSON.stringify(Object.fromEntries(${JSON.stringify(names)}.map(name => [name, process.env[name] ?? null]))))`;
+    writeFileSync(join(root, "cwd", "dotenv-child.test.ts"), `import { test } from "bun:test";\ntest("reports", () => { ${report}; });\n`);
+    const preload = join(import.meta.dir, "../../scripts/test-network-child-preload.ts");
+    const env = { ...process.env, BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data",
+      ODYSSEUS_BUN: process.execPath, ODYSSEUS_PRELOAD: preload, ODYSSEUS_REPORT: report } as Record<string, string>;
+    const held = (cmd: string[], cwd: string, extra: Record<string, string> = {}) => {
+      const child = Bun.spawnSync(cmd, { cwd: join(root, cwd), env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe" });
+      const line = `${child.stdout}${child.stderr}`.split("\n").find(text => text.startsWith("DOTENV_CHILD="));
+      return line ? JSON.parse(line.slice("DOTENV_CHILD=".length)) : { exit: child.exitCode, output: `${child.stdout}${child.stderr}`.slice(-400) };
+    };
+    console.log(`DOTENV_CHILDREN=${JSON.stringify({
+      guard: dirname(process.env.GOG_HOME!),
+      children: {
+        "bun-eval": held([process.execPath, "-e", report], "cwd"),
+        "bun-test": held([process.execPath, "test", "./dotenv-child.test.ts"], "cwd"),
+        shell: held(["/bin/sh", "-c", 'exec "$0" --preload "$1" -e "$2"', process.execPath, preload, report], "cwd"),
+        "bun-run": held([process.execPath, "run", "nested"], "run"),
+        "env-file": held([process.execPath, `--env-file=${hostFile}`, "-e", report], "plain"),
+        "bun-options": held([process.execPath, "-e", report], "plain", { BUN_OPTIONS: `--env-file=${hostFile}` }),
+      },
+    })}`);
+  } else if (scenario === "gog-filtered-environment") {
+    // A shell child given the product-filtered environment of the agent
+    // audience, which drops GOG_HOME and GOG_KEYRING_BACKEND, runs a gog form
+    // token matching does not see. The stand-in reports where gog 0.48.1
+    // would look for its directories and which keyring it would pick in that
+    // environment (internal/config/layout.go `resolveKind`, `defaultBase`;
+    // internal/secrets/backend.go `shouldForceFileBackend`, Linux).
+    const { mkdirSync, readFileSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const cp = await import("node:child_process");
+    const { filterSubprocessEnv } = await import("../../packages/ui-sdk/src/server/subprocess-env.ts");
+    const bin = join(process.env.PROBE_DIR!, "gog-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "gog"), `#!${process.execPath}
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+const env = process.env;
+const absolute = value => typeof value === "string" && value.trim().startsWith("/") ? value.trim() : null;
+const base = (name, fallback) => absolute(env[name]) ?? (env.HOME ? env.HOME + fallback : null);
+const gogHome = absolute(env.GOG_HOME);
+const dirs = gogHome ? { config: gogHome + "/config", data: gogHome + "/data", state: gogHome + "/state", cache: gogHome + "/cache" } : {
+  config: base("XDG_CONFIG_HOME", "/.config") + "/gogcli", data: base("XDG_DATA_HOME", "/.local/share") + "/gogcli",
+  state: base("XDG_STATE_HOME", "/.local/state") + "/gogcli", cache: base("XDG_CACHE_HOME", "/.cache") + "/gogcli",
+};
+let configured = null;
+try { configured = JSON.parse(readFileSync(dirs.config + "/config.json", "utf8")).keyring_backend ?? null; } catch {}
+const backend = (env.GOG_KEYRING_BACKEND ?? "").trim().toLowerCase() || configured || "auto";
+const dbus = Boolean(env.DBUS_SESSION_BUS_ADDRESS) && env.DBUS_SESSION_BUS_ADDRESS !== "disabled:";
+writeFileSync(env.ITHACA_REPORT, JSON.stringify({
+  gog: Object.keys(env).filter(name => name.startsWith("GOG_")).sort(),
+  home: env.HOME ?? null,
+  xdg: Object.fromEntries(["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"].map(name => [name, env[name] ?? null])),
+  dirs, entries: Object.fromEntries(Object.entries(dirs).map(([kind, dir]) => [kind, existsSync(dir) ? readdirSync(dir).length : null])),
+  keyring: backend === "auto" ? (dbus ? "secret-service" : "file") : backend,
+}));
+`, { mode: 0o755 });
+    const filtered = filterSubprocessEnv(process.env, "agent");
+    const reports: Record<string, unknown> = {};
+    const run = async (label: string, start: (env: Record<string, string>) => unknown) => {
+      const report = join(process.env.PROBE_DIR!, `gog-${label}.json`);
+      const env = { ...filtered, PATH: bin, ITHACA_REPORT: report } as Record<string, string>;
+      try { await start(env); } catch { /* the stand-in's report, or its absence, is the evidence */ }
+      try { reports[label] = JSON.parse(readFileSync(report, "utf8")); } catch { reports[label] = null; }
+    };
+    await run("bun-spawn", env => Bun.spawnSync(["/bin/sh", "-c", "go\"\"g version"], { env, stdout: "pipe", stderr: "pipe" }));
+    await run("child-process", env => cp.execFileSync("/bin/sh", ["-c", "go\"\"g version"], { env, stdio: "pipe" }));
+    await run("bun-shell", env => Bun.$`go""g version`.env(env).quiet());
+    console.log(`GOG_FILTERED=${JSON.stringify({ guard: process.env.GOG_HOME, home: process.env.HOME, filtered: Object.keys(filtered).sort(), reports })}`);
   } else if (scenario === "hosts") {
     for (const input of [external, new URL(external), new Request(external),
       "https://localhost.example.invalid/", "http://127.0.0.2/", "http://0.0.0.0/", "file:///etc/hosts"]) {

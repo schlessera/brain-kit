@@ -178,6 +178,7 @@ export "./internal/google-gog" (./src/google/gog/index.ts)
   GOG_OPERATION_INPUTS
   GOG_PINS
   GOG_PIN_REFUSALS
+  GOG_PIN_TRANSIENT_REFUSALS
   GOG_PLATFORMS
   GOG_READ_OPERATIONS
   type GogAvailability

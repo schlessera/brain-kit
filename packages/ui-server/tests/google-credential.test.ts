@@ -21,6 +21,8 @@ import { dirname, join, resolve } from "node:path";
 import { GOG_ENVIRONMENT_NAMES, type GogTransport } from "@schlessera/brain-common/internal/google-gog";
 import { workerSystemPaths } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
+import { GOG_PIN_RETRY_MS } from "../../common/src/google/gog/transport.ts";
+import { failNextRead } from "../../common/tests/support/failing-read.ts";
 import { createFakeGog, type FakeGog, type FakeGogScenario } from "../../common/tests/support/fake-gog.ts";
 import { createApp } from "../src/app.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
@@ -762,6 +764,32 @@ describe("google availability probe failures", () => {
     spy.mockRestore();
     expect(reasonOf(await google.status(account)), "INSPECTABLE_HOME_RECOVERS").toBe("available");
     expect(fake.calls(), "ONE_CONNECTED_CHECK_AFTER_RECOVERY").toHaveLength(1);
+  });
+
+  test("google: a pin check that throws answers binary_refused with its transient cause, never a lasting probe_failed, and the pin runs again after its backoff", async () => {
+    const f = layout();
+    const fake = fakeGog({ "gmail.labels.list": { stdout: LABELS } });
+    const account = alias();
+    // The real pinned path: production pins, so this fake, once read, is refused as no listed release.
+    const { google, reports } = credential(f.home, f.homeLayout, { binary: { kind: "pinned", path: fake.executable } });
+    const read = failNextRead(fake.executable);
+    cleanups.push(read.restore);
+    // The transport's backoff runs on performance.now; this moves it on without waiting.
+    const own = Object.getOwnPropertyDescriptor(performance, "now");
+    const now = performance.now.bind(performance);
+    let shift = 0;
+    Object.defineProperty(performance, "now", { configurable: true, enumerable: true, writable: true, value: () => now() + shift });
+    cleanups.push(() => { if (own) Object.defineProperty(performance, "now", own); else delete (performance as { now?: unknown }).now; });
+    expect(await settled(google.status(account)), "PIN_THROW_IS_TRANSIENT").toEqual(
+      { state: "unavailable", reason: "binary_refused", detail: expect.stringContaining("checked again shortly"), cause: "verification_failed" });
+    expect(await settled(google.status(account)), "PIN_THROW_STANDS_DURING_THE_BACKOFF").toMatchObject({ reason: "binary_refused", cause: "verification_failed" });
+    expect(read.reads(), "NOT_CHECKED_AGAIN_DURING_THE_BACKOFF").toBe(1);
+    shift += GOG_PIN_RETRY_MS;
+    expect(await settled(google.status(account)), "PIN_CHECKED_AGAIN_AFTER_THE_BACKOFF").toMatchObject({ reason: "binary_refused", cause: "hash_not_pinned",
+      detail: expect.stringContaining("not a gog release this host accepts") });
+    expect(read.reads(), "THE_BINARY_WAS_READ_AGAIN").toBeGreaterThan(1);
+    expect(fake.calls(), "UNPINNED_BINARY_NEVER_ANSWERED").toEqual([]);
+    for (const report of reports) expect(report.message, "REPORT_HOLDS_NO_EXCEPTION_TEXT").not.toMatch(/EIO|fake-gog-/);
   });
 });
 

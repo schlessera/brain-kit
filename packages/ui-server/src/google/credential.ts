@@ -34,7 +34,7 @@
  * as the cached success.
  */
 import {
-  createGogTransport, isGogAccountAlias, type GogBinary, type GogTransport, type GogTransportOptions,
+  createGogTransport, GOG_PIN_TRANSIENT_REFUSALS, isGogAccountAlias, type GogBinary, type GogPinRefusal, type GogTransport, type GogTransportOptions,
 } from "@schlessera/brain-common/internal/google-gog";
 import type { GoogleError } from "@schlessera/brain-common/internal/google-operations";
 import type { GoogleHostEnv } from "../config/env.js";
@@ -105,7 +105,7 @@ const failed = (step: "transport" | "pin" | "connected_check" | "probe"): Unavai
 /** The connected check's error, as a reason. A refusal from Google itself is not a disconnected account. */
 function connectedFailure(error: GoogleError): Unavailable {
   if (error.code === "unavailable" && (error.reason === "auth_required" || error.reason === "config")) {
-    return unavailable("not_connected", "The gog home has no usable token for this account. Connect it from the host's shell with `brain google connect --remote`.", error.reason);
+    return unavailable("not_connected", "The gog home has no usable token for this account. Connect the account into this home from the host's shell.", error.reason);
   }
   if (error.code === "unavailable" && error.reason === "environment_keyring_password") {
     return unavailable("keyring_password_invalid", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD holds a line break or NUL, which gog cannot take.", error.reason);
@@ -204,9 +204,11 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
     try { pin = await open.availability(); }
     catch { return refusal(account, failed("pin")); }
     if (!pin.ok) {
-      return refusal(account, pin.error.code === "transport_incompatible"
-        ? unavailable("binary_refused", "BRAIN_UI_GOG_PATH is not a gog release this host accepts, or it or its directory is writable by another user.", pin.error.reason)
-        : connectedFailure(pin.error));
+      return refusal(account, pin.error.code !== "transport_incompatible" ? connectedFailure(pin.error)
+        // A transient cause says nothing lasting about the binary: it changed while checked, or the check could not finish.
+        : GOG_PIN_TRANSIENT_REFUSALS.includes(pin.error.reason as GogPinRefusal)
+          ? unavailable("binary_refused", "BRAIN_UI_GOG_PATH could not be checked just now; it is checked again shortly.", pin.error.reason)
+          : unavailable("binary_refused", "BRAIN_UI_GOG_PATH is not a gog release this host accepts, or it or its directory is writable by another user.", pin.error.reason));
     }
     const binary = pin.fake ? { kind: "fake" as const } : { kind: "pinned" as const, version: pin.pin.version, commit: pin.pin.commit, sha256: pin.pin.sha256 };
     if (!current()) return overtaken.get(account)!;

@@ -769,12 +769,17 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   {
     name: "BRAIN_UI_GOOGLE_HOME",
     description:
-      "Absolute path of the gog home the host's Google tools use: gog's configuration and its encrypted file keyring, written by `brain google connect --remote` from the host's shell. " +
+      "Absolute path of the gog home the host's Google tools use: gog's configuration and its encrypted file keyring. " +
+      "Nothing in this release writes it: `brain google connect --remote`, which connects an account into it from the host's shell, arrives with the `brain google` CLI (#4208). " +
       "It must exist before the server starts, as a directory with mode 0700 owned by the user the server runs as, neither inside nor holding the brain, the database directory, a host path workers see " +
       "(the server's HOME, the Bun runtime, the system directories and the /etc files workers bind, /proc, /dev) or a temp area (/tmp, /var/tmp, /dev/shm, TMPDIR). " +
       "It is checked at first use and on every later use, never at boot: a home that fails a check makes the Google tools answer unavailable with the reason, and the server boots and serves chats as usual. " +
-      "Every worker's view covers it from boot, a cron job's included (the cron runner reads it from the emitted environment for that alone), so a home created, replaced or moved after the server started is refused until a restart. " +
-      "gog's own default directories under the server's HOME (~/.config/gogcli, ~/.local/share/gogcli, ~/.local/state/gogcli, ~/.cache/gogcli) are covered too, where they exist at boot. Never passed to any subprocess or worker.",
+      "Every worker's view covers it as it resolved at boot, a cron job's included (the cron runner reads it from the emitted environment for that alone), but only where a mask is safe for every launcher to lay: " +
+      "an existing directory neither inside nor holding the brain, holding none of the other areas, inside no host path workers see except the server's HOME, and below none of /tmp, /proc and /dev, so a misplaced setting never stops a worker from starting. " +
+      "A home strictly inside the server's HOME (but not inside what the SSH sync transport binds, which no mask reaches), the database directory or another temp area is still covered while its check refuses it; " +
+      "with a separate worker identity (BRAIN_UI_WORKER_IDENTITY_HELPER), a home behind a directory that identity cannot search gets no mask, because no worker can reach it. " +
+      "A home created, replaced or moved after the server started is refused until a restart. " +
+      "gog's own default directories under the server's HOME (~/.config/gogcli, ~/.local/share/gogcli, ~/.local/state/gogcli, ~/.cache/gogcli) are covered by the same rules, where they exist at boot. Never passed to any subprocess or worker.",
     default: "(unset — the Google tools answer unavailable)",
     required: false,
   },
@@ -797,8 +802,8 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   {
     name: "BRAIN_GOOGLE_LEDGER",
     description:
-      "Absolute path of the shared Google ledger: remembered approvals, sent-message digests and standalone inverses, private to the host user and outside every brain. " +
-      "A standalone `brain google` process that sets the same path shares it with the server. Never passed to a worker.",
+      "Absolute path of the shared Google ledger, private to the host user and outside every brain. " +
+      "Read once at boot and kept host-only; nothing in this release opens it (the Gmail writes of #4201 will). Never passed to a worker.",
     default: "DB_PATH.google-ledger.sqlite",
     required: false,
   },
