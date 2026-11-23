@@ -11,7 +11,7 @@ export function createTrustSettingsRoutes(deps: { settings: TrustSettings; trust
   routes.use("/trust-settings*", async (c, next) => {
     c.header("Cache-Control", "private, no-store");
     if (!c.get("principal")) return c.json({ code: "unauthorized", reason: "Authentication required", retryable: false }, 401);
-    if (c.req.method !== "GET") {
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       // Require the actual Origin, independent of spoofed fetch metadata and
       // the broader legacy API allowlist. Reverse-proxy TLS uses trusted proto.
       let expected: string;

@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 196 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 199 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -158,13 +158,16 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
-| GET | `/api/trust-settings` | I | Read trust policy data and publication availability | Paired Security settings transport (#3608); live password-mode human owners only; runtime trust remains disabled. |
+| GET | `/api/trust-settings` | I | Read trust policy data and publication availability | Paired Security settings transport; authenticated sanitized reads expose mutationAllowed, while only live password/passkey owners mutate; origin/tunnel enforcement is independent from unavailable repository enforcement. |
 | GET | `/api/trust-settings/:request` | I | Read one owner-bound trust publication receipt and review | Same-request reconciliation only; never republishes or resolves a taint trigger. |
 | POST | `/api/trust-settings/prepare` | I | Prepare one exact-base trust change | Paired Security settings transport; same-origin JSON and live owner authority; repository create/edit independently verifies host metadata. |
-| POST | `/api/trust-settings/commit` | I | Publish the exact owner-reviewed trust change | Shared descriptor-bound publisher; bounded durable receipt; saved policy does not imply runtime enforcement. |
+| POST | `/api/trust-settings/commit` | I | Publish the exact owner-reviewed trust change | Shared descriptor-bound publisher; bounded durable receipt; enforced origin/tunnel publication joins live admission fences, while repository publication remains unavailable. |
 | GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Authenticated principal of the history owner's account (#3952); immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | POST | `/api/sessions/:id/safety/reviews/prepare` | S | Prepare review of one finalized safety occurrence | Live password-mode human owner, exact Origin and bounded JSON; host-issued body/brain/principal/generation-bound handle (#3603). |
 | POST | `/api/sessions/:id/safety/reviews/:requestId/commit` | S | Commit or read back one individual safe verdict | Live owner rechecked on the acquired FULL transaction and final response; immutable receipt plus fresh aggregate, no bulk clear or standing rule (#3603). |
+| POST | `/api/sessions/:id/safety/reviews/future/prepare` | S | Prepare one selected verdict and optional future source rule | Live password-mode human owner, exact Origin and bounded JSON; host-attested origin/tunnel and exact evidence revision; no publication or verdict yet (#3611). |
+| POST | `/api/sessions/:id/safety/reviews/future/commit` | S | Publish the reviewed rule then commit its original selected verdict | Same live owner/session authority; exact review ID and reviewed-bytes hash; durable publication proof precedes verdict; retries never republish (#3611). |
+| POST | `/api/sessions/:id/safety/reviews/future/status` | S | Read retained combined completion and current rule presence | Same live owner, exact Origin and bounded JSON session/occurrence; read-only, redacted uncommitted verdict handles, JSON null for unretained receipts (#3611). |
 | GET | `/api/sessions/:id/github/:owner/:repo/:number/:part` | I | Page one part of a GitHub object a session's GitHub tool result returned | Chat GitHub components (#3796, #3795); owner account only, display data never provider context, no compatibility guarantee. |
 | GET | `/api/sessions/:id/github/avatars/:login` | I | Serve the avatar of a login in a session's GitHub results from this origin | Chat GitHub components (#3796, #3795); owner account only, magic-byte image check, bounded in-memory cache, every failure 404. |
 | GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
@@ -229,7 +232,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 196 declared endpoints are mounted regardless of backend, renderer or
+All 199 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1928,7 +1931,7 @@ read by any authenticated principal.
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
 | `safety_admission_expired` | 1 | `toolUseId`, `evidenceRevision`, `trustRevision`, `authorityEpoch`, `reason` | A waiting or claimed safety-bound approval was withdrawn before dispatch. The server commits this terminal fact before settling the backend wait or publishing the coordinator's `expired` result. Revisions describe the card's original host snapshot; `reason` is `safety_changed`, `turn_ended` or `grant_storage_failed`. Storage failure stops the turn with an explicit failed terminal outcome, without claiming durable withdrawal. This grants no replay and changes no historical approval. |
-| `egress_connection` | 1 | `connectionId` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
+| `egress_connection` | 1 | `connectionId` (optional), `dispatched` (optional), `failureReason` (optional), `recipientAdmission` (optional), `recipientApproved` (optional), `standingRecipient` (optional), `trustedSource` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
 | `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds`, `tainted` (optional) | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is the current unresolved taint event or `null`. New observations may carry `tainted: true` for effective restriction, including unknown coverage without an attributable source. Historical rows retain their original attribution. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
@@ -2423,19 +2426,38 @@ separately. It is never part of public `/health`.
 The four `/api/trust-settings` operations are internal paired Security settings
 transport. Their exact review/receipt shapes and limits are described in the
 [publication contract](integration-contract/package-api.md#human-trust-settings-publication).
-They require a live password-mode human owner; mutation additionally requires a
-present exact same-origin Origin and bounded JSON. Principal, voice and channel
+The list GET exposes sanitized policy facts to authenticated callers, with
+`mutationAllowed` reporting live owner availability. Prepare, commit and
+per-request receipt reads require a live password/passkey owner; mutation also
+requires a present exact same-origin Origin and bounded JSON. Principal, voice and channel
 claims in a body supply no authority. Receipts are private, no-store, scoped to
 the served brain and requesting owner, and readback never repeats a write.
 
 Publication reuses the protected policy writer without an agent turn. Prepared
 state, reviewed bytes/base, publication proof and partial/unknown completion
-survive restart. Saved origin/tunnel rules do not enable unbuilt trust admission;
+survive restart. Saved rules alone do not establish runtime capability;
 repository create/edit independently verifies fixed-endpoint metadata at review
 and again inside the publication observation window. Browser IDs cannot
 self-verify; unknown or changed identity withholds the write. Approved owner
 boundaries derive from this operation's durable publication proof and are not
 inferred from matching policy bytes. Owner-scope review explicitly covers
-future repositories currently in that namespace. Runtime trust remains disabled.
+future repositories currently in that namespace. Repository runtime trust remains
+unavailable; origin/tunnel capabilities are independently advertised.
 Removal/readback remain available for existing rules. Revision exhaustion refuses
 before protected publication. No historical trigger is resolved by these routes.
+
+### Combined selected-trigger and future-source review
+
+The three supported POST endpoints under
+`/api/sessions/:id/safety/reviews/future/` use the individual review's live
+password-mode owner, exact Origin, JSON and session-generation fences.
+`prepare` binds one finalized host-attested origin or explicit tunnel to exact
+reviewed policy bytes and the original single-verdict request. `commit` requires
+the request ID, review ID and reviewed-bytes hash; publication proof precedes
+any verdict. `status` is a read-only POST accepting version, session and
+occurrence ID, not a GET endpoint. It returns retained operation completion,
+separate live restriction and current rule presence, or JSON null after receipt
+retention expires. Neither status nor retries republish a rule. Uncommitted
+verdict handles are redacted. The complete envelopes, partial/unknown semantics,
+legacy capability encoding and browser correlation requirements are specified in
+the [combined-review wire contract](integration-contract/wire.md#combined-single-trigger-and-future-source-review-3611).

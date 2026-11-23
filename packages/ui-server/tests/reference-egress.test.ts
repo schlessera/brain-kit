@@ -19,7 +19,7 @@ test("managed reference audit never gives worker traffic a contacted-host grant 
   const proxy = await prepareTurnEgress(input(db));
   try {
     const acquisition = proxy.managedReference(repository, new AbortController().signal);
-    expect(await acquisition.admit()).toBe(true); expect(acquisition.charge(12)).toBe(true); acquisition.finish("completed"); await proxy.settled();
+    expect(await acquisition.admit()).toBe(true); expect(acquisition.dispatch(()=>{})).toEqual({ok:true}); expect(acquisition.charge(12).ok).toBe(true); acquisition.finish("completed"); await proxy.settled();
     expect(sessionTaint(db, "turn-ithaca", "ithaca"), "REFERENCE_ACQUISITION_IS_NOT_A_MODEL_READ").toBeNull();
     expect(queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["egress_connection"], limit: 10 })[0]?.payload)
       .toMatchObject({ managedReference: true, bytes: 12, host: "github.com" });
@@ -42,10 +42,20 @@ test("managed reference uses the final recorder-health fence after its transport
     const acquisition = proxy.managedReference(repository, new AbortController().signal);
     expect(await acquisition.admit()).toBe(true);
     available = false;
-    expect(acquisition.commit(), "REFERENCE_FINAL_RECORDING_HEALTH_RECHECKED").toBe(false);
-    expect(acquisition.charge(1)).toBe(false);
+    expect(acquisition.dispatch(()=>{}), "REFERENCE_FINAL_RECORDING_HEALTH_RECHECKED").toEqual({ok:false,reason:"unavailable"});
+    expect(acquisition.charge(1)).toEqual({ok:false,reason:"unavailable"});
     await proxy.settled();
     expect(queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["egress_connection"], limit: 10 })[0]?.payload)
-      .toMatchObject({ managedReference: true, bytes: 0, outcome: "denied", reason: "safety_changed" });
+      .toMatchObject({ managedReference: true, bytes: 0, outcome: "denied", reason: "egress_unavailable" });
   } finally { proxy.stop(); db.close(); }
+});
+
+test('review14: pre-upgrade IPv6 session grants use the canonical lookup host',()=>{
+ const db=createUiDb(':memory:');connectedSafetySession(db,'ithaca','turn-ithaca');
+ try{recordGovernanceEvent(db,{kind:'egress_connection',turnId:'turn-ithaca',sessionId:'ithaca',actor:'interactive',profile:'governed',model:null,payload:{method:'CONNECT',host:'[0:0:0:0:0:0:0:1]',port:443,bytes:8,accounting:'opaque_bytes',outcome:'completed',durationMs:1}});expect(contactedHosts(db,'ithaca'),'PRE_UPGRADE_IPV6_GRANT_STILL_MATCHES').toEqual(['::1']);}finally{db.close();}
+});
+
+test('review14: charged preparation never becomes a durable session grant',()=>{
+ const db=createUiDb(':memory:');connectedSafetySession(db,'ithaca','turn-ithaca');
+ try{recordGovernanceEvent(db,{kind:'egress_connection',turnId:'turn-ithaca',sessionId:'ithaca',actor:'interactive',profile:'governed',model:null,payload:{method:'POST',host:'ithaca.example.org',port:80,bytes:8,accounting:'http_wire_bound',outcome:'denied',reason:'invalid_request',durationMs:1,dispatched:false}});expect(contactedHosts(db,'ithaca'),'UNDISPATCHED_PREPARATION_NEVER_GRANTS_LATER_TURNS').toEqual([]);}finally{db.close();}
 });

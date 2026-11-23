@@ -77,7 +77,7 @@ describe("inference relay", () => {
     for (const badHeader of [false, true]) {
       invalid = badHeader;
       const response = await send(r.socketPath, "POST", "/v1/messages", {}, "{}");
-      expect(response.status).toBe(503);
+      expect(response.status).toBe(502);
       expect(response.body).not.toContain(KEY);
       expect(response.body).toContain("Inference credentials unavailable");
     }

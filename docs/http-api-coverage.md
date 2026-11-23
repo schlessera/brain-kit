@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:191-210`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:212-231`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -129,6 +129,9 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:id/safety` | `mounted supported handler: GET /api/sessions/:id/safety` | S |
 | `POST /api/sessions/:id/safety/reviews/prepare` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/prepare` | SR |
 | `POST /api/sessions/:id/safety/reviews/:requestId/commit` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/:requestId/commit` | SR |
+| `POST /api/sessions/:id/safety/reviews/future/prepare` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/future/prepare` | SR |
+| `POST /api/sessions/:id/safety/reviews/future/commit` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/future/commit` | SR |
+| `POST /api/sessions/:id/safety/reviews/future/status` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/future/status` | SR |
 | `GET /api/sessions/:id/attachment-reads` | `mounted supported handler: GET /api/sessions/:id/attachment-reads` | X |
 | `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |

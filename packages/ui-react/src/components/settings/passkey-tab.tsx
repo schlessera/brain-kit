@@ -1,3 +1,4 @@
+import { TrustSettingsSection } from "./trust-settings-section.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -157,7 +158,7 @@ export function PasskeyTab({ active }: { active: boolean }) {
   return (
     <>
     <PasskeyList
-      sections={<ToolPermissionsSection active={active} />}
+      sections={<><TrustSettingsSection active={active} /><ToolPermissionsSection active={active} /></>}
       credentials={credentials}
       status={loading ? "loading" : passkeyMode ? "ready" : "unavailable"}
       busy={busy}
