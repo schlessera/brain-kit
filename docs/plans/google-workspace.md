@@ -791,7 +791,7 @@ Keyless, offline and deterministic.
   shaped from real gog 0.48 output by the live shape check, never copied from it.
 - **No real gog in tests.** The test network guard refuses to spawn any
   executable named `gog` that is not a registered fake, as it refuses `curl`
-  (`for (const key of ["spawn", "spawnSync"]`, `scripts/test-network-guard.ts:440-448`).
+  (`for (const key of ["spawn", "spawnSync"]`, `scripts/test-network-guard.ts:462-470`).
 - **Discipline tables.** Every catalog operation's argv uses only snapshot flags;
   reads carry `--readonly`; everything but the host send path carries
   `--gmail-no-send`; every call carries `--enable-commands-exact` for exactly its
