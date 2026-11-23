@@ -218,15 +218,18 @@ const maintenanceRelayedKeys = (origins?: ReadonlyMap<string, readonly string[]>
 export const within = (dir: string, path: string) => isWithin(dir, path, { trailingSeparator: "boundary" });
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
+/** A verdict for one preparation only; never retained across turns. */
+type OperationalStateCheck = { refusal: ReturnType<typeof operationalStateRefusal> };
+
 /** Whether `governed` can run for this server and brain, and if not, why. */
-function governedAvailability(input: OperationalStateLayout & { workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
+function governedAvailability(input: OperationalStateLayout & { workerHost: () => { ok: true } | { ok: false; requirement: string } }, checkedState?: OperationalStateCheck): GovernedAvailability {
   const brain = real(input.brainPath);
   const cwd = real(hostExecution.cwd());
   if (within(brain, cwd)) {
     return { available: false, reason: "server_cwd_in_brain",
       detail: `the server's working directory ${cwd} is inside the brain, so Bun loaded the brain's bunfig.toml and .env into the server itself; start the server from a directory outside the brain` };
   }
-  const refusal = operationalStateRefusal(input);
+  const refusal = checkedState ? checkedState.refusal : operationalStateRefusal(input);
   if (refusal) return refusal;
   const probe = input.workerHost();
   if (!probe.ok) return { available: false, reason: "worker_host_unavailable", detail: probe.requirement };
@@ -438,7 +441,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     }
     return maintenance.probe;
   };
-  const governed = (startupView?: WorkerStartupView) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, workerHost: () => workerHost(startupView) });
+  const governed = (startupView?: WorkerStartupView, checkedState?: OperationalStateCheck) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, workerHost: () => workerHost(startupView) }, checkedState);
   const prepareInput = (signal?: AbortSignal) => {
     if (!options.nativeManager) throw new Error("Maintenance execution requires the configured native managed-storage manager; full-copy fallback is unavailable.");
     signal?.throwIfAborted();
@@ -582,23 +585,26 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     governed,
     async prepare(signal, preparedView) {
       signal?.throwIfAborted();
-      const refusal = operationalStateRefusal(options);
-      if (refusal) return refusal;
+      const checkedState = { refusal: operationalStateRefusal(options) };
+      // Private-state refusal precedes the cwd shortcut; reuse a clean verdict
+      // throughout this preparation instead of walking again in governed().
+      if (checkedState.refusal) return checkedState.refusal;
+      const availability = () => governed(undefined, checkedState);
       // Capability proof is already complete. A maintenance output operation
       // has its own lease and must not delay this cached admission fact.
-      if (passedMaintenanceProbes.has(maintenanceKey)) return governed();
+      if (passedMaintenanceProbes.has(maintenanceKey)) return availability();
       return outputLock.withLock(brain, async () => {
       signal?.throwIfAborted();
       const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
-      if (!ordinary.ok) return governed();
-      if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenanceResourceRefused && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return governed();
+      if (!ordinary.ok) return availability();
+      if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenanceResourceRefused && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return availability();
       const view = preparedView ?? await prepareInput(signal);
       try {
         signal?.throwIfAborted();
         const checked = await hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain, view, signal);
         maintenanceResourceRefused = false; maintenance = { probe: checked, at: Date.now() };
         if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
-        return governed();
+        return availability();
       } catch (error) {
         if (!(error instanceof WorkerStateError)) throw error;
         signal?.throwIfAborted();
@@ -606,7 +612,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         // isolated. The next explicit preparation retries immediately.
         maintenanceResourceRefused = true;
         maintenance = { probe: { ok: false, requirement: error.message }, at: Date.now() };
-        return governed();
+        return availability();
       }
       finally { if (!preparedView) await view.cleanup(); }
       }, { signal });

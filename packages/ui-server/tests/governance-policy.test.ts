@@ -1,3 +1,5 @@
+import * as operationalState from "../src/brain/operational-state";
+import { hostExecution } from "../src/brain/host-boundary";
 import * as startupViews from "../../ui-sdk/src/server/worker-startup-view.js";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
@@ -731,15 +733,41 @@ for (const profile of ["governed", "strict"] as const) test(`${profile} turns re
   const f = fixture(); f.write(`profiles: { interactive: ${profile} }`);
   const unavailable = { available: false as const, reason: "private_state_unverified" as const, detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
   const changed = spyOn(f.execution.boundary, "prepare").mockResolvedValue(unavailable);
-  const status = spyOn(f.execution.boundary, "governed").mockReturnValue({ available: true });
   const acquisition = spyOn(startupViews, "prepareNativeWorkerStartupView");
   try {
     const error = await f.turns.begin("alias-refusal", new AbortController().signal).then(async hold => { await hold.end(); return undefined; }, error => error);
     expect(changed, "ADMISSION_REACHES_THE_PREPARE_VERDICT").toHaveBeenCalledTimes(1);
     expect(error?.reason, "BOTH_PROFILES_REFUSE_THE_POST_PREPARE_UNVERIFIED_VERDICT").toBe("private_state_unverified");
     expect(acquisition, "UNVERIFIED_PREPARE_FOLLOWS_STARTUP_CHECKPOINT").toHaveBeenCalledTimes(1);
-    changed.mockRestore(); status.mockRestore();
+    changed.mockRestore();
     const recovered = await f.turns.begin("alias-recovery", new AbortController().signal);
     await recovered.end();
-  } finally { changed.mockRestore(); status.mockRestore(); acquisition.mockRestore(); }
+  } finally { changed.mockRestore(); acquisition.mockRestore(); }
+});
+
+
+test("one warm admitted turn walks private state exactly once", async () => {
+  const f = fixture(); f.write("profiles: { interactive: strict }");
+  const first = await f.turns.begin("alias-warmup", new AbortController().signal);
+  await first.end();
+  const walk = spyOn(operationalState, "operationalStateRefusal");
+  try {
+    const admitted = await f.turns.begin("alias-warm", new AbortController().signal);
+    try {
+      expect(admitted.sandbox.profile).toBe("strict");
+      expect(walk, "WARM_ADMISSION_WALKS_PRIVATE_STATE_EXACTLY_ONCE").toHaveBeenCalledTimes(1);
+    } finally { await admitted.end(); }
+  } finally { walk.mockRestore(); await f.turns.close(); }
+});
+
+test("preparation keeps the private-state refusal ahead of the in-brain cwd shortcut", async () => {
+  const f = fixture();
+  const unavailable = { available: false as const, reason: "private_state_unverified" as const, detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
+  const walk = spyOn(operationalState, "operationalStateRefusal").mockReturnValue(unavailable);
+  const cwd = spyOn(hostExecution, "cwd").mockReturnValue(f.brain);
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: false, requirement: "offline worker fixture" });
+  try {
+    expect(await f.execution.boundary.prepare(), "PREPARE_PRIVATE_STATE_REFUSAL_WINS_OVER_CWD").toMatchObject(unavailable);
+    expect(walk).toHaveBeenCalledTimes(1);
+  } finally { probe.mockRestore(); cwd.mockRestore(); walk.mockRestore(); await f.turns.close(); }
 });

@@ -178,7 +178,6 @@ export function createGovernedTurns(options: {
     // Marked before the checkpoint: its index may lack what is queued (#2848).
     const watermark = options.indexBatch?.watermark();
     try {
-      assertReadable();
       const policy = policyReader.load();
       startupView = await step("startup_checkpoint", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
       // Every governed and strict turn runs on the turn egress proxy and the
