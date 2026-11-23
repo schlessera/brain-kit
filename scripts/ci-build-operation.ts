@@ -92,7 +92,11 @@ function writableCleanup(path: string) {
 /** Invoked only after the normal host workspace write lease is acquired. */
 export async function attemptCiBuild(root: string, options: Options): Promise<number | undefined> {
   if (process.env.BRAIN_CI_BUILD_OPERATION !== "isolated-v1") return;
-  if (["NODE_OPTIONS", "NODE_PATH", "NAPI_RS_NATIVE_LIBRARY_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "BUN_OPTIONS", "BUN_INSTALL_CACHE_DIR"].some(name => process.env[name] !== undefined)) {
+  // BUN_OPTIONS holding only `--no-env-file` stops Bun reading `.env` files and changes nothing the producer
+  // resolves or emits, so it is no override; the offline test guard gives it to every child (#4489).
+  const onlyNoEnvFile = (value: string) => value.trim().split(/\s+/).every(token => token === "--no-env-file");
+  if (["NODE_OPTIONS", "NODE_PATH", "NAPI_RS_NATIVE_LIBRARY_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "BUN_OPTIONS", "BUN_INSTALL_CACHE_DIR"]
+    .some(name => process.env[name] !== undefined && !(name === "BUN_OPTIONS" && onlyNoEnvFile(process.env[name]!)))) {
     operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "unsupported", action: "ordinary-rebuild", reason: "producer-runtime-override" });
     return;
   }

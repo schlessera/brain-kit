@@ -181,8 +181,8 @@ describe("offline test guard", () => {
     const none = { BRAIN_UI_GOOGLE_HOME: null, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: null, BRAIN_UI_GOG_PATH: null, BRAIN_GOOGLE_LEDGER: null, APIFY_TOKEN: null,
       BRAIN_TEST_GUARD_CHOSEN_ENV: null };
     const chosen = { BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data" };
-    expect(Object.keys(seen.children).sort(), result.output).toEqual(["bun-eval", "bun-options", "bun-run", "bun-run-dotenv", "bun-run-unguarded",
-      "bun-script-unguarded", "bun-shell-unguarded", "bun-test", "env-file", "node-shell-unguarded", "shell", "shell-unguarded"]);
+    expect(Object.keys(seen.children).sort(), result.output).toEqual(["bun-eval", "bun-option-script-unguarded", "bun-options", "bun-run", "bun-run-dotenv",
+      "bun-run-unguarded", "bun-script-unguarded", "bun-shell-unguarded", "bun-test", "env-file", "node-shell-unguarded", "shell", "shell-unguarded"]);
     // Started by the wrapper in a directory holding a .env: it reads none of it, and keeps what the test passed.
     for (const label of ["bun-eval", "bun-test"]) {
       expect(seen.children[label], `WRAPPER_STARTED_CHILD_READS_NO_DOTENV: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
@@ -193,7 +193,7 @@ describe("offline test guard", () => {
     }
     // Started by bun run's package script, which runs no preload: with the guard's preload or without, it reads no .env.
     expect(seen.children["bun-run"], "BUN_RUN_SCRIPT_READS_NO_DOTENV").toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
-    for (const label of ["bun-run-unguarded", "bun-script-unguarded"]) {
+    for (const label of ["bun-run-unguarded", "bun-script-unguarded", "bun-option-script-unguarded"]) {
       expect(seen.children[label], `UNGUARDED_BUN_RUN_SCRIPT_READS_NO_DOTENV: ${label}`).toEqual({
         ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null, BRAIN_TEST_GUARD_CHOSEN_ENV: expect.any(String),
       });

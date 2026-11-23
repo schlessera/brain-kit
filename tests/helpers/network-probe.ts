@@ -290,10 +290,6 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
     const preload = join(import.meta.dir, "../../scripts/test-network-child-preload.ts");
     const env = { ...process.env, BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data",
       ODYSSEUS_BUN: process.execPath, ODYSSEUS_PRELOAD: preload, ODYSSEUS_REPORT: report } as Record<string, string>;
-    // This probe runs under an alias the spawn wrapper does not treat as Bun, so
-    // it holds the BUN_OPTIONS a shell is given. A test process that Bun or the
-    // wrapper starts holds none, and its Bun children are what this models.
-    delete env.BUN_OPTIONS;
     const held = (cmd: string[], cwd: string, extra: Record<string, string> = {}) => {
       const child = Bun.spawnSync(cmd, { cwd: join(root, cwd), env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe" });
       const line = `${child.stdout}${child.stderr}`.split("\n").find(text => text.startsWith("DOTENV_CHILD="));
@@ -322,8 +318,9 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
         // This script empties BUN_OPTIONS, so its Bun reads the .env.
         "bun-run-dotenv": held([process.execPath, "run", "nested-dotenv"], "run"),
         "bun-run-unguarded": held([process.execPath, "run", "unguarded"], "run"),
-        // The same package script run by its bare name, which dispatches as bun run does.
+        // The same package script run by its bare name, which dispatches as bun run does, with and without a leading option.
         "bun-script-unguarded": held([process.execPath, "unguarded"], "run"),
+        "bun-option-script-unguarded": held([process.execPath, "--smol", "unguarded"], "run"),
         "env-file": held([process.execPath, `--env-file=${hostFile}`, "-e", report], "plain"),
         "bun-options": held([process.execPath, "-e", report], "plain", { BUN_OPTIONS: `--env-file=${hostFile}` }),
       },

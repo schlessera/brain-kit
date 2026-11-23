@@ -90,6 +90,10 @@ for (const field of ["producer", "configuration"] as const) test(`malformed ${fi
     node: { path: "/usr/bin/node", sha256: hash }, producer: Object.fromEntries(buildProducerPaths.map(path => [path, hash])), configuration: { "tsconfig.json": hash }, [field]: null });
   write(root, "scripts/ci-build-qualification.json", JSON.stringify(policy));
   compiled(await runBuild(root, ["--for", "ithaca", "--jobs=2", "--force"], options), ["ithaca"]);
+  // The operation read the malformed policy and set it aside, rather than stopping earlier for a runtime override.
+  const operations = readdirSync(join(root, "tmp")).filter(name => /^ci-build-operation-.*-probe\.json$/.test(name))
+    .map(name => JSON.parse(readFileSync(join(root, "tmp", name), "utf8")) as { state: string; reason: string });
+  expect(operations.map(({ state, reason }) => [state, reason]), "MALFORMED_POLICY_IS_READ").toEqual([["unsupported", "qualification-unavailable"]]);
   expect(consume(root), "MALFORMED_POLICY_FALLBACK_REACHES_REAL_CONSUMER").toBe(1);
   expect(lstatSync(join(root, "docker-attempts"), { throwIfNoEntry: false }), "MALFORMED_POLICY_NEVER_INVOKES_DOCKER").toBeUndefined();
 });
