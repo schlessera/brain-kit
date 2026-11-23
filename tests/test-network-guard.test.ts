@@ -172,6 +172,24 @@ describe("offline test guard", () => {
     }
     expect(result.code, result.output).toBe(0);
   });
+  test("a Bun child whose working directory holds a .env with host Google settings holds none of them, started directly or through a shell; a synthetic value the test passed survives in a child the wrapper started", async () => {
+    const result = await run("dotenv-descendants");
+    const report = /DOTENV_CHILDREN=(\{[^\n]*\})/.exec(result.output);
+    expect(report, result.output).not.toBeNull();
+    const seen = JSON.parse(report![1]!) as { guard: string; children: Record<string, Record<string, string | null>> };
+    const none = { BRAIN_UI_GOOGLE_HOME: null, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: null, BRAIN_UI_GOG_PATH: null, BRAIN_GOOGLE_LEDGER: null, APIFY_TOKEN: null, BRAIN_TEST_GUARD_ENV_FILES_OFF: null };
+    // Started by the wrapper: no .env file is read, so the child holds exactly what the test passed.
+    for (const label of ["bun-eval", "bun-test"]) {
+      expect(seen.children[label], `WRAPPER_STARTED_CHILD_READS_NO_DOTENV: ${label}`).toEqual({
+        ...none, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null, BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home",
+      });
+    }
+    // Through a shell, Bun read the .env (the ordinary name is there); the child's guard dropped and repointed what it supplied.
+    expect(seen.children.shell, "SHELL_STARTED_CHILD_DROPS_WHAT_DOTENV_SUPPLIED").toEqual({
+      ...none, XDG_CONFIG_HOME: join(seen.guard, "xdg/config"), ODYSSEUS_DOTENV: "loaded", BRAIN_GOOGLE_HOME: null,
+    });
+    expect(result.code, result.output).toBe(0);
+  });
   for (const scenario of ["local-sockets", "local-tls", "local", "local-unix", "manual", "redirect-error"]) {
     test(`${scenario} retains real loopback fixture behavior`, async () => {
       const result = await run(scenario);
@@ -276,8 +294,12 @@ describe("the guard's gog home", () => {
       }
       // A descendant: a test chose these, after its maker removed the host's.
       const chosen: Record<string, string | undefined> = { GOG_HOME: made.home, GOG_ACCOUNT: "suitor", BRAIN_UI_GOOGLE_HOME: "/odysseus/gog", XDG_CONFIG_HOME: "/odysseus/config" };
-      isolateGogEnvironment(chosen, parent).dispose();
+      isolateGogEnvironment(chosen, parent, { envFiles: false }).dispose();
       expect(chosen, "DESCENDANT_KEEPS_WHAT_A_TEST_CHOSE").toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file", BRAIN_UI_GOOGLE_HOME: "/odysseus/gog", XDG_CONFIG_HOME: "/odysseus/config" });
+      // A descendant that may have read a .env file: what it holds says nothing about what a test chose.
+      const read: Record<string, string | undefined> = { GOG_HOME: made.home, BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog", XDG_CONFIG_HOME: "/srv/ithaca/xdg-config" };
+      isolateGogEnvironment(read, parent).dispose();
+      expect(read, "DESCENDANT_THAT_MAY_HAVE_READ_DOTENV_IS_SANITIZED").toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file", XDG_CONFIG_HOME: made.xdg.XDG_CONFIG_HOME });
       made.dispose();
       expect(readdirSync(parent)).toEqual([]);
     } finally {

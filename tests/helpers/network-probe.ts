@@ -255,6 +255,41 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
       bun: fromChild([process.execPath, "-e", program]),
       shell: fromChild(["/bin/sh", "-c", `exec ${JSON.stringify(process.execPath)} -e ${JSON.stringify(program).replaceAll("$", "\\$")}`]),
     })}`);
+  } else if (scenario === "dotenv-descendants") {
+    // A sanitized test process starts Bun children in a directory whose .env
+    // holds host Google settings, another host-only secret, an XDG base, an
+    // ordinary name and a forged copy of the wrapper's "no .env read" note.
+    // Two are started by the spawn wrapper (bun -e, bun test), one through a
+    // shell that loads the guard itself. Each reports what it holds; the test
+    // passes one synthetic Google value explicitly.
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { dirname, join } = await import("node:path");
+    const dir = join(process.env.PROBE_DIR!, "dotenv");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), [
+      "BRAIN_UI_GOOGLE_HOME=/srv/ithaca/gog", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD=suitors-feast", "BRAIN_UI_GOG_PATH=/srv/ithaca/bin/gog",
+      "BRAIN_GOOGLE_LEDGER=/srv/ithaca/google-ledger.sqlite", "APIFY_TOKEN=apify-suitor", "XDG_CONFIG_HOME=/srv/ithaca/xdg-config",
+      "ODYSSEUS_DOTENV=loaded", "BRAIN_TEST_GUARD_ENV_FILES_OFF=/srv/ithaca/forged", "",
+    ].join("\n"));
+    const names = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_UI_GOG_PATH", "BRAIN_GOOGLE_LEDGER", "APIFY_TOKEN",
+      "XDG_CONFIG_HOME", "ODYSSEUS_DOTENV", "BRAIN_GOOGLE_HOME", "BRAIN_TEST_GUARD_ENV_FILES_OFF"];
+    const report = `console.log("DOTENV_CHILD=" + JSON.stringify(Object.fromEntries(${JSON.stringify(names)}.map(name => [name, process.env[name] ?? null]))))`;
+    writeFileSync(join(dir, "dotenv-child.test.ts"), `import { test } from "bun:test";\ntest("reports", () => { ${report}; });\n`);
+    const env = { ...process.env, BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home" } as Record<string, string>;
+    const preload = join(import.meta.dir, "../../scripts/test-network-child-preload.ts");
+    const held = (cmd: string[]) => {
+      const child = Bun.spawnSync(cmd, { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
+      const line = `${child.stdout}${child.stderr}`.split("\n").find(text => text.startsWith("DOTENV_CHILD="));
+      return line ? JSON.parse(line.slice("DOTENV_CHILD=".length)) : { exit: child.exitCode, output: `${child.stdout}${child.stderr}`.slice(-400) };
+    };
+    console.log(`DOTENV_CHILDREN=${JSON.stringify({
+      guard: dirname(process.env.GOG_HOME!),
+      children: {
+        "bun-eval": held([process.execPath, "-e", report]),
+        "bun-test": held([process.execPath, "test", "./dotenv-child.test.ts"]),
+        shell: held(["/bin/sh", "-c", 'exec "$0" --preload "$1" -e "$2"', process.execPath, preload, report]),
+      },
+    })}`);
   } else if (scenario === "gog-filtered-environment") {
     // A shell child given the product-filtered environment of the agent
     // audience, which drops GOG_HOME and GOG_KEYRING_BACKEND, runs a gog form
