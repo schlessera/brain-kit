@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
@@ -7,8 +7,9 @@ import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 test("persistent alias failure refuses app boot with its cause; later admission refuses one turn and recovers", async () => {
   const root = mkdtempSync("/var/tmp/odysseus-app-alias-"), brain = join(root, "brain"), dbPath = join(root, "ui.db"), journal = `${dbPath}.journal`;
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
-  mkdirSync(journal); writeFileSync(join(journal, "object"), "private state");
+  mkdirSync(journal, { mode: 0o700 }); writeFileSync(join(journal, "object"), "private state");
   try {
+    expect(statSync(journal).mode & 0o077, "FIXTURE_JOURNAL_IS_HOST_PRIVATE").toBe(0);
     const program = `
       import * as fs from "node:fs";
       import {mock} from "bun:test";
