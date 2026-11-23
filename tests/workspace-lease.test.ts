@@ -314,7 +314,7 @@ test("excluded importer",()=>{throw new Error("selector was lost");});
   release(root, "host"); expect(await owner.child.exited).toBe(0);
   expect(await child.exited, await stderr).toBe(0); await stdout;
   expect(JSON.parse(readFileSync(join(root, "command-observed.json"), "utf8"))).toEqual([
-    "test", "--preload", join(project, "scripts/test-network-child-preload.ts"), ...args.slice(1),
+    "test", "--preload", join(project, "scripts/test-network-child-preload.ts"), "--no-env-file", ...args.slice(1),
   ]);
 });
 
