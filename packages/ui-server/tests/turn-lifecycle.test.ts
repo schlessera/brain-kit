@@ -224,7 +224,7 @@ test("real dispatch attributes a queued index delay and final observation only t
   } });
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], "pi"), catalog: createSessionCatalog(() => db), activity: { store, stream },
     governedTurns: { async begin() { return { sandbox: { profile: "strict", noteFacts: {}, areas: [] }, policy, async end() { return null; } }; }, refresh() {}, async close() {}, async bindSession() {}, async exposures() { return []; }, facts() { return { policyProfile: "strict", policy }; } } as unknown as import("../src/brain/governed-turn.js").GovernedTurns,
-    journal: { async begin() {}, async finish(_id: string, timing?: import("../src/activity/turn-lifecycle.js").PhaseTimer) {
+    journal: { async begin() {}, restrictedCheckouts() { return []; }, async finish(_id: string, timing?: import("../src/activity/turn-lifecycle.js").PhaseTimer) {
       if (finished) return; finished = true;
       const end = timing?.("final_observation"); now += 300; end?.();
     }, async bindSession() {}, summary() { return { state: "unknown" }; } } as unknown as import("../src/brain/turn-journal.js").TurnJournal });

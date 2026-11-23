@@ -15,7 +15,7 @@ test("a first strict admission refreshes sealed inputs only after trusted scratc
   // The fixture views stand in for manager-acquired ones; admission refuses any other (#3314).
   const managed=spyOn(startup,"assertManagedTurnStartupView").mockImplementation(view=>{if(view===undefined||!views.includes(view))throw new Error(startup.UNMANAGED_TURN_STORAGE);});
   let released=0;
-  const execution={boundary:{async prepare(){return {available:true};},maintenance:{}},gate(){return {async acquire(){return {release(){released++;}};}};},manifests(){return {};}};
+  const execution={boundary:{governed(){return {available:true};},async prepare(){return {available:true};},maintenance:{}},gate(){return {async acquire(){return {release(){released++;}};}};},manifests(){return {};}};
   const turns=createGovernedTurns({nativeManager:{} as never,brainPath:brain,execution:execution as never,profile:"strict",maskPaths:[],async index(){},report(){}});
   try {
     const hold=await turns.begin("odysseus-first-strict",new AbortController().signal);

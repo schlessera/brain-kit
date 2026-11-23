@@ -51,7 +51,7 @@ test("real governed admission records each step inside governedAdmissionMs", asy
   // The shared stand-in copies the startup view and admits it at the managed-storage
   // refusal only (#3314); that refusal keeps its own tests.
   const restore = replaceNativeStartupAcquisitionForFixture();
-  const execution = { boundary: { async prepare() { return { available: true }; }, maintenance: {} },
+  const execution = { boundary: { governed() { return { available: true }; }, async prepare() { return { available: true }; }, maintenance: {} },
     gate() { return { async acquire() { return { release() {} }; } }; }, manifests() { return {}; } };
   const turns = createGovernedTurns({ nativeManager: {} as never, brainPath: brain, execution: execution as never, profile: "strict", maskPaths: [], async index() {}, report() {} });
   const db = createUiDb(":memory:"), store = createActivityStore(db);
