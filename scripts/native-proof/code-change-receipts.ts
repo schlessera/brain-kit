@@ -4,8 +4,10 @@ import type { Database } from "bun:sqlite";
 import type { TurnJournal } from "../../packages/ui-server/src/brain/turn-journal.js";
 import type { HostBoundary } from "../../packages/ui-server/src/brain/host-boundary.js";
 
-export async function proveCodeChangeReceipts(app: { db: Database; wsHost: { journal?: TurnJournal; execution?: { boundary: HostBoundary } } }, note: (kind: string, data: object) => void): Promise<void> {
-  const journal = app.wsHost.journal!, boundary = app.wsHost.execution!.boundary;
+export async function proveCodeChangeReceipts(app: { db: Database; journal?: TurnJournal; execution?: { boundary: HostBoundary } }, note: (kind: string, data: object) => void): Promise<void> {
+  if (!app.journal) throw new Error("NATIVE_RECEIPT_PROOF_NEEDS_JOURNAL");
+  if (!app.execution) throw new Error("NATIVE_RECEIPT_PROOF_NEEDS_HOST_EXECUTION");
+  const journal = app.journal, boundary = app.execution.boundary;
   const checkout = "workspaces/receipt-argo", turnId = "native-receipt-odysseus";
   const run = async (program: string) => {
     const result = await boundary.run({ credentials: false, gate: "shared", purpose: "native receipt proof", env: { PATH: "/usr/bin:/bin" },
