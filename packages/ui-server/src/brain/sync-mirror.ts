@@ -88,6 +88,23 @@ async function origin(command: MaintenanceCommand): Promise<string | null> {
   return remote;
 }
 
+/** One host path an SSH remote's transport reads, and the variable it passes on for it. */
+interface SshTransportRead { path: string; name: "HOME" | "SSH_AUTH_SOCK"; value: string }
+
+/**
+ * What an SSH remote's transport reads from the host: `$HOME/.ssh` and the
+ * agent socket `SSH_AUTH_SOCK` names, each with the variable the transport
+ * passes on for it. The transport binds those that exist, read-only and under
+ * no mask, so the Google home's check (#4206) refuses a home inside or holding
+ * any of them.
+ */
+export function sshTransportReads(env: MaintenanceCommand["env"]): SshTransportRead[] {
+  const reads: SshTransportRead[] = [];
+  if (env.HOME) reads.push({ path: join(env.HOME, ".ssh"), name: "HOME", value: env.HOME });
+  if (env.SSH_AUTH_SOCK) reads.push({ path: env.SSH_AUTH_SOCK, name: "SSH_AUTH_SOCK", value: env.SSH_AUTH_SOCK });
+  return reads;
+}
+
 /**
  * Host-owned transport input; no complete home, brain PATH, arbitrary extra env or repository helper reaches it.
  * The host credential goes to `https://github.com` only, or to `credentialOrigin` when a host-side caller names one.
@@ -117,10 +134,7 @@ export function syncTransportCommand(input: { brain: string; mirror: string; rem
     if ((url.protocol !== "https:" && url.protocol !== "ssh:" && !(loopback && ["http:", "git:"].includes(url.protocol)))
       || url.password || url.search || url.hash || (url.protocol === "https:" && url.username)) throw new Error("host sync needs HTTPS without embedded credentials, SSH, or a local fixture remote");
     if (url.protocol === "ssh:") {
-      const home = input.env.HOME;
-      if (home && existsSync(join(home, ".ssh"))) { readPaths.push(join(home, ".ssh")); env.HOME = home; }
-      const socket = input.env.SSH_AUTH_SOCK;
-      if (socket && existsSync(socket)) { readPaths.push(socket); env.SSH_AUTH_SOCK = socket; }
+      for (const read of sshTransportReads(input.env)) if (existsSync(read.path)) { readPaths.push(read.path); env[read.name] = read.value; }
     }
     if (input.credentialOrigin ? url.origin === input.credentialOrigin : url.protocol === "https:" && url.hostname === "github.com" && !url.port) {
       const token = input.env.BRAIN_UI_SYNC_GITHUB_TOKEN ?? input.env.GITHUB_TOKEN;

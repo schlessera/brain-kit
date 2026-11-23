@@ -743,12 +743,15 @@ users, which suits a personal instance. A Google Workspace owner can use an
 - `BRAIN_UI_GOOGLE_HOME`: the gog home (config and file keyring). Absolute, mode
   0700, owned by the host user, outside the brain root, the database directory,
   every worker mount and every temp area. A violation disables the Google tools
-  with a status reason; it never fails the boot.
+  with a status reason; it never fails the boot. Worker views cover it from boot
+  wherever a worker could reach it, so it must exist before the server starts: a
+  home created, replaced or moved later is refused until a restart.
 - `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`: host-only. It, the home and
   `BRAIN_GOOGLE_LEDGER` join the host-only list
-  (`HOST_ONLY_SECRET_ENV`, `packages/ui-sdk/src/server/subprocess-env.ts:35`), so
+  (`HOST_ONLY_SECRET_ENV`, `packages/ui-sdk/src/server/subprocess-env.ts:41-44`), so
   no audience or operator extra can admit them.
-- `BRAIN_UI_GOG_PATH`: the pinned binary, which no worker can write.
+- `BRAIN_UI_GOG_PATH`: the pinned binary, which no worker can write. It is on
+  the host-only list too, so no extra hands a worker the host's gog.
 - Every `GOG_*` name is stripped from every subprocess audience, so a `GOG_*`
   variable set on the host cannot reach a worker.
 - The native proof shows that a real sandboxed worker cannot stat or read the gog

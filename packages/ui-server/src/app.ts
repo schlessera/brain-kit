@@ -43,7 +43,9 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { createGoogleCredential } from "./google/credential.js";
+import { googleHostLayout, googleWorkerMasks } from "./google/home.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, googleHostEnv, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
@@ -415,17 +417,27 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   }
   // The manager verifies its fixed topology and root-private state. These are
   // exact masks, not app-owned directories to enumerate or mask by parent.
-  const nativeMaskPaths = nativeReady.privatePaths;
+  // The Google home (#4206) is one too: the configured home as it resolves at
+  // boot, held open so a directory put in its place is told from it, and the
+  // default homes under the server's HOME, each only where a mask is safe for
+  // every launcher and a worker can reach it; never a reason to refuse the boot or a launch.
+  const googleEnv = googleHostEnv(config.dbPath);
+  // The CLI's environment is the one a hosted sync's SSH transport gets: its HOME and agent socket.
+  const cliEnv = subprocessEnv("brainCli");
+  const googleLayout = googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: cliEnv.HOME, transportEnv: cliEnv });
+  const googleMasks = googleWorkerMasks(googleEnv.home, googleLayout, { hold: true });
+  const nativeMaskPaths = [...nativeReady.privatePaths, ...googleMasks.paths];
   try { assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }); }
   catch (error) {
+    googleMasks.close();
     if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true });
     observability.logger("brain").emit({ severityText: "ERROR", body: (error as Error).message,
       attributes: { "boot.refusal": (error as Error).name } });
     throw error;
   }
   const nativeLeases = await createNativeBrainLeaseManager(nativeClient, { statePath: nativeLeasePath, brainPath: nativeReady.brainPath, fsid: nativeReady.fsid, brainUuid: nativeReady.brainUuid })
-    .catch(error => { if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true }); throw error; });
-  const bootCleanup: (() => void | Promise<void>)[] = [];
+    .catch(error => { googleMasks.close(); if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true }); throw error; });
+  const bootCleanup: (() => void | Promise<void>)[] = [() => googleMasks.close()];
   try {
   const nativeRecovery = await nativeLeases.recoverDeadOwners();
   if (nativeRecovery.unknown.length || nativeRecovery.retainedUnverifiable) observability.logger("brain").emit({ severityText: "WARN",
@@ -824,6 +836,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     },
     report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
+  // The host's Google credential (#4206): the home is checked at first use,
+  // and a home that fails a check makes Google unavailable with its reason,
+  // never this boot. Its masks are in nativeMaskPaths above.
+  const google = createGoogleCredential({ env: googleEnv, layout: googleLayout, masks: googleMasks,
+    report: (message, status) => brainLog.emit({ severityText: status.state === "available" ? "INFO" : "WARN", body: message,
+      attributes: { "google.state": status.state, ...(status.state === "unavailable" ? { "google.reason": status.reason } : {}) } }) });
   const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());
   const accountSeed = await accountWrites(db).partitionSeed();
   const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, accountSeed);
@@ -870,6 +888,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     ...(referenceTools ? { referenceTools } : {}),
     apify: apifyHost,
     githubTools,
+    google,
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
@@ -1542,6 +1561,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Consumers have drained; close the shared write connection before its reader.
       await attempt(() => writer.close());
       await attempt(() => db.close());
+      await attempt(() => googleMasks.close());
       clearTimeout(grace);
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, "Application shutdown retained failed cleanup outcomes.");

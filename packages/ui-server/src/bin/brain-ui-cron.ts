@@ -22,6 +22,7 @@ import { discoverModules, persistModuleDiscovery, readModuleList } from "../cron
 import { runJob } from "../cron/run-job.js";
 import { createUiDb } from "../db/client.js";
 import { createHostExecution } from "../brain/host-execution.js";
+import { cronWorkerMaskPaths } from "../google/home.js";
 import type { Reconciliation } from "../brain/governed-manifest.js";
 
 /**
@@ -125,7 +126,8 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
   let relayBudgets: ReturnType<typeof createTurnBudgets> | undefined;
   const providerRelay = maintenanceProviderMeter({ brainPath: config.brainPath, origins: config.cliProviderOrigins, budgets: () => relayBudgets,
     report: message => process.stderr.write(`[brain-ui-cron] ${message}\n`) });
-  const execution = createHostExecution({ nativeManager: leases.client, nativeMaskPaths: ready.privatePaths, privateStatePaths, providerRelay,
+  // Every job's worker view covers the host's gog home, as the server's do (#4206).
+  const execution = createHostExecution({ nativeManager: leases.client, nativeMaskPaths: cronWorkerMaskPaths(config, ready.privatePaths), privateStatePaths, providerRelay,
     brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, requireGate: options.gate });
   const report = (results: Reconciliation[]) => {
     for (const result of results) {

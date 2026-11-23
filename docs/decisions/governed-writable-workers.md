@@ -2614,7 +2614,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:252`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:282`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -3766,7 +3766,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:276-310`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:306-337`).
 This compatibility check does not change default autonomous admission or add
 another route.
 

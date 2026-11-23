@@ -27,7 +27,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, isHostOnlyEnv, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
@@ -362,6 +362,16 @@ function retainExecutionAdmission(execution: StreamingExecution,
     get signalCode() { return execution.signalCode; }, kill: execution.kill };
 }
 /**
+ * What a child of the boundary is handed: its run's environment without any
+ * host-only secret or GOG_*, BRAIN_UI_GOOGLE_* or BRAIN_GOOGLE_* name
+ * (#4206), on the host fallback path as in a worker, whatever its caller put
+ * in it.
+ */
+function childEnv(env: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !isHostOnlyEnv(name)));
+}
+
+/**
  * The server's own installation, read-only: this package with the
  * `node_modules` chain it resolves from and the packages linked into it, as
  * the restricted envelope's read paths are built. Where that sits below a
@@ -370,9 +380,11 @@ function retainExecutionAdmission(execution: StreamingExecution,
  * here. Only the server chooses these paths. Neither an argument (a search
  * query can look like a path) nor a path the brain supplies (a CLI link in
  * its `node_modules`) earns a bind: either would let something other than
- * the server choose what of the host the worker sees.
+ * the server choose what of the host the worker sees. Every maintenance
+ * worker binds these, so the Google home check counts them among the host
+ * paths workers see (#4206).
  */
-function serverInstallation(): string[] {
+export function serverInstallation(): string[] {
   return serverRuntime ??= restrictedReadPaths([MAINTENANCE_ENTRY]);
 }
 
@@ -471,8 +483,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     execution.env[name] || (relayedProviderKeys().includes(name) ? undefined : hostProviderCredential(name));
   const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0], startupView?: WorkerStartupView, relay?: ProviderRelay): MaintenanceCommand => {
     const path = brainWorkerPath(brain, execution.env.PATH);
-    const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
-      : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]]));
+    const env = childEnv(execution.credentials ? execution.env
+      : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]])));
     env.PATH = path;
     // Git credentials belong only to fixed host transports and installers,
     // including while provider-credentialed maintenance remains an interim exposure.
@@ -556,7 +568,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       stdin: execution.stdin !== undefined ? new TextEncoder().encode(execution.stdin) : "ignore",
       stdout: "pipe",
       stderr: "pipe",
-      env: { ...execution.env },
+      env: childEnv(execution.env),
       ...(signal && !exec.wrapper ? { signal, killSignal: execution.killSignal ?? "SIGKILL" } : {}),
       ...execWrapperSpawnOptions(exec.wrapper),
     });
@@ -799,7 +811,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
         await admitHost(null);
         stillHostFallback();
-        const result = Bun.spawnSync([...execution.argv], { cwd: brain, env: { ...execution.env }, stdout: "pipe", stderr: "pipe", timeout: execution.timeoutMs });
+        const result = Bun.spawnSync([...execution.argv], { cwd: brain, env: childEnv(execution.env), stdout: "pipe", stderr: "pipe", timeout: execution.timeoutMs });
         return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), exitCode: result.exitCode ?? 1 };
       }
       if (!execution.startupView) throw new Error("A synchronous maintenance reader requires its caller's prepared immutable startupView; native preparation must be awaited before runSync.");

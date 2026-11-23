@@ -30,7 +30,7 @@ import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
-import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./subprocess-env.js";
+import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, isHostOnlyEnv, workerProviderCredentials } from "./subprocess-env.js";
 import { INFERENCE_RELAY_PLACEHOLDER, WITHHELD_KEYS_ENV } from "@schlessera/brain-common/internal/provider-unavailable";
 import { PROVIDER_RELAY_SOCKET_ENV } from "@schlessera/brain-common/internal/provider-relay";
 import { PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET } from "./provider-relay.js";
@@ -255,6 +255,22 @@ export interface RestrictedEnvelope {
 const SYSTEM_DIRECTORIES = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
 const SYSTEM_ETC = ["ld.so.cache", "ld.so.conf", "ld.so.conf.d", "alternatives", "passwd", "group",
   "nsswitch.conf", "hosts", "localtime", "os-release"];
+/** What a transport worker binds besides the system view: the resolver and the certificate store. */
+const TRANSPORT_ETC = ["/etc/resolv.conf", "/etc/ssl/certs"];
+
+/**
+ * The host paths workers see whatever their masks (#4206): the system
+ * directories and `/etc` entries a restricted or transport worker binds, a
+ * transport's resolver and certificates, and `/proc` and `/dev`, which every
+ * worker mounts its own of. A transport launch lays no host mask, so a
+ * private directory at or under one of these is in its view, and a mask
+ * over one would hide what every worker needs to start.
+ *
+ * @internal First-party implementation; no compatibility guarantee.
+ */
+export function workerSystemPaths(): string[] {
+  return [...SYSTEM_DIRECTORIES, ...SYSTEM_ETC.map(name => `/etc/${name}`), ...TRANSPORT_ETC, "/proc", "/dev"];
+}
 
 /**
  * The restricted envelope hides the brain's `.git` (maintainer ruling 1A on
@@ -323,7 +339,7 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
 /** No bind, including a system bind, may expose the brain or an ancestor of it. */
 function transportMounts(envelope: NonNullable<WorkerLaunch["transport"]>, brain: string): string[] {
   const argv = systemMounts();
-  for (const requested of ["/etc/resolv.conf", "/etc/ssl/certs", ...envelope.readPaths]) {
+  for (const requested of [...TRANSPORT_ETC, ...envelope.readPaths]) {
     if (existsSync(requested)) argv.push("--ro-bind", realpathSync(requested), requested);
   }
   for (const requested of [envelope.mirror, ...(envelope.writePaths ?? [])]) {
@@ -421,6 +437,38 @@ function serverSocketDirectory(requested: string, socket: string, brain: string,
 }
 
 /**
+ * What a maintenance worker's mask over `path` (canonical) actually covers:
+ * `path` itself, unless a separate worker identity is configured and an
+ * ancestor is one that identity cannot search. Then the highest such ancestor
+ * is covered with an empty tmpfs instead, never its real contents: a worker
+ * of another user could not pass it anyway. The launcher refuses the launch
+ * when that wider cover overlaps the brain or the runtime (#4206 lets the
+ * host's Google masks skip a path no worker can reach on this rule).
+ *
+ * Throws {@link WorkerHostError} when an ancestor changed or is linked, or an
+ * unsearchable ancestor is not server-owned.
+ *
+ * @internal First-party implementation; no compatibility guarantee.
+ */
+export function workerMaskCover(path: string): string {
+  if (!workerIdentityHelper()) return path;
+  const serverUid = process.getuid?.(), sharedGid = process.getgid?.();
+  let covered = path;
+  for (let parent = dirname(path); parent !== "/"; parent = dirname(parent)) {
+    const info = lstatSync(parent);
+    if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(parent) !== parent) {
+      throw new WorkerHostError("a private mask ancestor changed or is linked");
+    }
+    // The verified helper keeps only the server's primary shared group.
+    const searchable = info.gid === sharedGid ? info.mode & 0o010 : info.mode & 0o001;
+    if (searchable) continue;
+    if (info.uid !== serverUid) throw new WorkerHostError("a private mask ancestor is not server-owned");
+    covered = parent;
+  }
+  return covered;
+}
+
+/**
  * The mounts of a maintenance worker (#1648), after the read-only host root:
  * the host masks, the runtime bound back below them, the server's home for a
  * credentialed worker, then the brain read-write. A credential-free worker
@@ -431,23 +479,8 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
   const fileMasks = new Set<string>();
   // Every mask as asked, before nested ones fold into an ancestor.
   const resolved: string[] = [];
-  const separateIdentity = Boolean(workerIdentityHelper());
-  const serverUid = process.getuid?.(), sharedGid = process.getgid?.();
   const coverageRoot = (path: string): string => {
-    if (!separateIdentity) return path;
-    let covered = path;
-    for (let parent = dirname(path); parent !== "/"; parent = dirname(parent)) {
-      const info = lstatSync(parent);
-      if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(parent) !== parent) {
-        throw new WorkerHostError("a private mask ancestor changed or is linked");
-      }
-      // The verified helper keeps only the server's primary shared group.
-      // Cover an inaccessible parent with empty tmpfs, never its real contents.
-      const searchable = info.gid === sharedGid ? info.mode & 0o010 : info.mode & 0o001;
-      if (searchable) continue;
-      if (info.uid !== serverUid) throw new WorkerHostError("a private mask ancestor is not server-owned");
-      covered = parent;
-    }
+    const covered = workerMaskCover(path);
     if (covered !== path && (holds(covered, brain) || holds(brain, covered) || envelope.readPaths.some(requested => {
       const runtime = realpathSync(requested);
       return holds(covered, runtime) || holds(runtime, covered);
@@ -735,6 +768,9 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (credentials && (key === WITHHELD_KEYS_ENV || WORKER_PROVIDER_CREDENTIAL_ENV.includes(key) && !(input.credentialEnv ?? []).includes(key))) continue;
     // Only the server's own relay may name the socket: never a value carried from the host environment.
     if (key === PROVIDER_RELAY_SOCKET_ENV) continue;
+    // No worker of any kind, transports included, holds a host-only secret or a
+    // GOG_*, BRAIN_UI_GOOGLE_* or BRAIN_GOOGLE_* name (#4206), whatever its caller passed.
+    if (isHostOnlyEnv(key)) continue;
     if (transport || !HOST_GIT_CREDENTIAL_ENV.includes(key)) argv.push("--setenv", key, value);
   }
   // Names only: what the host or this launch had that the worker does not.

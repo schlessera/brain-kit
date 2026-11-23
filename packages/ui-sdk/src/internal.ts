@@ -7,7 +7,7 @@ export { launchAgentWorker, launchAgentWorkerAsync, launchLimits, requireWorkerH
 export { WORKER_EMPTY_HOME } from "./server/worker-xdg.js";
 export type { LaunchedWorker, WorkerLaunch, WorkerHostProbe, WorkerStateHandle } from "./server/worker-launcher.js";
 export { archivesDocument, bashCommand } from "./server/confirm-patterns.js";
-export { SUBPROCESS_ENV, HOST_ONLY_SECRET_ENV, HOST_GIT_CREDENTIAL_ENV, AGENT_INFERENCE_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./server/subprocess-env.js";
+export { SUBPROCESS_ENV, HOST_ONLY_SECRET_ENV, HOST_ONLY_ENV_PREFIXES, isHostOnlyEnv, HOST_GIT_CREDENTIAL_ENV, AGENT_INFERENCE_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./server/subprocess-env.js";
 export { loadedSdkIdentity } from "./server/loaded-sdk.js";
 export { applyClassification, observeClassification, planClassification } from "./classification/index.js";
 export type { ClassificationAnswers, ClassificationPlan, ClassificationRequest, QuestionObservation } from "./classification/index.js";
@@ -40,7 +40,7 @@ export { DEFAULT_TURN_TEMP_BYTES, WORKER_STATE_BYTES_ENV, mib, parseWorkerStateB
 export type { WorkerStateLimits } from "./server/worker-state-limits.js";
 export { resolveMaintenanceTempLimits } from "./server/worker-state-limits.js";
 export { hostMaintenanceTempLimits } from "./server/maintenance-temp-limits.js";
-export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME } from "./server/worker-launcher.js";
+export { workerHostProven, workerMaskCover, workerSystemPaths, HOST_MASKS, MAINTENANCE_HOME } from "./server/worker-launcher.js";
 export { CREDENTIAL_FREE_ENV, prepareMaintenanceGitInput, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, maintenanceLaunch, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
 export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult } from "./server/maintenance-worker.js";
 export { MaintenanceTempBusyError, reserveMaintenanceTemp, type MaintenanceTempKind } from "./server/maintenance-temp-budget.js";

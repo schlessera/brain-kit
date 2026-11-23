@@ -1391,6 +1391,7 @@ export "./internal" (./src/internal.ts)
   GIT_LOCK_KEY
   HOST_GIT_CREDENTIAL_ENV
   HOST_MASKS
+  HOST_ONLY_ENV_PREFIXES
   HOST_ONLY_SECRET_ENV
   type HostCredentialDomain
   HostCredentialExclusionError
@@ -1521,6 +1522,7 @@ export "./internal" (./src/internal.ts)
   hostOutputStagingLimits
   hostProviderCredential
   isEnvName
+  isHostOnlyEnv
   isManagedWorkerStartupView
   launchAgentWorker
   launchAgentWorkerAsync
@@ -1609,12 +1611,14 @@ export "./internal" (./src/internal.ts)
   workerIdentityHelper
   workerLimitsPlan
   workerLimitsStatus
+  workerMaskCover
   workerNoteLimits
   workerOutwardNote
   workerProfile
   workerProviderCredentials
   workerSandboxNote
   workerSandboxWarnings
+  workerSystemPaths
 
 export "./internal/client" (./src/internal-client.ts)
   type FrontmatterBlock

@@ -13,6 +13,14 @@ const { createPiBackend } = await import(join(source!, "packages/ui-backend-pi/s
 const { startPiNativeInference } = await import("./pi-inference.js");
 const { createClaudeBackend } = await import(join(source!, "packages/ui-backend-claude/src/backend.ts"));
 const SECRET = "odysseus-probe-cookie-secret-0123456789";
+// #4206: the host's Google settings, GOG_* names and the operator extra asking
+// for them, set here because the test guard drops every inherited GOG_* name;
+// and the witness each actual worker runs.
+const googleProof = JSON.parse(readFileSync(process.env.BRAIN_NATIVE_PROOF_GOOGLE!, "utf8")) as { env: Record<string, string>; witness: { files: Record<string, string> }; home: string; canary: string };
+Object.assign(process.env, googleProof.env);
+const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+const googleWitnessProgram = readFileSync(join(import.meta.dir, "google-witness.py"), "utf8");
+const googleCommand = (attempt: number) => `/usr/bin/python3 -I -S -c ${shellQuote(googleWitnessProgram)} ${shellQuote(JSON.stringify(googleProof.witness))} > .brain/google-witness-${attempt}.json`;
 const SID = "11111111-1111-4111-8111-111111111790";
 const event = (kind: string, data: object = {}) => appendFileSync(join(dir!, "events.jsonl"), JSON.stringify({ kind, at: performance.now(), wallAt: Date.now(), ...data }) + "\n");
 event("first_import_complete", { elapsedMs: performance.now() - firstImportStartedAt });
@@ -193,7 +201,8 @@ const egressOrigin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) 
   const path = new URL(request.url).pathname; event("egress_origin_request", { path }); return new Response(`Ithaca road ${path}`);
 } });
 // "localhost", not 127.0.0.1: only the proxy resolves it, whatever the worker exempts.
-const egressCommand = (attempt: number) => `/usr/bin/python3 -I -S -c 'import sys,urllib.request;sys.stdout.write(urllib.request.urlopen(sys.argv[1],timeout=5).read().decode())' http://localhost:${egressOrigin.port}/voyage-${attempt} > .brain/egress-${attempt}.txt`;
+// Then the Google witness (#4206), in the same actual worker on both backends.
+const egressCommand = (attempt: number) => `/usr/bin/python3 -I -S -c 'import sys,urllib.request;sys.stdout.write(urllib.request.urlopen(sys.argv[1],timeout=5).read().decode())' http://localhost:${egressOrigin.port}/voyage-${attempt} > .brain/egress-${attempt}.txt && ${googleCommand(attempt)}`;
 const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event,authorityCommand,egressCommand,
   APPLY_TIMING ? { count: SCHERIA_LOGS, path: scheriaPath, content: scheriaContent, sha256 } : undefined, OBSERVATION_TIMING ? { cells: ithacaSteps() } : undefined) : undefined;
 if (inference) process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = inference.origin;
@@ -220,7 +229,8 @@ child = params.options.spawnClaudeCodeProcess({
           // #2834 harbour records after first, warm and Stop: one worker write each, for journal begin and finish timings.
           ? `echo Eurycleia ${attempt} > notes/ithaca-harbour-${attempt}.md; printf worker-pass`
           : `${authorityCommand} > .brain/worker-authority-${attempt}.json && ${egressCommand(attempt)} && printf '%b' '---\\ntype: note\\ntitle: Odysseus worker ${attempt}\\nupdated: 2026-07-12\\n---\\nOdysseus marks the actual worker.\\n' > notes/worker-${attempt}.md; printf worker-pass; sleep ${attempt === 3 ? "10" : "0.05"}`],
-        env: { PATH: "/usr/bin:/bin", HOME: join(dir!, "home"), CLAUDE_CONFIG_DIR: join(dir!, "agent") },
+        // What the SDK hands its process: the turn's own environment, as the host built it (#4206).
+        env: { ...params.options.env, PATH: "/usr/bin:/bin", HOME: join(dir!, "home"), CLAUDE_CONFIG_DIR: join(dir!, "agent") },
         signal: params.options.abortController.signal
       });
 } catch (error) { event("worker_spawn_refused", { attempt, error: String(error) }); throw error; }
@@ -252,7 +262,9 @@ child = params.options.spawnClaudeCodeProcess({
     });
   },
 });
-let app: any, server: any;
+let app: any, server: any, googleHolderPid: number | undefined, googleReady: any;
+/** A process's start time in clock ticks (`/proc/<pid>/stat` field 22): with the pid, its identity. */
+const googleHolderStart = (pid: number) => readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
 try {
   const appCreateStartedAt = performance.now();
   app = await createApp({
@@ -317,21 +329,49 @@ try {
   }
   const replayBegin = app.wsHost.failureReplay.begin.bind(app.wsHost.failureReplay);
   app.wsHost.failureReplay.begin = async (...args: any[]) => { const answer = await replayBegin(...args), finish = answer.finish.bind(answer); answer.finish = async (...values: any[]) => { const start = performance.now(); event("failure_replay_finish_start"); try { return await finish(...values); } finally { event("failure_replay_finish_end", { elapsedMs: performance.now() - start }); } }; return answer; };
+  // #4206: a host gog process holding the canary keyring password, through
+  // the real transport (with the fake gog), alive while the workers look for it.
+  const { createFakeGog } = await import(join(source!, "packages/common/tests/support/fake-gog.ts"));
+  const { createGogTransport } = await import(join(source!, "packages/common/src/google/gog/index.ts"));
+  const holderGog = createFakeGog({ "gmail.labels.list": { delay_ms: 1_800_000, stdout: { labels: [] } } });
+  const holder = createGogTransport({ binary: holderGog.binary, account: "ithaca", environment: { home: googleProof.home, keyringPassword: googleProof.canary }, timeouts: { readMs: 3_600_000 } });
+  void holder.execute("gmail.labels.list", {});
+  const holderDeadline = performance.now() + 20_000;
+  while (!holderGog.calls()[0]?.pid && performance.now() < holderDeadline) await Bun.sleep(10);
+  googleHolderPid = holderGog.calls()[0]?.pid;
+  const holderEnviron = googleHolderPid ? readFileSync(`/proc/${googleHolderPid}/environ`) : Buffer.alloc(0);
+  // The holder's identity (its start time), so the end of the run can show the same process was still alive.
+  googleReady = { holder: { pid: googleHolderPid ?? null, start: googleHolderPid ? googleHolderStart(googleHolderPid) : null,
+      hostReadsCanary: holderEnviron.includes(googleProof.canary), at: Date.now() },
+    // The control for every canary file: the host reads each one in this run.
+    hostReads: Object.fromEntries(Object.entries(googleProof.witness.files).map(([name, path]) => [name, readFileSync(path, "utf8").includes(googleProof.canary)])),
+    masked: (app.wsHost.maintenance?.maskPaths ?? []).includes(googleProof.home), status: await app.wsHost.google.status("ithaca") };
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus admission", ttlSeconds: 3600 });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
   // Published by rename: the parent polls for ready.json and then parses it.
   writeFileSync(join(dir!, "ready.json.tmp"), JSON.stringify({
     rootWarnings: observability.logs.find({severity:"WARN"}).filter((log:any)=>String(log.body).includes("runs as root")).map((log:any)=>String(log.body)),
     port: server.port, egressPort: egressOrigin.port, principalId: principal.id, pid: process.pid, secret: SECRET,
-    dbBytes: statSync(dbPath).size, status: app.activity?.runtime?.snapshot?.()
+    dbBytes: statSync(dbPath).size, status: app.activity?.runtime?.snapshot?.(), google: googleReady
   }));
   renameSync(join(dir!, "ready.json.tmp"), join(dir!, "ready.json"));
   event("ready", { port: server.port });
   let closing = false;
   process.on("SIGTERM", async () => {
     if (closing) return; closing = true;
-    try { server.stop(true); await app.close(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
-    catch (error) { event("close_error", { error: String(error) }); process.exit(1); }
+    // After the app has closed, so every worker, the last automatic index's
+    // included, has ended: whether the holder that ran since ready is still
+    // the same process and still holds the canary, then stop it.
+    const stopHolder = () => {
+      if (!googleHolderPid) return;
+      let alive = false;
+      try { alive = googleHolderStart(googleHolderPid) === googleReady?.holder.start && readFileSync(`/proc/${googleHolderPid}/environ`).includes(googleProof.canary); } catch { alive = false; }
+      event("google_holder_stop", { alive, start: googleReady?.holder.start ?? null });
+      try { process.kill(-googleHolderPid, "SIGKILL"); } catch { /* already gone */ }
+      googleHolderPid = undefined;
+    };
+    try { server.stop(true); await app.close(); stopHolder(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
+    catch (error) { stopHolder(); event("close_error", { error: String(error) }); process.exit(1); }
   });
 } catch (error) {
   writeFileSync(join(dir!, "boot-error.txt"), String(error));

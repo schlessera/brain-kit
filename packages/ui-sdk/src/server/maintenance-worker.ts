@@ -24,7 +24,7 @@ import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
 import { reserveMaintenanceTemp, type MaintenanceTempDomain, type MaintenanceTempKind } from "./maintenance-temp-budget.js";
 import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
-import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
+import { HOST_GIT_CREDENTIAL_ENV, isHostOnlyEnv } from "./subprocess-env.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
@@ -160,6 +160,8 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
   const env: Record<string, string> = {};
   // A credential-free command gets plain settings only, whatever its caller passed.
   for (const [key, value] of Object.entries(input.env)) {
+    // Host-only secrets and every GOG_*, BRAIN_UI_GOOGLE_* or BRAIN_GOOGLE_* name never, transports included (#4206).
+    if (isHostOnlyEnv(key)) continue;
     if (!input.transport && HOST_GIT_CREDENTIAL_ENV.includes(key)) continue;
     if (value !== undefined && (input.credentials || (CREDENTIAL_FREE_ENV as readonly string[]).includes(key))) env[key] = value;
   }
