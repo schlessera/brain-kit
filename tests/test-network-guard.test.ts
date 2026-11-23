@@ -172,7 +172,7 @@ describe("offline test guard", () => {
     }
     expect(result.code, result.output).toBe(0);
   });
-  test("a Bun child that reads host settings from a dotenv file (a .env with forged notes, --env-file, BUN_OPTIONS, under bun run) holds none of them; what the test passed survives where the wrapper recorded it", async () => {
+  test("a Bun child that reads host settings from a dotenv file (a .env with forged notes, --env-file, BUN_OPTIONS, under bun run) holds none of them; what the test passed survives where the wrapper recorded it; a Bun a shell starts reads no .env", async () => {
     const result = await run("dotenv-descendants");
     const report = /DOTENV_CHILDREN=(\{[^\n]*\})/.exec(result.output);
     expect(report, result.output).not.toBeNull();
@@ -181,17 +181,22 @@ describe("offline test guard", () => {
     const none = { BRAIN_UI_GOOGLE_HOME: null, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: null, BRAIN_UI_GOG_PATH: null, BRAIN_GOOGLE_LEDGER: null, APIFY_TOKEN: null,
       BRAIN_TEST_GUARD_CHOSEN_ENV: null };
     const chosen = { BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data" };
-    expect(Object.keys(seen.children).sort(), result.output).toEqual(["bun-eval", "bun-options", "bun-run", "bun-test", "env-file", "shell"]);
+    expect(Object.keys(seen.children).sort(), result.output).toEqual(["bun-eval", "bun-options", "bun-run", "bun-shell-unguarded", "bun-test", "env-file",
+      "node-shell-unguarded", "shell", "shell-unguarded"]);
     // Started by the wrapper in a directory holding a .env: it reads none of it, and keeps what the test passed.
     for (const label of ["bun-eval", "bun-test"]) {
       expect(seen.children[label], `WRAPPER_STARTED_CHILD_READS_NO_DOTENV: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
+    }
+    // Started by a shell there with no preload, so no guard runs in it (#4489): BUN_OPTIONS keeps the .env out.
+    for (const label of ["shell-unguarded", "node-shell-unguarded", "bun-shell-unguarded"]) {
+      expect(seen.children[label], `SHELL_STARTED_BUN_READS_NO_DOTENV: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
     }
     // An env file the wrapper cannot switch off, and a Bun that bun run's script starts, which reads the .env: what the
     // file supplied is dropped or repointed, and what the test passed comes back from the wrapper's record.
     for (const label of ["env-file", "bun-options", "bun-run"]) {
       expect(seen.children[label], `DOTENV_SUPPLIED_HOST_SETTINGS_DROPPED: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: guardXdg("config"), ODYSSEUS_DOTENV: "loaded" });
     }
-    // Through a shell, with notes forged in the .env (one by expanding $GOG_HOME, one naming a file a guard did not write):
+    // Through a shell that empties BUN_OPTIONS, with notes forged in the .env (one by expanding $GOG_HOME, one naming a file a guard did not write):
     // nothing is taken back, so the test's own values go too and every XDG base is the guard's.
     expect(seen.children.shell, "SHELL_STARTED_CHILD_TAKES_BACK_NOTHING").toEqual({
       ...none, BRAIN_GOOGLE_HOME: null, XDG_CONFIG_HOME: guardXdg("config"), XDG_DATA_HOME: guardXdg("data"), ODYSSEUS_DOTENV: "loaded",
