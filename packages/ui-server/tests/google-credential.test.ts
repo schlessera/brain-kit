@@ -781,11 +781,12 @@ describe("google availability probe failures", () => {
     Object.defineProperty(performance, "now", { configurable: true, enumerable: true, writable: true, value: () => now() + shift });
     cleanups.push(() => { if (own) Object.defineProperty(performance, "now", own); else delete (performance as { now?: unknown }).now; });
     expect(await settled(google.status(account)), "PIN_THROW_IS_TRANSIENT").toEqual(
-      { state: "unavailable", reason: "binary_refused", detail: expect.any(String), cause: "verification_failed" });
+      { state: "unavailable", reason: "binary_refused", detail: expect.stringContaining("checked again shortly"), cause: "verification_failed" });
     expect(await settled(google.status(account)), "PIN_THROW_STANDS_DURING_THE_BACKOFF").toMatchObject({ reason: "binary_refused", cause: "verification_failed" });
     expect(read.reads(), "NOT_CHECKED_AGAIN_DURING_THE_BACKOFF").toBe(1);
     shift += GOG_PIN_RETRY_MS;
-    expect(await settled(google.status(account)), "PIN_CHECKED_AGAIN_AFTER_THE_BACKOFF").toMatchObject({ reason: "binary_refused", cause: "hash_not_pinned" });
+    expect(await settled(google.status(account)), "PIN_CHECKED_AGAIN_AFTER_THE_BACKOFF").toMatchObject({ reason: "binary_refused", cause: "hash_not_pinned",
+      detail: expect.stringContaining("not a gog release this host accepts") });
     expect(read.reads(), "THE_BINARY_WAS_READ_AGAIN").toBeGreaterThan(1);
     expect(fake.calls(), "UNPINNED_BINARY_NEVER_ANSWERED").toEqual([]);
     for (const report of reports) expect(report.message, "REPORT_HOLDS_NO_EXCEPTION_TEXT").not.toMatch(/EIO|fake-gog-/);
