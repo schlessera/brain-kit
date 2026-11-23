@@ -182,7 +182,7 @@ describe("offline test guard", () => {
       BRAIN_TEST_GUARD_CHOSEN_ENV: null };
     const chosen = { BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data" };
     expect(Object.keys(seen.children).sort(), result.output).toEqual(["bun-eval", "bun-options", "bun-run", "bun-run-dotenv", "bun-run-unguarded",
-      "bun-shell-unguarded", "bun-test", "env-file", "node-shell-unguarded", "shell", "shell-unguarded"]);
+      "bun-script-unguarded", "bun-shell-unguarded", "bun-test", "env-file", "node-shell-unguarded", "shell", "shell-unguarded"]);
     // Started by the wrapper in a directory holding a .env: it reads none of it, and keeps what the test passed.
     for (const label of ["bun-eval", "bun-test"]) {
       expect(seen.children[label], `WRAPPER_STARTED_CHILD_READS_NO_DOTENV: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
@@ -193,9 +193,11 @@ describe("offline test guard", () => {
     }
     // Started by bun run's package script, which runs no preload: with the guard's preload or without, it reads no .env.
     expect(seen.children["bun-run"], "BUN_RUN_SCRIPT_READS_NO_DOTENV").toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
-    expect(seen.children["bun-run-unguarded"], "UNGUARDED_BUN_RUN_SCRIPT_READS_NO_DOTENV").toEqual({
-      ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null, BRAIN_TEST_GUARD_CHOSEN_ENV: expect.any(String),
-    });
+    for (const label of ["bun-run-unguarded", "bun-script-unguarded"]) {
+      expect(seen.children[label], `UNGUARDED_BUN_RUN_SCRIPT_READS_NO_DOTENV: ${label}`).toEqual({
+        ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null, BRAIN_TEST_GUARD_CHOSEN_ENV: expect.any(String),
+      });
+    }
     // An env file the wrapper cannot switch off, and a script that empties BUN_OPTIONS so its Bun reads the .env: what
     // the file supplied is dropped or repointed, and what the test passed comes back from the wrapper's record.
     for (const label of ["env-file", "bun-options", "bun-run-dotenv"]) {
@@ -208,12 +210,14 @@ describe("offline test guard", () => {
     });
     expect(result.code, result.output).toBe(0);
   });
-  test("BUN_OPTIONS gains --no-env-file once, and the same text inside a quoted value is not the flag", () => {
+  test("BUN_OPTIONS gains --no-env-file, and text that only looks like the flag does not stop it", () => {
     expect(testBunOptions({}).BUN_OPTIONS, "SET_WHEN_ABSENT").toBe("--no-env-file");
+    expect(testBunOptions({ BUN_OPTIONS: "--no-env-file" }).BUN_OPTIONS, "NOT_TWICE_ALONE").toBe("--no-env-file");
     expect(testBunOptions({ BUN_OPTIONS: "--smol" }).BUN_OPTIONS, "APPENDED").toBe("--smol --no-env-file");
-    expect(testBunOptions({ BUN_OPTIONS: "--smol --no-env-file" }).BUN_OPTIONS, "NOT_TWICE").toBe("--smol --no-env-file");
-    const quoted = '--define process.env.ODYSSEUS=" --no-env-file "';
-    expect(testBunOptions({ BUN_OPTIONS: quoted }).BUN_OPTIONS, "QUOTED_TEXT_IS_NOT_THE_FLAG").toBe(`${quoted} --no-env-file`);
+    // Inside a quoted value, or as another option's argument, the text is not the flag; Bun takes the flag twice.
+    for (const options of ['--define process.env.ODYSSEUS=" --no-env-file "', "--title --no-env-file", "--smol --no-env-file"]) {
+      expect(testBunOptions({ BUN_OPTIONS: options }).BUN_OPTIONS, `LOOKALIKE_IS_NOT_THE_FLAG: ${options}`).toBe(`${options} --no-env-file`);
+    }
   });
   test("Bun.$ keeps a copy of its default environment, as Bun does, and adds only --no-env-file", async () => {
     const defaults: Record<string, string> = { PATH: process.env.PATH!, ODYSSEUS_HOMEWARD: "before" };

@@ -322,6 +322,8 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
         // This script empties BUN_OPTIONS, so its Bun reads the .env.
         "bun-run-dotenv": held([process.execPath, "run", "nested-dotenv"], "run"),
         "bun-run-unguarded": held([process.execPath, "run", "unguarded"], "run"),
+        // The same package script run by its bare name, which dispatches as bun run does.
+        "bun-script-unguarded": held([process.execPath, "unguarded"], "run"),
         "env-file": held([process.execPath, `--env-file=${hostFile}`, "-e", report], "plain"),
         "bun-options": held([process.execPath, "-e", report], "plain", { BUN_OPTIONS: `--env-file=${hostFile}` }),
       },
