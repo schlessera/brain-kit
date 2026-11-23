@@ -586,25 +586,28 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     async prepare(signal, preparedView) {
       signal?.throwIfAborted();
       const checkedState = { refusal: operationalStateRefusal(options) };
-      // Private-state refusal precedes the cwd shortcut; reuse a clean verdict
-      // throughout this preparation instead of walking again in governed().
+      // Private-state refusal precedes the cwd shortcut. Only the synchronous
+      // warm return may reuse this verdict; cold returns must recheck.
       if (checkedState.refusal) return checkedState.refusal;
-      const availability = () => governed(undefined, checkedState);
       // Capability proof is already complete. A maintenance output operation
       // has its own lease and must not delay this cached admission fact.
-      if (passedMaintenanceProbes.has(maintenanceKey)) return availability();
+      if (passedMaintenanceProbes.has(maintenanceKey)) return governed(undefined, checkedState);
+      const recheck = () => {
+        const fresh = { refusal: operationalStateRefusal(options) };
+        return fresh.refusal ?? governed(undefined, fresh);
+      };
       return outputLock.withLock(brain, async () => {
       signal?.throwIfAborted();
       const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
-      if (!ordinary.ok) return availability();
-      if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenanceResourceRefused && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return availability();
+      if (!ordinary.ok) return recheck();
+      if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenanceResourceRefused && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return recheck();
       const view = preparedView ?? await prepareInput(signal);
       try {
         signal?.throwIfAborted();
         const checked = await hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain, view, signal);
         maintenanceResourceRefused = false; maintenance = { probe: checked, at: Date.now() };
         if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
-        return availability();
+        return recheck();
       } catch (error) {
         if (!(error instanceof WorkerStateError)) throw error;
         signal?.throwIfAborted();
@@ -612,7 +615,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         // isolated. The next explicit preparation retries immediately.
         maintenanceResourceRefused = true;
         maintenance = { probe: { ok: false, requirement: error.message }, at: Date.now() };
-        return availability();
+        return recheck();
       }
       finally { if (!preparedView) await view.cleanup(); }
       }, { signal });

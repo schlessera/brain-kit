@@ -776,3 +776,23 @@ test("preparation keeps the private-state refusal ahead of the in-brain cwd shor
     expect(walk).toHaveBeenCalledTimes(1);
   } finally { probe.mockRestore(); cwd.mockRestore(); walk.mockRestore(); await f.turns.close(); }
 });
+
+
+test("cold preparation rechecks private state after maintenance qualification and ahead of cwd", async () => {
+  const f = fixture();
+  const unavailable = { available: false as const, reason: "private_state_unverified" as const, detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
+  const walk = spyOn(operationalState, "operationalStateRefusal").mockReturnValue(undefined);
+  const cwd = spyOn(hostExecution, "cwd").mockReturnValue(process.cwd());
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: true });
+  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(async () => {
+    walk.mockReturnValue(unavailable);
+    cwd.mockReturnValue(f.brain);
+    return { ok: true };
+  });
+  const view = createFixtureWorkerStartupView(f.brain);
+  try {
+    expect(await f.execution.boundary.prepare(undefined, view), "COLD_PREPARATION_RECHECKS_AFTER_AWAIT_BEFORE_CWD").toMatchObject(unavailable);
+    expect(maintenance).toHaveBeenCalledTimes(1);
+    expect(walk).toHaveBeenCalledTimes(2);
+  } finally { await view.cleanup(); maintenance.mockRestore(); probe.mockRestore(); cwd.mockRestore(); walk.mockRestore(); await f.turns.close(); }
+});
