@@ -30,14 +30,20 @@ type CodeChangeCapture = Omit<CodeChangeReceipt, "checkout" | "state"> & { pack:
 export async function captureCodeChanges(brainPath: string, checkout: string, previous?: { tree_before: string; pack: AsyncIterable<Uint8Array>; pack_hash: string } & { head_before?: CodeChangeReceipt["head_before"] },
   host: MaintenanceHost = {}, signal?: AbortSignal, maximum: number = CODE_CHECKOUT_BYTES): Promise<CodeChangeCapture> {
   if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error("Invalid checkout capture allowance");
+  let sourceError: unknown;
   async function* input() {
     const { pack, ...metadata } = previous ?? {};
     yield Buffer.from(JSON.stringify({ ...metadata, ...(pack ? { pack_stream: true } : {}) }) + "\n");
-    if (pack) yield* pack;
+    if (pack) {
+      try { yield* pack; } catch (error) { sourceError = error; throw error; }
+    }
   }
   const result = await runMaintenanceWorker({ ...host, brainPath, credentials: false, env: { PATH: "/usr/bin:/bin" },
     command: ["/usr/bin/python3", "-I", "-S", "-c", CODE_CHANGE_PROGRAM, checkout, String(maximum)],
-    readPaths: [checkout], stdin: input(), outputBytes: 64 * 1024 * 1024, tempKind: "git", timeoutMs: 60_000, signal });
+    readPaths: [checkout], stdin: input(), outputBytes: 64 * 1024 * 1024, tempKind: "git", timeoutMs: 60_000, signal })
+    .catch(error => { throw sourceError ?? error; });
+  // Stdin transport may consume a source error; it remains a shared read refusal.
+  if (sourceError) throw sourceError;
   if (result.exitCode !== 0 || result.killed) throw new CheckoutCaptureRefused(`Git change capture refused: ${result.stderr.trim().slice(-1000) || "maintenance worker failed"}`);
   const receipt = JSON.parse(result.stdout) as CodeChangeCapture;
   const oid = (value: unknown) => typeof value === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);

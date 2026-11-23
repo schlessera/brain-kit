@@ -1,7 +1,9 @@
 import { expectRejection } from "./helpers/expect-rejection.js";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { CheckoutCaptureRefused } from "../src/brain/code-change-worker.js";
 import { CODE_CHANGE_PROGRAM, CODE_CHECKOUT_LIST_PROGRAM } from "../src/brain/code-change-program.js";
 import { processAlive, SELF } from "../src/brain/writer-gate.js";
 
@@ -948,4 +950,35 @@ for (const fault of ["capacity", "I/O"] as const) test(`shared pack ${fault} ref
     expect(f.journal.scopeHold("notes-after-refusal", 0), "A_SMALLER_NOTE_TURN_REMAINS_ACTIVE_AND_USABLE").toMatchObject({ cause: "scope", causeTurnId: "notes-after-refusal" });
     await f.journal.finish("notes-after-refusal");
   } finally { worker.mockRestore(); restoreObjects(); await f.close(); }
+});
+
+
+test("retained pack corruption refuses writable admission with its original read cause", async () => {
+  const f = inBrainCodeJournal(), original = workerSdk.runMaintenanceWorker; let corrupted = false;
+  // A swallowed source error can leave stdin open; bound this fixture's worker watchdog.
+  const worker = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(input => original(corrupted && input.command[4] === CODE_CHANGE_PROGRAM
+    ? { ...input, timeoutMs: watchdogMs(5_000) } : input));
+  try {
+    await f.journal.begin("before-corruption", codeMetadata, () => {}); await f.journal.finish("before-corruption");
+    const receipt = f.db.query("SELECT pack_hash, json_extract(receipt,'$.state') AS state FROM turn_journal_code_receipts WHERE turn_id='before-corruption' AND checkout='workspaces/argo'").get() as { pack_hash: string; state: string };
+    expect(receipt.state).toBe("complete");
+    const path = join(f.root, "objects", receipt.pack_hash), pack = readFileSync(path), length = pack.length;
+    pack[0] = pack[0]! ^ 1; writeFileSync(path, pack); corrupted = true;
+    expect(fs.statSync(path).size, "CORRUPTION_PRESERVES_RETAINED_PACK_LENGTH").toBe(length);
+    const error = await f.journal.begin("after-corruption", codeMetadata, () => {}).then(() => undefined, error => error);
+    expect(error, "RETAINED_PACK_READ_FAILURE_REFUSES_WRITABLE_ADMISSION").toBeInstanceOf(JournalStorageUnavailable);
+    expect(error).not.toBeInstanceOf(CheckoutCaptureRefused);
+    expect(error.message).toContain("Journal object integrity check failed.");
+    expect(error.cause).toMatchObject({ message: "Journal object integrity check failed." });
+    const failure = f.db.query("SELECT cause FROM turn_journal_code_failures WHERE turn_id='after-corruption' AND checkout='workspaces/argo'").get() as { cause: string };
+    const cause = JSON.parse(failure.cause);
+    expect(cause.message, "RETAINED_PACK_READ_CAUSE_IS_NOT_REPLACED_BY_WORKER_EXIT").toContain("Journal object integrity check failed.");
+    expect(cause.message).not.toContain("maintenance worker failed");
+    f.journal.evidence("after-corruption", () => {});
+    expect(f.journal.scopeHold("after-corruption", 0), "CORRUPT_PACK_REFUSAL_LEAVES_NO_ACTIVE_TURN").toBeUndefined();
+    await f.journal.begin("inspect-after-corruption", { ...codeMetadata, workspacesWritable: false, workspaceReadOnly: true }, () => {});
+    f.journal.evidence("inspect-after-corruption", () => {});
+    expect(f.journal.scopeHold("inspect-after-corruption", 0), "UNRELATED_NOTE_ADMISSION_SURVIVES_RETAINED_PACK_CORRUPTION").toMatchObject({ cause: "scope", causeTurnId: "inspect-after-corruption" });
+    await f.journal.finish("inspect-after-corruption");
+  } finally { worker.mockRestore(); await f.close(); }
 });

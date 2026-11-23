@@ -1189,12 +1189,15 @@ strict turn is refused rather than run without the proxy (#3314).
 
 ### Checkout capture containment (additive, #4486)
 
-`TurnJournal.restrictedCheckouts(turnId)` returns the checkout paths whose
-capture failed for that turn, including before a new session is bound. The
-host masks those checkout subtrees before worker launch, admits the remaining
-turn, and retains the causes in journal detail `missing` entries. A completed
-turn with a checkout capture gap remains partial. Non-repository `.git`
-entries stay under ordinary file observation.
+`TurnJournal.restrictedCheckouts(turnId)` returns checkout paths with recorded
+capture failures for that turn, including before a new session is bound. Only
+a checkout-local refusal with a durable cause and an enforceable mask admits
+the remaining turn. The host masks that checkout before worker
+launch and retains its cause in journal detail `missing` entries. Shared
+capacity, object-store, maintenance-input, checkpoint and retained-pack failures
+refuse admission with their original cause. A completed turn with a checkout
+capture gap remains partial. Non-repository `.git` entries stay under ordinary
+file observation.
 
 ### Operational-state layout refusal (additive, #1649)
 
