@@ -18,6 +18,7 @@ import { createPrincipal } from "../src/db/principals.js";
 import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { WsHost } from "../src/ws/host.js";
+import { claimClientTurnReceipt } from "../src/ws/client-turn-receipts.js";
 import { queryGovernanceEvents } from "../src/governance/events.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 
@@ -248,6 +249,8 @@ test("an admission refusal retains its filesystem cause in the error and Activit
     const failure = frames().find(frame => frame.type === "error");
     expect(called, "REFUSED_ADMISSION_NEVER_STARTS_BACKEND").toBe(false);
     expect(failure, "ADMISSION_CAUSE_REACHES_ERROR").toMatchObject({ code: "JOURNAL_UNAVAILABLE", message: expect.stringContaining("Native journal ignore rules require a bounded regular file.") });
+    await Promise.all([...host.turnTasks]);
+    await claimClientTurnReceipt(host, failure.turnId, principal.id);
     const lifecycle = JSON.parse((app.db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id=?").get(failure.turnId) as { record: string }).record);
     expect(lifecycle, "ADMISSION_CAUSE_REACHES_DURABLE_ACTIVITY").toMatchObject({ outcome: "error", reason: expect.stringContaining("Native journal ignore rules require a bounded regular file.") });
   } finally { await host.close(); await journal.close(); await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
