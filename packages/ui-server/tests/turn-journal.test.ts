@@ -220,7 +220,9 @@ test("failed policy admission ends its journal row and leaves no raw baseline pi
   try {
     // Concrete disk input failure after durable admission row: ignore policy is a directory.
     rmSync(join(f.brain, ".gitignore")); mkdirSync(join(f.brain, ".gitignore"));
-    await expectRejection(f.begin("refused-manifest"), "native journal admission could not be prepared");
+    const refused = await expectRejection(f.begin("refused-manifest"), "native journal admission could not be prepared") as Error;
+    expect(refused.cause, "ADMISSION_REFUSAL_PRESERVES_ORIGINAL_CAUSE").toBeInstanceOf(Error);
+    expect(refused.message, "ADMISSION_REFUSAL_NAMES_ORIGINAL_CAUSE").toContain((refused.cause as Error).message);
     await f.journal.finish("refused-manifest");
     expect(f.db.query("SELECT ended_at FROM turn_journal_turns WHERE turn_id='refused-manifest'").get(), "JOURNAL_REFUSED_ADMISSION_ENDED").toMatchObject({ ended_at: expect.any(Number) });
     expect(f.db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='refused-manifest'").get(), "JOURNAL_REFUSED_BASELINE_PINS_RELEASED").toEqual({ n: 0 });

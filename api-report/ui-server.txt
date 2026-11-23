@@ -2773,6 +2773,7 @@ signatures (every public export and the types it is made of)
         releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
+        restrictedCheckouts(turnId: string): string[];
         retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;
         scopeHold(turnId: string, requestedAt: number, toolUseId?: string, changedPaths?: null | number): ActivityTurnHold | undefined;
         summary: (turnId: string) => TurnJournalSummary;

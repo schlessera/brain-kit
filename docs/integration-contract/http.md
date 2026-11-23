@@ -1185,6 +1185,15 @@ routed. The field is not removed: `active: false` remains for a brain that is
 not on managed native storage, where `detail` says that every governed and
 strict turn is refused rather than run without the proxy (#3314).
 
+### Checkout capture containment (additive, #4486)
+
+`TurnJournal.restrictedCheckouts(turnId)` returns the checkout paths whose
+capture failed for that turn, including before a new session is bound. The
+host masks those checkout subtrees before worker launch, admits the remaining
+turn, and retains the causes in journal detail `missing` entries. A completed
+turn with a checkout capture gap remains partial. Non-repository `.git`
+entries stay under ordinary file observation.
+
 ### Operational-state layout refusal (additive, #1649)
 
 The host boundary status reason adds `private_state_in_brain` alongside

@@ -3,6 +3,7 @@ import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { WorkerNoteFacts } from "@schlessera/brain-ui-sdk/internal";
 import { requireWorkerHostRecorded } from "../../agent/worker-host.js";
 import { createTurnRecorder, type TurnRecorder } from "../../activity/recorder.js";
+import { restrictFailedCheckouts } from "../../brain/checkout-restrictions.js";
 import { BudgetExceeded, BudgetUnavailable } from "../../brain/turn-budgets.js";
 import { withTurnScope } from "../frames.js";
 import type { WsHost } from "../host.js";
@@ -192,6 +193,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
       abortController.abort(error);
       host.coordinator.drainPendingForTurn(turn, error.message);
     }, abortController.signal, journalTimer);
+    restrictFailedCheckouts(governedHold.sandbox, host.journal.restrictedCheckouts(turn.turnId));
     lifecycle?.mark("journalBeganAt");
   }
   abortController.signal.throwIfAborted();

@@ -2,7 +2,7 @@ import { expectRejection } from "./helpers/expect-rejection.js";
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { CODE_CHANGE_PROGRAM } from "../src/brain/code-change-program.js";
+import { CODE_CHANGE_PROGRAM, CODE_CHECKOUT_LIST_PROGRAM } from "../src/brain/code-change-program.js";
 import { processAlive, SELF } from "../src/brain/writer-gate.js";
 
 const env = { PATH: "/usr/bin:/bin", HOME: "/nonexistent", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
@@ -73,6 +73,9 @@ test("checkout hooks, filter programs and fsmonitor never run during capture", (
   } finally { f.close(); }
 });
 
+import { workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
+import { WORKER_AREA_ROOT } from "../../ui-sdk/src/server/worker-sandbox.js";
+import { restrictFailedCheckouts } from "../src/brain/checkout-restrictions.js";
 import { createUiDb } from "../src/db/client.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { createNativeJournalFixture, fixtureDelta, inventory } from "./helpers/native-journal-fixture.js";
@@ -137,7 +140,7 @@ test("index-added files are tracked while new files remain untracked", () => {
   } finally { f.close(); }
 });
 
-import { launchFixtureAgentWorker, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { launchFixtureAgentWorker, prepareFixtureWorkerSandbox, createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 test("a sandboxed worker cannot read or write receipt storage or its endpoint packs", async () => {
   const f = fixture(), brain = join(f.root, "brain"), evidence = join(f.root, "private-evidence");
   mkdirSync(brain); mkdirSync(evidence); writeFileSync(join(evidence, "endpoint.pack"), "owned endpoints");
@@ -235,19 +238,51 @@ test("inspection-only turns invoke no checkout maintenance and write no receipt"
   } finally { await journal.close(); await native.close(); db.close(); f.close(); }
 });
 
-test("an unsupported writable checkout refuses only that turn and leaves inspection and notes usable", async () => {
+for (const profile of ["governed", "strict"] as const) for (const newSession of [false, true]) test(`an unsupported writable checkout restricts only its receipt and leaves the writer and notes usable (${profile}, new session: ${newSession})`, async () => {
   const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db");
   mkdirSync(join(brain, "workspaces"), { recursive: true }); const checkout = join(brain, "workspaces", "argo"); renameSync(f.checkout, checkout);
   const unsupported = join(brain, "workspaces", "zeus"); cpSync(checkout, unsupported, { recursive: true });
   writeFileSync(join(unsupported, ".gitattributes"), "*.md filter=lfs\n"); writeFileSync(join(brain, "note.md"), "Ithaca\n");
   const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
   const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
-  const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile: "governed" as const, policyHash: null };
+  const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile, policyHash: null };
   try {
-    await expectRejection(journal.begin("writer", { ...metadata, workspaceReadOnly: false, workspacesWritable: true }, () => {}), undefined, "UNSUPPORTED_CHECKOUT_NEVER_GETS_UNCOVERED_WRITES");
-    expect(journal.summary("writer").state).toBe("partial");
-    expect(db.query("SELECT count(*) AS n FROM turn_journal_code_receipts WHERE turn_id='writer'").get(), "REFUSED_MULTI_CHECKOUT_ADMISSION_RELEASES_BASELINE_PINS").toEqual({ n: 0 });
+    const error = await journal.begin("writer", { ...metadata, sessionId: newSession ? null : metadata.sessionId, workspaceReadOnly: false, workspacesWritable: true }, () => {}).then(() => undefined, error => error);
+    expect(error, "ONE_CHECKOUT_FAILURE_ADMITS_WRITER").toBeUndefined();
+    expect(journal.summary("writer").state).toBe("recording");
+    expect(journal.restrictedCheckouts("writer"), "CHECKOUT_RESTRICTION_PRECEDES_SESSION_BINDING").toEqual(["workspaces/zeus"]);
+    const sandbox = prepareFixtureWorkerSandbox(brain, { profile, codeChanges: true, areas: ["workspaces"] });
+    expect(sandbox.profile).toBe(profile);
+    restrictFailedCheckouts(sandbox, journal.restrictedCheckouts("writer"));
+    if (newSession) await journal.bindSession("writer", metadata.sessionId);
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_code_receipts WHERE turn_id='writer'").get(), "HEALTHY_CHECKOUT_RETAINS_RECEIPT").toEqual({ n: 1 });
     expect(journal.details("ithaca", "writer")!.missing.some(item => item.reason.includes("code_capture_failed")), "REFUSAL_CAUSE_IS_DURABLE_AND_OWNER_VISIBLE").toBe(true);
+    const workerRoot = profile === "strict" ? join(WORKER_AREA_ROOT, "workspaces") : join(brain, "workspaces");
+    const failedTarget = join(workerRoot, "zeus"), healthyTarget = join(workerRoot, "argo/chart.md");
+    const program = `import {writeFileSync,renameSync} from "node:fs";const attempt=fn=>{try{fn();return true}catch{return false}};console.log(JSON.stringify([attempt(()=>writeFileSync(${JSON.stringify(join(failedTarget, "chart.md"))},"uncovered")),attempt(()=>renameSync(${JSON.stringify(failedTarget)},${JSON.stringify(failedTarget + "-moved")})),attempt(()=>writeFileSync(${JSON.stringify(healthyTarget)},"Scheria\\n"))]));`;
+    let result: unknown;
+    if (profile === "strict") {
+      // Exercise the real namespace/mount planner with an owned copied output.
+      // Native stage acquisition and quota qualification have separate proof.
+      const view = createFixtureWorkerStartupView(brain), stage = join(f.root, "strict-stage");
+      cpSync(join(view.root, "workspaces"), join(stage, "workspaces"), { recursive: true });
+      try {
+        const worker = Bun.spawnSync(workerCommand({ brainPath: brain, startupView: view, sandbox, areaOutput: { source: stage }, env: {}, command: [process.execPath, "--no-env-file", "-e", program] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+        expect(worker.exitCode, worker.stderr.toString()).toBe(0);
+        result = JSON.parse(worker.stdout.toString());
+        cpSync(join(stage, "workspaces/argo/chart.md"), join(checkout, "chart.md"));
+      } finally { await view.cleanup(); }
+    } else {
+      const worker = launchFixtureAgentWorker({ brainPath: brain, sandbox, env: {}, command: [process.execPath, "--no-env-file", "-e", program] });
+      worker.stdin.end();
+      const [code, stdout, stderr] = await Promise.all([worker.exited, new Response(worker.stdout as any).text(), new Response(worker.stderr as any).text()]);
+      expect(code, stderr).toBe(0);
+      result = JSON.parse(stdout);
+    }
+    expect(result, "FAILED_CHECKOUT_READ_ONLY_HEALTHY_CHECKOUT_WRITABLE").toEqual([false, false, true]);
+    await journal.finish("writer");
+    expect(journal.summary("writer").state, "CHECKOUT_GAP_NEVER_READS_CLEAN").toBe("partial");
+    expect(journal.details("ithaca", "writer")!.codeChanges![0]).toMatchObject({ checkout: "workspaces/argo", state: "complete", paths: [{ path: "chart.md", kind: "modified" }] });
     await journal.begin("inspection", { ...metadata, workspaceReadOnly: true }, () => {});
     writeFileSync(join(brain, "note.md"), "Return to Ithaca\n"); await journal.finish("inspection");
     expect(journal.summary("inspection").state, "ONE_CHECKOUT_FAILURE_DOES_NOT_DISABLE_OTHER_TURNS").toBe("complete");
@@ -827,4 +862,49 @@ test("a throwing capture diagnostic cannot erase the durable checkout cause", as
     expect(journal.details("ithaca", "sail")!.missing, "THROWING_CAPTURE_LOG_PRESERVES_CHECKOUT_CAUSE").toContainEqual({ path: "workspaces/argo", reason: expect.stringContaining("Submodule receipts are unsupported") });
     expect(journal.summary("sail").state).toBe("partial");
   } finally { await journal.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+for (const kind of ["empty directory", "dangling gitfile", "invalid HEAD"] as const) test(`checkout discovery excludes ${kind} using Git's repository predicate`, () => {
+  const f = fixture(), workspaces = join(f.root, "workspaces"), invalid = join(workspaces, "ithaca");
+  mkdirSync(invalid, { recursive: true }); renameSync(f.checkout, join(workspaces, "argo"));
+  try {
+    if (kind === "dangling gitfile") writeFileSync(join(invalid, ".git"), "gitdir: ../missing\n");
+    else { mkdirSync(join(invalid, ".git")); if (kind === "invalid HEAD") writeFileSync(join(invalid, ".git/HEAD"), "not a ref\n"); }
+    const result = Bun.spawnSync(["python3", "-I", "-S", "-c", CODE_CHECKOUT_LIST_PROGRAM, workspaces], { env });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(JSON.parse(result.stdout.toString()), "NON_REPOSITORY_STAYS_IN_ORDINARY_OBSERVATION").toEqual(["workspaces/argo"]);
+  } finally { f.close(); }
+});
+
+for (const kind of ["empty directory", "dangling gitfile"] as const) test(`ordinary observation retains files beside ${kind}`, async () => {
+  const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db"), checkout = join(brain, "workspaces/ithaca");
+  mkdirSync(checkout, { recursive: true });
+  if (kind === "empty directory") mkdirSync(join(checkout, ".git"));
+  else writeFileSync(join(checkout, ".git"), "gitdir: ../missing\n");
+  writeFileSync(join(checkout, "chart.md"), "Ithaca\n");
+  const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
+  try {
+    await journal.begin("sail", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspacesWritable: true }, () => {});
+    writeFileSync(join(checkout, "chart.md"), "Scheria\n"); await journal.finish("sail");
+    const details = journal.details("ithaca", "sail")!;
+    expect(details.summary.state, "NON_REPOSITORY_ADMITTED").toBe("complete");
+    expect(details.codeChanges).toBeUndefined();
+    expect(details.changes.map(item => item.path), "NON_REPOSITORY_RETAINS_ORDINARY_FILE_COVERAGE").toEqual(["workspaces/ithaca/chart.md"]);
+  } finally { await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); }
+});
+
+for (const kind of ["unborn checkout", "gitfile"] as const) test(`checkout discovery keeps a valid ${kind} as a capture candidate`, () => {
+  const f = fixture(), workspaces = join(f.root, "workspaces"), candidate = join(workspaces, "ithaca");
+  mkdirSync(candidate, { recursive: true });
+  try {
+    if (kind === "unborn checkout") git(candidate, "init", "-q", "-b", "main");
+    else {
+      renameSync(join(f.checkout, ".git"), join(workspaces, "metadata"));
+      writeFileSync(join(candidate, ".git"), "gitdir: ../metadata\n");
+    }
+    const result = Bun.spawnSync(["python3", "-I", "-S", "-c", CODE_CHECKOUT_LIST_PROGRAM, workspaces], { env });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(JSON.parse(result.stdout.toString()), "GIT_REPOSITORIES_REACH_CAPTURE_GUARD").toEqual(["workspaces/ithaca"]);
+  } finally { f.close(); }
 });

@@ -723,6 +723,11 @@ export function workerCommand(input: WorkerLaunch): string[] {
     // Workspace ancestor pins stay read-only; quarantine child masks come last.
     ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders,
       writable.workspaceReadOnly ? ["workspaces"] : []) : []),
+    // Strict already mounts startup code read-only. Restore no live ancestors:
+    // only overlay failed checkout masks after its writable workspace bind.
+    ...(input.sandbox?.profile === "strict" && input.sandbox.protection ? protectedWorkerMounts(WORKER_AREA_ROOT, {
+      paths: input.sandbox.protection.paths.filter(path => path.mode === "mask_directory" && path.rel.startsWith("workspaces/")), ancestors: [],
+    }) : []),
     ...(input.sandbox?.providerMasks && !maintenance && !transport
       ? providerMaskMounts(brain, input.startupView?.root ?? brain, input.sandbox.providerMasks) : []),
     ...stagedProviderMaskRoots.flatMap(path => ["--tmpfs", path, "--remount-ro", path]),

@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
@@ -218,3 +219,70 @@ test("an automatically admitted conversation task keeps real effects, receipts a
     expect(calls).toBe(1);
   } finally { await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
+
+test("an admission refusal retains its filesystem cause in the error and Activity", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "odysseus-journal-admission-cause-")), brain = resolve(root, "brain"), dbPath = resolve(root, "ui.db");
+  await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
+  let called = false;
+  const backend = makeFakeBackend({ id: "journal-cause", startTurn: async () => { called = true; } });
+  const registry = createStaticBackendRegistry([backend], backend.id);
+  const native = createNativeJournalFixture(brain, root), broker = native.serve();
+  const app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brain, DB_PATH: dbPath, HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry, observability: createRecordingObservability() });
+  const journal = createTurnJournal(app.db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: resolve(root, "cause-objects") });
+  const originalBegin = journal.begin;
+  const host = new WsHost({ brainPath: brain, registry, catalog: app.wsHost.catalog, governedTurns: app.wsHost.governedTurns, activity: app.wsHost.activity ?? undefined,
+    journal: { ...journal, async begin(...args) {
+      // Fail the real policy read after governed preparation, at journal admission.
+      await rm(resolve(brain, ".gitignore"), { force: true }); await mkdir(resolve(brain, ".gitignore"));
+      return originalBegin(...args);
+    } } });
+  try {
+    await journal.ready;
+    const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus journal", ttlSeconds: 60 });
+    const sent: string[] = [], ws = { send: (text: string) => sent.push(text), close() {}, readyState: 1 } as WSContext;
+    const handlers = createWsHandlers(host, principal); await handlers.onOpen(undefined as never, ws);
+    handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Record the voyage", requestId: "cause-request" }) } as MessageEvent, ws);
+    const frames = () => sent.map(text => JSON.parse(text));
+    const deadline = Date.now() + watchdogMs(15_000);
+    while (!frames().some(frame => frame.type === "error") || host.coordinator.isTurnActive()) { if (Date.now() > deadline) throw Error(JSON.stringify(frames())); await Bun.sleep(5); }
+    const failure = frames().find(frame => frame.type === "error");
+    expect(called, "REFUSED_ADMISSION_NEVER_STARTS_BACKEND").toBe(false);
+    expect(failure, "ADMISSION_CAUSE_REACHES_ERROR").toMatchObject({ code: "JOURNAL_UNAVAILABLE", message: expect.stringContaining("Native journal ignore rules require a bounded regular file.") });
+    const lifecycle = JSON.parse((app.db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id=?").get(failure.turnId) as { record: string }).record);
+    expect(lifecycle, "ADMISSION_CAUSE_REACHES_DURABLE_ACTIVITY").toMatchObject({ outcome: "error", reason: expect.stringContaining("Native journal ignore rules require a bounded regular file.") });
+  } finally { await host.close(); await journal.close(); await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+import { runSession } from "../src/ws/run-session.js";
+import { testAuthorization } from "./helpers/principal.js";
+import { createKeyedLock, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
+
+test("a new writable session contains checkout failure in both worker and hosted application admission", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "odysseus-checkout-admission-")), brain = resolve(root, "brain"), checkout = resolve(brain, "workspaces/zeus");
+  await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain); await mkdir(checkout, { recursive: true });
+  await writeFile(resolve(checkout, "chart.md"), "Ithaca\n");
+  for (const args of [["init", "-q", "-b", "main"], ["add", "."], ["commit", "-qm", "Set sail"]]) {
+    const git = Bun.spawnSync(["git", "-C", checkout, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@ithaca.example", ...args], { env: { PATH: "/usr/bin:/bin", HOME: "/nonexistent", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
+    expect(git.exitCode, git.stderr.toString()).toBe(0);
+  }
+  await writeFile(resolve(checkout, ".gitattributes"), "*.md filter=lfs\n");
+  let applied: BrainApplicationResult | undefined, masked = false;
+  const backend = { ...makeFakeBackend({ id: "checkout-admission", startTurn: async request => {
+    masked = request.workerSandbox!.protection!.paths.some(path => path.rel === "workspaces/zeus" && path.mode === "mask_directory");
+    applied = await request.bridge.applyBrain!({ operation: "write", path: "workspaces/zeus/new.md", expectedBaseHash: null, content: "---\ntype: note\ntitle: Raft\n---\nAthena inspects the raft.\n" });
+    request.bridge.emit({ type: "session_info", sessionId: "sess-ithaca", isNew: true });
+    request.bridge.emit({ type: "result", sessionId: "sess-ithaca", durationMs: 1, numTurns: 1, isError: false });
+  } }), brainApplicationPolicy: () => ({ autoAllowed: ["write" as const], available: ["write" as const], lock: createKeyedLock() }) };
+  const native = createNativeJournalFixture(brain, root), broker = native.serve();
+  const app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
+  try {
+    const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus journal", ttlSeconds: 60 });
+    const frames: unknown[] = [];
+    app.wsHost.clients.add({ send: text => frames.push(JSON.parse(String(text))) }, principal.id);
+    await app.wsHost.sessionProfiles!.saveCodeChanges(principal.id, "draft", "ithaca-draft", true);
+    await runSession(app.wsHost, { authorization: testAuthorization(principal.id), text: "Inspect the voyage", attachments: [], draftId: "ithaca-correlation", requestId: "ithaca-request", profileDraftId: "ithaca-draft" });
+    expect(masked, "NEW_SESSION_APPLIES_CHECKOUT_MASK_BEFORE_BACKEND_ENTRY " + JSON.stringify(frames)).toBe(true);
+    expect(applied, "HOSTED_APPLICATION_CANNOT_BYPASS_CHECKOUT_RESTRICTION").toMatchObject({ ok: false, code: "policy_denied", changes: [] });
+    expect(await Bun.file(resolve(checkout, "new.md")).exists()).toBe(false);
+  } finally { await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
+});

@@ -51,7 +51,7 @@ export async function listCodeCheckouts(brainPath: string, root: string, host: M
   const result = await runMaintenanceWorker({ ...host, brainPath, credentials: false, env: { PATH: "/usr/bin:/bin" },
     command: ["/usr/bin/python3", "-I", "-S", "-c", CODE_CHECKOUT_LIST_PROGRAM, workspaces], readPaths: [workspaces],
     outputBytes: 1024 * 1024, tempKind: "git", timeoutMs: 30_000, signal });
-  if (result.exitCode !== 0 || result.killed) throw new Error("Writable checkout classification is unavailable");
+  if (result.exitCode !== 0 || result.killed) throw new Error(`Writable checkout classification is unavailable: ${result.stderr.trim().slice(-1000) || "maintenance worker failed"}`);
   const paths: unknown = JSON.parse(result.stdout);
   if (!Array.isArray(paths) || paths.some(path => typeof path !== "string" || !/^workspaces\/[^/\\\u0000]+$/.test(path) || path.endsWith("/.."))) throw new Error("Invalid checkout inventory");
   return paths as string[];
