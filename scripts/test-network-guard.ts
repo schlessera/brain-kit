@@ -349,12 +349,12 @@ export function recordChosenEnv(env: Readonly<Record<string, string | undefined>
 /**
  * The values a chosen-environment file holds, or none: only from a regular
  * 0600 file owned by this user, directly in the guard's 0700 directory
- * beside `home`, by a path with nothing to resolve, and only for the names
- * {@link recordChosenEnv} writes.
+ * beside `home` (a symbolic link, a FIFO or a path through `..` names none),
+ * and only for the names {@link recordChosenEnv} writes.
  */
 export function readChosenEnv(path: string | undefined, home: string): Record<string, string> {
   const dir = join(dirname(home), CHOSEN_DIR);
-  if (!path || resolve(path) !== path || dirname(path) !== dir) return {};
+  if (!path || dirname(path) !== dir) return {};
   const own = (stats: ReturnType<typeof lstatOrNull>, mode: number) => stats !== null && stats.uid === process.getuid?.() && (stats.mode & 0o777) === mode;
   const folder = lstatOrNull(dir), file = lstatOrNull(path);
   if (!folder?.isDirectory() || !own(folder, 0o700) || !file?.isFile() || !own(file, 0o600)) return {};

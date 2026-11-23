@@ -331,6 +331,12 @@ describe("the guard's gog home", () => {
         isolateGogEnvironment(forged, parent).dispose();
         expect(forged, `FORGED_RECORD_TAKES_NOTHING_BACK: ${label}`).toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file" });
       }
+      // Nor does a record the wrapper wrote, once the directory holding it is open to others.
+      chmodSync(chosenDir, 0o755);
+      const opened: Record<string, string | undefined> = { GOG_HOME: made.home, BRAIN_TEST_GUARD_CHOSEN_ENV: recorded };
+      isolateGogEnvironment(opened, parent).dispose();
+      chmodSync(chosenDir, 0o700);
+      expect(opened, "OPEN_RECORD_DIRECTORY_TAKES_NOTHING_BACK").toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file" });
       rmSync(outside);
       made.dispose();
       expect(readdirSync(parent)).toEqual([]);
