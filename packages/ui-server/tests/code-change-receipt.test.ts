@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import { Readable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { expectRejection } from "./helpers/expect-rejection.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
@@ -997,23 +996,21 @@ test("an early pipeline worker exit keeps a healthy retained pack checkout-local
     const receipt = f.db.query("SELECT pack_hash, json_extract(receipt,'$.state') AS state FROM turn_journal_code_receipts WHERE turn_id='before-pipe-exit' AND checkout='workspaces/argo'").get() as { pack_hash: string; state: string };
     expect(receipt.state).toBe("complete");
     expect(fs.statSync(join(f.root, "objects", receipt.pack_hash)).size, "HEALTHY_PREVIOUS_PACK_EXCEEDS_PIPE_BUFFER").toBeGreaterThan(256 * 1024);
-    const original = workerSdk.runMaintenanceWorker; let epipe = false, observedExit: number | undefined;
+    const original = workerSdk.runMaintenanceWorker; let epipe = false;
     const worker = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
       if (input.command[4] !== CODE_CHANGE_PROGRAM) return original(input);
       if (!input.stdin || typeof input.stdin === "string") throw Error("Expected the checkout capture input stream");
-      const child = spawn("/bin/sh", ["-c", "read line; echo 'Receipt requires an ordinary checkout Git directory' >&2; exit 1"],
-        { cwd: "/", env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: watchdogMs(10_000), killSignal: "SIGKILL" });
-      child.stdout.resume(); child.stderr.setEncoding("utf8"); let stderr = "";
-      child.stderr.on("data", chunk => { stderr += chunk; });
-      const exited = new Promise<number>((resolve, reject) => { child.once("error", reject); child.once("close", code => resolve(code ?? -1)); });
-      const piping = pipeline(Readable.from(input.stdin), child.stdin).catch(error => { epipe = error.code === "EPIPE"; });
-      const [exitCode] = await Promise.all([exited, piping]); observedExit = exitCode;
-      return { stdout: "", stderr, exitCode, killed: false };
+      let header = true;
+      const sink = new Writable({ write(_chunk, _encoding, callback) {
+        if (header) { header = false; callback(); return; }
+        callback(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      } });
+      await pipeline(Readable.from(input.stdin), sink).catch(error => { epipe = error.code === "EPIPE"; });
+      return { stdout: "", stderr: "Receipt requires an ordinary checkout Git directory\n", exitCode: 1, killed: false };
     });
     restoreWorker = () => worker.mockRestore();
     const error = await f.journal.begin("after-pipe-exit", codeMetadata, () => {}).then(() => undefined, error => error);
     expect(epipe, "PIPELINE_EPIPE_EXERCISES_GENERATOR_THROW").toBe(true);
-    expect(observedExit).toBe(1);
     expect(error, "EARLY_WORKER_EXIT_WITH_HEALTHY_PACK_ADMITS_TURN").toBeUndefined();
     expect(f.journal.restrictedCheckouts("after-pipe-exit"), "EARLY_WORKER_EXIT_RESTRICTS_ONLY_ITS_CHECKOUT").toEqual(["workspaces/argo"]);
     const failure = f.db.query("SELECT cause FROM turn_journal_code_failures WHERE turn_id='after-pipe-exit' AND checkout='workspaces/argo'").get() as { cause: string };
