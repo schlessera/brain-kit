@@ -18,7 +18,7 @@ import { createFakeGog } from "./support/fake-gog.ts";
 import { schemaFromSnapshot } from "./support/gog-schema.ts";
 
 /** What the offline test guard adds to every child it spawns (scripts/test-network-guard.ts). */
-const GUARD_ADDED = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE)$/;
+const GUARD_ADDED = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE|BUN_OPTIONS)$/;
 
 const NUL = String.fromCharCode(0);
 const ACCOUNT = "ithaca";

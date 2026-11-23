@@ -180,10 +180,10 @@ describe("output", () => {
 });
 
 describe("what a real gog process receives", () => {
-  // The offline test guard adds its own Git policy and workspace lease to
+  // The offline test guard adds its own Git policy, workspace lease and BUN_OPTIONS to
   // every child it spawns (scripts/test-network-guard.ts); nothing else may
   // appear beside the allow-list.
-  const GUARD = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE)$/;
+  const GUARD = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE|BUN_OPTIONS)$/;
 
   test("environment exactly the allow-list, with GOG_* and other host variables set", async () => {
     const saved = { ...process.env };
