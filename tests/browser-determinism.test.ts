@@ -183,8 +183,14 @@ describe("hosted partitions by reviewed weight", () => {
     const { seconds } = readBrowserCosts();
     expect(selection.filter(spec => seconds[pairKey(spec)] === undefined), "EVERY_PAIR_HAS_A_REVIEWED_WEIGHT").toEqual([]);
     expect(planBrowserPartitions(selection, { cadence: "draft", costs: seconds }).partitions.length, "THE_REVIEWED_WEIGHTS_SPLIT_IT").toBeGreaterThan(1);
-    const withoutTrust = Object.fromEntries(Object.entries(seconds).filter(([key]) => !trust.map(pairKey).includes(key)));
-    expect(planBrowserPartitions(selection, { cadence: "draft", costs: withoutTrust }).partitions, "AT_THE_DEFAULT_ONE_JOB").toHaveLength(1);
+    // The control fixes the two layout weights at the table that planned that job, so a later refresh of them cannot
+    // move it. With those, the trust-settings weights alone are what turn one job into several.
+    const planned = { [pairKey(selection[3]!)]: 6.768, [pairKey(selection[4]!)]: 12.11 };
+    const atDefault = planBrowserPartitions(selection, { cadence: "draft", costs: planned });
+    expect([atDefault.repetitions, atDefault.partitions.length], "AT_THE_DEFAULT_ONE_JOB").toEqual([5, 1]);
+    expect(atDefault.partitions[0]!.estimatedSeconds, "AS_THE_JOB_PLANNED_IT").toBeCloseTo(244.39, 6);
+    const trustWeights = Object.fromEntries(trust.map(spec => [pairKey(spec), seconds[pairKey(spec)]!]));
+    expect(planBrowserPartitions(selection, { cadence: "draft", costs: { ...planned, ...trustWeights } }).partitions.length, "THE_TRUST_WEIGHTS_SPLIT_IT").toBeGreaterThan(1);
   });
 
   test("a selection beyond the maximum partition count is refused, naming its weight and the limit", () => {
