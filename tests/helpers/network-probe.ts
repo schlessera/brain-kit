@@ -277,7 +277,9 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
     writeFileSync(join(root, "cwd", ".env"), [...host, "BRAIN_TEST_GUARD_ENV_FILES_OFF=$GOG_HOME", `BRAIN_TEST_GUARD_CHOSEN_ENV=${forged}`, ""].join("\n"));
     writeFileSync(join(root, "run", ".env"), [...host, ""].join("\n"));
     writeFileSync(join(root, "run", "package.json"), JSON.stringify({ name: "ithaca-dotenv-probe", private: true,
-      scripts: { nested: 'exec "$ODYSSEUS_BUN" --preload "$ODYSSEUS_PRELOAD" -e "$ODYSSEUS_REPORT"' } }));
+      scripts: { nested: 'exec "$ODYSSEUS_BUN" --preload "$ODYSSEUS_PRELOAD" -e "$ODYSSEUS_REPORT"',
+        "nested-dotenv": 'BUN_OPTIONS= exec "$ODYSSEUS_BUN" --preload "$ODYSSEUS_PRELOAD" -e "$ODYSSEUS_REPORT"',
+        unguarded: 'exec "$ODYSSEUS_BUN" -e "$ODYSSEUS_REPORT"' } }));
     const hostFile = join(root, "host.env");
     writeFileSync(hostFile, [...host, ""].join("\n"));
     const names = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_UI_GOG_PATH", "BRAIN_GOOGLE_LEDGER", "APIFY_TOKEN",
@@ -317,6 +319,9 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
         // This shell empties BUN_OPTIONS, so its Bun reads the .env, forged notes and all.
         shell: held(["/bin/sh", "-c", 'BUN_OPTIONS= exec "$0" --preload "$1" -e "$2"', process.execPath, preload, report], "cwd"),
         "bun-run": held([process.execPath, "run", "nested"], "run"),
+        // This script empties BUN_OPTIONS, so its Bun reads the .env.
+        "bun-run-dotenv": held([process.execPath, "run", "nested-dotenv"], "run"),
+        "bun-run-unguarded": held([process.execPath, "run", "unguarded"], "run"),
         "env-file": held([process.execPath, `--env-file=${hostFile}`, "-e", report], "plain"),
         "bun-options": held([process.execPath, "-e", report], "plain", { BUN_OPTIONS: `--env-file=${hostFile}` }),
       },

@@ -401,26 +401,30 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
 
 /**
  * The environment of a child the spawn wrapper does not rewrite into a
- * guarded Bun, such as a shell, or of a Bun Shell command: `--no-env-file`
- * is added to BUN_OPTIONS, which every Bun reads, so a Bun the child starts
- * reads no `.env` from its working directory (#4489). An explicit
- * `--env-file` still loads; a guarded descendant sanitizes what it holds
- * either way ({@link isolateGogEnvironment}).
+ * guarded Bun, such as a shell, of a `bun run` or `bun x` child, which hands
+ * a package script or executable its environment without running a preload,
+ * and of a Bun Shell command: `--no-env-file` is added to BUN_OPTIONS, which
+ * every Bun reads, so a Bun the child starts reads no `.env` from its working
+ * directory (#4489). An explicit `--env-file` still loads; a guarded
+ * descendant sanitizes what it holds either way ({@link isolateGogEnvironment}).
  *
  * Only `--no-env-file` is added, not the child preload. The preload drops
- * every host-only name and takes back only what a record names, and one
- * record serves one Bun, while a shell may start any number; a test's
- * chosen value would be lost. BUN_OPTIONS also reaches `bun install` and
- * `bun build`, which a guard preload must not change. Network access by
- * such a child is outside this guard (#3672).
+ * every host-only name and takes back only what a record names, and the
+ * wrapper writes a record only for a Bun it starts itself; a Bun a shell
+ * starts would find none, so a test's chosen values would be lost.
+ * BUN_OPTIONS also reaches `bun install` and `bun build`, which a guard
+ * preload must not change. Network access by such a child is outside this
+ * guard (#3672).
  *
  * The guard adds it to neither the test process's own environment nor a
- * guarded Bun child's: code under test reads BUN_OPTIONS as a runtime
- * override (`attemptCiBuild`, `scripts/ci-build-operation.ts`).
+ * guarded Bun child that runs a test, a file or `-e` code: code under test
+ * reads BUN_OPTIONS as a runtime override (`attemptCiBuild`,
+ * `scripts/ci-build-operation.ts`). Only a final `--no-env-file` counts as
+ * present; the same text inside a quoted value is not the flag.
  */
-function testBunOptions(env: Record<string, string | undefined>): Record<string, string | undefined> {
+export function testBunOptions(env: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
   const options = env.BUN_OPTIONS?.trim() ?? "";
-  if (options.split(/\s+/).includes("--no-env-file")) return { ...env };
+  if (options === "--no-env-file" || options.endsWith(" --no-env-file")) return { ...env };
   return { ...env, BUN_OPTIONS: options ? `${options} --no-env-file` : "--no-env-file" };
 }
 
@@ -549,9 +553,9 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
         // builtin/subcommand first so child tests remain child tests. Nor
         // does the child read a `.env` file from its working directory, so a
         // name the guard leaves alone (HOME, a D-Bus address) comes only from
-        // its spawner. Nothing relies on that: an explicit `--env-file`, one in
-        // BUN_OPTIONS, or a Bun a script starts still reads one, and the
-        // child's guard sanitizes what it holds either way.
+        // its spawner. Nothing relies on that: an explicit `--env-file` or one
+        // in BUN_OPTIONS still loads, and the child's guard sanitizes what it
+        // holds either way.
         const index = ["test", "run"].includes(cmd[1] ?? "") ? 2 : 1;
         const guarded = [...cmd.slice(0, index), "--preload", childPreload, "--no-env-file", ...cmd.slice(index)];
         args[0] = Array.isArray(first) ? guarded : { ...first, cmd: guarded };
@@ -566,9 +570,11 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
       const options = (Array.isArray(first) ? args[1] ?? {} : args[0]) as { env?: Record<string, string | undefined> };
       // Fixture helpers often replace env completely, including provider-history
       // probes. Carry test Git policy through those children as well as shells.
-      // A shell, or any other child that is not a guarded Bun, carries
-      // `--no-env-file` to the Bun it starts.
-      const childEnv = guardedBun ? testGitEnvironment(options.env ?? process.env) : testBunOptions(testGitEnvironment(options.env ?? process.env));
+      // A shell, any other child that is not a guarded Bun, and a `bun run` or
+      // `bun x` child, which runs a script or executable with no preload,
+      // carry `--no-env-file` to the Bun they start.
+      const dispatches = guardedBun && ["run", "x"].includes(cmd[1] ?? "");
+      const childEnv = guardedBun && !dispatches ? testGitEnvironment(options.env ?? process.env) : testBunOptions(testGitEnvironment(options.env ?? process.env));
       // A guarded Bun child's own guard drops every GOG_* name it is given;
       // this one makes it keep this process's gog home rather than make one.
       // Its guard drops every host-only name and repoints every XDG base, then
@@ -627,7 +633,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
     get(target, key, receiver) {
       if (key === "env" || key === "cwd" || key === "nothrow" || key === "throws") {
         return (...args: unknown[]) => {
-          if (key === "env") defaults.env = args[0] as Env | undefined;
+          // A copy, as Bun keeps one: a later change to the caller's object reaches no command.
+          if (key === "env") defaults.env = args[0] ? { ...(args[0] as Env) } : undefined;
           if (key === "cwd") defaults.cwd = args[0] as string | undefined;
           Reflect.apply(target[key] as (...rest: unknown[]) => unknown, target, args);
           return guardedShell;

@@ -180,10 +180,11 @@ describe("output", () => {
 });
 
 describe("what a real gog process receives", () => {
-  // The offline test guard adds its own Git policy, workspace lease and BUN_OPTIONS to
-  // every child it spawns (scripts/test-network-guard.ts); nothing else may
-  // appear beside the allow-list.
-  const GUARD = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE|BUN_OPTIONS)$/;
+  // The offline test guard adds its own Git policy and workspace lease to
+  // every child it spawns, and to this one BUN_OPTIONS of exactly
+  // `--no-env-file` (scripts/test-network-guard.ts); nothing else may appear
+  // beside the allow-list.
+  const GUARD = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE)$/;
 
   test("environment exactly the allow-list, with GOG_* and other host variables set", async () => {
     const saved = { ...process.env };
@@ -197,7 +198,7 @@ describe("what a real gog process receives", () => {
       expect((await transport.invoke("gmail.draft.save", write())).ok).toBe(true);
       const calls = fake.calls();
       expect(calls).toHaveLength(2);
-      for (const call of calls) expect(call.env_names.filter(name => !GUARD.test(name))).toEqual([...GOG_ENVIRONMENT_NAMES].sort());
+      for (const call of calls) expect(call.env_names.filter(name => !GUARD.test(name) && !(name === "BUN_OPTIONS" && call.bun_options === "--no-env-file"))).toEqual([...GOG_ENVIRONMENT_NAMES].sort());
     } finally {
       for (const name of Object.keys(process.env)) if (!(name in saved)) delete process.env[name];
       Object.assign(process.env, saved);

@@ -50,7 +50,7 @@ const ROOT = resolve(import.meta.dir, "../../..");
 const LABELS = JSON.parse(readFileSync(join(ROOT, "packages/common/tests/fixtures/gog/labels-list.json"), "utf8"));
 const PASSWORD = "penelope-weaves-by-day-and-unweaves-by-night";
 const GOOGLE_NAMES = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER", "BRAIN_UI_GOG_PATH", "GOG_HOME", "GOG_ACCESS_TOKEN", "GOG_KEYRING_PASSWORD", "BRAIN_GOOGLE_HOME"] as const;
-const GUARD = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE|BUN_OPTIONS)$/;
+const GUARD = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE)$/;
 const leaked = (env: Record<string, string | undefined>) => Object.keys(env).filter(name => /^(GOG_|BRAIN_UI_GOOGLE_|BRAIN_GOOGLE_|BRAIN_UI_GOG_PATH$)/.test(name) || String(env[name]).includes(PASSWORD));
 /** The Bun runtime's directory, which every worker binds, and its parent. */
 const RUNTIME = dirname(realpathSync(process.execPath));
@@ -539,8 +539,8 @@ describe("google availability probe", () => {
     expect(more, "ONE_CONNECTED_CHECK").toEqual([]);
     expect(call!.command, "CONNECTED_CHECK_IS_LABELS_LIST").toBe("gmail.labels.list");
     expect(call!.argv, "CONNECTED_CHECK_DISCIPLINE").toEqual(expect.arrayContaining(["--readonly", "--gmail-no-send", "--enable-commands-exact=gmail.labels.list", `--account=${account}`]));
-    // The offline test guard adds its own Git policy, workspace lease and, to a child that is not Bun, BUN_OPTIONS (scripts/test-network-guard.ts).
-    expect(call!.env_names.filter(name => !GUARD.test(name)).sort(), "GOG_ENVIRONMENT_IS_THE_ALLOW_LIST").toEqual([...GOG_ENVIRONMENT_NAMES].sort());
+    // The offline test guard adds its own Git policy, workspace lease and, to a child that is not Bun, a BUN_OPTIONS of exactly `--no-env-file` (scripts/test-network-guard.ts).
+    expect(call!.env_names.filter(name => !GUARD.test(name) && !(name === "BUN_OPTIONS" && call!.bun_options === "--no-env-file")).sort(), "GOG_ENVIRONMENT_IS_THE_ALLOW_LIST").toEqual([...GOG_ENVIRONMENT_NAMES].sort());
     // Within the window the probe checks the home and the pin, not Google; after it, Google again.
     clock += 60_000;
     expect(reasonOf(await google.status(account))).toBe("available");

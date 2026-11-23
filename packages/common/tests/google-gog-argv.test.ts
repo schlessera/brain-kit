@@ -18,7 +18,7 @@ import { createFakeGog } from "./support/fake-gog.ts";
 import { schemaFromSnapshot } from "./support/gog-schema.ts";
 
 /** What the offline test guard adds to every child it spawns (scripts/test-network-guard.ts). */
-const GUARD_ADDED = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE|BUN_OPTIONS)$/;
+const GUARD_ADDED = /^(?:GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|BRAIN_WORKSPACE_LEASE)$/;
 
 const NUL = String.fromCharCode(0);
 const ACCOUNT = "ithaca";
@@ -287,7 +287,7 @@ describe("the schema snapshot", () => {
       expect(snapshotFromSchema(await schemaFromBinary(fake.executable) as Parameters<typeof snapshotFromSchema>[0])).toEqual(GOG_SCHEMA_SNAPSHOT);
       const [call] = fake.callsOf("schema");
       expect(call!.argv).toEqual(["schema", "--json"]);
-      expect(call!.env_names.filter(name => !GUARD_ADDED.test(name))).toEqual([...GOG_ENVIRONMENT_NAMES].sort());
+      expect(call!.env_names.filter(name => !GUARD_ADDED.test(name) && !(name === "BUN_OPTIONS" && call!.bun_options === "--no-env-file"))).toEqual([...GOG_ENVIRONMENT_NAMES].sort());
     } finally {
       fake.dispose();
     }
