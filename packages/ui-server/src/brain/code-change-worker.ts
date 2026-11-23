@@ -35,7 +35,16 @@ export async function captureCodeChanges(brainPath: string, checkout: string, pr
     const { pack, ...metadata } = previous ?? {};
     yield Buffer.from(JSON.stringify({ ...metadata, ...(pack ? { pack_stream: true } : {}) }) + "\n");
     if (pack) {
-      try { yield* pack; } catch (error) { sourceError = error; throw error; }
+      const iterator = pack[Symbol.asyncIterator]();
+      try {
+        for (;;) {
+          let step: IteratorResult<Uint8Array>;
+          try { step = await iterator.next(); } catch (error) { sourceError = error; throw error; }
+          if (step.done) return;
+          // A pipe consumer may throw here; that is not a pack read failure.
+          yield step.value;
+        }
+      } finally { await iterator.return?.().catch(() => {}); }
     }
   }
   const result = await runMaintenanceWorker({ ...host, brainPath, credentials: false, env: { PATH: "/usr/bin:/bin" },

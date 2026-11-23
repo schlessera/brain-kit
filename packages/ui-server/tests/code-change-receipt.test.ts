@@ -1,3 +1,6 @@
+import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { expectRejection } from "./helpers/expect-rejection.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { expect, test } from "bun:test";
@@ -981,4 +984,43 @@ test("retained pack corruption refuses writable admission with its original read
     expect(f.journal.scopeHold("inspect-after-corruption", 0), "UNRELATED_NOTE_ADMISSION_SURVIVES_RETAINED_PACK_CORRUPTION").toMatchObject({ cause: "scope", causeTurnId: "inspect-after-corruption" });
     await f.journal.finish("inspect-after-corruption");
   } finally { worker.mockRestore(); await f.close(); }
+});
+
+
+test("an early pipeline worker exit keeps a healthy retained pack checkout-local", async () => {
+  const f = inBrainCodeJournal(); let restoreWorker = () => {};
+  const cargo = Buffer.alloc(1024 * 1024); let seed = 0x6f647973;
+  for (let index = 0; index < cargo.length; index++) { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; cargo[index] = seed & 255; }
+  writeFileSync(join(f.checkout, "cargo.bin"), cargo);
+  try {
+    await f.journal.begin("before-pipe-exit", codeMetadata, () => {}); await f.journal.finish("before-pipe-exit");
+    const receipt = f.db.query("SELECT pack_hash, json_extract(receipt,'$.state') AS state FROM turn_journal_code_receipts WHERE turn_id='before-pipe-exit' AND checkout='workspaces/argo'").get() as { pack_hash: string; state: string };
+    expect(receipt.state).toBe("complete");
+    expect(fs.statSync(join(f.root, "objects", receipt.pack_hash)).size, "HEALTHY_PREVIOUS_PACK_EXCEEDS_PIPE_BUFFER").toBeGreaterThan(256 * 1024);
+    const original = workerSdk.runMaintenanceWorker; let epipe = false, observedExit: number | undefined;
+    const worker = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
+      if (input.command[4] !== CODE_CHANGE_PROGRAM) return original(input);
+      if (!input.stdin || typeof input.stdin === "string") throw Error("Expected the checkout capture input stream");
+      const child = spawn("/bin/sh", ["-c", "read line; echo 'Receipt requires an ordinary checkout Git directory' >&2; exit 1"],
+        { cwd: "/", env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: watchdogMs(10_000), killSignal: "SIGKILL" });
+      child.stdout.resume(); child.stderr.setEncoding("utf8"); let stderr = "";
+      child.stderr.on("data", chunk => { stderr += chunk; });
+      const exited = new Promise<number>((resolve, reject) => { child.once("error", reject); child.once("close", code => resolve(code ?? -1)); });
+      const piping = pipeline(Readable.from(input.stdin), child.stdin).catch(error => { epipe = error.code === "EPIPE"; });
+      const [exitCode] = await Promise.all([exited, piping]); observedExit = exitCode;
+      return { stdout: "", stderr, exitCode, killed: false };
+    });
+    restoreWorker = () => worker.mockRestore();
+    const error = await f.journal.begin("after-pipe-exit", codeMetadata, () => {}).then(() => undefined, error => error);
+    expect(epipe, "PIPELINE_EPIPE_EXERCISES_GENERATOR_THROW").toBe(true);
+    expect(observedExit).toBe(1);
+    expect(error, "EARLY_WORKER_EXIT_WITH_HEALTHY_PACK_ADMITS_TURN").toBeUndefined();
+    expect(f.journal.restrictedCheckouts("after-pipe-exit"), "EARLY_WORKER_EXIT_RESTRICTS_ONLY_ITS_CHECKOUT").toEqual(["workspaces/argo"]);
+    const failure = f.db.query("SELECT cause FROM turn_journal_code_failures WHERE turn_id='after-pipe-exit' AND checkout='workspaces/argo'").get() as { cause: string };
+    const cause = JSON.parse(failure.cause);
+    expect(cause.errorClass, "EARLY_WORKER_EXIT_RETAINS_CHECKOUT_REFUSAL_CLASS").toBe("CheckoutCaptureRefused");
+    expect(cause.message, "EARLY_WORKER_EXIT_RETAINS_CHECKOUT_STDERR_CAUSE").toContain("Receipt requires an ordinary checkout Git directory");
+    expect(cause.message, "TRANSPORT_THROW_NEVER_REPLACES_THE_CHECKOUT_CAUSE").not.toContain("throw");
+    await f.journal.finish("after-pipe-exit");
+  } finally { restoreWorker(); await f.close(); }
 });
