@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   decideGoogleCall, GOOGLE_NOT_FOUND_MESSAGE, resolveGooglePolicy,
-  type GoogleDecision, type GoogleDecisionCall, type GoogleDecisionFacts, type GooglePolicy, type GooglePolicyInput,
+  type GoogleDecision, type GoogleDecisionCall, type GoogleDecisionFacts, type GooglePolicy, type GooglePolicyInput, type GoogleRefusalCause,
 } from "@schlessera/brain-common/internal/google-operations";
 
 // Odysseus's household mail: ids have Gmail's shapes, addresses live on example.com.
@@ -35,15 +35,39 @@ const draftUpdate: GoogleDecisionCall = {
   facts: { gmail: { draft: { draft_id: DRAFT, created_by_brain_kit: true, current_fingerprint: FINGERPRINT, recorded_fingerprint: FINGERPRINT } } },
 };
 
-/** The parts of a decision a table compares. */
-interface Verdict { outcome: GoogleDecision["outcome"]; cause?: string; admission?: string; offers?: { allow_always: boolean; allow_for_session: boolean } }
-const verdict = (decision: GoogleDecision): Verdict => decision.outcome === "refused"
-  ? { outcome: decision.outcome, cause: decision.cause }
-  : decision.outcome === "admitted"
-    ? { outcome: decision.outcome, admission: decision.admission }
-    : { outcome: decision.outcome, cause: decision.cause, offers: decision.offers };
+/**
+ * The §6 step each refusal is made at, written from the plan's numbered
+ * procedure (1 availability, 2 input, 5 mode, 6 entities, 7 limits, 9 card
+ * need and posture, 10 routing), not from the implementation.
+ */
+const PLAN_STEP: Record<GoogleRefusalCause, number> = {
+  no_principal: 1, not_owner: 1, not_enabled: 1, policy_invalid: 1, no_account: 1, service_not_enabled: 1, decision_error: 1,
+  unknown_operation: 2, schema: 2, operation_mismatch: 2,
+  class_denied: 5, operation_denied: 5,
+  target_labels_unknown: 6, hidden_label: 6, recipients_unknown: 6, send_to_empty: 6, no_recipients: 6, too_many_recipients: 6, recipient_not_allowed: 6,
+  item_count_unknown: 7, items_per_call: 7,
+  autonomous_turn: 9, posture_unknown: 9, voice_posture: 9, no_approval_surface: 9, standalone_irreversible: 9, standalone_not_allowed: 9, standalone_needs_card: 9,
+  recipient_restricted: 10, recipient_unproven: 10,
+};
 
-const refusal = (decision: GoogleDecision) => decision.outcome === "refused" ? { cause: decision.cause, ...decision.error } : { outcome: decision.outcome };
+/**
+ * The parts of a decision a table compares. A refusal carries the step that
+ * made it; an admission or a card carries none, so a stray one is a mismatch.
+ */
+interface Verdict { outcome: GoogleDecision["outcome"]; step?: unknown; cause?: string; admission?: string; offers?: { allow_always: boolean; allow_for_session: boolean } }
+const strayStep = (decision: GoogleDecision) => "step" in decision ? { step: (decision as { step: unknown }).step } : {};
+const verdict = (decision: GoogleDecision): Verdict => decision.outcome === "refused"
+  ? { outcome: decision.outcome, step: decision.step, cause: decision.cause }
+  : decision.outcome === "admitted"
+    ? { outcome: decision.outcome, ...strayStep(decision), admission: decision.admission }
+    : { outcome: decision.outcome, ...strayStep(decision), cause: decision.cause, offers: decision.offers };
+
+/** A refusal's cause and error; every refusal read through it is made at its cause's §6 step. */
+const refusal = (decision: GoogleDecision) => {
+  if (decision.outcome !== "refused") return { outcome: decision.outcome };
+  expect(decision.step, `REFUSAL_STEP: ${decision.cause}`).toBe(PLAN_STEP[decision.cause]);
+  return { cause: decision.cause, ...decision.error };
+};
 
 // ------------------------------------------------------------------ the decision table
 
@@ -89,7 +113,7 @@ const PER_TURN = 25;
  * §10 and rulings 1, 4 and 6), not from the implementation.
  */
 function expected(s: Scenario): Verdict {
-  const refuse = (cause: string) => ({ outcome: "refused" as const, cause });
+  const refuse = (cause: GoogleRefusalCause) => ({ outcome: "refused" as const, step: PLAN_STEP[cause], cause });
   const { computed, base } = KINDS[s.kind];
   // §6 step 1: the caller is the brain's owner (Q9).
   if (s.principal === "not_owner") return refuse("not_owner");
