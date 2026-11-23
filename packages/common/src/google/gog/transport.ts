@@ -16,9 +16,10 @@
  * resolves to the file it was about and that file and its directory keep
  * their identity, so repairing a mode, owner or file is seen at once; a
  * transient one (a probe that timed out, was killed or could not start, a
- * file that moved while it was read) is verified again after
- * {@link GOG_PIN_RETRY_MS}, and again after each further backoff, never
- * given up. The reason is in every refusal the call returns.
+ * file that moved while it was read, a check that threw) is verified again
+ * after {@link GOG_PIN_RETRY_MS}, and again after each further backoff, never
+ * given up. The pin check never rejects, so what is cached is always an
+ * answer. The reason is in every refusal the call returns.
  *
  * A `gmail.search` is the search and then one thread read per hit: gog's
  * search output carries only the first message's labels, by name, so the

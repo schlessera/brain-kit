@@ -39,9 +39,11 @@
  * Every failure is `transport_incompatible` with one of
  * {@link GOG_PIN_REFUSALS} as its reason, and the result says whether it is
  * transient ({@link GOG_PIN_TRANSIENT_REFUSALS}): a probe that timed out, was
- * killed or could not be spawned, or a file that changed while it was being
- * verified, which the transport tries again after a backoff. Any other
- * refusal stands until the file's identity changes.
+ * killed or could not be spawned, a file that changed while it was being
+ * verified, or a check that threw (a read of the binary that failed, say),
+ * which the transport tries again after a backoff. Any other refusal stands
+ * until the file's identity changes. The check never rejects, and no
+ * exception's text, which may hold a path, reaches its result.
  */
 import { closeSync, fstatSync, openSync, readSync, realpathSync, statSync, type BigIntStats } from "node:fs";
 import { dirname } from "node:path";
@@ -57,11 +59,14 @@ export const GOG_PIN_REFUSALS = [
   "binary_writable", "directory_owner", "directory_writable", "binary_changed", "hash_not_pinned", "version_failed",
   "version_not_pinned", "version_mismatch", "schema_unreadable", "schema_version", "schema_build", "exit_codes",
   "missing_command", "missing_flag", "flag_type", "missing_positional", "probe_timeout", "probe_signal", "probe_spawn_failed",
+  "verification_failed",
 ] as const;
 export type GogPinRefusal = typeof GOG_PIN_REFUSALS[number];
 
 /** Refusals that say nothing lasting about the file: the transport verifies it again after a backoff. */
-export const GOG_PIN_TRANSIENT_REFUSALS: readonly GogPinRefusal[] = Object.freeze(["binary_changed", "probe_timeout", "probe_signal", "probe_spawn_failed"]);
+export const GOG_PIN_TRANSIENT_REFUSALS: readonly GogPinRefusal[] = Object.freeze([
+  "binary_changed", "probe_timeout", "probe_signal", "probe_spawn_failed", "verification_failed",
+]);
 
 /** One file's identity, as `stat` reports it; nanosecond times and 64-bit numbers as decimal strings. */
 export interface GogFileIdentity {
@@ -155,7 +160,8 @@ function checkPlace(identity: GogBinaryIdentity, uid: number): GogPinRefusal | n
 /**
  * The sha256 of the file `identity` describes, read through one descriptor;
  * `binary_changed` if the descriptor is not that file or it moved while read.
- * Internal: exported for tests.
+ * A descriptor that cannot be read throws; the pin check answers that as
+ * `verification_failed`. Internal: exported for tests.
  */
 export function hashOpen(path: string, identity: GogBinaryIdentity): { sha256: string } | "binary_missing" | "binary_changed" {
   let fd: number;
@@ -256,21 +262,42 @@ export function checkGogSchema(schema: unknown, snapshot: GogSchemaSnapshot, ver
   return null;
 }
 
-/** The pin check with its parameters given. Internal: tests reach it through this module directly. */
+/**
+ * The pin check with its parameters given. Internal: tests reach it through this module directly.
+ *
+ * Never rejects. An exception in any step is `verification_failed`, transient,
+ * about the file the check had reached, or the one the path names now when it
+ * threw before reading one, so the transport's backoff stands while that file
+ * is unchanged. The exception itself is dropped: its text may hold a path.
+ */
 export async function verifyGogBinaryWith(path: string, options: GogPinOptions, parameters: GogPinParameters): Promise<GogPinResult> {
   let identity: GogBinaryIdentity | null = null;
   const refuse = (reason: GogPinRefusal): GogPinResult =>
     ({ ok: false, reason, path: identity?.target ?? path, transient: GOG_PIN_TRANSIENT_REFUSALS.includes(reason), identity });
+  try {
+    return await pinSteps(path, options, parameters, refuse, seen => { identity = seen; });
+  } catch {
+    identity ??= path.startsWith("/") ? gogBinaryIdentity(path) : null;
+    return refuse("verification_failed");
+  }
+}
+
+/** Steps 1 to 5 in order, telling `reached` the identity they check. A step that throws is the caller's to answer. */
+async function pinSteps(
+  path: string, options: GogPinOptions, parameters: GogPinParameters,
+  refuse: (reason: GogPinRefusal) => GogPinResult, reached: (identity: GogBinaryIdentity | null) => void,
+): Promise<GogPinResult> {
   const platform = parameters.platform;
   if (!platform || !parameters.pins.some(pin => pin.sha256[platform])) return refuse("platform_not_pinned");
   if (!path.startsWith("/")) return refuse("not_absolute");
-  identity = gogBinaryIdentity(path);
-  if (!identity) return refuse("binary_missing");
-  const real = identity.target;
-  const place = checkPlace(identity, parameters.uid);
+  const seen = gogBinaryIdentity(path);
+  reached(seen);
+  if (!seen) return refuse("binary_missing");
+  const real = seen.target;
+  const place = checkPlace(seen, parameters.uid);
   if (place) return refuse(place);
 
-  const hashed = hashOpen(real, identity);
+  const hashed = hashOpen(real, seen);
   if (typeof hashed === "string") return refuse(hashed);
   const pin = parameters.pins.find(candidate => candidate.sha256[platform] === hashed.sha256);
   if (!pin) return refuse("hash_not_pinned");
@@ -302,8 +329,8 @@ export async function verifyGogBinaryWith(path: string, options: GogPinOptions, 
   const schemaRefusal = checkGogSchema(schema, parameters.snapshot, pin.version);
   if (schemaRefusal) return refuse(schemaRefusal);
 
-  if (!sameGogIdentity(gogBinaryIdentity(path), identity)) return refuse("binary_changed");
-  return { ok: true, path: real, version: pin.version, commit: pin.commit, platform, sha256: hashed.sha256, identity };
+  if (!sameGogIdentity(gogBinaryIdentity(path), seen)) return refuse("binary_changed");
+  return { ok: true, path: real, version: pin.version, commit: pin.commit, platform, sha256: hashed.sha256, identity: seen };
 }
 
 /**

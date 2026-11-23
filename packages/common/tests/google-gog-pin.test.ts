@@ -12,6 +12,7 @@ import { gogEnvironment } from "../src/google/gog/environment.ts";
 import { checkGogSchema, gogBinaryIdentity, hashOpen, verifyGogBinaryWith, type GogPinParameters } from "../src/google/gog/pin.ts";
 import { GOG_SCHEMA_SNAPSHOT } from "../src/google/gog/snapshot.ts";
 import { createGogTransportInternals, GOG_PIN_RETRY_MS } from "../src/google/gog/transport.ts";
+import { failNextRead } from "./support/failing-read.ts";
 import { createFakeGog, type FakeGog, type FakeGogScenario } from "./support/fake-gog.ts";
 import { schemaFromSnapshot } from "./support/gog-schema.ts";
 
@@ -20,9 +21,14 @@ const labels = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/gog/label
 const sha256 = (path: string) => new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex");
 
 const fakes: FakeGog[] = [];
+const restores: (() => void)[] = [];
 afterEach(() => {
+  for (const restore of restores.splice(0)) restore();
   for (const fake of fakes.splice(0)) fake.dispose();
 });
+
+/** What a promise settled to; a rejection is a value here, so a test asserts it rather than throwing. */
+const settled = <T>(pending: Promise<T>) => pending.then(value => value, (error: unknown) => ({ rejected: String(error) }));
 
 function setup(scenario: FakeGogScenario = {}, schema: unknown = schemaFromSnapshot(GOG_SCHEMA_SNAPSHOT)) {
   const fake = createFakeGog({ version: VERSION, schema: { stdout: schema }, ...scenario });
@@ -222,6 +228,21 @@ describe("the schema check", () => {
     const { verify } = setup({ schema: { stdout: "{ not json" } });
     expect(await verify()).toMatchObject({ ok: false, reason: "schema_unreadable" });
   });
+
+  test("a step that throws, before the file is read or after both probes ran, is the transient verification_failed about the file, and never a rejection", async () => {
+    const { fake, parameters, env } = setup();
+    const identity = gogBinaryIdentity(fake.executable);
+    // A parameter that throws when the check first reads it: the platform comes first, the snapshot last.
+    const exploding = (name: "platform" | "snapshot") => Object.defineProperty({ ...parameters }, name, {
+      get() { throw new Error(`${name} exploded at ${fake.executable}`); },
+    }) as GogPinParameters;
+    for (const name of ["platform", "snapshot"] as const) {
+      const result = await settled(verifyGogBinaryWith(fake.executable, { env }, exploding(name)));
+      expect(result, `PIN_STEP_THROW_IS_A_TRANSIENT_REFUSAL: ${name}`).toEqual({ ok: false, reason: "verification_failed", path: fake.executable, transient: true, identity });
+      expect(JSON.stringify(result), `PIN_STEP_THROW_TEXT_WITHHELD: ${name}`).not.toContain("exploded");
+    }
+    expect(fake.callsOf("version"), "ONLY_THE_LATE_THROW_CAME_AFTER_THE_PROBES").toHaveLength(1);
+  });
 });
 
 describe("the transport re-checks the binary's identity", () => {
@@ -366,6 +387,25 @@ describe("the transport re-checks the binary's identity", () => {
     clock += 10 * GOG_PIN_RETRY_MS;
     expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("version_mismatch"));
     expect(fake.callsOf("version")).toHaveLength(1);
+  });
+
+  test("a pin check that throws (a read of the binary that failed) is a transient refusal: it stands until the backoff ends, then the binary is verified again and runs", async () => {
+    const { fake, parameters } = setup({ "gmail.labels.list": { stdout: labels } });
+    const read = failNextRead(fake.executable);
+    restores.push(read.restore);
+    let clock = 1_000;
+    const transport = pinnedTransport(fake, parameters, () => clock);
+    const first = await settled(transport.execute("gmail.labels.list", {}));
+    expect(first, "PIN_THROW_IS_A_TRANSIENT_REFUSAL").toEqual(refusedWith("verification_failed"));
+    expect(JSON.stringify(first), "PIN_THROW_TEXT_WITHHELD").not.toMatch(/EIO|fake-gog-/);
+    clock += GOG_PIN_RETRY_MS - 1;
+    expect(await settled(transport.availability()), "PIN_THROW_STANDS_DURING_THE_BACKOFF").toEqual(refusedWith("verification_failed"));
+    expect(await settled(transport.execute("gmail.labels.list", {})), "PIN_THROW_STANDS_DURING_THE_BACKOFF").toEqual(refusedWith("verification_failed"));
+    expect({ reads: read.reads(), calls: fake.calls() }, "NOT_VERIFIED_AGAIN_DURING_THE_BACKOFF").toEqual({ reads: 1, calls: [] });
+    clock += 1;
+    expect(await settled(transport.execute("gmail.labels.list", {})), "VERIFIED_AGAIN_AFTER_THE_BACKOFF").toMatchObject({ ok: true });
+    expect(await settled(transport.availability()), "AVAILABLE_AFTER_THE_BACKOFF").toMatchObject({ ok: true, fake: false, pin: { version: "0.48.1" } });
+    expect([fake.callsOf("version").length, fake.callsOf("gmail.labels.list").length], "ONE_VERIFICATION_ONE_READ").toEqual([1, 1]);
   });
 
   const linkedTransport = (link: string, fake: FakeGog, parameters: GogPinParameters, now?: () => number) => createGogTransportInternals({
