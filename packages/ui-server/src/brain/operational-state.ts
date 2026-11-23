@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { mountPointsUnder, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
+import type { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import type { GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { journalDatabasePath } from "../db/journal-database.js";
 
@@ -157,7 +158,7 @@ function checkOperationalPath(brain: string, entry: StatePath): OperationalState
 
 function unverified(cause: unknown): OperationalStateRefusal {
   return { available: false, reason: "private_state_unverified",
-    detail: `OperationalStateAliasVerificationUnavailable: ${cause instanceof Error ? cause.message : String(cause)}; governed execution is restricted until a later status or admission check can verify private state.` };
+    detail: `OperationalStateAliasVerificationUnavailable: ${cause instanceof Error ? cause.message : String(cause)}; brain reads are refused until a later status or admission check can verify private state.` };
 }
 
 /** Retry each complete identity comparison, including destinations already visited. */
@@ -177,11 +178,46 @@ export function operationalStateRefusal(input: OperationalStateLayout): Operatio
   return incomplete;
 }
 
+/** No brain reader may turn an incomplete isolation check into strict fallback. */
+export function assertOperationalStateReadable(input: OperationalStateLayout): void {
+  const refusal = operationalStateRefusal(input);
+  if (!refusal) return;
+  throw Object.assign(new Error(`${refusal.reason}: ${refusal.detail}`), {
+    name: refusal.reason === "private_state_unverified" ? "OperationalStateAliasVerificationUnavailable" : "OperationalStateInBrainError",
+    reason: refusal.reason, status: refusal,
+  });
+}
+
+type NativeManager = ReturnType<typeof createNativeBrainManagerClient>;
+/** All server/cron startup views share this concrete client, including direct SDK callers. */
+export function withOperationalStateReadGuard<T extends Pick<NativeManager, "checkpoint" | "release"> & Partial<Pick<NativeManager,
+  "prepareStage" | "releaseStage" | "prepareTurnTree" | "releaseTurnTree" | "readCheckpoint" | "statCheckpoint" | "listCheckpoint">>>(
+  manager: T, layout: OperationalStateLayout): T {
+  // A pre-admission refusal created no native root. The startup-view owner
+  // still releases its fresh ID on failure; acknowledge only those known IDs.
+  const checkpoints = new Set<string>(), stages = new Set<string>(), trees = new Set<string>();
+  const admit = (id: string, refused: Set<string>) => {
+    try { assertOperationalStateReadable(layout); } catch (error) { refused.add(id); throw error; }
+    refused.delete(id);
+  };
+  return { ...manager,
+    async checkpoint(id: string, signal?: AbortSignal) { admit(id, checkpoints); return manager.checkpoint(id, signal); },
+    async release(id: string, signal?: AbortSignal) { return checkpoints.delete(id) ? { id, state: "deleted" as const } : manager.release(id, signal); },
+    ...(manager.prepareStage ? { async prepareStage(...args: Parameters<NativeManager["prepareStage"]>) { admit(args[0], stages); return manager.prepareStage!(...args); } } : {}),
+    ...(manager.releaseStage ? { async releaseStage(id: string, signal?: AbortSignal) { return stages.delete(id) ? { id, state: "deleted" as const } : manager.releaseStage!(id, signal); } } : {}),
+    ...(manager.prepareTurnTree ? { async prepareTurnTree(...args: Parameters<NativeManager["prepareTurnTree"]>) { admit(args[0], trees); return manager.prepareTurnTree!(...args); } } : {}),
+    ...(manager.releaseTurnTree ? { async releaseTurnTree(id: string, signal?: AbortSignal) { return trees.delete(id) ? { id, state: "deleted" as const } : manager.releaseTurnTree!(id, signal); } } : {}),
+    ...(manager.readCheckpoint ? { async readCheckpoint(...args: Parameters<NativeManager["readCheckpoint"]>) { assertOperationalStateReadable(layout); return manager.readCheckpoint!(...args); } } : {}),
+    ...(manager.statCheckpoint ? { async statCheckpoint(...args: Parameters<NativeManager["statCheckpoint"]>) { assertOperationalStateReadable(layout); return manager.statCheckpoint!(...args); } } : {}),
+    ...(manager.listCheckpoint ? { async listCheckpoint(...args: Parameters<NativeManager["listCheckpoint"]>) { assertOperationalStateReadable(layout); return manager.listCheckpoint!(...args); } } : {}),
+  } as T;
+}
+
 /** Refuse before opening state, reconciling manifests or evaluating any brain code. */
 export function assertOperationalStateOutsideBrain(input: OperationalStateLayout): void {
   const refusal = operationalStateRefusal(input);
-  // An uncertain walk disables governed execution through the shared status
-  // check. A proven exposure remains an absolute boot refusal in every profile.
+  // Boot may serve diagnostics during uncertainty; every brain-read entry
+  // separately uses assertOperationalStateReadable. Confirmed exposure refuses boot.
   if (!refusal || refusal.reason === "private_state_unverified") return;
   const error = new Error(refusal.detail);
   error.name = "OperationalStateInBrainError";

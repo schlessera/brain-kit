@@ -13,7 +13,11 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
   // startTurn resolves for runtime failures (it emits its own error frame); it
   // only rejects for caller errors. Each rejection is reported server-side
   // too — the frame alone leaves no trace once the browser tab is gone.
-  if (err instanceof BudgetExceeded) {
+  if (err instanceof Error && "reason" in err && err.reason === "private_state_unverified") {
+    host.reportTurnFailed("PRIVATE_STATE_UNVERIFIED", turn, err.message);
+    host.sendToClients(withTurnScope({ type: "error", code: "PRIVATE_STATE_UNVERIFIED", message: err.message,
+      failure: { errorClass: "private_state_unverified", message: err.message }, ...correlation }, turn));
+  } else if (err instanceof BudgetExceeded) {
     const budget=host.budgets?.saved(turn.turnId);
     if (budget && turn.sessionId && host.journal) host.sendToClients(withTurnScope({type:"turn_journal",sessionId:turn.sessionId,
       turnId:turn.turnId,journal:{...host.journal.summary(turn.turnId),budget}},turn));

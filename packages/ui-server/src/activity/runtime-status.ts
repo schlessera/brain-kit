@@ -63,7 +63,7 @@ export interface RuntimeStatusSnapshot {
   workerHost?: WorkerHostStatus;
   /** Last incomplete private-state alias check, retained across recovery and restart. */
   operationalStateLastFailure?: { at: number; errorClass: "OperationalStateAliasVerificationUnavailable";
-    callSite: "operationalStateRefusal"; scope: "governed"; detail: string };
+    callSite: "operationalStateRefusal"; scope: "brain_reads"; detail: string };
   /** The last turn's own report. */
   lastObserved?: Omit<RuntimeObserved, "kind"> & { runId: string; at: string };
   /** The last turn that failed to authenticate. */
@@ -227,7 +227,7 @@ export function createRuntimeStatus(
         ? { severityText: "INFO", body: "the governed profile is available; the brain's own code runs only in maintenance workers", attributes }
         // A worker host failure is already a warning of its own; say it once.
         : { severityText: status.reason === "worker_host_unavailable" ? "INFO" : "WARN",
-          body: `the governed profile is unavailable (${status.reason}): ${status.detail}. ${status.reason === "worker_host_unavailable" ? "Agent turns cannot start until worker host qualification succeeds." : "Interactive and voice turns run under strict."}`, attributes });
+          body: `the governed profile is unavailable (${status.reason}): ${status.detail}. ${status.reason === "private_state_unverified" ? "All brain-reading turns and maintenance are refused until private-state verification succeeds." : status.reason === "worker_host_unavailable" ? "Agent turns cannot start until worker host qualification succeeds." : "Interactive and voice turns run under strict."}`, attributes });
     },
     snapshot() {
       return {

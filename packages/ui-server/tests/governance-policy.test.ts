@@ -6,7 +6,6 @@ import { installFixtureNativeStartupViews } from "./helpers/fixture-native-start
 installFixtureNativeStartupViews();
 import { Hono } from "hono";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { workerSandboxNote } from "@schlessera/brain-ui-sdk/internal";
 import type { AppEnv } from "../src/app-env";
 import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createSessionProfiles } from "../src/ws/session-profiles";
@@ -728,18 +727,18 @@ test.each(["absent","symlink"])("admission refreshes an inspected %s checkpoint 
 });
 
 
-test("an alias-check diagnostic stays out of the strict worker's provider-facing note", async () => {
-  const f = fixture(); f.write("profiles: { interactive: governed }");
-  const prepare = f.execution.boundary.prepare.bind(f.execution.boundary);
-  const changed = spyOn(f.execution.boundary, "prepare").mockImplementation(async (...args) => {
-    await prepare(...args);
-    return { available: false, reason: "private_state_unverified", detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
-  });
+for (const profile of ["governed", "strict"] as const) test(`${profile} turns refuse unverified private state and recover without a cached verdict`, async () => {
+  const f = fixture(); f.write(`profiles: { interactive: ${profile} }`);
+  const unavailable = { available: false as const, reason: "private_state_unverified" as const, detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
+  const changed = spyOn(f.execution.boundary, "prepare").mockResolvedValue(unavailable);
+  const status = spyOn(f.execution.boundary, "governed").mockReturnValue(unavailable);
+  const acquisition = spyOn(startupViews, "prepareNativeWorkerStartupView");
   try {
-    const hold = await f.turns.begin("alias-fallback", new AbortController().signal);
-    try {
-      expect(hold.sandbox.profile).toBe("strict");
-      expect(workerSandboxNote(hold.sandbox), "ALIAS_DIAGNOSTIC_NEVER_ENTERS_PROVIDER_NOTE").not.toContain("journal-cause-canary");
-    } finally { await hold.end(); }
-  } finally { changed.mockRestore(); }
+    const error = await f.turns.begin("alias-refusal", new AbortController().signal).then(async hold => { await hold.end(); return undefined; }, error => error);
+    expect(error?.reason, "EVERY_TURN_PROFILE_REFUSES_UNVERIFIED_PRIVATE_STATE").toBe("private_state_unverified");
+    expect(acquisition, "UNVERIFIED_TURN_ACQUIRES_NO_BRAIN_STARTUP_VIEW").not.toHaveBeenCalled();
+    changed.mockRestore(); status.mockRestore();
+    const recovered = await f.turns.begin("alias-recovery", new AbortController().signal);
+    await recovered.end();
+  } finally { changed.mockRestore(); status.mockRestore(); acquisition.mockRestore(); }
 });

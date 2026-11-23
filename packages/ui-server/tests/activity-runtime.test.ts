@@ -56,7 +56,7 @@ test("an incomplete alias check retains its owner-visible cause across recovery 
     const second = createActivityRuntime(db, { log: quietLog });
     try {
       expect(second.runtime.snapshot().operationalStateLastFailure, "ALIAS_FAILURE_CAUSE_SURVIVES_RESTART").toMatchObject({ detail,
-        at: expect.any(Number), errorClass: "OperationalStateAliasVerificationUnavailable", callSite: "operationalStateRefusal", scope: "governed" });
+        at: expect.any(Number), errorClass: "OperationalStateAliasVerificationUnavailable", callSite: "operationalStateRefusal", scope: "brain_reads" });
     } finally { await second.close(); }
   } finally { await first.close(); db.close(); }
 });

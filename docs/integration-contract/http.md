@@ -1204,15 +1204,21 @@ carries the unavailable diagnostic as `status`; no HTTP listener is created.
 The hosting guide documents migration and the retained directory masks.
 
 The additive `private_state_unverified` reason means the operational-state alias
-check could not finish within three complete attempts (for example, concurrent
+check could not finish within three complete attempts per path (for example, concurrent
 journal quarantine renames or an I/O error). Its detail begins with
 `OperationalStateAliasVerificationUnavailable` and retains the underlying cause.
-The host boots with governed execution unavailable; ordinary turns use strict.
-Status and admission retry the same check and recover automatically once it can
-finish. The authenticated status field `runtime.operationalStateLastFailure`
+The host boots with status, diagnostics and settings available. All turns that
+read the brain, including governed and strict turns, are refused with
+`PRIVATE_STATE_UNVERIFIED` and failure class `private_state_unverified` until a
+later check verifies isolation. Cron, module discovery and maintenance reads
+are refused too; neither a worker nor a host fallback may read a startup view.
+Status omits `profile` instead of advertising a strict fallback. Each read
+admission rechecks isolation and recovers automatically once verification can
+finish. A confirmed exposure on any configured path takes precedence over an
+incomplete scan on another path. The authenticated status field `runtime.operationalStateLastFailure`
 retains the last incomplete check across recovery and restart: `{ at,
 errorClass: "OperationalStateAliasVerificationUnavailable", callSite:
-"operationalStateRefusal", scope: "governed", detail }`. It is a diagnostic,
+"operationalStateRefusal", scope: "brain_reads", detail }`. It is a diagnostic,
 not a cached availability verdict. A confirmed alias still refuses boot as
 `OperationalStateInBrainError`.
 

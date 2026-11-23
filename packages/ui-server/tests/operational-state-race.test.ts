@@ -9,7 +9,10 @@ for (const side of ["private", "brain"] as const) for (const operation of ["rena
     const brain = join(root, "brain"), state = join(root, "state"), source = join(side === "private" ? state : brain, "a-object");
     mkdirSync(brain); mkdirSync(state); mkdirSync(join(side === "private" ? state : brain, "0-quarantine"));
     writeFileSync(source, "private journal object");
-    if (operation !== "remove" || side === "brain") linkSync(source, join(side === "private" ? brain : state, "alias"));
+    if (operation === "rename" || operation === "remove" && side === "brain") linkSync(source, join(side === "private" ? brain : state, "alias"));
+    if (operation === "persistent failure" && side === "brain") {
+      writeFileSync(join(state, "outside"), "private state"); linkSync(join(state, "outside"), join(root, "outside-alias"));
+    }
     try {
       const program = `
         import * as fs from "node:fs";
@@ -33,7 +36,7 @@ for (const side of ["private", "brain"] as const) for (const operation of ["rena
           }
           return originalStat(path, options);
         }}));
-        const { operationalStateRefusal, assertOperationalStateOutsideBrain } = await import(${JSON.stringify(resolve(import.meta.dir, "../src/brain/operational-state.ts"))});
+        const { operationalStateRefusal, assertOperationalStateOutsideBrain, assertOperationalStateReadable } = await import(${JSON.stringify(resolve(import.meta.dir, "../src/brain/operational-state.ts"))});
         let result, error;
         try { result = operationalStateRefusal({brainPath:${JSON.stringify(brain)},privateStatePaths:[{setting:"journal",path:${JSON.stringify(state)}}]}); }
         catch (failure) { error = String(failure); }
@@ -41,18 +44,24 @@ for (const side of ["private", "brain"] as const) for (const operation of ["rena
         let bootError;
         try { if (${JSON.stringify(operation)} === "persistent failure") assertOperationalStateOutsideBrain({brainPath:${JSON.stringify(brain)},privateStatePaths:[{setting:"journal",path:${JSON.stringify(state)}}]}); }
         catch (failure) { bootError = String(failure); }
+        let readError;
+        if (${JSON.stringify(operation)} === "persistent failure") {
+          try { assertOperationalStateReadable({brainPath:${JSON.stringify(brain)},privateStatePaths:[{setting:"journal",path:${JSON.stringify(state)}}]}); }
+          catch (error) { readError = {reason:error.reason,message:error.message}; }
+        }
         broken = false;
         const recovered = operationalStateRefusal({brainPath:${JSON.stringify(brain)},privateStatePaths:[{setting:"journal",path:${JSON.stringify(state)}}]});
-        console.log(JSON.stringify({result,error,calls:attempts,moved,bootError,recovered}));`;
+        console.log(JSON.stringify({result,error,calls:attempts,moved,bootError,readError,recovered}));`;
       const child = Bun.spawnSync([process.execPath, "--preload", resolve(import.meta.dir, "../../../scripts/test-network-child-preload.ts"), "-e", program], { env: { PATH: "/usr/bin:/bin" }, timeout: watchdogMs(30_000) });
       expect(child.exitCode, child.stderr.toString()).toBe(0);
       const receipt = JSON.parse(child.stdout.toString());
       expect(receipt.error, "ALIAS_CHURN_NEVER_ESCAPES_STATUS_OR_ADMISSION").toBeUndefined();
       if (operation === "persistent failure") {
-        expect(receipt.result, "UNVERIFIED_STATE_RESTRICTS_GOVERNED").toMatchObject({ available: false, reason: "private_state_unverified", detail: expect.stringContaining("fixture state I/O unavailable") });
+        expect(receipt.result, "UNVERIFIED_STATE_REFUSES_BRAIN_READS").toMatchObject({ available: false, reason: "private_state_unverified", detail: expect.stringContaining("fixture state I/O unavailable") });
         expect(receipt.calls, "ALIAS_RETRY_IS_BOUNDED").toBe(3);
         expect(receipt.bootError, "UNVERIFIED_STATE_DOES_NOT_REFUSE_BOOT").toBeUndefined();
-        expect(receipt.recovered, "NEXT_CHECK_AUTOMATICALLY_RECOVERS_AND_DETECTS_ALIAS").toMatchObject({ reason: "private_state_in_brain" });
+        expect(receipt.readError, "BOOT_UNCERTAINTY_NEVER_ADMITS_A_BRAIN_READER").toMatchObject({ reason: "private_state_unverified" });
+        expect(receipt.recovered, "NEXT_CHECK_AUTOMATICALLY_VERIFIES_WITHOUT_A_LIVE_ALIAS").toBeUndefined();
       } else if (operation === "rename") {
         expect(receipt.result, "MOVED_ALIAS_IS_STILL_CHECKED").toMatchObject({ available: false, reason: "private_state_in_brain" });
         expect(receipt.moved).toBe(true);

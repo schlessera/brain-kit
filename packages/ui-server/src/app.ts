@@ -207,7 +207,7 @@ import { createComputeHost, readHostedComputeConfig } from "./brain/compute-host
 import { createReferenceTransport } from "./brain/reference-transport.js";
 import { createReferenceWorktreeHygiene } from "./brain/reference-worktree-hygiene.js";
 import { createReferenceWorktrees, forgetReferenceWorktreeCheckpoint, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner } from "./brain/reference-worktrees.js";
-import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
+import { assertOperationalStateReadable, withOperationalStateReadGuard, assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
 
 export type { AppRenderer };
 
@@ -440,7 +440,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const nativeRecovery = await nativeLeases.recoverDeadOwners();
   if (nativeRecovery.unknown.length || nativeRecovery.retainedUnverifiable) observability.logger("brain").emit({ severityText: "WARN",
     body: `Native storage recovery retained ${nativeRecovery.unknown.length + nativeRecovery.retainedUnverifiable} unresolved checkpoint ownership record(s). Reconcile the native storage service before reclaiming their capacity.` });
-  const nativeManager = nativeLeases.client;
+  const nativeManager = withOperationalStateReadGuard(nativeLeases.client, { brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths });
   const probeState = { dbPath: config.dbPath, privateStatePaths };
   // Select from already validated host state; helper/configuration failures
   // remain recorded probe refusals rather than a new boot failure.
@@ -520,8 +520,24 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Only an existing database can hold a manifest, and a refused boot below
   // must still leave no new database behind.
   reconciled(hostExecution.reconcileExisting());
+  // Diagnostics may boot before isolation can be verified. Defer the same CLI
+  // compatibility check until the first verified read; never bypass it on recovery.
+  const unchecked = { ...boundary };
+  let cliQualification: Promise<void> | undefined;
+  const qualifyBrainRead = () => {
+    assertOperationalStateReadable({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths });
+    return cliQualification ??= probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary: unchecked })
+      .catch(error => { cliQualification = undefined; throw error; });
+  };
+  boundary.prepare = async (...args) => {
+    const availability = await unchecked.prepare(...args);
+    if (!availability.available && availability.reason === "private_state_unverified") return availability;
+    await qualifyBrainRead(); return availability;
+  };
+  boundary.run = async (...args) => { await qualifyBrainRead(); return unchecked.run(...args); };
+  boundary.launch = async (...args) => { await qualifyBrainRead(); return unchecked.launch(...args); };
+  boundary.runSync = async (...args) => { await qualifyBrainRead(); return unchecked.runSync(...args); };
   await boundary.prepare();
-  await probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary });
   // The CLI now keeps its index in .brain-index/. Delete the root-level copy
   // an earlier release left (it holds document bodies a provider-restricted
   // turn must not read); the index is rebuilt below, never moved (#1668).

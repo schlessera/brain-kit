@@ -10,7 +10,7 @@ import { maintenanceProviderMeter } from "../brain/provider-meter.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
 import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import { createNativeBrainLeaseManager } from "../brain/native-brain-leases.js";
-import { assertOperationalStateOutsideBrain } from "../brain/operational-state.js";
+import { assertOperationalStateReadable, withOperationalStateReadGuard } from "../brain/operational-state.js";
 import { runDigest } from "../cron/digest.js";
 import { cronJobRepositories } from "../cron/job-repositories.js";
 import {
@@ -115,7 +115,7 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
   if (ephemeral && !config.nativeBrain.leasePath) throw Error("Ephemeral cron UI state requires explicit BRAIN_UI_NATIVE_BRAIN_LEASE_PATH.");
   const statePath = resolve(config.nativeBrain.leasePath ?? `${config.dbPath}.native-leases.sqlite`);
   const privateStatePaths = [{ setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: statePath }];
-  assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths });
+  assertOperationalStateReadable({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths });
   const leases = await createNativeBrainLeaseManager(raw, { statePath, brainPath: ready.brainPath, fsid: ready.fsid, brainUuid: ready.brainUuid });
   try {
   const recovered = await leases.recoverDeadOwners();
@@ -125,7 +125,7 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
   let relayBudgets: ReturnType<typeof createTurnBudgets> | undefined;
   const providerRelay = maintenanceProviderMeter({ brainPath: config.brainPath, origins: config.cliProviderOrigins, budgets: () => relayBudgets,
     report: message => process.stderr.write(`[brain-ui-cron] ${message}\n`) });
-  const execution = createHostExecution({ nativeManager: leases.client, nativeMaskPaths: ready.privatePaths, privateStatePaths, providerRelay,
+  const execution = createHostExecution({ nativeManager: withOperationalStateReadGuard(leases.client, { brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), nativeMaskPaths: ready.privatePaths, privateStatePaths, providerRelay,
     brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, requireGate: options.gate });
   const report = (results: Reconciliation[]) => {
     for (const result of results) {
