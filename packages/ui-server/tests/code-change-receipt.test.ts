@@ -390,13 +390,13 @@ test("receipt restores a file over an empty replacement directory", () => {
   } finally { f.close(); }
 });
 
-function inBrainCodeJournal() {
+function inBrainCodeJournal(capBytes?: number) {
   const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db");
   mkdirSync(join(brain, "workspaces"), { recursive: true });
   const checkout = join(brain, "workspaces", "argo"); renameSync(f.checkout, checkout);
   const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
   db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
-  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), capBytes, codeChanges: { maintenance } });
   return { ...f, brain, dbPath, checkout, native, maintenance, db, journal, async close() { await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); } };
 }
 const codeMetadata = { sessionId: "ithaca", actor: "interactive" as const, profile: "governed" as const, model: null, policyHash: null, workspaceReadOnly: false, workspacesWritable: true };
@@ -911,4 +911,41 @@ for (const kind of ["unborn checkout", "gitfile"] as const) test(`checkout disco
     expect(result.exitCode, result.stderr.toString()).toBe(0);
     expect(JSON.parse(result.stdout.toString()), "GIT_REPOSITORIES_REACH_CAPTURE_GUARD").toEqual(["workspaces/ithaca"]);
   } finally { f.close(); }
+});
+
+
+for (const fault of ["capacity", "I/O"] as const) test(`shared pack ${fault} refuses writable admission and preserves its cause`, async () => {
+  const capBytes = 2 * 1024 * 1024, f = inBrainCodeJournal(fault === "capacity" ? capBytes : undefined);
+  // Seeded, incompressible cargo makes the real Git pack exceed the shared cap.
+  const cargo = Buffer.alloc(3 * 1024 * 1024); let seed = 0x6f647973;
+  for (let index = 0; index < cargo.length; index++) { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; cargo[index] = seed & 255; }
+  writeFileSync(join(f.checkout, "cargo.bin"), cargo);
+  const objectsRoot = join(f.root, "objects"), heldObjects = join(f.root, "objects-held");
+  const original = workerSdk.runMaintenanceWorker; let packBytes = 0, blocked = false;
+  const worker = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
+    const result = await original(input);
+    if (input.command[4] === CODE_CHANGE_PROGRAM && result.exitCode === 0) {
+      packBytes = Buffer.byteLength(JSON.parse(result.stdout).pack, "base64");
+      if (fault === "I/O" && !blocked) { renameSync(objectsRoot, heldObjects); writeFileSync(objectsRoot, "Ithaca storage unavailable"); blocked = true; }
+    }
+    return result;
+  });
+  const restoreObjects = () => { if (blocked) { unlinkSync(objectsRoot); renameSync(heldObjects, objectsRoot); blocked = false; } };
+  try {
+    const error = await f.journal.begin("store-refused", codeMetadata, () => {}).then(() => undefined, error => error);
+    restoreObjects();
+    expect(packBytes, "SHARED_STORE_FAILURE_REACHES_REAL_PACK_RETENTION").toBeGreaterThan(capBytes);
+    expect(error, "SHARED_PACK_FAILURE_REFUSES_WRITABLE_ADMISSION").toBeInstanceOf(fault === "capacity" ? JournalCapacityError : JournalStorageUnavailable);
+    const row = f.db.query("SELECT cause FROM turn_journal_code_failures WHERE turn_id='store-refused' AND checkout='workspaces/argo'").get() as { cause: string };
+    const cause = JSON.parse(row.cause);
+    expect(cause, "SHARED_PACK_FAILURE_CAUSE_IS_PRESERVED").toMatchObject({ checkout: "workspaces/argo", callSite: "captureCheckout", message: String(fault === "I/O" ? error.cause : error) });
+    if (fault === "I/O") expect(error.cause).toMatchObject({ code: "ENOTDIR" });
+    expect(f.db.query("SELECT trim(failure) AS failure, ended_at FROM turn_journal_turns WHERE turn_id='store-refused'").get()).toMatchObject({ failure: fault === "capacity" ? "journal_capacity" : "journal_unavailable", ended_at: expect.any(Number) });
+    f.journal.evidence("store-refused", () => {});
+    expect(f.journal.scopeHold("store-refused", 0), "SHARED_PACK_FAILURE_LEAVES_NO_ACTIVE_TURN").toBeUndefined();
+    await f.journal.begin("notes-after-refusal", { ...codeMetadata, workspacesWritable: false, workspaceReadOnly: true }, () => {});
+    f.journal.evidence("notes-after-refusal", () => {});
+    expect(f.journal.scopeHold("notes-after-refusal", 0), "A_SMALLER_NOTE_TURN_REMAINS_ACTIVE_AND_USABLE").toMatchObject({ cause: "scope", causeTurnId: "notes-after-refusal" });
+    await f.journal.finish("notes-after-refusal");
+  } finally { worker.mockRestore(); restoreObjects(); await f.close(); }
 });

@@ -10,7 +10,7 @@ import { BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-a
 import { JournalObservationCounters } from "./journal-observation-counters.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
-import { captureCodeChanges, checkedCodeDirectory, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES, CODE_EVIDENCE_BYTES } from "./code-change-worker.js";
+import { CheckoutCaptureRefused, captureCodeChanges, checkedCodeDirectory, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES, CODE_EVIDENCE_BYTES } from "./code-change-worker.js";
 import type { MaintenanceHost, WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { randomUUID } from "node:crypto";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
@@ -384,10 +384,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         try { await captureCheckout(turnId, path, options.nativeManager, path, signal); }
         catch (error) {
           signal?.throwIfAborted();
-          // Admission may continue only with a durable checkout-local cause.
-          // Keep ordinary file coverage; the admitting host makes this checkout
-          // read-only before any worker starts. Storage-wide failures still refuse.
-          if (!codeReceiptTablesExist(db) || !db.query("SELECT 1 FROM turn_journal_code_failures WHERE turn_id=? AND checkout=?").get(turnId, path)) throw error;
+          // Only typed checkout-content refusals with a durable cause may
+          // continue under the host's read-only checkout mask. Maintenance,
+          // checkpoint, pack-read and shared-storage failures still refuse.
+          if (!(error instanceof CheckoutCaptureRefused) || !codeReceiptTablesExist(db) || !db.query("SELECT 1 FROM turn_journal_code_failures WHERE turn_id=? AND checkout=?").get(turnId, path)) throw error;
           continue;
         }
         // Exclusion changes only after the receipt and its pack are durable.

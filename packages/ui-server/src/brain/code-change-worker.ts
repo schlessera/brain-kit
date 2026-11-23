@@ -5,6 +5,11 @@ import { join } from "node:path";
 import type { CodeChangeReceipt } from "@schlessera/brain-ui-sdk/protocol";
 import { CODE_CHANGE_PROGRAM, CODE_CHECKOUT_LIST_PROGRAM, CODE_CHANGE_PREVIEW_PROGRAM } from "./code-change-program.js";
 
+/** A checkout-content refusal that can be isolated after its cause is durable. */
+export class CheckoutCaptureRefused extends Error {
+  readonly name = "CheckoutCaptureRefused";
+}
+
 /** Explicit in-brain checkout content bound; managed checkouts use their pool allowance. */
 export const CODE_CHECKOUT_BYTES = 16 * 1024 * 1024;
 /** The existing 64 MiB maintenance wire leaves room for base64 and path metadata. */
@@ -16,7 +21,7 @@ export async function checkedCodeDirectory(root: string, relative = ""): Promise
     if (part === "." || part === ".." || part.includes("\\")) throw Error("Invalid checkout directory");
     if (part) path = join(path, part);
     const info = await lstat(path);
-    if (!info.isDirectory() || info.isSymbolicLink()) throw Error("Checkout path is not a real directory");
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new CheckoutCaptureRefused("Checkout path is not a real directory");
   }
   return path;
 }
@@ -33,14 +38,14 @@ export async function captureCodeChanges(brainPath: string, checkout: string, pr
   const result = await runMaintenanceWorker({ ...host, brainPath, credentials: false, env: { PATH: "/usr/bin:/bin" },
     command: ["/usr/bin/python3", "-I", "-S", "-c", CODE_CHANGE_PROGRAM, checkout, String(maximum)],
     readPaths: [checkout], stdin: input(), outputBytes: 64 * 1024 * 1024, tempKind: "git", timeoutMs: 60_000, signal });
-  if (result.exitCode !== 0 || result.killed) throw new Error(`Git change capture refused: ${result.stderr.trim().slice(-1000) || "maintenance worker failed"}`);
+  if (result.exitCode !== 0 || result.killed) throw new CheckoutCaptureRefused(`Git change capture refused: ${result.stderr.trim().slice(-1000) || "maintenance worker failed"}`);
   const receipt = JSON.parse(result.stdout) as CodeChangeCapture;
   const oid = (value: unknown) => typeof value === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
   if (!oid(receipt.tree_before) || !oid(receipt.tree_after) || !oid(receipt.head_before?.commit) || !oid(receipt.head_after?.commit)
     || !Array.isArray(receipt.paths) || receipt.paths.some(item => typeof item.path !== "string" || !["added", "deleted", "modified"].includes(item.kind) || typeof item.untracked !== "boolean")
     || !Number.isSafeInteger(receipt.bytes) || receipt.bytes < 0 || !Number.isSafeInteger(receipt.untracked) || typeof receipt.ignore_changed !== "boolean"
     || !Array.isArray(receipt.inventory) || receipt.inventory.some(item => typeof item.path !== "string" || !Number.isSafeInteger(item.bytes) || item.bytes < 0)
-    || typeof receipt.pack !== "string" || Buffer.byteLength(receipt.pack, "base64") > CODE_EVIDENCE_BYTES || Buffer.from(receipt.pack.slice(0, 8), "base64").subarray(0, 4).toString() !== "PACK") throw new Error("Invalid Git change evidence");
+    || typeof receipt.pack !== "string" || Buffer.byteLength(receipt.pack, "base64") > CODE_EVIDENCE_BYTES || Buffer.from(receipt.pack.slice(0, 8), "base64").subarray(0, 4).toString() !== "PACK") throw new CheckoutCaptureRefused("Invalid Git change evidence");
   return receipt;
 }
 
