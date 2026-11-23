@@ -1,7 +1,7 @@
 /** Real isolated test/runtime processes, with native sentinels under the guard. */
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { experimentRunArgv } from "../scripts/test-experiments";
@@ -317,15 +317,18 @@ describe("the guard's gog home", () => {
       // A path naming anything but a file the wrapper wrote takes nothing back.
       const chosenDir = join(dirname(made.home), "chosen");
       // An XDG base already at the guard's own directory needs no record. Where the guard directory cannot be
-      // written, as in a sandbox that mounts it read-only, the spawn gets no record rather than an error.
+      // written, as in a sandbox that mounts it read-only, the spawn gets no record rather than an error. A file
+      // in the directory's place fails every write, root's included.
       expect(recordChosenEnv({ GOG_HOME: made.home, XDG_CONFIG_HOME: made.xdg.XDG_CONFIG_HOME, ODYSSEUS_VOYAGE: "ithaca" }, made.home),
         "THE_GUARDS_OWN_BASE_IS_NOT_RECORDED").toBeUndefined();
-      chmodSync(chosenDir, 0o500);
+      const aside = `${chosenDir}-aside`;
+      renameSync(chosenDir, aside);
+      writeFileSync(chosenDir, "");
       try {
         let unwritable: string | undefined = "not called";
         expect(() => { unwritable = recordChosenEnv(given, made.home); }, "AN_UNWRITABLE_GUARD_DIRECTORY_REFUSES_NO_SPAWN").not.toThrow();
         expect(unwritable, "AN_UNWRITABLE_GUARD_DIRECTORY_RECORDS_NOTHING").toBeUndefined();
-      } finally { chmodSync(chosenDir, 0o700); }
+      } finally { rmSync(chosenDir, { force: true }); renameSync(aside, chosenDir); }
       const outside = join(parent, "forged.json");
       writeFileSync(outside, JSON.stringify({ BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog" }), { mode: 0o600 });
       const linked = join(chosenDir, "linked.json");
