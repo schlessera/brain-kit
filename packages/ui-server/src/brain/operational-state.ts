@@ -138,7 +138,7 @@ interface OperationalStateRefusal {
 }
 
 /** The boot check and status surface share the exact resolution and migration guidance. */
-export function operationalStateRefusal(input: OperationalStateLayout): OperationalStateRefusal | undefined {
+function checkOperationalState(input: OperationalStateLayout): OperationalStateRefusal | undefined {
   const brain = canonical(input.brainPath);
   const paths = statePaths(input);
   for (const { setting, path } of paths) {
@@ -155,10 +155,23 @@ export function operationalStateRefusal(input: OperationalStateLayout): Operatio
   }
 }
 
+/** Retry the whole identity comparison: a rename can move into an already visited directory. */
+export function operationalStateRefusal(input: OperationalStateLayout): OperationalStateRefusal | undefined {
+  let cause: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { return checkOperationalState(input); }
+    catch (error) { cause = error; }
+  }
+  return { available: false, reason: "private_state_unverified",
+    detail: `OperationalStateAliasVerificationUnavailable: ${cause instanceof Error ? cause.message : String(cause)}; governed execution is restricted until a later status or admission check can verify private state.` };
+}
+
 /** Refuse before opening state, reconciling manifests or evaluating any brain code. */
 export function assertOperationalStateOutsideBrain(input: OperationalStateLayout): void {
   const refusal = operationalStateRefusal(input);
-  if (!refusal) return;
+  // An uncertain walk disables governed execution through the shared status
+  // check. A proven exposure remains an absolute boot refusal in every profile.
+  if (!refusal || refusal.reason === "private_state_unverified") return;
   const error = new Error(refusal.detail);
   error.name = "OperationalStateInBrainError";
   // An embedder can show the same diagnostic even though a refused app has no HTTP listener.

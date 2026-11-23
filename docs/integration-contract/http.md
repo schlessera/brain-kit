@@ -1203,6 +1203,20 @@ Every hosted profile refuses boot as `OperationalStateInBrainError` when
 carries the unavailable diagnostic as `status`; no HTTP listener is created.
 The hosting guide documents migration and the retained directory masks.
 
+The additive `private_state_unverified` reason means the operational-state alias
+check could not finish within three complete attempts (for example, concurrent
+journal quarantine renames or an I/O error). Its detail begins with
+`OperationalStateAliasVerificationUnavailable` and retains the underlying cause.
+The host boots with governed execution unavailable; ordinary turns use strict.
+Status and admission retry the same check and recover automatically once it can
+finish. The authenticated status field `runtime.operationalStateLastFailure`
+retains the last incomplete check across recovery and restart: `{ at,
+errorClass: "OperationalStateAliasVerificationUnavailable", callSite:
+"operationalStateRefusal", scope: "governed", detail }`. It is a diagnostic,
+not a cached availability verdict. A confirmed alias still refuses boot as
+`OperationalStateInBrainError`.
+
+
 
 <a id="session-worker-profile-additive-1663"></a>
 

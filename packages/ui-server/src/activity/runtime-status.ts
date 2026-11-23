@@ -61,6 +61,9 @@ export interface RuntimeStatusSnapshot {
    * check, so it is always the latest real probe. Absent until one has run.
    */
   workerHost?: WorkerHostStatus;
+  /** Last incomplete private-state alias check, retained across recovery and restart. */
+  operationalStateLastFailure?: { at: number; errorClass: "OperationalStateAliasVerificationUnavailable";
+    callSite: "operationalStateRefusal"; scope: "governed"; detail: string };
   /** The last turn's own report. */
   lastObserved?: Omit<RuntimeObserved, "kind"> & { runId: string; at: string };
   /** The last turn that failed to authenticate. */
