@@ -94,7 +94,7 @@ export function createActivityRuntime(
   type AliasFailure = NonNullable<RuntimeStatusSnapshot["operationalStateLastFailure"]>;
   const stored = getSetting<Partial<AliasFailure> | null>(db, "operationalState.lastFailure", null);
   let aliasFailure: AliasFailure | undefined = stored && Number.isFinite(stored.at) && typeof stored.detail === "string"
-    && stored.errorClass === "OperationalStateAliasVerificationUnavailable" && stored.callSite === "operationalStateRefusal" && stored.scope === "brain_reads"
+    && stored.errorClass === "OperationalStateAliasVerificationUnavailable" && stored.callSite === "operationalStateRefusal" && stored.scope === "governed"
     ? stored as AliasFailure : undefined;
   const aliasWrites = new Set<Promise<void>>();
 
@@ -239,10 +239,10 @@ export function createActivityRuntime(
         runtime.recordGoverned(status);
         if (status.available || status.reason !== "private_state_unverified" || aliasFailure?.detail === status.detail) return;
         const notice: AliasFailure = { at: Date.now(), errorClass: "OperationalStateAliasVerificationUnavailable",
-          callSite: "operationalStateRefusal", scope: "brain_reads", detail: status.detail };
+          callSite: "operationalStateRefusal", scope: "governed", detail: status.detail };
         aliasFailure = notice;
         const pending = Promise.resolve().then(() => settingsWrites.setSetting("operationalState.lastFailure", notice)).catch(error => {
-          // A failed diagnostic write never turns a restricted boot into an outage.
+          // A failed diagnostic write never hides the turn admission refusal.
           // Permit the next status check to retry the durable write.
           if (aliasFailure === notice) aliasFailure = undefined;
           try { log.emit({ severityText: "WARN", body: `private-state alias failure could not be retained: ${String(error)}` }); } catch { /* diagnostic only */ }

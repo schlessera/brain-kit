@@ -36,22 +36,17 @@ for (const side of ["private", "brain"] as const) for (const operation of ["rena
           }
           return originalStat(path, options);
         }}));
-        const { operationalStateRefusal, assertOperationalStateOutsideBrain, assertOperationalStateReadable } = await import(${JSON.stringify(resolve(import.meta.dir, "../src/brain/operational-state.ts"))});
+        const { operationalStateRefusal, assertOperationalStateOutsideBrain } = await import(${JSON.stringify(resolve(import.meta.dir, "../src/brain/operational-state.ts"))});
         let result, error;
         try { result = operationalStateRefusal({brainPath:${JSON.stringify(brain)},privateStatePaths:[{setting:"journal",path:${JSON.stringify(state)}}]}); }
         catch (failure) { error = String(failure); }
         const attempts = calls;
         let bootError;
         try { if (${JSON.stringify(operation)} === "persistent failure") assertOperationalStateOutsideBrain({brainPath:${JSON.stringify(brain)},privateStatePaths:[{setting:"journal",path:${JSON.stringify(state)}}]}); }
-        catch (failure) { bootError = String(failure); }
-        let readError;
-        if (${JSON.stringify(operation)} === "persistent failure") {
-          try { assertOperationalStateReadable({brainPath:${JSON.stringify(brain)},privateStatePaths:[{setting:"journal",path:${JSON.stringify(state)}}]}); }
-          catch (error) { readError = {reason:error.reason,message:error.message}; }
-        }
+        catch (failure) { bootError = {name:failure.name,cause:failure.cause?.message}; }
         broken = false;
         const recovered = operationalStateRefusal({brainPath:${JSON.stringify(brain)},privateStatePaths:[{setting:"journal",path:${JSON.stringify(state)}}]});
-        console.log(JSON.stringify({result,error,calls:attempts,moved,bootError,readError,recovered}));`;
+        console.log(JSON.stringify({result,error,calls:attempts,moved,bootError,recovered}));`;
       const child = Bun.spawnSync([process.execPath, "--preload", resolve(import.meta.dir, "../../../scripts/test-network-child-preload.ts"), "-e", program], { env: { PATH: "/usr/bin:/bin" }, timeout: watchdogMs(30_000) });
       expect(child.exitCode, child.stderr.toString()).toBe(0);
       const receipt = JSON.parse(child.stdout.toString());
@@ -59,8 +54,7 @@ for (const side of ["private", "brain"] as const) for (const operation of ["rena
       if (operation === "persistent failure") {
         expect(receipt.result, "UNVERIFIED_STATE_REFUSES_BRAIN_READS").toMatchObject({ available: false, reason: "private_state_unverified", detail: expect.stringContaining("fixture state I/O unavailable") });
         expect(receipt.calls, "ALIAS_RETRY_IS_BOUNDED").toBe(3);
-        expect(receipt.bootError, "UNVERIFIED_STATE_DOES_NOT_REFUSE_BOOT").toBeUndefined();
-        expect(receipt.readError, "BOOT_UNCERTAINTY_NEVER_ADMITS_A_BRAIN_READER").toMatchObject({ reason: "private_state_unverified" });
+        expect(receipt.bootError, "PERSISTENT_UNCERTAINTY_REFUSES_BOOT_WITH_CAUSE").toMatchObject({ name: "OperationalStateAliasVerificationUnavailable", cause: "fixture state I/O unavailable" });
         expect(receipt.recovered, "NEXT_CHECK_AUTOMATICALLY_VERIFIES_WITHOUT_A_LIVE_ALIAS").toBeUndefined();
       } else if (operation === "rename") {
         expect(receipt.result, "MOVED_ALIAS_IS_STILL_CHECKED").toMatchObject({ available: false, reason: "private_state_in_brain" });

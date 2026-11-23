@@ -975,7 +975,9 @@ run on this server, and where the server evaluates the brain's own code.
   `brain` command, every cron job and every git invocation against the brain
   runs in a maintenance worker, never in a host process.
 - `{ available: false, reason, detail, hostExecution }`: governed cannot run,
-  and interactive and voice turns run under `strict`. `reason` is
+  and interactive and voice turns run under `strict` except when private-state
+  verification is incomplete, which refuses turn admission as described below.
+  `reason` is
   `server_cwd_in_brain` (the server was started inside the brain, so Bun
   already loaded the brain's `bunfig.toml` and `.env` into it),
   `database_in_brain`, or `worker_host_unavailable` (with the probe's
@@ -1204,23 +1206,25 @@ carries the unavailable diagnostic as `status`; no HTTP listener is created.
 The hosting guide documents migration and the retained directory masks.
 
 The additive `private_state_unverified` reason means the operational-state alias
-check could not finish within three complete attempts per path (for example, concurrent
-journal quarantine renames or an I/O error). Its detail begins with
+check could not finish within three complete attempts per path (for example,
+concurrent journal quarantine renames or an I/O error). Its detail begins with
 `OperationalStateAliasVerificationUnavailable` and retains the underlying cause.
-The host boots with status, diagnostics and settings available. All turns that
-read the brain, including governed and strict turns, are refused with
-`PRIVATE_STATE_UNVERIFIED` and failure class `private_state_unverified` until a
-later check verifies isolation. Cron, module discovery and maintenance reads
-are refused too; neither a worker nor a host fallback may read a startup view.
-Status omits `profile` instead of advertising a strict fallback. Each read
-admission rechecks isolation and recovers automatically once verification can
-finish. A confirmed exposure on any configured path takes precedence over an
-incomplete scan on another path. The authenticated status field `runtime.operationalStateLastFailure`
-retains the last incomplete check across recovery and restart: `{ at,
+At boot, the host refuses before opening operational state or evaluating brain
+code, through the same path as a confirmed exposure. The thrown error is named
+`OperationalStateAliasVerificationUnavailable`, retains the original scan error
+in `cause`, and carries the unavailable diagnostic as `status`; no HTTP listener
+is created. A confirmed exposure on any configured path takes precedence over an
+incomplete scan on another path and refuses as `OperationalStateInBrainError`.
+After boot, status and turn admission retry the check. An incomplete check
+refuses that governed or strict turn with `PRIVATE_STATE_UNVERIFIED` and failure
+class `private_state_unverified`; status advertises no strict fallback. The next
+check recovers automatically once verification succeeds. Direct host reads and
+native checkpoint operations retain their existing checks.
+The authenticated status field `runtime.operationalStateLastFailure` retains
+the last incomplete check across recovery and restart: `{ at,
 errorClass: "OperationalStateAliasVerificationUnavailable", callSite:
-"operationalStateRefusal", scope: "brain_reads", detail }`. It is a diagnostic,
-not a cached availability verdict. A confirmed alias still refuses boot as
-`OperationalStateInBrainError`.
+"operationalStateRefusal", scope: "governed", detail }`. It is a diagnostic,
+not a cached availability verdict.
 
 
 

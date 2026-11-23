@@ -120,7 +120,7 @@ export function createGovernedTurns(options: {
   const assertReadable = (availability: ReturnType<HostExecution["boundary"]["governed"]> = options.execution.boundary.governed()) => {
     if (!availability.available && ["private_state_unverified", "private_state_in_brain", "database_in_brain"].includes(availability.reason)) throw Object.assign(new Error(`${availability.reason}: ${availability.detail}`), { reason: availability.reason });
   };
-  const advance = () => void privateIndexes.advance(signal => { assertReadable(); return prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal); })
+  const advance = () => void privateIndexes.advance(signal => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal))
     .catch(error => options.report(`private index advance failed: ${String(error)}`));
   let current: Promise<unknown> | undefined;
   let again = false;
