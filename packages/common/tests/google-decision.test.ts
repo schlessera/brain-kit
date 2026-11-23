@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   decideGoogleCall, GOOGLE_NOT_FOUND_MESSAGE, resolveGooglePolicy,
-  type GoogleDecision, type GoogleDecisionCall, type GoogleDecisionFacts, type GooglePolicy, type GooglePolicyInput, type GoogleRefusalCause,
+  type GoogleDecision, type GoogleDecisionCall, type GoogleDecisionFacts, type GoogleDecisionStep, type GooglePolicy, type GooglePolicyInput,
+  type GoogleRefusalCause,
 } from "@schlessera/brain-common/internal/google-operations";
 
 // Odysseus's household mail: ids have Gmail's shapes, addresses live on example.com.
@@ -40,7 +41,7 @@ const draftUpdate: GoogleDecisionCall = {
  * procedure (1 availability, 2 input, 5 mode, 6 entities, 7 limits, 9 card
  * need and posture, 10 routing), not from the implementation.
  */
-const PLAN_STEP: Record<GoogleRefusalCause, number> = {
+const PLAN_STEP: Record<GoogleRefusalCause, GoogleDecisionStep> = {
   no_principal: 1, not_owner: 1, not_enabled: 1, policy_invalid: 1, no_account: 1, service_not_enabled: 1, decision_error: 1,
   unknown_operation: 2, schema: 2, operation_mismatch: 2,
   class_denied: 5, operation_denied: 5,
