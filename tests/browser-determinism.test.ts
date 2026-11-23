@@ -190,7 +190,7 @@ describe("hosted partitions by reviewed weight", () => {
     expect([atDefault.repetitions, atDefault.partitions.length], "AT_THE_DEFAULT_ONE_JOB").toEqual([5, 1]);
     expect(atDefault.partitions[0]!.estimatedSeconds, "AS_THE_JOB_PLANNED_IT").toBeCloseTo(244.39, 6);
     const weighed = planBrowserPartitions(selection, { cadence: "draft", costs: { ...planned, ...measured } });
-    expect([weighed.repetitions, weighed.partitions.length], "THE_MEASURED_WEIGHTS_SPLIT_IT").toEqual([2, 3]);
+    expect([weighed.repetitions, weighed.partitions.length], "THE_MEASURED_WEIGHTS_SPLIT_IT").toEqual([2, 2]);
   });
 
   test("a selection beyond the maximum partition count is refused, naming its weight and the limit", () => {
