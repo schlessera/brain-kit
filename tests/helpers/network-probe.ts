@@ -290,6 +290,10 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
     const preload = join(import.meta.dir, "../../scripts/test-network-child-preload.ts");
     const env = { ...process.env, BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data",
       ODYSSEUS_BUN: process.execPath, ODYSSEUS_PRELOAD: preload, ODYSSEUS_REPORT: report } as Record<string, string>;
+    // This probe runs under an alias the spawn wrapper starts as it starts any
+    // child, so it holds the wrapper's BUN_OPTIONS. A test process holds none of
+    // its own; dropping it here makes every case prove what the wrapper gives.
+    delete env.BUN_OPTIONS;
     const held = (cmd: string[], cwd: string, extra: Record<string, string> = {}) => {
       const child = Bun.spawnSync(cmd, { cwd: join(root, cwd), env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe" });
       const line = `${child.stdout}${child.stderr}`.split("\n").find(text => text.startsWith("DOTENV_CHILD="));
