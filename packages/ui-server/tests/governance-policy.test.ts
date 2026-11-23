@@ -748,16 +748,21 @@ for (const profile of ["governed", "strict"] as const) test(`${profile} turns re
 
 test("one warm admitted turn walks private state exactly once", async () => {
   const f = fixture(); f.write("profiles: { interactive: strict }");
-  const first = await f.turns.begin("alias-warmup", new AbortController().signal);
-  await first.end();
-  const walk = spyOn(operationalState, "operationalStateRefusal");
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: true });
+  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockResolvedValue({ ok: true });
+  let walk: ReturnType<typeof spyOn<typeof operationalState, "operationalStateRefusal">> | undefined;
   try {
+    const first = await f.turns.begin("alias-warmup", new AbortController().signal);
+    await first.end();
+    expect(maintenance, "FIRST_ADMISSION_POPULATES_THE_MAINTENANCE_CACHE").toHaveBeenCalledTimes(1);
+    walk = spyOn(operationalState, "operationalStateRefusal");
     const admitted = await f.turns.begin("alias-warm", new AbortController().signal);
     try {
       expect(admitted.sandbox.profile).toBe("strict");
       expect(walk, "WARM_ADMISSION_WALKS_PRIVATE_STATE_EXACTLY_ONCE").toHaveBeenCalledTimes(1);
+      expect(maintenance, "WARM_ADMISSION_REUSES_THE_PROVEN_MAINTENANCE_CACHE").toHaveBeenCalledTimes(1);
     } finally { await admitted.end(); }
-  } finally { walk.mockRestore(); await f.turns.close(); }
+  } finally { walk?.mockRestore(); maintenance.mockRestore(); probe.mockRestore(); await f.turns.close(); }
 });
 
 test("preparation keeps the private-state refusal ahead of the in-brain cwd shortcut", async () => {
