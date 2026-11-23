@@ -1,0 +1,59 @@
+{
+  "source": "134c0eee935f1c88ddbef5f1f59aee8b2363fe3a:packages/ui-backend-claude/tests/fixtures/sdk-options-snapshot.json (relayed)",
+  "disallowedTools": [
+    "AskUserQuestion",
+    "mcp__brain__brain_compute_health",
+    "mcp__brain__brain_compute_plan",
+    "mcp__brain__brain_compute_run",
+    "mcp__brain__brain_compute_status",
+    "mcp__brain__brain_compute_cancel",
+    "mcp__brain__brain_compute_collect",
+    "mcp__brain__brain_apify_availability",
+    "mcp__brain__brain_apify_approvals",
+    "mcp__brain__brain_apify_revoke",
+    "mcp__brain__brain_apify_discover",
+    "mcp__brain__brain_apify_inspect",
+    "mcp__brain__brain_apify_prepare",
+    "mcp__brain__brain_apify_run",
+    "mcp__brain__brain_apify_status",
+    "mcp__brain__brain_apify_results",
+    "mcp__brain__brain_apify_abort",
+    "mcp__brain__brain_add",
+    "mcp__brain__brain_update",
+    "mcp__brain__brain_archive"
+  ],
+  "allowedTools": [
+    "Read",
+    "mcp__brain-ui__turn_temp",
+    "mcp__brain-ui__show_block"
+  ],
+  "settings": {
+    "apiKeyHelper": "",
+    "env": {
+      "ANTHROPIC_API_KEY": "",
+      "ANTHROPIC_AUTH_TOKEN": "",
+      "ANTHROPIC_CUSTOM_HEADERS": "",
+      "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR": "",
+      "CLAUDE_CODE_HOST_CREDS_FILE": "",
+      "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": "",
+      "CLAUDE_CODE_USE_BEDROCK": "",
+      "CLAUDE_CODE_USE_VERTEX": "",
+      "CLAUDE_CODE_USE_FOUNDRY": "",
+      "CLAUDE_CODE_USE_GATEWAY": "",
+      "CLAUDE_CODE_USE_MANTLE": "",
+      "CLAUDE_CODE_USE_ANTHROPIC_AWS": "",
+      "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD": "",
+      "ANTHROPIC_UNIX_SOCKET": "/run/brain-egress/inference.sock",
+      "CLAUDE_CODE_OAUTH_TOKEN": "brain-inference-relay-placeholder",
+      "ANTHROPIC_BASE_URL": "http://localhost",
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+    },
+    "skipWebFetchPreflight": true,
+    "includeGitInstructions": false
+  },
+  "settingSources": [
+    "project"
+  ],
+  "permissionMode": "default",
+  "append": "Odysseus retains the original system brief."
+}

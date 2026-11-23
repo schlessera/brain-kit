@@ -58,6 +58,96 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+`--tree=large` adds deterministic empty workspace/dependency files and tiny
+content-addressed journal objects before the app starts. Defaults:
+`--workspace-entries=80000 --dependency-entries=19000 --journal-objects=30000
+--checkouts=40`. Workspace leaves are spread across the named checkouts and
+nested `node_modules`, with `.git` directories and `.gitignore` files. Counts
+are generated entries, separate from the pre-existing CLI/notes fixture.
+The `tree` artifact section records these counts, five warm turns' per-step
+medians and observer bootstrap time. Compare a default run, a full large run,
+and a large run with `--workspace-entries=40000` on the same runner. The tenfold
+and proportional sensitivity criteria are qualification measurements, never
+shared-runner CI time budgets. Cold-cache evidence is explicitly unavailable:
+this harness cannot establish an isolated cache-drop condition and never
+mutates the shared runner cache. Default runs omit the `tree` section. Admission scenarios and warm samples
+retain the integration base's backend milestones, backend steps and missing
+evidence; closing steps remain in their sibling artifact. Parameter values
+are whole decimal integers and each size option may appear only once.
+Large-tree health, WebSocket, admission, Stop and settlement waits use a measurement
+watchdog sized as 120,000 ms plus 2 ms per configured leaf/object and four
+entries per checkout; the per-test timeout scales with that watchdog. The Python fixture derives
+its outer process timeout from the same size model and test load factor,
+leaving at least two minutes beyond the effective inner timeout. This is
+a hang bound, not a performance promise. The small qualification keeps its
+existing one-second health/WebSocket, ten-second admission and Stop assertions.
+
+Admission component experiments must distinguish real namespace-probe and
+FULL write-worker timings from copied startup-view fixture costs. A copied
+large tree measures copying, not a native Btrfs checkpoint; bypassing a guard
+measures only an unsafe upper bound. Record the tree sizes, source revision,
+paired samples, order, mount-query count and load with the recommendation.
+Component medians do not add up to an end-to-end admission saving. Use the full
+`--observation-timing --tree=large` run to qualify any proposed change, including
+its refused-admission cleanup; keep throwaway bypasses out of the landing diff.
+
+`observation-holds.json` prints each lifecycle's hosted hold records, closing
+steps and recorder/idle milestones alongside the existing timing artifact.
+
+The path matrix records 12 physical worker-freeze samples for each actual 0,
+1, 20 and 200 changed-path window, then 12 one-path windows after 10,000 rows.
+Counts come from committed sequence deltas, not requested writes. A periodic
+observation joining a slow window keeps its `sharedHold` label and remains a
+valid physical-stop sample; all such windows contribute to cell medians/p95s.
+Individual tool-phase attribution remains separate when a physical hold spans
+several observations. Partial/count-mismatched windows are retained in
+`rejectedSamples` and retried. The request's explicit watchdog owns the matrix;
+server and client idle deadlines are disabled for that request only.
+
+The `backendStartup` section (#4285/#4286) includes the first turn after
+server start and those five warm turns. Each sample carries invocation to
+first relay receipt when observed, the observed turn `endedAt`, the `openSubPhases` backend steps, their host receipt timestamps and
+worker clock tags, and `backendMissingEvidence` for unavailable SDK marks.
+Worker durations are reported from `workerElapsedMs`, separately from host
+intervals. Nested resource/session/initialize samples overlap; do not sum them.
+
+Coverage is explicit: the Claude qualification uses a hand-driven `queryFn`
+which launches a real shell worker and synthesizes SDK responses. It exercises
+`host_probe`, `worker_host_probe` and `worker_launch`; it does not run Claude's
+SDK process or send a model request. Its `coverage` and `unobserved` fields
+identify that limitation, and relay receipt stays null. It cannot qualify
+Claude SDK/MCP/enqueue/first-request timings; those still need a real SDK run.
+The Claude worker-fixture projection omits those unsupported SDK intervals from
+both `steps` and `backendSteps`, even when an older raw record carries an open
+SDK-init timer. No numeric SDK initialization duration is inferred from turn end.
+The Pi fixture runs its real SDK and must provide all seven startup steps
+(`preparation`, `host_probe`, `worker_spawn`, `bootstrap_imports`, `resources`,
+`session`, `initialize`) plus a relay receipt. Every required step must be
+complete on the first sample and each warm sample. A receipt alone cannot
+qualify a startup breakdown.
+Admission qualification separately requires finite, ordered, explicit start and
+completion milestones plus explicitly completed steps with the exact phase
+`governed` and `journal` in `subPhases`. Terminal-fallback durations, open
+phases with those prefixes, and unfinished steps cannot supply that proof. Every admission step must lie
+inside its exact phase start/completion milestones. Backend or
+future open-phase entries cannot satisfy that assertion; observed zero-duration
+admission steps remain valid.
+Pi must also carry its `first_relay_request` step matching the observed relay
+milestone. Both fixtures require `first_backend_frame` when the observed frame
+is strictly before relay receipt (or no receipt was exercised), with the
+step's timestamps matching that milestone. Equal millisecond timestamps do not
+establish callback order: a frame step may be absent when receipt ran first,
+and a present frame step must still match the milestone. A frame observed
+after relay receipt remains outside the bracket.
+Every backend entry's host start/end observations must be contained between
+invocation and relay receipt. Worker durations keep their independent clock;
+both host timestamps must be the same receipt point inside the bracket.
+Claude's worker-only fixture uses the observed turn end as its qualification
+upper bound, without claiming a model request. Its Activity `firstFrameAt`
+can be set by `prompt_prefix` during SDK option assembly before worker launch.
+A missing terminal bound cannot be replaced by that early frame. Required
+host stages must use the host clock.
+
 Its `phases` section (#2915) attributes each observed writer's worker hold and
 each harbour turn's journal begin and finish to their steps: the queue for the
 journal, the wait for room behind earlier releases, checkpoint, delta,
@@ -572,7 +662,10 @@ then reopened; a later sample cannot establish the state at the failed ioctl.
 Neither state identifies its holder by itself.
 
 `bun run test tests/owned-loop-evidence.test.ts tests/identity-native-fixture.test.ts`
-runs file-only protocol controls and fixture composition checks. These controls
+runs file-only protocol controls and fixture composition checks. Each rewritten
+identity fixture embeds the pure timeout helper and executes its configuration
+prefix in a separate directory without neighboring helpers, before any native
+filesystem setup. These controls
 are not kernel admission. Controlled held-descriptor/release proof and actual
 runner admission still require the reviewed privileged offline native harness;
 neither establishes historical attribution for #2420.
@@ -617,3 +710,15 @@ the allocator-selection or foreign remove/re-add window between validation and
 ioctl. This fixture retains its exclusive-minor disposable-host model; retries
 extend that existing window. File controls prove protocol and refusal behavior,
 not real kernel timing or elimination of this residual risk.
+
+
+The path matrix also runs against comparison sources that predate index scope
+metadata. It always returns the 0/1/20/200 timing cells and loaded-history cells;
+only the separate index-capacity probe is reported unsupported when the older
+scope summary has no index ceiling. It imports no new product runtime symbol to
+select that probe. Each physical hold includes absolute clock boundaries, and
+the fixture annotates existing `observe_record` traces with committed sequence
+deltas. Cell phase tables select the observation that actually committed the
+paths, including a periodic observation before the tool's zero-path capture.
+The full physical freeze remains the measured denominator; any other work in
+that shared window remains visibly unattributed.

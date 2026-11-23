@@ -39,6 +39,130 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+### Checkout change receipts (#4297)
+
+**Breaking narrowing, authorized 2026-11-20:** new turns replace per-file
+history of covered writable Git checkouts with one `codeChanges` entry per
+checkout in `TurnJournalDetails`. Retained legacy `changes` rows remain
+readable. Notes and non-checkout workspace files retain their previous
+before-images and revert rules. This is a pre-1.0 minor with the restriction
+named in its changeset.
+
+Each entry has `checkout` (a logical `workspaces/<name>` or
+`reference-worktree://<id>/` identity), `state` (`recording`, `complete`, or
+`partial`), `head_before` and `head_after` (`{ commit, ref }`, where a detached
+HEAD has `ref: null`), `tree_before`, `tree_after`, `paths` (each
+`{ path, kind: added|deleted|modified, untracked }`), `bytes` (sum of the two
+changed blob sizes), `untracked` (count of added, untracked paths), and
+`ignore_changed` (any changed `.gitignore`). The starting tree is the previous
+completed receipt's endpoint or the starting commit's tree. Tracked files and
+untracked files Git does not ignore are captured as raw bytes. Ignored output
+and intermediate versions are not retained. Submodules, linked worktrees, unborn checkouts, LFS and filter/encoding attributes refuse writable
+receipt admission rather than claim faithful coverage.
+
+Both endpoint trees and their reachable blobs are copied as self-contained
+Git packs into host-owned journal object storage beside the journal database.
+Their stored bytes and receipt rows count toward its existing quota. Turn pins
+retain them through checkout deletion, source GC and restart, until ordinary
+journal retention expires. Git runs only in a credential-free maintenance
+worker, with source configuration never installed and hooks, filters and
+fsmonitor disabled. The evidence repository and journal rows are not worker
+mounts. A durable baseline receipt precedes exclusion of file coverage. A checkout
+created after admission keeps ordinary file coverage until its next admission. A final
+receipt is captured after writers exit, before the access generation closes;
+release captures the held endpoint under the existing worker hold. An
+interrupted recording remains partial, never a completed endpoint.
+
+Managed worktrees retain the pool's per-operation allowance, replacing the
+journal's `turn_bytes` charge. In-brain checkouts have a 16 MiB total captured
+content bound. The existing maintenance transport bounds combined capture output to 64 MiB
+(including base64 and path metadata); an endpoint pack that cannot fit refuses
+that operation without granting uncovered writes. A
+receipt-capacity refusal cannot grant uncovered writes.
+
+From the same authenticated turn-history entry:
+
+- `GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview?checkout=...`
+  returns `{ inline: true, diff }` or `{ inline: false, reason }`. Preview reads
+  only owned endpoint evidence, with a 256 KiB inline bound.
+- Owner/ambient-authorized `POST .../journal/code/revert` accepts exactly
+  `{ id, checkout }`, with a UUID operation identity. It drains writers, holds
+  the brain/Git locks, captures a fresh tree and restores the changed paths
+  from `tree_before` only when that tree equals `tree_after`. Added paths are
+  removed. Commits, branch refs and ignored output are unchanged.
+- `GET .../journal/code/revert/:id` reconciles that principal/session/turn-bound
+  operation. Results have `id`, `status` (`restored`, `conflict`, `unknown`, or
+  `failed`); a conflict includes `expected`, `current` endpoint facts and a bounded
+  `currentPreview` (`{ inline, diff?, reason? }`) for
+  owner review. Reusing an identity never dispatches its effect again. Lost
+  responses read the original identity; interrupted effects stay unknown.
+
+These UI history transports do not introduce an Activity record kind. Receipt
+facts never enter a provider's history. Existing tool definitions remain
+byte-identical; updated recording guidance is emitted only in a new tool
+result.
+
+### Default workspace inspection and code-changes preference (#4295)
+
+**Breaking narrowing, authorized 2026-11-20:** default governed and strict
+turns bind an existing `workspaces/` read-only. Their retained journal coverage excludes
+workspace paths, checkout ignore-policy reads and observed workspace bytes.
+Notes keep their existing coverage. This applies per turn even during shared
+observations with an opted-in writer. Retained history from earlier turns
+remains readable with its existing routes and shapes. If the optional area
+is absent at launch, governed note writes stay live, no mountpoint is created,
+and workspace exclusion does not apply: new content under that name is
+retained and charged as ordinary brain content for that turn, including the
+brain's frozen root ignore rules, root journal scope and ordinary Git-internal
+exclusions. Steering references and unavailable markers also remain per turn;
+an overlapping writer cannot donate its ignore policy. The next default
+turn binds the new directory read-only. Status describes the same default
+qualification, including an unqualified workspace root or unenforceable policy-protected
+parent selecting strict. An unqualified workspace symlink protects only its
+namespace; it never makes unrelated note destinations protected. Explicit
+owner protections still cover their symlink destinations. Status inspection
+never creates protection prerequisites on the live brain. It includes literal
+provider folder pins. When provider type folders still require checkpoint taxonomy
+qualification, the optional `profile` and `configurationView` are omitted and the
+existing `profileFallback` explains the uncertainty; status does not execute
+brain configuration or report a guessed profile. Captured versions
+remain per turn through storage, so one participant’s retained hash never
+replaces another participant’s ignored metadata. Superseded checkpoint
+accounting includes excluded checkout bytes until release succeeds.
+
+**Additive API:** authenticated `GET` and `PUT`
+`/api/sessions/:id/code-changes` and `/api/drafts/:id/code-changes` return
+`{ enabled: boolean }`, default false. PUT accepts exactly that JSON object;
+unknown fields or a non-boolean give 400, non-JSON gives 415, an oversized
+body gives 413, an unknown session or one without proven ownership by the
+authenticated principal gives 404, and unusable authentication gives 401.
+Session reads, writes and enabled draft binds all require proven ownership;
+legacy ownership gaps cannot grant writable admission. Drafts are scoped to
+the authenticated principal and share the existing bounded profile-draft
+storage (507 when full). Successful saves are durable before acknowledgement. All responses are `Cache-Control: no-store`.
+
+The switch is independent of the worker profile, preserves that preference,
+and cannot weaken strict or provider restrictions. A first-send profile draft
+carries its code-changes preference into the named session. Saves survive
+resume and are frozen before admission awaits; changing a save never changes
+an active turn. Enabled turns retain writable workspace qualification, the
+alias scan and byte bounds. Ordinary workspace files keep per-file journaling; covered Git checkouts use the receipt narrowing below. The saved switch is intent:
+host application writes remain protected unless admission actually qualifies
+a writable mount. Mode changes reach the worker through append-only new-turn context, without altering tools, the
+system prompt or earlier messages. The refusal note names both writable
+alternatives: the session's code-changes switch and a managed worktree. Read-only tool failures in
+an inspected turn receive the fixed conditional sentence quoted in the
+[workspace decision](../decisions/worker-writable-areas.md#workspace-inspection-amendment-2026-11-20-4295-4298),
+without path attribution. Explicit host workspace refusals use that same text.
+Result codes, record fields and closed HTTP/WS enums remain unchanged.
+Commands execute against the read-only mount; read-only failures receive the
+conditional remedy after execution, including failures outside the checkout.
+Verification and dry runs are never denied by command name. Strict Pi tools
+keep repo-relative checkout reads through a sealed source overlay beneath
+provider masks. Privileged host applications enforce inspection even without
+a governed admission service.
+This adds no value to an existing wire/HTTP enum or required response field.
+
 <a id="untrusted-file-marks-additive-2673"></a>
 
 ### Untrusted file marks (additive, #2673)
@@ -55,7 +179,7 @@ The `taint` governance event's shape is unchanged: its reserved
 ### Brain-wide configuration coverage (additive, #3257)
 
 `GET /api/journal/configuration-coverage` returns `ConfigurationCoverageRead`
-(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:183-185`):
+(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:190-192`):
 the brain's current set of configuration inputs steering could not trace. It
 is `{ state: "known", hash, paths, count, turnId, observedAt }` for the set the
 most recent complete turn recorded from a configuration inventory: `paths` is
@@ -149,6 +273,44 @@ the bytes to the journal's capacity. The decision is recorded in
 [the governed-workers decision](../decisions/governed-writable-workers.md#metadata-only-index-history--2026-10-25-2873)
 and [its purge](../decisions/governed-writable-workers.md#purging-earlier-index-versions-and-the-embeddings-lock--2026-10-25-2903).
 
+### Index updates leave change history (breaking, pre-1.0 minor, #4302)
+
+For observations made after this change, the exact root index family and
+publication copies listed above contribute no journal change rows, changed-file
+counts or observed bytes. Notes, enrichment caches, similarly named paths and
+independently held worktrees retain their existing coverage. Previously written
+history remains readable in its existing metadata-only form, with the same
+preview, download and restore exclusions.
+
+The host `GovernedTurns.refresh(lock, turnId?)` accepts an optional causing
+turn ID to correlate its index receipt. Each host application batch and
+governed post-turn index update, including the separate credentialed vector refresh, records one
+`index_update` Activity event for each causing turn. Its payload contains an
+opaque `generation`, `durationMs` and `outcome` (`complete`, `failed`, `cancelled` or
+`index_capacity`); failures also carry a bounded `cause`. A retry is a new
+update with a new generation. Revert and Undo updates use their own journal turn IDs. Shutdown records a cancelled generation for queued refreshes that never start. Tool child spans carry the causing session and retain receipts that arrive before the backend root span. Owner API/stream records retain the receipt spans and events; `query_activity` omits host receipt spans and lifecycle diagnostics from its model-facing projection. These host receipts never enter provider history.
+
+An ordinary governed writer keeps direct in-worker `brain index`. Each
+observation also measures current index-family and publication-copy size from
+sealed metadata, without reading content or creating history rows. Past the
+independent 4 GiB bound, scope pauses with optional receipt
+`result: "index_capacity"` under the existing `turn_bytes` dimension. Optional
+scope fields `indexBytes` (nullable while unconfirmed) and `indexLimitBytes`
+disclose that independent size and ceiling. The existing one-time finite
+continuation doubles only the index ceiling; the prompt names that ceiling and preserves the content allowance. Independent pending content and index pauses must both be answered before workers resume. Unknown measurement has no grant. Optional receipt and scope-event `measurement: "unknown"` names that state; numeric count/observed and overshoot are zero compatibility placeholders, not measurements. UI and voice say the size is unknown. Operational backups retain admitted conflict state with exact schema validation and accept earlier images without those tables. Only the newest open pause offers Continue; earlier open cards keep Stop available, and regain their eligible Continue after newer pauses are answered. Refused continuation leaves Stop available. Expanded facts label unknown overshoot as unknown. The index scope event has optional `result: "index_capacity"` and `source: "default"` even under a custom policy. Strict and masked/private-index turns cannot write this live index and do not receive its cap. Admitted permanent conflict-table guards apply to already-open connections and are preserved/validated in backups. History serves stored pre-upgrade conflict lists unchanged, including empty lists and their order. New rows expose the released per-row optional `conflict` field, computed from the once-per-path durable relation. Clients continue reading the selected row's field. The repeated response size is preserved for compatibility.
+The closed dimension enum is unchanged, and old parsers accept the records.
+The bound matches the former default byte scope; checks occur at observations,
+so writes may overshoot between them. The free-space floor remains binding.
+
+Host index writers remain independently bounded by maintenance temporary storage
+and output staging (256 MiB per command by default, with their existing
+configured aggregate budgets). Writes beyond a worker allowance return
+`ENOSPC`; unavailable admission returns `worker_state_busy`. An update that
+reports either condition has the named receipt outcome `index_capacity`.
+Committed Markdown remains authoritative, and pending application paths stay
+queued for the next retry. This restriction supersedes new index-version
+listing under #2873, with the maintainer's approval on #4302 (2026-11-20).
+
 ### User history restoration (additive, #1653)
 
 The four authenticated human `/revert` operations are specified in
@@ -193,13 +355,17 @@ the server boots. No unknown or surviving storage charge is released.
 The response also adds optional `journalRecovery`, declared by `SystemStatus`:
 `{ unresolvedRecords: number, firstCause: null | { reservationId: string,
 hash: string, at: number, errorClass: string, message: string, site: string } }`.
-This is the journal worker's boot recovery summary: the count is unresolved
-object reservations, including multiple reservations of the same hash, and
+This is the journal worker's latest recovery summary, refreshed at startup and
+by idle maintenance: the count is unresolved reservations, including multiple
+reservations of the same hash and temporary reservations without a content
+identity. A temporary reservation carries `hash: ""`. The value can change
+without a restart, and `healthy` is recomputed from the refreshed result.
+For either kind of reservation,
 `firstCause` is the earliest recorded I/O refusal among them (`at` is Unix
 milliseconds). The first cause stays on its charged reservation across restarts;
 a successful later recovery removes both. Zero unresolved records means
 `firstCause: null`. Any unresolved records make `healthy` false without refusing
-boot or unrelated work. If persisting a cause fails, the current boot still
+boot or unrelated work. If persisting a cause fails, the current recovery pass still
 reports it and logs the diagnostic-write failure; the existing reservation
 remains durable and charged. Neither summary is exposed by unauthenticated
 `/api/status` or public `/api/health`. Additive in 0.45.0.
@@ -463,7 +629,40 @@ payload fields.
 The additive `egress_connection` kind records the concrete turn proxy's host,
 port, visible HTTP method/path, bytes, accounting scope, duration and outcome.
 CONNECT records opaque bytes without a path or content claim; the inference
-tag comes only from the actual relay. Existing `egress_denial` remains named
+tag comes only from the actual relay. Inference records may carry monotonic
+millisecond offsets from the operation start: `admitMs` (first admission returned after its final synchronous commit check), `bodyMs` (body read), `credentialMs` (credential resolved),
+`dispatchMs` (immediately before upstream fetch), `headersMs` (fetch resolved)
+and `firstChunkMs` (first upstream read resolved, including EOF). Its mark is
+attempted once: a failed first mark remains absent and is never retried on a
+later read. Reached offsets are
+nonnegative, ordered and bounded by `durationMs`. Unreached marks are absent,
+including on refused/failed attempts. `loopLagMaxMs` is independently the
+maximum nonnegative drift of a 50 ms timer before dispatch (also sampled at
+dispatch before a delayed callback can run); it is not a provider latency.
+These optional host fields never alter request or response bytes. Timing and
+per-request usage callbacks are best-effort: a failed callback leaves its mark
+absent and cannot prevent dispatch or interrupt a response. A refused
+first admission carries `admitMs` at the completed refusal decision, including
+session-binding waits before proxy admission. A denied audit is submitted
+synchronously at that boundary, so turn stop and settlement cannot outrun it.
+
+Inference records also optionally carry provider-reported `inputTokens`,
+`cacheReadTokens` and `cacheCreationTokens` per request. The relay inspects the
+initial Messages SSE `message_start.message.usage` block, mapping
+`input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens`.
+Only nonnegative safe integers actually reported by the provider are kept;
+missing or provider-null fields are not inferred as zero. A missing, malformed, unsupported or
+unreadable initial block leaves these fields absent. LF, CRLF and bare CR
+line endings are accepted across chunk boundaries. Comment and ping frames
+may precede the start; content, errors or another substantive frame end the
+initial-usage window. The last `event:` field in a frame supplies its effective label. Parsing
+consumes each retained character once, without rescanning the prefix after
+each chunk. The event label (when supplied) and JSON type must both
+identify `message_start`. Inspection is bounded to
+the first 64 KiB, deferred outside the forwarding stack and never awaited; it
+reads only chunks already forwarded and never alters or delays a chunk. The
+record stores no stream text, and terminal observation never waits for parsing.
+Existing `egress_denial` remains named
 and versioned as before. Header values, query strings and bodies are excluded.
 
 The additive `provider_mask_refusal` kind (#2690) records a host bridge tool

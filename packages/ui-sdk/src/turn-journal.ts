@@ -113,7 +113,22 @@ export interface JournalOutwardAction {
   revertible: false;
 }
 
+/** One checkout's endpoint evidence, retained with its turn, never sent to a provider. */
+export interface CodeChangeReceipt {
+  checkout: string;
+  state: "recording" | "complete" | "partial";
+  head_before: { commit: string; ref: string | null };
+  head_after: { commit: string; ref: string | null };
+  tree_before: string;
+  tree_after: string;
+  paths: { path: string; kind: "added" | "deleted" | "modified"; untracked: boolean }[];
+  bytes: number;
+  untracked: number;
+  ignore_changed: boolean;
+}
+
 export interface TurnJournalDetails {
+  codeChanges?: CodeChangeReceipt[];
   turnId: string;
   sessionId: string;
   summary: TurnJournalSummary;
@@ -150,6 +165,10 @@ export interface TurnRevertReceipt {
 /** Scope facts come from the host's frozen turn policy and shared journal observations. */
 export type ScopeDimension = "files_changed" | "minutes" | "tool_calls" | "turn_bytes" | "free_space_floor";
 export interface ScopeCapReceipt {
+  /** Unknown measurements use the numeric compatibility placeholder zero. */
+  measurement?: "unknown";
+  /** Separate live-index size cap; dimension keeps the existing byte-cap vocabulary. */
+  result?: "index_capacity";
   eventId: string;
   dimension: ScopeDimension;
   count: number;
@@ -163,6 +182,9 @@ export interface ScopeCapReceipt {
   reason?: string;
 }
 export interface TurnScopeSummary {
+  /** Current generated index-family size, independently bounded without retaining versions. */
+  indexBytes?: number | null;
+  indexLimitBytes?: number;
   policySource: "policy" | "default";
   limits: Record<Exclude<ScopeDimension, "free_space_floor">, number>;
   hardTimeoutMs: number;

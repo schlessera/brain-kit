@@ -410,6 +410,8 @@ export async function createTurnDataTree(options: {
   brainPath: string; view: WorkerStartupView; maskPaths: readonly string[];
   /** Mount it for the worker: false for a governed turn, which reads the live brain. */
   mount: boolean;
+  /** Qualified read-only source stays on its checkpoint, outside the note/index copy. */
+  inspectWorkspaces?: boolean;
   masks?: TurnTreeMasks; index?: string; pending?: readonly string[];
   /**
    * The turn is under provider rules (#2692, #2695): the legacy root-level
@@ -433,6 +435,7 @@ export async function createTurnDataTree(options: {
   const hidden = [...(masks?.buildFolders ?? []), ...envMaskedPaths(options.view.root, options.brainPath)];
   const copyPlan = planCopy(options.view.root, rel => {
     const top = !rel.includes("/");
+    if (options.inspectWorkspaces && isWithin("workspaces", rel)) return true;
     if (top && (OMITTED.has(rel) || isEnvName(rel) || (caches && PROVIDER_CACHE_FILES.includes(rel)) || (masks && rel === PROVIDER_CACHE_DIR))) return true;
     return hidden.some(folder => isWithin(folder, rel));
   });
@@ -450,6 +453,8 @@ export async function createTurnDataTree(options: {
       throw error;
     }
     copy.finish();
+    // A mountpoint on this private copy preserves repo-relative tool reads.
+    if (options.inspectWorkspaces && options.mount) mkdirSync(join(root, "workspaces"), { mode: 0o755 });
     settleIndex(index, separateIdentity);
   } catch (error) {
     await placed.remove();

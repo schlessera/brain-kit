@@ -193,7 +193,7 @@ describe("follow-ups sent before the backend has the turn (#1063)", () => {
     let entered = false, release!: () => void, ended = 0, first = true;
     const gate = new Promise<void>(resolve => { release = resolve; });
     Object.defineProperty(host, "governedTurns", { configurable: true, value: {
-      async begin() { if (first) { first = false; entered = true; await gate; } return { sandbox: { profile: "strict" }, policy, async end() { ended++; return null; } }; },
+      async begin() { if (first) { first = false; entered = true; await gate; } return { sandbox: { profile: "strict", areas: [] }, policy, async end() { ended++; return null; } }; },
     } });
     const own = host.coordinator.openAuthorization({ principalId: "test-principal", expiresAt: Date.now() + 60000, valid: true });
     const other = host.coordinator.openAuthorization({ principalId: "penelope-principal", expiresAt: Date.now() + 60000, valid: true });

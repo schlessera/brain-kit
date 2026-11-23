@@ -1,3 +1,4 @@
+import { claudePromptContextProvenanceLocation } from "./prompt-context.js";
 /** Native Claude transcripts remain authoritative; this is their cold storage. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { listSessions as sdkListSessions } from "@anthropic-ai/claude-agent-sdk";
@@ -357,7 +358,8 @@ export function removeClaudeSession(id: string, options: Pick<ArchiveOptions, "b
     outcomes.push(
       removeMetadataFile({ dir: join(archive, "native-observations"), name: `${nativeObservationIdentity(brain, id)}.json` }),
       removeMetadataFile(sessionReplayLocation(config, brain, id)),
-      removeMetadataFile(sessionPromptContextLocation(config, brain, id)));
+      removeMetadataFile(sessionPromptContextLocation(config, brain, id)),
+      removeMetadataFile(claudePromptContextProvenanceLocation(brain, id, { CLAUDE_CONFIG_DIR: config })));
   } else outcomes.push("unknown");
   return combineRemovalOutcomes(outcomes);
 }

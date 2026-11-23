@@ -25,6 +25,7 @@ test("a first strict admission refreshes sealed inputs only after trusted scratc
       expect(hold.startupView).toBe(views[1]);expect(existsSync(join(hold.startupView!.root,".brain/scratch"))).toBe(true);
       expect(existsSync(views[0]!.root),"REPLACED_ADMISSION_VIEW_RELEASE_IS_AWAITED").toBe(false);
     } finally {await hold.end();}
-    expect(released).toBe(1);expect(existsSync(views[1]!.root)).toBe(false);
+    // Refresh releases the initial gate before acquiring the newer checkpoint.
+    expect(released).toBe(2);expect(existsSync(views[1]!.root)).toBe(false);
   } finally {acquire.mockRestore();managed.mockRestore();for(const view of views)await view.cleanup();await turns.close();rmSync(brain,{recursive:true,force:true});}
 });

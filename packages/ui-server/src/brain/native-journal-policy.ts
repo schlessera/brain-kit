@@ -24,8 +24,9 @@ const publicationCopy = new RegExp(`^${INDEX_PUBLICATION_COPY.replaceAll(".", "\
  * The brain root's disposable index family (#2873): the database, its SQLite
  * sidecars, the embeddings lock database and its sidecars (#2903) and an index
  * publication copy, by exact journal-relative path.
- * The journal records their path, size and change stamp and never retains,
- * serves or restores their bytes; `brain index --force` rebuilds them from
+ * New root observations exclude them entirely (#4302). Historical rows are
+ * still presented as metadata only; the journal never serves or restores
+ * their bytes. `brain index --force` rebuilds them from
  * Markdown. Any other name, inside `.brain-index/` or elsewhere, is ordinary
  * content. The caller decides whether a path is relative to the brain root.
  */
@@ -38,9 +39,9 @@ type Rule = { directory: string; matcher: Ignore };
 const prefix = (path: string, directory: string) => !directory || isWithin(directory, path, { includeRoot: false });
 
 /** Git internals are excluded except the existing raw HEAD/refs coverage. */
-export function journalPathScope(path: string): { scope: string; local: string; refs: boolean } | null {
+export function journalPathScope(path: string, ordinaryWorkspaces = false): { scope: string; local: string; refs: boolean } | null {
   const segments = path.split("/");
-  const scope = segments[0] === "workspaces" && segments.length > 1 ? segments.slice(0, 2).join("/") : "";
+  const scope = !ordinaryWorkspaces && segments[0] === "workspaces" && segments.length > 1 ? segments.slice(0, 2).join("/") : "";
   const local = scope ? segments.slice(2).join("/") : path;
   const parts = local.split("/");
   const git = parts.indexOf(".git");
@@ -49,13 +50,18 @@ export function journalPathScope(path: string): { scope: string; local: string; 
   return { scope, local, refs: true };
 }
 
-export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: (path: string, maximum: number) => Promise<Buffer>, covered: readonly string[] = []) {
+export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: (path: string, maximum: number) => Promise<Buffer>, covered: readonly string[] = [], options: { workspaces?: boolean; ordinaryWorkspaces?: boolean; signal?: AbortSignal } = {}) {
+  const receiptCoverage = new Set<string>();
+  const excluded = (path: string) => options.workspaces === false && isWithin("workspaces", path) || [...receiptCoverage].some(root => isWithin(root, path));
   const rules = new Map<string, Rule[]>();
   const admitted = new Set(covered);
   // Metadata is already indexed. Only ignore files are read here; no baseline
   // content, object hashes or per-turn content manifest is produced.
+  const locationOf = (path: string) => journalPathScope(path, options.ordinaryWorkspaces);
   for (const entry of entries) {
-    const location = journalPathScope(entry.path);
+    options.signal?.throwIfAborted();
+    if (excluded(entry.path)) continue;
+    const location = locationOf(entry.path);
     if (!location || location.refs) continue;
     if (location.local.split("/").at(-1) !== ".gitignore") continue;
     if (entry.kind !== "file" || entry.bytes > 1024 * 1024) throw new Error("Native journal ignore rules require a bounded regular file.");
@@ -63,9 +69,10 @@ export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: 
     group.push({ directory: location.local.includes("/") ? location.local.slice(0, location.local.lastIndexOf("/")) : "", matcher: ignore().add((await read(entry.path, 1024 * 1024)).toString("utf8")) });
     rules.set(location.scope, group);
   }
+  options.signal?.throwIfAborted();
   for (const group of rules.values()) group.sort((a, b) => a.directory.split("/").length - b.directory.split("/").length || a.directory.localeCompare(b.directory));
   function ignored(path: string): boolean {
-    const location = journalPathScope(path);
+    const location = locationOf(path);
     if (!location) return true;
     if (location.refs || admitted.has(path)) return false;
     const components = location.local.split("/");
@@ -86,5 +93,5 @@ export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: 
     }
     return false;
   }
-  return { ignored, cover(paths: readonly string[]) { for (const path of paths) admitted.add(path); } };
+  return { ignored, excluded, excludeCheckout(path: string) { receiptCoverage.add(path); }, location: locationOf, cover(paths: readonly string[]) { for (const path of paths) admitted.add(path); } };
 }

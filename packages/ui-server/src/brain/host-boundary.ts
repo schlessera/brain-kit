@@ -1,3 +1,5 @@
+import { routineMaintenanceRequest, maintenanceResult, captureMaintenanceStdout, type MaintenanceGitPublication } from "./maintenance-git-publication.js";
+import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 /**
  * The host execution boundary (#1648; docs/decisions/governed-writable-workers.md,
  * "The host execution boundary").
@@ -23,7 +25,7 @@
  */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
@@ -35,14 +37,14 @@ import {
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
-import { createGovernancePolicyReader } from "./governance-policy.js";
+import { governancePolicyReaderFor, retainedFolderRoots, providerTypeSelectors } from "./governance-policy.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./module-repositories.js";
-import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
+import { resolveWorkspacesMount, resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
-import { prepareMaintenanceGit } from "./maintenance-git.js";
+import { prepareMaintenanceGit, prepareMaintenanceGitTargets } from "./maintenance-git.js";
 import { createScratchIgnoreQuery } from "./scratch-mask-query.js";
 
 /** Why `governed` cannot run on this server. */
@@ -119,6 +121,8 @@ export interface ExecutionResult {
   exitCode: number;
   /** A maintenance worker killed at its deadline (an abort throws instead). */
   timedOut?: boolean;
+  /** Host-owned routine-maintenance publication result; independent of output mode. */
+  gitPublication?: MaintenanceGitPublication;
 }
 
 export interface StreamingExecution {
@@ -133,6 +137,8 @@ export interface StreamingExecution {
    */
   settled?: Promise<void>;
   readonly signalCode: string | null;
+  /** Settled before exited; cron records this optional result in Activity. */
+  readonly gitPublication?: MaintenanceGitPublication;
   kill(signal?: NodeJS.Signals): void;
 }
 
@@ -359,7 +365,7 @@ function retainExecutionAdmission(execution: StreamingExecution,
   // Settled once this admission is released too, and whatever the launch itself still held.
   const settled = Promise.allSettled([released, execution.settled]).then(() => {});
   return { stdout: stdout.stream, stderr: stderr.stream, exited: execution.exited, settled,
-    get signalCode() { return execution.signalCode; }, kill: execution.kill };
+    get signalCode() { return execution.signalCode; }, get gitPublication(){return execution.gitPublication;}, kill: execution.kill };
 }
 /**
  * The server's own installation, read-only: this package with the
@@ -435,6 +441,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const governed = (startupView?: WorkerStartupView) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, workerHost: () => workerHost(startupView) });
   const prepareInput = (signal?: AbortSignal) => {
     if (!options.nativeManager) throw new Error("Maintenance execution requires the configured native managed-storage manager; full-copy fallback is unavailable.");
+    signal?.throwIfAborted();
     return prepareNativeWorkerStartupView(brain, options.nativeManager, signal);
   };
   // Sticky: a host whose worker boundary a real probe proved could have run a
@@ -535,7 +542,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   // A gated host writer is refused inside its gate transaction. An ungated
   // one (`gate: none`, runSync) still checks every active writer's retained
   // plan when a gate exists; with no gate at all, only the policy is known.
-  const policyReader = createGovernancePolicyReader(brain);
+  const policyReader = governancePolicyReaderFor(brain);
   // Each settles once its check has committed (#2850); nothing spawns before.
   const admitHost = async (hold: GateHold | null) => {
     if (hold) return markUnpinnedHostWriter(hold);
@@ -610,12 +617,25 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       const identity = ordinary.ok && ordinary.identity === "separate_uid"
         ? { identity: "separate_uid" as const, workerUid: ordinary.workerUid }
         : configuredIdentity ? {} : { identity: "shared_uid" as const };
-      const protection = resolveWorkerProtection(brain);
-      const profile = options.profile === "strict" || !availability.available || protection.reason ? "strict" : "governed";
-      return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
+      const policy = policyReader.load();
+      const folderPaths = retainedFolderRoots(policy.policy).filter(path => {
+        if (![".brain-index", ".brain-cache"].includes(path)) return true;
+        try { return lstatSync(join(brain, path), { throwIfNoEntry: false }) !== undefined; } catch { return true; }
+      });
+      const protection = resolveWorkerProtection(brain, { paths: protectedPaths(policy.policy), readOnlyRoots: ["workspaces"], folderPaths, prepare: false });
+      let workspaceFallback: string | undefined;
+      try {
+        const workspace = resolveWorkspacesMount(brain);
+        if (!workspace.writable && !workspace.missing && !workspace.readOnlyPath) workspaceFallback = workspace.reason;
+      } catch { workspaceFallback = "workspaces/ could not be qualified"; }
+      const fallback = protection.reason ?? workspaceFallback;
+      const unresolvedTypes = providerTypeSelectors(policy.policy).length > 0;
+      const profile = options.profile === "strict" || policy.policy.profiles.interactive === "strict" || !availability.available || fallback ? "strict" : "governed";
+      const qualifiedProfile = profile === "strict" || !unresolvedTypes ? profile : undefined;
+      return { hostExecution: isolated() ? "worker" : "host", ...availability, ...(qualifiedProfile ? { profile: qualifiedProfile } : {}),
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
-        ...(protection.reason ? { profileFallback: protection.reason } : {}),
-        ...identity, configurationView: profile === "governed" ? "live" : "startup",
+        ...(fallback ? { profileFallback: fallback } : unresolvedTypes && !qualifiedProfile ? { profileFallback: "Provider type folder qualification is unresolved in read-only status; each admission resolves it on its checkpoint." } : {}),
+        ...identity, ...(qualifiedProfile ? { configurationView: qualifiedProfile === "governed" ? "live" as const : "startup" as const } : {}),
         egress: hasManagedNativeStorage(brain) ? { active: true, detail: `${TURN_EGRESS_ACTIVE} ${options.providerRelay ? PROVIDERS_RELAYED : PROVIDERS_NOT_RELAYED}` }
           : { active: false, detail: TURN_EGRESS_INACTIVE } };
     },
@@ -664,6 +684,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           const run = async () => {
             admissionSignal?.throwIfAborted();
             execution.assertAuthorized?.();
+            prepareMaintenanceGitTargets(brain);
             const view = await prepareInput(execution.signal);
             let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
             let relay: ProviderRelay | undefined;
@@ -671,18 +692,23 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
               execution.signal?.throwIfAborted();
               outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
               relay = providerRelayFor(execution);
-              const launch = command(execution, undefined, relay);
+              const routine = routineMaintenanceRequest(execution.argv);
+              const launch = command(routine ? {...execution,argv:routine.argv} : execution, undefined, relay);
               const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
               execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
                 ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
               () => { execution.assertAuthorized?.(); execution.onExecute?.(); });
+              const report=routine?maintenanceResult(result.exitCode,result.stdout,routine.human):undefined;
+              const reason=result.killed?"maintenance_interrupted":execution.publish===false?"publication_disabled":report?.reason??null;
+              if (report ? reason!==null : execution.maintenanceKind === "git" && result.exitCode !== 0) outputs.discardGit();
               if (!result.killed && execution.publish !== false) {
                 execution.assertAuthorized?.();
                 if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
                 else await outputs.publish();
               }
-              return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
+              return { stdout: report?.stdout??result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}),
+                ...(report?{gitPublication:{state:reason?"discarded" as const:"published" as const,reason}}:{}) };
             } finally { await relay?.stop(); try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
           };
           return outputLock.withLock(brain, () => execution.lock
@@ -750,17 +776,19 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
         } catch (error) { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } throw error; }
       }
+      const routine = routineMaintenanceRequest(execution.argv);
       let worker: Awaited<ReturnType<typeof launchMaintenanceWorkerAsync>>;
       let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
       let view: WorkerStartupView | undefined;
       let relay: ProviderRelay | undefined;
       try {
         execution.signal?.throwIfAborted();
+        prepareMaintenanceGitTargets(brain);
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
         outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
         relay = providerRelayFor(execution);
-        const launch = command(execution, undefined, relay);
+        const launch = command(routine ? {...execution,argv:routine.argv} : execution, undefined, relay);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
         execution.signal?.throwIfAborted();
         const maintenance = { ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) };
@@ -772,14 +800,20 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       catch (error) { await relay?.stop(); try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
+      const report = routine ? captureMaintenanceStdout(worker.stdout) : undefined;
+      let gitPublication:MaintenanceGitPublication|undefined;
       const exited = worker.exited.then(async code => {
+        const completed=await report?.finish(code,routine!.human);
+        const reason=signalCode?"maintenance_interrupted":execution.publish===false?"publication_disabled":completed?.reason??null;
+        if (completed ? reason!==null : execution.maintenanceKind === "git" && code !== 0) outputs!.discardGit();
         if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();
         }
+        if(completed){gitPublication={state:reason?"discarded":"published",reason};report!.send(completed.stdout);}
         return code;
-      })
-        .finally(async () => { await relay?.stop(); try { await outputs!.cleanup(); } finally { await view!.cleanup(); } });
+      }).catch(error=>{report?.fail(error);throw error;})
+        .finally(async () => { report?.cancel(); await relay?.stop(); try { await outputs!.cleanup(); } finally { await view!.cleanup(); } });
       // The launch settles, freeing its output slot and gate hold, only once no
       // descriptor on the worker's stdio is open here, Bun's own duplicates
       // included (#2863). That waits behind `exited`, never inside it: a caller
@@ -791,7 +825,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       // An abort accepted while the launch was awaited still stops the worker.
       if (execution.signal?.aborted) kill("SIGKILL");
-      return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, kill }, credential);
+      return retainExecutionAdmission({ stdout: report?.stream ?? worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, get gitPublication(){return gitPublication;}, kill }, credential);
     },
     async runSync(execution) {
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");

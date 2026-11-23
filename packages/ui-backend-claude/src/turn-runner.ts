@@ -2,7 +2,7 @@ import { retainNativeRouteInputs } from "./native-route-inputs.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { FollowUpRequest, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
-import { assertTurnPosture, BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, assertTurnPosture, BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { NativeFileVersions, requireWorkerHostAsync } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
@@ -119,6 +119,7 @@ export function createClaudeTurnRunner(options: ClaudeTurnRunnerOptions): Claude
 }
 
 async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promise<void> {
+  req = { ...req, startupTiming: safeStartupTiming(req.startupTiming) };
   const { options, activeTurns, fileVersionsBySession } = runner;
   // Before anything is claimed or emitted: a refused posture rejects, per
   // the startTurn contract, and leaves no turn behind.
@@ -171,7 +172,9 @@ async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promis
     // Claim resumed input synchronously, then await collection before any
     // worker or SDK work. A refusal releases the claim through this catch.
     await req.bridge.inputSafety?.ready("claude",1);
+    const probed = req.startupTiming?.start("host_probe");
     workerHost = await requireWorkerHostAsync(options.backend.brainPath);
+    probed?.();
     profile = resolveProfile(options.resolveProfiles(), req.profileId);
     turnLock = createTurnLockBinding({
       turn,
@@ -272,19 +275,23 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
     const queryHandle = new Promise<Query>((resolve) => {
       resolveQuery = resolve;
     });
-    const prompt = sdkTurn.subscriptionOnly || relay.egress || runtimeRequirements.length > 0
-      ? gatedPrompt(input.messages, promptGateCheck({ queryHandle, initialize, sdkTurn, relay, terminal, runtimeRequirements,
-          phase, abortController, profileId: profile.id, log: options.log, reportActivity, reportRuntime }))
-      : input.messages;
+    // Every interactive input passes the gate. The gate owns which native
+    // checks are required, including retained pins on direct API turns.
+    const prompt = gatedPrompt(input.messages, promptGateCheck({ queryHandle, initialize, sdkTurn, relay, terminal, runtimeRequirements,
+      phase, abortController, profileId: profile.id, log: options.log, reportActivity, reportRuntime }));
     relay.routeInputs = relay.egress ? await retainNativeRouteInputs(req.workerSandbox?.profile === "governed"
       ? options.backend.brainPath : req.workerStartupView ?? options.backend.brainPath) : undefined;
     const result = runner.queryFn({ prompt, options: { ...sdkTurn.options, ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}) } });
+    // Neither the handshake nor system/init reports these durations. Never
+    // substitute prompt handoff or relay receipt for an internal runtime mark.
+    for (const name of ["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui"])
+      req.startupTiming?.missing(name);
     resolveQuery(result);
     // The account the CLI selected, for the per-turn report. The SDK answers
     // every call from the one handshake, so this and the gate agree.
     const account = (
       typeof result.initializationResult === "function"
-        ? initialize(result).then((init) => init.account, () => undefined)
+        ? initialize(result).then((init) => { sdkTurn.sdkInitialized(); return init.account; }, () => undefined)
         : Promise.resolve(undefined)
     ) as Promise<AccountInfo | undefined>;
     await runTurnStream({ stream: result, input, adapter, frames, terminal, req, backendId: BACKEND_ID, profileId: profile.id,

@@ -20,12 +20,13 @@ const NOTE = "Pass this layer to `brain image --ref <imagePath> --markup <markup
  * `.brain/scratch/markup/`. The worker receives only the receipt.
  */
 export function createMarkupSlice(ctx: BridgeContext, root: string, applicationPolicy: BrainApplicationPolicy,
-  options: Pick<MakeBridgeOptions, "protectedPaths" | "turnData">): BridgeSlice<"requestImageMarkup"> {
+  options: Pick<MakeBridgeOptions, "protectedPaths" | "workspaceReadOnly" | "turnData">): BridgeSlice<"requestImageMarkup"> {
   const { host, turn, turnId, principalId, signal, work, recorder, maskGuard, toolName, isAuthorized, hold, assertAuthority } = ctx;
   const { coordinator } = host;
   const { protectedPaths, turnData } = options;
   const apply = createMarkupApplication({ maintenance: host.maintenance, root, principalId, turnId, signal,
     // The scratch prune that follows a layer never removes a masked folder's files.
+    workspaceReadOnly: options.workspaceReadOnly,
     protectedPaths: maskGuard ? [...(protectedPaths ?? []), ...maskGuard.folders] : protectedPaths,
     lock: applicationPolicy.lock, isAuthorized, hold, isAvailable: () => work?.posture !== "voice",
     ...(turnData ? { turnTree: turnData.tree } : {}),

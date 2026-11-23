@@ -22,7 +22,9 @@ test("real owner management rejects a live agent against populated principal and
     const owner = await acting(t);
     const agent = await acting(t, owner.principal.id);
     t.app.db.query("INSERT INTO passkey_credentials (id, public_key, counter, rp_id, label, created_at) VALUES ('fixture-key', ?, 0, 'localhost', 'Original fixture label', 1)").run(new Uint8Array([1, 2, 3]));
-    expect(t.app.db.query("SELECT id FROM principals").all()).toHaveLength(2);
+    // Scheduled maintenance owns a separate system principal. Keep this
+    // assertion exact for the owner/agent rows this authority test exercises.
+    expect(t.app.db.query("SELECT id FROM principals WHERE kind IN ('owner','agent')").all()).toHaveLength(2);
     expect(t.app.db.query("SELECT id FROM passkey_credentials").all()).toHaveLength(1);
     for (const [method, path, body] of [
       ["GET", "/api/auth/principals", undefined],
@@ -144,4 +146,24 @@ test("share-target network fallback leaves the cross-site request body unread be
     expect(request.bodyUsed).toBe(false);
     expect(t.app.db.query("SELECT id FROM inbox_threads").all()).toHaveLength(0);
   } finally { await t.close(); }
+});
+
+test("code preview refuses a delegated agent cookie and returns the private diff to its owner", async () => {
+  const t = await httpContractApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "unused-fixture-hash", COOKIE_SECRET: SECRET } });
+  const journal = t.app.wsHost.journal!;
+  const diff = "--- a/chart.md\n+++ b/chart.md\n@@ -1 +1 @@\n-Ithaca\n+Scheria\n";
+  const preview = spyOn(journal, "codePreview").mockResolvedValue({ inline: true, diff });
+  try {
+    const owner = await acting(t), agent = await acting(t, owner.principal.id);
+    const checkout = `reference-worktree://${crypto.randomUUID()}/`;
+    const path = `/api/sessions/ithaca/turns/sail/journal/code/preview?checkout=${encodeURIComponent(checkout)}`;
+    const denied = await t.fetch(path, { headers: { cookie: agent.cookie } });
+    expect(denied.status, "AGENT_COOKIE_CANNOT_READ_PRIVATE_CODE_DIFF").toBe(403);
+    expect(preview, "AGENT_PREVIEW_REFUSES_BEFORE_EVIDENCE_ACCESS").not.toHaveBeenCalled();
+    const allowed = await t.fetch(path, { headers: { cookie: owner.cookie } });
+    expect(allowed.status, "OWNER_CAN_READ_PRIVATE_CODE_DIFF").toBe(200);
+    expect(await allowed.json()).toEqual({ inline: true, diff });
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(preview).toHaveBeenCalledWith("ithaca", "sail", checkout);
+  } finally { preview.mockRestore(); await t.close(); }
 });

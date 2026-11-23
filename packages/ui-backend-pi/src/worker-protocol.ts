@@ -89,13 +89,13 @@ export const piWorkerMessage = z.discriminatedUnion("type", [
 export type PiWorkerMessage = z.infer<typeof piWorkerMessage>;
 
 /** Text delivered to the host's safety collector, separate from provider history. */
-export function safetyResultInput(tool: string, content: readonly { type: string; text?: unknown }[], complete = true): { output: string; segments?: string[] } {
+export function safetyResultInput(tool: string, content: readonly { type: string; text?: unknown }[], complete = true, failed = false): { output: string; segments?: string[]; failed?: true } {
   const segments = content.filter(part => part.type === "text").map(part => part.text as string);
   // Omitted segments mean unprovable read delivery. Filtering an image or
   // resource out must not turn mixed content into one verified text part.
   if (tool === "reference_read" && (!complete || content.some(part => part.type !== "text" || typeof part.text !== "string")))
     return { output: segments.join("\n") };
-  return { output: segments.join("\n"), segments };
+  return { output: segments.join("\n"), segments, ...(failed ? {failed:true as const} : {}) };
 }
 
 export function sendPipe(pipe: Pick<Writable, "write">, value: unknown): void {

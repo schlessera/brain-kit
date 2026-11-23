@@ -82,9 +82,9 @@ type OwnerRow = { principal_id: string | null; principal_account: string | null 
  * joined), recorded voice conversation epochs and the typed session-creation
  * binding (#3337). A chat with no such record has unknown ownership. Records
  * naming different logins are returned as they are; whether they are one
- * account is `chatOwnedBy`'s question (#4138).
+ * account is `chatOwnedBy`'s question (#4138). Ownership-only mode omits task/request inventories.
  */
-export function resolveChat(db: Database, target: ChatTarget): Resolved | { refused: "unavailable" | "stale" } {
+export function resolveChat(db: Database, target: ChatTarget, options: { ownershipOnly?: boolean } = {}): Resolved | { refused: "unavailable" | "stale" } {
   const owners = new Set<string>(), conversations = new Set<string>(), records = new Map<string, AccountRecord>();
   // A record without a principal is unknown ownership, kept so it refuses.
   const record = (row: OwnerRow) => { records.set(JSON.stringify([row.principal_id, row.principal_account]), { principalId: row.principal_id, account: row.principal_account }); };
@@ -135,7 +135,7 @@ export function resolveChat(db: Database, target: ChatTarget): Resolved | { refu
   }
   if (!records.size) return { refused: "unavailable" };
   const tasks: string[] = [], requests: string[] = [], nativeTasks: string[] = [];
-  for (const conversation of conversations) {
+  if (!options.ownershipOnly) for (const conversation of conversations) {
     for (const row of db.query("SELECT epoch,native_handle,task_id,request_id FROM conversation_tasks WHERE conversation_id=? ORDER BY rowid").all(conversation) as { epoch: number; native_handle: string; task_id: string; request_id: string }[]) {
       tasks.push(row.task_id); requests.push(row.request_id); nativeTasks.push(nativeTaskKey(conversation, row.epoch, row.native_handle));
     }

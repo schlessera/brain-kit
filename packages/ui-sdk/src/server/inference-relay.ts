@@ -1,3 +1,4 @@
+import { inferenceUsageObserver } from "./inference-usage.js";
 import { chargeReceivedBytes, relayAllowance } from "./egress-accounting.js";
 import { readRelayResponse, readRelayRequestHead } from "./relay-response.js";
 /**
@@ -16,8 +17,9 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { workerIdentityHelper } from "./worker-identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { captureEgressFailure, egressChargeRefusal, type startEgressProxy, type EgressChargeFailure } from "./egress-proxy.js";
+import { captureEgressFailure, egressChargeRefusal, type InferenceTimingMark, type startEgressProxy, type EgressChargeFailure } from "./egress-proxy.js";
 import { INFERENCE_RELAY_PLACEHOLDER } from "@schlessera/brain-common/internal/provider-unavailable";
+import { observeDiagnostic } from "./startup-timing.js";
 
 /** Where the relay directory appears inside a restricted worker. */
 export const WORKER_INFERENCE_DIR = "/run/brain-inference";
@@ -44,6 +46,8 @@ export interface InferenceRelayOptions {
   egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "inference"> & Partial<Pick<Awaited<ReturnType<typeof startEgressProxy>>, "remainingBytes">>;
   /** Called for every request, forwarded or refused. Values are never logged. */
   observe?(event: InferenceRelayEvent): void;
+  /** Host receipt of an authorized route, before egress admission or reading its body. Observability only. */
+  received?(path: string): void;
   /**
    * The exact origin turn admission proved this turn's recipient from (#2695).
    * A relay whose upstream has another origin refuses to start, so a turn that
@@ -103,7 +107,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   chmodSync(dir, separateIdentity ? 0o750 : 0o700);
   const socketPath = join(dir, "relay.sock");
   const refuse = (method: string, path: string, status: number, reason: string, denialReason?: string): Response => {
-    options.observe?.({ method, path, outcome: "refused", status, reason, ...(denialReason ? { denialReason } : {}) });
+    observeDiagnostic(() => options.observe?.({ method, path, outcome: "refused", status, reason, ...(denialReason ? { denialReason } : {}) }));
     return Response.json({ type: "error", error: { type: "brain_inference_refused", message: reason } }, { status });
   };
   let server: ReturnType<typeof Bun.serve>;
@@ -122,9 +126,11 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const path = url.pathname;
         if (request.method !== "POST") return refuse(request.method, path, 405, "Only inference requests are relayed");
         if (!routes.has(path)) return refuse(request.method, path, 403, "This path is not an authorized inference route");
+        observeDiagnostic(() => options.received?.(path));
         const target = new URL(upstream.origin);
         target.pathname = path; target.search = url.search;
         const operation = options.egress?.inference(request.method, target, request.signal);
+        const mark = (name: InferenceTimingMark) => observeDiagnostic(() => operation?.mark(name));
         const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
         const denied = (reason: string, status = 403): Response => {
           operation?.finish("denied", reason);
@@ -137,6 +143,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const admitFailure = async ():Promise<EgressChargeFailure|undefined> => operation && !await operation.admit() ? operation.failure() ?? {ok:false,reason:"unavailable"} : undefined;
         const initialAdmissionFailure=await admitFailure();
         if (initialAdmissionFailure) return chargeDenied(initialAdmissionFailure);
+        mark("admitMs");
         const initialDecision = operation?.charge(0);
         if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
         const requestHead=readRelayRequestHead(`${request.method} ${url.pathname}${url.search} HTTP/1.1`,request.headers,{charge:chargeFailure,remaining:allowance.remaining});
@@ -168,6 +175,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           operation?.finish(cause.outcome,"request_body_failed");
           return cause.failure?chargeDenied(cause.failure):refuse(request.method,path,cause.status,"Inference request interrupted");
         } finally { signal.removeEventListener("abort", cancelBody); reader?.releaseLock(); }
+        mark("bodyMs");
         const body = new Uint8Array(length);
         let offset = 0;
         for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
@@ -182,6 +190,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         try {
           credentials = typeof options.credentials === "function" ? await options.credentials(signal, new URL(target)) : options.credentials;
           validateCredentials(credentials);
+          mark("credentialMs");
           if (signal.aborted) {
             const cause=captureEgressFailure(signal,operation);
             operation?.finish(cause.outcome,"client_disconnected");
@@ -210,7 +219,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           // Never follow a redirect: the upstream must not choose another host.
           signal.throwIfAborted();
           let pending!:Promise<Response>;
-          const send=()=>{pending=fetch(target,{method:"POST",headers,body,redirect:"manual",signal});};
+          const send=()=>{mark("dispatchMs");pending=fetch(target,{method:"POST",headers,body,redirect:"manual",signal});};
           const decision=operation?operation.dispatch(send):(send(),{ok:true as const});
           if(!decision.ok)return chargeDenied(decision);
           response=await pending;
@@ -219,6 +228,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           operation?.finish(cause.outcome,"upstream_unreachable");
           return cause.failure?chargeDenied(cause.failure):refuse(request.method,path,cause.status,"Inference upstream unreachable");
         }
+        mark("headersMs");
         const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining});
         if(incoming.headerFailure){await incoming.cancel().catch(()=>{});return chargeDenied(incoming.headerFailure);}
         if (response.status >= 300 && response.status < 400) {
@@ -226,7 +236,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           await response.body?.cancel().catch(() => {});
           return refuse(request.method, path, 502, "Inference upstream redirected; redirects are not followed");
         }
-        options.observe?.({ method: request.method, path, outcome: "forwarded", status: response.status });
+        observeDiagnostic(() => options.observe?.({ method: request.method, path, outcome: "forwarded", status: response.status }));
         const out = new Headers();
         for (const [name, value] of response.headers) if (!RESPONSE_STRIPPED.has(name.toLowerCase())) out.set(name, value);
         if (!response.body) {
@@ -235,12 +245,15 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           return new Response(null, { status: response.status, headers: out });
         }
         const upstreamReader = incoming;
+        let observeUsage: ((chunk: Uint8Array) => void) | undefined;
+        observeDiagnostic(() => { observeUsage = inferenceUsageObserver(usage => observeDiagnostic(() => operation?.observeUsage(usage))); });
+        let firstReadAttempted = false;
         let released = false;
         const release = () => { if (!released) { released = true; upstreamReader.release(); } };
         const output = new ReadableStream<Uint8Array>({
           async pull(controller) {
             let next:Awaited<ReturnType<typeof upstreamReader.read>>;
-            try { next=await upstreamReader.read(); }
+            try { next=await upstreamReader.read(); if (!firstReadAttempted) { firstReadAttempted = true; mark("firstChunkMs"); } }
             catch {
               const cause=captureEgressFailure(signal,operation);
               operation?.finish(cause.outcome,"upstream_response_failed");
@@ -248,7 +261,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             }
             const failure=next.deliver(()=>{
               if(next.done){controller.close();operation?.finish("completed");release();}
-              else controller.enqueue(next.value);
+              else { controller.enqueue(next.value); observeDiagnostic(() => observeUsage?.(next.value)); }
             });
             if(failure){release();controller.error(new Error(inferenceRefusalMessage(failure)));}
           },

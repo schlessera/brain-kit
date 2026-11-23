@@ -1,5 +1,7 @@
+import {gitIgnoreEnvironment} from "../config/env.js";
+import {isWithin} from "@schlessera/brain-common/internal/safe-path";
 /**
- * Which paths under a brain git ignores, asked of git once.
+ * Which paths under a brain git ignores, asked in fixed-size batches.
  *
  * Assets that git ignores are left out of the index: they exist on one clone
  * only, and indexing them there means a paid vision call and embedding for
@@ -8,8 +10,8 @@
  * assets alone.
  *
  * The rules are git's, not a re-implementation of them, and the answer comes
- * from one `git ls-files` call per work tree (the brain, and each initialised
- * submodule in it) rather than a spawn per file.
+ * from a cached tracked-name listing and one stdin ignore batch per work tree
+ * (the brain and each initialised submodule), rather than a spawn per file.
  */
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
@@ -25,13 +27,14 @@ const NOTHING_IGNORED: IgnoredMatcher = () => false;
 const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 /** Run git in `dir` and split its NUL-separated output; null when git fails or is missing. */
-function gitList(dir: string, args: string[]): string[] | null {
+function gitList(dir: string, args: string[], stdin?:Buffer): string[] | null {
   let result: ReturnType<typeof Bun.spawnSync>;
   try {
-    result = Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe" });
+    result = Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe",env:gitIgnoreEnvironment(),...(stdin?{stdin}:{}) });
   } catch {
     return null; // git is not installed
   }
+  if(stdin&&result.exitCode===1)return [];
   if (result.exitCode !== 0) return null; // not a work tree
   return decoder.decode(result.stdout).split("\u0000").filter(Boolean);
 }
@@ -40,19 +43,51 @@ function gitList(dir: string, args: string[]): string[] | null {
  * Collect what git ignores in the work tree at `dir`, prefixed with `prefix`,
  * then descend into its initialised submodules. The parent's listing stops at
  * a submodule's boundary, while the asset scan does not, so each nested work
- * tree gets the same one call of its own.
+ * tree gets the same fixed number of calls of its own.
  */
-function collectIgnored(dir: string, prefix: string, files: Set<string>, dirs: Set<string>, depth: number): boolean {
-  const entries = gitList(dir, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"]);
-  if (entries === null) return false;
-  for (const entry of entries) (entry.endsWith("/") ? dirs : files).add(prefix + entry);
+function collectIgnored(dir: string, prefix: string, files: Set<string>, dirs: Set<string>, depth: number, candidates?: readonly string[]): boolean {
+  const local=candidates?.filter(path=>path.startsWith(prefix)).map(path=>path.slice(prefix.length));
+  if(local && !local.length)return true;
+  const modules=submodulePaths(dir).filter(path=>(!local||local.some(file=>isWithin(path,file,{includeRoot:false})))&&existsSync(join(dir,path,".git")));
+  if(local){
+    // Ignore checking's index lookup treats wildcard names as pathspecs. Read
+    // tracked names separately, then query literal stdin paths with --no-index.
+    // Both process argv lists stay constant-sized regardless of corpus size.
+    const tracked=gitList(dir,["ls-files","--cached","-z"]);if(tracked===null)return false;
+    const trackedNames=new Set(tracked),boundaries=new Map<string,string|undefined>();
+    const boundary=(directory:string):string|undefined=>{
+      if(!directory)return;
+      if(boundaries.has(directory))return boundaries.get(directory);
+      const slash=directory.lastIndexOf("/"),parent=slash<0?"":directory.slice(0,slash);
+      const found=boundary(parent)??(existsSync(join(dir,directory,".git"))?directory:undefined);
+      boundaries.set(directory,found);return found;
+    };
+    const queries=new Map<string,string>();
+    for(const path of local){
+      if(trackedNames.has(path)||modules.some(module=>isWithin(module,path)))continue;
+      const slash=path.lastIndexOf("/"),nested=boundary(slash<0?"":path.slice(0,slash));
+      queries.set(path,nested?`${nested}/`:path);
+    }
+    // A declared but untracked nested repository can itself be ignored by
+    // the outer worktree. Tracked gitlinks retain their own ignore context.
+    for(const module of modules)if(!trackedNames.has(module))queries.set(module+"/",module+"/");
+    const input=[...new Set(queries.values())];
+    const ignored=input.length?gitList(dir,["check-ignore","--no-index","--stdin","-z"],Buffer.from(input.map(path=>`./${path}\u0000`).join(""))):[];
+    if(ignored===null)return false;
+    const names=new Set(ignored.map(path=>path.replace(/^\.\//,"")));
+    for(const [path,query]of queries)if(names.has(query))(path.endsWith("/")?dirs:files).add(prefix+path);
+  }else{
+    const entries=gitList(dir,["ls-files","--others","--ignored","--exclude-standard","--directory","-z"]);
+    if(entries===null)return false;
+    for(const entry of entries)(entry.endsWith("/")?dirs:files).add(prefix+entry);
+  }
   if (depth >= MAX_SUBMODULE_DEPTH) return true;
   // The submodules are the paths `.gitmodules` declares, read from disk rather
-  // than asked of git, so each work tree still costs one call. One that is
+  // than asked of git, so each work tree still costs a fixed number of calls. One that is
   // initialised has its own `.git`; an uninitialised one is an empty directory.
-  for (const path of submodulePaths(dir)) {
+  for (const path of modules) {
     const nested = join(dir, path);
-    if (existsSync(join(nested, ".git"))) collectIgnored(nested, `${prefix}${path}/`, files, dirs, depth + 1);
+    if (existsSync(join(nested, ".git"))) collectIgnored(nested, `${prefix}${path}/`, files, dirs, depth + 1, candidates);
   }
   return true;
 }
@@ -82,10 +117,10 @@ const MAX_SUBMODULE_DEPTH = 8;
  * `--directory` reports an ignored directory once, with a trailing slash,
  * instead of every file in it, so an ignored tree of media costs one line.
  */
-export function gitIgnoredMatcher(root: string): IgnoredMatcher {
+export function gitIgnoredMatcher(root: string, candidates?: readonly string[]): IgnoredMatcher {
   const files = new Set<string>();
   const dirs = new Set<string>();
-  if (!collectIgnored(root, "", files, dirs, 0)) return NOTHING_IGNORED;
+  if (!collectIgnored(root, "", files, dirs, 0, candidates)) return NOTHING_IGNORED;
   if (files.size === 0 && dirs.size === 0) return NOTHING_IGNORED;
   return (path) => {
     if (files.has(path)) return true;
@@ -99,6 +134,6 @@ export function gitIgnoredMatcher(root: string): IgnoredMatcher {
 /** True for a path the indexer treats as an asset, by extension, any case. */
 export function isAssetPath(path: string): boolean {
   const dot = path.lastIndexOf(".");
-  if (dot === -1) return false;
+  if (dot <= path.lastIndexOf("/")) return false;
   return (ASSET_EXTENSIONS as readonly string[]).includes(path.slice(dot).toLowerCase());
 }

@@ -101,7 +101,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:580-595`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:599-614`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -132,7 +132,13 @@ qualification succeeds. Without a helper they disclose shared UID and mask-only
 server-state protection, including the configured database mask.
 
 TERM/KILL/INT retain their meaning; STOP/CONT operate on the verified worker
-tree, including nested PID namespaces, with completion receipts. Supervisor
+tree, including nested PID namespaces, with completion receipts. Host hold
+timing records the existing worker control's stop/resume acknowledgements,
+including broker completion. It does not independently inspect kernel process
+state, add `/proc` or cgroup reads, or recheck stop evidence. A false or void
+control return leaves that clock unknown. Diagnostic failures cannot change
+freeze/thaw/kill behavior. An explicit false result from every freeze control
+ends the scope as stopped; it never offers Continue. Supervisor
 death has an independent kernel-bound termination path established after UID
 transition. Control loss, server death, cancellation and setup failure also
 terminate owned workers. Recovery never begins while a known owned writer
@@ -420,7 +426,7 @@ write verified scratch/workspace copies through the aliases below.
 | Place | Paths | Lifetime | Link it for the reader? |
 | --- | --- | --- | --- |
 | Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and a host-owned display mapping makes history show the promoted link; runtime transcript bytes stay unchanged. |
-| Persistent scratch/workspaces | Governed: `.brain/scratch/` and `workspaces/`; strict: `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces` | Governed writes persist directly; strict writes persist after validated publication. Scratch is pruned after 7 days, oldest first past 1 GB | Yes: link the canonical brain destinations, not the strict aliases |
+| Persistent scratch/workspaces | Governed: `.brain/scratch/` and `workspaces/`; strict: `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces` | Existing workspace writes require the session code-changes switch. Governed writes persist directly; strict writes persist after validated publication. Scratch is pruned after 7 days, oldest first past 1 GB | Yes: link the canonical brain destinations, not the strict aliases |
 | The brain | Everything else | Canonical | Yes, as documents |
 
 - **The brain** is writable under `governed`, except the resolved protected
@@ -456,16 +462,24 @@ write verified scratch/workspace copies through the aliases below.
   and `brain scratch prune` work inside a turn, and the reader opens the path
   the command prints. The server never follows a symlink under `.brain/` when
   it serves, previews or lists a scratch path.
-- **`workspaces/`** is made writable only when it already exists as a real
-  directory in the brain root. Core always excludes it from the index.
-  Creating it outside a hosted turn is the opt-in; the name is fixed. Governed
-  uses its canonical path; strict uses a private copy at
-  `/tmp/brain-worker-areas/workspaces` with validated publication after exit. It
-  stays read-only for a turn when it holds a file hard-linked to something
-  outside it, sits on or contains a mount point, holds more than 200 000
-  entries, or holds a directory the server cannot read (scratch too); the
-  agent's note and the server log name the reason. Links wholly
-  inside it, such as local clones between workspace repositories, are fine.
+- **`workspaces/`** is read-only in default governed and strict turns when present at admission. An absent optional area leaves governed note writes live, creates no mountpoint, and any content created beneath that name is retained and charged as ordinary content for that turn. The next default turn seals it. Core
+  always excludes it from the index. The host checks its root, symlinks and
+  mount topology but skips the writable-alias walk. Inspecting source does
+  not capture checkout content, read checkout ignore policy, retain workspace
+  change rows or charge workspace bytes to that turn. A write, install or
+  build needs the session's code-changes switch or a managed worktree; the
+  worker's note names both alternatives. The preference is per session,
+  survives resume and applies at the next admission, leaving a running
+  worker unchanged. When enabled, the existing real directory gets the
+  previous writable mount, alias scan and byte bounds. Ordinary workspace files
+  keep per-file journaling; covered Git checkouts retain one endpoint receipt
+  per checkout (see the [history contract](../integration-contract/http.md#checkout-change-receipts-4297)):
+  governed uses its canonical path; strict uses a private copy at
+  `/tmp/brain-worker-areas/workspaces` with validated publication after exit.
+  Writable qualification still refuses outside hard links, mount points,
+  unreadable directories or more than 200 000 entries. Contained links are
+  allowed. An overlapping default turn never inherits that writer's workspace
+  rows or byte charge.
 - **The real host home** is not a writable host escape. The resolved profile may mask its
   contents; only the selected runtime inputs restored by that layout are
   available. A write into a read-only home fails and is retained as a roadblock.
@@ -807,7 +821,8 @@ host timeout, resource limits and bounded storage still apply, including paused
 time; the picker and capabilities note state the actual enforced inputs.
 
 The shared raw journal observes each tool completion and every 15 seconds,
-including brain, scratch and workspaces, and the monitor reads `statfs` at each
+including brain and scratch, plus workspaces for sessions with code changes
+enabled, and the monitor reads `statfs` at each
 observation. It freezes a running worker on a reached cap or below free space
 max(5% of filesystem capacity, 2 GiB). A delegated cgroup confirms its freezer;
 otherwise the parent verifies the worker PID namespace and stops its process
@@ -929,29 +944,92 @@ bytes. Deleting a lower-only baseline file does not free writable capacity.
 No host-backed output overflow fallback exists. The agent's limits note states
 the same resolved output allowance.
 
-Maintenance Git packing is bounded by the same allowance. Hosted `brain
-maintain` runs git's incremental `loose-objects`, `incremental-repack` and
-`pack-refs` tasks inside its maintenance worker, so each new pack is written into
-that worker's output stage, never directly into the brain's `.git`. The
-launcher declares the stage's size and setting to the worker in
-`BRAIN_WORKER_OUTPUT_ALLOWANCE`. A pack larger than the space left fails the `git`
-step with a named refusal instead of git's bare `Out of diskspace`:
+Git packing preflights the raw object/ref sizing rule
+`roundUpTo4096(3 * (sum(raw object bytes + 128 per object) + ref text bytes + 128 per ref) + 16 MiB)`.
+Insufficient or unknown capacity produces the named `packing_headroom` skip
+before Git maintenance starts. Hosted maintenance keeps its existing bounded
+output stage; dedicated disk-backed packing is tracked separately in #4288.
+Routine maintain uses the existing `--json` flag for its host-side result;
+other commands retain their existing execution and publication behavior.
 
-```text
-FAILED — no space: git packing ran out of space in the maintenance worker's output stage (allowance 268435456 bytes, set by BRAIN_UI_OUTPUT_STAGING_BYTES; 264241152 bytes available when the step started). git: fatal: sha1 file '.git/objects/pack/tmp_pack_…' write error. Out of diskspace
-```
+A failed or incomplete pack publishes **nothing under `.git`**. Newly created
+temporary pack files are removed from the failed stage; outside a declared
+private stage, new names are conservatively left alone because another Git
+writer may own them. Historical garbage is
+never removed. For routine `brain maintain`, the host selects Git output only
+when the command exits zero and its complete JSON result contains a successful
+Git step. The host explicitly requests machine output, preserving JSON callers
+and reproducing the CLI formatter for explicit `--human` callers. The shipped
+`brain maintain` cron argv therefore needs no flag change. Streaming launch
+drains stdout independently of its caller into one fixed 1 MiB buffer. It waits
+for EOF after process exit, allowing up to five seconds for that barrier; neither
+exit-time scheduling nor an unread display stream decides publication. Oversized,
+unreadable, malformed, incomplete, skipped or nonzero reports discard the whole
+Git portion while other validated output publishes. Cron durably records the
+host-owned `git_publication` event and `maintenance.git_publication` span
+attribute. Discards carry a named reason; a missing/unusable report also marks
+the maintenance Activity result as error and prints the named diagnostic, while
+the command exit code stays unchanged. No report body or new enum value is put
+in an existing parsed field.
+Successful output uses the existing publisher; this guard adds no pack exchange,
+transaction directory or writable-stage receipt. Pack/index/loose ordering and
+crash safety of successful publication are separate follow-up work.
+`brain maintain`'s git result and
+`brain storage pack --json` report existing garbage count and bytes from
+`git count-objects -v`. Cleanup of existing garbage requires a separate backed-up
+owner operation. The CLI's standalone packing preflight uses the same conservative
+need and skips when it cannot establish enough space, without reserving it.
 
-The available figure is the stage's free space when the step started, measured
-the way `brain storage pack --json` reports `headroom`. To let the pack through,
-raise `BRAIN_UI_OUTPUT_STAGING_BYTES` above the largest pack the step writes (a
-multiple of 4096) and restart the server. Unset, the budget follows it as
-allowance × `MAX_CONCURRENT_SESSIONS`; an explicit
-`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` must be raised to at least the new
-allowance too. The cost: every consumer, each agent turn as well as each
-maintenance run, then reserves the larger allowance, so the admitted total grows
-with it, or fewer consumers fit at once under an explicit budget. A
-`brain maintain` run outside a hosted worker reports the same shortfall against
-the filesystem holding `.git`, without a hosted setting.
+The existing idle host-maintenance schedule also scrubs the journal object
+store, never admission or finish. Its optional quarantine schema is created on
+first scrub through an accounted FULL write, rather than by a boot migration.
+Admission reserves eight additional pages plus their WAL allowance and checks
+the actual allocation before commit. Table and permanent capacity guards commit
+together, protecting connections that predate the schema; backups retain its
+canonical definitions and all quarantine charges. A near-cap journal keeps its existing
+writes usable and skips before listing or quarantine-directory work: `state: "skipped"`, existing
+`reason: "quarantine_pending"`, and optional
+`schemaSkipReason: "quarantine_schema_not_admitted"`. A later idle pass retries
+when capacity is available; missing schema contributes zero quarantine bytes.
+Each pass lists at most 32 new directory entries
+and reads at most 4 KiB of directory records per pass through Linux `getdents64`
+(the qualified Linux host libc), retaining only a fixed 4 KiB buffer and its
+directory descriptor across passes. Bun 1.4.4 eagerly enumerates a whole
+directory through `Dir.readSync`, so it cannot supply this I/O bound. A process
+restart starts a fresh sweep. A full batch remains partial until the cursor reaches
+its end. Up to 32 pending reservations are retried separately with a rotating
+cursor, sharing the combined 64-entry/row work bound and leaving half
+for new entries; missing old candidates cannot starve newly discovered files. Each
+physical copy gets a separate destination name and durable byte charge. Under the journal writer lock it excludes hashes with
+any object row, reference or reservation, verifies remaining bytes against the
+SHA-256 filename, commits their quota charge, then moves verified orphans to
+`<objects-root>/quarantine`. Quarantined bytes stay charged until an explicit
+owner action removes them. Interrupted moves retain their charge and reconcile
+on the next pass, retrying both directory fsyncs even when the move already
+exists. Collection syncs each unlink before deleting its accounting row,
+including retries after a prior unlink. Persisted reservation names are validated
+before path use; nonregular entries stay in place without starving valid files.
+Unresolved reservations report `quarantine_pending` with
+pending counts and bytes rather than a clean pass. A quota-refused batch retries
+its bounded candidates individually, so an oversized orphan cannot block small
+siblings. Optional `capacityBlocked` counts candidates left for a future sweep; their
+verified counts and bytes still appear in `unaccounted` / `unaccountedBytes`
+for that pass. Individual stat/open/read errors stay local, retain the file,
+and produce optional `readFailures` diagnostics (relative path, error class
+and message), with `partial` / `quarantine_pending`; an I/O refusal is not
+proof of corruption. Corrupt files stay in place and are reported separately.
+Idle maintenance also retries interrupted-producer recovery and refreshes its
+status, including directory sync barriers previously refused at startup. A
+crash between content link and pending unlink is recovered by removing and
+syncing the dead producer’s pending alias before validating the hash inode.
+A busy journal records `journal_busy` without waiting for the turn to end.
+Counts, bytes, skips and failure causes appear in the existing maintenance
+Activity record as `journal_scrub` / `journal_scrub_failed` events under the
+`journal-scrub` host-maintenance job. Its results cannot reset the scheduled
+`maintain` job's failure streak. A scrub failure records its cause and still
+allows independent idle observation and retention expiry to run. Quarantine
+is inside the registered private journal root and ephemeral shutdown removes it
+with that root.
 
 A fixed trusted helper uses util-linux `unshare` and `mount` to create a
 copy-on-write overlay with immutable input as its lower layer and upper/work
@@ -1740,3 +1818,13 @@ The [qualification and proposed integration contract](paid-cli-provider-qualific
 records actual offline controls, SDK accounting loss, media lifecycle constraints
 and the host-side admission/receipt design needed before activation. Existing
 CLI JSON envelopes and ordinary backend defaults remain unchanged.
+
+
+### Root dependency protection
+
+Root dependencies continue to use the protected in-brain `node_modules` and
+its existing alias walk. No module-store installation, activation, generation
+binding or collection is enabled. Ignored dependencies inside a checkout are
+disposable; root dependencies remain protected because later turns use them.
+Operational state retains the existing path and alias guard; no filesystem
+identity fast path or proof-mode status field is enabled.

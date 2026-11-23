@@ -1,5 +1,5 @@
 // The installed Claude CLI's serialisation of the shipped tool surface under
-// `createClaudeSdkTurn`'s production defaults: core brain tools stay deferred,
+// `createClaudeSdkTurn`'s production defaults: the five core reads load eagerly, remaining core brain tools stay deferred,
 // the complete stable bridge roster (including unavailable tools) loads eagerly with
 // their schemas, and the emitted skill listing reaches the request. Package
 // tests check only the MCP `_meta` stamp; this is the half where the CLI
@@ -17,11 +17,17 @@ let testHome: ReturnType<typeof installTestHome> | undefined;
 beforeEach(() => { testHome = installTestHome(); });
 afterEach(() => { testHome?.dispose(); testHome = undefined; });
 
-test("actual installed CLI request preserves shipped deferred core tools, eager bridge and emitted skills", async () => {
+test("actual installed CLI request preserves eager core reads, deferred remaining core tools, eager bridge and emitted skills", async () => {
   const capture = await captureSurface();
   expect(capture.request.model).toBe("claude-sonnet-5-5");
   expect(capture.cliVersion).toBe(capture.runtime.claudeCode);
-  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain__"))).toHaveLength(0);
+  // #4306: the maintainer requires the five common reads inline. This
+  // in-process capture explicitly enables search; production keeps it off
+  // until the non-blocking startup qualification in #4325 passes.
+  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain__")).map(tool => tool.name).sort()).toEqual([
+    "mcp__brain__brain_context", "mcp__brain__brain_list", "mcp__brain__brain_read",
+    "mcp__brain__brain_read_many", "mcp__brain__brain_search",
+  ]);
   expect(deferredToolNames(capture.request).filter(name => name.startsWith("mcp__brain__")).sort()).toEqual([
     "mcp__brain__brain_add",
     // The core server's fixed Apify tools (#3162): deferred like every core tool, and refused in a worker,
@@ -33,8 +39,7 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     "mcp__brain__brain_archive",
     "mcp__brain__brain_compute_cancel", "mcp__brain__brain_compute_collect", "mcp__brain__brain_compute_health",
     "mcp__brain__brain_compute_plan", "mcp__brain__brain_compute_run", "mcp__brain__brain_compute_status",
-    "mcp__brain__brain_context", "mcp__brain__brain_graph",
-    "mcp__brain__brain_list", "mcp__brain__brain_read", "mcp__brain__brain_read_many", "mcp__brain__brain_search", "mcp__brain__brain_update",
+    "mcp__brain__brain_graph", "mcp__brain__brain_update",
   ]);
   // 24 before the six external compute bridge tools (#3108), the ten fixed Apify bridge tools (#3162), read_attachment (#3154)
   // the four host GitHub tools, two reads (#3797) and two writes (#3798), request_image_markup (#3975), and immutable reference_read (#3613).

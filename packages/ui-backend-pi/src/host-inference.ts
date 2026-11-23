@@ -247,6 +247,7 @@ export async function preparePiHostInference(options: {
   egress: { dir:string } & NonNullable<Parameters<typeof startInferenceRelay>[0]["egress"]>;
   environment: Readonly<Record<string, string | undefined>>;
   signal?: AbortSignal;
+  received?: Parameters<typeof startInferenceRelay>[0]["received"];
 }): Promise<PiHostInference> {
   const { provider, agentDir } = options;
   const brain = realpathSync(options.brainPath);
@@ -296,7 +297,7 @@ export async function preparePiHostInference(options: {
     const first = await runtime.getAuth(model, options.signal ? { signal: options.signal } : {});
     const shape = shapeOf(model, check.type, first?.auth.apiKey);
     const basePath = endpoint.pathname.replace(/\/+$/, "");
-    relay = startInferenceRelay({ upstream: model.baseUrl, routes, egress: options.egress,
+    relay = startInferenceRelay({ upstream: model.baseUrl, routes, egress: options.egress, received: options.received,
       ...(options.recipientOrigin !== undefined ? { recipientOrigin: options.recipientOrigin } : {}),
       credentials: async (signal, target) => {
         const resolved = await runtime.getAuth(model, { signal });

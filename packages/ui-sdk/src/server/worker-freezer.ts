@@ -12,19 +12,19 @@ function task(pid: number): Task | undefined {
 /** Never signals a host process or a recycled PID. The launcher supplies bubblewrap's sole child. */
 export function createWorkerFreezer(pid: number) {
   const root = task(pid), host = readlinkSync("/proc/self/ns/pid");
-  if (!root) return { freeze() {}, resume() {} };
+  if (!root) return { freeze() { return false; }, resume() { return false; } };
   if (root.namespace === host) throw new Error("Worker freeze requires a verified private PID namespace");
   // bubblewrap's trusted PID-1 reaper must handle parent death even while the
   // agent is frozen. Stopping it leaves SIGTERM pending on host interruption.
   let reaper = false;
   try { reaper = readFileSync(`/proc/${pid}/status`, "utf8").match(/^NSpid:\s+(.+)$/m)?.[1]?.trim().split(/\s+/).at(-1) === "1"
     && readlinkSync(`/proc/${pid}/exe`) === realpathSync(Bun.which("bwrap")!);
-  } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ESRCH") return { freeze() {}, resume() {} }; throw error; }
+  } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ESRCH") return { freeze() { return false; }, resume() { return false; } }; throw error; }
   let frozen: Task[] = [];
   const current = (entry: Task) => { const now = task(entry.pid); return now?.start === entry.start && now.namespace === entry.namespace ? now : undefined; };
   const signal = (entry: Task, name: NodeJS.Signals) => {
-    if (!current(entry)) return;
-    try { process.kill(entry.pid, name); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    if (!current(entry)) return false;
+    try { process.kill(entry.pid, name); return true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; return false; }
   };
   function members(): Task[] {
     if (!current(root!)) return [];
@@ -42,14 +42,14 @@ export function createWorkerFreezer(pid: number) {
       for (;;) {
         const seen = members();
         for (const entry of seen) { if (!frozen.some(prior => prior.pid === entry.pid && prior.start === entry.start)) frozen.push(entry); signal(entry, "SIGSTOP"); }
-        if (!current(root!)) return;
+        if (!current(root!)) return false;
         // PID-1 may still be forking the first agent process at launch. An
         // empty scan is not a confirmed pause while that reaper is alive.
-        if (seen.length > 0 && seen.every(entry => { const now = current(entry); return !now || ["T", "t", "Z"].includes(now.state); })) return;
+        if (seen.length > 0 && seen.every(entry => { const now = current(entry); return !now || ["T", "t", "Z"].includes(now.state); })) return true;
         if (Date.now() >= deadline) throw new Error("Worker process tree did not confirm its frozen state");
         Bun.sleepSync(1);
       }
     },
-    resume() { for (const entry of frozen) signal(entry, "SIGCONT"); frozen = []; },
+    resume() { let acknowledged = false; for (const entry of frozen) acknowledged = signal(entry, "SIGCONT") || acknowledged; frozen = []; return acknowledged; },
   };
 }

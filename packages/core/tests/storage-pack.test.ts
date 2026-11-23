@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeTempBrain, cleanup, keylessEnv, runCli } from "./cli-harness";
 
@@ -14,7 +14,7 @@ test("storage pack uses existing non-destructive maintenance and preserves histo
     git("tag", "departure", "HEAD~1"); const refs = git("show-ref"), history = git("log", "--all", "--format=%H"), reflog = git("reflog", "--all", "--format=%H");
     const result = await runCli(root, ["storage", "pack", "--json"]);
     expect(result.code, "STORAGE_PACK_NARROW_COMMAND").toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({ schema_version: 1, action: "pack", state: "complete", headroom: { requiredBytes: null } });
+    expect(JSON.parse(result.stdout)).toMatchObject({ schema_version: 1, action: "pack", state: "complete", headroom: { requiredBytes: null }, garbage: { count: 0, bytes: 0 } });
     expect(git("show-ref"), "STORAGE_PACK_REFS_PRESERVED").toBe(refs); expect(git("log", "--all", "--format=%H")).toBe(history); expect(git("reflog", "--all", "--format=%H")).toBe(reflog);
     expect(git("show", "HEAD:chart.bin")).toHaveLength(8192);
   } finally { cleanup(root); }
@@ -75,4 +75,36 @@ exec '${Bun.which("git")}' "$@"
     expect(result.code, result.stderr).toBe(2);
     expect(JSON.parse(result.stdout), "STORAGE_PACK_GIT_OUT_OF_DISKSPACE").toMatchObject({ state: "partial", reason: "no_space" });
   } finally { cleanup(root); rmSync(bin, { recursive: true, force: true }); }
+});
+
+test("storage packing dry run reports its plan and garbage without packing",async()=>{
+  const root=makeTempBrain();
+  try{
+    const git=(...args:string[])=>{const p=Bun.spawnSync(["git","-C",root,...args],{stdout:"pipe",stderr:"pipe"});expect(p.exitCode,p.stderr.toString()).toBe(0);return p.stdout.toString();};
+    git("init","-q");
+    const blob=Bun.spawnSync(["git","-C",root,"hash-object","-w","--stdin"],{stdin:Buffer.from("Ithaca"),stdout:"pipe",stderr:"pipe"});expect(blob.exitCode).toBe(0);
+    const before=git("count-objects","-v");
+    const result=await runCli(root,["storage","pack","--dry-run","--json"]);
+    expect(result.code).toBe(0);expect(JSON.parse(result.stdout)).toMatchObject({state:"complete",packed:null,garbage:{count:0,bytes:0},headroom:{requiredBytes:null,packingRequiredBytes:expect.any(Number)}});
+    expect(git("count-objects","-v"),"PACK_DRY_RUN_WRITES_NOTHING").toBe(before);
+  }finally{cleanup(root);}
+});
+
+test("a loose-only Git repository may create its pack directory during maintenance",async()=>{
+ const root=makeTempBrain();try{
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+  const object=Bun.spawnSync(["git","-C",root,"hash-object","-w","--stdin"],{stdin:Buffer.from("Ithaca harbour"),stdout:"pipe",stderr:"pipe"});expect(object.exitCode).toBe(0);
+  rmSync(join(root,".git/objects/pack"),{recursive:true});
+  const result=await runCli(root,["storage","pack","--json"]);
+  expect(result.code,"LOOSE_ONLY_PACK_DIRECTORY_CREATED").toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({state:"complete",packed:1});
+ }finally{cleanup(root);}
+});
+test("human packing dry run describes the plan",async()=>{
+ const root=makeTempBrain();try{
+ expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+ const result=await runCli(root,["storage","pack","--dry-run","--human"]);
+ expect(result.code).toBe(0);expect(result.stdout,"PACK_DRY_RUN_DESCRIBES_PLAN").toMatch(/Packing plan: requires \d+ bytes; available \d+ bytes. No packing performed/);
+ expect(result.stdout).not.toContain("Packed null");
+ }finally{cleanup(root);}
 });

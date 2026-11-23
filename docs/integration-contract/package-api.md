@@ -24,6 +24,15 @@ This is internal compatibility wiring under the internal-entry classification
 below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
 frontmatter meaning or credential authority, and requires a patch changeset.
 
+
+Workspace inspection adds optional `legacyWorkspaceNote` preparation and
+`WorkerNoteFacts.legacyWorkspaces` qualification facts for first-party read-only
+handoffs (#4295). The historical note retains refused alias/scan-limit results;
+it never fabricates a writable mount or grants authority. Asynchronous
+preparation resolves this compatibility scan off the host event loop, within
+its existing preparation, and ordinary callers explicitly default to inspection.
+These are internal rendering facts, not provider input or a new extension seam.
+
 ## Native maintenance preparation (internal #2300 / #2343)
 
 The SDK's `/internal` entry adds `prepareMaintenanceWorker` and
@@ -45,6 +54,29 @@ frontmatter meaning or credential authority, and requires a patch changeset
 rather than an additive public-contract feature.
 
 ## Tool execution evidence (internal #2834)
+
+The optional internal `StartTurnRequest.startupTiming` observer (#4285/#4286)
+offers `start(name)` (returns an end callback), `worker(name, durationMs)`,
+`missing(name)` and `received()`. Both first-party backends use the host-owned
+lifecycle timer, including startup before the first bridge frame. The observer
+is stripped from Pi's serialized init environment. It supplies no authority,
+never reaches provider inputs, and is optional for older hosts. The internal
+inference relay's optional `received(path)` notification runs after method and
+route checks, before admission/body reading; its exception is ignored.
+See [Host turn lifecycle](wire.md#host-turn-lifecycle-additive) for the persisted
+fields, clocks and missing-evidence semantics. New phases are persisted in
+`openSubPhases`; the legacy `subPhases` enum remains unchanged for older SDKs.
+
+The experimental toolkit helper `safeStartupTiming(observer)` preserves an
+optional observer's arguments and method receivers while suppressing exceptions
+from every method and returned step completion, including rejected promises
+and thenables. Diagnostic promises are consumed without awaiting them, so a
+pending sink cannot hold up observed work. Relay receipt and request-event
+diagnostics have the same boundary. Both first-party backends use
+it so unavailable diagnostics cannot refuse work or escape a worker's cleanup
+ownership. An initialization response observed before the deferred worker
+launch cannot start a later `runtime_to_sdk_init` interval; that stage is
+recorded as missing instead.
 
 `StartTurnRequest` adds optional `@internal toolExecution(toolUseId, path)`, a
 server-only callback a backend calls before a call's `tool_result` with where
@@ -4737,6 +4769,12 @@ and returns `NativePoolGrowth`:
 - `omitted` counts comparisons, groups or flags left out to keep one reply
   within the 64 KiB control bound. Unflagged detail goes first.
 
+The private request parser has a separate 512 KiB bound for worst-case escaped
+stat paths. It does not change the 64 KiB control reply, intent-file, stage-row
+or paginated-list limits. Metadata read operations return a small fixed-reader
+ticket over HTTP; stat/list data travels over the existing separately bounded
+reader stream, rather than being embedded in a control reply.
+
 The status is read-only. It neither reconciles, deletes, resets nor reserves
 anything, and nothing in it forecasts savings or freed capacity. It is
 unavailable in these cases:
@@ -5289,6 +5327,34 @@ Its reads are the `ActivityStore` reads. Its writes may return promises that
 settle after their commit. An `ActivityStore`, whose writes all commit before
 they return, satisfies it. Refusal classes and transaction order are
 unchanged. These shapes change at a pre-1.0 minor under that ruling.
+
+The optional `ActivityStore.lifecycleSnapshot(turnId)` returns a lifecycle and
+its `highWaterSeq` from one read transaction, or null when absent. The built-in
+store provides it. Without either atomic lifecycle reader, REST and the stream
+read the sequence through the store before its lifecycle row; REST still returns
+that conservative `lifecycleSeq` for prior store implementations.
+`ActivityStore.snapshotRun(runId, rootOnly?)` optionally reads only open roots
+with the full run sequence from the same transaction. The index stream lowers
+that floor only before a run change above the shared pump cursor, whose normal
+delta will reach that socket. It keeps the full floor for already-passed
+changes, including reconnects. Older stores returning full run snapshots
+remain supported.
+
+The internal startup observer's `missing(name, omitted?)` accepts an optional
+positive omitted observation count. The safe observer wrapper forwards that
+count without allowing diagnostics to fail a turn. This supports bounded SDK
+sampling and the lifecycle's additive `backendEvidenceOmitted` count.
+
+### Consistent Activity lifecycle snapshots
+
+`ActivityStore` adds optional `snapshotLifecycles({ turnId?, sessionId?, limit? })`,
+returning `{ lifecycles, highWaterSeq }` from one read transaction. Each lifecycle
+includes its separately stored client receipt, and each sequence belongs to that
+same database snapshot. `AwaitableActivityStore` inherits this synchronous read.
+Prior store implementations need not provide it: the Activity stream reads a
+conservative sequence floor before re-reading lifecycle data, permitting replay
+without losing a receipt delta. Existing methods and factory return shapes remain
+compatible. This additive API ships in a minor release.
 
 ### Late Activity session association
 
@@ -6013,8 +6079,11 @@ current accounting and historical diagnostic record exposed as
 the configured allowance. The manager tests each stage's actual allowance
 before classifying its refusal. `JournalRecoveryStatus` and optional
 `SystemStatus.journalRecovery` expose the count and first cause of unresolved
-object reservations from boot. The journal host adds `recoveryStatus()` returning
-that summary. Fields and recovery semantics are in the
+reservations after startup or the latest idle-maintenance recovery. Temporary
+reservations carry `hash: ""` because they have no content identity. Idle
+maintenance refreshes both the summary and its contribution to `healthy`
+without a restart. The journal host adds `recoveryStatus()` returning that
+latest summary. Fields and recovery semantics are in the
 [HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).
 
 ## GitHub tools system brief (additive, 0.45.0, #3799)

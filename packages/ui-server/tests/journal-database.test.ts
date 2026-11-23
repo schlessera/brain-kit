@@ -184,6 +184,7 @@ test("the operational backup carries the journal file, from the app or the recov
     const ledger = createJournalAccounting(db, path);
     ledger.write(() => db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,state,summary) VALUES ('voyage','interactive','governed',1,'complete','Ithaca')").run());
     expect(ledger.ensureObjectRefIndex(), "BACKUP_SOURCE_HAS_ADMITTED_INDEX").toBe(true);
+    expect(ledger.ensureChangePathIndex(), "BACKUP_SOURCE_HAS_ADMITTED_PATH_INDEX").toBe(true);
     const at = Date.now();
     const snapshot = await exportInboxSnapshot(db, source, at);
     // The recovery command opens the UI file directly and read-only.
@@ -193,6 +194,7 @@ test("the operational backup carries the journal file, from the app or the recov
     try {
       expect(image.query("SELECT turn_id, summary FROM turn_journal_turns").all(), "JOURNAL_BACKUP_CARRIES_JOURNAL").toEqual([{ turn_id: "voyage", summary: "Ithaca" }]);
       expect(image.query("SELECT 1 FROM sqlite_schema WHERE name='turn_journal_object_refs_hash'").get(), "BACKUP_OMITS_DERIVED_INDEX").toBeNull();
+      expect(image.query("SELECT 1 FROM sqlite_schema WHERE name='turn_journal_changes_path_sequence'").get(), "BACKUP_OMITS_DERIVED_PATH_INDEX").toBeNull();
     }
     finally { image.close(); }
     expect(db.query("SELECT 1 AS present FROM journal.sqlite_schema WHERE name='turn_journal_object_refs_hash'").get(), "BACKUP_KEEPS_LIVE_ADMITTED_INDEX").toEqual({ present: 1 });
@@ -202,6 +204,7 @@ test("the operational backup carries the journal file, from the app or the recov
       expect(journalTables(restored, "main")).toEqual([]);
       expect(restored.query("SELECT turn_id, summary FROM journal.turn_journal_turns").all(), "JOURNAL_RESTORE_MOVES_JOURNAL_BACK").toEqual([{ turn_id: "voyage", summary: "Ithaca" }]);
       expect(restored.query("SELECT 1 FROM journal.sqlite_schema WHERE name='turn_journal_object_refs_hash'").get(), "RESTORE_DOES_NOT_ALLOCATE_UNADMITTED_INDEX").toBeNull();
+      expect(restored.query("SELECT 1 FROM journal.sqlite_schema WHERE name='turn_journal_changes_path_sequence'").get(), "RESTORE_DOES_NOT_ALLOCATE_UNADMITTED_PATH_INDEX").toBeNull();
       const restoredLedger = createJournalAccounting(restored, join(target, "ui.sqlite"));
       const bounded = createJournalAccounting(restored, join(target, "ui.sqlite"), { capBytes: restoredLedger.usage() + 8_192 });
       expect(bounded.ensureObjectRefIndex(), "RESTORED_INDEX_STILL_NEEDS_ADMISSION").toBe(false);
@@ -213,6 +216,8 @@ test("the operational backup carries the journal file, from the app or the recov
 test("the derived journal index name cannot hide an incompatible backup schema", async () => {
   for (const sql of [
     "CREATE INDEX journal.turn_journal_object_refs_hash ON turn_journal_object_refs(turn_id)",
+    "CREATE INDEX journal.turn_journal_changes_path_sequence ON turn_journal_changes(turn_id,sequence)",
+    "CREATE TRIGGER journal.turn_journal_changes_path_sequence BEFORE INSERT ON turn_journal_changes BEGIN SELECT RAISE(ABORT, 'unexpected trigger'); END",
     "CREATE TRIGGER journal.turn_journal_object_refs_hash BEFORE INSERT ON turn_journal_object_refs BEGIN SELECT RAISE(ABORT, 'unexpected trigger'); END",
   ]) {
     const f = fixture("backup-schema"), db = createUiDb(f.path);

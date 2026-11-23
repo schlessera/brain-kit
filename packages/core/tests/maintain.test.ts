@@ -157,6 +157,13 @@ function gitOutOfSpace(root: string): string {
   writeFileSync(join(bin, "git"), `#!/bin/sh
 for arg in "$@"; do
   if [ "$arg" = maintenance ]; then
+    printf incomplete > '${root}/.git/objects/pack/tmp_pack_Attempt'
+    printf companion > '${root}/.git/objects/pack/.tmp-Attempt'
+    /bin/mkdir -p '${root}/.git/objects/pack/multi-pack-index.d'
+    printf companion > '${root}/.git/objects/pack/multi-pack-index.d/tmp_midx_Attempt'
+    for kind in idx rev bitmap mtimes; do
+      printf companion > '${root}/.git/objects/pack/tmp_'"$kind"'_Attempt'
+    done
     echo "warning: packing 2 loose objects" >&2
     echo "fatal: sha1 file '.git/objects/pack/tmp_pack_Ithaca' write error. Out of diskspace" >&2
     exit 128
@@ -387,4 +394,58 @@ test("a failed index step closes its database handle", async () => {
   }
   expect(opened.size).toBeGreaterThan(0);
   expect([...opened].filter((db) => !closed.has(db))).toHaveLength(0);
+});
+
+test("packing skips before Git maintenance when injected headroom is below the conservative need", async () => {
+  const { packRepository, gitPackingHeadroom, GitPackingSkipped } = await import("../src/lib/git-storage");
+  const root=tempBrain(); initRepo(root); writeLooseBlobs(root,2);
+  const before=git(root,"count-objects","-v");
+  const plan=gitPackingHeadroom(root);
+  expect(plan.packingRequiredBytes).toBeGreaterThanOrEqual(16*1024**2);
+  expect(()=>packRepository(root,{...plan,availableBytes:plan.packingRequiredBytes-1}),"PACKING_PREFLIGHT_SKIP").toThrow(GitPackingSkipped);
+  expect(git(root,"count-objects","-v")).toBe(before);
+});
+
+test("existing temporary pack garbage is reported by both maintenance and storage pack", async () => {
+  const root=tempBrain(); initRepo(root);
+  writeFileSync(join(root,".git/objects/pack/tmp_pack_Ithaca"),Buffer.alloc(8192));
+  const {git:step}=await maintain(root);
+  expect(step?.result,"MAINTAIN_EXISTING_GARBAGE").toContain("garbage: 1 file(s), 8192 bytes");
+  const result=await runCli(root,["storage","pack","--json"]);
+  expect(JSON.parse(result.stdout).garbage,"STORAGE_PACK_EXISTING_GARBAGE").toEqual({count:1,bytes:8192});
+});
+
+
+test("a failed pack removes its new temporary outputs and preserves historical garbage",async()=>{
+  const { readdirSync }=await import("node:fs");
+  const root=tempBrain();initRepo(root);
+  const pack=join(root,".git/objects/pack");
+  const {mkdirSync}=await import("node:fs");mkdirSync(join(pack,"multi-pack-index.d"));
+  writeFileSync(join(pack,"multi-pack-index.d/tmp_midx_Previous"),"historical companion");
+  writeFileSync(join(pack,"tmp_pack_Previous"),"historical garbage");
+  const before=readdirSync(pack).sort();
+  const result=await maintain(root,[],{PATH:gitOutOfSpace(root),BRAIN_WORKER_OUTPUT_ALLOWANCE:JSON.stringify({bytes:64*1024**2,setting:"ODYSSEUS_STAGE_BYTES"})});
+  expect(result.code).toBe(2);
+  expect(readdirSync(pack).sort(),"FAILED_PACK_REMOVES_ONLY_NEW_TEMPORARIES").toEqual(before);
+  expect(readdirSync(join(pack,"multi-pack-index.d")),"FAILED_PACK_REMOVES_MIDX_TEMPORARIES").toEqual(["tmp_midx_Previous"]);
+});
+
+
+test("without a private stage declaration failure cleanup preserves unowned pack temporaries",async()=>{
+  const {existsSync}=await import("node:fs");
+  const root=tempBrain();initRepo(root);
+  const result=await maintain(root,[],{PATH:gitOutOfSpace(root)});
+  expect(result.code).toBe(2);
+  expect(existsSync(join(root,".git/objects/pack/tmp_pack_Attempt")),"UNHOSTED_PACK_TEMPORARY_OWNERSHIP_IS_UNKNOWN").toBe(true);
+});
+
+test("standalone packing never inventories an unreadable temporary MIDX directory",async()=>{
+ const fs=await import("node:fs"),{spyOn}=await import("bun:test"),{packRepository}=await import("../src/lib/git-storage.js");
+ const root=tempBrain();initRepo(root);writeLooseBlobs(root,2);
+ mkdirSync(join(root,".git/objects/pack/multi-pack-index.d"));
+ const readdir=spyOn(fs,"readdirSync").mockImplementation(()=>{throw Object.assign(Error("Ithaca inventory refused"),{code:"EACCES"});});
+ try {
+  let packed=0;expect(()=>{packed=packRepository(root).packed;},"STANDALONE_PACK_NEEDS_NO_TEMP_INVENTORY").not.toThrow();
+  expect(packed).toBeGreaterThanOrEqual(2);expect(readdir,"STANDALONE_TEMP_INVENTORY_NOT_CALLED").not.toHaveBeenCalled();
+ }finally{readdir.mockRestore();}
 });

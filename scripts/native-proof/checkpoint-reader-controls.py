@@ -6,19 +6,23 @@ negative control. No SYS_PTRACE is needed. Uses only a fixture-owned temporary
 root; the real Btrfs manager proof is a separate cell.
 """
 import os,json,subprocess,uuid,tempfile,shutil,fcntl,stat,time
-base=tempfile.mkdtemp(prefix='reader-');os.chmod(base,0o755);root=base+'/checkpoint';os.mkdir(root,0o700);os.chown(root,21002,21001)
-rootfd=os.open(root,os.O_RDONLY|os.O_DIRECTORY);assert rootfd==3
 import pathlib,re
-source=(pathlib.Path(__file__).resolve().parents[2]/'packages/ui-sdk/src/server/native-checkpoint-reader.ts').read_text()
-programs=dict(re.findall(r'(?:export )?const ([A-Z_]+) = String.raw`(.*?)`;',source,re.S))
-program=programs['NATIVE_CHECKPOINT_READER_PROGRAM'];client=programs['NATIVE_CHECKPOINT_CLIENT_PROGRAM'];authority_client=programs['STAGE_AUTHORITY_CLIENT']
+source_path=pathlib.Path(__file__).resolve().parents[2]/'packages/ui-sdk/src/server/native-checkpoint-reader.ts'
+source=source_path.read_text()
+# The reader interpolates its transport bound. Import its evaluated exports,
+# exactly as the manager does; regex extraction would pass TypeScript into Python.
+rendered=subprocess.run(['bun','-e','import { NATIVE_CHECKPOINT_READER_PROGRAM, NATIVE_CHECKPOINT_CLIENT_PROGRAM } from '+json.dumps(str(source_path))+'; process.stdout.write(JSON.stringify({reader:NATIVE_CHECKPOINT_READER_PROGRAM,client:NATIVE_CHECKPOINT_CLIENT_PROGRAM}));'],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+programs=json.loads(rendered.stdout)
+program=programs['reader'];client=programs['client']
+authority_client=re.search(r'const STAGE_AUTHORITY_CLIENT = String.raw`(.*?)`;',source,re.S).group(1)
 def drop():os.setgroups([]);os.setgid(21001);os.setuid(21001)
 results=[]
 def start(request):
  os.lseek(rootfd,0,os.SEEK_SET)
  channel=base+'/'+str(uuid.uuid4());token=str(uuid.uuid4())
  helper=subprocess.Popen(['/usr/bin/python3','-I','-S','-c',program,channel,token,'21001','21002','21001','5',json.dumps(request)],pass_fds=(3,),stdout=subprocess.PIPE,stderr=subprocess.PIPE)
- assert helper.stdout.readline()==b'{"ready": true}\n'
+ ready=helper.stdout.readline()
+ assert ready==b'{"ready": true}\n',(ready,helper.stderr.read())
  return helper,channel,token
 def run(name,action,path='',maximum=4096,ok=True,expected=b'Ithaca',uid=21002):
  helper,channel,token=start({'action':action,'path':path,'maximum':maximum})
@@ -32,6 +36,8 @@ def run(name,action,path='',maximum=4096,ok=True,expected=b'Ithaca',uid=21002):
  else:assert not result.stdout,(name,'failed read leaked bytes',result.stdout)
  assert not os.path.exists(channel)
  results.append(name)
+base=tempfile.mkdtemp(prefix='reader-');os.chmod(base,0o755);root=base+'/checkpoint';os.mkdir(root,0o700);os.chown(root,21002,21001)
+rootfd=os.open(root,os.O_RDONLY|os.O_DIRECTORY);assert rootfd==3
 try:
  p=root+'/private';open(p,'wb').write(b'Ithaca');os.chown(p,21002,21001);os.chmod(p,0o600)
  run('worker0600-file','file','private')

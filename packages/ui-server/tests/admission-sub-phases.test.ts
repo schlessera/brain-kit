@@ -1,3 +1,4 @@
+import { previousDeltaSchema } from "./helpers/activity-schema-0-44.js";
 /** #3355: governed admission and journal begin attribute their time to named steps. */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -63,8 +64,9 @@ test("real governed admission records each step inside governedAdmissionMs", asy
       const record = store.lifecycle("turn-ithaca")!;
       // A first strict admission refreshes its checkpoint once host scratch exists.
       expect(names(record.subPhases!, "governed"), "GOVERNED_ADMISSION_STEPS").toEqual(["gate_acquire", "startup_checkpoint", "boundary_prepare",
-        "exposure_settle", "folder_retention", "sandbox_resolve", "startup_checkpoint_refresh", "sandbox_resolve_refresh", "data_tree", "record_policy", "exposure_records"]);
+        "exposure_settle", "folder_retention", "sandbox_resolve", "gate_reacquire_refresh", "startup_checkpoint_refresh", "sandbox_resolve_refresh", "data_tree", "record_policy", "exposure_records"]);
       expectWithin(record.subPhases!, "governed", record.governedStartedAt!, record.governedAcquiredAt!);
+      expect(previousDeltaSchema.safeParse({ type: "activity_delta", runId: "voyage", seq: 1, lifecycle: record }).success, "PREVIOUS_LIFECYCLE_SCHEMA_ACCEPTS_REACQUISITION_TIMING").toBe(true);
     } finally { await hold.end(); }
   } finally {
     await turns.close(); restore(); db.close();

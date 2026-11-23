@@ -89,6 +89,10 @@ const checks: Record<string, Check> = {
   "PUT /api/models/hidden": { init: json("PUT", { hidden: ["fixture"] }), body: { models: [{ id: "fixture", hidden: true }] } },
   "POST /api/models/refresh": { init: { method: "POST" }, status: 409, verify: async (r) => { expect((await r.json()).error).toBeString(); } },
   "GET /api/providers": { body: { providers: [{ id: "fixture" }], backends: { fixture: { id: "fixture" } } } },
+  "GET /api/sessions/:id/code-changes": { path: "/api/sessions/fixture-session/code-changes", body: { enabled: false } },
+  "PUT /api/sessions/:id/code-changes": { path: "/api/sessions/fixture-session/code-changes", init: json("PUT", { enabled: true }), body: { enabled: true } },
+  "GET /api/drafts/:id/code-changes": { path: "/api/drafts/draft-ithaca/code-changes", body: { enabled: false } },
+  "PUT /api/drafts/:id/code-changes": { path: "/api/drafts/draft-ithaca/code-changes", init: json("PUT", { enabled: true }), body: { enabled: true } },
   "GET /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", body: { preference: "governed", origin: "interactive" } },
   "PUT /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", init: json("PUT", { preference: "strict" }), body: { preference: "strict" } },
   "GET /api/drafts/:id/profile": { path: "/api/drafts/draft-ithaca/profile", body: { preference: "governed", draftPreferenceStored: false } },
@@ -119,6 +123,9 @@ const checks: Record<string, Check> = {
   "GET /api/sessions/:sessionId/turns/:turnId/journal": { path: "/api/sessions/fixture-session/turns/unknown/journal", status: 404, body: { error: "No retained journal is available for this turn." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/preview", status: 404, body: { error: "Journal detail expired or unavailable." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/before", status: 404, body: { error: "Journal detail expired or unavailable." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/code/preview?checkout=workspaces/argo", status: 409, body: { error: "Code change evidence is unavailable." } },
+  "POST /api/sessions/:sessionId/turns/:turnId/journal/code/revert": { path: "/api/sessions/fixture-session/turns/unknown/journal/code/revert", init: json("POST", { id: "00000000-0000-4000-8000-000000004297", checkout: "workspaces/argo" }), status: 409, body: { error: "Code history is unavailable or no longer eligible; no effect was retried." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id": { path: "/api/sessions/fixture-session/turns/unknown/journal/code/revert/00000000-0000-4000-8000-000000004297", status: 404, body: { error: "No such code history operation." } },
   "GET /api/journal/configuration-coverage": { path: "/api/journal/configuration-coverage", status: 200, body: { state: "unknown" } },
   // Imported history: the session exists, and the host proves nothing about it.
   "GET /api/sessions/:id/safety": {path:"/api/sessions/fixture-session/safety",status:404,body:{version:1,reason:"unavailable"},verify:async r=>{expect(r.headers.get("cache-control")).toBe("no-store");}},
@@ -191,8 +198,8 @@ async function prepare(operation: string, afterSeed?: (t: HttpContractApp) => vo
       t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES ('owner-to-revoke', 'owner', 'password', 'Other fixture device', 1, ?)").run(Date.now() + 3600_000);
     }
     if (operation.includes("/reference-grants")) t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_by, created_at, expires_at) VALUES ('odysseus-grantee', 'agent', 'delegated', 'Telemachus', NULL, 1, ?)").run(Date.now() + 3600_000);
-    if (operation.endsWith("/api/sessions/:id/profile")) {
-      createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture");
+    if ((operation.endsWith("/api/sessions/:id/profile") || operation.endsWith("/api/sessions/:id/code-changes"))) {
+      createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture", owner.id);
     }
     const store = createActivityStore(t.app.db, { writer: "http-contract" });
     store.startSpan({ spanId: "fixture-span", runId: "fixture-run", name: "Fixture turn", kind: "turn", origin: "session", sessionId: "fixture-session", principalId: owner.id, startedAt: Date.now() - 1000 });
