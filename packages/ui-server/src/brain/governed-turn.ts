@@ -334,7 +334,9 @@ export function createGovernedTurns(options: {
       }
       const sandbox = { ...resolved, commandPolicy, scopePolicy: policy.policy.scope,
         ...(providerMasks ? { providerMasks } : {}), ...(inferenceRecipient ? { inferenceRecipient } : {}), ...(dataTree?.mount ? { dataTree: dataTree.mount } : {}),
-        ...(!availability.available && requested === "governed" ? { fallbackReason: availability.detail } : {}) };
+        ...(!availability.available && requested === "governed" ? { fallbackReason: availability.reason === "private_state_unverified"
+          ? "Private-state isolation could not be verified; using strict execution"
+          : availability.detail } : {}) };
       const governed = workerProfile(sandbox) === "governed";
       if (governed && !dataTree) {
         releaseSlot ??= await step("startup_release_reserve", async () => startupReleases.tryReserve(signal));

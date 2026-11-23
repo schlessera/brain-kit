@@ -6,6 +6,7 @@ import { installFixtureNativeStartupViews } from "./helpers/fixture-native-start
 installFixtureNativeStartupViews();
 import { Hono } from "hono";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { workerSandboxNote } from "@schlessera/brain-ui-sdk/internal";
 import type { AppEnv } from "../src/app-env";
 import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createSessionProfiles } from "../src/ws/session-profiles";
@@ -724,4 +725,21 @@ test.each(["absent","symlink"])("admission refreshes an inspected %s checkpoint 
  const f=fixture();f.write("profiles: {interactive: strict}");mkdirSync(join(f.brain,"workspaces/ithaca"),{recursive:true});mkdirSync(join(f.brain,"notes"));mkdirSync(join(f.brain,".brain/scratch"),{recursive:true});let checkpoints=0;
  const acquisition=spyOn(startupViews,"prepareNativeWorkerStartupView").mockImplementation(async brain=>{const view=createFixtureWorkerStartupView(brain);if(++checkpoints===1){rmSync(join(view.root,"workspaces"),{recursive:true});if(state==="symlink")symlinkSync(join(view.root,"notes"),join(view.root,"workspaces"));}return view;});
  try{const hold=await f.turns.begin("stale-inspection",new AbortController().signal);try{expect(checkpoints,"INSPECTION_REFRESHES_THE_SOURCE_IT_ACTUALLY_MOUNTS").toBe(2);expect(hold.startupView).toBeDefined();expect(hold.sandbox.areas.find(area=>area.name==="workspaces")!.mount.writable).toBe(false);}finally{await hold.end();}}finally{acquisition.mockRestore();}
+});
+
+
+test("an alias-check diagnostic stays out of the strict worker's provider-facing note", async () => {
+  const f = fixture(); f.write("profiles: { interactive: governed }");
+  const prepare = f.execution.boundary.prepare.bind(f.execution.boundary);
+  const changed = spyOn(f.execution.boundary, "prepare").mockImplementation(async (...args) => {
+    await prepare(...args);
+    return { available: false, reason: "private_state_unverified", detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
+  });
+  try {
+    const hold = await f.turns.begin("alias-fallback", new AbortController().signal);
+    try {
+      expect(hold.sandbox.profile).toBe("strict");
+      expect(workerSandboxNote(hold.sandbox), "ALIAS_DIAGNOSTIC_NEVER_ENTERS_PROVIDER_NOTE").not.toContain("journal-cause-canary");
+    } finally { await hold.end(); }
+  } finally { changed.mockRestore(); }
 });
