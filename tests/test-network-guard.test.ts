@@ -1,7 +1,7 @@
 /** Real isolated test/runtime processes, with native sentinels under the guard. */
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { experimentRunArgv } from "../scripts/test-experiments";
@@ -130,6 +130,47 @@ describe("offline test guard", () => {
       rmSync(temp, { recursive: true, force: true });
     }
   });
+  test("a test process started with the host's Google settings holds none of them, nor do its Bun and shell children, while an ordinary variable reaches all three", async () => {
+    const planted = {
+      BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog", BRAIN_UI_GOOGLE_KEYRING_PASSWORD: "suitors-feast", BRAIN_UI_GOG_PATH: "/srv/ithaca/bin/gog",
+      BRAIN_GOOGLE_LEDGER: "/srv/ithaca/google-ledger.sqlite", ODYSSEUS_VOYAGE: "ithaca",
+    };
+    const result = await run("google-host-environment", "direct", ROOT, planted);
+    const report = /GOOGLE_HOST_ENV=(\{[^\n]*\})/.exec(result.output);
+    expect(report, result.output).not.toBeNull();
+    expect(JSON.parse(report![1]!), "HOST_GOOGLE_SETTINGS_DROPPED_ORDINARY_KEPT").toEqual({ own: ["ODYSSEUS_VOYAGE"], bun: ["ODYSSEUS_VOYAGE"], shell: ["ODYSSEUS_VOYAGE"] });
+    expect(result.code, result.output).toBe(0);
+  });
+  test("a shell child given a product-filtered environment, which drops GOG_HOME, resolves gog's directories only under the guard's empty ones and the test HOME, with the file keyring", async () => {
+    // A desktop session's environment: XDG bases on the host and a D-Bus session bus.
+    const planted = {
+      XDG_CONFIG_HOME: "/srv/ithaca/xdg-config", XDG_DATA_HOME: "/srv/ithaca/xdg-data", XDG_STATE_HOME: "/srv/ithaca/xdg-state", XDG_CACHE_HOME: "/srv/ithaca/xdg-cache",
+      DBUS_SESSION_BUS_ADDRESS: "unix:path=/srv/ithaca/bus", GOG_HOME: "/srv/ithaca/gog",
+    };
+    const result = await run("gog-filtered-environment", "direct", ROOT, planted);
+    const report = /GOG_FILTERED=(\{[^\n]*\})/.exec(result.output);
+    expect(report, result.output).not.toBeNull();
+    type Report = { gog: string[]; home: string | null; xdg: Record<string, string | null>; dirs: Record<string, string>; entries: Record<string, number | null>; keyring: string };
+    const seen = JSON.parse(report![1]!) as { guard: string; home: string; filtered: string[]; reports: Record<string, Report | null> };
+    const guard = dirname(seen.guard);
+    // The filter is not what protects the child: it hands it HOME and XDG_CONFIG_HOME.
+    expect(seen.filtered, "FILTER_PASSES_HOME_AND_XDG_CONFIG_HOME").toEqual(expect.arrayContaining(["HOME", "XDG_CONFIG_HOME"]));
+    expect(Object.keys(seen.reports).sort(), result.output).toEqual(["bun-shell", "bun-spawn", "child-process"]);
+    for (const [label, got] of Object.entries(seen.reports)) {
+      expect(got, `GOG_STAND_IN_RAN: ${label}`).not.toBeNull();
+      expect(JSON.stringify(got), `NO_HOST_DIRECTORY_REACHES_GOG: ${label}`).not.toContain("/srv/ithaca");
+      expect({ gog: got!.gog, home: got!.home, xdg: got!.xdg, keyring: got!.keyring }, `FILTERED_CHILD_ENVIRONMENT: ${label}`).toEqual({
+        gog: [], home: seen.home, keyring: "file",
+        xdg: { XDG_CONFIG_HOME: join(guard, "xdg/config"), XDG_DATA_HOME: null, XDG_STATE_HOME: null, XDG_CACHE_HOME: null },
+      });
+      expect(got!.dirs, `GOG_DIRECTORIES: ${label}`).toEqual({
+        config: join(guard, "xdg/config/gogcli"), data: join(seen.home, ".local/share/gogcli"),
+        state: join(seen.home, ".local/state/gogcli"), cache: join(seen.home, ".cache/gogcli"),
+      });
+      expect(got!.entries, `GOG_DIRECTORIES_ABSENT: ${label}`).toEqual({ config: null, data: null, state: null, cache: null });
+    }
+    expect(result.code, result.output).toBe(0);
+  });
   for (const scenario of ["local-sockets", "local-tls", "local", "local-unix", "manual", "redirect-error"]) {
     test(`${scenario} retains real loopback fixture behavior`, async () => {
       const result = await run(scenario);
@@ -203,6 +244,34 @@ describe("the guard's gog home", () => {
       expect(env).toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file" });
       reused.dispose();
       expect(existsSync(made.home)).toBe(true);
+      made.dispose();
+      expect(readdirSync(parent)).toEqual([]);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("the test process drops every host-only name and points each XDG base it inherited at an empty directory of its own; a descendant keeps what a test gave it", () => {
+    const parent = mkdtempSync(join(tmpdir(), "network-guard-home-"));
+    try {
+      const host: Record<string, string | undefined> = {
+        BRAIN_UI_GOOGLE_HOME: "/srv/ithaca/gog", BRAIN_UI_GOOGLE_KEYRING_PASSWORD: "suitors-feast", BRAIN_UI_GOG_PATH: "/srv/ithaca/bin/gog",
+        BRAIN_GOOGLE_LEDGER: "/srv/ithaca/google-ledger.sqlite", BRAIN_UI_GOOGLE_ITHACA: "suitors", APIFY_TOKEN: "apify-suitor",
+        XDG_CONFIG_HOME: "/srv/ithaca/xdg-config", XDG_STATE_HOME: "/srv/ithaca/xdg-state", ODYSSEUS_VOYAGE: "ithaca",
+      };
+      const made = isolateGogEnvironment(host, parent);
+      expect(host, "HOST_ONLY_DROPPED_XDG_REPOINTED_ORDINARY_KEPT").toEqual({
+        XDG_CONFIG_HOME: made.xdg.XDG_CONFIG_HOME, XDG_STATE_HOME: made.xdg.XDG_STATE_HOME, ODYSSEUS_VOYAGE: "ithaca",
+        GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file",
+      });
+      for (const dir of Object.values(made.xdg)) {
+        expect(dir.startsWith(`${dirname(made.home)}/`), dir).toBe(true);
+        expect([readdirSync(dir), (statSync(dir).mode & 0o777).toString(8)], dir).toEqual([[], "700"]);
+      }
+      // A descendant: a test chose these, after its maker removed the host's.
+      const chosen: Record<string, string | undefined> = { GOG_HOME: made.home, GOG_ACCOUNT: "suitor", BRAIN_UI_GOOGLE_HOME: "/odysseus/gog", XDG_CONFIG_HOME: "/odysseus/config" };
+      isolateGogEnvironment(chosen, parent).dispose();
+      expect(chosen, "DESCENDANT_KEEPS_WHAT_A_TEST_CHOSE").toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file", BRAIN_UI_GOOGLE_HOME: "/odysseus/gog", XDG_CONFIG_HOME: "/odysseus/config" });
       made.dispose();
       expect(readdirSync(parent)).toEqual([]);
     } finally {

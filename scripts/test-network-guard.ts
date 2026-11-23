@@ -3,6 +3,7 @@ import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSyn
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isIP, Socket } from "node:net";
+import { isHostOnlyEnv } from "../packages/ui-sdk/src/server/subprocess-env.ts";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
 
 /*
@@ -19,7 +20,12 @@ import { inheritWorkspaceLease } from "./workspace-lease.mjs";
  * 3. Whatever the first two miss finds no account: the guard drops every
  *    inherited `GOG_*` name and points `GOG_HOME` at an empty private home
  *    with the file keyring, one per test process, which its descendants
- *    share ({@link isolateGogEnvironment}).
+ *    share. The test process also drops every other host-only name it
+ *    inherited (`BRAIN_UI_GOOGLE_*`, `BRAIN_GOOGLE_*`, `BRAIN_UI_GOG_PATH`
+ *    and the rest of ui-sdk's list) and points each XDG base directory it
+ *    inherited at an empty one of its own, so a child whose environment a
+ *    product filter stripped of `GOG_HOME` still resolves gog's directories
+ *    only there or under the test HOME ({@link isolateGogEnvironment}).
  *
  * Token matching cannot read a shell: quoting (`go""g`), expansion
  * (`$(printf gog)`, variables), functions, aliases, a script on disk that
@@ -219,6 +225,10 @@ function isGuardGogHome(home: string | undefined): home is string {
   return holdsExactly(join(dir, "guard"), GOG_HOME_MARKER);
 }
 
+/** The XDG base directories gog 0.48.1 resolves its config, data, state and cache under when `GOG_HOME` is unset, and the guard's empty stand-in for each. */
+const XDG_BASES = Object.freeze({ XDG_CONFIG_HOME: "config", XDG_DATA_HOME: "data", XDG_STATE_HOME: "state", XDG_CACHE_HOME: "cache" });
+type XdgBase = keyof typeof XDG_BASES;
+
 /**
  * Layer 3: drops every `GOG_*` name from `env` (gog reads its home, config,
  * data, state and cache directories, account, OAuth client, access token,
@@ -228,19 +238,39 @@ function isGuardGogHome(home: string | undefined): home is string {
  * every gog directory, and the file keyring opens no desktop keyring, so a
  * gog that slips past layer 2 finds no credential.
  *
+ * A product filter drops both of those from what it hands a child, as it
+ * drops every `GOG_*` name. Without `GOG_HOME`, gog 0.48.1 resolves each
+ * directory under its XDG base directory when that is absolute, else under
+ * `HOME` (`internal/config/layout.go`, `resolveKind`, `defaultBase`), and an
+ * environment without `GOG_KEYRING_BACKEND` and without a D-Bus session
+ * address gets the file keyring on Linux (`internal/secrets/backend.go`,
+ * `shouldForceFileBackend`). So the test process that makes the home also
+ * points each XDG base it inherited at an empty 0700 directory beside the
+ * home, and `HOME` is the preload's test home: a filtered child's gog finds
+ * neither the host's directories nor a credential in them. It drops every
+ * other host-only name it inherited too (ui-sdk's {@link isHostOnlyEnv}:
+ * `BRAIN_UI_GOOGLE_*`, `BRAIN_GOOGLE_*`, `BRAIN_UI_GOG_PATH` and the other
+ * host-only secrets), before any test code loads, so no test holds the
+ * host's Google home, keyring password, binary or ledger; a test that needs
+ * one sets a synthetic value itself.
+ *
  * A test process makes the home under `parent`; its descendants share it.
  * A `GOG_HOME` that is a home a guard made ({@link isGuardGogHome}) is kept,
  * and the spawn wrapper hands this process's home to every guarded Bun
- * child, even one started with another environment. Only the maker's
- * `dispose` removes it, so a descendant killed with SIGKILL, which runs no
- * exit hook, leaves nothing behind.
+ * child, even one started with another environment. A descendant still
+ * drops every `GOG_*` name, but keeps the other host-only names and the XDG
+ * bases it was given: its maker already removed the host's, so what remains
+ * is what a test chose. Only the maker's `dispose` removes the home, so a
+ * descendant killed with SIGKILL, which runs no exit hook, leaves nothing
+ * behind.
  */
-export function isolateGogEnvironment(env: Record<string, string | undefined>, parent: string): { home: string; dispose(): void } {
+export function isolateGogEnvironment(env: Record<string, string | undefined>, parent: string): { home: string; xdg: Readonly<Record<XdgBase, string>>; dispose(): void } {
   const inherited = env.GOG_HOME;
-  for (const name of Object.keys(env)) if (name.startsWith("GOG_")) delete env[name];
+  const descendant = isGuardGogHome(inherited);
+  for (const name of Object.keys(env)) if (name.startsWith("GOG_") || (!descendant && isHostOnlyEnv(name))) delete env[name];
   let home: string;
   let dispose = () => {};
-  if (isGuardGogHome(inherited)) {
+  if (descendant) {
     home = inherited;
   } else {
     const dir = mkdtempSync(join(parent, "brain-test-gog-"));
@@ -249,12 +279,15 @@ export function isolateGogEnvironment(env: Record<string, string | undefined>, p
     // Both 0700 whatever the umask: a descendant checks the mode before it shares them.
     chmodSync(dir, 0o700);
     chmodSync(home, 0o700);
+    for (const kind of Object.values(XDG_BASES)) mkdirSync(join(dir, "xdg", kind), { recursive: true, mode: 0o700 });
     writeFileSync(join(dir, "guard"), GOG_HOME_MARKER, { mode: 0o600 });
     dispose = () => rmSync(dir, { recursive: true, force: true });
   }
+  const xdg = Object.fromEntries(Object.entries(XDG_BASES).map(([name, kind]) => [name, join(dirname(home), "xdg", kind)])) as Record<XdgBase, string>;
+  if (!descendant) for (const name of Object.keys(XDG_BASES) as XdgBase[]) if (name in env) env[name] = xdg[name];
   env.GOG_HOME = home;
   env.GOG_KEYRING_BACKEND = "file";
-  return { home, dispose };
+  return { home, xdg, dispose };
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
