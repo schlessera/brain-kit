@@ -415,9 +415,12 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
  * preload must not change. Network access by such a child is outside this
  * guard (#3672).
  *
- * The one reader of BUN_OPTIONS under test, `attemptCiBuild`
- * (`scripts/ci-build-operation.ts`), takes a value of only `--no-env-file`
- * as no runtime override. The test process's own environment is left alone.
+ * The code under test that refuses a runtime override in BUN_OPTIONS takes
+ * a value of only `--no-env-file` as none: `attemptCiBuild`
+ * (`scripts/ci-build-operation.ts`) and the native diagram export's boundary
+ * (`assertNativeExportOverrides`,
+ * `packages/module-diagrams/tests/fixtures/export-native-boundary.ts`). The
+ * test process's own environment is left alone.
  *
  * It is appended to any other value, even one that seems to hold it: the
  * text may be a quoted value or the argument of another option, and Bun

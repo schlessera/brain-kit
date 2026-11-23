@@ -32,6 +32,12 @@ export function assertNativeExportChild(cmd:unknown):void{
 }
 const config='import {defineConfig} from "@schlessera/brain";export default defineConfig({modules:{"@schlessera/brain-module-diagrams":{}}});';
 const receipt=(root:string,format:string)=>join(root,`.native-export-${format}-boundary.json`);
+/** No runtime override reaches the native export. The offline test guard's own BUN_OPTIONS, exactly `--no-env-file`, only stops Bun reading `.env` (scripts/test-network-guard.ts). */
+export function assertNativeExportOverrides(env:Readonly<Record<string,string|undefined>>):void{
+ for(const name of ["BRAIN_WORKER_DATA_ROOT","BRAIN_WORKER_CONFIG_ROOT","NODE_OPTIONS","BUN_BIN","BRAIN_UI_CHROME_NO_SANDBOX","PLAYWRIGHT_BROWSERS_PATH"])
+  assert.equal(env[name],undefined,`NATIVE_EXPORT_NO_${name}`);
+ assert(env.BUN_OPTIONS===undefined||env.BUN_OPTIONS==="--no-env-file","NATIVE_EXPORT_NO_BUN_OPTIONS");
+}
 export function assertNativeExportBoundary(root:string,format:string,filename:NativeExportFilename="release.diagram.yaml"):void{
  const value=JSON.parse(readFileSync(receipt(root,format),"utf8"));
  assert.deepEqual(value,{version:1,argv:argv(format,filename),coreAttempts:[]},"NATIVE_EXPORT_BOUNDARY_RECEIPT");
@@ -58,8 +64,7 @@ if(process.argv[1]===entry){
   const resolved=realpathSync(Bun.resolveSync(packageName+(name==="common"?"/internal/env":""),root));
   assert(resolved.startsWith(packageRoot+"/"),"NATIVE_EXPORT_OWNED_WORKSPACE_RESOLUTION");
  }
- for(const name of ["BRAIN_WORKER_DATA_ROOT","BRAIN_WORKER_CONFIG_ROOT","BUN_OPTIONS","NODE_OPTIONS","BUN_BIN","BRAIN_UI_CHROME_NO_SANDBOX","PLAYWRIGHT_BROWSERS_PATH"])
-  assert.equal(process.env[name],undefined,`NATIVE_EXPORT_NO_${name}`);
+ assertNativeExportOverrides(process.env);
  const attempts:string[]=[];
  const {CORE_COMMANDS}=await import("../../../core/src/cli/commands/index.js");
  // buildRegistry reads cmd.run after this preload. Exact source auditing also
