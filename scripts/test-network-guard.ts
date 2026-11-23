@@ -337,12 +337,25 @@ const restorable = (name: string) => !name.startsWith("GOG_") && (isHostOnlyEnv(
  * in the guard's directory beside `home`, and returns its path; undefined
  * when there are none. The spawn wrapper calls it for every guarded Bun
  * child, with the environment that child is about to get.
+ *
+ * An XDG base that already names the guard's own directory needs no record:
+ * the child's guard repoints it there anyway. When the file cannot be
+ * written, as inside a sandbox that mounts the guard's directory read-only,
+ * there is no record and the child keeps none of the values, as a Bun a
+ * shell starts keeps none; the spawn itself goes ahead.
  */
 export function recordChosenEnv(env: Readonly<Record<string, string | undefined>>, home: string): string | undefined {
-  const chosen = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string" && restorable(entry[0])));
+  const guardOwn = (name: string, value: string) =>
+    Object.prototype.hasOwnProperty.call(XDG_BASES, name) && value === join(dirname(home), "xdg", XDG_BASES[name as XdgBase]);
+  const chosen = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] =>
+    typeof entry[1] === "string" && restorable(entry[0]) && !guardOwn(entry[0], entry[1])));
   if (Object.keys(chosen).length === 0) return undefined;
   const path = join(dirname(home), CHOSEN_DIR, `${process.pid}-${++chosenFiles}-${randomBytes(8).toString("hex")}.json`);
-  writeFileSync(path, JSON.stringify(chosen), { mode: 0o600, flag: "wx" });
+  try {
+    writeFileSync(path, JSON.stringify(chosen), { mode: 0o600, flag: "wx" });
+  } catch {
+    return undefined;
+  }
   return path;
 }
 
