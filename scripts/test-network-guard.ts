@@ -3,7 +3,6 @@ import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSyn
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isIP, Socket } from "node:net";
-import { isHostOnlyEnv } from "../packages/ui-sdk/src/server/subprocess-env.ts";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
 
 /*
@@ -22,10 +21,11 @@ import { inheritWorkspaceLease } from "./workspace-lease.mjs";
  *    with the file keyring, one per test process, which its descendants
  *    share. The test process also drops every other host-only name it
  *    inherited (`BRAIN_UI_GOOGLE_*`, `BRAIN_GOOGLE_*`, `BRAIN_UI_GOG_PATH`
- *    and the rest of ui-sdk's list) and points each XDG base directory it
- *    inherited at an empty one of its own, so a child whose environment a
- *    product filter stripped of `GOG_HOME` still resolves gog's directories
- *    only there or under the test HOME ({@link isolateGogEnvironment}).
+ *    and the rest of ui-sdk's list, {@link GUARD_HOST_ONLY_ENV}) and points
+ *    each XDG base directory it inherited at an empty one of its own, so a
+ *    child whose environment a product filter stripped of `GOG_HOME` still
+ *    resolves gog's directories only there or under the test HOME
+ *    ({@link isolateGogEnvironment}).
  *
  * Token matching cannot read a shell: quoting (`go""g`), expansion
  * (`$(printf gog)`, variables), functions, aliases, a script on disk that
@@ -225,6 +225,21 @@ function isGuardGogHome(home: string | undefined): home is string {
   return holdsExactly(join(dir, "guard"), GOG_HOME_MARKER);
 }
 
+/**
+ * ui-sdk's host-only names, which no product subprocess receives
+ * (`HOST_ONLY_SECRET_ENV` and `HOST_ONLY_ENV_PREFIXES`,
+ * `packages/ui-sdk/src/server/subprocess-env.ts`), and which no test process
+ * inherits from its host. A copy rather than an import: this file also runs
+ * where only the scripts are (`tests/local-checks.test.ts` copies it into a
+ * fixture). `tests/test-network-guard.test.ts` holds both equal to ui-sdk's.
+ */
+export const GUARD_HOST_ONLY_ENV: readonly string[] = Object.freeze([
+  "APIFY_TOKEN", "BRAIN_APIFY_LEDGER", "BRAIN_UI_GITHUB_TOOLS_TOKEN", "BRAIN_UI_MODULE_GITHUB_TOKEN",
+  "BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER", "BRAIN_UI_GOG_PATH",
+]);
+export const GUARD_HOST_ONLY_ENV_PREFIXES: readonly string[] = Object.freeze(["GOG_", "BRAIN_UI_GOOGLE_", "BRAIN_GOOGLE_"]);
+const isHostOnlyEnv = (name: string) => GUARD_HOST_ONLY_ENV.includes(name) || GUARD_HOST_ONLY_ENV_PREFIXES.some(prefix => name.startsWith(prefix));
+
 /** The XDG base directories gog 0.48.1 resolves its config, data, state and cache under when `GOG_HOME` is unset, and the guard's empty stand-in for each. */
 const XDG_BASES = Object.freeze({ XDG_CONFIG_HOME: "config", XDG_DATA_HOME: "data", XDG_STATE_HOME: "state", XDG_CACHE_HOME: "cache" });
 type XdgBase = keyof typeof XDG_BASES;
@@ -248,7 +263,7 @@ type XdgBase = keyof typeof XDG_BASES;
  * points each XDG base it inherited at an empty 0700 directory beside the
  * home, and `HOME` is the preload's test home: a filtered child's gog finds
  * neither the host's directories nor a credential in them. It drops every
- * other host-only name it inherited too (ui-sdk's {@link isHostOnlyEnv}:
+ * other host-only name it inherited too ({@link GUARD_HOST_ONLY_ENV}:
  * `BRAIN_UI_GOOGLE_*`, `BRAIN_GOOGLE_*`, `BRAIN_UI_GOG_PATH` and the other
  * host-only secrets), before any test code loads, so no test holds the
  * host's Google home, keyring password, binary or ledger; a test that needs

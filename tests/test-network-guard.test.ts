@@ -5,7 +5,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { experimentRunArgv } from "../scripts/test-experiments";
-import { isolateGogEnvironment } from "../scripts/test-network-guard";
+import { HOST_ONLY_ENV_PREFIXES, HOST_ONLY_SECRET_ENV } from "../packages/ui-sdk/src/server/subprocess-env.ts";
+import { GUARD_HOST_ONLY_ENV, GUARD_HOST_ONLY_ENV_PREFIXES, isolateGogEnvironment } from "../scripts/test-network-guard";
 
 const ROOT = join(import.meta.dir, "..");
 const sentinel = join(import.meta.dir, "helpers/network-sentinels.ts");
@@ -249,6 +250,11 @@ describe("the guard's gog home", () => {
     } finally {
       rmSync(parent, { recursive: true, force: true });
     }
+  });
+
+  test("the guard's host-only names are exactly ui-sdk's, so a name the product withholds from every child no test process inherits", () => {
+    expect({ names: [...GUARD_HOST_ONLY_ENV].sort(), prefixes: [...GUARD_HOST_ONLY_ENV_PREFIXES].sort() }, "GUARD_HOST_ONLY_EQUALS_UI_SDK").toEqual(
+      { names: [...HOST_ONLY_SECRET_ENV].sort(), prefixes: [...HOST_ONLY_ENV_PREFIXES].sort() });
   });
 
   test("the test process drops every host-only name and points each XDG base it inherited at an empty directory of its own; a descendant keeps what a test gave it", () => {
