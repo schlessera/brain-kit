@@ -1,8 +1,12 @@
+import { Readable, Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { expectRejection } from "./helpers/expect-rejection.js";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { CODE_CHANGE_PROGRAM } from "../src/brain/code-change-program.js";
+import { CheckoutCaptureRefused } from "../src/brain/code-change-worker.js";
+import { CODE_CHANGE_PROGRAM, CODE_CHECKOUT_LIST_PROGRAM } from "../src/brain/code-change-program.js";
 import { processAlive, SELF } from "../src/brain/writer-gate.js";
 
 const env = { PATH: "/usr/bin:/bin", HOME: "/nonexistent", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
@@ -73,6 +77,9 @@ test("checkout hooks, filter programs and fsmonitor never run during capture", (
   } finally { f.close(); }
 });
 
+import { workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
+import { WORKER_AREA_ROOT } from "../../ui-sdk/src/server/worker-sandbox.js";
+import { restrictFailedCheckouts } from "../src/brain/checkout-restrictions.js";
 import { createUiDb } from "../src/db/client.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { createNativeJournalFixture, fixtureDelta, inventory } from "./helpers/native-journal-fixture.js";
@@ -137,7 +144,7 @@ test("index-added files are tracked while new files remain untracked", () => {
   } finally { f.close(); }
 });
 
-import { launchFixtureAgentWorker, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { launchFixtureAgentWorker, prepareFixtureWorkerSandbox, createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 test("a sandboxed worker cannot read or write receipt storage or its endpoint packs", async () => {
   const f = fixture(), brain = join(f.root, "brain"), evidence = join(f.root, "private-evidence");
   mkdirSync(brain); mkdirSync(evidence); writeFileSync(join(evidence, "endpoint.pack"), "owned endpoints");
@@ -235,19 +242,51 @@ test("inspection-only turns invoke no checkout maintenance and write no receipt"
   } finally { await journal.close(); await native.close(); db.close(); f.close(); }
 });
 
-test("an unsupported writable checkout refuses only that turn and leaves inspection and notes usable", async () => {
+for (const profile of ["governed", "strict"] as const) for (const newSession of [false, true]) test(`an unsupported writable checkout restricts only its receipt and leaves the writer and notes usable (${profile}, new session: ${newSession})`, async () => {
   const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db");
   mkdirSync(join(brain, "workspaces"), { recursive: true }); const checkout = join(brain, "workspaces", "argo"); renameSync(f.checkout, checkout);
   const unsupported = join(brain, "workspaces", "zeus"); cpSync(checkout, unsupported, { recursive: true });
   writeFileSync(join(unsupported, ".gitattributes"), "*.md filter=lfs\n"); writeFileSync(join(brain, "note.md"), "Ithaca\n");
   const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
   const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
-  const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile: "governed" as const, policyHash: null };
+  const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile, policyHash: null };
   try {
-    await expectRejection(journal.begin("writer", { ...metadata, workspaceReadOnly: false, workspacesWritable: true }, () => {}), undefined, "UNSUPPORTED_CHECKOUT_NEVER_GETS_UNCOVERED_WRITES");
-    expect(journal.summary("writer").state).toBe("partial");
-    expect(db.query("SELECT count(*) AS n FROM turn_journal_code_receipts WHERE turn_id='writer'").get(), "REFUSED_MULTI_CHECKOUT_ADMISSION_RELEASES_BASELINE_PINS").toEqual({ n: 0 });
+    const error = await journal.begin("writer", { ...metadata, sessionId: newSession ? null : metadata.sessionId, workspaceReadOnly: false, workspacesWritable: true }, () => {}).then(() => undefined, error => error);
+    expect(error, "ONE_CHECKOUT_FAILURE_ADMITS_WRITER").toBeUndefined();
+    expect(journal.summary("writer").state).toBe("recording");
+    expect(journal.restrictedCheckouts("writer"), "CHECKOUT_RESTRICTION_PRECEDES_SESSION_BINDING").toEqual(["workspaces/zeus"]);
+    const sandbox = prepareFixtureWorkerSandbox(brain, { profile, codeChanges: true, areas: ["workspaces"] });
+    expect(sandbox.profile).toBe(profile);
+    restrictFailedCheckouts(sandbox, journal.restrictedCheckouts("writer"));
+    if (newSession) await journal.bindSession("writer", metadata.sessionId);
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_code_receipts WHERE turn_id='writer'").get(), "HEALTHY_CHECKOUT_RETAINS_RECEIPT").toEqual({ n: 1 });
     expect(journal.details("ithaca", "writer")!.missing.some(item => item.reason.includes("code_capture_failed")), "REFUSAL_CAUSE_IS_DURABLE_AND_OWNER_VISIBLE").toBe(true);
+    const workerRoot = profile === "strict" ? join(WORKER_AREA_ROOT, "workspaces") : join(brain, "workspaces");
+    const failedTarget = join(workerRoot, "zeus"), healthyTarget = join(workerRoot, "argo/chart.md");
+    const program = `import {writeFileSync,renameSync} from "node:fs";const attempt=fn=>{try{fn();return true}catch{return false}};console.log(JSON.stringify([attempt(()=>writeFileSync(${JSON.stringify(join(failedTarget, "chart.md"))},"uncovered")),attempt(()=>renameSync(${JSON.stringify(failedTarget)},${JSON.stringify(failedTarget + "-moved")})),attempt(()=>writeFileSync(${JSON.stringify(healthyTarget)},"Scheria\\n"))]));`;
+    let result: unknown;
+    if (profile === "strict") {
+      // Exercise the real namespace/mount planner with an owned copied output.
+      // Native stage acquisition and quota qualification have separate proof.
+      const view = createFixtureWorkerStartupView(brain), stage = join(f.root, "strict-stage");
+      cpSync(join(view.root, "workspaces"), join(stage, "workspaces"), { recursive: true });
+      try {
+        const worker = Bun.spawnSync(workerCommand({ brainPath: brain, startupView: view, sandbox, areaOutput: { source: stage }, env: {}, command: [process.execPath, "--no-env-file", "-e", program] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+        expect(worker.exitCode, worker.stderr.toString()).toBe(0);
+        result = JSON.parse(worker.stdout.toString());
+        cpSync(join(stage, "workspaces/argo/chart.md"), join(checkout, "chart.md"));
+      } finally { await view.cleanup(); }
+    } else {
+      const worker = launchFixtureAgentWorker({ brainPath: brain, sandbox, env: {}, command: [process.execPath, "--no-env-file", "-e", program] });
+      worker.stdin.end();
+      const [code, stdout, stderr] = await Promise.all([worker.exited, new Response(worker.stdout as any).text(), new Response(worker.stderr as any).text()]);
+      expect(code, stderr).toBe(0);
+      result = JSON.parse(stdout);
+    }
+    expect(result, "FAILED_CHECKOUT_READ_ONLY_HEALTHY_CHECKOUT_WRITABLE").toEqual([false, false, true]);
+    await journal.finish("writer");
+    expect(journal.summary("writer").state, "CHECKOUT_GAP_NEVER_READS_CLEAN").toBe("partial");
+    expect(journal.details("ithaca", "writer")!.codeChanges![0]).toMatchObject({ checkout: "workspaces/argo", state: "complete", paths: [{ path: "chart.md", kind: "modified" }] });
     await journal.begin("inspection", { ...metadata, workspaceReadOnly: true }, () => {});
     writeFileSync(join(brain, "note.md"), "Return to Ithaca\n"); await journal.finish("inspection");
     expect(journal.summary("inspection").state, "ONE_CHECKOUT_FAILURE_DOES_NOT_DISABLE_OTHER_TURNS").toBe("complete");
@@ -355,13 +394,13 @@ test("receipt restores a file over an empty replacement directory", () => {
   } finally { f.close(); }
 });
 
-function inBrainCodeJournal() {
+function inBrainCodeJournal(capBytes?: number) {
   const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db");
   mkdirSync(join(brain, "workspaces"), { recursive: true });
   const checkout = join(brain, "workspaces", "argo"); renameSync(f.checkout, checkout);
   const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
   db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
-  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), capBytes, codeChanges: { maintenance } });
   return { ...f, brain, dbPath, checkout, native, maintenance, db, journal, async close() { await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); } };
 }
 const codeMetadata = { sessionId: "ithaca", actor: "interactive" as const, profile: "governed" as const, model: null, policyHash: null, workspaceReadOnly: false, workspacesWritable: true };
@@ -827,4 +866,158 @@ test("a throwing capture diagnostic cannot erase the durable checkout cause", as
     expect(journal.details("ithaca", "sail")!.missing, "THROWING_CAPTURE_LOG_PRESERVES_CHECKOUT_CAUSE").toContainEqual({ path: "workspaces/argo", reason: expect.stringContaining("Submodule receipts are unsupported") });
     expect(journal.summary("sail").state).toBe("partial");
   } finally { await journal.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+for (const kind of ["empty directory", "dangling gitfile", "invalid HEAD", "symlink loop", "link through file"] as const) test(`checkout discovery excludes ${kind} using Git's repository predicate`, () => {
+  const f = fixture(), workspaces = join(f.root, "workspaces"), invalid = join(workspaces, "ithaca");
+  mkdirSync(invalid, { recursive: true }); renameSync(f.checkout, join(workspaces, "argo"));
+  try {
+    if (kind === "symlink loop") symlinkSync(".git", join(invalid, ".git"));
+    else if (kind === "link through file") {
+      writeFileSync(join(invalid, "marker"), "not a directory"); symlinkSync("marker/git", join(invalid, ".git"));
+    }
+    else if (kind === "dangling gitfile") writeFileSync(join(invalid, ".git"), "gitdir: ../missing\n");
+    else { mkdirSync(join(invalid, ".git")); if (kind === "invalid HEAD") writeFileSync(join(invalid, ".git/HEAD"), "not a ref\n"); }
+    const result = Bun.spawnSync(["python3", "-I", "-S", "-c", CODE_CHECKOUT_LIST_PROGRAM, workspaces], { env });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(JSON.parse(result.stdout.toString()), "NON_REPOSITORY_STAYS_IN_ORDINARY_OBSERVATION").toEqual(["workspaces/argo"]);
+  } finally { f.close(); }
+});
+
+for (const kind of ["empty directory", "dangling gitfile"] as const) test(`ordinary observation retains files beside ${kind}`, async () => {
+  const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db"), checkout = join(brain, "workspaces/ithaca");
+  mkdirSync(checkout, { recursive: true });
+  if (kind === "empty directory") mkdirSync(join(checkout, ".git"));
+  else writeFileSync(join(checkout, ".git"), "gitdir: ../missing\n");
+  writeFileSync(join(checkout, "chart.md"), "Ithaca\n");
+  const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
+  try {
+    await journal.begin("sail", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspacesWritable: true }, () => {});
+    writeFileSync(join(checkout, "chart.md"), "Scheria\n"); await journal.finish("sail");
+    const details = journal.details("ithaca", "sail")!;
+    expect(details.summary.state, "NON_REPOSITORY_ADMITTED").toBe("complete");
+    expect(details.codeChanges).toBeUndefined();
+    expect(details.changes.map(item => item.path), "NON_REPOSITORY_RETAINS_ORDINARY_FILE_COVERAGE").toEqual(["workspaces/ithaca/chart.md"]);
+  } finally { await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); }
+});
+
+for (const kind of ["unborn checkout", "gitfile"] as const) test(`checkout discovery keeps a valid ${kind} as a capture candidate`, () => {
+  const f = fixture(), workspaces = join(f.root, "workspaces"), candidate = join(workspaces, "ithaca");
+  mkdirSync(candidate, { recursive: true });
+  try {
+    if (kind === "unborn checkout") git(candidate, "init", "-q", "-b", "main");
+    else {
+      renameSync(join(f.checkout, ".git"), join(workspaces, "metadata"));
+      writeFileSync(join(candidate, ".git"), "gitdir: ../metadata\n");
+    }
+    const result = Bun.spawnSync(["python3", "-I", "-S", "-c", CODE_CHECKOUT_LIST_PROGRAM, workspaces], { env });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(JSON.parse(result.stdout.toString()), "GIT_REPOSITORIES_REACH_CAPTURE_GUARD").toEqual(["workspaces/ithaca"]);
+  } finally { f.close(); }
+});
+
+
+for (const fault of ["capacity", "I/O"] as const) test(`shared pack ${fault} refuses writable admission and preserves its cause`, async () => {
+  const capBytes = 2 * 1024 * 1024, f = inBrainCodeJournal(fault === "capacity" ? capBytes : undefined);
+  // Seeded, incompressible cargo makes the real Git pack exceed the shared cap.
+  const cargo = Buffer.alloc(3 * 1024 * 1024); let seed = 0x6f647973;
+  for (let index = 0; index < cargo.length; index++) { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; cargo[index] = seed & 255; }
+  writeFileSync(join(f.checkout, "cargo.bin"), cargo);
+  const objectsRoot = join(f.root, "objects"), heldObjects = join(f.root, "objects-held");
+  const original = workerSdk.runMaintenanceWorker; let packBytes = 0, blocked = false;
+  const worker = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
+    const result = await original(input);
+    if (input.command[4] === CODE_CHANGE_PROGRAM && result.exitCode === 0) {
+      packBytes = Buffer.byteLength(JSON.parse(result.stdout).pack, "base64");
+      if (fault === "I/O" && !blocked) { renameSync(objectsRoot, heldObjects); writeFileSync(objectsRoot, "Ithaca storage unavailable"); blocked = true; }
+    }
+    return result;
+  });
+  const restoreObjects = () => { if (blocked) { unlinkSync(objectsRoot); renameSync(heldObjects, objectsRoot); blocked = false; } };
+  try {
+    const error = await f.journal.begin("store-refused", codeMetadata, () => {}).then(() => undefined, error => error);
+    restoreObjects();
+    expect(packBytes, "SHARED_STORE_FAILURE_REACHES_REAL_PACK_RETENTION").toBeGreaterThan(capBytes);
+    expect(error, "SHARED_PACK_FAILURE_REFUSES_WRITABLE_ADMISSION").toBeInstanceOf(fault === "capacity" ? JournalCapacityError : JournalStorageUnavailable);
+    const row = f.db.query("SELECT cause FROM turn_journal_code_failures WHERE turn_id='store-refused' AND checkout='workspaces/argo'").get() as { cause: string };
+    const cause = JSON.parse(row.cause);
+    expect(cause, "SHARED_PACK_FAILURE_CAUSE_IS_PRESERVED").toMatchObject({ checkout: "workspaces/argo", callSite: "captureCheckout", message: String(fault === "I/O" ? error.cause : error) });
+    if (fault === "I/O") expect(error.cause).toMatchObject({ code: "ENOTDIR" });
+    expect(f.db.query("SELECT trim(failure) AS failure, ended_at FROM turn_journal_turns WHERE turn_id='store-refused'").get()).toMatchObject({ failure: fault === "capacity" ? "journal_capacity" : "journal_unavailable", ended_at: expect.any(Number) });
+    f.journal.evidence("store-refused", () => {});
+    expect(f.journal.scopeHold("store-refused", 0), "SHARED_PACK_FAILURE_LEAVES_NO_ACTIVE_TURN").toBeUndefined();
+    await f.journal.begin("notes-after-refusal", { ...codeMetadata, workspacesWritable: false, workspaceReadOnly: true }, () => {});
+    f.journal.evidence("notes-after-refusal", () => {});
+    expect(f.journal.scopeHold("notes-after-refusal", 0), "A_SMALLER_NOTE_TURN_REMAINS_ACTIVE_AND_USABLE").toMatchObject({ cause: "scope", causeTurnId: "notes-after-refusal" });
+    await f.journal.finish("notes-after-refusal");
+  } finally { worker.mockRestore(); restoreObjects(); await f.close(); }
+});
+
+
+test("retained pack corruption refuses writable admission with its original read cause", async () => {
+  const f = inBrainCodeJournal(), original = workerSdk.runMaintenanceWorker; let corrupted = false;
+  // A swallowed source error can leave stdin open; bound this fixture's worker watchdog.
+  const worker = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(input => original(corrupted && input.command[4] === CODE_CHANGE_PROGRAM
+    ? { ...input, timeoutMs: watchdogMs(5_000) } : input));
+  try {
+    await f.journal.begin("before-corruption", codeMetadata, () => {}); await f.journal.finish("before-corruption");
+    const receipt = f.db.query("SELECT pack_hash, json_extract(receipt,'$.state') AS state FROM turn_journal_code_receipts WHERE turn_id='before-corruption' AND checkout='workspaces/argo'").get() as { pack_hash: string; state: string };
+    expect(receipt.state).toBe("complete");
+    const path = join(f.root, "objects", receipt.pack_hash), pack = readFileSync(path), length = pack.length;
+    pack[0] = pack[0]! ^ 1; writeFileSync(path, pack); corrupted = true;
+    expect(fs.statSync(path).size, "CORRUPTION_PRESERVES_RETAINED_PACK_LENGTH").toBe(length);
+    const error = await f.journal.begin("after-corruption", codeMetadata, () => {}).then(() => undefined, error => error);
+    expect(error, "RETAINED_PACK_READ_FAILURE_REFUSES_WRITABLE_ADMISSION").toBeInstanceOf(JournalStorageUnavailable);
+    expect(error).not.toBeInstanceOf(CheckoutCaptureRefused);
+    expect(error.message).toContain("Journal object integrity check failed.");
+    expect(error.cause).toMatchObject({ message: "Journal object integrity check failed." });
+    const failure = f.db.query("SELECT cause FROM turn_journal_code_failures WHERE turn_id='after-corruption' AND checkout='workspaces/argo'").get() as { cause: string };
+    const cause = JSON.parse(failure.cause);
+    expect(cause.message, "RETAINED_PACK_READ_CAUSE_IS_NOT_REPLACED_BY_WORKER_EXIT").toContain("Journal object integrity check failed.");
+    expect(cause.message).not.toContain("maintenance worker failed");
+    f.journal.evidence("after-corruption", () => {});
+    expect(f.journal.scopeHold("after-corruption", 0), "CORRUPT_PACK_REFUSAL_LEAVES_NO_ACTIVE_TURN").toBeUndefined();
+    await f.journal.begin("inspect-after-corruption", { ...codeMetadata, workspacesWritable: false, workspaceReadOnly: true }, () => {});
+    f.journal.evidence("inspect-after-corruption", () => {});
+    expect(f.journal.scopeHold("inspect-after-corruption", 0), "UNRELATED_NOTE_ADMISSION_SURVIVES_RETAINED_PACK_CORRUPTION").toMatchObject({ cause: "scope", causeTurnId: "inspect-after-corruption" });
+    await f.journal.finish("inspect-after-corruption");
+  } finally { worker.mockRestore(); await f.close(); }
+});
+
+
+test("an early pipeline worker exit keeps a healthy retained pack checkout-local", async () => {
+  const f = inBrainCodeJournal(); let restoreWorker = () => {};
+  const cargo = Buffer.alloc(1024 * 1024); let seed = 0x6f647973;
+  for (let index = 0; index < cargo.length; index++) { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; cargo[index] = seed & 255; }
+  writeFileSync(join(f.checkout, "cargo.bin"), cargo);
+  try {
+    await f.journal.begin("before-pipe-exit", codeMetadata, () => {}); await f.journal.finish("before-pipe-exit");
+    const receipt = f.db.query("SELECT pack_hash, json_extract(receipt,'$.state') AS state FROM turn_journal_code_receipts WHERE turn_id='before-pipe-exit' AND checkout='workspaces/argo'").get() as { pack_hash: string; state: string };
+    expect(receipt.state).toBe("complete");
+    expect(fs.statSync(join(f.root, "objects", receipt.pack_hash)).size, "HEALTHY_PREVIOUS_PACK_EXCEEDS_PIPE_BUFFER").toBeGreaterThan(256 * 1024);
+    const original = workerSdk.runMaintenanceWorker; let epipe = false;
+    const worker = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
+      if (input.command[4] !== CODE_CHANGE_PROGRAM) return original(input);
+      if (!input.stdin || typeof input.stdin === "string") throw Error("Expected the checkout capture input stream");
+      let header = true;
+      const sink = new Writable({ write(_chunk, _encoding, callback) {
+        if (header) { header = false; callback(); return; }
+        callback(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      } });
+      await pipeline(Readable.from(input.stdin), sink).catch(error => { epipe = error.code === "EPIPE"; });
+      return { stdout: "", stderr: "Receipt requires an ordinary checkout Git directory\n", exitCode: 1, killed: false };
+    });
+    restoreWorker = () => worker.mockRestore();
+    const error = await f.journal.begin("after-pipe-exit", codeMetadata, () => {}).then(() => undefined, error => error);
+    expect(epipe, "PIPELINE_EPIPE_EXERCISES_GENERATOR_THROW").toBe(true);
+    expect(error, "EARLY_WORKER_EXIT_WITH_HEALTHY_PACK_ADMITS_TURN").toBeUndefined();
+    expect(f.journal.restrictedCheckouts("after-pipe-exit"), "EARLY_WORKER_EXIT_RESTRICTS_ONLY_ITS_CHECKOUT").toEqual(["workspaces/argo"]);
+    const failure = f.db.query("SELECT cause FROM turn_journal_code_failures WHERE turn_id='after-pipe-exit' AND checkout='workspaces/argo'").get() as { cause: string };
+    const cause = JSON.parse(failure.cause);
+    expect(cause.errorClass, "EARLY_WORKER_EXIT_RETAINS_CHECKOUT_REFUSAL_CLASS").toBe("CheckoutCaptureRefused");
+    expect(cause.message, "EARLY_WORKER_EXIT_RETAINS_CHECKOUT_STDERR_CAUSE").toContain("Receipt requires an ordinary checkout Git directory");
+    expect(cause.message, "TRANSPORT_THROW_NEVER_REPLACES_THE_CHECKOUT_CAUSE").not.toContain("throw");
+    await f.journal.finish("after-pipe-exit");
+  } finally { restoreWorker(); await f.close(); }
 });

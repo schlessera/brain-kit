@@ -1440,7 +1440,7 @@ type FirstPartyFailureClass =
   | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
-  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
+  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1477,6 +1477,8 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   journal_capacity: "journal_capacity",
   journal_unavailable: "journal_unavailable",
   code_receipt_malformed: "code_receipt_malformed",
+  private_state_unverified: "private_state_unverified",
+  OperationalStateAliasVerificationUnavailable: "OperationalStateAliasVerificationUnavailable",
   input_safety_unavailable: "input_safety_unavailable",
   safety_recording_unavailable: "safety_recording_unavailable",
   safety_recording_paused: "safety_recording_paused",
@@ -1955,7 +1957,7 @@ export interface WorkerLimitsStatus {
 }
 
 /** Why `governed` cannot run on a server (#1648). */
-export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "worker_host_unavailable";
+export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "private_state_unverified" | "worker_host_unavailable";
 
 export type GovernedStatus = {
   hostExecution: "worker" | "host";

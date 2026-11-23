@@ -975,7 +975,9 @@ run on this server, and where the server evaluates the brain's own code.
   `brain` command, every cron job and every git invocation against the brain
   runs in a maintenance worker, never in a host process.
 - `{ available: false, reason, detail, hostExecution }`: governed cannot run,
-  and interactive and voice turns run under `strict`. `reason` is
+  and interactive and voice turns run under `strict` except when private-state
+  verification is incomplete, which refuses turn admission as described below.
+  `reason` is
   `server_cwd_in_brain` (the server was started inside the brain, so Bun
   already loaded the brain's `bunfig.toml` and `.env` into it),
   `database_in_brain`, or `worker_host_unavailable` (with the probe's
@@ -1185,6 +1187,18 @@ routed. The field is not removed: `active: false` remains for a brain that is
 not on managed native storage, where `detail` says that every governed and
 strict turn is refused rather than run without the proxy (#3314).
 
+### Checkout capture containment (additive, #4486)
+
+`TurnJournal.restrictedCheckouts(turnId)` returns checkout paths with recorded
+capture failures for that turn, including before a new session is bound. Only
+a checkout-local refusal with a durable cause and an enforceable mask admits
+the remaining turn. The host masks that checkout before worker
+launch and retains its cause in journal detail `missing` entries. Shared
+capacity, object-store, maintenance-input, checkpoint and retained-pack failures
+refuse admission with their original cause. A completed turn with a checkout
+capture gap remains partial. Non-repository `.git` entries stay under ordinary
+file observation.
+
 ### Operational-state layout refusal (additive, #1649)
 
 The host boundary status reason adds `private_state_in_brain` alongside
@@ -1193,6 +1207,28 @@ Every hosted profile refuses boot as `OperationalStateInBrainError` when
 `DB_PATH` or private poke-token state resolves inside the brain. The error
 carries the unavailable diagnostic as `status`; no HTTP listener is created.
 The hosting guide documents migration and the retained directory masks.
+
+The additive `private_state_unverified` reason means the operational-state alias
+check could not finish within three complete attempts per path (for example,
+concurrent journal quarantine renames or an I/O error). Its detail begins with
+`OperationalStateAliasVerificationUnavailable` and retains the underlying cause.
+At boot, the host refuses before opening operational state or evaluating brain
+code, through the same path as a confirmed exposure. The thrown error is named
+`OperationalStateAliasVerificationUnavailable`, retains the original scan error
+in `cause`, and carries the unavailable diagnostic as `status`; no HTTP listener
+is created. A confirmed exposure on any configured path takes precedence over an
+incomplete scan on another path and refuses as `OperationalStateInBrainError`.
+After boot, status and turn admission retry the check. An incomplete check
+refuses that governed or strict turn with `PRIVATE_STATE_UNVERIFIED` and failure
+class `private_state_unverified`; status advertises no strict fallback. The next
+check recovers automatically once verification succeeds. Direct host reads and
+native checkpoint operations retain their existing checks.
+The authenticated status field `runtime.operationalStateLastFailure` retains
+the last incomplete check across recovery and restart: `{ at,
+errorClass: "OperationalStateAliasVerificationUnavailable", callSite:
+"operationalStateRefusal", scope: "governed", detail }`. It is a diagnostic,
+not a cached availability verdict.
+
 
 
 <a id="session-worker-profile-additive-1663"></a>

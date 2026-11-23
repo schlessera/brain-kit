@@ -1,3 +1,5 @@
+import * as operationalState from "../src/brain/operational-state";
+import { createHostBoundary, hostExecution } from "../src/brain/host-boundary";
 import * as startupViews from "../../ui-sdk/src/server/worker-startup-view.js";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
@@ -11,7 +13,7 @@ import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createSessionProfiles } from "../src/ws/session-profiles";
 import { createSessionProfileRoutes } from "../src/routes/session-profiles";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
@@ -724,4 +726,88 @@ test.each(["absent","symlink"])("admission refreshes an inspected %s checkpoint 
  const f=fixture();f.write("profiles: {interactive: strict}");mkdirSync(join(f.brain,"workspaces/ithaca"),{recursive:true});mkdirSync(join(f.brain,"notes"));mkdirSync(join(f.brain,".brain/scratch"),{recursive:true});let checkpoints=0;
  const acquisition=spyOn(startupViews,"prepareNativeWorkerStartupView").mockImplementation(async brain=>{const view=createFixtureWorkerStartupView(brain);if(++checkpoints===1){rmSync(join(view.root,"workspaces"),{recursive:true});if(state==="symlink")symlinkSync(join(view.root,"notes"),join(view.root,"workspaces"));}return view;});
  try{const hold=await f.turns.begin("stale-inspection",new AbortController().signal);try{expect(checkpoints,"INSPECTION_REFRESHES_THE_SOURCE_IT_ACTUALLY_MOUNTS").toBe(2);expect(hold.startupView).toBeDefined();expect(hold.sandbox.areas.find(area=>area.name==="workspaces")!.mount.writable).toBe(false);}finally{await hold.end();}}finally{acquisition.mockRestore();}
+});
+
+
+for (const profile of ["governed", "strict"] as const) test(`${profile} turns refuse unverified private state and recover without a cached verdict`, async () => {
+  const f = fixture(); f.write(`profiles: { interactive: ${profile} }`);
+  const unavailable = { available: false as const, reason: "private_state_unverified" as const, detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
+  const changed = spyOn(f.execution.boundary, "prepare").mockResolvedValue(unavailable);
+  const acquisition = spyOn(startupViews, "prepareNativeWorkerStartupView");
+  try {
+    const error = await f.turns.begin("alias-refusal", new AbortController().signal).then(async hold => { await hold.end(); return undefined; }, error => error);
+    expect(changed, "ADMISSION_REACHES_THE_PREPARE_VERDICT").toHaveBeenCalledTimes(1);
+    expect(error?.reason, "BOTH_PROFILES_REFUSE_THE_POST_PREPARE_UNVERIFIED_VERDICT").toBe("private_state_unverified");
+    expect(acquisition, "UNVERIFIED_PREPARE_FOLLOWS_STARTUP_CHECKPOINT").toHaveBeenCalledTimes(1);
+    changed.mockRestore();
+    const recovered = await f.turns.begin("alias-recovery", new AbortController().signal);
+    await recovered.end();
+  } finally { changed.mockRestore(); acquisition.mockRestore(); }
+});
+
+
+test("one warm admitted turn walks private state exactly once", async () => {
+  const f = fixture(); f.write("profiles: { interactive: strict }");
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: true });
+  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(async () => ({ ok: true }));
+  let walk: ReturnType<typeof spyOn<typeof operationalState, "operationalStateRefusal">> | undefined;
+  try {
+    const first = await f.turns.begin("alias-warmup", new AbortController().signal);
+    await first.end();
+    expect(maintenance, "FIRST_ADMISSION_POPULATES_THE_MAINTENANCE_CACHE").toHaveBeenCalledTimes(1);
+    walk = spyOn(operationalState, "operationalStateRefusal");
+    const admitted = await f.turns.begin("alias-warm", new AbortController().signal);
+    try {
+      expect(admitted.sandbox.profile).toBe("strict");
+      expect(walk, "WARM_ADMISSION_WALKS_PRIVATE_STATE_EXACTLY_ONCE").toHaveBeenCalledTimes(1);
+      expect(maintenance, "WARM_ADMISSION_REUSES_THE_PROVEN_MAINTENANCE_CACHE").toHaveBeenCalledTimes(1);
+    } finally { await admitted.end(); }
+  } finally { walk?.mockRestore(); maintenance.mockRestore(); probe.mockRestore(); await f.turns.close(); }
+});
+
+test("preparation keeps the private-state refusal ahead of the in-brain cwd shortcut", async () => {
+  const f = fixture();
+  const unavailable = { available: false as const, reason: "private_state_unverified" as const, detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
+  const walk = spyOn(operationalState, "operationalStateRefusal").mockReturnValue(unavailable);
+  const cwd = spyOn(hostExecution, "cwd").mockReturnValue(f.brain);
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: false, requirement: "offline worker fixture" });
+  try {
+    expect(await f.execution.boundary.prepare(), "PREPARE_PRIVATE_STATE_REFUSAL_WINS_OVER_CWD").toMatchObject(unavailable);
+    expect(walk).toHaveBeenCalledTimes(1);
+  } finally { probe.mockRestore(); cwd.mockRestore(); walk.mockRestore(); await f.turns.close(); }
+});
+
+
+test("cold preparation rechecks private state after maintenance qualification and ahead of cwd", async () => {
+  const f = fixture();
+  const unavailable = { available: false as const, reason: "private_state_unverified" as const, detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };
+  const walk = spyOn(operationalState, "operationalStateRefusal").mockReturnValue(undefined);
+  const cwd = spyOn(hostExecution, "cwd").mockReturnValue(process.cwd());
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: true });
+  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(async () => {
+    walk.mockReturnValue(unavailable);
+    cwd.mockReturnValue(f.brain);
+    return { ok: true };
+  });
+  const view = createFixtureWorkerStartupView(f.brain);
+  try {
+    expect(await f.execution.boundary.prepare(undefined, view), "COLD_PREPARATION_RECHECKS_AFTER_AWAIT_BEFORE_CWD").toMatchObject(unavailable);
+    expect(maintenance).toHaveBeenCalledTimes(1);
+    expect(walk).toHaveBeenCalledTimes(2);
+  } finally { await view.cleanup(); maintenance.mockRestore(); probe.mockRestore(); cwd.mockRestore(); walk.mockRestore(); await f.turns.close(); }
+});
+
+
+test("boundary alias walks use the real brain root captured from a configured symlink", async () => {
+  const f = fixture(), configured = `${f.brain}-link`, captured = realpathSync(f.brain);
+  symlinkSync(f.brain, configured);
+  const boundary = createHostBoundary({ brainPath: configured, workerHost: () => ({ ok: false, requirement: "offline worker fixture" }) });
+  const walk = spyOn(operationalState, "operationalStateRefusal").mockReturnValue(undefined);
+  try {
+    expect(boundary.brainPath).toBe(captured);
+    expect(await boundary.prepare()).toMatchObject({ available: false, reason: "worker_host_unavailable" });
+    expect(boundary.governed()).toMatchObject({ available: false, reason: "worker_host_unavailable" });
+    expect(walk).toHaveBeenCalledTimes(3);
+    expect(walk.mock.calls.map(([layout]) => layout.brainPath), "EVERY_ALIAS_WALK_USES_THE_CAPTURED_BRAIN_ROOT").toEqual([captured, captured, captured]);
+  } finally { walk.mockRestore(); await f.turns.close(); }
 });

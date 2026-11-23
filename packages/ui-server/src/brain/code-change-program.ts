@@ -238,16 +238,28 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
 
 /** Bounded directory classification only; inspection turns never invoke it. */
 export const CODE_CHECKOUT_LIST_PROGRAM = String.raw`
-import json, os, sys
+import json, os, stat, subprocess, sys
 root = sys.argv[1]
 result = []
+env = {"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
 try:
     with os.scandir(root) as entries:
         for entry in entries:
             if len(result) >= 1024: raise RuntimeError("Too many writable checkouts")
-            if entry.is_dir(follow_symlinks=False):
+            try:
+                if not entry.is_dir(follow_symlinks=False): continue
                 git = os.path.join(entry.path, ".git")
-                if os.path.lexists(git): result.append("workspaces/" + entry.name)
+                mode = os.lstat(git).st_mode
+                if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode) or stat.S_ISLNK(mode)): continue
+                # Resolve this exact .git, never discover a parent repository.
+                # Git validates HEAD, common objects/refs and gitfile targets.
+                found = subprocess.run(["/usr/bin/git", "rev-parse", "--resolve-git-dir", git], env=env,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if found.returncode == 0: result.append("workspaces/" + entry.name)
+            except OSError:
+                # An unreadable or malformed marker leaves this directory in
+                # ordinary file observation; it cannot abort peer discovery.
+                continue
 except FileNotFoundError: pass
 print(json.dumps(sorted(result)))
 `;

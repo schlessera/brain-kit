@@ -10,7 +10,7 @@ import { BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-a
 import { JournalObservationCounters } from "./journal-observation-counters.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
-import { captureCodeChanges, checkedCodeDirectory, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES, CODE_EVIDENCE_BYTES } from "./code-change-worker.js";
+import { CheckoutCaptureRefused, captureCodeChanges, checkedCodeDirectory, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES, CODE_EVIDENCE_BYTES } from "./code-change-worker.js";
 import type { MaintenanceHost, WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { randomUUID } from "node:crypto";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
@@ -381,7 +381,15 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const checkpoint = await options.nativeManager.checkpoint(id, signal);
       for (const path of await withCodeMaintenance(host => listCodeCheckouts(options.brainPath, checkpoint.path, host, signal), signal)) {
         if (checkouts.has(checkoutKey(turnId, path))) continue;
-        await captureCheckout(turnId, path, options.nativeManager, path, signal);
+        try { await captureCheckout(turnId, path, options.nativeManager, path, signal); }
+        catch (error) {
+          signal?.throwIfAborted();
+          // Only typed checkout-content refusals with a durable cause may
+          // continue under the host's read-only checkout mask. Maintenance,
+          // checkpoint, pack-read and shared-storage failures still refuse.
+          if (!(error instanceof CheckoutCaptureRefused) || !codeReceiptTablesExist(db) || !db.query("SELECT 1 FROM turn_journal_code_failures WHERE turn_id=? AND checkout=?").get(turnId, path)) throw error;
+          continue;
+        }
         // Exclusion changes only after the receipt and its pack are durable.
         active.get(turnId)!.policy.excludeCheckout(path);
       }
@@ -846,7 +854,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         try { await finalizeRefusedAdmission(turnId); } catch { /* finish/next admission retries without reviving the worker. */ }
         publish(turnId);
         throw error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
-          ? error : new JournalStorageUnavailable("native journal admission could not be prepared");
+          ? error : Object.assign(new JournalStorageUnavailable(`native journal admission could not be prepared: ${error instanceof Error ? error.message : String(error)}`), { cause: error });
       }
     }, true, traceFor("begin", turnId), timing, { kind: "begin", turnId }); },
     async bindSession(turnId: string, sessionId: string): Promise<void> {
@@ -1034,7 +1042,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
         step = timing?.("finish_record");
         await write([
-          ...(codeReceiptTablesExist(db) ? [statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND json_extract(receipt,'$.state')='recording'", turnId)] : []),
+          ...(codeReceiptTablesExist(db) ? [statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND json_extract(receipt,'$.state')='recording'", turnId),
+            statement("UPDATE turn_journal_turns SET state='partial' WHERE turn_id=? AND EXISTS (SELECT 1 FROM turn_journal_code_failures WHERE turn_id=?)", turnId, turnId)] : []),
           ...(failures.has(turnId) ? [statement("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?", failures.get(turnId)!.padEnd(64), turnId)] : []),
           statement("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' OR missing!='[]' THEN 'partial' ELSE 'complete' END WHERE turn_id=?", now(), turnId),
           statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
@@ -1188,6 +1197,12 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const configuration = row ? configurationOf(row) : undefined;
       if (!row || !configuration?.recorded) return { state: "unknown" };
       return { state: "known", hash: configuration.hash, paths: configuration.paths, count: configuration.paths.length, turnId: row.turn_id, observedAt: row.ended_at! };
+    },
+    /** Checkout restrictions are turn-scoped, including before a new session is bound. */
+    restrictedCheckouts(turnId: string): string[] {
+      return codeReceiptTablesExist(db)
+        ? (db.query("SELECT checkout FROM turn_journal_code_failures WHERE turn_id=? ORDER BY checkout").all(turnId) as { checkout: string }[]).map(row => row.checkout)
+        : [];
     },
     details(sessionId: string, turnId: string): TurnJournalDetails | null {
       const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND session_id=?").get(turnId, sessionId) as TurnRow | null;

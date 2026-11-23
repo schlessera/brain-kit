@@ -25,10 +25,10 @@ import { createOffloopActionNotifier, type AwaitableActionNotifier } from "../in
 import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
 import { createSettingsWrites, type SettingsWrites } from "../db/settings-writes.js";
-import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.js";
+import { createRuntimeStatus, type RuntimeStatus, type RuntimeStatusSnapshot } from "./runtime-status.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
-import { getDetailRetentionDays } from "../db/settings.js";
+import { getDetailRetentionDays, getSetting } from "../db/settings.js";
 
 // Activity lifecycle cadence. The stale threshold must comfortably exceed
 // the cron wrapper's heartbeat interval (~30s) so a live writer is never
@@ -90,6 +90,14 @@ export function createActivityRuntime(
     : createActivityStore(db, deps.pricing ? { pricing: deps.pricing } : {});
   const stream = createActivityStream(store, log);
   const governanceWrites = createGovernanceWrites(db, deps.writer);
+  const runtime = createRuntimeStatus(undefined, log, (at) => settingsWrites.keepSubscriptionProof(at));
+  type AliasFailure = NonNullable<RuntimeStatusSnapshot["operationalStateLastFailure"]>;
+  const stored = getSetting<Partial<AliasFailure> | null>(db, "operationalState.lastFailure", null);
+  let aliasFailure: AliasFailure | undefined = stored && Number.isFinite(stored.at) && typeof stored.detail === "string"
+    && stored.errorClass === "OperationalStateAliasVerificationUnavailable" && stored.callSite === "operationalStateRefusal" && stored.scope === "governed"
+    ? stored as AliasFailure : undefined;
+  const aliasWrites = new Set<Promise<void>>();
+
 
   // The notifier resumes its persisted cursor, including terminal changes
   // committed while this server was down and interruptions from the boot sweep.
@@ -226,7 +234,23 @@ export function createActivityRuntime(
     notifier,
     pushSender,
     actionNotices,
-    runtime: createRuntimeStatus(undefined, log, (at) => settingsWrites.keepSubscriptionProof(at)),
+    runtime: { ...runtime,
+      recordGoverned(status) {
+        runtime.recordGoverned(status);
+        if (status.available || status.reason !== "private_state_unverified" || aliasFailure?.detail === status.detail) return;
+        const notice: AliasFailure = { at: Date.now(), errorClass: "OperationalStateAliasVerificationUnavailable",
+          callSite: "operationalStateRefusal", scope: "governed", detail: status.detail };
+        aliasFailure = notice;
+        const pending = Promise.resolve().then(() => settingsWrites.setSetting("operationalState.lastFailure", notice)).catch(error => {
+          // A failed diagnostic write never hides the turn admission refusal.
+          // Permit the next status check to retry the durable write.
+          if (aliasFailure === notice) aliasFailure = undefined;
+          try { log.emit({ severityText: "WARN", body: `private-state alias failure could not be retained: ${String(error)}` }); } catch { /* diagnostic only */ }
+        });
+        aliasWrites.add(pending); void pending.finally(() => aliasWrites.delete(pending));
+      },
+      snapshot() { return { ...runtime.snapshot(), ...(aliasFailure ? { operationalStateLastFailure: aliasFailure } : {}) }; },
+    },
     query: (query) => runActivityQuery(db, store, query, notifier),
     governance: (input) => governanceWrites.record(input).then(() => {}, (err: unknown) => {
       log.emit({ severityText: "WARN", body: `governance event not recorded: ${err instanceof Error ? err.message : String(err)}` });
@@ -237,7 +261,7 @@ export function createActivityRuntime(
       clearInterval(tick);
       const failures: unknown[] = [];
       try { stream.close(); } catch (error) { failures.push(error); }
-      return closed = pushSender.close().catch(error => { failures.push(error); }).then(() => {
+      return closed = Promise.all([...aliasWrites]).then(() => pushSender.close()).catch(error => { failures.push(error); }).then(() => {
         if (failures.length === 1) throw failures[0];
         if (failures.length) throw new AggregateError(failures, "Activity shutdown retained failed cleanup outcomes.");
       });

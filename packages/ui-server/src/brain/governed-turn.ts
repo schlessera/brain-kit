@@ -117,6 +117,9 @@ export function createGovernedTurns(options: {
   // After the post-turn refresh, off the turn path: every kept private index
   // base is brought to a fresh checkpoint of the live brain, so the next warm
   // turn usually finds it unchanged even after a turn added notes (#2833).
+  const assertReadable = (availability: ReturnType<HostExecution["boundary"]["governed"]> = options.execution.boundary.governed()) => {
+    if (!availability.available && ["private_state_unverified", "private_state_in_brain", "database_in_brain"].includes(availability.reason)) throw Object.assign(new Error(`${availability.reason}: ${availability.detail}`), { reason: availability.reason });
+  };
   const advance = () => void privateIndexes.advance(signal => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal))
     .catch(error => options.report(`private index advance failed: ${String(error)}`));
   let current: Promise<unknown> | undefined;
@@ -185,6 +188,7 @@ export function createGovernedTurns(options: {
       assertManagedTurnStartupView(startupView);
       signal.throwIfAborted();
       const availability = await step("boundary_prepare", () => options.execution.boundary.prepare(signal, startupView!));
+      assertReadable(availability);
       // A provider rule masks its folders from every turn whose recipient it
       // does not allow (#1668). Only the exact origin of the host inference
       // relay proves a recipient (#2695); any other turn is denied every
@@ -263,6 +267,7 @@ export function createGovernedTurns(options: {
         hold = await step("gate_reacquire_refresh", () => gate.acquire("shared", `turn:${turnId}`, { signal, turn: true })); gateReleased = false;
         if (policyReader.load().hash !== policy.hash) throw new Error("Governance policy changed during admission; retry with its current policy.");
         await confirmReacquiredPlan();
+        assertReadable();
         startupView = await step("startup_checkpoint_refresh", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
         signal.throwIfAborted(); resolved = await step("sandbox_resolve_refresh", resolveSandbox);
         const missing = missingWritableRoot();
