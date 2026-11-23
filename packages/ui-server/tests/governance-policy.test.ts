@@ -1,5 +1,5 @@
 import * as operationalState from "../src/brain/operational-state";
-import { hostExecution } from "../src/brain/host-boundary";
+import { createHostBoundary, hostExecution } from "../src/brain/host-boundary";
 import * as startupViews from "../../ui-sdk/src/server/worker-startup-view.js";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
@@ -13,7 +13,7 @@ import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createSessionProfiles } from "../src/ws/session-profiles";
 import { createSessionProfileRoutes } from "../src/routes/session-profiles";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
@@ -795,4 +795,19 @@ test("cold preparation rechecks private state after maintenance qualification an
     expect(maintenance).toHaveBeenCalledTimes(1);
     expect(walk).toHaveBeenCalledTimes(2);
   } finally { await view.cleanup(); maintenance.mockRestore(); probe.mockRestore(); cwd.mockRestore(); walk.mockRestore(); await f.turns.close(); }
+});
+
+
+test("boundary alias walks use the real brain root captured from a configured symlink", async () => {
+  const f = fixture(), configured = `${f.brain}-link`, captured = realpathSync(f.brain);
+  symlinkSync(f.brain, configured);
+  const boundary = createHostBoundary({ brainPath: configured, workerHost: () => ({ ok: false, requirement: "offline worker fixture" }) });
+  const walk = spyOn(operationalState, "operationalStateRefusal").mockReturnValue(undefined);
+  try {
+    expect(boundary.brainPath).toBe(captured);
+    expect(await boundary.prepare()).toMatchObject({ available: false, reason: "worker_host_unavailable" });
+    expect(boundary.governed()).toMatchObject({ available: false, reason: "worker_host_unavailable" });
+    expect(walk).toHaveBeenCalledTimes(3);
+    expect(walk.mock.calls.map(([layout]) => layout.brainPath), "EVERY_ALIAS_WALK_USES_THE_CAPTURED_BRAIN_ROOT").toEqual([captured, captured, captured]);
+  } finally { walk.mockRestore(); await f.turns.close(); }
 });

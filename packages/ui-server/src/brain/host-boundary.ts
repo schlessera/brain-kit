@@ -441,7 +441,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     }
     return maintenance.probe;
   };
-  const governed = (startupView?: WorkerStartupView, checkedState?: OperationalStateCheck) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, workerHost: () => workerHost(startupView) }, checkedState);
+  const layout = { brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths };
+  const governed = (startupView?: WorkerStartupView, checkedState?: OperationalStateCheck) => governedAvailability({ ...layout, workerHost: () => workerHost(startupView) }, checkedState);
   const prepareInput = (signal?: AbortSignal) => {
     if (!options.nativeManager) throw new Error("Maintenance execution requires the configured native managed-storage manager; full-copy fallback is unavailable.");
     signal?.throwIfAborted();
@@ -585,7 +586,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     governed,
     async prepare(signal, preparedView) {
       signal?.throwIfAborted();
-      const checkedState = { refusal: operationalStateRefusal(options) };
+      const checkedState = { refusal: operationalStateRefusal(layout) };
       // Private-state refusal precedes the cwd shortcut. Only the synchronous
       // warm return may reuse this verdict; cold returns must recheck.
       if (checkedState.refusal) return checkedState.refusal;
@@ -593,7 +594,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       // has its own lease and must not delay this cached admission fact.
       if (passedMaintenanceProbes.has(maintenanceKey)) return governed(undefined, checkedState);
       const recheck = () => {
-        const fresh = { refusal: operationalStateRefusal(options) };
+        const fresh = { refusal: operationalStateRefusal(layout) };
         return fresh.refusal ?? governed(undefined, fresh);
       };
       return outputLock.withLock(brain, async () => {
