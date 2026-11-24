@@ -17,6 +17,19 @@ function hostLoad(): AdmissionLoad["atDequeue"] {
   return sample;
 }
 
+/** Combine the native observations with the at most two delays crossing its sampling boundaries. */
+function nativeDelayStats(monitor: ReturnType<typeof monitorEventLoopDelay>, boundaryMs: number[]) {
+  const n = monitor.count;
+  if (!boundaryMs.length) return { eventLoopMaxMs: monitor.max / 1e6, eventLoopP99Ms: monitor.percentile(99) / 1e6 };
+  const rank = Math.ceil(.99 * (n + boundaryMs.length));
+  // Inserting k values shifts rank by at most k. Only this slice of native ranks can supply p99.
+  const first = Math.max(1, rank - boundaryMs.length);
+  const candidates = [...boundaryMs];
+  for (let i = first; i <= Math.min(rank, n); i++) candidates.push(monitor.percentile(100 * i / n) / 1e6);
+  candidates.sort((a, b) => a - b);
+  return { eventLoopMaxMs: Math.max(monitor.max / 1e6, ...boundaryMs), eventLoopP99Ms: candidates[rank - first]! };
+}
+
 function delaySampler(): () => Pick<AdmissionLoad, "eventLoopMaxMs" | "eventLoopP99Ms"> {
   const resolution = 10;
   const histogram = createHistogram();
@@ -27,11 +40,14 @@ function delaySampler(): () => Pick<AdmissionLoad, "eventLoopMaxMs" | "eventLoop
   } catch { monitor = undefined; }
   // A turn can enter the backend before an overdue timer gets a chance to fire.
   // Keep its deadline so stopping the monitor can include this final delay.
-  let due = performance.now() + resolution;
+  let due = performance.now() + resolution, firstTick = true;
+  const boundaryMs: number[] = [];
   const recordDelay = (delay: number) => histogram.record(Math.max(1, Math.round(delay * 1e6)));
   const timer = setInterval(() => {
     const now = performance.now();
     if (!monitor) recordDelay(now - due);
+    else if (firstTick && !monitor.count && now > due) boundaryMs.push(now - due);
+    firstTick = false;
     due = now + resolution;
   }, resolution);
   timer.unref();
@@ -39,18 +55,9 @@ function delaySampler(): () => Pick<AdmissionLoad, "eventLoopMaxMs" | "eventLoop
     const overdue = performance.now() - due;
     clearInterval(timer);
     monitor?.disable();
-    if (monitor?.count) {
-      let p99 = monitor.percentile(99) / 1e6;
-      if (overdue > 0) {
-        // Insert the final sample into the percentile order without copying the histogram.
-        const n = monitor.count, rank = Math.ceil(.99 * (n + 1));
-        const lower = rank > 1 ? monitor.percentile(100 * (rank - 1) / n) / 1e6 : 0;
-        const upper = rank <= n ? monitor.percentile(100 * rank / n) / 1e6 : Infinity;
-        p99 = Math.max(lower, Math.min(upper, overdue));
-      }
-      return { eventLoopMaxMs: Math.max(monitor.max / 1e6, overdue), eventLoopP99Ms: p99 };
-    }
-    if (overdue > 0) recordDelay(overdue);
+    if (overdue > 0) boundaryMs.push(overdue);
+    if (monitor?.count) return nativeDelayStats(monitor, boundaryMs);
+    for (const delay of boundaryMs) recordDelay(delay);
     return histogram.count ? { eventLoopMaxMs: histogram.max / 1e6, eventLoopP99Ms: histogram.percentile(99) / 1e6 } : {};
   };
 }

@@ -99,6 +99,19 @@ test.each([false, true])("Claude samples bounded MCP states from its first init 
   for (const entry of malformed ? entries.slice(3) : entries) expect(missing).toContain("mcp_connect:" + entry.name);
 });
 
+test("Claude preserves the legacy server omission mark when state diagnostics fill the budget", async () => {
+  const servers = ["a", "b", "c", "d", "x".repeat(49)].map(name => ({ name, status: "connected", source: "project" }));
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: servers };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const names: string[] = [];
+  await backend.startTurn(makeReq(makeBridge().bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, worker() {}, received() {}, mcpInit() {}, missing(name) { names.push(name); },
+  } }));
+  expect(names.slice(0, 8)).toContain("mcp_connect:additional_servers_omitted");
+});
+
 test("Claude collects a bounded MCP name sample only from the first initialization frame", async () => {
   const missing: string[] = [], omittedCounts: number[] = []; let nameReads = 0;
   const servers = Array.from({ length: 1000 }, (_, index) => ({ get name() { nameReads++; return index === 0 ? "🦉".repeat(80) : `ithaca-server-${index}`; }, status: "connected" }));

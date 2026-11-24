@@ -284,6 +284,25 @@ test("admission load records a blocked loop and freezes at backend invocation", 
   } finally { monitor.mockRestore(); db.close(); }
 });
 
+test("admission records a stall before the first tick and ends at refusal before cleanup", async () => {
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db);
+    const life = createTurnLifecycle(store, "ithaca-refusal", null, Date.now(), () => {});
+    life.startAdmission();
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+    await Bun.sleep(55);
+    life.mark("failureObservedAt");
+    const load = store.lifecycle("ithaca-refusal")!.admissionLoad;
+    expect(load?.eventLoopMaxMs, "REFUSED_ADMISSION_INCLUDES_INITIAL_STALL").toBeGreaterThanOrEqual(65);
+    expect(load?.eventLoopP99Ms).toBeGreaterThanOrEqual(65);
+    expect(load?.atBackendStart).toBeUndefined();
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120);
+    life.finish("error");
+    expect(store.lifecycle("ithaca-refusal")!.admissionLoad).toEqual(load);
+  } finally { db.close(); }
+});
+
 test("terminal hold accounting counts shared stops once and partitions overlapping evidence", () => {
   const db = createUiDb(":memory:"), store = createActivityStore(db);
   try {

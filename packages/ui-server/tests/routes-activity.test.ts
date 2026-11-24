@@ -716,7 +716,12 @@ test("owner timing summary separates builds, open and absent steps, and caps the
       expect(legacy.intervals[interval], "HISTORICAL_MISSING_MILESTONE").toMatchObject({ open: 0, absent: 1, count: 0 });
     }
     expect((await read("?origin=session&outcome=denied&since=12&before=15")).groups.map((g: { buildRevision: string }) => g.buildRevision)).toEqual(["b"]);
-    expect((await read("?limit=1")).groups[0].turns).toBe(1);
+    expect((await read("?limit=1")).groups.map((g: { turns: number }) => g.turns)).toEqual([1]);
+    for (let i = 0; i < 205; i++) {
+      const id = "ithaca-window-" + i;
+      store.writeLifecycle({ ...record, turnId: id, lifecycleId: "lifecycle:" + id, acceptedAt: 20 + i, buildRevision: "c" });
+    }
+    expect((await read("?limit=1000")).groups.map((g: { turns: number }) => g.turns)).toEqual([200]);
     expect(JSON.stringify(result)).not.toMatch(/private-turn|private-session|principal-a|voyage-/);
   } finally { db.close(); }
 });

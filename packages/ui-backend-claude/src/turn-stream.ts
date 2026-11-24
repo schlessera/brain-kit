@@ -89,7 +89,7 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
     for await (const msg of inputs.stream) {
       if (startupTiming && msg.type === "system" && msg.subtype === "init" && !mcpInitObserved) {
         mcpInitObserved = true;
-        let omitted = 0, bytes = 2;
+        let omitted = 0, statesOmitted = 0, bytes = 2;
         // Optional diagnostics are bounded before invoking the observer and
         // never have authority over a usable stream.
         try {
@@ -97,7 +97,7 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
           if (!Array.isArray(servers)) omitted = 1;
           else {
             const states: NonNullable<ActivityTurnLifecycle["backendMcpInit"]> = [];
-            let stateBytes = 2, statesOmitted = 0;
+            let stateBytes = 2;
             const length = servers.length;
             if (!Number.isSafeInteger(length) || length < 0) throw Error("MCP diagnostics length unavailable");
             omitted = Math.max(0, length - 8);
@@ -122,10 +122,10 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
               } catch { omitted++; }
             }
             startupTiming.mcpInit?.(states);
-            if (statesOmitted) startupTiming.missing("mcp_init:additional_states_omitted", statesOmitted);
           }
         } catch { omitted++; }
         if (omitted) startupTiming.missing("mcp_connect:additional_servers_omitted", omitted);
+        if (statesOmitted) startupTiming.missing("mcp_init:additional_states_omitted", statesOmitted);
       }
       input.observe(msg);
       if (carried && CarriedResult.continues(msg)) carried.continued = true;

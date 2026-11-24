@@ -175,7 +175,10 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     mark(milestone: LifecycleMilestone, at = observedClock()) {
       if ((record.endedAt !== null && milestone !== "recorderSettledAt" && milestone !== "idleEmittedAt") || record[milestone] != null) return;
-      if (milestone === "backendInvokedAt") { stopAdmissionLoad?.(true); stopAdmissionLoad = undefined; }
+      if (milestone === "backendInvokedAt" || milestone === "failureObservedAt") {
+        stopAdmissionLoad?.(milestone === "backendInvokedAt");
+        stopAdmissionLoad = undefined;
+      }
       if (at === undefined) return;
       if (milestone === "dequeuedAt") startAdmission();
       record[milestone] = at;

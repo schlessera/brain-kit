@@ -759,9 +759,9 @@ Optional `admissionLoad` samples host load at dequeue and backend invocation
 average (`load1`) and available CPU count (`cpuCount`) when available.
 For direct dispatch, `atDequeue` samples entry to admission and adds no queue milestone.
 `eventLoopMaxMs` and `eventLoopP99Ms` summarize event-loop delay observed
-between those milestones, or until a refused admission ends. The sample
-includes an overdue timer at the admission boundary even when backend
-invocation precedes its next callback. Missing samples
+between those milestones, or until admission failure is observed before cleanup.
+The sample includes delays before the first native tick and after the last
+tick when the next timer is already overdue. Missing samples
 are omitted. These fields ride the existing lifecycle writes.
 
 Inside `boundary_prepare`, `boundary_private_state` checks private state.
