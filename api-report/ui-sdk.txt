@@ -1531,6 +1531,7 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   denyWorkerCommand
   describeClient
+  diagnosticInterval
   egressAddressRefusal
   egressBootstrapEntry
   egressChargeRefusal
@@ -1546,6 +1547,7 @@ export "./internal" (./src/internal.ts)
   hostProviderCredential
   isEnvName
   isManagedWorkerStartupView
+  isMcpTimingServerName
   launchAgentWorker
   launchAgentWorkerAsync
   launchLimits
@@ -1562,6 +1564,7 @@ export "./internal" (./src/internal.ts)
   nativeTurnTreeManager
   nativeWorkerStartupInput
   observeClassification
+  observeDiagnostic
   observeOutwardPlan
   outputStagingLimit
   ownedNames
@@ -4550,6 +4553,27 @@ signatures (every public export and the types it is made of)
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnLifecycle {
         holds?: ActivityTurnHold[];
+        stoppedTime?: {
+            totalMs: number;
+            intervals: number;
+            sharedHolds: number;
+            openHolds: number;
+            inferenceMs: number;
+            noInferenceMs: number;
+            unknownMs: number;
+        };
+        admissionLoad?: {
+            atDequeue?: {
+                load1?: number;
+                cpuCount?: number;
+            };
+            atBackendStart?: {
+                load1?: number;
+                cpuCount?: number;
+            };
+            eventLoopMaxMs?: number;
+            eventLoopP99Ms?: number;
+        };
         packageVersion?: string;
         buildRevision?: string;
         runtimeVersion?: string;
@@ -4568,6 +4592,7 @@ signatures (every public export and the types it is made of)
         sessionId: string | null;
         backendRunId: string | null;
         acceptedAt: number;
+        queuedAt?: number;
         dequeuedAt: number | null;
         governedStartedAt: number | null;
         governedAcquiredAt: number | null;
@@ -4578,6 +4603,11 @@ signatures (every public export and the types it is made of)
         backendInvokedAt: number | null;
         firstRelayRequestAt?: number | null;
         backendMissingEvidence?: string[];
+        backendMcpInit?: Array<{
+            name: string;
+            status: "connected" | "failed" | "needs-auth" | "pending" | "disabled" | "other";
+            source: "sdk" | "plugin" | "user" | "project" | "local" | "dynamic" | "managed" | "enterprise" | "claudeai" | "agent" | "other";
+        }>;
         backendEvidenceOmitted?: number;
         firstFrameAt: number | null;
         failureObservedAt: number | null;
@@ -4598,12 +4628,27 @@ signatures (every public export and the types it is made of)
     export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
         phase: string;
         pending?: boolean;
+        indexSettle?: {
+            queuedPaths: number;
+            updates: number;
+            firstAlreadyRunning: boolean;
+            updateMs: number;
+            lastOutcome: "complete" | "failed" | "index_capacity" | "cancelled" | null;
+        };
         timeBase?: "worker";
         workerElapsedMs?: number;
     }
   ActivityTurnSubPhase (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnSubPhase {
         phase: "governed" | "journal";
+        queueAhead?: {
+            count: number;
+            kinds: Array<ActivityTurnHold["cause"] | "refresh" | "worktree" | "memory">;
+        };
+        aliasScan?: {
+            scans: number;
+            entries: number;
+        };
         name: string;
         startedAt: number;
         endedAt: number | null;
@@ -22612,8 +22657,44 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
@@ -22670,11 +22751,40 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
                 timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
                 workerElapsedMs: z.ZodOptional<z.ZodNumber>;
@@ -22689,6 +22799,7 @@ signatures (every public export and the types it is made of)
             }>>;
             packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
             recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             runtimeVersion: z.ZodOptional<z.ZodString>;
@@ -22698,7 +22809,20 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -22706,6 +22830,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -22779,8 +22916,44 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
@@ -22837,11 +23010,40 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
                 timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
                 workerElapsedMs: z.ZodOptional<z.ZodNumber>;
@@ -22856,6 +23058,7 @@ signatures (every public export and the types it is made of)
             }>>;
             packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
             recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             runtimeVersion: z.ZodOptional<z.ZodString>;
@@ -22865,7 +23068,20 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -22873,6 +23089,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -25835,8 +26064,44 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
@@ -25893,11 +26158,40 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
                 timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
                 workerElapsedMs: z.ZodOptional<z.ZodNumber>;
@@ -25912,6 +26206,7 @@ signatures (every public export and the types it is made of)
             }>>;
             packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
             recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             runtimeVersion: z.ZodOptional<z.ZodString>;
@@ -25921,7 +26216,20 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -25929,6 +26237,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -26003,8 +26324,44 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
@@ -26061,11 +26418,40 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
                 timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
                 workerElapsedMs: z.ZodOptional<z.ZodNumber>;
@@ -26080,6 +26466,7 @@ signatures (every public export and the types it is made of)
             }>>;
             packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
             recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             runtimeVersion: z.ZodOptional<z.ZodString>;
@@ -26089,7 +26476,20 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -26097,6 +26497,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;

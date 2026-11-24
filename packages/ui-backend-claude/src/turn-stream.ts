@@ -1,5 +1,7 @@
+import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import type { AccountInfo, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { isMcpTimingServerName } from "@schlessera/brain-ui-sdk/internal";
 import { safeStartupTiming } from "@schlessera/brain-ui-sdk/server";
 
 import type { StreamAdapter } from "./stream-adapter.js";
@@ -81,34 +83,58 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
   const { input, adapter, terminal } = inputs;
   let announced = false;
   let mcpInitObserved = false;
+  let resultTimingObserved = false;
   let reported = false;
   let carried: CarriedResult | null = null;
   try {
     for await (const msg of inputs.stream) {
       if (startupTiming && msg.type === "system" && msg.subtype === "init" && !mcpInitObserved) {
         mcpInitObserved = true;
-        let omitted = 0, bytes = 2;
+        let omitted = 0, statesOmitted = 0, bytes = 2;
         // Optional diagnostics are bounded before invoking the observer and
         // never have authority over a usable stream.
         try {
           const servers = msg.mcp_servers;
           if (!Array.isArray(servers)) omitted = 1;
           else {
+            const states: NonNullable<ActivityTurnLifecycle["backendMcpInit"]> = [];
+            let stateBytes = 2;
             const length = servers.length;
             if (!Number.isSafeInteger(length) || length < 0) throw Error("MCP diagnostics length unavailable");
             omitted = Math.max(0, length - 8);
             for (let index = 0; index < Math.min(8, length); index++) {
               try {
-                const name = servers[index]?.name;
-                if (typeof name !== "string" || name.length > 48 || Buffer.byteLength(name) > 48) { omitted++; continue; }
+                const entry = servers[index], name = entry?.name;
+                let rawSource: unknown, sourceReadFailed = false;
+                try { rawSource = entry?.source; } catch { sourceReadFailed = true; }
+                if (!isMcpTimingServerName(name, rawSource)) { omitted++; continue; }
                 const diagnostic = `mcp_connect:${name}`, size = Buffer.byteLength(JSON.stringify(diagnostic)) + 1;
                 if (bytes + size > 192) { omitted++; continue; }
                 bytes += size; startupTiming.missing(diagnostic);
+                if (startupTiming.mcpInit) {
+                  try {
+                    if (sourceReadFailed) { statesOmitted++; continue; }
+                    const rawStatus = entry!.status;
+                    const status = (["connected", "failed", "needs-auth", "pending", "disabled"] as const).find(value => value === rawStatus) ?? "other";
+                    const source = (["sdk", "plugin", "user", "project", "local", "dynamic", "managed", "enterprise", "claudeai", "agent"] as const).find(value => value === rawSource) ?? "other";
+                    if (name === "brain-ui") {
+                      if (source === "sdk") continue;
+                      // Older CLIs omit provenance, so this name alone cannot identify the host server.
+                      if (typeof rawSource !== "string" || rawSource.length === 0) { statesOmitted++; continue; }
+                    }
+                    const state = { name, status, source } as const;
+                    const size = Buffer.byteLength(JSON.stringify(state)) + (states.length ? 1 : 0);
+                    if (stateBytes + size > 192) statesOmitted++;
+                    else { stateBytes += size; states.push(state); }
+                  } catch { statesOmitted++; }
+                }
               } catch { omitted++; }
             }
+            startupTiming.mcpInit?.(states);
           }
         } catch { omitted++; }
         if (omitted) startupTiming.missing("mcp_connect:additional_servers_omitted", omitted);
+        if (statesOmitted) startupTiming.missing("mcp_init:additional_states_omitted", statesOmitted);
       }
       input.observe(msg);
       if (carried && CarriedResult.continues(msg)) carried.continued = true;
@@ -130,6 +156,17 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
       }
       let frames = adapter.adapt(msg);
       if (msg.type === "result") {
+        if (startupTiming && !resultTimingObserved) {
+          resultTimingObserved = true;
+          for (const [field, name] of [
+            ["time_to_request_ms", "cli_time_to_request"], ["ttft_ms", "cli_ttft"], ["ttft_stream_ms", "cli_ttft_stream"],
+          ] as const) {
+            let ms: unknown;
+            try { if (msg.subtype === "success") ms = msg[field]; } catch { /* unavailable diagnostic */ }
+            if (typeof ms === "number" && Number.isFinite(ms) && ms >= 0 && ms <= 86_400_000) startupTiming.worker(name, ms);
+            else startupTiming.missing(name);
+          }
+        }
         const { continues, unacknowledged } = input.settle();
         if (continues && !terminal.sawResult) {
           // Not the turn's last: hold it, in case no continuation comes.

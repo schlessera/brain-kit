@@ -752,11 +752,16 @@ test("one warm admitted turn walks private state exactly once", async () => {
   const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(async () => ({ ok: true }));
   let walk: ReturnType<typeof spyOn<typeof operationalState, "operationalStateRefusal">> | undefined;
   try {
-    const first = await f.turns.begin("alias-warmup", new AbortController().signal);
+    const steps: string[] = [];
+    const timing = (name: string) => { steps.push(name); return () => {}; };
+    const first = await f.turns.begin("alias-warmup", new AbortController().signal, "interactive", undefined, undefined, timing);
+    expect(steps.filter(name => name.startsWith("boundary_"))).toEqual(["boundary_prepare", "boundary_private_state", "boundary_output_lock", "boundary_maintenance_probe", "boundary_recheck"]);
+    steps.length = 0;
     await first.end();
     expect(maintenance, "FIRST_ADMISSION_POPULATES_THE_MAINTENANCE_CACHE").toHaveBeenCalledTimes(1);
     walk = spyOn(operationalState, "operationalStateRefusal");
-    const admitted = await f.turns.begin("alias-warm", new AbortController().signal);
+    const admitted = await f.turns.begin("alias-warm", new AbortController().signal, "interactive", undefined, undefined, timing);
+    expect(steps.filter(name => name.startsWith("boundary_"))).toEqual(["boundary_prepare", "boundary_private_state"]);
     try {
       expect(admitted.sandbox.profile).toBe("strict");
       expect(walk, "WARM_ADMISSION_WALKS_PRIVATE_STATE_EXACTLY_ONCE").toHaveBeenCalledTimes(1);
@@ -777,6 +782,23 @@ test("preparation keeps the private-state refusal ahead of the in-brain cwd shor
   } finally { probe.mockRestore(); cwd.mockRestore(); walk.mockRestore(); await f.turns.close(); }
 });
 
+
+test("a recoverable maintenance probe ends its timing before the fallback recheck", async () => {
+  const { WorkerStateError } = await import("@schlessera/brain-ui-sdk/internal");
+  const f = fixture();
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: true });
+  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(() => { throw new WorkerStateError("worker_state_busy", "Ithaca storage is busy"); });
+  const view = createFixtureWorkerStartupView(f.brain);
+  try {
+    const marks: string[] = [];
+    const decision = await f.execution.boundary.prepare(undefined, view, name => {
+      marks.push(name);
+      return () => { marks.push("end " + name); };
+    });
+    expect(decision).toMatchObject({ available: false, reason: "worker_host_unavailable" });
+    expect(marks.slice(-4)).toEqual(["boundary_maintenance_probe", "end boundary_maintenance_probe", "boundary_recheck", "end boundary_recheck"]);
+  } finally { await view.cleanup(); maintenance.mockRestore(); probe.mockRestore(); await f.turns.close(); }
+});
 
 test("cold preparation rechecks private state after maintenance qualification and ahead of cwd", async () => {
   const f = fixture();
@@ -810,4 +832,47 @@ test("boundary alias walks use the real brain root captured from a configured sy
     expect(walk).toHaveBeenCalledTimes(3);
     expect(walk.mock.calls.map(([layout]) => layout.brainPath), "EVERY_ALIAS_WALK_USES_THE_CAPTURED_BRAIN_ROOT").toEqual([captured, captured, captured]);
   } finally { walk.mockRestore(); await f.turns.close(); }
+});
+
+test("one governed worker turn reaches the owner timing summary with nested admission and load", async () => {
+  const { createActivityStore } = await import("../src/activity/store.js");
+  const { createActivityStream } = await import("../src/activity/stream.js");
+  const { createActivityRoutes } = await import("../src/routes/activity.js");
+  const { testPrincipal } = await import("./helpers/principal.js");
+  const f = fixture(); f.write("profiles: { interactive: governed }");
+  const store = createActivityStore(f.db), stream = createActivityStream(store);
+  const backend = makeFakeBackend({ id: "claude", async startTurn(request) {
+    expect(request.workerSandbox?.profile).toBe("governed");
+    const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, startupView: request.workerStartupView,
+      sandbox: request.workerSandbox, env: {}, command: ["/bin/true"] }), { env: {}, stderr: "pipe" });
+    expect(worker.exitCode, worker.stderr.toString()).toBe(0);
+    request.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
+    request.bridge.emit({ type: "result", sessionId: "ithaca", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, registry: createStaticBackendRegistry([backend], backend.id),
+    catalog: createSessionCatalog(() => f.db), activity: { store, stream } });
+  try {
+    await runSession(host, { authorization: testAuthorization(), text: "Inspect Ithaca.", attachments: [] });
+    const api = new Hono<AppEnv>();
+    api.use("*", async (c, next) => { c.set("principal", testPrincipal()); await next(); });
+    api.route("/api", createActivityRoutes({ db: f.db, store }));
+    const response = await api.request("/api/activity/turn-timings/summary?limit=1&outcome=success");
+    expect(response.status).toBe(200);
+    const { groups: [group] } = await response.json();
+    expect(group.turns).toBe(1);
+    for (const name of ["boundary_prepare", "boundary_private_state", "sandbox_resolve", "sandbox_workspaces", "sandbox_scratch", "sandbox_protection"])
+      expect(group.steps).toContainEqual(expect.objectContaining({ phase: "governed", name, count: 1, open: 0, absent: 0 }));
+    const steps = store.lifecycles(undefined, 1)[0]!.subPhases!;
+    const boundary = steps.find(step => step.name === "boundary_prepare")!;
+    for (const name of ["boundary_private_state", "boundary_output_lock", "boundary_maintenance_probe", "boundary_recheck"]) {
+      const child = steps.find(step => step.name === name);
+      expect(child, name).toBeDefined();
+      expect(child!.startedAt, name).toBeGreaterThanOrEqual(boundary.startedAt);
+      expect(child!.endedAt, name).toBeGreaterThanOrEqual(child!.startedAt);
+      expect(child!.endedAt!, name).toBeLessThanOrEqual(boundary.endedAt!);
+    }
+    expect(group.measurements["boundary_private_state.scans"].median).toBeGreaterThan(0);
+    expect(group.measurements["atDequeue.cpuCount"].median).toBeGreaterThan(0);
+    expect(group.measurements["atBackendStart.load1"].count).toBe(1);
+  } finally { host.close(); stream.close(); await f.turns.close(); }
 });

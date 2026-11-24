@@ -25,6 +25,7 @@ export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 
 import { z } from "zod";
+import { isMcpTimingServerName } from "./protocol-helpers.js";
 import { CONVERSATION_LIMITS, LIVE_PERSONA_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel, StateRoomObservation } from "./protocol.js";
 
@@ -1589,6 +1590,10 @@ export const serverMaskRequestSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerMaskRequest>;
 
+const aliasScan = z.object({ scans: z.number().int().nonnegative(), entries: z.number().int().nonnegative() });
+const queueAhead = z.object({ count: z.number().int().nonnegative(), kinds: z.array(z.enum(["begin", "finish", "tool", "periodic", "scope", "refresh", "worktree", "memory"])).max(8) });
+const hostLoadSample = z.object({ load1: z.number().nonnegative().optional(), cpuCount: z.number().int().positive().optional() });
+
 export const serverMarkupRequestSchema = z.looseObject({
   type: z.literal("markup_request"),
   requestId: z.string().max(MAX_ID_CHARS),
@@ -1640,6 +1645,11 @@ const activitySpanEventSchema = z.looseObject({
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
 const activityTurnLifecycleSchema = z.looseObject({
+  stoppedTime: z.object({ totalMs: z.number().nonnegative(), intervals: z.number().int().nonnegative(),
+    sharedHolds: z.number().int().nonnegative(), openHolds: z.number().int().nonnegative(),
+    inferenceMs: z.number().nonnegative(), noInferenceMs: z.number().nonnegative(), unknownMs: z.number().nonnegative() }).optional(),
+  admissionLoad: z.object({ atDequeue: hostLoadSample.optional(), atBackendStart: hostLoadSample.optional(),
+    eventLoopMaxMs: z.number().nonnegative().optional(), eventLoopP99Ms: z.number().nonnegative().optional() }).optional(),
   holds: z.array(z.looseObject({ holdId: id, cause: z.enum(["begin", "finish", "tool", "periodic", "scope"]), causeTurnId: id.nullable(),
     toolUseId: id.optional(), requestedAt: z.number(), stoppedAt: z.number().nullable(), resumedAt: z.number().nullable(),
     changedPaths: z.number().nonnegative().nullable(), otherTurnsStopped: z.number().nonnegative(), inferenceInFlight: z.boolean().nullable() })).optional(),
@@ -1651,6 +1661,7 @@ const activityTurnLifecycleSchema = z.looseObject({
   skippedPhases: z.array(z.enum(["governed", "budget", "journal"])),
   lifecycleId: id, turnId: id, sessionId: id.nullable(), backendRunId: id.nullable(),
   acceptedAt: z.number(),
+  queuedAt: z.number().optional(),
   dequeuedAt: z.number().nullable(),
   governedStartedAt: z.number().nullable(),
   governedAcquiredAt: z.number().nullable(),
@@ -1661,6 +1672,8 @@ const activityTurnLifecycleSchema = z.looseObject({
   backendInvokedAt: z.number().nullable(),
   firstRelayRequestAt: z.number().nullable().optional(),
   backendEvidenceOmitted: z.number().int().nonnegative().optional(),
+  backendMcpInit: z.array(z.object({ name: z.string().max(48), status: z.enum(["connected", "failed", "needs-auth", "pending", "disabled", "other"]),
+    source: z.enum(["sdk", "plugin", "user", "project", "local", "dynamic", "managed", "enterprise", "claudeai", "agent", "other"]) }).refine(entry => isMcpTimingServerName(entry.name, entry.source))).max(8).optional(),
   backendMissingEvidence: z.array(z.string()).optional(),
   firstFrameAt: z.number().nullable(),
   failureObservedAt: z.number().nullable(),
@@ -1672,10 +1685,13 @@ const activityTurnLifecycleSchema = z.looseObject({
   budgetAdmissionMs: z.number().nullable(),
   journalBeginMs: z.number().nullable(),
   backendStartupMs: z.number().nullable(),
-  subPhases: z.array(z.looseObject({ phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
+  subPhases: z.array(z.looseObject({ queueAhead: queueAhead.optional(), aliasScan: aliasScan.optional(), phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
     endedAt: z.number().nullable(), elapsedMs: z.number().nullable() })).optional(),
-  openSubPhases: z.array(z.looseObject({ phase: z.string(), name: z.string(), startedAt: z.number(),
-    endedAt: z.number().nullable(), elapsedMs: z.number().nullable(), pending: z.boolean().optional(), timeBase: z.literal("worker").optional(), workerElapsedMs: z.number().nonnegative().optional() })).optional(),
+  openSubPhases: z.array(z.looseObject({ aliasScan: aliasScan.optional(), queueAhead: queueAhead.optional(), phase: z.string(), name: z.string(), startedAt: z.number(),
+    endedAt: z.number().nullable(), elapsedMs: z.number().nullable(), pending: z.boolean().optional(),
+    indexSettle: z.object({ queuedPaths: z.number().int().nonnegative(), updates: z.number().int().nonnegative(),
+      firstAlreadyRunning: z.boolean(), updateMs: z.number().nonnegative(), lastOutcome: z.enum(["complete", "failed", "index_capacity", "cancelled"]).nullable() }).optional(),
+    timeBase: z.literal("worker").optional(), workerElapsedMs: z.number().nonnegative().optional() })).optional(),
   outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(), reason: z.string().nullable(),
 });
 

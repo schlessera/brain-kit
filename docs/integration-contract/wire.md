@@ -645,6 +645,39 @@ pairs and exposes optional `clientTimingUnavailable: "invalid_receipt"` on that
 record; the host envelope and other records remain readable. Client pairs and
 receipt diagnostics never enter provider history, inference usage or cost accounting.
 
+#### Turn timing summary
+
+`GET /api/activity/turn-timings/summary` requires an authenticated owner.
+`since` (inclusive) and `before` (exclusive) select by acceptance time in
+epoch milliseconds. The server takes the newest `limit` records in that
+window (default 100, maximum 200), then applies optional `outcome` and
+Activity `origin` filters. Origin comes from the linked backend rollup or
+root span and is `unknown` if neither supplies it.
+
+The response is `{ limit, groups }`. Each group carries `packageVersion`,
+`buildRevision` (null for missing identities), and `turns`. `intervals` maps
+milestone duration names to statistics, including `timeToFirstRelayMs`,
+`terminalToRecorderMs` and `terminalToIdleMs`. `steps` lists statistics by
+`phase` and `name`, including steps seen only in another selected build.
+`count` is the number of completed observations, `median` averages the two
+central values for even counts, `p90` is nearest rank and `max` is the
+largest value. All three are null with no completed observations. `open`
+counts started, unended observations. `absent` counts turns without the
+observation, including milestones omitted by an older build. Historical
+backend observations have the same read limits as a single lifecycle record.
+A queued follow-up records its enqueue timestamp as optional `queuedAt` on its
+first lifecycle write. Its wait is open until dequeue, including when cancelled
+before dequeue. A direct turn has no queue wait. For older turns only a recorded
+dequeue establishes a completed wait from acceptance.
+Repeated steps contribute individual samples. Timing values are
+milliseconds. `measurements` applies the same statistics in native units to
+observed host load, alias scan counts, queue depths, stopped-time fields and
+index breakdowns. Each group includes every measurement observed in the
+selected builds. A group with no samples reports its turn count in `absent`.
+`frequencies` counts journal operation kinds, index states
+and MCP status/source categories. No turn or session identities, hold IDs,
+file paths or transcripts are returned.
+
 #### Host milestones
 
 `acceptedAt` is the observed host acceptance time, before routing/admission.
@@ -714,6 +747,40 @@ not apply to a turn is absent. The current names are:
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
 
+A journal or closing `hold_wait` can carry `queueAhead: { count, kinds }`.
+The count includes the active operation and all earlier queued operations at
+enqueue. A hold refused before enqueue has no queue snapshot. The list gives the first eight in order, using only `begin`, `finish`,
+`tool`, `periodic`, `scope`, `refresh`, `worktree` or `memory`.
+
+On the closing `index_settle` step, `indexSettle` records the number of
+distinct paths queued by this turn at entry (`queuedPaths`), the number of
+updates the barrier waited through (`updates`), whether the first was already
+running (`firstAlreadyRunning`), and the sum of their receipt durations
+(`updateMs`). `lastOutcome` is null without a receipt, otherwise `complete`,
+`failed`, `index_capacity` or `cancelled`. Failure leaves the step unended
+and preserves the breakdown reached. If a pending batch cannot supply
+receipts, its step omits the breakdown. No paths or other turn identifiers appear.
+
+Optional `admissionLoad` samples host load at dequeue and backend invocation
+(`atDequeue`, `atBackendStart`). Each sample carries the one-minute load
+average (`load1`) and available CPU count (`cpuCount`) when available.
+For direct dispatch, `atDequeue` samples entry to admission and adds no queue milestone.
+`eventLoopMaxMs` and `eventLoopP99Ms` summarize event-loop delay observed
+between those milestones, or until admission fails or authority is revoked before cleanup.
+At a 10 ms cadence each sample takes the larger of the native event-loop
+measurement and the full interval between callbacks. This captures stalls
+before the first native tick and an overdue tick at the admission boundary. Missing samples
+are omitted. These fields ride the existing lifecycle writes.
+
+Inside `boundary_prepare`, `boundary_private_state` checks private state.
+Cold preparation can also record `boundary_output_lock` (time until the lock
+is acquired), `boundary_maintenance_probe` and `boundary_recheck`.
+Each private-state check carries `aliasScan: { scans, entries }`, counting
+alias-check calls and directory entries visited across private and brain
+trees, including retries. Inside `sandbox_resolve` and its refresh,
+`sandbox_workspaces`, `sandbox_scratch`, `sandbox_protection`,
+`sandbox_code_workspaces` and `sandbox_legacy_workspaces` appear when run.
+
 Optional `openSubPhases` (#4285/#4286) carries **all new phases**, using the
 same entry shape `{ phase, name, startedAt, endedAt, elapsedMs }` with an open
 string vocabulary for `phase` as well as `name`. Consumers must tolerate
@@ -773,7 +840,7 @@ milliseconds), the first model request received on an authorized inference
 relay route, before admission, body reading and dispatch. Token-count routes
 do not end it. Null means not observed; historical records omit the field.
 Backend steps start only after `backendInvokedAt`; new steps and completions
-after relay receipt are ignored. An unfinished backend step has a null
+after relay receipt are ignored except for the CLI result durations below. An unfinished backend step has a null
 `endedAt`; its elapsed value is bounded by relay receipt when observed,
 otherwise the same failure/interruption rule as other steps. The receipt
 persists a milestone; other startup observations add no writes of their own.
@@ -788,6 +855,14 @@ can overlap and must not be summed as disjoint costs. A Pi worker contributes
 at most one observation per startup phase (four total), before readiness;
 duplicate and post-readiness reports are ignored in both timing and debug totals.
 
+Claude's first result supplies up to three worker durations. All start at
+the CLI's monotonic turn-loop sample. `cli_time_to_request` ends at first
+request send, `cli_ttft` at the first top-level assistant message, and
+`cli_ttft_stream` at the first stream message-start event. They arrive
+after relay receipt and before terminal recording. Missing, non-finite,
+negative or longer-than-one-day durations are reported as missing.
+Continuation results do not replace them.
+
 Optional `backendMissingEvidence` lists unavailable SDK marks, rather than
 inventing durations: Claude `first_enqueue`, `prompt_recorded`, and
 `mcp_connect:<server-name>` for the in-process server and each server named by
@@ -797,13 +872,32 @@ claim complete runtime coverage. These observations stay in host storage and
 never enter provider history.
 Names are sampled from the first Claude system/init frame only: at most 8
 server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
-budget. An incomplete sample reports `mcp_connect:additional_servers_omitted`
+budget. Configured names retain their authored key, including punctuation,
+spaces and repeated colons. The SDK's source identifies plugin and cloud
+connector names. The same path and control exclusions apply inside a scoped
+`plugin:<plugin>:<server>` or a `claude.ai <display name>`, including when an
+older CLI omits the source. Cloud display names retain disambiguating suffixes
+such as `(2)`. A path, control character or empty cloud display name counts as
+omitted.
+An incomplete sample reports `mcp_connect:additional_servers_omitted`
 when that summary label fits the lifecycle's diagnostic budget. The lifecycle
 retains at most 8 diagnostic names within 256 encoded bytes; individual
 lifecycle names are at most 96 UTF-8 bytes. `backendEvidenceOmitted` replaces
 the dropped `additional_missing_evidence_omitted` marker and counts omitted
 observations. Omitted names are not retained for deduplication. Continuation
 init frames do not expand the sample; limits keep missing evidence explicit.
+Optional `backendMcpInit` records sampled external servers from the first init.
+The in-process `brain-ui` keeps its missing connection mark without consuming
+the state sample. An explicitly external config source can use the same name,
+including an unrecognized source string mapped to `other`. For that name a
+missing, empty or non-string source leaves the state omitted and counted.
+Each external entry carries its name with
+`status` (connected, failed, needs-auth, pending, disabled) and `source`
+(sdk, plugin, user, project, local, dynamic, managed, enterprise, claudeai,
+agent). Unknown values become `other`. The array has its own 192-byte JSON
+limit and uses the same bounded name sample. When a sampled state cannot
+fit, `backendEvidenceOmitted` includes it. An observed empty list is `[]`.
+
 Malformed MCP diagnostic lists or entries also mark the sample incomplete.
 Null or absent lists are unavailable evidence; an explicit empty array is an
 observed empty list. These diagnostics cannot fail an otherwise usable stream.
@@ -828,6 +922,17 @@ absent. Optional `runtimeVersion` is the selected backend's reported runtime
 version for this turn, absent when it reports none. These are host metadata
 and never enter the provider conversation.
 
+On its first terminal write, a lifecycle records `stoppedTime`. `totalMs`
+is the duration of the union of closed stop/resume intervals. `intervals`
+counts distinct endpoint pairs, `sharedHolds` counts additional holds with
+identical endpoints, and `openHolds` counts stops awaiting resume. An open
+stop contributes no elapsed estimate. Within the union, `inferenceMs`
+counts time covered by a hold reporting inference, `unknownMs` covers
+remaining time with unknown inference, and `noInferenceMs` covers the rest.
+The three durations sum to `totalMs`. New lifecycles start with an empty
+hold list and report zero if no hold was observed. When recovery closes a
+historical record that lacks the hold list, `stoppedTime` stays absent.
+
 Optional `holds` lists observation intervals joinable by `holdId`. Each
 record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),
 `causeTurnId` (this turn when it caused the hold, otherwise null), optional
@@ -835,7 +940,8 @@ record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),
 and `resumedAt`, nullable `changedPaths`, `otherTurnsStopped` and
 nullable `inferenceInFlight`. Stop/resume mean **the host's worker control
 acknowledged the stop/resume** under that control's existing confirmation
-semantics (PID namespace, cgroup or broker). They do not independently prove
+semantics (PID namespace, cgroup or broker). During its own begin and finish
+holds, a turn has no running worker to stop. Both marks are null in that case. They do not independently prove
 kernel process state. A false or void return leaves the corresponding mark
 null. Timing adds no `/proc` or cgroup evidence reads and performs no stop-state
 rechecks. Diagnostic callbacks and clock failures are best-effort: a throw

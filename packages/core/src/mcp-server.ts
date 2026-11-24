@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { timeMcpStartup } from "./cli/mcp-startup-timing.js";
 /**
  * brain MCP server (stdio). Ports scripts/mcp-server.ts verbatim in tool shape:
  * the same 8 `brain_*` tools (plus the six `brain_compute_*` tools, #3107) with identical names, input schemas, annotations,
@@ -739,7 +740,9 @@ export async function startMcpServer(
   const { embeddings, warnings, withheld } = resolveProviders(brain.config);
   if (warnings.embeddings) console.error(`brain MCP: ${warnings.embeddings}`);
 
+  const databaseReady = timeMcpStartup("database");
   const db = openDatabase(brain.dbPath, { embeddingDimensions: embeddings?.dimensions ?? EMBEDDING_DIMENSIONS });
+  databaseReady();
   // Every search/context tool here is read-only. Loading the extension makes
   // stored vectors queryable on this connection; it must not migrate the
   // vector schema, which drops every vector and costs a paid re-embedding run.
@@ -796,11 +799,17 @@ export async function startMcpServer(
     "brain_add", "brain_update", "brain_archive", ...COMPUTE_TOOL_NAMES,
     ...APIFY_OPERATIONS.map(operation => APIFY_TOOL_NAMES[operation]),
   ].map((name) => [name, null]));
+  const modulesReady = timeMcpStartup("moduleTools");
   moduleWarnings.push(...await registerModuleTools(server, brain.modules, brain.root, brain.taxonomy, owners));
 
+  modulesReady();
+  const vectorReady = timeMcpStartup("vector");
   await ensureVec();
+  vectorReady();
+  const connected = timeMcpStartup("connect");
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  connected();
 }
 
 if (import.meta.main) {

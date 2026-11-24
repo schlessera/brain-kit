@@ -184,11 +184,24 @@ test("authority revoked during billing still times reached failure cleanup", asy
   const revoke = spyOn(billing, "resolveRunBilling").mockImplementation(async () => { authorization.valid = false; return undefined; });
   const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store);
   const host = new WsHost({ registry: createStaticBackendRegistry([makeFakeBackend({ id: "pi" })], "pi"), catalog: createSessionCatalog(() => db), activity: { store, stream } });
+  const monitor = spyOn(await import("node:perf_hooks"), "monitorEventLoopDelay");
+  const begin = host.failureReplay.begin.bind(host.failureReplay);
+  let stoppedAtCleanup: boolean | undefined;
+  const recording = spyOn(host.failureReplay, "begin").mockImplementation(async (...args) => {
+    const real = await begin(...args);
+    return { ...real, async finish(id, confirmed) {
+      const histogram = monitor.mock.results[0]!.value as ReturnType<typeof import("node:perf_hooks").monitorEventLoopDelay>;
+      stoppedAtCleanup = histogram.enable();
+      histogram.disable();
+      return real.finish(id, confirmed);
+    } };
+  });
   try {
     await runSession(host, { authorization, text: "Plan Ithaca", attachments: [] });
     const step = store.lifecycles()[0]!.openSubPhases?.find(step => step.name === "failure_recording");
     expect(step?.endedAt, "BILLING_REVOCATION_RECORDS_REACHED_CLEANUP").toBeNumber();
-  } finally { revoke.mockRestore(); host.close(); stream.close(); db.close(); }
+    expect(stoppedAtCleanup, "ADMISSION_STOPS_BEFORE_REVOCATION_CLEANUP").toBe(true);
+  } finally { recording.mockRestore(); monitor.mockRestore(); revoke.mockRestore(); host.close(); stream.close(); db.close(); }
 });
 
 test("an answered turn through the real catalog ends failure recording once its boundary is stored", async () => {

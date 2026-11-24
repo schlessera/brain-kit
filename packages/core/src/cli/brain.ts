@@ -26,6 +26,7 @@ import type { Enrichment } from "../lib/enrichment.js";
 import { packageVersion } from "../package-version.js";
 import { resolveProviders, type ResolvedProviders } from "../lib/registry.js";
 
+import { timeMcpStartup } from "./mcp-startup-timing.js";
 import { buildRegistry, helpText } from "./registry.js";
 import type { CliContext } from "./types.js";
 import { computeJson, parseArgs, scanCliArgs, UsageError } from "./io.js";
@@ -159,6 +160,7 @@ async function main(): Promise<number> {
   let brain: BrainContext;
   let configError: string | undefined;
   let configCause: unknown;
+  const contextReady = command === "mcp" ? timeMcpStartup("context") : undefined;
   try {
     brain = await initContext();
   } catch (e) {
@@ -167,6 +169,7 @@ async function main(): Promise<number> {
     brain = degradedContext();
   }
 
+  contextReady?.();
   const registry = buildRegistry(brain);
   for (const err of registry.errors) {
     console.error(`Warning: ${err}`);

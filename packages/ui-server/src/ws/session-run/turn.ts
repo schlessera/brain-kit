@@ -45,6 +45,7 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
   // enforces revocation, so the timer only has to close the socket.
   host.expireAuthorizationContexts();
   if (!turn.authorization.valid) {
+    lifecycle?.stopAdmission();
     host.budgets?.end(turn.turnId);
     turn.revision = undefined;
     const failureEnd = lifecycle?.timer("closing", {}, { lateEnd: true })("failure_recording");

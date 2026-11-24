@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:212-231`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:220-238`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -58,6 +58,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/activity/runs` | `mounted supported handler: GET /api/activity/runs` | R |
 | `GET /api/activity/runs/:runId` | `mounted supported handler: GET /api/activity/runs/:runId` | R |
 | `GET /api/activity/stats` | `mounted supported handler: GET /api/activity/stats` | R |
+| `GET /api/activity/turn-timings/summary` | `mounted supported handler: GET /api/activity/turn-timings/summary` | R |
 | `GET /api/attachments/:fileId` | `mounted supported handler: GET /api/attachments/:fileId` | X |
 | `POST /api/auth/login` | `mounted supported handler: POST /api/auth/login` | A, P, Z |
 | `POST /api/auth/logout` | `mounted supported handler: POST /api/auth/logout` | A, P |
@@ -291,6 +292,8 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **R — Activity reads and accounting.**
 
+- `owner timing summary separates builds, open and absent steps, and caps the record window` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`owner timing summary separates builds, open and absent steps, and caps the record window`, `packages/ui-server/tests/routes-activity.test.ts:670-739`)
+
 - `runs list splits live and history, newest first, with filters` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`runs list splits live and history, newest first, with filters`, `packages/ui-server/tests/routes-activity.test.ts:76-99`)
 - `run detail omits tool payload events unless ?include=payloads asks` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`run detail omits tool payload events unless ?include=payloads asks`, `packages/ui-server/tests/routes-activity.test.ts:113-143`)
 - `a pruned run resolves to its rollup; an unknown id 404s (R26)` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`a pruned run resolves to its rollup; an unknown id 404s (R26)`, `packages/ui-server/tests/routes-activity.test.ts:145-171`)
@@ -479,8 +482,8 @@ transport; they never call a speech service.
 - `conditional SPA fallback serves deep links, preserves API precedence and reports a missing index` ([source](../packages/ui-server/tests/http-inventory.test.ts)), (`conditional SPA fallback serves deep links, preserves API precedence and reports a missing index`, `packages/ui-server/tests/http-inventory.test.ts:69-83`)
 - `conditional static middleware serves existing assets before the SPA fallback` ([source](../packages/ui-server/tests/http-inventory.test.ts)), (`conditional static middleware serves existing assets before the SPA fallback`, `packages/ui-server/tests/http-inventory.test.ts:85-93`)
 
-The classified table contains 97 declared endpoints (49 supported and 48
-internal) and one conditional internal SPA fallback. Exact runtime equality
+The [classified inventory](http-api.md#inventory-and-selection) includes the
+supported and internal endpoints and the conditional internal SPA fallback. Exact runtime equality
 rejects an undocumented handler. Wildcard middleware is counted separately:
 global security/observability, `/api` origin/CORS/authentication, owner guards,
 poke method refusal and conditional static assets. HEAD dispatch suppresses

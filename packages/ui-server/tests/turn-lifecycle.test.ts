@@ -1,7 +1,9 @@
 import packageInfo from "@schlessera/brain-ui-server/package.json" with { type: "json" };
-import { expect, test } from "bun:test";
+import * as perfHooks from "node:perf_hooks";
+import { expect, spyOn, test } from "bun:test";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
+import { turnTimingSummary } from "../src/activity/turn-timing-summary.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
 import { createTurnRecorder } from "../src/activity/recorder.js";
 import { createActivityRoutes } from "../src/routes/activity.js";
@@ -64,6 +66,21 @@ test("restart recovers admission-only records, historical runs stay unknown, lat
   }finally{db.close();}
 });
 
+test("restart preserves missing hold evidence and a measured empty hold list", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    for (const turnId of ["ithaca-legacy", "ithaca-current"]) {
+      createTurnLifecycle(store, turnId, null, 100, () => {});
+    }
+    db.query("UPDATE activity_turn_lifecycles SET record = json_remove(record, '$.holds') WHERE turn_id = ?").run("ithaca-legacy");
+    expect(store.sweepOwnOrphans()).toBe(2);
+    expect(store.lifecycle("ithaca-legacy")!.stoppedTime).toBeUndefined();
+    expect(store.lifecycle("ithaca-current")!.stoppedTime?.totalMs).toBe(0);
+    const summary = turnTimingSummary(db, 2, 0, 200);
+    expect(summary.groups[0]!.measurements["stoppedTime.totalMs"]).toMatchObject({ count: 1, median: 0, absent: 1 });
+  } finally { db.close(); }
+});
+
 test("recording and stream failures never break the observed turn",()=>{
   const db=createUiDb(":memory:");const store=createActivityStore(db);db.close();
   const record=createTurnLifecycle(store,"turn-loom",null,1000,()=>{throw Error("stream unavailable");},()=>1200);
@@ -90,6 +107,7 @@ test("real dispatch records delayed governed admission and first frame, and link
     request.startupTiming?.worker("resources", 37);
     request.startupTiming?.missing("mcp_connect:brain");
     now=1600; request.startupTiming?.received();
+    now=1650; request.startupTiming?.worker("cli_time_to_request", 18);
     now=1700;request.bridge.emit({type:"session_info",sessionId:"ithaca",isNew:true});
     now=1900;request.bridge.emit({type:"result",sessionId:"ithaca",durationMs:200,numTurns:1,isError:false,costUsd:0});
   }});
@@ -103,11 +121,14 @@ test("real dispatch records delayed governed admission and first frame, and link
       {phase:"backend",name:"host_probe",startedAt:1400,endedAt:1500,elapsedMs:100},
       {phase:"backend",name:"first_relay_request",startedAt:1400,endedAt:1600,elapsedMs:200},
       {phase:"backend",name:"resources",startedAt:1500,endedAt:1500,elapsedMs:37,timeBase:"worker",workerElapsedMs:37},
+      {phase:"backend",name:"cli_time_to_request",startedAt:1650,endedAt:1650,elapsedMs:18,timeBase:"worker",workerElapsedMs:18},
     ]);
     expect(record.backendMissingEvidence).toEqual(["mcp_connect:brain"]);
     expect(record.firstRelayRequestAt).toBe(1600);
     expect(record).toMatchObject({acceptedAt:1000,governedStartedAt:1000,governedAcquiredAt:1400,backendInvokedAt:1400,
       firstFrameAt:1700,endedAt:2000,sessionId:"ithaca",totalElapsedMs:1000,timeToFirstFrameMs:700,backendStartupMs:300,outcome:"success"});
+    expect(record.admissionLoad?.atBackendStart?.cpuCount).toBeGreaterThan(0);
+    expect(record.queueWaitMs).toBeNull();
     expect(record.backendRunId).toBe(record.turnId);
     expect(store.runRollup!(record.turnId)!.durationMs).toBe(200);
   }finally{monotonic.mockRestore();clock.mockRestore();host.close();stream.close();db.close();}
@@ -195,7 +216,7 @@ test("build identity validates revision and retains runtime evidence with termin
   } finally { db.close(); }
 });
 
-test("real dispatch attributes a queued index delay and final observation only to their closing steps", async () => {
+test.each(["empty", "receipt", "joined", "failed", "legacy"] as const)("real dispatch attributes index settlement and final observation to their closing steps (%s)", async mode => {
   const { WsHost } = await import("../src/ws/host.js");
   const { runSession } = await import("../src/ws/run-session.js");
   const { createSessionCatalog } = await import("../src/ws/session-catalog.js");
@@ -213,8 +234,19 @@ test("real dispatch attributes a queued index delay and final observation only t
   const makeBridge = bridges.makeBridge;
   const setup = spyOn(bridges, "makeBridge").mockImplementation(async (...args) => {
     const bridge = await makeBridge(...args);
-    bridges.applyIndexReads({ host: args[0], signal: new AbortController().signal }, bridge,
-      { pending: () => pending, async barrier() { now += 500; pending = false; } } as import("../src/brain/index-batch.js").IndexBatch, undefined);
+    const { createIndexBatch } = await import("../src/brain/index-batch.js");
+    const batch = createIndexBatch({ index: async () => {
+      now += 500;
+      if (mode === "failed") throw Error("Ithaca index unavailable");
+    } });
+    if (mode !== "empty") batch.queue(["notes/ithaca.md"], undefined, args[1].turnId);
+    const barrier = batch.barrier;
+    if (mode === "joined") batch.barrier = async (signal, observation) => {
+      // A second caller arrives while the first is still awaiting the receipt.
+      await Promise.all([barrier(), barrier(signal, observation)]);
+    };
+    const legacy = { pending: () => pending, async barrier() { now += 500; pending = false; } } as import("../src/brain/index-batch.js").IndexBatch;
+    bridges.applyIndexReads({ host: args[0], signal: new AbortController().signal }, bridge, mode === "legacy" ? legacy : batch, undefined);
     return bridge;
   });
   const policy = createGovernancePolicyReader("/nonexistent-odysseus-fixture").load();
@@ -231,11 +263,19 @@ test("real dispatch attributes a queued index delay and final observation only t
   try {
     await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
     const record = store.lifecycles()[0]!;
-    expect(record.openSubPhases?.filter(s => s.phase === "closing" && ["index_settle", "final_observation"].includes(s.name)), "CLOSING_DELAYS_ARE_ATTRIBUTED")
-      .toEqual([{ phase: "closing", name: "index_settle", pending: true, startedAt: 1100, endedAt: 1600, elapsedMs: 500 },
-        { phase: "closing", name: "final_observation", startedAt: 1600, endedAt: 1900, elapsedMs: 300 }]);
+    const delay = mode === "empty" ? 0 : 500;
+    const settledAt = 1100 + delay, terminal = settledAt + 300;
+    const expected = mode === "empty"
+      ? { queuedPaths: 0, updates: 0, updateMs: 0, firstAlreadyRunning: false, lastOutcome: null }
+      : { queuedPaths: 1, updates: 1, updateMs: 500, firstAlreadyRunning: mode === "joined", lastOutcome: mode === "failed" ? "failed" : "complete" } as const;
+    const indexStep = record.openSubPhases?.find(s => s.phase === "closing" && s.name === "index_settle");
+    expect(indexStep?.indexSettle, "STORED_INDEX_SETTLEMENT_EVIDENCE").toEqual(mode === "legacy" ? undefined : expected);
+    expect(indexStep).toMatchObject({ pending: mode !== "empty", startedAt: 1100,
+      endedAt: mode === "failed" ? null : settledAt, elapsedMs: mode === "failed" ? terminal - 1100 : delay });
+    expect(record.openSubPhases?.find(s => s.phase === "closing" && s.name === "final_observation"))
+      .toMatchObject({ startedAt: settledAt, endedAt: terminal, elapsedMs: 300 });
     expect(record.openSubPhases?.filter(s => s.name === "journal_finish").map(s => s.elapsedMs)).toEqual([300, 0]);
-    expect(record).toMatchObject({ endedAt: 1900, recorderSettledAt: 1900, idleEmittedAt: 1900 });
+    expect(record).toMatchObject({ endedAt: terminal, recorderSettledAt: terminal, idleEmittedAt: terminal });
   } finally { setup.mockRestore(); monotonic.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
 });
 
@@ -253,5 +293,79 @@ test("identical terminal replay emits no new change while a new trailing receipt
     expect(count(), "IDENTICAL_TRAILING_RECEIPT_IS_SILENT").toBe(before + 1);
     store.writeLifecycle({ ...terminal, recorderSettledAt: 9999, idleEmittedAt: 1300 });
     expect(store.lifecycle("turn-replay")).toMatchObject({ recorderSettledAt: 1200, idleEmittedAt: 1300 });
+  } finally { db.close(); }
+});
+
+test("admission load records a blocked loop and freezes at backend invocation", async () => {
+  const db = createUiDb(":memory:");
+  const monitor = spyOn(perfHooks, "monitorEventLoopDelay");
+  try {
+    const store = createActivityStore(db);
+    const lifecycle = createTurnLifecycle(store, "ithaca-load", null, Date.now(), () => {});
+    lifecycle.mark("dequeuedAt");
+    await Bun.sleep(35);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 70);
+    lifecycle.mark("backendInvokedAt");
+    const load = store.lifecycle("ithaca-load")!.admissionLoad;
+    expect(load?.eventLoopMaxMs, "ADMISSION_BLOCKED_LOOP_MAXIMUM").toBeGreaterThanOrEqual(70);
+    expect(load?.eventLoopP99Ms).toBeGreaterThan(0);
+    expect(load?.atDequeue?.cpuCount).toBeGreaterThan(0);
+    expect(load?.atBackendStart?.load1).toBeGreaterThanOrEqual(0);
+    const histogram = monitor.mock.results[0]!.value as ReturnType<typeof perfHooks.monitorEventLoopDelay>;
+    expect(histogram.enable(), "MONITOR_DISABLED_AT_BACKEND_START").toBe(true);
+    histogram.disable();
+    lifecycle.finish("success");
+    expect(store.lifecycle("ithaca-load")!.admissionLoad).toEqual(load);
+  } finally { monitor.mockRestore(); db.close(); }
+});
+
+test("a single admission delay has its observed maximum as its 99th percentile", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  let now = 0;
+  const clock = spyOn(performance, "now").mockImplementation(() => now);
+  try {
+    const turn = createTurnLifecycle(store, "ithaca-one-delay", null, 0, () => {}, () => now);
+    turn.startAdmission();
+    now = 80;
+    turn.mark("backendInvokedAt");
+    expect(store.lifecycle("ithaca-one-delay")!.admissionLoad).toMatchObject({ eventLoopMaxMs: 80, eventLoopP99Ms: 80 });
+  } finally { clock.mockRestore(); db.close(); }
+});
+
+test("admission records a stall before the first tick and ends at refusal before cleanup", async () => {
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db);
+    const life = createTurnLifecycle(store, "ithaca-refusal", null, Date.now(), () => {});
+    life.startAdmission();
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+    await Bun.sleep(55);
+    life.mark("failureObservedAt");
+    const load = store.lifecycle("ithaca-refusal")!.admissionLoad;
+    expect(load?.eventLoopMaxMs, "REFUSED_ADMISSION_INCLUDES_INITIAL_STALL").toBeGreaterThanOrEqual(80);
+    expect(load?.eventLoopP99Ms).toBeGreaterThanOrEqual(80);
+    expect(load?.atBackendStart).toBeUndefined();
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120);
+    life.finish("error");
+    expect(store.lifecycle("ithaca-refusal")!.admissionLoad).toEqual(load);
+  } finally { db.close(); }
+});
+
+test("terminal hold accounting counts shared stops once and partitions overlapping evidence", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    const lifecycle = createTurnLifecycle(store, "ithaca-stops", null, 0, () => {}, () => 200);
+    const hold = (stoppedAt: number | null, resumedAt: number | null, inferenceInFlight: boolean | null) =>
+      lifecycle.hold({ holdId: "loom", cause: "periodic", causeTurnId: null, requestedAt: 12, stoppedAt, resumedAt, inferenceInFlight, changedPaths: null, otherTurnsStopped: 0 });
+    hold(10, 30, false); hold(10, 30, false); hold(50, 65, true); hold(60, 70, null); hold(85, null, false);
+    lifecycle.finish("success");
+    expect(store.lifecycle("ithaca-stops")!.stoppedTime).toEqual({ totalMs: 40, intervals: 3, sharedHolds: 1, openHolds: 1,
+      inferenceMs: 15, noInferenceMs: 20, unknownMs: 5 });
+    const empty = createTurnLifecycle(store, "ithaca-empty", null, 0, () => {}, () => 200);
+    for (const cause of ["begin", "finish"] as const) empty.hold({ holdId: cause, cause, causeTurnId: "ithaca-empty", requestedAt: 0,
+      stoppedAt: null, resumedAt: null, changedPaths: null, otherTurnsStopped: 0, inferenceInFlight: null });
+    empty.finish("success");
+    expect(store.lifecycle("ithaca-empty")!.stoppedTime).toEqual({ totalMs: 0, intervals: 0, sharedHolds: 0, openHolds: 0,
+      inferenceMs: 0, noInferenceMs: 0, unknownMs: 0 });
   } finally { db.close(); }
 });

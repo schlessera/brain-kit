@@ -194,7 +194,7 @@ catch them.
 ### 4. Registration and discovery
 
 - `brain mcp` (`export const mcpCommand`,
-  `packages/core/src/cli/commands/mcp.ts:4-17`) registers core's eight tools
+  `packages/core/src/cli/commands/mcp.ts:5-20`) registers core's eight tools
   first, then each loaded module's tools in config order, then each
   module's tools in the order its record declares them. `tools/list`
   therefore returns them in a stable order.

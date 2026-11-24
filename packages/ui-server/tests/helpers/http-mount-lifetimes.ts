@@ -62,6 +62,7 @@ export const mountLifetimes: Record<string, { shared: boolean; effects: string }
   "GET /api/activity/runs/:runId": { shared: false, effects: "Activity reads retain the original same-principal span/rollup seed and fresh maintenance lifetime." },
   "GET /api/activity/rollups": { shared: false, effects: "Activity reads retain the original same-principal span/rollup seed and fresh maintenance lifetime." },
   "GET /api/activity/stats": { shared: false, effects: "Activity reads retain the original same-principal span/rollup seed and fresh maintenance lifetime." },
+  "GET /api/activity/turn-timings/summary": { shared: false, effects: "Reads the owner's lifecycle records against a fresh Activity database." },
   "POST /api/internal/inbox/poke": { shared: false, effects: "Internal auth/worker lifecycle boundary; retain fresh unconfigured case." },
   "GET /api/models": { shared: false, effects: "Registry/profile/pricing caches, hidden settings or refresh; fresh registry despite static fixture provider." },
   "PUT /api/models/hidden": { shared: false, effects: "Registry/profile/pricing caches, hidden settings or refresh; fresh registry despite static fixture provider." },
