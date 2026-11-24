@@ -115,6 +115,22 @@ test("Claude init states exclude paths and the in-process server without displac
   expect(names).toContain("mcp_connect:additional_servers_omitted");
 });
 
+test("Claude retains scoped plugin servers and externally configured names at init", async () => {
+  const servers = [{ name: "plugin:ithaca:loom", status: "connected", source: "plugin" },
+    { name: "brain-ui", status: "pending", source: "project" }, { name: "plugin:ithaca:notes/loom", status: "failed", source: "plugin" }];
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: servers };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const names: string[] = [], snapshots: unknown[] = [];
+  await backend.startTurn(makeReq(makeBridge().bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, worker() {}, received() {}, mcpInit(states) { snapshots.push(states); }, missing(name) { names.push(name); },
+  } }));
+  expect(names).toContain("mcp_connect:plugin:ithaca:loom");
+  expect(names).not.toContain("mcp_connect:plugin:ithaca:notes/loom");
+  expect(snapshots).toEqual([servers.slice(0, 2)]);
+});
+
 test("Claude preserves the legacy server omission mark when state diagnostics fill the budget", async () => {
   const servers = ["a", "b", "c", "d", "x".repeat(49)].map(name => ({ name, status: "connected", source: "project" }));
   const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {

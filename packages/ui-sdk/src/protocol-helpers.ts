@@ -59,6 +59,8 @@ export function canonicalModelId(id: string): string {
 
 /** A bounded diagnostic identifier can name a server without carrying a path or arbitrary text. */
 export function isMcpTimingServerName(name: unknown): name is string {
-  return typeof name === "string" && name.length <= 48 && /^[\p{L}\p{N}_-][\p{L}\p{M}\p{N}_.-]*$/u.test(name)
-    && new TextEncoder().encode(name).byteLength <= 48;
+  if (typeof name !== "string" || name.length > 48 || new TextEncoder().encode(name).byteLength > 48) return false;
+  const parts = name.split(":");
+  if (parts.length !== 1 && !(parts.length === 3 && parts[0] === "plugin")) return false;
+  return parts.every(part => /^[\p{L}\p{N}_-][\p{L}\p{M}\p{N}_.-]*$/u.test(part));
 }
