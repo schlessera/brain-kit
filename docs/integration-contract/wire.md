@@ -926,7 +926,9 @@ identical endpoints, and `openHolds` counts stops awaiting resume. An open
 stop contributes no elapsed estimate. Within the union, `inferenceMs`
 counts time covered by a hold reporting inference, `unknownMs` covers
 remaining time with unknown inference, and `noInferenceMs` covers the rest.
-The three durations sum to `totalMs`. Historical records may omit the total.
+The three durations sum to `totalMs`. New lifecycles start with an empty
+hold list and report zero if no hold was observed. When recovery closes a
+historical record that lacks the hold list, `stoppedTime` stays absent.
 
 Optional `holds` lists observation intervals joinable by `holdId`. Each
 record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),

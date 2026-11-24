@@ -776,7 +776,9 @@ export function createActivityStore(
         }
         // Client data is never part of the completed host envelope.
         const { clientTiming: _clientTiming, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
-        if (hostRecord.endedAt !== null && previous?.endedAt == null) hostRecord.stoppedTime = stoppedTime(hostRecord.holds ?? []);
+        if (hostRecord.endedAt !== null && previous?.endedAt == null && hostRecord.holds) {
+          hostRecord.stoppedTime = stoppedTime(hostRecord.holds);
+        }
         const value = lifecycleTiming(hostRecord);
         db.query(`INSERT INTO activity_turn_lifecycles VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(turn_id) DO UPDATE SET session_id=excluded.session_id, ended_at=excluded.ended_at, record=excluded.record`)

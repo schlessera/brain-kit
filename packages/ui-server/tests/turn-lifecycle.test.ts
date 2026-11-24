@@ -3,6 +3,7 @@ import * as perfHooks from "node:perf_hooks";
 import { expect, spyOn, test } from "bun:test";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
+import { turnTimingSummary } from "../src/activity/turn-timing-summary.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
 import { createTurnRecorder } from "../src/activity/recorder.js";
 import { createActivityRoutes } from "../src/routes/activity.js";
@@ -63,6 +64,21 @@ test("restart recovers admission-only records, historical runs stay unknown, lat
     expect(store.lifecycle("turn-loom")!.outcome).toBe("interrupted");
     expect(store.lifecycle("historical")).toBeNull();
   }finally{db.close();}
+});
+
+test("restart preserves missing hold evidence and a measured empty hold list", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    for (const turnId of ["ithaca-legacy", "ithaca-current"]) {
+      createTurnLifecycle(store, turnId, null, 100, () => {});
+    }
+    db.query("UPDATE activity_turn_lifecycles SET record = json_remove(record, '$.holds') WHERE turn_id = ?").run("ithaca-legacy");
+    expect(store.sweepOwnOrphans()).toBe(2);
+    expect(store.lifecycle("ithaca-legacy")!.stoppedTime).toBeUndefined();
+    expect(store.lifecycle("ithaca-current")!.stoppedTime?.totalMs).toBe(0);
+    const summary = turnTimingSummary(db, 2, 0, 200);
+    expect(summary.groups[0]!.measurements["stoppedTime.totalMs"]).toMatchObject({ count: 1, median: 0, absent: 1 });
+  } finally { db.close(); }
 });
 
 test("recording and stream failures never break the observed turn",()=>{

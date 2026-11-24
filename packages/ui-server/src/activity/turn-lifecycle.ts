@@ -70,7 +70,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     ...(identity.queuedAt !== undefined ? { queuedAt: identity.queuedAt } : {}),
     packageVersion: packageInfo.version, ...(buildRevision ? { buildRevision } : {}),
     recorderSettledAt: null, idleEmittedAt: null,
-    hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
+    holds: [], hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,
     journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstRelayRequestAt: null, backendMissingEvidence: [], backendEvidenceOmitted: 0, firstFrameAt: null, failureObservedAt: null,
     endedAt: null, outcome: null, reason: null, totalElapsedMs: null, timeToFirstFrameMs: null,
