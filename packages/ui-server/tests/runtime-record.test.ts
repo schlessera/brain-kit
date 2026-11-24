@@ -59,10 +59,11 @@ describe("the run record", () => {
       const turn = createTurnLifecycle(store, "ithaca", null, Date.now(), () => {});
       const servers: NonNullable<ActivityTurnLifecycle["backendMcpInit"]> = [
         { name: "loom", status: "connected", source: "sdk" },
-        { name: "harbor", status: "pending", source: "project" },
-        { name: "chart", status: "failed", source: "project" },
+        { name: "plugin:loom", status: "pending", source: "project" },
+        { name: "brain-ui", status: "failed", source: "other" },
       ];
-      const queryFn = scripted({ mcp_servers: servers }, {}, [
+      const initServers = servers.map(s => s.source === "other" ? { ...s, source: "unrecognized-config-scope" } : s);
+      const queryFn = scripted({ mcp_servers: initServers }, {}, [
         { type: "system", subtype: "init", session_id: "sess-1", mcp_servers: [] },
         { type: "result", subtype: "success", session_id: "sess-1", total_cost_usd: 0, duration_ms: 100, num_turns: 1,
           time_to_request_ms: 17, ttft_ms: 53, ttft_stream_ms: 29 },

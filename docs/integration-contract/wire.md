@@ -875,7 +875,8 @@ server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
 budget. Diagnostic names retain the authored configuration key, including printable
 punctuation. Path and control exclusions also apply within the SDK's scoped
 `plugin:<plugin>:<server>` form, which requires exactly two nonempty
-components. Extra colon delimiters can conceal a drive-relative path and
+components. Authored keys with a single component after the prefix, such
+as `plugin:loom`, are also retained. Extra colon delimiters can conceal a drive-relative path and
 are omitted. Cloud connectors keep
 their SDK name, `claude.ai <display name>`, including spaces, punctuation
 and disambiguating suffixes such as `(2)`. An empty display name, a path
@@ -889,7 +890,9 @@ observations. Omitted names are not retained for deduplication. Continuation
 init frames do not expand the sample; limits keep missing evidence explicit.
 Optional `backendMcpInit` records sampled external servers from the first init.
 The in-process `brain-ui` keeps its missing connection mark without consuming
-the state sample. An explicitly external config source can use the same name.
+the state sample. An explicitly external config source can use the same name,
+including an unrecognized source string mapped to `other`. For that name a
+missing, empty or non-string source leaves the state omitted and counted.
 Each external entry carries its name with
 `status` (connected, failed, needs-auth, pending, disabled) and `source`
 (sdk, plugin, user, project, local, dynamic, managed, enterprise, claudeai,

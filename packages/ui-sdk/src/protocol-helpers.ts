@@ -64,7 +64,8 @@ export function isMcpTimingServerName(name: unknown): name is string {
   // by the CLI in its plugin and cloud connector prefixes.
   const parts = name.startsWith("claude.ai ") ? [name.slice("claude.ai ".length)] :
     name.startsWith("plugin:") ? name.split(":").slice(1) : [name];
-  if (name.startsWith("plugin:") && parts.length !== 2) return false;
+  // A configured key such as "plugin:loom" need not be a scoped SDK identifier.
+  if (parts.length > 2) return false;
   return parts.every(part => {
     const key = part.trim();
     return key.length > 0 && key !== "." && key !== ".." && !/^[A-Za-z]:/.test(key) &&

@@ -114,7 +114,11 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
                     const rawStatus = entry!.status, rawSource = entry!.source;
                     const status = (["connected", "failed", "needs-auth", "pending", "disabled"] as const).find(value => value === rawStatus) ?? "other";
                     const source = (["sdk", "plugin", "user", "project", "local", "dynamic", "managed", "enterprise", "claudeai", "agent"] as const).find(value => value === rawSource) ?? "other";
-                    if (name === "brain-ui" && (source === "sdk" || source === "other")) continue;
+                    if (name === "brain-ui") {
+                      if (source === "sdk") continue;
+                      // Older CLIs omit provenance, so this name alone cannot identify the host server.
+                      if (typeof rawSource !== "string" || rawSource.length === 0) { statesOmitted++; continue; }
+                    }
                     const state = { name, status, source } as const;
                     const size = Buffer.byteLength(JSON.stringify(state)) + (states.length ? 1 : 0);
                     if (stateBytes + size > 192) statesOmitted++;
