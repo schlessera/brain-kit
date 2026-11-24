@@ -12,7 +12,9 @@ import { orderedWrites } from "./store-writes.js";
  * Steps ride on the record's next persisted milestone or terminal, so timing
  * adds no write to the turn path.
  */
-export type PhaseTimer = (name: string, details?: Pick<ActivityTurnSubPhase, "aliasScan" | "queueAhead">) => () => void;
+type StepDetails = Pick<ActivityTurnOpenSubPhase, "aliasScan" | "queueAhead" | "indexSettle">;
+type StepEnd = (() => void) & { annotate?(details: StepDetails): void };
+export type PhaseTimer = (name: string, details?: StepDetails) => StepEnd;
 
 const BACKEND_STEP_LIMIT = 16, BACKEND_STEP_BYTES = 2048;
 const BACKEND_DIAGNOSTIC_LIMIT = 8, BACKEND_DIAGNOSTIC_BYTES = 256, BACKEND_NAME_BYTES = 96;
@@ -101,6 +103,10 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   const startAdmission = () => {
     if (!record.admissionLoad && record.endedAt === null) stopAdmissionLoad = startAdmissionLoad(record);
   };
+  const stopAdmission = (backendStarted = false) => {
+    stopAdmissionLoad?.(backendStarted);
+    stopAdmissionLoad = undefined;
+  };
   // A late closing step can persist its confirmed end after the terminal write (#4520).
   const phaseTimer = (phase: string, metadata: Pick<ActivityTurnOpenSubPhase, "pending" | "indexSettle"> = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => (name, details) => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
@@ -112,13 +118,16 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     }
     else addOpenStep(step);
     const late = lateEnd && phase === "closing";
-    return () => {
+    const end = () => {
       if (step.endedAt !== null) return;
       if (record.endedAt === null) { if (phase !== "backend" || backendOpen()) step.endedAt = observedClock() ?? null; return; }
       if (!late) return;
       const at = observedClock(); if (at === undefined) return;
       step.endedAt = at; persist();
     };
+    return Object.assign(end, { annotate(details: StepDetails) {
+      if (step.endedAt === null && record.endedAt === null) Object.assign(step, details);
+    } });
   };
   const startupTiming: NonNullable<StartTurnRequest["startupTiming"]> = {
     start: phaseTimer("backend"),
@@ -165,6 +174,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   return {
     startupTiming,
     startAdmission,
+    stopAdmission,
     recordHostEvent,
     settled: writes.settled,
     recordCancellation(principalId: string, kind: "turn" | "ask_user" = "turn") {
@@ -176,8 +186,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     mark(milestone: LifecycleMilestone, at = observedClock()) {
       if ((record.endedAt !== null && milestone !== "recorderSettledAt" && milestone !== "idleEmittedAt") || record[milestone] != null) return;
       if (milestone === "backendInvokedAt" || milestone === "failureObservedAt") {
-        stopAdmissionLoad?.(milestone === "backendInvokedAt");
-        stopAdmissionLoad = undefined;
+        stopAdmission(milestone === "backendInvokedAt");
       }
       if (at === undefined) return;
       if (milestone === "dequeuedAt") startAdmission();
@@ -202,7 +211,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     finish(outcome: ActivitySpanOutcome, reason: string | null = null) {
       if (record.endedAt !== null) return;
-      stopAdmissionLoad?.(false); stopAdmissionLoad = undefined;
+      stopAdmission();
       const at = observedClock(); if (at === undefined) return;
       record.endedAt = at; record.outcome = outcome; record.reason = reason; persist();
     },

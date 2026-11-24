@@ -132,7 +132,10 @@ const diagnostic = <T>(read: () => T): T | undefined => { try { return read(); }
 /** Both timers see every step independently; a failed mark stays missing. */
 const bothTimers = (a?: PhaseTimer, b?: PhaseTimer): PhaseTimer | undefined => !a && !b ? undefined : (name, details) => {
   const first = diagnostic(() => a?.(name, details)), second = diagnostic(() => b?.(name, details));
-  return () => { diagnostic(() => first?.()); diagnostic(() => second?.()); };
+  const end = () => { diagnostic(() => first?.()); diagnostic(() => second?.()); };
+  return Object.assign(end, { annotate(details: Parameters<PhaseTimer>[1]) {
+    if (details) { diagnostic(() => first?.annotate?.(details)); diagnostic(() => second?.annotate?.(details)); }
+  } });
 };
 
 export function createTurnJournal(db: Database, options: TurnJournalOptions) {
@@ -514,7 +517,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     for (const id of evidence.keys()) interval.participant(id);
     const timing = bothTimers(lifecycle, trace), hold = bothTimers(trace)?.("hold");
     const queueAhead: QueueAhead | undefined = timing ? { count: 0, kinds: [] } : undefined;
-    const waited = timing?.("hold_wait", { queueAhead });
+    const waited = timing?.("hold_wait");
     // Backend event emission is synchronous: establish the hold before yielding
     // or queueing so a provider cannot launch another tool past this boundary.
     const holders = [...periodicObservers];
@@ -522,6 +525,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     let acquired = 0;
     try { for (const holder of holders) { acquired++; holder.before(interval); } }
     catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false, interval); return Promise.reject(error); }
+    if (queueAhead) waited?.annotate?.({ queueAhead });
     return serialize(cause.kind, async () => {
       waited?.();
       currentHold = interval;

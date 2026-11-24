@@ -1531,6 +1531,7 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   denyWorkerCommand
   describeClient
+  diagnosticInterval
   egressAddressRefusal
   egressBootstrapEntry
   egressChargeRefusal
@@ -1562,6 +1563,7 @@ export "./internal" (./src/internal.ts)
   nativeTurnTreeManager
   nativeWorkerStartupInput
   observeClassification
+  observeDiagnostic
   observeOutwardPlan
   outputStagingLimit
   ownedNames

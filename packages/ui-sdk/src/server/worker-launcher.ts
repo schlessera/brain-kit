@@ -1,3 +1,4 @@
+import { diagnosticInterval } from "./startup-timing.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
@@ -1043,14 +1044,15 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
   // Freeze the existing-directory qualification before protection can prepare parents.
   let workspaceMount: ReturnType<typeof resolveWorkspacesMount>;
-  const workspacesChecked = options.timing?.("sandbox_workspaces");
+  const step = (name: string) => diagnosticInterval(() => options.timing?.(name));
+  const workspacesChecked = step("sandbox_workspaces");
   try { workspaceMount = resolveWorkspacesMount(brain); }
   catch (error) { workspaceMount = { writable: false, reason: `workspaces/ could not be checked (${(error as Error).message})` }; }
   workspacesChecked?.();
   let preparedScratch: Awaited<ReturnType<typeof import("./worker-sandbox.js").resolveScratchMount>> | undefined;
   const wantsScratch = options.areas?.includes("scratch") ?? true;
   if (wantsScratch) {
-    const end = options.timing?.("sandbox_scratch");
+    const end = step("sandbox_scratch");
     try { preparedScratch = yield* resolveScratchMountSteps(brain, options.maintenance); }
     catch (error) { preparedScratch = { mount: { writable: false, reason: `.brain/scratch/ could not be checked (${(error as Error).message})` }, removed: [] }; }
     end?.();
@@ -1058,13 +1060,13 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   // Qualification never creates its own prerequisite. Scratch cleanup precedes
   // the original writer alias scan, as before inspection became the default.
   if (options.codeChanges && !workspaceMount.writable && workspaceMount.readOnlyPath && (options.areas?.includes("workspaces") ?? true)) {
-    const end = options.timing?.("sandbox_code_workspaces");
+    const end = step("sandbox_code_workspaces");
     workspaceMount = resolveWorkspacesMount(brain, undefined, true);
     end?.();
   }
   let legacyWorkspaces: typeof workspaceMount | undefined;
   if (options.legacyWorkspaceNote) {
-    const end = options.timing?.("sandbox_legacy_workspaces");
+    const end = step("sandbox_legacy_workspaces");
     legacyWorkspaces = yield* workerStep(() => resolveWorkspacesMount(brain, undefined, true), async () => {
       const module = Bun.resolveSync("./worker-sandbox", import.meta.dir);
       const program = `import {resolveWorkspacesMount} from ${JSON.stringify(module)}; console.log(JSON.stringify(resolveWorkspacesMount(process.argv[1],undefined,true)));`;
@@ -1075,7 +1077,7 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
     });
     end?.();
   }
-  const protectedMounts = options.profile === "governed" ? options.timing?.("sandbox_protection") : undefined;
+  const protectedMounts = options.profile === "governed" ? step("sandbox_protection") : undefined;
   const resolved = options.profile === "governed" ? resolveWorkerProtection(brain, {
     paths: options.protectedPaths, appeared: options.appearedPaths, folderPaths: options.folderPaths,
     readOnlyRoots: workspaceMount.writable ? [] : ["workspaces"],

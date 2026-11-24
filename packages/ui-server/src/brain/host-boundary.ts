@@ -29,7 +29,7 @@ import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  diagnosticInterval, WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
@@ -589,7 +589,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       signal?.throwIfAborted();
       const checkState = (name: string) => {
         const aliasScan = timing ? { scans: 0, entries: 0 } : undefined;
-        const end = timing?.(name, { aliasScan });
+        const end = diagnosticInterval(() => timing?.(name, { aliasScan }));
         const refusal = operationalStateRefusal(layout, aliasScan);
         end?.();
         return { refusal };
@@ -605,7 +605,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         const fresh = checkState("boundary_recheck");
         return fresh.refusal ?? governed(undefined, fresh);
       };
-      const acquired = timing?.("boundary_output_lock");
+      const acquired = diagnosticInterval(() => timing?.("boundary_output_lock"));
       return outputLock.withLock(brain, async () => {
       acquired?.();
       signal?.throwIfAborted();
@@ -615,7 +615,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       const view = preparedView ?? await prepareInput(signal);
       try {
         signal?.throwIfAborted();
-        const end = timing?.("boundary_maintenance_probe");
+        const end = diagnosticInterval(() => timing?.("boundary_maintenance_probe"));
         const checked = await hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain, view, signal);
         end?.();
         maintenanceResourceRefused = false; maintenance = { probe: checked, at: Date.now() };

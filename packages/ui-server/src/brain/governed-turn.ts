@@ -1,3 +1,4 @@
+import { diagnosticInterval } from "@schlessera/brain-ui-sdk/internal";
 import { recordIndexUpdate, type IndexUpdateReceipt } from "./index-update-receipt.js";
 /** Hosted turn admission and reconciliation; no repository code runs here. */
 import { lstatSync, realpathSync } from "node:fs";
@@ -145,7 +146,7 @@ export function createGovernedTurns(options: {
     const [turnId, signal, origin = "interactive", preference, route, timing] = args;
 
     const step = async <T>(name: string, work: () => Promise<T>): Promise<T> => {
-      const end = timing?.(name); const result = await work(); end?.(); return result;
+      const end = diagnosticInterval(() => timing?.(name)); const result = await work(); end?.(); return result;
     };
     const gate = options.execution.gate();
     const manifests = options.execution.manifests();

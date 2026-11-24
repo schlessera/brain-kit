@@ -5,6 +5,7 @@ import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
+import { prepareWorkerSandboxAsync } from "@schlessera/brain-ui-sdk/internal";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
@@ -103,12 +104,32 @@ test("real journal begin records each step inside journalBeginMs", async () => {
     expect(record.subPhases![0]!.queueAhead).toEqual({ count: 0, kinds: [] });
     const finishes = Array.from({ length: 11 }, (_, index) =>
       journal.finish(index === 0 ? "turn-ithaca" : "odyssey-" + index, lifecycle.timer("closing")));
-    await Promise.all(finishes);
+    const refused = createTurnLifecycle(store, "ithaca-refused", null, Date.now(), () => {});
+    const remove = journal.onObservation(() => {}, { before() { throw Error("Ithaca stop refused"); }, after() {} });
+    try {
+      await expect(journal.finish("ithaca-refused", refused.timer("closing"))).rejects.toThrow("Ithaca stop refused");
+      refused.finish("error");
+      expect(store.lifecycle("ithaca-refused")!.openSubPhases?.find(step => step.name === "hold_wait")?.queueAhead).toBeUndefined();
+    } finally { remove(); await Promise.all(finishes); }
     lifecycle.finish("success");
     const waits = store.lifecycle("turn-ithaca")!.openSubPhases!.filter(step => step.name === "hold_wait");
     expect(waits[1]!.queueAhead).toEqual({ count: 1, kinds: ["finish"] });
     expect(waits[10]!.queueAhead).toEqual({ count: 10, kinds: Array(8).fill("finish") });
   } finally { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("diagnostic failures cannot change sandbox preparation or the host boundary decision", async () => {
+  const brain = mkdtempSync(join(tmpdir(), "odysseus-timing-"));
+  try {
+    const boundary = createHostBoundary({ brainPath: brain, workerHost: () => ({ ok: false, requirement: "fixture" }) });
+    const expected = await boundary.prepare();
+    const sandbox = await prepareWorkerSandboxAsync(brain, { areas: [] });
+    const fail = (): never => { throw Error("Ithaca timing unavailable"); };
+    for (const timing of [fail, () => fail]) {
+      expect(await boundary.prepare(undefined, undefined, timing)).toEqual(expected);
+      expect(await prepareWorkerSandboxAsync(brain, { areas: [], timing })).toEqual(sandbox);
+    }
+  } finally { rmSync(brain, { recursive: true, force: true }); }
 });
 
 test("private-state alias counts follow entries visited on each admission check", async () => {

@@ -1,3 +1,4 @@
+import { observeDiagnostic } from "@schlessera/brain-ui-sdk/internal";
 import type { ActivityTurnOpenSubPhase } from "@schlessera/brain-ui-sdk/protocol";
 import { recordIndexUpdate, type IndexUpdateReceipt } from "./index-update-receipt.js";
 /**
@@ -44,7 +45,7 @@ export interface IndexBatch {
    * {@link IndexFlushError} when the update covering it fails. `signal` stops
    * this wait only; a started update is owned by the batch and still runs.
    */
-  barrier(signal?: AbortSignal, observation?: { turnId: string; stats: NonNullable<ActivityTurnOpenSubPhase["indexSettle"]> }): Promise<void>;
+  barrier(signal?: AbortSignal, observation?: { turnId: string; observed?(): void; stats: NonNullable<ActivityTurnOpenSubPhase["indexSettle"]> }): Promise<void>;
   /** Whether queued paths wait for an update. */
   pending(): boolean;
   /** Settles once no update is running; for shutdown. */
@@ -124,6 +125,7 @@ export function createIndexBatch(options: {
       if (observation) {
         observation.stats.queuedPaths = new Set(entries.filter(entry => entry.turnId === observation.turnId).flatMap(entry => entry.paths)).size;
         observation.stats.firstAlreadyRunning = indexed < target && flight !== undefined;
+        observeDiagnostic(() => observation.observed?.());
       }
       // A running update may predate the paths this caller waits for: after
       // it settles, the next one covers them.

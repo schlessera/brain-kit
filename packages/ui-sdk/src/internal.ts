@@ -1,3 +1,4 @@
+export { diagnosticInterval, observeDiagnostic } from "./server/startup-timing.js";
 export { safetyRecordSchema, safetyOccurrenceAdmissionSchema, safetyAdmissionSchema } from "./safety.js";
 /** First-party implementation sharing. No compatibility guarantee; use the same lockstep version. */
 export { BRAIN_INTERACTION_GUIDANCE, projectConversationGuidance, conversationOrientation, ORIENTATION_MAX_BYTES } from "./server/interaction-guidance.js";

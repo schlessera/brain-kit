@@ -200,7 +200,7 @@ test("build identity validates revision and retains runtime evidence with termin
   } finally { db.close(); }
 });
 
-test("real dispatch attributes a queued index delay and final observation only to their closing steps", async () => {
+test.each(["receipt", "legacy"])("real dispatch attributes a queued index delay and final observation only to their closing steps (%s)", async mode => {
   const { WsHost } = await import("../src/ws/host.js");
   const { runSession } = await import("../src/ws/run-session.js");
   const { createSessionCatalog } = await import("../src/ws/session-catalog.js");
@@ -218,8 +218,11 @@ test("real dispatch attributes a queued index delay and final observation only t
   const makeBridge = bridges.makeBridge;
   const setup = spyOn(bridges, "makeBridge").mockImplementation(async (...args) => {
     const bridge = await makeBridge(...args);
-    bridges.applyIndexReads({ host: args[0], signal: new AbortController().signal }, bridge,
-      { pending: () => pending, async barrier() { now += 500; pending = false; } } as import("../src/brain/index-batch.js").IndexBatch, undefined);
+    const { createIndexBatch } = await import("../src/brain/index-batch.js");
+    const batch = createIndexBatch({ index: async () => { now += 500; } });
+    batch.queue(["notes/ithaca.md"], undefined, args[1].turnId);
+    const legacy = { pending: () => pending, async barrier() { now += 500; pending = false; } } as import("../src/brain/index-batch.js").IndexBatch;
+    bridges.applyIndexReads({ host: args[0], signal: new AbortController().signal }, bridge, mode === "receipt" ? batch : legacy, undefined);
     return bridge;
   });
   const policy = createGovernancePolicyReader("/nonexistent-odysseus-fixture").load();
@@ -237,7 +240,8 @@ test("real dispatch attributes a queued index delay and final observation only t
     await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
     const record = store.lifecycles()[0]!;
     expect(record.openSubPhases?.filter(s => s.phase === "closing" && ["index_settle", "final_observation"].includes(s.name)), "CLOSING_DELAYS_ARE_ATTRIBUTED")
-      .toEqual([{ phase: "closing", name: "index_settle", pending: true, indexSettle: { queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null }, startedAt: 1100, endedAt: 1600, elapsedMs: 500 },
+      .toEqual([{ phase: "closing", name: "index_settle", pending: true, startedAt: 1100, endedAt: 1600, elapsedMs: 500,
+        ...(mode === "receipt" ? { indexSettle: { queuedPaths: 1, updates: 1, updateMs: 500, firstAlreadyRunning: false, lastOutcome: "complete" } } : {}) },
         { phase: "closing", name: "final_observation", startedAt: 1600, endedAt: 1900, elapsedMs: 300 }]);
     expect(record.openSubPhases?.filter(s => s.name === "journal_finish").map(s => s.elapsedMs)).toEqual([300, 0]);
     expect(record).toMatchObject({ endedAt: 1900, recorderSettledAt: 1900, idleEmittedAt: 1900 });

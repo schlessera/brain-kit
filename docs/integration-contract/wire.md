@@ -743,7 +743,7 @@ not apply to a turn is absent. The current names are:
 
 A journal or closing `hold_wait` can carry `queueAhead: { count, kinds }`.
 The count includes the active operation and all earlier queued operations at
-enqueue. The list gives the first eight in order, using only `begin`, `finish`,
+enqueue. A hold refused before enqueue has no queue snapshot. The list gives the first eight in order, using only `begin`, `finish`,
 `tool`, `periodic`, `scope`, `refresh`, `worktree` or `memory`.
 
 On the closing `index_settle` step, `indexSettle` records the number of
@@ -752,14 +752,15 @@ updates the barrier waited through (`updates`), whether the first was already
 running (`firstAlreadyRunning`), and the sum of their receipt durations
 (`updateMs`). `lastOutcome` is null without a receipt, otherwise `complete`,
 `failed`, `index_capacity` or `cancelled`. Failure leaves the step unended
-and preserves the breakdown reached. No paths or other turn identifiers appear.
+and preserves the breakdown reached. If a pending batch cannot supply
+receipts, its step omits the breakdown. No paths or other turn identifiers appear.
 
 Optional `admissionLoad` samples host load at dequeue and backend invocation
 (`atDequeue`, `atBackendStart`). Each sample carries the one-minute load
 average (`load1`) and available CPU count (`cpuCount`) when available.
 For direct dispatch, `atDequeue` samples entry to admission and adds no queue milestone.
 `eventLoopMaxMs` and `eventLoopP99Ms` summarize event-loop delay observed
-between those milestones, or until admission failure is observed before cleanup.
+between those milestones, or until admission fails or authority is revoked before cleanup.
 The sample includes delays before the first native tick and after the last
 tick when the next timer is already overdue. Missing samples
 are omitted. These fields ride the existing lifecycle writes.

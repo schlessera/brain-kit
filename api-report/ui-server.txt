@@ -1905,7 +1905,7 @@ signatures (every public export and the types it is made of)
         minSchemaVersion?: number;
     }
   PhaseTimer (packages/ui-server/src/activity/turn-lifecycle.ts)
-    export type PhaseTimer = (name: string, details?: Pick<ActivityTurnSubPhase, "aliasScan" | "queueAhead">) => () => void;
+    export type PhaseTimer = (name: string, details?: StepDetails) => StepEnd;
   Principal (packages/ui-server/src/db/principals.ts)
     export interface Principal {
         id: string;
@@ -2290,6 +2290,12 @@ signatures (every public export and the types it is made of)
         attrs?: Record<string, unknown>;
         startedAt?: number;
     }
+  StepDetails (packages/ui-server/src/activity/turn-lifecycle.ts)
+    type StepDetails = Pick<ActivityTurnOpenSubPhase, "aliasScan" | "queueAhead" | "indexSettle">;
+  StepEnd (packages/ui-server/src/activity/turn-lifecycle.ts)
+    type StepEnd = (() => void) & {
+        annotate?(details: StepDetails): void;
+    };
   StorageSettlementIndeterminate (packages/ui-server/src/db/settlement.ts)
     export class StorageSettlementIndeterminate extends Error {
         constructor(readonly operation: string, readonly cleanup?: Promise<unknown>);
