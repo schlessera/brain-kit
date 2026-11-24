@@ -2,6 +2,7 @@
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { inputTaintSignals, outputTaintSignals, type IngestionSignal } from "../activity/ingestion-taint.js";
+import { checkpointGrepMatches, grepNotePath, type GrepCheckpoint } from "../activity/checkpoint-grep.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
@@ -11,13 +12,13 @@ import type { ReferenceTools } from "../brain/reference-tools.js";
 
 export function createSafetyCollector(db:Database,writes:GovernanceWrites,options:{turnId:string;bindingId:string;backendId:string;
  sessionId:()=>string|null;actor?:"interactive"|"voice";brainPath?:string;shellProxied:()=>boolean;signal:AbortSignal;onReady?:()=>void;stop?:(error:Error)=>void;policyHash?:string|null;
- referenceReads?:Pick<ReferenceTools,"observeResult">}):NonNullable<BackendBridge["inputSafety"]> {
+ grepCheckpoint?:GrepCheckpoint;referenceReads?:Pick<ReferenceTools,"observeResult">}):NonNullable<BackendBridge["inputSafety"]> {
  // `admitted`: every input signal of its latest begin() is recorded, and the
  // call owes its result. A result for a call whose begin() failed partway
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean;uncertain:boolean};
+ type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;owed:boolean;refused:boolean;uncertain:boolean};
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
  // to admit a call under it, for each tool name it came under, and whether
@@ -116,6 +117,8 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     const op=previous??operation(tool);
     if(!op.inputHashes.has(inputHash)&&op.inputHashes.size>=16)throw new Error("Safety input revision capacity exceeded");
     op.inputHashes.add(inputHash);op.admitted=false;operations.set(toolUseId,op);
+    if(tool==="Grep"&&options.backendId==="claude"&&options.brainPath&&options.grepCheckpoint)
+     op.grepNote=grepNotePath(input,options.brainPath,options.grepCheckpoint);
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
      if(op.signals.some(prior=>prior.detector===signal.detector&&prior.key===signal.key))continue;
      const item=observed(toolUseId,signal.detector,op.id);
@@ -147,7 +150,14 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     }
     // Record output independently, before the backend releases it to the
     // model. Its bytes already exist, so a refusal here is never "before delivery".
-    for(const signal of outputTaintSignals(tool,output,options.brainPath,marked)){
+    const signals=outputTaintSignals(tool,output,options.brainPath,marked);
+    const call=calls.get(toolUseId);
+    const verified=signals.some(signal=>signal.key==="unknown_remainder")&&op.grepNote&&options.grepCheckpoint
+      &&finalized&&!segments&&!op.uncertain&&!op.refused&&op.inputHashes.size===1
+      &&call?.tools.size===1&&call.tools.get(tool)===1&&!marked(op.grepNote)
+      &&checkpointGrepMatches(options.grepCheckpoint,op.grepNote,output);
+    for(const signal of signals){
+      if(verified&&signal.source==="legacy_unknown"&&signal.key==="unknown_remainder")continue;
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }

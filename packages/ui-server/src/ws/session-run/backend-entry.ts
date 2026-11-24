@@ -123,6 +123,11 @@ export async function openTurnBridge(
       historyOwnerId:initial.historyOwnerId,backendId:backend.id,sourceSessionId:handoffSource,policyHash:governedHold?.policy.hash??null,at:Date.now()});
     bridge.inputSafety=createSafetyCollector(safetyDb,safetyWrites,{bindingId,turnId:turn.turnId,backendId:backend.id,
       sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>run.abortController.abort(error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null,
+      ...(governedHold?.sandbox.profile==="strict"&&governedHold.startupView ? {grepCheckpoint:{
+        root:governedHold.startupView.root,masked:[...(governedHold.sandbox.providerMasks?.folders??[]),
+          ...governedHold.sandbox.areas.map(area=>area.rel),
+          ...(governedHold.sandbox.maskPaths??[])],
+      }} : {}),
       referenceReads:host.referenceTools});
   }
   // A failed update is already on each application's Activity record,

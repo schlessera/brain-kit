@@ -1,7 +1,7 @@
 /** Offline joined journey: detector + real streaming proxy + FULL writer + owner HTTP + two WS views. */
 import { expectRejection } from "./helpers/expect-rejection";
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createUiDb } from "../src/db/client";
 import { openSqliteWriter } from "../src/db/write-worker";
 import { SafetyHistory } from "../src/governance/safety-history";
@@ -13,6 +13,7 @@ import { createTurnContext } from "../../ui-backend-pi/src/turn-context";
 import { createGovernanceWrites } from "../src/governance/event-writes";
 import * as held from "./fixtures/held-publication-writer";
 import { request } from "node:http";
+import { untrustedMarkOperations } from "../src/files/untrusted-marks";
 import { createSafetyCollector } from "../src/governance/safety-collector";
 import { prepareTurnEgress } from "../src/brain/turn-egress";
 import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
@@ -286,5 +287,37 @@ test("a maintenance process can reconcile while a live tool owes its result", as
     await collector.result("search", "WebSearch", "Ithaca", true);
     await f.writes.safetyEnd("voyage");
     expect(f.writes.safety(null, "ithaca").coverage.state).toBe("complete");
+  } finally { await f.close(); }
+});
+
+test("a numbered search is attributed only to its verified single note", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const snapshot = join(f.root, "checkpoint");
+    mkdirSync(snapshot);
+    writeFileSync(join(snapshot, "ithaca.md"), "The crew assembled.\nThe sail was ready.\nThe ship departed.\n");
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", brainPath: f.root, grepCheckpoint: { root: snapshot, masked: [] },
+      shellProxied: () => true, signal: new AbortController().signal });
+    const bytes = "1-The crew assembled.\n2:The sail was ready.\n3-The ship departed.";
+    const response = { mode: "content", numFiles: 0, filenames: [], numLines: 3, totalLines: 3, content: bytes };
+    async function search(id: string, path: string, result: unknown) {
+      collector.admitting?.(id, "Grep");
+      await collector.begin(id, "Grep", { path, pattern: "sail", output_mode: "content", "-C": 1 });
+      await collector.result(id, "Grep", JSON.stringify(result), true);
+      return f.writes.safety(null, "ithaca").unresolvedCount;
+    }
+    const path = join(f.root, "ithaca.md");
+    expect(await search("verified", path, response), "VERIFIED_SINGLE_NOTE_CONTEXT").toBe(0);
+    expect(await search("mismatch", path, { ...response, content: bytes.replace("crew", "fleet") })).toBe(1);
+    expect(await search("paginated", path, { ...response, appliedLimit: 3, totalLines: 4 })).toBe(2);
+    expect(await search("directory", f.root, response)).toBe(3);
+    expect(await search("unverified", join(f.root, "troy.md"), response)).toBe(4);
+    symlinkSync("ithaca.md", join(snapshot, "alias.md"));
+    expect(await search("alias", join(f.root, "alias.md"), response)).toBe(5);
+    untrustedMarkOperations(f.db).mark("ithaca.md", f.principal.id, Date.now());
+    expect(await search("marked", path, response)).toBeGreaterThan(5);
+    expect(queryGovernanceEvents(f.db, { sessionId: "ithaca", kinds: ["taint"], limit: 100 })
+      .some(event => event.payload.source === "user_marked")).toBe(true);
   } finally { await f.close(); }
 });
