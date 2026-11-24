@@ -84,6 +84,7 @@ const checks: Record<string, Check> = {
   "GET /api/activity/runs/:runId": { path: "/api/activity/runs/fixture-run", body: { runId: "fixture-run", detailPruned: false, spans: [{ name: "Fixture turn", outcome: "success" }] } },
   "GET /api/activity/rollups": { verify: async (r) => { const b = await r.json(); expect(b.days.length).toBeGreaterThan(0); expect(b.days[0].costUsd).toBe(0.5); } },
   "GET /api/activity/stats": { verify: async (r) => { const b = await r.json(); expect(b).toHaveProperty("window"); expect(JSON.stringify(b)).toContain("0.5"); } },
+  "GET /api/activity/turn-timings/summary": { path: "/api/activity/turn-timings/summary?limit=2", verify: async response => { expect(await response.json()).toEqual({ limit: 2, groups: [] }); } },
   "POST /api/internal/inbox/poke": { init: { method: "POST" }, status: 503, body: { error: "inbox_poke_unconfigured" } },
   "GET /api/models": { body: { models: [{ id: "fixture", hidden: false }], discovery: { enabled: false } } },
   "PUT /api/models/hidden": { init: json("PUT", { hidden: ["fixture"] }), body: { models: [{ id: "fixture", hidden: true }] } },
