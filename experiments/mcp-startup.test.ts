@@ -8,7 +8,7 @@ test("one indexed corpus yields cold and warm MCP startup distributions and quie
   expect(result.repetitions).toBe(1);
   for (const group of [result.cold, result.warm]) {
     expect(Object.keys(group).sort()).toEqual(["connect", "context", "database", "exitMs", "import", "initializeMs", "moduleTools", "toolsListMs", "vector"]);
-    for (const stat of Object.values<{ median: number }>(group)) {
+    for (const stat of Object.values<{ median: number; p90: number; max: number }>(group)) {
       expect(stat.median).toBeGreaterThanOrEqual(0);
       expect(stat).toEqual({ median: stat.median, p90: stat.median, max: stat.median });
     }
