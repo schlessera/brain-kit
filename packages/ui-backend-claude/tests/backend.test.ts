@@ -131,6 +131,23 @@ test("Claude retains scoped plugin servers and externally configured names at in
   expect(snapshots).toEqual([servers.slice(0, 2)]);
 });
 
+test("Claude retains bounded cloud connector display names including SDK collision suffixes", async () => {
+  const servers = ["claude.ai Ithaca", "claude.ai Sea Chart (2)", "claude.ai notes/odyssey.md", "claude.ai "].map(name => ({ name, source: "claudeai", status: "connected" }));
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: servers };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const names: string[] = [], snapshots: unknown[] = [];
+  await backend.startTurn(makeReq(makeBridge().bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, worker() {}, received() {}, mcpInit(states) { snapshots.push(states); }, missing(name) { names.push(name); },
+  } }));
+  expect(snapshots).toEqual([servers.slice(0, 2)]);
+  expect(names).toContain("mcp_connect:claude.ai Ithaca");
+  expect(names).toContain("mcp_connect:claude.ai Sea Chart (2)");
+  expect(names).not.toContain("mcp_connect:claude.ai notes/odyssey.md");
+  expect(names).toContain("mcp_connect:additional_servers_omitted");
+});
+
 test("Claude preserves the legacy server omission mark when state diagnostics fill the budget", async () => {
   const servers = ["a", "b", "c", "d", "x".repeat(49)].map(name => ({ name, status: "connected", source: "project" }));
   const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {

@@ -60,6 +60,12 @@ export function canonicalModelId(id: string): string {
 /** A bounded diagnostic identifier can name a server without carrying a path or arbitrary text. */
 export function isMcpTimingServerName(name: unknown): name is string {
   if (typeof name !== "string" || name.length > 48 || new TextEncoder().encode(name).byteLength > 48) return false;
+  const cloudPrefix = "claude.ai ";
+  if (name.startsWith(cloudPrefix)) {
+    const display = name.slice(cloudPrefix.length);
+    return display.trim().length > 0 && display !== "." && display !== ".." &&
+      !/^[A-Za-z]:/.test(display) && !/[\p{C}\p{Zl}\p{Zp}\/\\]/u.test(display);
+  }
   const parts = name.split(":");
   if (parts.length !== 1 && !(parts.length === 3 && parts[0] === "plugin")) return false;
   return parts.every(part => /^[\p{L}\p{N}_-][\p{L}\p{M}\p{N}_.-]*$/u.test(part));

@@ -872,8 +872,10 @@ Names are sampled from the first Claude system/init frame only: at most 8
 server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
 budget. Diagnostic identifiers contain letters, numbers, underscores, hyphens,
 internal periods or combining marks. The SDK's scoped `plugin:<plugin>:<server>`
-form accepts the same identifiers in both components. Paths and free text
-count as omitted.
+form accepts the same identifiers in both components. Cloud connectors keep
+their SDK name, `claude.ai <display name>`, including spaces, punctuation
+and disambiguating suffixes such as `(2)`. An empty display name, a path
+or control characters count as omitted.
 An incomplete sample reports `mcp_connect:additional_servers_omitted`
 when that summary label fits the lifecycle's diagnostic budget. The lifecycle
 retains at most 8 diagnostic names within 256 encoded bytes; individual
