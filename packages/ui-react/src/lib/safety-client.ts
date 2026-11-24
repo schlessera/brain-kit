@@ -5,16 +5,17 @@ import type { BrainUiServices } from "../root.js";
 export function createSafetyClient(root:BrainUiServices,send:(message:ClientMessage)=>boolean){
   let target:SafetyTarget|null=null,requestId:string|null=null,disposed=false,awaitingPage=false,capacityRecoveryUsed=false;
   const store=root.stores.safety;
-  let admissions=false,nonDelivery=false;
-  function disconnected():void{requestId=null;awaitingPage=true;store.getState().disconnected();}
+  let connected=false,admissions=false,nonDelivery=false;
+  function disconnected():void{connected=false;requestId=null;awaitingPage=true;store.getState().disconnected();}
   function sendRead(message:ClientMessage):void{if(!send(message))disconnected();}
   function read(next:SafetyTarget):void{
-    if(disposed||!store.getState().supported||store.getState().reason==="disconnected")return;
+    if(disposed||!connected||!store.getState().supported)return;
     target=next;requestId=crypto.randomUUID();awaitingPage=true;store.getState().begin(requestId);
     send({type:"safety_unsubscribe",version:1});
     sendRead({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{})});
   }
   function selected(): void {
+    if (!connected) return;
     capacityRecoveryUsed=false;
     const id = root.stores.chat.getState().activeSessionId;
     // Host-only voice histories and older persisted keys are chat selections.
@@ -32,6 +33,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
     frame(msg:ServerMessage):boolean{
       if(disposed)return false;
       if(msg.type==="server_hello"){
+        connected=true;
         nonDelivery=msg.capabilities?.sessionSafetyNonDelivery===true;
         admissions=msg.capabilities?.sessionSafetyAdmissionEvidence===true;
         const future=msg.capabilities?.sessionSafetyFutureRules===true&&msg.safetyCapabilities?.review===true;
