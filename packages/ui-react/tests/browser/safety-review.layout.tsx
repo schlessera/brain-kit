@@ -92,6 +92,12 @@ test('open delivery, pruning, recorder loss and explicit unavailable evidence re
  expect(document.querySelector('[data-safety-details]')!.textContent,'OPEN_DELIVERY_EXPLAINS_REFUSAL').toContain('Input is still arriving');
  const section=[...document.querySelectorAll('[data-safety-trigger]')].find(e=>e.textContent?.includes('Input is still arriving'))!;
  expect(section.querySelector('[role=button]'),'OPEN_DELIVERY_OFFERS_NO_GRANT').toBeNull();
+ const live=ui!.stores.safety.getState().projection!;
+ flushSync(()=>ui!.stores.safety.setState({projection:{...live,reasons:[...live.reasons,"recording_failed"]}}));
+ expect(section.textContent).toContain("Recording failed. This chat stays restricted.");
+ expect(section.textContent).toContain("New chat in the chat header");
+ expect(section.textContent).not.toContain("Input is still arriving");
+ flushSync(()=>ui!.stores.safety.setState({projection:live}));
  await userEvent.keyboard('{Escape}');await patch({action:'prune'});ui!.stores.safety.getState().refresh();await expect.poll(()=>ui!.stores.safety.getState().status).toBe('ready');
  expect(host!.querySelectorAll('[data-safety-indicator]').length).toBeGreaterThan(0);
  await patch({action:'loss'});await expect.poll(()=>ui!.stores.safety.getState().projection?.reasons,{timeout:5000}).toContain('recording_failed');

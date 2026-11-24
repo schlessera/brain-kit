@@ -651,32 +651,13 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       // Read a large but transport-readable item as JSON text in UTF-8 order.
       // A fragment cursor pins its content so pages from different revisions
       // cannot be joined. Inspect the full item for credential risk above.
-      const first = response.data.length ? Buffer.from(JSON.stringify(response.data[0]) ?? "null") : null;
-      if (fragment || bounded && first && first.length + 2 > APIFY_RUN_LIMITS.result_page_bytes) {
-        const digest = first ? sha256(first.toString("utf8")).slice(0,20) : null;
-        if (!first || !digest || fragment && (fragment.digest !== digest || fragment.byte >= first.length))
-          throw refuse("upstream_incompatible","dataset_item_changed","This dataset item changed between fragments. Read the item again before combining its text.");
-        const start = fragment?.byte ?? 0;
-        // JSON text may double in size when quoted inside its result envelope.
-        let end = start, byteCap = false;
-        book(store => store.update(row.handle, current => {
-          const available = current.max_result_bytes - current.result_bytes;
-          const limit = Math.min(available, Math.floor(APIFY_RUN_LIMITS.result_page_bytes / 2));
-          end = Math.min(first.length, start + limit);
-          byteCap = end - start >= available;
-          while (end > start && end < first.length && (first[end]! & 0xc0) === 0x80) end--;
-          return { result_bytes: current.result_bytes + end - start,
-            result_items: Math.max(current.result_items, offset + Number(end === first.length)) };
-        }, now()));
-        const complete = end === first.length;
-        const itemCap = complete && offset + 1 >= row.max_result_items;
-        const next = byteCap || itemCap ? null : complete ? cursorAt(offset + 1)
-          : BOUNDED_CURSOR_PREFIX + book(store => store.fragmentCursor(row.handle, offset, end, digest));
-        await context.untrusted({operation:"results",detail:"apify dataset item fragment"});
-        return {run:row.handle,items:[],item_fragment:{offset,start_byte:start,total_bytes:first.length,json_text:first.toString("utf8",start,end)},
-          next_cursor:next,truncated:byteCap || itemCap,partial:row.state!=="succeeded",untrusted:true,
-          warnings:[byteCap?"The run reached its result byte limit.":itemCap?"The run reached its result item limit. More dataset items may exist.":"Join the item’s JSON text fragments in order. Each read uses a result request."]};
-      }
+      const first = bounded && response.data.length ? Buffer.from(JSON.stringify(response.data[0]) ?? "null") : null;
+      const digest = first ? sha256(first.toString("utf8")).slice(0,20) : null;
+      const start = fragment?.byte ?? 0;
+      if (fragment && (!first || fragment.digest!==digest || start>=first.length))
+        throw refuse("upstream_incompatible","dataset_item_changed","This dataset item changed between fragments. Read the item again before combining its text.");
+      let fragmentEnd: number | undefined;
+      let byteCap = false;
       const items: unknown[] = [];
       let bytes = 0;
       let truncated = false;
@@ -691,17 +672,40 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       });
       book(store => store.update(row.handle, current => {
         const available = current.max_result_bytes - current.result_bytes;
+        if (first && (fragment || candidates[0]!.size > 0 && (first.length>available || first.length+2>APIFY_RUN_LIMITS.result_page_bytes))) {
+          // Quoting this JSON text in the result envelope can double its size.
+          const limit=Math.min(available,Math.floor(APIFY_RUN_LIMITS.result_page_bytes/2));
+          let end=Math.min(first.length,start+limit);
+          byteCap=end-start>=available;
+          while (end>start && end<first.length && (first[end]! & 0xc0)===0x80) end--;
+          fragmentEnd=end;
+          return { result_bytes:current.result_bytes+end-start, result_items:Math.max(current.result_items,offset+Number(end===first.length)) };
+        }
         for (const {item, size} of candidates) {
           if (bounded && bytes < available && bytes + items.length + size + 2 > APIFY_RUN_LIMITS.result_page_bytes) {
             pageFull = true;
             break;
           }
-          if (bytes + size > available) { truncated = true; break; }
+          if (bytes + size > available) {
+            if (bounded && bytes < available) pageFull=true;
+            else truncated=true;
+            break;
+          }
           bytes += size;
           items.push(item);
         }
         return { result_items: Math.max(current.result_items, offset + items.length), result_bytes: current.result_bytes + bytes };
       }, now()));
+      if (first && digest && fragmentEnd!==undefined) {
+        const complete=fragmentEnd===first.length;
+        const itemCap=complete && offset+1>=row.max_result_items;
+        const next = byteCap || itemCap ? null : complete ? cursorAt(offset+1)
+          : BOUNDED_CURSOR_PREFIX+book(store=>store.fragmentCursor(row.handle,offset,fragmentEnd!,digest));
+        await context.untrusted({operation:"results",detail:"apify dataset item fragment"});
+        return {run:row.handle,items:[],item_fragment:{offset,start_byte:start,total_bytes:first.length,json_text:first.toString("utf8",start,fragmentEnd)},
+          next_cursor:next,truncated:byteCap || itemCap,partial:row.state!=="succeeded",untrusted:true,
+          warnings:[byteCap?"The run reached its result byte limit.":itemCap?"The run reached its result item limit. More dataset items may exist.":"Join the item’s JSON text fragments in order. Each read uses a result request."]};
+      }
       const read = items.length;
       const nextOffset = offset + read;
       const more = !truncated && (response.data.length >= asked || nextOffset < offset + response.data.length) && nextOffset < row.max_result_items;

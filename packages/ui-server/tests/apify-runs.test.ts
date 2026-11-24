@@ -719,6 +719,20 @@ describe("results", () => {
     expect(JSON.parse(text)).toBe(fake.items[2]);
   });
 
+  test("bounded results return the authorized prefix of an item smaller than a full page", async () => {
+    fake.script=[{status:"SUCCEEDED"}];
+    fake.items=["harbour","Ithaca".repeat(3200)];
+    const h=harness(),ctx=context(),{run,results}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
+    openLedger().update(run,()=>({max_result_bytes:10000}),clock);
+    const page=await h.runs.results(ctx,{run,cursor:results.bounded_cursor});
+    expect(page.items).toEqual(["harbour"]);
+    const cut=await h.runs.results(ctx,{run,cursor:page.next_cursor!});
+    const available=10000-Buffer.byteLength(JSON.stringify("harbour"));
+    expect(cut.item_fragment?.json_text).toBe(JSON.stringify(fake.items[1]).slice(0,available));
+    expect(cut.next_cursor).toBeNull();
+    expect(cut.truncated).toBe(true);
+  });
+
   test("parallel fragment reads share the durable run byte allowance", async () => {
     fake.script = [{status: "SUCCEEDED"}];
     fake.items = ["Ithaca".repeat(5000)];

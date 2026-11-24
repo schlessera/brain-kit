@@ -172,7 +172,8 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
     read();window.addEventListener("focus",read);
     return()=>{controller.abort();window.removeEventListener("focus",read);};
   },[root,r.id,sessionKey,readable,owner,state.capabilities?.originRules,state.revision]);
-  const canReview=readable&&owner&&entry.exposure==="finalized"&&!entry.decision&&!r.admission?.trusted&&!state.projection?.pendingCount&&!state.projection?.reasons.includes("recording_failed");
+  const recordingFailed=state.projection?.reasons.includes("recording_failed");
+  const canReview=readable&&owner&&entry.exposure==="finalized"&&!entry.decision&&!r.admission?.trusted&&!state.projection?.pendingCount&&!recordingFailed;
   const futureAvailable=state.capabilities?.originRules===true&&r.detector==="proxy_input"&&!!r.provenance;
   const busy=progress?.stage==="pending",unknown=progress?.stage==="unknown";
   const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${formatAuthority(r.provenance.origin)}`:
@@ -208,13 +209,13 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
     {r.admission?.trusted&&<p>Source rule {r.admission.ruleId} · trust revision {r.admission.trustRevision}. This historical decision grants no current recipient permission.</p>}
     {r.detailPruned&&<p>Some source detail has expired. The input and any decision remain recorded.</p>}
     {entry.decision&&<p>Marked safe by you · <time dateTime={new Date(entry.decision.observedAt).toISOString()}>{new Date(entry.decision.observedAt).toLocaleString()}</time></p>}
-    {counted&&entry.exposure!=="finalized"&&<p>{arriving?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This input cannot be marked safe."} {!arriving&&<NewChatGuidance/>}</p>}
+    {counted&&readable&&recordingFailed&&<p>Recording failed. This chat stays restricted. <NewChatGuidance/></p>}
+    {counted&&!recordingFailed&&entry.exposure!=="finalized"&&<p>{arriving?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This input cannot be marked safe."} {!arriving&&<NewChatGuidance/>}</p>}
     {counted&&readable&&state.capabilities&&!owner&&<p>{state.capabilities.readOnlyReason==="owner_required"?"Only the authenticated owner can mark this input safe.":"This host has not enabled safety reviews. The input stays restricted."}</p>}
     {!readable&&<div><p>{state.reason==="disconnected"?"Current evidence is unavailable while disconnected. It will refresh on reconnect.":"Current evidence is unavailable or incomplete."}</p>
       {state.status==="unavailable"&&state.reason!=="disconnected"&&state.reason!=="unauthorized"&&state.reason!=="retired"&&<Button label="Refresh safety evidence" reach tone="quiet" onClick={state.refresh}/>}</div>}
-    {readable&&owner&&!r.admission?.trusted&&!entry.decision&&entry.exposure==="finalized"&&(
-      state.projection?.reasons.includes("recording_failed")?<p>Recording failed. This chat stays restricted. <NewChatGuidance/></p>
-      :state.projection?.pendingCount?<p>Input is still being recorded. Review will be available when recording finishes.</p>:null)}
+    {readable&&owner&&counted&&!recordingFailed&&entry.exposure==="finalized"&&Boolean(state.projection?.pendingCount)&&
+      <p>Input is still being recorded. Review will be available when recording finishes.</p>}
     {canReview&&state.projection&&<p>Marking this input safe leaves {Math.max(0,state.projection.unresolvedCount-1)} other unresolved {state.projection.unresolvedCount===2?"input":"inputs"}. By itself, this decision grants no future trust or permission to send data.</p>}
     {canReview&&!review&&!progress&&<Button label="Mark as safe" reach onClick={()=>{setReview(true);setFuture(false);setRecipient(false);setPrepared(null);}}/>}
     {review&&canReview&&!progress&&<div className="space-y-2" role="group" aria-label="Review safety decision">
