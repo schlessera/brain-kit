@@ -223,6 +223,8 @@ interface RemoteRun {
 
 const REMOTE_ID = /^[A-Za-z0-9]{1,64}$/u;
 const HANDLE = /^[A-Za-z0-9_-]{43}$/u;
+// Ordinary cursors start with a base-36 offset and a dot.
+const BOUNDED_CURSOR_PREFIX = "B:";
 const STATES: Record<string, ApifyRunState> = {
   READY: "running", RUNNING: "running", "TIMING-OUT": "aborting", ABORTING: "aborting",
   SUCCEEDED: "succeeded", FAILED: "failed", "TIMED-OUT": "timed_out", ABORTED: "aborted",
@@ -355,7 +357,7 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
     if (row.state === "unknown") notes.push("BrainKit cannot tell whether this run started. Its reserved cost is kept until an operator resolves it; it will not be started again.");
     if (row.abort_state) notes.push(NOT_ZERO);
     return { run: row.handle, state: row.state, abort: row.abort_state, remote_outcome_unknown: row.state === "unknown",
-      results: { available: readable, ...(readable ? {bounded_cursor: "b." + book(store=>store.cursor(row.handle,0))} : {}), partial: readable && row.state !== "succeeded", expires_at: expires === null ? null : new Date(expires).toISOString() },
+      results: { available: readable, ...(readable ? {bounded_cursor: BOUNDED_CURSOR_PREFIX + book(store=>store.cursor(row.handle,0))} : {}), partial: readable && row.state !== "succeeded", expires_at: expires === null ? null : new Date(expires).toISOString() },
       warnings: notes };
   }
 
@@ -602,16 +604,16 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       let row = owned(context, raw.run);
       let offset = 0;
       let fragment: ReturnType<ApifyLedger["fragmentPosition"]> = null;
-      const bounded = typeof raw.cursor === "string" && raw.cursor.startsWith("b.");
+      const bounded = typeof raw.cursor === "string" && raw.cursor.startsWith(BOUNDED_CURSOR_PREFIX);
       if (raw.cursor !== undefined) {
         if (typeof raw.cursor !== "string") throw new ApifyInputError("Expected a result cursor.");
-        const token = bounded ? raw.cursor.slice(2) : raw.cursor;
+        const token = bounded ? raw.cursor.slice(BOUNDED_CURSOR_PREFIX.length) : raw.cursor;
         const parsed = book(store => store.offset(row.handle, token));
         if (bounded && parsed === null) fragment=book(store=>store.fragmentPosition(row.handle,token));
         if (parsed === null && !fragment) throw new ApifyInputError("That cursor does not belong to this run.");
         offset = parsed ?? fragment!.offset;
       }
-      const cursorAt = (next:number) => (bounded ? "b." : "") + book(store=>store.cursor(row.handle,next));
+      const cursorAt = (next:number) => (bounded ? BOUNDED_CURSOR_PREFIX : "") + book(store=>store.cursor(row.handle,next));
       if (row.state === "unknown" || row.state === "dispatching")
         throw refuse("remote_outcome_unknown", "start_unconfirmed", "BrainKit cannot tell whether this run started, so it has no results.");
       if (row.state === "refused" || row.validated !== 1 || !row.dataset_id)
@@ -631,7 +633,7 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       const asked = fragment ? 1 : Math.min(limit, itemsLeft);
       // A JSON body from the fixed API origin; a redirect or signed download URL is refused, never followed.
       const response = await options.authority.request(binding(row), { method: "GET", path: `/v2/datasets/${row.dataset_id}/items`,
-        query: { offset, limit: asked, clean: true, format: "json" }, ...(context.signal ? { signal: context.signal } : {}) }).catch(error => {
+        query: { offset, limit: asked, skipHidden: true, skipEmpty: false, format: "json" }, ...(context.signal ? { signal: context.signal } : {}) }).catch(error => {
           if (!(error instanceof ApifyResponseTooLarge) || !error.datasetPage) throw error;
           if (asked === 1 && bounded) return null;
           throw refuse("upstream_incompatible", "dataset_response_too_large",
@@ -669,7 +671,7 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
         const complete = end === first.length;
         const itemCap = complete && offset + 1 >= row.max_result_items;
         const next = byteCap || itemCap ? null : complete ? cursorAt(offset + 1)
-          : "b." + book(store => store.fragmentCursor(row.handle, offset, end, digest));
+          : BOUNDED_CURSOR_PREFIX + book(store => store.fragmentCursor(row.handle, offset, end, digest));
         await context.untrusted({operation:"results",detail:"apify dataset item fragment"});
         return {run:row.handle,items:[],item_fragment:{offset,start_byte:start,total_bytes:first.length,json_text:first.toString("utf8",start,end)},
           next_cursor:next,truncated:byteCap || itemCap,partial:row.state!=="succeeded",untrusted:true,
@@ -680,9 +682,13 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       let truncated = false;
       let pageFull = false;
       const warnings: string[] = [];
-      const candidates = response.data.slice(0, asked).map(item => ({
-        item, size: Buffer.byteLength(JSON.stringify(item) ?? "null"),
-      }));
+      // The API paginates before it removes empty items. Keep their raw
+      // positions for the next cursor, then omit them from the client page.
+      const candidates = response.data.slice(0, asked).map(item => {
+        const object=record(item);
+        const empty=item===null || object!==null && !Object.keys(object).length;
+        return {item:empty ? null : item, size:empty ? 0 : Buffer.byteLength(JSON.stringify(item) ?? "null")};
+      });
       book(store => store.update(row.handle, current => {
         const available = current.max_result_bytes - current.result_bytes;
         for (const {item, size} of candidates) {

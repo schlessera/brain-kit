@@ -157,7 +157,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
       &&checkpointGrepMatches(options.grepCheckpoint,op.grepNote,output);
     // The checkpoint proves these are lines of note content, including any
     // path-like text in a numbered context line.
-    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked);
+    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked,Boolean(op.grepNote));
     for(const signal of signals){
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);

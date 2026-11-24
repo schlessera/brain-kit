@@ -96,7 +96,12 @@ function fakeApify(): Fake {
     if (items) {
       if (fake.itemsRedirect) return new Response(null, { status: 302, headers: { location: "https://downloads.example/signed?token=ODYSSEUS" } });
       const offset = Number(url.searchParams.get("offset") ?? 0), limit = Number(url.searchParams.get("limit") ?? 1000);
-      return Response.json(fake.items.slice(offset, offset + limit));
+      const clean=url.searchParams.get("clean")==="true";
+      const skipHidden=clean||url.searchParams.get("skipHidden")==="true";
+      const raw=fake.items.slice(offset,offset+limit).map(item=>skipHidden&&item&&typeof item==="object"&&!Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item).filter(([name])=>!name.startsWith("#"))) : item);
+      const skipEmpty=clean||url.searchParams.get("skipEmpty")==="true";
+      return Response.json(skipEmpty ? raw.filter(item=>!item||typeof item!=="object"||Object.keys(item).length>0) : raw);
     }
     return Response.json({ error: { type: "record-not-found" } }, { status: 404 });
   } });
@@ -660,9 +665,9 @@ describe("results", () => {
 
   test("ordinary result cursors preserve whole items for existing clients", async () => {
     fake.script = [{status:"SUCCEEDED"}];
-    fake.items = ["harbour","Ithaca".repeat(5000)];
+    fake.items = [...Array.from({length:11},(_,index)=>"harbour "+index),"Ithaca".repeat(5000)];
     const h=harness(), ctx=context(), {run}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
-    const first=await h.runs.results(ctx,{run,limit:1});
+    const first=await h.runs.results(ctx,{run,limit:11});
     const second=await h.runs.results(ctx,{run,cursor:first.next_cursor!});
     expect([...first.items,...second.items]).toEqual(fake.items);
     expect(second.item_fragment).toBeUndefined();
@@ -691,6 +696,26 @@ describe("results", () => {
     expect(features).toEqual(fake.items);
     expect(text.length).toBeGreaterThan(10000);
     expect(starts()).toHaveLength(1);
+  });
+
+  test("bounded cursors keep raw positions through hidden-only and empty dataset items", async () => {
+    fake.script=[{status:"SUCCEEDED"}];
+    fake.items=[{"#harbour":"private"},{},"Ithaca".repeat(4100),"Pylos"];
+    const h=harness(),ctx=context(),{run,results}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
+    const first=await h.runs.results(ctx,{run,cursor:results.bounded_cursor,limit:2});
+    expect(first.items).toEqual([]);
+    expect(first.next_cursor).toEqual(expect.any(String));
+    let cursor=first.next_cursor;
+    let text="";
+    while(cursor) {
+      const page=await h.runs.results(ctx,{run,cursor});
+      if (page.item_fragment) {
+        expect(page.item_fragment.offset).toBe(2);
+        text+=page.item_fragment.json_text;
+      } else expect(page.items).toEqual(["Pylos"]);
+      cursor=page.next_cursor;
+    }
+    expect(JSON.parse(text)).toBe(fake.items[2]);
   });
 
   test("parallel fragment reads share the durable run byte allowance", async () => {
@@ -730,7 +755,7 @@ describe("results", () => {
     const page=await h.runs.results(ctx,{run,cursor:results.bounded_cursor});
     expect(page.item_fragment?.start_byte).toBe(0);
     const cursor=page.next_cursor!;
-    const forged=cursor.replace(/^b\.0\./,"b.1.");
+    const forged=cursor.replace(/^B:0\./,"B:1.");
     await expect(h.runs.results(ctx,{run,cursor:forged})).rejects.toBeInstanceOf(ApifyInputError);
     fake.items=["Pylos".repeat(6000)];
     await expect(h.runs.results(ctx,{run,cursor})).rejects.toMatchObject({reason:"dataset_item_changed"});

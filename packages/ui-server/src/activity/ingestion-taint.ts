@@ -175,7 +175,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
 /** Each distinct returned normalized path contributes independently of the input.
  * Unparseable/truncated search output is a separate unknown-provenance signal.
  * This is conservative text observation, not a claim of verified source bytes. */
-export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup): IngestionSignal[] {
+export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup, unverifiedNote = false): IngestionSignal[] {
   if (!SEARCH_TOOLS.has(tool)) return [];
   if(Buffer.byteLength(output)>1048576)throw new Error("Safety search output capacity exceeded");
   const result: IngestionSignal[] = [], seen = new Set<string>();
@@ -192,10 +192,10 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
         // context text. That text cannot account for the omitted matches.
         if (tool==="Grep" && ("appliedLimit" in page || "appliedOffset" in page ||
           ("totalLines" in page && page.totalLines!==page.numLines))) unknown=true;
-        // Content without filename evidence is note text, even when the
-        // entire match happens to look like a file path.
-        if (tool==="Grep" && page.mode==="content" && page.numFiles===0 &&
-            Array.isArray(page.filenames) && !page.filenames.length && typeof page.content==="string" && page.content) unknown=true;
+        // Native Grep uses the same envelope for directory and single-file
+        // search. Directory match rows can name a file before the first colon.
+        if (tool==="Grep" && page.mode==="content" && typeof page.content==="string" && page.content &&
+          (unverifiedNote || page.content.split("\n").some(line=>line!=="--" && !/^[^:\n]+:[^\n]*/u.test(line)))) unknown=true;
         let recognized=false;
         for(const [key,item] of Object.entries(value)){
           if(["truncated","has_more"].includes(key)&&item===true||key==="omitted"&&typeof item==="number"&&item>0)unknown=true;
