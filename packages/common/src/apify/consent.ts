@@ -201,6 +201,12 @@ export interface ApifyPricingSummary {
   uncertainty: string[];
 }
 
+interface InputShape {
+  types: string[] | null;
+  properties?: Record<string,InputShape>;
+  required?: string[];
+  items?: InputShape;
+}
 export interface ApifyActorFacts {
   actor_id: string;
   actor: string;
@@ -216,6 +222,7 @@ export interface ApifyActorFacts {
   memory_mbytes?: number;
   input_fields: string[];
   input_types?: Record<string, string[] | null> | null;
+  input_shape?: {root:InputShape; limited:boolean} | null;
   secret_fields: string[];
   required_fields: string[];
   profile_id: string | null;
@@ -457,16 +464,48 @@ function pricingSummary(pricingInfos: unknown, now: number, tier: string | null 
   return { model, events, platform_usage_paid_by_user: paidByUser, minimal_max_total_charge_usd: minimal, uncertainty };
 }
 
+function declaredTypes(value:unknown): string[] | null {
+  const types = Array.isArray(value) ? value : [value];
+  const supported = ["array","boolean","integer","null","number","object","string"];
+  return types.length && types.every(type=>supported.includes(type)) ? [...new Set<string>(types)] : null;
+}
+
 function schemaFields(schema: Record<string, unknown> | null) {
   const properties = record(schema?.properties) ?? {};
+  let remaining=96, limited=false;
+  // Project only names, types and requiredness. Never copy example values,
+  // defaults, arbitrary descriptions or remote references into the result.
+  function shape(field:Record<string,unknown>, depth:number):InputShape {
+    const result:InputShape={types:declaredTypes(field.type)};
+    const children=record(field.properties);
+    if (depth===6 || remaining===0) {
+      if (children || field.items) limited=true;
+      return result;
+    }
+    if (children) {
+      const entries:Array<[string,InputShape]>=[];
+      for(const [name,child] of Object.entries(children)) {
+        if (!remaining) {limited=true;break;}
+        if(name.length>128) {limited=true;continue;}
+        remaining--;
+        entries.push([name,shape(record(child)??{},depth+1)]);
+      }
+      result.properties=Object.fromEntries(entries);
+      if(Array.isArray(field.required)) {
+        const required=new Set(field.required);
+        result.required=entries.map(([name])=>name).filter(name=>required.has(name));
+      }
+    }
+    const item=record(field.items);
+    if(item && remaining) {remaining--;result.items=shape(item,depth+1);}
+    else if(field.items) limited=true;
+    return result;
+  }
+  const root=schema ? shape(schema,0) : null;
   return {
     input_fields: Object.keys(properties).sort(),
-    input_types: !record(schema?.properties) ? null : Object.fromEntries(Object.entries(properties).map(([name, field]) => {
-      const declared = record(field)?.type;
-      const types = Array.isArray(declared) ? declared : [declared];
-      const valid = types.length > 0 && types.every(type => ["array", "boolean", "integer", "null", "number", "object", "string"].includes(type));
-      return [name, valid ? [...new Set<string>(types)] : null];
-    })),
+    input_types: !record(schema?.properties) ? null : Object.fromEntries(Object.entries(properties).map(([name, field]) => [name,declaredTypes(record(field)?.type)])),
+    input_shape:root ? {root,limited} : null,
     secret_fields: Object.entries(properties).filter(([, field]) => record(field)?.isSecret === true).map(([name]) => name).sort(),
     required_fields: Array.isArray(schema?.required) ? schema.required.filter((name): name is string => typeof name === "string").sort() : [],
   };

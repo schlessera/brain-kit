@@ -34,16 +34,23 @@ export function checkpointGrepMatches(checkpoint: GrepCheckpoint, note: string, 
     if (!file.isFile() || file.nlink !== 1 || file.size > 1_048_576) return false;
     const lines = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(readFileSync(path)).split(/\r?\n/);
     const delivered = result.content.split("\n");
-    let previous = 0, matched = false;
+    let previous = 0, matched = false, separator = false;
     if (delivered.length !== result.numLines) return false;
     for (const line of delivered) {
+      if (line === "--") {
+        if (!previous || separator) return false;
+        separator = true;
+        continue;
+      }
       const numbered = /^([1-9]\d{0,6})([:-])(.*)$/u.exec(line);
       if (!numbered) return false;
       const number = Number(numbered[1]);
+      if (separator && number <= previous + 1) return false;
+      separator = false;
       if (number <= previous || lines[number - 1] !== numbered[3]) return false;
       if (numbered[2] === ":") matched = true;
       previous = number;
     }
-    return matched;
+    return matched && !separator;
   } catch { return false; }
 }

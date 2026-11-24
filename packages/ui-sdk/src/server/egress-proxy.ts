@@ -417,9 +417,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         grantRevision = approvalRevision();
         return approval((destination, signal) => ask(destination, signal, connectionId, replacement));
       };
-      const beforeCard = readSafety();
+      let beforeCard = readSafety();
       let answer = await askNetwork(false);
-      if (answer === "superseded") {
+      while (answer === "superseded") {
         const current = readSafety();
         // The host withdrew this card. A new card can ask about new evidence
         // for the same pending connection only while its authority still holds.
@@ -428,10 +428,11 @@ export async function startEgressProxy(options: EgressProxyOptions) {
             current.evidenceRevision === beforeCard.evidenceRevision || !narrowed() || usedBytes >= options.maxBytes) {
           refuseStaleApproval(); return false;
         }
+        beforeCard = current;
         answer = await askNetwork(true);
       }
       granted = answer === true;
-      if (answer === "superseded" || granted && !grantCurrent()) { refuseStaleApproval(); return false; }
+      if (granted && !grantCurrent()) { refuseStaleApproval(); return false; }
       if (!granted) finish(stopped ? "cancelled" : "denied", answer === "expired" ? "network_approval_expired"
         : answer === "unconfirmed" ? "network_approval_unconfirmed" : "taint_not_approved");
       return granted;

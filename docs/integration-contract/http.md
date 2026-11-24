@@ -913,11 +913,11 @@ connection its turn stops. Voice turns refuse without a request, as before,
 with `reason: "taint_not_allowed"`.
 
 When new evidence withdraws a Network card while the connection is still
-waiting, the host can present one new request for the same destination with
+waiting, the host can present a fresh request for the same destination with
 a new tool-use ID. It rechecks the current policy, scope, authority, trust
 revision and recording state before asking. Late replies to the withdrawn
-ID retain their expired outcome. An unanswered expiry records
-`network_approval_expired`, and a missing outcome records
+ID retain their expired outcome. A card that expires while the transport stays active records
+`network_approval_expired`. A turn deadline closes the transport as `turn_cancelled` and retains “Turn timed out” on the expired card. A missing outcome records
 `network_approval_unconfirmed`. An explicit owner denial still records
 `taint_not_approved`.
 

@@ -95,7 +95,7 @@ export class ApifyAuthorityError extends Error {
 
 /** A bounded read stopped before a complete response was available. */
 export class ApifyResponseTooLarge extends ApifyAuthorityError {
-  constructor() {
+  constructor(readonly datasetPage: boolean) {
     super("upstream_incompatible", "upstream_incompatible", "The Apify response exceeds the host read limit.");
   }
 }
@@ -309,7 +309,7 @@ export function createApifyAuthority(options: ApifyAuthorityOptions): ApifyAutho
     if (response.status >= 300 && response.status < 400) { await response.body?.cancel().catch(() => undefined); throw refusal("upstream_incompatible"); }
     if (response.status === 401 || response.status === 403) { await response.body?.cancel().catch(() => undefined); throw refusal("token_rejected"); }
     if (response.status === 429 || response.status >= 500) { await response.body?.cancel().catch(() => undefined); throw refusal("upstream_unreachable"); }
-    return { response, bytes: await boundedBody(response, maxBytes) };
+    return { response, bytes: await boundedBody(response, maxBytes, response.status === 200 && init.method === "GET" && /^\/v2\/datasets\/[a-zA-Z0-9]+\/items$/.test(url.pathname)) };
   }
 
   /**
@@ -522,7 +522,7 @@ export function createApifyAuthority(options: ApifyAuthorityOptions): ApifyAutho
   };
 }
 
-async function boundedBody(response: Response, limit: number): Promise<Uint8Array> {
+async function boundedBody(response: Response, limit: number, datasetPage: boolean): Promise<Uint8Array> {
   if (!response.body) return new Uint8Array();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -533,7 +533,7 @@ async function boundedBody(response: Response, limit: number): Promise<Uint8Arra
     length += value.byteLength;
     if (length > limit) {
       await reader.cancel().catch(() => undefined);
-      throw new ApifyResponseTooLarge();
+      throw new ApifyResponseTooLarge(datasetPage);
     }
     chunks.push(value);
   }

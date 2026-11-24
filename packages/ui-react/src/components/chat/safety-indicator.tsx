@@ -48,10 +48,15 @@ export function SessionSafety() {
   const p=allowed?(state.projection??retained.current.projection):null;
   const normal=allowed&&state.status==="ready"&&state.normal&&p?.coverage.state==="complete"&&p.unresolvedCount===0&&p.pendingCount===0&&p.restriction==="normal";
   const unknown=p?.coverage.state!=="complete";
+  const partialEpochs=p?.coverage.epochs.filter(epoch=>epoch.status!=="complete")??[];
+  const gap=partialEpochs.some(epoch=>epoch.endSequence!==null || epoch.reason!=="missing_detector_acknowledgement");
+  const waiting=partialEpochs.some(epoch=>epoch.endSequence===null&&epoch.reason==="missing_detector_acknowledgement");
   const text=normal?"Normal policy restored":p?`${state.status==="ready"?"Still restricted":"Evidence unavailable · last read"} · ${p.unresolvedCount} unresolved input${p.unresolvedCount===1?"":"s"}`:"Safety evidence unavailable";
   return <aside data-session-safety className="mb-3 min-w-0 space-y-1 text-xs text-muted-foreground" aria-label="Chat safety evidence">
     <p className="flex min-h-8 items-center gap-2 leading-4"><Icon icon={normal?"secure":state.status!=="ready"||unknown?"unverified":"policy"} size={16}/><span role="status">{text}</span></p>
-    {unknown&&p&&state.status==="ready"&&<p>Earlier inputs were not fully recorded. Reviewing known inputs cannot restore normal policy. <NewChatGuidance/></p>}
+    {unknown&&p&&state.status==="ready"&&(gap?<p>Earlier inputs were not fully recorded. Reviewing known inputs cannot restore normal policy. <NewChatGuidance/></p>
+      :waiting?<p>Waiting for the host to confirm input recording. This chat stays restricted while it starts.</p>
+      :<p>The host cannot confirm complete input history. This chat stays restricted. <NewChatGuidance/></p>)}
     {auth==="active"&&state.supported&&state.status==="unavailable"&&state.reason!=="unauthorized"&&state.reason!=="retired"&&state.reason!=="disconnected"&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={state.refresh}/>}
     {!!p?.pendingCount&&<p>Input is being recorded; new actions remain restricted.</p>}
     {p?.reasons.includes("recording_failed")&&<p>Recording is unavailable. Restrictions remain in effect.</p>}
@@ -192,7 +197,7 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
     {r.provenance&&<p>Destination · {provenance}</p>}
     {r.source==="egress_connection"&&!toolName&&<p>The proxy saw this connection. It could not identify which tool opened it.</p>}
     {noDelivery&&<p>The fetch never ran. This attempt stays in history and needs no review.</p>}
-    {!noDelivery&&!r.provenance&&<p>{r.detector==="tool_search_output"?"The host could not identify the source of every returned match.":"The host did not record a verified origin for this input."}</p>}
+    {!noDelivery&&!r.provenance&&<p>{r.detector==="tool_search_output"?(r.source==="workspace_read"?"Source · A matched path is in the workspace. Its external origin was not verified.":r.source==="user_marked"?"Source · A matched path is marked untrusted.":"The host could not identify the source of every returned match.") :"The host did not record a verified origin for this input."}</p>}
     {savedRule&&<p role="status">{savedRule}</p>}
     {r.admission?.trusted&&<p>Source rule {r.admission.ruleId} · trust revision {r.admission.trustRevision}. This historical decision grants no current recipient permission.</p>}
     {r.detailPruned&&<p>Some source detail has expired. The input and any decision remain recorded.</p>}

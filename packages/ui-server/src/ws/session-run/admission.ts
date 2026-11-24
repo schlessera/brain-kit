@@ -54,8 +54,8 @@ export function armTurnTimeout(host: WsHost, turn: RunningTurn, abortController:
       attributes: { ...turnLogAttributes(turn), "timeout.ms": host.turnTimeoutMs },
     });
     turn.timedOutTurnId = turn.turnId;
-    abortController.abort();
     host.coordinator.drainPendingForTurn(turn, "Turn timed out");
+    abortController.abort();
   }, host.turnTimeoutMs);
   turn.timeoutHandle = timeoutHandle;
   return timeoutHandle;

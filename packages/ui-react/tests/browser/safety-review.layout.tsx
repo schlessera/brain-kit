@@ -390,3 +390,20 @@ for (const width of [320,1280]) test(`${width}: refused fetches need no verdict 
  expect(section.textContent).toContain('Delivery could not be confirmed');
  expect(section.textContent).toContain(width===320?'New chat in the chat header':'New conversation in Sessions');
 });
+
+test("a workspace search names the known source and a live recorder can still acknowledge coverage",async()=>{
+ await scene(320,"light");
+ const state=ui!.stores.safety.getState();
+ const projection=state.projection!;
+ const epoch={...projection.coverage.epochs[0]!,status:"incomplete" as const,reason:"missing_detector_acknowledgement",endSequence:null};
+ const original=Object.values(state.records).find(r=>r.kind==="occurrence"&&r.entry?.toolUseId==="tool_c");
+ if(original?.kind!=="occurrence")throw new Error("Missing search");
+ flushSync(()=>ui!.stores.safety.setState({records:{...state.records,[original.id]:{...original,source:"workspace_read",detector:"tool_search_output"}},
+   projection:{...projection,coverage:{...projection.coverage,state:"incomplete",epochs:[epoch]}}}));
+ expect(host!.textContent).toContain("Waiting for the host to confirm input recording");
+ expect(host!.textContent).not.toContain("Earlier inputs were not fully recorded");
+ await userEvent.click(buttonForTool());
+ const detail=document.querySelector(`[data-safety-trigger="${original.id}"]`)!;
+ expect(detail.textContent).toContain("A matched path is in the workspace");
+ expect(detail.textContent).not.toContain("could not identify the source of every returned match");
+});

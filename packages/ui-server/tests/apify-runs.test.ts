@@ -26,7 +26,7 @@ interface Step { status: string; counts?: Record<string, number>; pricingInfo?: 
 interface Seen { method: string; path: string; query: URLSearchParams; authorization: string | null; body: unknown }
 interface Fake {
   origin: string; seen: Seen[];
-  pricing: unknown[];
+  pricing: unknown[]; geographic?:boolean;
   start: "ok" | "hang" | "500" | "402" | "400" | "garbage" | "wrong_build";
   script: Step[];
   abort: "ok" | "fail";
@@ -67,7 +67,7 @@ function fakeApify(): Fake {
         defaultRunOptions: { build: "latest", timeoutSecs: 3600, memoryMbytes: 1024 },
         taggedBuilds: { latest: { buildId: "SeaBuild142", buildNumber: "1.4.2" } }, pricingInfos: fake.pricing } });
     if (url.pathname === "/v2/actor-builds/SeaBuild142")
-      return Response.json({ data: { id: "SeaBuild142", actId: "SeaCharts01", buildNumber: "1.4.2", status: "SUCCEEDED", actorDefinition: { input: SEA_CHARTS_SCHEMA } } });
+      return Response.json({ data: { id: "SeaBuild142", actId: "SeaCharts01", buildNumber: "1.4.2", status: "SUCCEEDED", actorDefinition: { input: fake.geographic ? {...SEA_CHARTS_SCHEMA,properties:{...SEA_CHARTS_SCHEMA.properties,area:{type:"object",properties:{latitude:{type:"number"},radius:{type:"integer"}},required:["latitude","radius"]}}} : SEA_CHARTS_SCHEMA } } });
     if (url.pathname === "/v2/acts/SeaCharts01/runs" && request.method === "POST") {
       if (fake.start === "hang") return new Promise<Response>(() => undefined);
       if (fake.start === "500") return Response.json({ error: { type: "internal-error" } }, { status: 500 });
@@ -640,7 +640,11 @@ describe("stopping work", () => {
 describe("results", () => {
   test("a rejected geographic input explains inspection and consumes the proposal once", async () => {
     const h = harness(), ctx = context();
-    const ticket = await proposal(h, ctx, { latitude: 38, radius: 5 });
+    fake.geographic = true;
+    const candidate=(await h.consent.discover(ctx,{query:"sea charts"})).candidates[0]!.candidate;
+    const facts=await h.consent.inspect(ctx,{candidate});
+    expect(facts.input_shape?.root.properties?.area).toMatchObject({types:["object"],properties:{latitude:{types:["number"]},radius:{types:["integer"]}},required:["latitude","radius"]});
+    const ticket=(await h.consent.prepare(ctx,{candidate,input:{ latitude:38,radius:5 },max_charge_usd:2})).proposal;
     fake.start = "400";
     const error = await refusal(h.runs.run(ctx, { proposal: ticket }), "REJECTED_START");
     expect(error.reason).toBe("start_rejected_400");
@@ -651,25 +655,55 @@ describe("results", () => {
     expect(starts()).toHaveLength(1);
   });
 
-  test("bounded dataset pages advance past an explicitly omitted item without another start", async () => {
+  test("bounded dataset pages reassemble large items without another start", async () => {
     fake.script = [{status:"SUCCEEDED"}];
     const h = harness(), ctx = context();
     const {run} = await h.runs.run(ctx, {proposal:await proposal(h, ctx)});
-    const empty = await h.runs.results(ctx, {run});
-    expect(empty.warnings.join(" ")).toContain("does not establish");
-    fake.items = ["Ithaca".repeat(2200), "Pylos".repeat(2700), "Sparta".repeat(12000), "harbour"];
+
+    fake.items = ["Ithaca".repeat(2200), "Pylos".repeat(2700), "Ω".repeat(12000), "harbour"];
     const features: unknown[] = [];
     let cursor: string | null = null;
-    const warnings: string[] = [];
+    let text = "";
     do {
       const page = await h.runs.results(ctx, {run, ...(cursor ? {cursor} : {})});
       expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(30000);
       features.push(...page.items);
-      warnings.push(...page.warnings);
+      if(page.item_fragment){
+        expect(page.item_fragment.start_byte).toBe(Buffer.byteLength(text));
+        text += page.item_fragment.json_text;
+        if(Buffer.byteLength(text)===page.item_fragment.total_bytes) features.push(JSON.parse(text));
+      }
       cursor = page.next_cursor;
     } while (cursor);
-    expect(features).toEqual([fake.items[0], fake.items[1], "harbour"]);
-    expect(warnings.join(" ")).toContain("Omitted dataset item at offset 2");
+    expect(features).toEqual(fake.items);
+    expect(text.length).toBeGreaterThan(10000);
+    expect(starts()).toHaveLength(1);
+  });
+
+  test("a fragment cursor rejects changed content and a modified position", async()=>{
+    fake.script=[{status:"SUCCEEDED"}];
+    fake.items=["Ithaca".repeat(5000)];
+    const h=harness(),ctx=context(),{run}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
+    const page=await h.runs.results(ctx,{run});
+    expect(page.item_fragment?.start_byte).toBe(0);
+    const cursor=page.next_cursor!;
+    const forged=cursor.replace(/^0\./,"1.");
+    await expect(h.runs.results(ctx,{run,cursor:forged})).rejects.toBeInstanceOf(ApifyInputError);
+    fake.items=["Pylos".repeat(6000)];
+    await expect(h.runs.results(ctx,{run,cursor})).rejects.toMatchObject({reason:"dataset_item_changed"});
+    expect(starts()).toHaveLength(1);
+  });
+
+  test("single-item transport overflow lets the caller continue to later dataset items", async()=>{
+    fake.script=[{status:"SUCCEEDED"}];
+    const h=harness(),ctx=context(),{run}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
+    expect((await h.runs.results(ctx,{run})).warnings.join(" ")).toContain("does not establish");
+    fake.items=["x".repeat(1_100_000),"Pylos"];
+    await expect(h.runs.results(ctx,{run})).rejects.toMatchObject({reason:"dataset_response_too_large"});
+    const skipped=await h.runs.results(ctx,{run,limit:1});
+    expect(skipped.items).toEqual([]);
+    expect(skipped.truncated).toBe(true);
+    expect((await h.runs.results(ctx,{run,cursor:skipped.next_cursor!})).items).toEqual(["Pylos"]);
     expect(starts()).toHaveLength(1);
   });
 

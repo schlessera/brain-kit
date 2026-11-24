@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { request } from "node:http";
 import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { armTurnTimeout } from "../src/ws/session-run/admission";
 import { prepareTurnEgress } from "../src/brain/turn-egress";
 import { join } from "node:path";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
@@ -55,17 +56,18 @@ for (const mode of ["network grant","network deny","network expiry","network rev
     const backend = makeFakeBackend({ id: "scripted-scope" });
     const catalog = createSessionCatalog(() => db, undefined, undefined, { writer, store, governance: writes,
       pricing: createModelPricing(resolveStandalonePricingConfig()) });
-    const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry([backend], backend.id), catalog,
+    const host = new WsHost({ turnTimeoutMs:100, brainPath: root, registry: createStaticBackendRegistry([backend], backend.id), catalog,
       isPrincipalAuthorized: id => id === principal.id,
       activity: { store, stream: createActivityStream(store), governanceDb: db, governanceWrites: writes } });
     const authorization = host.coordinator.openAuthorization({ principalId: principal.id, valid: true, expiresAt: Number.MAX_SAFE_INTEGER });
     const controller = new AbortController();
     const turn = { sessionId: null, turnId: "voyage", principalId: principal.id, authorization, startedAt: 1,
       abortController: controller, queue: [] } as unknown as RunningTurn;
+    const thirdCard=Promise.withResolvers<Extract<ServerMessage,{type:"tool_approval_request"}>>();
     const nextCard = Promise.withResolvers<Extract<ServerMessage,{type:"tool_approval_request"}>>();
     const frames: ServerMessage[] = [], raised = Promise.withResolvers<void>();
     const ws = { send(text: string) { const frame = JSON.parse(text) as ServerMessage; frames.push(frame);
-      if (frame.type === "tool_approval_request") { raised.resolve(); if(frames.filter(f=>f.type==="tool_approval_request").length===2)nextCard.resolve(frame); } } };
+      if (frame.type === "tool_approval_request") { raised.resolve(); if(frames.filter(f=>f.type==="tool_approval_request").length===2)nextCard.resolve(frame); if(frames.filter(f=>f.type==="tool_approval_request").length===3)thirdCard.resolve(frame); } } };
     host.clients.add(ws, principal.id);
     let decision: Promise<PermissionDecision> | undefined, externalDb: Database | undefined;
     let externalWriter: ReturnType<typeof openSqliteWriter> | undefined;
@@ -113,14 +115,14 @@ for (const mode of ["network grant","network deny","network expiry","network rev
         const exchange = new Promise<{status:number;body:string}>((resolve,reject)=>{
           const req=request({socketPath:egress.socketPath,path:upstream.url.href},res=>{
             let body="";res.on("data",part=>body+=part);res.on("end",()=>resolve({status:res.statusCode!,body}));res.on("error",reject);
-          });req.on("error",reject);req.end();
+          });req.on("error",err=>{if(controller.signal.aborted)resolve({status:0,body:""});else reject(err);});req.end();
         });
         try {
           await Promise.race([raised.promise,exchange.then(res=>{throw new Error("Missing first card: "+res.body);})]);
           const first = frames.find(f=>f.type==="tool_approval_request")!;
           const ctx = {host,ws,requireEcho:true,connection:{principal,authorization,capabilities:{toolResolution:true}}} as never;
           const click = (id:string)=>handleToolApproval(ctx,{type:"tool_approval",turnId:"voyage",toolUseId:id,channel:"card"});
-          if(mode==="network expiry")host.coordinator.expireApproval(first.toolUseId,"Turn deadline reached","turn_ended");
+          if(mode==="network expiry")armTurnTimeout(host,turn,controller);
           else if(mode==="network revocation")await writes.safetyFail("voyage");
           else {
             await add("voyage");
@@ -131,16 +133,28 @@ for (const mode of ["network grant","network deny","network expiry","network rev
             await click(first.toolUseId);
             expect(delivered).toBe(0);
             expect(host.coordinator.pendingApprovals.has(second.toolUseId)).toBe(true);
-            if(mode==="network grant")await click(second.toolUseId);
+            if(mode==="network grant"){
+              const id=writes.safety("voyage","ithaca").earliestUnresolvedId!;
+              await writes.record({kind:"taint_exposure",turnId:"voyage",sessionId:"ithaca",actor:"interactive",model:null,profile:"governed",
+                payload:{occurrenceId:id,state:"finalized"}});
+              const third=await Promise.race([thirdCard.promise,exchange.then(res=>{throw new Error("Missing current card: "+res.body);})]);
+              await click(second.toolUseId);
+              expect(delivered).toBe(0);
+              await click(third.toolUseId);
+            }
             else await handleToolDenial(ctx,{type:"tool_denial",turnId:"voyage",toolUseId:second.toolUseId,channel:"card",message:STALE_SAFETY_ADMISSION});
           }
           const response=await exchange;
-          expect(response.status).toBe(mode==="network grant"?200:mode==="network revocation"?503:403);
+          expect(response.status).toBe(mode==="network grant"?200:mode==="network revocation"?503:mode==="network expiry"?0:403);
           expect(delivered).toBe(mode==="network grant"?1:0);
           if(mode==="network deny")expect(response.body).toContain("user declined");
-          if(mode==="network expiry")expect(response.body).toContain("expired");
+          if(mode==="network expiry"){
+            await new Promise(resolve=>setImmediate(resolve));await writer.idle();
+            await click(first.toolUseId);
+            expect(host.coordinator.resolvedApprovals.get(first.toolUseId)).toMatchObject({outcome:"expired",reason:"Turn timed out"});
+          }
           if(mode==="network revocation")expect(response.body).toContain("recording");
-          expect(queryGovernanceEvents(db,{kinds:["safety_admission_expired"],limit:10})).toHaveLength(1);
+          expect(queryGovernanceEvents(db,{kinds:["safety_admission_expired"],limit:10})).toHaveLength(mode==="network grant"?2:1);
         } finally { egress.stop();await exchange.catch(()=>{});await egress.settled();upstream.stop(true); }
         return;
       }
