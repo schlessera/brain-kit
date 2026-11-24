@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
+import coreManifest from "../packages/core/package.json" with { type: "json" };
 
 const root = resolve(import.meta.dir, "..");
 const corpus = join(root, "packages/core/fixtures/corpus");
@@ -69,8 +70,12 @@ function summarize(samples: Sample[]) {
 async function measureMcpStartup(repetitions: number, verifyQuiet = false) {
   if (!Number.isSafeInteger(repetitions) || repetitions < 1) throw Error("Repetitions must be a positive integer");
   const cold: Sample[] = [], warm: Sample[] = [];
-  const built = join(root, "packages/core/dist/cli/brain.js");
-  const entry = existsSync(built) ? built : join(root, "packages/core/src/cli/brain.ts");
+  const entry = resolve(root, "packages/core", coreManifest.bin.brain);
+  if (!existsSync(entry)) {
+    // Build before preparing the corpus or starting any measured clock.
+    const build = Bun.spawnSync([process.execPath, "scripts/build.ts", "--for", "core"], { cwd: root });
+    if (build.exitCode !== 0 || !existsSync(entry)) throw Error("Could not build the declared brain executable: " + build.stdout.toString() + build.stderr.toString());
+  }
   for (let i = 0; i < repetitions; i++) {
     const directory = mkdtempSync(join(tmpdir(), "odysseus-mcp-"));
     try {
@@ -87,7 +92,7 @@ async function measureMcpStartup(repetitions: number, verifyQuiet = false) {
       if (verifyQuiet) await probe(brain, env, false);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   }
-  return { repetitions, entry: entry === built ? "dist" : "src", unit: "ms", cold: summarize(cold), warm: summarize(warm) };
+  return { repetitions, entry: coreManifest.bin.brain, unit: "ms", cold: summarize(cold), warm: summarize(warm) };
 }
 
 if (import.meta.main) {
