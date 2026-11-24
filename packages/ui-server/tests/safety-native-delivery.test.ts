@@ -18,18 +18,31 @@ import {createPermissionWiring} from "../../ui-backend-claude/src/permission-hoo
 import {MEASURED_RUNTIME} from "../../ui-backend-claude/src/measured-runtime";
 import {nativeModelReply} from "../../ui-backend-claude/tests/helpers/native-model-reply";
 
-for(const mode of ["complete","writer-loss"] as const)test(`installed Claude ${mode} preserves the recorder delivery boundary`,async()=>{
+for(const mode of ["complete","writer-loss","checkpoint-grep","mismatched-grep"] as const)test(`installed Claude ${mode} preserves the recorder delivery boundary`,async()=>{
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-native-")),brain=join(root,"brain"),home=join(root,"home");
  mkdirSync(join(brain,"workspaces","voyage"),{recursive:true});mkdirSync(home);
  const path=join(brain,"workspaces","voyage","raft.md");writeFileSync(path,"Odysseus repairs the raft.\n");
+ const isSearch=mode==="checkpoint-grep"||mode==="mismatched-grep";
+ const checkpoint=join(root,"checkpoint");
+ const tool=isSearch?"Grep":"Read";
+ const prompt=isSearch?"Search for the sail in the voyage note.":"Read the raft plan.";
+ const note=join(brain,"voyage.md");
+ if(isSearch){
+  mkdirSync(checkpoint);
+  const content="The crew assembled.\nThe sail was ready.\nThe ship departed.\n";
+  writeFileSync(note,content);
+  writeFileSync(join(checkpoint,"voyage.md"),mode==="mismatched-grep"?content.replace("The crew assembled.","The crew rested."):content);
+ }
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer),controller=new AbortController();
  const bindingId=crypto.randomUUID();let version:string|undefined,requests=0,postReached=false,finalizedBeforeProvider=false;
  const trace:string[]=[];
+ let deliveredContext=false;
  const timer=setTimeout(()=>controller.abort(),20000);
  const origin=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
   if(new URL(request.url).pathname!=="/v1/messages")return Response.json({});
   const body=JSON.stringify(await request.json());requests++;trace.push(`provider-${requests}:${body.includes("Odysseus repairs the raft")}`);
-  if(requests===1)return nativeModelReply({name:"Read",input:{file_path:path},id:"toolu_raft"});
+  if(requests===1)return nativeModelReply({name:tool,input:isSearch?{path:note,pattern:"sail",output_mode:"content","-C":1,"-n":true}:{file_path:path},id:"toolu_raft"});
+  if(isSearch)deliveredContext=body.includes("1-The crew assembled.")&&body.includes("2:The sail was ready.")&&body.includes("3-The ship departed.");
   finalizedBeforeProvider=safetyRecords(db,"ithaca").some(r=>r.kind==="exposure"&&r.state==="finalized");
   return nativeModelReply();
  }});
@@ -49,26 +62,31 @@ for(const mode of ["complete","writer-loss"] as const)test(`installed Claude ${m
   await writes.safetyBegin({turnId:"voyage",bindingId,sessionId:null,principalId:"odysseus",backendId:"claude",at:0});
   db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca','odysseus',0)");
   safetyCatalogCreated(db,"ithaca","odysseus","voyage");await writes.bind("voyage","ithaca");
-  const collector=createSafetyCollector(db,writes,{turnId:"voyage",bindingId,backendId:"claude",sessionId:()=>"ithaca",brainPath:brain,shellProxied:()=>false,signal:controller.signal,stop:error=>controller.abort(error)});
+  const collector=createSafetyCollector(db,writes,{turnId:"voyage",bindingId,backendId:"claude",sessionId:()=>"ithaca",brainPath:brain,...(isSearch?{grepCheckpoint:{root:checkpoint,masked:[]}}:{}),shellProxied:()=>false,signal:controller.signal,stop:error=>controller.abort(error)});
   await collector.ready("claude",1);
-  const wiring=createPermissionWiring({req:{prompt:"Read the raft plan.",signal:controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:"allow"}),inputSafety:collector}},allowedTools:["Read"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
+  const wiring=createPermissionWiring({req:{prompt,signal:controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:"allow"}),inputSafety:collector}},allowedTools:[tool],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
   const hold=writer.channel(probe,{table:"odysseus_log"});await hold.ready;
   const post=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks[0]!;
   wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks=[async(...args)=>{
    postReached=true;trace.push("post-start");
-   expect(safetyRecords(db,"ithaca").filter(r=>r.kind==="occurrence"),"SAFETY_INSTALLED_TOOL_ADMITTED_BEFORE_READ").toHaveLength(1);
+   if(!isSearch)expect(safetyRecords(db,"ithaca").filter(r=>r.kind==="occurrence"),"SAFETY_INSTALLED_TOOL_ADMITTED_BEFORE_READ").toHaveLength(1);
    if(mode==="writer-loss"){await writer.close();trace.push("writer-closed");}
    const slow=mode==="complete"?hold.call("slow","Ithaca",200):Promise.resolve();
    const response=await post(...args);await slow;trace.push(`post-response:${JSON.stringify(response)}`);return response;
   }];
   let failure:unknown;
-  try{for await(const message of query({prompt:"Read the raft plan.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:["Read"],...wiring,abortController:controller,
+  try{for await(const message of query({prompt,options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:[tool],...wiring,abortController:controller,
    env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),PATH:process.env.PATH??"/usr/bin:/bin",ANTHROPIC_BASE_URL:ingress.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
     if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;
    }}catch(error){failure=error;}
   expect(version,"SAFETY_ACTUAL_INSTALLED_RUNTIME").toBe(MEASURED_RUNTIME.claudeCode);
   expect(postReached,`SAFETY_ACTUAL_RESULT_HOOK_EXECUTED ${JSON.stringify(trace)} ${String(failure)}`).toBe(true);
-  if(mode==="complete"){
+  if(isSearch){
+   expect(failure).toBeUndefined();
+   expect(deliveredContext,"INSTALLED_GREP_DELIVERED_MATCH_AND_CONTEXT").toBe(true);
+   await writes.safetyEnd("voyage");
+   expect(writes.safety(null,"ithaca"),"INSTALLED_GREP_CHECKPOINT_ATTRIBUTION").toMatchObject({unresolvedCount:mode==="checkpoint-grep"?0:1,coverage:{state:"complete"}});
+  }else if(mode==="complete"){
    expect(failure).toBeUndefined();expect(requests).toBe(2);
    expect(finalizedBeforeProvider,"SAFETY_INSTALLED_RESULT_COMMITS_BEFORE_NEXT_PROVIDER_REQUEST").toBe(true);
   }else{
