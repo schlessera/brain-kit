@@ -260,6 +260,7 @@ describe("one implementation behind every front door", () => {
     expect(before, "APIFY_MCP_FIXED_NAMES").toEqual(APIFY_OPERATIONS.map(operation => APIFY_TOOL_NAMES[operation]));
     const candidate = data<{ candidates: Array<{ candidate: string }> }>((await door.call("brain_apify_discover", { query: "sea charts" })).envelope).candidates[0]!.candidate;
     const inspected = data<{ input_fields: string[] }>((await door.call("brain_apify_inspect", { candidate })).envelope);
+    expect(inspected).toMatchObject({input_types:{startUrls:["array"],maxPages:["integer"],harbour:["string"]}});
     expect(inspected.input_fields, "APIFY_SCHEMA_AS_DATA").toEqual(["harbour", "maxPages", "startUrls"]);
     const proposal = data<{ proposal: string }>((await door.call("brain_apify_prepare", { candidate, input: APIFY_INPUT, max_charge_usd: 2 })).envelope).proposal;
     expect(code((await door.call("brain_apify_run", { proposal })).envelope)).toBe("approval_required");

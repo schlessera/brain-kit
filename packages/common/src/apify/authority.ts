@@ -93,6 +93,13 @@ export class ApifyAuthorityError extends Error {
   }
 }
 
+/** A bounded read stopped before a complete response was available. */
+export class ApifyResponseTooLarge extends ApifyAuthorityError {
+  constructor() {
+    super("upstream_incompatible", "upstream_incompatible", "The Apify response exceeds the host read limit.");
+  }
+}
+
 /** The account and authority generation a later grant, reservation or handle binds to. */
 export interface ApifyBinding { readonly account_id: string; readonly generation: string }
 
@@ -526,7 +533,7 @@ async function boundedBody(response: Response, limit: number): Promise<Uint8Arra
     length += value.byteLength;
     if (length > limit) {
       await reader.cancel().catch(() => undefined);
-      throw refusal("upstream_incompatible");
+      throw new ApifyResponseTooLarge();
     }
     chunks.push(value);
   }

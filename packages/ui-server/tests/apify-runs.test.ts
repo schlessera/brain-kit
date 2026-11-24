@@ -27,7 +27,7 @@ interface Seen { method: string; path: string; query: URLSearchParams; authoriza
 interface Fake {
   origin: string; seen: Seen[];
   pricing: unknown[];
-  start: "ok" | "hang" | "500" | "402" | "garbage" | "wrong_build";
+  start: "ok" | "hang" | "500" | "402" | "400" | "garbage" | "wrong_build";
   script: Step[];
   abort: "ok" | "fail";
   items: unknown[];
@@ -71,6 +71,7 @@ function fakeApify(): Fake {
     if (url.pathname === "/v2/acts/SeaCharts01/runs" && request.method === "POST") {
       if (fake.start === "hang") return new Promise<Response>(() => undefined);
       if (fake.start === "500") return Response.json({ error: { type: "internal-error" } }, { status: 500 });
+      if (fake.start === "400") return Response.json({ error: { message: SENTINEL } }, { status: 400 });
       if (fake.start === "402") return Response.json({ error: { type: "not-enough-usage-to-run-paid-actor" } }, { status: 402 });
       if (fake.start === "garbage") return new Response("<html>gateway</html>", { status: 201 });
       const id = `VoyageRun${String(fake.runs.size + 1).padStart(2, "0")}`;
@@ -637,6 +638,41 @@ describe("stopping work", () => {
 });
 
 describe("results", () => {
+  test("a rejected geographic input explains inspection and consumes the proposal once", async () => {
+    const h = harness(), ctx = context();
+    const ticket = await proposal(h, ctx, { latitude: 38, radius: 5 });
+    fake.start = "400";
+    const error = await refusal(h.runs.run(ctx, { proposal: ticket }), "REJECTED_START");
+    expect(error.reason).toBe("start_rejected_400");
+    expect(error.message).toContain("input_types");
+    expect(error.message).not.toContain(SENTINEL);
+    expect(fake.runs.size).toBe(0);
+    await refusal(h.runs.run(ctx, { proposal: ticket }), "CONSUMED_PROPOSAL");
+    expect(starts()).toHaveLength(1);
+  });
+
+  test("bounded dataset pages advance past an explicitly omitted item without another start", async () => {
+    fake.script = [{status:"SUCCEEDED"}];
+    const h = harness(), ctx = context();
+    const {run} = await h.runs.run(ctx, {proposal:await proposal(h, ctx)});
+    const empty = await h.runs.results(ctx, {run});
+    expect(empty.warnings.join(" ")).toContain("does not establish");
+    fake.items = ["Ithaca".repeat(2200), "Pylos".repeat(2700), "Sparta".repeat(12000), "harbour"];
+    const features: unknown[] = [];
+    let cursor: string | null = null;
+    const warnings: string[] = [];
+    do {
+      const page = await h.runs.results(ctx, {run, ...(cursor ? {cursor} : {})});
+      expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(30000);
+      features.push(...page.items);
+      warnings.push(...page.warnings);
+      cursor = page.next_cursor;
+    } while (cursor);
+    expect(features).toEqual([fake.items[0], fake.items[1], "harbour"]);
+    expect(warnings.join(" ")).toContain("Omitted dataset item at offset 2");
+    expect(starts()).toHaveLength(1);
+  });
+
   test("results are owned, bounded, expire, and never follow a redirect", async () => {
     policy({ limits: { ...LIMITS, max_result_bytes: 120 } });
     fake.script = [{ status: "SUCCEEDED", counts: { "apify-actor-start": 1, "chart-page": 3 } }];

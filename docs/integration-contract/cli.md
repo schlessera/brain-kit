@@ -148,10 +148,12 @@ type ApifyErrorCode =
 - `approvals`: `[{ actor_id, actor, approved_at, candidate }]`, scoped to this brain, principal and bound account. `approved_at` is Unix milliseconds. Additive in #3624, `candidate` is an opaque current-session reference accepted by `inspect`, so an approved Actor can be inspected and prepared without `discover`. It is `null` while the provider is unavailable; when more than 200 approvals exist, only the most recent 200 receive references. Older approvals remain listed with `candidate: null`. Listing starts no Actor and grants no execution permission; inspection retains discovery policy, routing and request checks, and execution rechecks the live approval and budgets. Like discovered references, later operations may evict the oldest beyond the session's 200-reference bound.
 - `revoke`: `{ revoked: true }`, idempotently removes that Actor's remembered approval.
 - `discover`: `{ candidates: [{ candidate, actor, title, description, developer, pricing_model, deprecated }], untrusted: true }`.
-- `inspect`: `{ candidate, actor_id, actor, title, description, build_id, build_number, build_tag, memory_mbytes?, schema_sha256, pricing_sha256, permission_level, pricing, input_fields, secret_fields, required_fields, profile_id, eligibility: { executable, reasons }, readme, untrusted: true }`.
+- `inspect`: `{ candidate, actor_id, actor, title, description, build_id, build_number, build_tag, memory_mbytes?, schema_sha256, pricing_sha256, permission_level, pricing, input_fields, input_types, secret_fields, required_fields, profile_id, eligibility: { executable, reasons }, readme, untrusted: true }`.
+  `input_types` maps each top-level property to its declared JSON types, or null for a missing or unsupported declaration. A null map means the build supplied no property map. The list describes types only. Actors may impose further constraints.
 - `prepare`: `{ proposal, review, admission: "grant" | "ask", expires_at }`; `review` is what an approval shows.
 - `run` and `status`: `{ run, state, results: { available, partial, expires_at }, abort, remote_outcome_unknown, warnings }`.
 - `results`: `{ run, items, next_cursor, truncated, partial, warnings, untrusted: true }`.
+  Result pages bound the compact item array to 24,000 UTF-8 bytes. Continue with the returned cursor. An item that cannot fit by itself is explicitly omitted with its offset and sets `truncated`. A response exceeding the transport limit has no readable items and returns `dataset_response_too_large`.
 - `abort`: the run view plus `outcome`: `requested`, `confirmed`, `unresolved` or `not_needed`. No outcome means nothing was charged.
 
 The last two codes are additive to the contract's list. `provider_unavailable`

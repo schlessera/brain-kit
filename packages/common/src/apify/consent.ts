@@ -215,6 +215,7 @@ export interface ApifyActorFacts {
   pricing: ApifyPricingSummary;
   memory_mbytes?: number;
   input_fields: string[];
+  input_types?: Record<string, string[] | null> | null;
   secret_fields: string[];
   required_fields: string[];
   profile_id: string | null;
@@ -460,6 +461,12 @@ function schemaFields(schema: Record<string, unknown> | null) {
   const properties = record(schema?.properties) ?? {};
   return {
     input_fields: Object.keys(properties).sort(),
+    input_types: !record(schema?.properties) ? null : Object.fromEntries(Object.entries(properties).map(([name, field]) => {
+      const declared = record(field)?.type;
+      const types = Array.isArray(declared) ? declared : [declared];
+      const valid = types.length > 0 && types.every(type => ["array", "boolean", "integer", "null", "number", "object", "string"].includes(type));
+      return [name, valid ? [...new Set<string>(types)] : null];
+    })),
     secret_fields: Object.entries(properties).filter(([, field]) => record(field)?.isSecret === true).map(([name]) => name).sort(),
     required_fields: Array.isArray(schema?.required) ? schema.required.filter((name): name is string => typeof name === "string").sort() : [],
   };
