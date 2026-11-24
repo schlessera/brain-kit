@@ -3,7 +3,7 @@ import type { SafetyRecord } from "@schlessera/brain-ui-sdk/protocol";
 type SafetyOccurrence = Extract<SafetyRecord,{kind:"occurrence"}>;
 export interface SafetyEvidence {
   occurrence:SafetyOccurrence;
-  exposure:SafetyOccurrence["exposure"];
+  exposure:Extract<SafetyRecord,{kind:"exposure"}>["state"];
   decision:Extract<SafetyRecord,{kind:"safe_decision"}>|null;
 }
 const cache=new WeakMap<Record<string,SafetyRecord>,Map<string,SafetyEvidence>>();

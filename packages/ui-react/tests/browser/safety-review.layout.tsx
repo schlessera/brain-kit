@@ -22,7 +22,7 @@ afterEach(async()=>{statusBarrier=undefined;commitBarrier=undefined;await dispos
 const patch=(patch:Record<string,unknown>={})=>commands.safetyServer({op:'set',id:fixture!.id,patch}) as Promise<{page:SafetyPage;commits:number;prepares:number;decisions:Array<{occurrence_id:string}>}>;
 const noop=()=>{};
 const message:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
- toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Read',inputJson:'{}',input:{file_path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
+ toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Grep',inputJson:'{}',input:{path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
  parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'text',text:'Voyage notes retained.'}]};
 let commitBarrier:((result:{status:number;body:unknown})=>Promise<void>)|undefined;
 let statusBarrier:((body:Record<string,unknown>,result:{status:number;body:unknown})=>Promise<void>)|undefined;
@@ -42,8 +42,8 @@ async function view(independentSocket=false){
  const client=safetyClient=createSafetyClient(current,m=>{sent.push(m);const target=independentSocket?ws:socket;if(target?.readyState!==WebSocket.OPEN)return false;target.send(JSON.stringify(m));return true;});
  ws.onopen=()=>ws.send(JSON.stringify({type:'client_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,chatDeletion:true}}));
  ws.onmessage=e=>{frames.push(JSON.parse(String(e.data)));const parsed=parseServerMessage(String(e.data));if(!parsed.ok)throw new Error(parsed.error);client.frame(parsed.message);};
- host=document.createElement('div');host.style.maxWidth='100%';document.body.append(host);renderer=createRoot(host);
- flushSync(()=>renderer!.render(<BrainUiProvider root={current}><button type="button">Outside safety details</button><SessionSafety/><MessageBubble message={message} journalVisible={false} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
+ host=document.createElement('div');host.dataset.readingColumn='';host.style.maxWidth='100%';document.body.append(host);renderer=createRoot(host);
+ flushSync(()=>renderer!.render(<BrainUiProvider root={current}><button type="button">Outside safety details</button><SessionSafety visibleMessages={[message]}/><MessageBubble message={message} journalVisible={false} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
  try{await expect.poll(()=>current.stores.safety.getState().status,{timeout:5000}).toBe('ready');}catch(error){throw new Error(`${String(error)} Frames:${JSON.stringify(frames)} Sent:${JSON.stringify(sent)} Safety:${JSON.stringify(current.stores.safety.getState())} Session:${current.stores.chat.getState().activeSessionId}`);}
 }
 async function scene(width:number,theme:string,independentSocket=false){await page.viewport(width,900);document.documentElement.dataset.theme=theme;fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view(independentSocket);}
@@ -51,20 +51,23 @@ function buttonForTool(){const all=[...host!.querySelectorAll<HTMLButtonElement>
 
 for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width} ${theme}: collapsed counts, native touch, exact scope, A/B/C and reload`,async()=>{
  await scene(width,theme);
- expect(host!.textContent,'OPAQUE_TRAFFIC_HAS_OWN_NAMED_TURN_EVENT').toContain('Network input; tool attribution unavailable');
+ expect(host!.textContent,'OPAQUE_TRAFFIC_HAS_OWN_NAMED_TURN_EVENT').toContain('The proxy could not identify the tool');
  const indicator=buttonForTool();expect(indicator,'COLLAPSED_RUN_RETAINS_BOTH_TRIGGERS').toBeTruthy();
+ expect(indicator.getAttribute('aria-label')).toContain('Whole chat · 3 unresolved inputs');
  const box=indicator.getBoundingClientRect();expect(box.width).toBeGreaterThanOrEqual(44);expect(box.height).toBeGreaterThanOrEqual(44);
  indicator.focus();await expect.poll(()=>getComputedStyle(indicator.parentElement!.querySelector('[role=tooltip]')!).opacity).toBe('1');
  const tooltipLayer=getComputedStyle(indicator.parentElement!.querySelector('[role=tooltip]')!).zIndex;
  await commands.rankTap({x:box.x+box.width/2,y:box.y+box.height/2});
- const panel=page.getByRole('dialog',{name:'Safety trigger details'});await expect.element(panel).toBeVisible();
+ const panel=page.getByRole('dialog',{name:'Safety input details'});await expect.element(panel).toBeVisible();
  const popoverLayer=getComputedStyle(document.documentElement).getPropertyValue('--bk-z-popover').trim();expect(popoverLayer).not.toBe('');
  expect({tooltip:tooltipLayer,details:getComputedStyle(document.querySelector('[data-safety-details]')!).zIndex},'SAFETY_SURFACES_USE_NAMED_POPOVER_LAYER').toEqual({tooltip:popoverLayer,details:popoverLayer});
- expect(indicator.getAttribute('aria-expanded')).toBe('true');expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Source provenance unavailable');
+ expect(document.querySelector('[data-safety-details]')!.textContent,'REVIEW_NAMES_LINKED_SEARCH').toContain('Local search (Grep)');
+ expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Whole chat · 3 unresolved inputs, including this one');
+ expect(indicator.getAttribute('aria-expanded')).toBe('true');expect(document.querySelector('[data-safety-details]')!.textContent).toContain('The host did not record a verified origin');
  await userEvent.click(page.getByRole('button',{name:'Mark as safe',exact:true}).first());
- expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Only this trigger');
+ expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Only this input');
  expect(document.querySelector('[data-safety-details]')!.textContent).not.toMatch(/trust this origin|future repositories|Verified safe/i);
- await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ await userEvent.click(page.getByRole('button',{name:'Mark this input as safe',exact:true}));
  await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount,{timeout:5000}).toBe(2);
  const state=await patch();expect(state.commits,'ONE_EXPLICIT_VERDICT').toBe(1);expect(state.decisions).toHaveLength(1);
  expect(host!.textContent).not.toContain('Normal policy restored');
@@ -72,8 +75,12 @@ for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width}
  await expect.element(panel).toBeVisible();
  await expect.element(page.getByText('Marked safe by you',{exact:true}).first()).toBeVisible();
  await page.screenshot({element:document.querySelector('[data-safety-details]') as HTMLElement,path:`../../.vitest-attachments/safety-review/${theme}-${width}.png`});
+ await expect.poll(()=>document.activeElement?.textContent).toContain('Whole chat · 2 unresolved inputs');
  const bounds=document.querySelector('[data-safety-details]')!.getBoundingClientRect();expect(bounds.left).toBeGreaterThanOrEqual(0);expect(bounds.right).toBeLessThanOrEqual(innerWidth);
- await userEvent.keyboard('{Escape}');expect(document.querySelector('[data-safety-details]')).toBeNull();expect(document.activeElement).toBe(reopener);
+ await userEvent.click(page.getByRole('button',{name:'Show next unresolved input'}));
+ expect(document.querySelector('[data-safety-details]')).toBeNull();
+ expect(document.activeElement).toBe(host!.querySelector('[data-safety-turn-event] button'));
+ reopener.focus();
  await userEvent.keyboard('{Enter}');await expect.element(panel).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Outside safety details'}));expect(document.querySelector('[data-safety-details]')).toBeNull();
  await disposeView();await view();expect((await patch()).commits,'RELOAD_NEVER_REPLAYS_A_VERDICT').toBe(1);expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(2);
 });
@@ -81,10 +88,26 @@ for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width}
 test('open delivery, pruning, recorder loss and explicit unavailable evidence remain restrictive',async()=>{
  await scene(320,'dark');await patch({action:'add',id:'tool_open',finalized:false});
  await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount,{timeout:5000}).toBe(4);
+ // The earlier tool call remains in chat history outside the mounted transcript window.
+ const chat=ui!.stores.chat.getState(), buffer=chat.buffers.ithaca!;
+ const earlier={...message,id:"earlier",toolCalls:[{...message.toolCalls[0]!,id:"tool_open"}]};
+ flushSync(()=>ui!.stores.chat.setState({buffers:{...chat.buffers,ithaca:{...buffer,messages:[earlier,message]}}}));
  const fallback=host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!;await userEvent.click(fallback);
  expect(document.querySelector('[data-safety-details]')!.textContent,'OPEN_DELIVERY_EXPLAINS_REFUSAL').toContain('Input is still arriving');
  const section=[...document.querySelectorAll('[data-safety-trigger]')].find(e=>e.textContent?.includes('Input is still arriving'))!;
+ expect(section.textContent).toContain("Action · WebFetch");
  expect(section.querySelector('[role=button]'),'OPEN_DELIVERY_OFFERS_NO_GRANT').toBeNull();
+ flushSync(()=>ui!.stores.safety.getState().refresh());
+ expect(section.textContent).toContain("Current evidence is unavailable or incomplete.");
+ expect(section.textContent,"REFRESH_PRESERVES_DELIVERY_UNCERTAINTY").not.toContain("Delivery could not be confirmed");
+ expect(section.textContent).not.toContain("New chat");
+ await expect.poll(()=>section.textContent).toContain("Input is still arriving");
+ const live=ui!.stores.safety.getState().projection!;
+ flushSync(()=>ui!.stores.safety.setState({projection:{...live,reasons:[...live.reasons,"recording_failed"]}}));
+ expect(section.textContent).toContain("Recording failed. This chat stays restricted.");
+ expect(section.textContent).toContain("New chat in the chat header");
+ expect(section.textContent).not.toContain("Input is still arriving");
+ flushSync(()=>ui!.stores.safety.setState({projection:live}));
  await userEvent.keyboard('{Escape}');await patch({action:'prune'});ui!.stores.safety.getState().refresh();await expect.poll(()=>ui!.stores.safety.getState().status).toBe('ready');
  expect(host!.querySelectorAll('[data-safety-indicator]').length).toBeGreaterThan(0);
  await patch({action:'loss'});await expect.poll(()=>ui!.stores.safety.getState().projection?.reasons,{timeout:5000}).toContain('recording_failed');
@@ -96,7 +119,7 @@ test('only a complete healthy zero-trigger read restores normal; partial state n
  for(let remaining=3;remaining>0;remaining--){
   const button=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getClientRects().length>0&&b.getAttribute('aria-label')?.startsWith('Safety restrictions'))!;
   await userEvent.click(button);await userEvent.click(page.getByRole('button',{name:'Mark as safe',exact:true}).first());
-  await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+  await userEvent.click(page.getByRole('button',{name:'Mark this input as safe',exact:true}));
   await expect.poll(()=>ui!.stores.safety.getState().status==='ready'&&ui!.stores.safety.getState().projection?.unresolvedCount===remaining-1,{timeout:5000}).toBe(true);
   await userEvent.keyboard('{Escape}');
  }
@@ -107,9 +130,11 @@ test('only a complete healthy zero-trigger read restores normal; partial state n
 });
 
 test('read-only clients keep evidence without grant controls and retirement purges an open panel',async()=>{
- await scene(320,'dark');flushSync(()=>ui!.stores.safety.setState({capabilities:{...ui!.stores.safety.getState().capabilities!,review:false}}));
- await userEvent.click(buttonForTool());const panel=page.getByRole('dialog',{name:'Safety trigger details'});await expect.element(panel).toBeVisible();
+ await scene(320,'dark');flushSync(()=>ui!.stores.safety.setState({capabilities:{...ui!.stores.safety.getState().capabilities!,review:false,readOnlyReason:"owner_required"}}));
+ await userEvent.click(buttonForTool());const panel=page.getByRole('dialog',{name:'Safety input details'});await expect.element(panel).toBeVisible();
  expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Only the authenticated owner');
+ flushSync(()=>ui!.stores.safety.setState({capabilities:{...ui!.stores.safety.getState().capabilities!,readOnlyReason:"review_unavailable"}}));
+ expect(document.querySelector('[data-safety-details]')!.textContent).toContain('This host has not enabled safety reviews');
  expect([...document.querySelectorAll('[data-safety-details] [role=button]')].some(e=>e.textContent==='Mark as safe'),'READ_ONLY_VIEW_OFFERS_NO_GRANT').toBe(false);
  await patch({action:'retire'});await expect.poll(()=>ui!.stores.safety.getState().reason,{timeout:5000}).toBe('retired');
  expect(document.querySelector('[data-safety-details]'),'RETIRED_HISTORY_PURGES_OPEN_DETAILS').toBeNull();
@@ -124,15 +149,20 @@ test('same-owner disconnect and replay keep read-only evidence geometry without 
  expect(host!.querySelectorAll('[data-safety-indicator]').length,'DISCONNECT_RETAINS_READ_ONLY_INDICATORS').toBe(buttons);
  expect(notice.getBoundingClientRect().height,'DISCONNECT_RETAINS_NOTICE_HEIGHT').toBe(before.height);
  expect(current.stores.safety.getState().normal,'DISCONNECTED_EVIDENCE_CANNOT_RESTORE_NORMAL').toBe(false);
- expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Current evidence is unavailable');
- expect(document.querySelector('[data-safety-details]')!.textContent).not.toContain('Mark this trigger as safe');
+ const offline = document.querySelector('[data-safety-details]')!;
+ expect(offline.textContent).toContain('It will refresh on reconnect');
+ expect(offline.textContent).not.toContain('Only the authenticated owner');
+ expect(offline.textContent).not.toContain('Refresh safety evidence');
+ client.refresh();
+ expect(current.stores.safety.getState().reason).toBe('disconnected');
+ expect(document.querySelector('[data-safety-details]')!.textContent).not.toContain('Mark this input as safe');
  socket=new WebSocket(fixture!.url.replace('http:','ws:')+'/ws');const next=socket;
  next.onopen=()=>next.send(JSON.stringify({type:'client_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,chatDeletion:true}}));
  next.onmessage=e=>{const parsed=parseServerMessage(String(e.data));if(!parsed.ok)throw new Error(parsed.error);client.frame(parsed.message);};
  await expect.poll(()=>current.stores.safety.getState().status,{timeout:5000}).toBe('ready');
  expect(notice.getBoundingClientRect().height,'REPLAY_RETAINS_NOTICE_HEIGHT').toBe(before.height);
  expect(indicator.isConnected,'REPLAY_RETAINS_ORIGINAL_INDICATOR_NODE').toBe(true);
- expect(document.querySelector('[data-safety-details]')!.textContent,'RECONNECT_DISCARDS_UNSUBMITTED_SCOPE_CHOICE').not.toContain('Mark this trigger as safe');
+ expect(document.querySelector('[data-safety-details]')!.textContent,'RECONNECT_DISCARDS_UNSUBMITTED_SCOPE_CHOICE').not.toContain('Mark this input as safe');
  expect((await patch()).commits,'RECONNECT_DOES_NOT_SEND_A_DECISION').toBe(0);
 });
 
@@ -149,7 +179,7 @@ test('two live owner views keep independent review scope and converge after ever
    const indicator=[...active.host.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(button=>button.getClientRects().length>0&&button.getAttribute('aria-label')?.startsWith('Safety restrictions'))!;
    await userEvent.click(indicator);
    await userEvent.click(page.getByRole('button',{name:'Mark as safe',exact:true}).first());
-   await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+   await userEvent.click(page.getByRole('button',{name:'Mark this input as safe',exact:true}));
    for(const current of [first,second]){
     await expect.poll(()=>current.ui.stores.safety.getState().status==='ready'&&current.ui.stores.safety.getState().projection?.unresolvedCount===remaining-1,{timeout:5000}).toBe(true);
     expect(current.host.textContent?.includes('Normal policy restored'),'TWO_VIEWS_RESTORE_ONLY_AFTER_LAST_VERDICT').toBe(remaining===1);
@@ -188,7 +218,7 @@ for(const theme of ['light','dark'])test(`${theme}: a mixed reviewed group names
  const indicator=buttonForTool();
  await userEvent.click(indicator);
  await userEvent.click(page.getByRole('button',{name:'Mark as safe',exact:true}).first());
- await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ await userEvent.click(page.getByRole('button',{name:'Mark this input as safe',exact:true}));
  await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(2);
  await userEvent.keyboard('{Escape}');
  const tooltip=indicator.parentElement!.querySelector<HTMLElement>('[role=tooltip]')!;
@@ -216,7 +246,7 @@ for(const width of [320,1280])for(const theme of ['light','dark'])for(const mode
  const records:Record<string,SafetyRecord>={[trusted.id]:trusted};if(hasReviewed){records[reviewed.id]=reviewed;const identity=state.identity;if(!identity||!('sessionId' in identity))throw new Error('Missing session');records.mixed_verdict={id:'mixed_verdict',sequence:'999999',observedAt:at,turnId:message.turnId!,bindingId:reviewed.bindingId,occurrenceId:reviewed.id,detailPruned:false,kind:'safe_decision',session:identity,requestId:'mixed_request',principalId:'odysseus',verdict:'safe',channel:'owner_history'};}if(hasUnresolved)records[unresolved.id]=unresolved;
  flushSync(()=>ui!.stores.safety.setState({records,projection:{...state.projection!,unresolvedCount:hasUnresolved?1:0,earliestUnresolvedId:hasUnresolved?unresolved.id:null,restriction:hasUnresolved?'restricted':'normal',reasons:hasUnresolved?['unresolved']:[]},normal:!hasUnresolved&&state.projection?.coverage.state==='complete'}));
  const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getClientRects().length>0)!;expect(indicator).toBeTruthy();
- if(hasUnresolved)expect(indicator.getAttribute('aria-label'),'MIXED_GROUP_NAMES_ONLY_ITS_UNRESOLVED_SOURCE').toContain('Workspace read · Only this trigger can be reviewed');
+ if(hasUnresolved)expect(indicator.getAttribute('aria-label'),'MIXED_GROUP_NAMES_ONLY_ITS_UNRESOLVED_SOURCE').toContain('Workspace read · Review one input at a time');
  if(hasReviewed)expect(indicator.getAttribute('aria-label'),'MIXED_HISTORY_NAMES_BOTH_TRUST_AND_HUMAN_VERDICT').toContain('1 marked safe by you');
  await userEvent.click(indicator);const panel=document.querySelector('[data-safety-details]')!;expect(panel.textContent).toContain('Trusted at admission');if(hasReviewed)expect(panel.textContent).toContain('Marked safe by you');
  const bounds=panel.getBoundingClientRect();expect(bounds.left).toBeGreaterThanOrEqual(0);expect(bounds.right).toBeLessThanOrEqual(innerWidth);
@@ -236,14 +266,14 @@ for(const width of [320,1280])for(const allow of [false,true])test(`${width}: fu
  const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
  const mark=section().querySelector<HTMLElement>('[role=button],button')!;await userEvent.click(mark);
  const only=section().querySelector<HTMLInputElement>('input[type=radio]')!;expect(only.parentElement!.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);expect(only.checked,'COMBINED_DEFAULT_ONLY_THIS_TRIGGER').toBe(true);
- await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));
+ await userEvent.click(page.getByRole('radio',{name:/Also trust future input from/}));
  const recipient=page.getByRole('checkbox',{name:'Allow sending data while restricted'});
  await expect.element(recipient).not.toBeChecked();
  if(allow)await userEvent.click(recipient);
  await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));
  await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();
  expect(section().textContent).toContain('ithaca.invalid');expect((await patch()).commits).toBe(0);
- await userEvent.click(page.getByRole('button',{name:allow?'Save rule, allow sending while restricted, and mark this trigger safe':'Save future source rule and mark this trigger safe',exact:true}));
+ await userEvent.click(page.getByRole('button',{name:allow?'Save rule, allow sending while restricted, and mark this input safe':'Save future source rule and mark this input safe',exact:true}));
  await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
  expect((await patch()).decisions).toHaveLength(1);
  expect(document.body.textContent).not.toContain('Normal policy restored');
@@ -259,11 +289,11 @@ async function futureReviewScene(width:number,partial=false){
  await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
  const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
  await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);
- await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));
+ await userEvent.click(page.getByRole('radio',{name:/Also trust future input from/}));
  await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));
  await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();
  if(partial)await patch({action:'fail_combined_verdict'});
- await userEvent.click(page.getByRole('button',{name:'Save future source rule and mark this trigger safe',exact:true}));
+ await userEvent.click(page.getByRole('button',{name:'Save future source rule and mark this input safe',exact:true}));
  await expect.poll(()=>ui!.stores.safety.getState().status).toBe('ready');
  return section;
 }
@@ -283,8 +313,8 @@ for(const width of [320,1280])test(`${width} review F4: partial operation is dis
  await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
  window.dispatchEvent(new Event('focus'));
  await expect.poll(()=>section().textContent).toContain('Marked safe by you');
- expect(section().textContent,'F4_PARTIAL_RECEIPT_IS_NOT_CURRENT_TRIGGER_STATE').not.toContain('this trigger is still unresolved');
- expect(section().textContent).not.toContain('this trigger remains unresolved');
+ expect(section().textContent,'F4_PARTIAL_RECEIPT_IS_NOT_CURRENT_TRIGGER_STATE').not.toContain('this input is still unresolved');
+ expect(section().textContent).not.toContain('this input remains unresolved');
 });
 
 for(const width of [320,1280])for(const older of ['success','error'] as const)test(`${width} matrix CS-O ${older}: an older focus response cannot overwrite newer revocation`,async()=>{
@@ -348,8 +378,8 @@ for(const future of [false,true])test(`fable F1 browser: ${future?'combined':'in
   responseObserved=true;
  };
  await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);
- if(future){await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Save future source rule and mark this trigger safe',exact:true}));}
- else await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ if(future){await userEvent.click(page.getByRole('radio',{name:/Also trust future input from/}));await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Save future source rule and mark this input safe',exact:true}));}
+ else await userEvent.click(page.getByRole('button',{name:'Mark this input as safe',exact:true}));
  // Protected publication and response delivery have no one-second product deadline.
  // First await the real committed response with its own live update observed;
  // then await React's acknowledgement. Both are bounded hang watchdogs.
@@ -360,7 +390,53 @@ test('fable F2 browser: cancel future preparation then individual review remains
  await page.viewport(320,900);fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view();await patch({action:'add_verified'});await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
  await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
  const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
- await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Cancel future rule review',exact:true}));
- await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);await userEvent.click(page.getByRole('radio',{name:'Only this trigger',exact:true}));await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);await userEvent.click(page.getByRole('radio',{name:/Also trust future input from/}));await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Cancel future rule review',exact:true}));
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);await userEvent.click(page.getByRole('radio',{name:'Only this input',exact:true}));await userEvent.click(page.getByRole('button',{name:'Mark this input as safe',exact:true}));
  await expect.poll(()=>section().textContent).toContain('Decision recorded');ui!.stores.safety.getState().refresh();await expect.poll(()=>ui!.stores.safety.getState().status).toBe('ready');expect(section().textContent).not.toContain('No decision was sent');
+});
+
+for (const width of [320,1280]) test(`${width}: refused fetches need no verdict and ended unknown delivery explains recovery`, async () => {
+ await scene(width,'light');
+ const state=ui!.stores.safety.getState();
+ const entry=Object.values(state.records).find(r=>r.kind==='occurrence'&&r.entry?.toolUseId==='tool_a')!;
+ const identity=state.identity!;
+ const projection={...state.projection!,unresolvedCount:2};
+ const exposure={id:'refused_fetch',sequence:'999999',observedAt:entry.observedAt,turnId:entry.turnId,bindingId:entry.bindingId,
+   occurrenceId:entry.id,detailPruned:false,kind:'exposure' as const,state:'not_delivered' as const};
+ flushSync(()=>ui!.stores.safety.setState({identity,records:{...state.records,[exposure.id]:exposure},projection}));
+ const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getAttribute('aria-label')?.includes('1 refused before delivery'))!;
+ await userEvent.click(indicator);
+ const section=document.querySelector<HTMLElement>(`[data-safety-trigger="${entry.id}"]`)!;
+ expect(section.textContent).toContain('Fetch refused before delivery');
+ expect(section.textContent).toContain('this input is not counted');
+ expect(section.querySelector('[role=button],button')).toBeNull();
+ flushSync(()=>ui!.stores.safety.setState({records:{...state.records,[exposure.id]:{...exposure,state:'interrupted_unknown'}},projection:state.projection}));
+ expect(section.textContent).toContain('Delivery could not be confirmed');
+ flushSync(()=>ui!.stores.safety.setState({records:{...state.records,[exposure.id]:{...exposure,state:"open"}},
+   projection:{...projection,coverage:{...projection.coverage,epochs:[]}}}));
+ expect(section.textContent).not.toContain("Input is still arriving");
+ expect(section.textContent).toContain("Delivery could not be confirmed");
+ expect(section.textContent).toContain(width===320?'New chat in the chat header':'New conversation in Sessions');
+});
+
+test("a workspace search names the known source and a live recorder can still acknowledge coverage",async()=>{
+ await scene(320,"light");
+ const state=ui!.stores.safety.getState();
+ const projection=state.projection!;
+ const epoch={...projection.coverage.epochs[0]!,status:"incomplete" as const,reason:"missing_detector_acknowledgement",endSequence:null};
+ const original=Object.values(state.records).find(r=>r.kind==="occurrence"&&r.entry?.toolUseId==="tool_c");
+ if(original?.kind!=="occurrence")throw new Error("Missing search");
+ flushSync(()=>ui!.stores.safety.setState({records:{...state.records,[original.id]:{...original,source:"workspace_read",detector:"tool_search_output"}},
+   projection:{...projection,coverage:{...projection.coverage,state:"incomplete",epochs:[epoch]}}}));
+ expect(host!.textContent).toContain("Waiting for the host to confirm input recording");
+ expect(host!.textContent).not.toContain("Earlier inputs were not fully recorded");
+ await userEvent.click(buttonForTool());
+ const detail=document.querySelector(`[data-safety-trigger="${original.id}"]`)!;
+ expect(detail.textContent).toContain("A matched path is in the workspace");
+ expect(detail.textContent).not.toContain("could not identify the source of every returned match");
+ for(const [source, label] of [["staged_share","Shared input"],["chat_attachment","Chat attachment"]] as const){
+   flushSync(()=>ui!.stores.safety.setState({records:{...state.records,[original.id]:{...original,source,detector:"tool_search_output"}}}));
+   expect(detail.textContent).toContain(`Source · ${label}`);
+   expect(detail.textContent).not.toContain("could not identify the source");
+ }
 });

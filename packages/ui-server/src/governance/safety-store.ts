@@ -192,6 +192,14 @@ function capacity(db:Database,c:Collection,rows:number,bytes:number):void {
     if(unbound.bytes+pending.bytes+bytes+one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL").n*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted",unboundScope(db));
   }
 }
+// A later, contradictory result makes the occurrence unresolved again. Legacy
+// attempts have no terminal proof, so they keep their original restriction.
+const unresolvedOccurrence = `r.kind='occurrence'
+ AND coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) != 1
+ AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)
+ AND coalesce((SELECT x.state FROM safety_records x WHERE x.occurrence_id=r.id AND x.kind='exposure'
+   ORDER BY length(x.sequence) DESC,x.sequence DESC LIMIT 1),r.state,'') != 'not_delivered'`;
+
 /** Must commit before any first-turn bytes or tool execution. Callbacks cannot create a session. */
 export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):string {
  return db.transaction(()=>{
@@ -247,7 +255,7 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
     safetyProjection(db,null,input.sourceSessionId); // Also validates retirement.
     db.query("UPDATE safety_collections SET gap=CASE WHEN restricted_begin=1 THEN gap ELSE 'inherited_history_not_reconstructed' END WHERE id=?").run(input.bindingId);
     const records=db.query<RecordRow,[string]>(`SELECT r.* FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
-      WHERE c.session_id=? AND r.kind='occurrence' AND coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) != 1 AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)`).iterate(input.sourceSessionId);
+      WHERE c.session_id=? AND ${unresolvedOccurrence}`).iterate(input.sourceSessionId);
     for(const r of records){const payload=JSON.parse(r.payload);payload.occurrence=occurrence(input.bindingId,(r.detector??"tool_file_input") as Occurrence["detector"],null,"interrupted_unknown");
       appendRecord(db,collection(db,input.turnId)!,payload.occurrence.id,"occurrence",payload.occurrence.id,r.source,r.detector,"interrupted_unknown",payload,input.at);}
   }
@@ -385,7 +393,24 @@ export function openSafetyObligation(db:Database,turnId:string,id:string,toolUse
 }
 /** Its result is durably recorded. Once the collection ended the call's gap
  * is already committed: nothing to do. */
-export function dischargeSafetyObligation(db:Database,turnId:string,id:string):void {
+export function dischargeSafetyObligation(db:Database,turnId:string,id:string,neverDelivered?:readonly string[]):void {
+ if(neverDelivered?.length){
+  db.transaction(()=>{
+   const c=collection(db,turnId);
+   if(!c||!db.query("SELECT 1 FROM safety_obligations WHERE id=? AND collection_id=?").get(id,c.id))return;
+   live(db,c,true);
+   for(const occurrenceId of neverDelivered){
+    const row=one<RecordRow|null>(db,"SELECT * FROM safety_records WHERE id=? AND collection_id=?",occurrenceId,c.id);
+    if(!row||row.kind!=="occurrence"||row.source!=="web_fetch"||row.detector!=="tool_web_input"||row.state!=="open"
+      ||JSON.parse(row.payload).occurrence?.operationId!==id
+      ||db.query("SELECT 1 FROM safety_records WHERE occurrence_id=? AND kind='exposure'").get(occurrenceId))
+      throw new SafetyUnavailable("Non-delivery could not be bound to this fetch attempt");
+    appendRecord(db,c,crypto.randomUUID(),"exposure",occurrenceId,null,null,"not_delivered",{operationId:id},Date.now());
+   }
+   dischargeSafetyObligation(db,turnId,id);
+  }).immediate();
+  return;
+ }
  db.query("DELETE FROM safety_obligations WHERE id=? AND collection_id=(SELECT id FROM safety_collections WHERE turn_id=? AND ended=0)").run(id,turnId);
 }
 /** Every call still owing its result in these collections becomes their
@@ -476,9 +501,9 @@ function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|nu
  const unknown=cs.length===0||cs.length>128||cs.some(c=>c.gap||c.failure||JSON.parse(c.acknowledged).length<SAFETY_DETECTORS.length)
    ||!!s&&s.classification!=="new";
  const aggregate=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
-   WHERE r.kind='occurrence' AND coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) != 1 AND ${scope} AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)`,...args);
+   WHERE ${scope} AND ${unresolvedOccurrence}`,...args);
  const first=one<{id:string}|null>(db,`SELECT r.id FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
-   WHERE r.kind='occurrence' AND coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) != 1 AND ${scope} AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)
+   WHERE ${scope} AND ${unresolvedOccurrence}
    ORDER BY length(r.sequence),r.sequence LIMIT 1`,...args);
  const pending=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope} AND NOT EXISTS (SELECT 1 FROM json_each(?) excluded WHERE excluded.value=p.id)`,...args,JSON.stringify(excludedPending)).n;
  const reasons:string[]=[];

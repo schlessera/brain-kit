@@ -30,7 +30,16 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (path !== "/v1/messages") return Response.json({});
   const raw = await request.text(), body = JSON.parse(raw);
   const main = body.tools?.some((tool: any) => tool.name === "Read") === true;
-  const step = main ? queue.shift() : undefined;
+  let step = main ? queue.shift() : undefined;
+  // The fake model can continue only with a cursor visible in its actual
+  // tool result. It cannot read the host's file or the runtime's spill file.
+  if (main && turnIndex === 1 && !step) {
+    const result = body.messages.at(-1)?.content?.find?.((block: { type: string }) => block.type === "tool_result");
+    const text = typeof result?.content === "string" ? result.content : result?.content?.[0]?.text;
+    const facts = text?.match(/^\{[^\n]+\}/)?.[0];
+    const page = facts && JSON.parse(facts);
+    if (page?.next) step = { name: "read_attachment", input: { id: page.id, cursor: page.next } };
+  }
   const content = step ? [{ type: "tool_use", id: `toolu_odysseus_${turnIndex}_${capture.exchanges.length}`, name: `mcp__brain-ui__${step.name}`, input: step.input }]
     : [{ type: "text", text: main ? "Odysseus may berth at Ithaca." : JSON.stringify({ title: "Odysseus reads the permit" }) }];
   capture.exchanges.push({ turn: turnIndex, path, raw, main, answer: { role: "assistant", content } });
@@ -46,7 +55,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
   const brain = fixtureBrain(scratch, "attachment");
-  const host = fixtureAttachmentHost(brain, scratch);
+  const host = fixtureAttachmentHost(brain, scratch, "claude");
   const script = [[{ name: "read_attachment", input: { id: host.permit.fileId, pages: "2" } }],
     [{ name: "read_attachment", input: { id: host.log.fileId } }],
     [{ name: "read_attachment", input: { id: host.permit.fileId, pages: "2" } }]];

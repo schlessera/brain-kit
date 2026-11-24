@@ -16532,6 +16532,7 @@ signatures (every public export and the types it is made of)
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
+        includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
         target: z.ZodUnion<readonly [z.ZodObject<{
@@ -16699,6 +16700,7 @@ signatures (every public export and the types it is made of)
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
+        includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
         target: z.ZodUnion<readonly [z.ZodObject<{
@@ -21952,6 +21954,7 @@ signatures (every public export and the types it is made of)
             state: z.ZodEnum<{
                 finalized: "finalized";
                 interrupted_unknown: "interrupted_unknown";
+                not_delivered: "not_delivered";
                 open: "open";
             }>;
             turnId: z.ZodString;
@@ -22109,6 +22112,7 @@ signatures (every public export and the types it is made of)
         state: z.ZodEnum<{
             finalized: "finalized";
             interrupted_unknown: "interrupted_unknown";
+            not_delivered: "not_delivered";
             open: "open";
         }>;
         turnId: z.ZodString;
@@ -22617,6 +22621,7 @@ signatures (every public export and the types it is made of)
             state: z.ZodEnum<{
                 finalized: "finalized";
                 interrupted_unknown: "interrupted_unknown";
+                not_delivered: "not_delivered";
                 open: "open";
             }>;
             turnId: z.ZodString;
@@ -28088,6 +28093,7 @@ signatures (every public export and the types it is made of)
                 state: z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
+                    not_delivered: "not_delivered";
                     open: "open";
                 }>;
                 turnId: z.ZodString;
@@ -28257,6 +28263,7 @@ signatures (every public export and the types it is made of)
                 state: z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
+                    not_delivered: "not_delivered";
                     open: "open";
                 }>;
                 turnId: z.ZodString;
@@ -28947,6 +28954,7 @@ signatures (every public export and the types it is made of)
                 state: z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
+                    not_delivered: "not_delivered";
                     open: "open";
                 }>;
                 turnId: z.ZodString;
@@ -29132,6 +29140,7 @@ signatures (every public export and the types it is made of)
                 state: z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
+                    not_delivered: "not_delivered";
                     open: "open";
                 }>;
                 turnId: z.ZodString;

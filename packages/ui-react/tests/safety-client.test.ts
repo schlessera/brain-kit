@@ -302,3 +302,38 @@ test('review F2: future rules require the additive boolean offer and live review
  }finally{f.client.dispose();}
  }
 });
+
+test("a failed safety read stays disconnected until this client receives a new hello", () => {
+  const chat=createStore<{activeSessionId:string|null}>(()=>({activeSessionId:"ithaca"})), safety=createSafetyStore();
+  const root={stores:{chat,safety}} as unknown as BrainUiServices;
+  const sent:ClientMessage[]=[];
+  let online=false;
+  const client=createSafetyClient(root, message => { sent.push(message); return online; });
+  try {
+    client.frame(hello);
+    expect(safety.getState().reason).toBe("disconnected");
+    const attempts=sent.length;
+    online=true;
+    client.refresh();
+    expect(sent).toHaveLength(attempts);
+    client.frame(hello);
+    expect(sent.at(-1)?.type).toBe("safety_read");
+    expect(safety.getState().status).toBe("loading");
+  } finally { client.dispose(); }
+});
+
+test("switching chats offline clears the former chat's safety evidence", () => {
+  const {client,chat,safety,sent}=supportedClient("ithaca");
+  try {
+    client.frame(hello);
+    const read=sent.find(message=>message.type==="safety_read")!;
+    client.frame({type:"safety_history",requestId:read.requestId,page});
+    expect(safety.getState().identity).toEqual(page.identity);
+    client.disconnected();
+    expect(safety.getState().identity).toEqual(page.identity);
+    chat.setState({activeSessionId:"pylos"});
+    expect(safety.getState()).toMatchObject({reason:"disconnected",identity:null,projection:null,records:{}});
+    client.frame(hello);
+    expect(sent.at(-1)).toMatchObject({type:"safety_read",target:{sessionId:"pylos"}});
+  } finally { client.dispose(); }
+});

@@ -190,3 +190,32 @@ test("the tool quotes contents as delimited data, refuses unread outcomes as err
   expect(inputTaintSource("read_attachment", { id: "a" })).toBe("chat_attachment");
   expect(inputTaintSource("mcp__brain-ui__read_attachment", { id: "a" })).toBe("chat_attachment");
 });
+
+test("Claude receives line-dense text and each continuation inline", async () => {
+  const h = setup();
+  const text = "Ithaca log\n".repeat(3636) + "Crew" + "\ufeffὈδυσσεύς\n".repeat(2000);
+  const [file] = h.send("draft-voyage", "voyage", [["voyage-log.txt", text]]);
+  const read = h.turn("voyage", { backendId: "claude" });
+  let cursor: string | undefined;
+  let joined = "";
+  do {
+    const page = await read({ id: file!.fileId, cursor });
+    expect(formatAttachmentRead(page).length, "CLAUDE_INLINE_RESULT_WITH_ENVELOPE").toBeLessThan(50_000);
+    expect(page.scope).toEqual({ bytes: [Buffer.byteLength(joined), Buffer.byteLength(joined + page.text)], totalBytes: Buffer.byteLength(text) });
+    expect(page.text).toBeTruthy();
+    joined += page.text;
+    cursor = page.next;
+  } while (cursor);
+  expect(joined).toBe(text);
+  expect(h.store.attachmentReads("voyage").length).toBeGreaterThan(1);
+});
+
+test("a concurrent PDF and Claude text read share the last bytes of a turn", async () => {
+  const h=setup();
+  const [pdf,text]=h.send("draft-ithaca","voyage-1",[["permit.pdf",ithacaPermitPdf()],["voyage.log",VOYAGE_LOG]]);
+  const budget={used:ATTACHMENT_READ_MAX_TURN_BYTES-15};
+  const read=h.turn("voyage-1",{backendId:"claude",budget});
+  const pages=await Promise.all([read({id:pdf!.fileId}),read({id:text!.fileId})]);
+  expect(pages.reduce((bytes,page)=>bytes+Buffer.byteLength(page.text??""),0)).toBe(15);
+  expect(budget.used).toBe(ATTACHMENT_READ_MAX_TURN_BYTES);
+});

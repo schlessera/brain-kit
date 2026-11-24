@@ -32,7 +32,7 @@ const common = { id, sequence: revision, observedAt: time, turnId: id, bindingId
 export const safetyRecordSchema = z.discriminatedUnion("kind", [
   safetyOccurrenceAdmissionSchema.safeExtend({ ...common, kind:z.literal("occurrence"), epochId:id, source, operationId:id.nullable(), signalId:id.nullable(), exposureId:id.nullable(), exposure,
     summary:text(2048), entry:z.strictObject({kind:z.literal("tool"),toolUseId:id}).optional() }).strict(),
-  z.strictObject({ ...common, kind:z.literal("exposure"), state:exposure }),
+  z.strictObject({ ...common, kind:z.literal("exposure"), state:z.enum(["open","finalized","interrupted_unknown","not_delivered"]) }),
   z.strictObject({ ...common, kind:z.literal("safe_decision"), session:safetySessionKeySchema, requestId:id, principalId:id, verdict:z.literal("safe"), channel:z.enum(["owner_history","owner_settings"]) }),
 ]);
 export const safetyPageSchema = z.strictObject({ version:z.literal(1), identity:safetyIdentitySchema, snapshotId:id, cursor:z.string().max(512).nullable(), highWater:revision,
@@ -72,7 +72,7 @@ export type SafetyReviewBody = z.infer<typeof safetyReviewBodySchema>;
 export type SafetyReviewReceipt = z.infer<typeof safetyReviewReceiptSchema>;
 export type SafetyReviewResponse = z.infer<typeof safetyReviewResponseSchema>;
 
-export const clientSafetyReadSchema = z.strictObject({type:z.literal("safety_read"),requestId:id,version:z.literal(1),target:safetyTargetSchema,cursor:z.string().max(512).nullable().optional(),limit:z.number().int().min(1).max(100).optional(),includeEntries:z.literal(true).optional(),includeAdmissions:z.literal(true).optional()});
+export const clientSafetyReadSchema = z.strictObject({type:z.literal("safety_read"),requestId:id,version:z.literal(1),target:safetyTargetSchema,cursor:z.string().max(512).nullable().optional(),limit:z.number().int().min(1).max(100).optional(),includeEntries:z.literal(true).optional(),includeAdmissions:z.literal(true).optional(),includeNonDelivery:z.literal(true).optional()});
 export const clientSafetySubscribeSchema = z.strictObject({type:z.literal("safety_subscribe"),requestId:id,version:z.literal(1),identity:safetyIdentitySchema,afterRevision:revision,snapshotId:id});
 export const clientSafetyUnsubscribeSchema = z.strictObject({type:z.literal("safety_unsubscribe"),version:z.literal(1)});
 export const serverSafetyHistorySchema = z.strictObject({type:z.literal("safety_history"),requestId:id,page:safetyPageSchema});

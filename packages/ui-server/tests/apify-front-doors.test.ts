@@ -206,13 +206,14 @@ describe("one implementation behind every front door", () => {
     await cli(["inspect", candidate]);
     const prepared = data<{ proposal: string; admission: string }>((await cli(["prepare", candidate, "--input", JSON.stringify(APIFY_INPUT), "--max-charge-usd", "2"])).envelope);
     expect(prepared.admission, "APIFY_GRANT_MATCHES_EXACTLY").toBe("grant");
-    const started = data<{ run: string; state: string; results: { available: boolean } }>((await cli(["run", prepared.proposal])).envelope);
+    const started = data<{ run: string; state: string; results: { available: boolean; bounded_cursor:string } }>((await cli(["run", prepared.proposal])).envelope);
     expect(started.state).toBe("succeeded");
     // The view passed on is the model view only: no accounting, ledger or remote ids.
     expect(Object.keys(started).sort(), "APIFY_RUN_VIEW_ONLY").toEqual(["abort", "remote_outcome_unknown", "results", "run", "state", "warnings"]);
     expect((await cli(["run", prepared.proposal])).envelope, "APIFY_PROPOSAL_ONCE").toMatchObject({ ok: false, error: { code: "proposal_stale" } });
     expect(code((await cli(["status", started.run])).envelope)).toBe("ok");
-    const page = data<{ items: unknown[]; untrusted: true }>((await cli(["results", started.run, "--limit", "2"])).envelope);
+    expect(started.results.bounded_cursor).toEqual(expect.any(String));
+    const page = data<{ items: unknown[]; untrusted: true }>((await cli(["results", started.run, "--cursor", started.results.bounded_cursor, "--limit", "2"])).envelope);
     expect(page.items).toHaveLength(2);
     expect(page.untrusted).toBe(true);
     expect(data<{ outcome: string }>((await cli(["abort", started.run])).envelope).outcome).toBe("not_needed");
@@ -260,6 +261,7 @@ describe("one implementation behind every front door", () => {
     expect(before, "APIFY_MCP_FIXED_NAMES").toEqual(APIFY_OPERATIONS.map(operation => APIFY_TOOL_NAMES[operation]));
     const candidate = data<{ candidates: Array<{ candidate: string }> }>((await door.call("brain_apify_discover", { query: "sea charts" })).envelope).candidates[0]!.candidate;
     const inspected = data<{ input_fields: string[] }>((await door.call("brain_apify_inspect", { candidate })).envelope);
+    expect(inspected).toMatchObject({input_types:{startUrls:["array"],maxPages:["integer"],harbour:["string"]}});
     expect(inspected.input_fields, "APIFY_SCHEMA_AS_DATA").toEqual(["harbour", "maxPages", "startUrls"]);
     const proposal = data<{ proposal: string }>((await door.call("brain_apify_prepare", { candidate, input: APIFY_INPUT, max_charge_usd: 2 })).envelope).proposal;
     expect(code((await door.call("brain_apify_run", { proposal })).envelope)).toBe("approval_required");

@@ -80,7 +80,7 @@ export function ToolCallTimeline({
         toolCalls={toolCalls}
         backendId={backendId}
         onExpand={() => setCollapsed(false)}
-      /><ToolSafetyIndicator turnId={turnId} toolIds={toolCalls.map(t=>t.id)}/></div>
+      /><ToolSafetyIndicator turnId={turnId} toolCalls={toolCalls}/></div>
     );
   }
 
@@ -128,7 +128,7 @@ export function ToolCallTimelineCell({
       marginTop: first ? undefined : 0,
       marginBottom: toolIndex === toolCalls.length - 1 ? undefined : 0,
     }}>
-      {first && effectiveCollapsed && <div className="flex min-w-0 items-center"><TimelineSummaryRow toolCalls={toolCalls} backendId={backendId} onExpand={onExpand} /><ToolSafetyIndicator turnId={turnId} toolIds={toolCalls.map(t=>t.id)}/></div>}
+      {first && effectiveCollapsed && <div className="flex min-w-0 items-center"><TimelineSummaryRow toolCalls={toolCalls} backendId={backendId} onExpand={onExpand} /><ToolSafetyIndicator turnId={turnId} toolCalls={toolCalls}/></div>}
       {first && !effectiveCollapsed && !live && !hasPending && (
         <TextButton tone="meta" label="Hide steps" glyph={<ChevronDown />} onClick={onCollapse} style={{ marginBottom: 4 }} />
       )}
@@ -284,7 +284,7 @@ function ToolCallEntryView({
   const Input = renderer.Input;
   const Output = renderer.Output;
 
-  if (toolCall.policyChange) return <div data-tool-call={toolCall.id}><ToolSafetyIndicator turnId={turnId} toolIds={[toolCall.id]}/><PolicyChangeCard toolCall={toolCall} onApproval={onApproval} /></div>;
+  if (toolCall.policyChange) return <div data-tool-call={toolCall.id}><ToolSafetyIndicator turnId={turnId} toolCalls={[toolCall]}/><PolicyChangeCard toolCall={toolCall} onApproval={onApproval} /></div>;
   return (
     <div className="relative" data-tool-call={toolCall.id}>
       {/* Timeline dot: a bare mark with no content, so it takes the MARK
@@ -357,7 +357,7 @@ function ToolCallEntryView({
           )}
         </span>
       </button>
-      <ToolSafetyIndicator turnId={turnId} toolIds={[toolCall.id]}/>
+      <ToolSafetyIndicator turnId={turnId} toolCalls={[toolCall]}/>
       </div>
 
       {/* Why a restored card is read-only (D52 §4 R3), on its own line so the

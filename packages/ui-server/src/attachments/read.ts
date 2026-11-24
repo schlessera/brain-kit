@@ -19,7 +19,7 @@ import { readVerified } from "./files.js";
 import { FILE_ID, type AttachmentRow } from "./store.js";
 
 /** What one turn's reads have returned so far; the bridge keeps one per turn. */
-interface AttachmentReadBudget { used: number }
+interface AttachmentReadBudget { used: number; pending?: Promise<void> }
 
 export interface AttachmentReadContext {
   brainRoot: string;
@@ -29,6 +29,7 @@ export interface AttachmentReadContext {
   turnId: string;
   signal: AbortSignal;
   budget: AttachmentReadBudget;
+  backendId?: string;
   /** Test seam for the per-turn bound; defaults to the contract's. */
   maxTurnBytes?: number;
 }
@@ -75,15 +76,30 @@ export function createAttachmentReader(extractor: Extractor) {
       return record(ctx, row, { ...base, outcome: "changed", message: "The original no longer matches what was stored. Nothing of it was returned." });
     }
     const sha = row.sha256.slice(0, 12);
-    const remaining = (ctx.maxTurnBytes ?? ATTACHMENT_READ_MAX_TURN_BYTES) - ctx.budget.used;
-    const maxBytes = Math.max(0, Math.min(ATTACHMENT_READ_MAX_CALL_BYTES, remaining));
-    const budgetCut = maxBytes < ATTACHMENT_READ_MAX_CALL_BYTES;
-    const result = row.reader === "pdf"
-      ? await readPdf(ctx, row, base, original.bytes, input, sha, maxBytes, budgetCut)
-      : readText(row, base, original.bytes, input, sha, maxBytes, budgetCut);
-    if (result.outcome === "refused") return result;
-    ctx.budget.used += Buffer.byteLength(result.text ?? "");
-    return record(ctx, row, result);
+    // PDF extraction awaits a worker. Settle each read's actual bytes before
+    // the next read of this turn takes its allowance.
+    const preceding = ctx.budget.pending;
+    const slot = Promise.withResolvers<void>();
+    ctx.budget.pending = slot.promise;
+    try {
+      await preceding;
+      if (ctx.signal.aborted) throw new AttachmentReadCancelled();
+      const remaining = (ctx.maxTurnBytes ?? ATTACHMENT_READ_MAX_TURN_BYTES) - ctx.budget.used;
+      // Claude persists large formatted tool results. Leave room below its
+      // 50,000-character inline boundary for the metadata and data delimiter.
+      const callLimit = textual && ctx.backendId === "claude" ? 40_000 : ATTACHMENT_READ_MAX_CALL_BYTES;
+      const maxBytes = Math.max(0, Math.min(callLimit, remaining));
+      const budgetCut = remaining <= callLimit;
+      const result = row.reader === "pdf"
+        ? await readPdf(ctx, row, base, original.bytes, input, sha, maxBytes, budgetCut)
+        : readText(row, base, original.bytes, input, sha, maxBytes, budgetCut);
+      if (result.outcome === "refused") return result;
+      ctx.budget.used += Buffer.byteLength(result.text ?? "");
+      return record(ctx, row, result);
+    } finally {
+      slot.resolve();
+      if (ctx.budget.pending === slot.promise) delete ctx.budget.pending;
+    }
   }
 
   async function readPdf(ctx: AttachmentReadContext, row: AttachmentRow, base: Pick<AttachmentReadResult, "id" | "name" | "kind">, bytes: Uint8Array,
@@ -135,7 +151,7 @@ export function createAttachmentReader(extractor: Extractor) {
     }
     const slice = cutUtf8(bytes.subarray(start), maxBytes);
     let text: string;
-    try { text = new TextDecoder("utf-8", { fatal: true }).decode(slice); }
+    try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(slice); }
     catch { return { ...base, outcome: "malformed", message: "This file is not valid UTF-8 text." }; }
     const end = start + slice.length;
     const scope = { bytes: [start, end] as [number, number], totalBytes: bytes.length };

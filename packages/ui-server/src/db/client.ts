@@ -26,6 +26,16 @@ export interface CreateUiDbOptions {
 }
 
 export function createUiDb(dbPath: string, options: CreateUiDbOptions = {}): Database {
+  return openUiDb(dbPath, options, true);
+}
+
+/** Cron and preflight share the live server's database. Opening their connection
+ * does not establish that the server which owns a collection has stopped. */
+export function openSharedUiDb(dbPath: string): Database {
+  return openUiDb(dbPath, {}, false);
+}
+
+function openUiDb(dbPath: string, options: CreateUiDbOptions, serverBoot: boolean): Database {
   const db = new Database(dbPath, { create: true });
   // Server and cron can race WAL recovery or startup. Install the existing
   // timeout before journal_mode so that initialization waits for its lock.
@@ -39,6 +49,13 @@ export function createUiDb(dbPath: string, options: CreateUiDbOptions = {}): Dat
   // unqualified here; each start then moves whatever they created into it.
   attachJournalDatabase(db, dbPath);
   runMigrations(db, options.log);
+  if (serverBoot) recoverServerSafety(db, options);
+  const moved = moveJournalTables(db);
+  if (moved) options.log?.emit({ severityText: "INFO", body: "moved journal tables into the journal database", attributes: { tables: moved } });
+  return db;
+}
+
+function recoverServerSafety(db: Database, options: CreateUiDbOptions): void {
   const migrated = migrateSafetyHistory(db);
   recoverSafetyCollections(db);
   // Boot never starts into a state where every turn is refused for something
@@ -51,9 +68,6 @@ export function createUiDb(dbPath: string, options: CreateUiDbOptions = {}): Dat
     catch (error) { options.log?.emit({ severityText: "WARN", body: "safety recording could not be recovered at boot; turns run restricted and recovery is retried",
       attributes: { "error.message": error instanceof Error ? error.message : String(error) } }); }
   }
-  const moved = moveJournalTables(db);
-  if (moved) options.log?.emit({ severityText: "INFO", body: "moved journal tables into the journal database", attributes: { tables: moved } });
-  return db;
 }
 
 function runMigrations(database: Database, log?: Logger) {

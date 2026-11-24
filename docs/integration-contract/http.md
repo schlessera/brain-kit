@@ -754,6 +754,14 @@ identities refuse late callbacks even after private detail is removed.
 The principal binds as its account
 ([additive, #3952](#account-bound-safety-history-additive-3952)).
 
+A fetch proved refused before execution remains an audited attempt and contributes
+zero unresolved inputs (#4514). This also applies to the first unresolved ID
+and handoff selection. Delivery uncertainty and earlier records without proof
+remain restricted. On the session safety history route, `nonDelivery=1`
+requests the terminal exposure state `not_delivered`. Without this option
+the attempt has the conservative v1 terminal representation `interrupted_unknown`.
+The host's aggregate excludes proven non-delivery for both readers.
+
 Effective admission is restricted for any unresolved occurrence, incomplete or
 unknown coverage, pending recording, failure or exhausted capacity. Only a
 proven new session with acknowledged mandatory collectors and zero unresolved
@@ -903,6 +911,15 @@ new card kind or variant is added. An allowed connection records
 is pending records the connection as `cancelled` with `turn_cancelled`, as any
 connection its turn stops. Voice turns refuse without a request, as before,
 with `reason: "taint_not_allowed"`.
+
+When new evidence withdraws a Network card while the connection is still
+waiting, the host can present a fresh request for the same destination with
+a new tool-use ID. It rechecks the current policy, scope, authority, trust
+revision and recording state before asking. Late replies to the withdrawn
+ID retain their expired outcome. A card that expires while the transport stays active records
+`network_approval_expired`. A turn deadline closes the transport as `turn_cancelled` and retains “Turn timed out” on the expired card. A missing outcome records
+`network_approval_unconfirmed`. An explicit owner denial still records
+`taint_not_approved`.
 
 The `outward_action` kind's `action` gains `compute_run` and the `taint`
 kind's `source` gains `compute_output` (both additive, #3108): a hosted

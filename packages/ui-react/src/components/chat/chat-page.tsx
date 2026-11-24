@@ -200,7 +200,9 @@ export function ChatPage() {
   const tailStart = Math.max(0, entries.length - visibleCount);
   const readingIndex = readingKey === null ? -1 : entries.findIndex(entry => entry.key === readingKey);
   const hiddenCount = tailStart - (readingIndex >= 0 && readingIndex < tailStart ? 1 : 0);
-  const visibleEntries = entries.filter((entry, index) => index >= tailStart || entry.key === readingKey);
+  const visibleEntries = useMemo(() => entries.filter((entry, index) => index >= tailStart || entry.key === readingKey), [entries, tailStart, readingKey]);
+  const visibleToolMessages = useMemo(() => visibleEntries.flatMap(entry =>
+    entry.kind === "message" && entry.section !== "answer" ? [entry.message] : []), [visibleEntries]);
   const beginReading = useCallback((opener: HTMLElement) => {
     autoScrollRef.current = false;
     setReadingKey(opener.closest<HTMLElement>("[data-arrival-key]")?.dataset.arrivalKey ?? null);
@@ -748,7 +750,7 @@ export function ChatPage() {
                   className="mx-auto max-w-3xl divide-y divide-border/20"
                 >
                   {dialogueNotice && <p role="status" className="py-3 text-sm">{dialogueNotice}</p>}
-                  <SessionSafety />
+                  <SessionSafety visibleMessages={visibleToolMessages} />
                   {dialoguePage?.coverage === "legacy" && <p className="py-3 text-sm">Earlier spoken dialogue was not saved.</p>}
                   {dialoguePage?.before !== undefined && <Button label="Load earlier conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`,true)} />}
                   {dialoguePage && (dialoguePage.records.length > 0 || dialoguePage.through > 0) && <Button label="Show latest conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`)} />}

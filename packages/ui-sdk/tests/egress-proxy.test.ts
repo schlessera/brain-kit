@@ -329,8 +329,8 @@ test("a narrowed destination asks through taint.approve before refusing; a faile
     answer = async () => { throw new Error("Scylla"); };
     const refused = await get(proxy.socketPath, origin.url.href);
     expect(refused.status, "EGRESS_TAINT_FAILED_APPROVAL_REFUSES").toBe(403);
-    expect(refused.body, "EGRESS_TAINT_DECLINE_REASON").toContain("the user declined the connection");
-    expect(records.at(-1)).toMatchObject({ outcome: "denied", reason: "taint_not_approved", bytes: 0 });
+    expect(refused.body, "EGRESS_TAINT_UNKNOWN_REASON").toContain("could not confirm approval");
+    expect(records.at(-1)).toMatchObject({ outcome: "denied", reason: "network_approval_unconfirmed", bytes: 0 });
     // The relay's own admission is never narrowed, so never asked about.
     const relay = proxy.inference("POST", new URL(`${origin.url.href}v1/messages`), new AbortController().signal);
     expect(await relay.admit()).toBe(true); relay.finish("completed");
@@ -526,4 +526,30 @@ for(const opaque of [false,true])test(`review27: failed ${opaque?'CONNECT':'HTTP
  const mocked=opaque?spyOn(nodeNet,'connect').mockImplementation(((...args:unknown[])=>{if(typeof args[0]==='object'&&args[0]!==null&&'port' in args[0]&&Number(args[0].port)===port)throw new Error('Odysseus dial cannot start');return Reflect.apply(originalConnect,nodeNet,args);}) as typeof nodeNet.connect):spyOn(nodeHttp,'request').mockImplementation(((...args:Parameters<typeof nodeHttp.request>)=>{if(args[0] instanceof URL&&Number(args[0].port)===port)throw new Error('Odysseus HTTP cannot start');return Reflect.apply(originalHttp,nodeHttp,args);}) as typeof nodeHttp.request);
  const attempt=async()=>opaque?Number(/^HTTP\/1.1 (\d+)/.exec(await tunnel(proxy.socketPath,`127.0.0.1:${port}`,''))?.[1]??0):(await get(proxy.socketPath,`http://127.0.0.1:${port}/`)).status;
  try{expect(await attempt()).toBe(502);expect(contacted.size,'CONSTRUCTOR_THROW_NEVER_CREATES_CONTACTED_GRANT').toBe(0);expect(records[0]).toMatchObject({outcome:'failed',reason:'upstream_unreachable',dispatched:false});tainted=true;expect(await attempt(),'LATER_RESTRICTED_REQUEST_STILL_NEEDS_NETWORK_CARD').toBe(403);expect(cards).toBe(1);expect(contacted.size).toBe(0);}finally{mocked.mockRestore();proxy.stop();await new Promise<void>(r=>origin.close(()=>r()));}
+});
+
+test("a superseded Network card reports a byte budget spent by a concurrent connection", async () => {
+  const records: EgressRecord[] = [];
+  const shown = Promise.withResolvers<void>();
+  const answer = Promise.withResolvers<"superseded">();
+  const safety = { evidenceRevision: "one", trustRevision: "trust", authorityEpoch: "epoch",
+    scope: "voyage", policyHash: null, restricted: true, recordingAvailable: true, authorityCurrent: true };
+  const proxy = await startEgressProxy({ ...defaults(records), maxBytes: 8,
+    admissionSafety: { read: () => ({...safety}), subscribe: () => () => {} },
+    taint: { allow: [], tainted: () => true, contacted: () => false,
+      approve: async () => { shown.resolve(); return answer.promise; } },
+  });
+  const signal = new AbortController().signal;
+  try {
+    const pending = get(proxy.socketPath, "http://127.0.0.1/harbour");
+    await Promise.race([shown.promise, pending.then(() => { throw new Error("Request ended before its approval card"); })]);
+    const concurrent = proxy.inference("POST", new URL("https://pylos.example/"), signal);
+    expect(await concurrent.admit()).toBe(true);
+    expect(concurrent.charge(8)).toEqual({ok: true});
+    concurrent.finish("completed");
+    safety.evidenceRevision = "two";
+    answer.resolve("superseded");
+    expect((await pending).status).toBe(403);
+    expect(records.at(-1)).toMatchObject({ reason: "max_bytes_per_turn", dispatched: false });
+  } finally { answer.resolve("superseded"); proxy.stop(); }
 });
