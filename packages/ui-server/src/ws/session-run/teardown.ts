@@ -93,8 +93,9 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
     turn.revision = undefined;
     turn.startedAt = undefined;
     turn.backendStarted = false;
-    const failureEnd = lifecycle?.timer("closing")("failure_recording");
-    if (await failureRecording.finish(turn.sessionId)) failureEnd?.();
+    // Its catalog writes may confirm after the terminal; the step then ends late.
+    const failureEnd = lifecycle?.timer("closing", {}, { lateEnd: true })("failure_recording");
+    await failureRecording.finish(turn.sessionId, () => failureEnd?.());
     lifecycle?.finish(outcome.lifecycle, outcome.reason ?? null);
     run.clientReceiptEligible = !!lifecycle && prepareClientTurnReceipt(host, run.turnId, current.principalId, lifecycle.settled);
     clearTimeout(timeoutHandle);

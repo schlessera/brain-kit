@@ -191,6 +191,77 @@ test("authority revoked during billing still times reached failure cleanup", asy
   } finally { revoke.mockRestore(); host.close(); stream.close(); db.close(); }
 });
 
+test("an answered turn through the real catalog ends failure recording once its boundary is stored", async () => {
+  const { WsHost } = await import("../src/ws/host");
+  const { runSession } = await import("../src/ws/run-session");
+  const { createSessionCatalog } = await import("../src/ws/session-catalog");
+  const { createStaticBackendRegistry } = await import("../src/agent/backend");
+  const { createActivityStream } = await import("../src/activity/stream");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const { testAuthorization } = await import("./helpers/principal");
+  let answered = false;
+  const backend = makeFakeBackend({ id: "pi",
+    async getHistory() {
+      return answered ? [{ role: "user", content: "Plan Ithaca", toolCalls: [] }, { role: "assistant", content: "Set sail for Ithaca.", toolCalls: [] }] : [];
+    },
+    async startTurn(req) {
+      req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
+      answered = true;
+      req.bridge.emit({ type: "result", sessionId: "ithaca", durationMs: 1, numTurns: 1, isError: false });
+    } });
+  const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store), catalog = createSessionCatalog(() => db);
+  const host = new WsHost({ registry: createStaticBackendRegistry([backend], "pi"), catalog, activity: { store, stream } });
+  try {
+    await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
+    await catalog.settled?.();
+    const record = store.lifecycles()[0]!;
+    expect(db.query("SELECT turn_id FROM turn_boundaries").all(), "ANSWER_BOUNDARY_IS_STORED").toEqual([{ turn_id: record.turnId }]);
+    const step = record.openSubPhases?.find(step => step.name === "failure_recording");
+    expect(step?.endedAt, "ANSWERED_TURN_ENDS_FAILURE_RECORDING").toBeNumber();
+    expect(step!.endedAt!).toBeGreaterThanOrEqual(step!.startedAt);
+  } finally { host.close(); stream.close(); db.close(); }
+});
+
+for (const stored of [true, false]) test(`a boundary write still pending at the terminal ${stored ? "ends" : "leaves"} failure recording late without a close-path wait`, async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const f = fixture(), write = Promise.withResolvers<boolean>();
+  const replay = new FailureReplay({ recordTurnBoundary() { return write.promise; } } as unknown as import("../src/ws/session-catalog").SessionCatalog,
+    { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }]; } });
+  try {
+    Object.assign(f.run, { failureRecording: await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal) });
+    await teardownTurn(f.run, outcome);
+    const terminal = f.store.lifecycle("turn-ithaca")!;
+    expect(terminal.endedAt, "TERMINAL_DOES_NOT_WAIT_FOR_CATALOG_WRITE").toBe(1000);
+    expect(terminal.openSubPhases?.find(step => step.name === "failure_recording")?.endedAt, "UNCONFIRMED_WRITE_IS_NOT_COMPLETE").toBeNull();
+    f.advance(40); write.resolve(stored); await write.promise; await Bun.sleep(0);
+    const after = f.store.lifecycle("turn-ithaca")!;
+    expect(after.openSubPhases?.find(step => step.name === "failure_recording"), "CONFIRMED_WRITE_ENDS_STEP_LATE")
+      .toMatchObject(stored ? { startedAt: 1000, endedAt: 1040, elapsedMs: 40 } : { endedAt: null });
+    expect([after.endedAt, after.outcome], "LATE_END_KEEPS_TERMINAL").toEqual([1000, "error"]);
+  } finally { write.resolve(true); f.close(); }
+});
+
+test("a terminal record accepts only a late failure_recording end", async () => {
+  const f = fixture();
+  try {
+    const timer = f.lifecycle.timer("closing"), late = f.lifecycle.timer("closing", {}, { lateEnd: true });
+    const scopeEnd = timer("scope_finish"), lateIndex = late("index_settle"), failureEnd = late("failure_recording");
+    f.lifecycle.finish("success");
+    const terminal = f.store.lifecycle("turn-ithaca")!;
+    f.advance(25); scopeEnd(); lateIndex();
+    expect(f.store.lifecycle("turn-ithaca"), "ORDINARY_STEP_CANNOT_END_AFTER_TERMINAL").toEqual(terminal);
+    f.store.writeLifecycle({ ...terminal, openSubPhases: terminal.openSubPhases!.map(step => ({ ...step, endedAt: 2000 })) });
+    expect(f.store.lifecycle("turn-ithaca")!.openSubPhases?.find(step => step.name === "scope_finish")?.endedAt, "STORE_REFUSES_OTHER_LATE_ENDS").toBeNull();
+    const stored = f.store.lifecycle("turn-ithaca")!;
+    expect(stored.openSubPhases?.find(step => step.name === "failure_recording")?.endedAt, "DIRECT_WRITE_MAY_END_FAILURE_RECORDING").toBe(2000);
+    expect(stored.openSubPhases?.find(step => step.name === "index_settle")?.endedAt, "LATE_FLAG_IS_NOT_A_STORE_EXEMPTION").toBeNull();
+    failureEnd();
+    expect(f.store.lifecycle("turn-ithaca")!.openSubPhases?.find(step => step.name === "failure_recording")?.endedAt, "A LATE END IS WRITTEN ONCE").toBe(2000);
+  } finally { f.close(); }
+});
+
 test("real catalog write failure is reflected by replay completion despite its logged catch", async () => {
   const { FailureReplay } = await import("../src/ws/turn-failures");
   const { createSessionCatalog } = await import("../src/ws/session-catalog");
@@ -220,7 +291,11 @@ test("pending catalog writes do not add a wait or claim completion", async () =>
   const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }]; } });
   try {
     const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
-    expect(await recording.finish("ithaca"), "PENDING_CATALOG_WRITE_IS_UNCONFIRMED_WITHOUT_NEW_WAIT").toBe(false);
+    let confirmed = 0;
+    expect(await recording.finish("ithaca", () => { confirmed++; }), "PENDING_CATALOG_WRITE_IS_UNCONFIRMED_WITHOUT_NEW_WAIT").toBe(false);
+    expect(confirmed, "PENDING_WRITE_IS_NOT_CONFIRMED_YET").toBe(0);
+    stored.resolve(true); await stored.promise; await Bun.sleep(0);
+    expect(confirmed, "CONFIRMED_WRITE_REPORTS_ONCE").toBe(1);
   } finally { stored.resolve(true); }
 });
 

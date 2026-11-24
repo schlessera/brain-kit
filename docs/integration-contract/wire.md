@@ -752,7 +752,10 @@ or terminal writes. The current open phase names are:
   before the existing lifecycle terminal. An unopened scope, failed write or
   pending write cannot complete that step. `index_settle` and
   `failure_recording` also stay unended when the flush, history read or catalog
-  write failed, or a catalog write remains unconfirmed. Catalog confirmation
+  write failed, or a catalog write remains unconfirmed. A `failure_recording`
+  whose catalog writes are confirmed only after the terminal ends then, with
+  its actual end, so its `endedAt` may follow the record's `endedAt`; one
+  that fails stays unended. Catalog confirmation
 checks the stored turn and failure after an ignored insert conflict; an
 unrelated result-reader wait expiring does not invalidate a later successful
 recording. Logging or absorbing
@@ -809,7 +812,8 @@ Optional nullable `recorderSettledAt` and `idleEmittedAt` milestones follow
 `endedAt`: they confirm recorder settlement and the actual idle emission,
 respectively. They never move the existing end stamp or backend duration.
 Cancelled-before-start status is not idle, so it has no idle timestamp. Only
-these trailing receipts may enrich a terminal record, once each; restart
+these trailing receipts and a late `failure_recording` end may enrich a
+terminal record, once each; restart
 interruption remains terminal and cannot be enriched by a stale writer. Replaying
 an identical terminal or trailing receipt performs no write and emits no delta.
 
