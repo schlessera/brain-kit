@@ -47,7 +47,10 @@ function delaySampler(): () => Pick<AdmissionLoad, "eventLoopMaxMs" | "eventLoop
     clearInterval(timer);
     monitor?.disable();
     sample(true);
-    return histogram.count ? { eventLoopMaxMs: histogram.max / 1e6, eventLoopP99Ms: histogram.percentile(99) / 1e6 } : {};
+    if (!histogram.count) return {};
+    const max = histogram.max;
+    // The percentile bucket's upper edge may exceed the largest actual sample.
+    return { eventLoopMaxMs: max / 1e6, eventLoopP99Ms: Math.min(max, histogram.percentile(99)) / 1e6 };
   };
 }
 

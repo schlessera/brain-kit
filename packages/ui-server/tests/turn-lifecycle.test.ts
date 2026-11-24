@@ -319,6 +319,19 @@ test("admission load records a blocked loop and freezes at backend invocation", 
   } finally { monitor.mockRestore(); db.close(); }
 });
 
+test("a single admission delay has its observed maximum as its 99th percentile", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  let now = 0;
+  const clock = spyOn(performance, "now").mockImplementation(() => now);
+  try {
+    const turn = createTurnLifecycle(store, "ithaca-one-delay", null, 0, () => {}, () => now);
+    turn.startAdmission();
+    now = 80;
+    turn.mark("backendInvokedAt");
+    expect(store.lifecycle("ithaca-one-delay")!.admissionLoad).toMatchObject({ eventLoopMaxMs: 80, eventLoopP99Ms: 80 });
+  } finally { clock.mockRestore(); db.close(); }
+});
+
 test("admission records a stall before the first tick and ends at refusal before cleanup", async () => {
   const db = createUiDb(":memory:");
   try {
