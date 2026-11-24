@@ -216,7 +216,7 @@ test("build identity validates revision and retains runtime evidence with termin
   } finally { db.close(); }
 });
 
-test.each(["receipt", "legacy"])("real dispatch attributes a queued index delay and final observation only to their closing steps (%s)", async mode => {
+test.each(["empty", "receipt", "joined", "failed", "legacy"] as const)("real dispatch attributes index settlement and final observation to their closing steps (%s)", async mode => {
   const { WsHost } = await import("../src/ws/host.js");
   const { runSession } = await import("../src/ws/run-session.js");
   const { createSessionCatalog } = await import("../src/ws/session-catalog.js");
@@ -235,10 +235,18 @@ test.each(["receipt", "legacy"])("real dispatch attributes a queued index delay 
   const setup = spyOn(bridges, "makeBridge").mockImplementation(async (...args) => {
     const bridge = await makeBridge(...args);
     const { createIndexBatch } = await import("../src/brain/index-batch.js");
-    const batch = createIndexBatch({ index: async () => { now += 500; } });
-    batch.queue(["notes/ithaca.md"], undefined, args[1].turnId);
+    const batch = createIndexBatch({ index: async () => {
+      now += 500;
+      if (mode === "failed") throw Error("Ithaca index unavailable");
+    } });
+    if (mode !== "empty") batch.queue(["notes/ithaca.md"], undefined, args[1].turnId);
+    const barrier = batch.barrier;
+    if (mode === "joined") batch.barrier = async (signal, observation) => {
+      // A second caller arrives while the first is still awaiting the receipt.
+      await Promise.all([barrier(), barrier(signal, observation)]);
+    };
     const legacy = { pending: () => pending, async barrier() { now += 500; pending = false; } } as import("../src/brain/index-batch.js").IndexBatch;
-    bridges.applyIndexReads({ host: args[0], signal: new AbortController().signal }, bridge, mode === "receipt" ? batch : legacy, undefined);
+    bridges.applyIndexReads({ host: args[0], signal: new AbortController().signal }, bridge, mode === "legacy" ? legacy : batch, undefined);
     return bridge;
   });
   const policy = createGovernancePolicyReader("/nonexistent-odysseus-fixture").load();
@@ -255,12 +263,19 @@ test.each(["receipt", "legacy"])("real dispatch attributes a queued index delay 
   try {
     await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
     const record = store.lifecycles()[0]!;
-    expect(record.openSubPhases?.filter(s => s.phase === "closing" && ["index_settle", "final_observation"].includes(s.name)), "CLOSING_DELAYS_ARE_ATTRIBUTED")
-      .toEqual([{ phase: "closing", name: "index_settle", pending: true, startedAt: 1100, endedAt: 1600, elapsedMs: 500,
-        ...(mode === "receipt" ? { indexSettle: { queuedPaths: 1, updates: 1, updateMs: 500, firstAlreadyRunning: false, lastOutcome: "complete" } } : {}) },
-        { phase: "closing", name: "final_observation", startedAt: 1600, endedAt: 1900, elapsedMs: 300 }]);
+    const delay = mode === "empty" ? 0 : 500;
+    const settledAt = 1100 + delay, terminal = settledAt + 300;
+    const expected = mode === "empty"
+      ? { queuedPaths: 0, updates: 0, updateMs: 0, firstAlreadyRunning: false, lastOutcome: null }
+      : { queuedPaths: 1, updates: 1, updateMs: 500, firstAlreadyRunning: mode === "joined", lastOutcome: mode === "failed" ? "failed" : "complete" } as const;
+    const indexStep = record.openSubPhases?.find(s => s.phase === "closing" && s.name === "index_settle");
+    expect(indexStep?.indexSettle, "STORED_INDEX_SETTLEMENT_EVIDENCE").toEqual(mode === "legacy" ? undefined : expected);
+    expect(indexStep).toMatchObject({ pending: mode !== "empty", startedAt: 1100,
+      endedAt: mode === "failed" ? null : settledAt, elapsedMs: mode === "failed" ? terminal - 1100 : delay });
+    expect(record.openSubPhases?.find(s => s.phase === "closing" && s.name === "final_observation"))
+      .toMatchObject({ startedAt: settledAt, endedAt: terminal, elapsedMs: 300 });
     expect(record.openSubPhases?.filter(s => s.name === "journal_finish").map(s => s.elapsedMs)).toEqual([300, 0]);
-    expect(record).toMatchObject({ endedAt: 1900, recorderSettledAt: 1900, idleEmittedAt: 1900 });
+    expect(record).toMatchObject({ endedAt: terminal, recorderSettledAt: terminal, idleEmittedAt: terminal });
   } finally { setup.mockRestore(); monotonic.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
 });
 

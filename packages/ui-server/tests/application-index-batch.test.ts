@@ -166,8 +166,10 @@ test("settle counts only local paths and attributes the receipts of every joined
     receipt: receipt => { receipts.push(receipt.durationMs); } });
   const observe = (): NonNullable<Parameters<typeof batch.barrier>[1]> => ({ turnId: "ithaca", stats: { queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null } });
   const empty = observe();
+  let emptySnapshot: typeof empty.stats | undefined;
+  empty.observed = () => { emptySnapshot = { ...empty.stats }; };
   await batch.barrier(undefined, empty);
-  expect(empty.stats).toEqual({ queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null });
+  expect(emptySnapshot).toEqual({ queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null });
   batch.queue(["notes/raft.md"], undefined, "ithaca");
   const first = observe(), running = batch.barrier(undefined, first);
   batch.queue(["notes/loom.md", "notes/loom.md"], undefined, "scheria");
