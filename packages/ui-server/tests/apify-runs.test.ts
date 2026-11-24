@@ -704,6 +704,7 @@ describe("results", () => {
     const h=harness(),ctx=context(),{run,results}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
     const first=await h.runs.results(ctx,{run,cursor:results.bounded_cursor,limit:2});
     expect(first.items).toEqual([]);
+    expect(first.warnings.join(" ")).toContain("does not establish whether the target was valid. Run charges may still apply");
     expect(first.next_cursor).toEqual(expect.any(String));
     let cursor=first.next_cursor;
     let text="";

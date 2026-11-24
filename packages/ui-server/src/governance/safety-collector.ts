@@ -2,7 +2,7 @@
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { inputTaintSignals, outputTaintSignals, type IngestionSignal } from "../activity/ingestion-taint.js";
-import { checkpointGrepMatches, grepNotePath, type GrepCheckpoint } from "../activity/checkpoint-grep.js";
+import { checkpointGrepMatches, grepCheckpointDirectory, grepNotePath, type GrepCheckpoint } from "../activity/checkpoint-grep.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
@@ -18,7 +18,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;owed:boolean;refused:boolean;uncertain:boolean};
+ type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;unqualifiedGrepContent?:boolean;owed:boolean;refused:boolean;uncertain:boolean};
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
  // to admit a call under it, for each tool name it came under, and whether
@@ -117,8 +117,11 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     const op=previous??operation(tool);
     if(!op.inputHashes.has(inputHash)&&op.inputHashes.size>=16)throw new Error("Safety input revision capacity exceeded");
     op.inputHashes.add(inputHash);op.admitted=false;operations.set(toolUseId,op);
-    if(tool==="Grep"&&options.backendId==="claude"&&options.brainPath&&options.grepCheckpoint)
-     op.grepNote=grepNotePath(input,options.brainPath,options.grepCheckpoint);
+    if(tool==="Grep"&&options.backendId==="claude"){
+      if(options.brainPath&&options.grepCheckpoint) op.grepNote=grepNotePath(input,options.brainPath,options.grepCheckpoint);
+      if(input.output_mode==="content"&&input["-n"]===false&&typeof input.path==="string"&&input.path)
+        op.unqualifiedGrepContent ||= !(options.brainPath&&options.grepCheckpoint&&grepCheckpointDirectory(input.path,options.brainPath,options.grepCheckpoint));
+    }
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
      if(op.signals.some(prior=>prior.detector===signal.detector&&prior.key===signal.key))continue;
      const item=observed(toolUseId,signal.detector,op.id);
@@ -157,7 +160,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
       &&checkpointGrepMatches(options.grepCheckpoint,op.grepNote,output);
     // The checkpoint proves these are lines of note content, including any
     // path-like text in a numbered context line.
-    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked,Boolean(op.grepNote));
+    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked,Boolean(op.grepNote||op.unqualifiedGrepContent));
     for(const signal of signals){
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);

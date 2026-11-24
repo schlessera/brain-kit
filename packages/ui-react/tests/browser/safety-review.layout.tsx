@@ -114,9 +114,11 @@ test('only a complete healthy zero-trigger read restores normal; partial state n
 });
 
 test('read-only clients keep evidence without grant controls and retirement purges an open panel',async()=>{
- await scene(320,'dark');flushSync(()=>ui!.stores.safety.setState({capabilities:{...ui!.stores.safety.getState().capabilities!,review:false}}));
+ await scene(320,'dark');flushSync(()=>ui!.stores.safety.setState({capabilities:{...ui!.stores.safety.getState().capabilities!,review:false,readOnlyReason:"owner_required"}}));
  await userEvent.click(buttonForTool());const panel=page.getByRole('dialog',{name:'Safety input details'});await expect.element(panel).toBeVisible();
  expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Only the authenticated owner');
+ flushSync(()=>ui!.stores.safety.setState({capabilities:{...ui!.stores.safety.getState().capabilities!,readOnlyReason:"review_unavailable"}}));
+ expect(document.querySelector('[data-safety-details]')!.textContent).toContain('This host has not enabled safety reviews');
  expect([...document.querySelectorAll('[data-safety-details] [role=button]')].some(e=>e.textContent==='Mark as safe'),'READ_ONLY_VIEW_OFFERS_NO_GRANT').toBe(false);
  await patch({action:'retire'});await expect.poll(()=>ui!.stores.safety.getState().reason,{timeout:5000}).toBe('retired');
  expect(document.querySelector('[data-safety-details]'),'RETIRED_HISTORY_PURGES_OPEN_DETAILS').toBeNull();
@@ -394,6 +396,10 @@ for (const width of [320,1280]) test(`${width}: refused fetches need no verdict 
  expect(section.querySelector('[role=button],button')).toBeNull();
  flushSync(()=>ui!.stores.safety.setState({records:{...state.records,[exposure.id]:{...exposure,state:'interrupted_unknown'}},projection:state.projection}));
  expect(section.textContent).toContain('Delivery could not be confirmed');
+ flushSync(()=>ui!.stores.safety.setState({records:{...state.records,[exposure.id]:{...exposure,state:"open"}},
+   projection:{...projection,coverage:{...projection.coverage,epochs:[]}}}));
+ expect(section.textContent).not.toContain("Input is still arriving");
+ expect(section.textContent).toContain("Delivery could not be confirmed");
  expect(section.textContent).toContain(width===320?'New chat in the chat header':'New conversation in Sessions');
 });
 

@@ -706,8 +706,10 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       const nextOffset = offset + read;
       const more = !truncated && (response.data.length >= asked || nextOffset < offset + response.data.length) && nextOffset < row.max_result_items;
       if (pageFull && more) warnings.push("Continue with next_cursor on this run. Each page uses a result request.");
-      if (!offset && !response.data.length && row.state === "succeeded")
-        warnings.push("The run succeeded and the dataset returned no items. This does not establish whether the target was valid. Run charges may still apply.");
+      if (row.state === "succeeded" && !truncated && !items.some(item=>item!==null)) {
+        const outcome=!offset&&!response.data.length?"The run succeeded and the dataset returned no items.":"The run succeeded and this page contained no visible items.";
+        warnings.push(outcome+" This does not establish whether the target was valid. Run charges may still apply.");
+      }
       if (truncated) warnings.push("Results were cut at the policy's byte limit for this run.");
       if (row.state !== "succeeded") warnings.push("The run has not succeeded; these results may be incomplete.");
       await context.untrusted({ operation: "results", detail: `apify run results: ${read} items` });

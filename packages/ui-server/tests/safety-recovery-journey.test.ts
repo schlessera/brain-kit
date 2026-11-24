@@ -302,9 +302,9 @@ test("a numbered search is attributed only to its verified single note", async (
       shellProxied: () => true, signal: new AbortController().signal });
     const bytes = "1-The crew assembled.\n2:The sail was ready.\n3-The ship departed.";
     const response = { mode: "content", numFiles: 0, filenames: [], numLines: 3, totalLines: 3, content: bytes };
-    async function search(id: string, path: string, result: unknown) {
+    async function search(id: string, path: string, result: unknown, numbered=true) {
       collector.admitting?.(id, "Grep");
-      await collector.begin(id, "Grep", { path, pattern: "sail", output_mode: "content", "-C": 1 });
+      await collector.begin(id, "Grep", { path, pattern: "sail", output_mode: "content", "-C": 1, "-n":numbered });
       await collector.result(id, "Grep", JSON.stringify(result), true);
       return f.writes.safety(null, "ithaca").unresolvedCount;
     }
@@ -324,6 +324,9 @@ test("a numbered search is attributed only to its verified single note", async (
     expect(await search("unverified", join(f.root, "troy.md"), {...response, content:"notes/ithaca.md",numLines:1,totalLines:1})).toBe(4);
     symlinkSync("ithaca.md", join(snapshot, "alias.md"));
     expect(await search("alias", join(f.root, "alias.md"), response)).toBe(5);
+    const unnumbered={...response,content:"notes/ithaca.md:sail",numLines:1,totalLines:1};
+    expect(await search("directory-unnumbered",f.root,unnumbered,false)).toBe(5);
+    expect(await search("relative-unnumbered","ithaca.md",unnumbered,false)).toBe(6);
     untrustedMarkOperations(f.db).mark("ithaca.md", f.principal.id, Date.now());
     expect(await search("marked", path, response)).toBeGreaterThan(5);
     expect(queryGovernanceEvents(f.db, { sessionId: "ithaca", kinds: ["taint"], limit: 100 })

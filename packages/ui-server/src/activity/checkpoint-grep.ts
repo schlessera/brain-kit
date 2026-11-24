@@ -5,6 +5,15 @@ import { join, resolve } from "node:path";
 /** The read-only checkpoint mounted at the brain path for this strict worker. */
 export interface GrepCheckpoint { root: string; masked: readonly string[] }
 
+/** A relative tool path can resolve from a worker cwd the host did not see. */
+export function grepCheckpointDirectory(path:string, brainPath:string, checkpoint:GrepCheckpoint): boolean {
+  if (!isWithin(brainPath,path,{includeRoot:true}) || resolve(path)!==path ||
+      checkpoint.masked.some(mask=>isWithin(resolve(brainPath,mask),path,{includeRoot:true,trailingSeparator:"boundary"}))) return false;
+  const directory=join(checkpoint.root,path.slice(brainPath.length));
+  try { return realpathSync(directory)===directory && lstatSync(directory).isDirectory(); }
+  catch { return false; }
+}
+
 /** Qualify only an absolute single-file call: a relative path may resolve
  * against a runtime cwd the host did not observe. Never read a live brain here. */
 export function grepNotePath(input: unknown, brainPath: string, checkpoint: GrepCheckpoint): string | undefined {
