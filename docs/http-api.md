@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 206 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 207 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -55,6 +55,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/activity/runs` | S | List live roots and paginated history | Independent monitoring; preserve activity README, SDK wire shapes and detailed stats contract. |
 | GET | `/api/activity/runs/:runId` | S | Read retained run detail or pruned rollup | Independent monitoring; preserve activity README, SDK wire shapes and detailed stats contract. |
 | GET | `/api/activity/stats` | S | Read labeled runtime statistics and coverage | Independent monitoring; preserve activity README, SDK wire shapes and detailed stats contract. |
+| GET | `/api/activity/turn-timings/summary` | S | Compare turn timings by build | Owner diagnostics for the documented lifecycle timing contract. |
 | POST | `/api/auth/login` | S | Verify password and issue owner cookie | Independent client access; preserve principal README and SDK PasskeySummary promises. |
 | POST | `/api/auth/logout` | S | Revoke cookie session(s) and clear cookie | Independent client access; preserve principal README and SDK PasskeySummary promises. |
 | GET | `/api/auth/methods` | S | Report available login methods | Independent client access; preserve principal README and SDK PasskeySummary promises. |
@@ -239,7 +240,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 206 declared endpoints are mounted regardless of backend, renderer or
+All 207 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -804,6 +805,7 @@ empty directory metadata is not invented.
 | GET `/api/activity/runs/:runId` | Run ID; `include=payloads` opts into tool_input/tool_output events; a `compute:` run needs `activityCompute=1` and is an unknown run without it (#3108) | `ActivityRunDetail`: retained `{ runId, detailPruned:false, spans, events, highWaterSeq, rollup? }`; after pruning `{ runId, detailPruned:true, rollup }`. Same wire mappers and accounting semantics as activity WS frames. | Never-existed run 404 `{ error: "Unknown run" }`; read failures 500 `{ error }`. Pruned detail is a successful resolution, not a missing run. |
 | GET `/api/activity/rollups` | days: truncate Number, zero/NaN/absent → 7, clamp 1–90 | `ActivityRollups`: `{ timeZone, days, jobs, sessions }`, aggregates over runs started at/after now−days. Days newest-first, in configured timezone (default UTC); invalid timezone grouping degrades to UTC. Root-only sums; unknown list cost is a floor, unknown effective cost is counted by unpricedRuns. | Read failures 500 `{ error }`. No upper bound is applied by this older aggregate route. Both cost axes round each completed group sum to four decimals at the response boundary; stored costs retain their original precision. |
 | GET `/api/activity/stats` | days: truncate Number, zero/NaN/absent → 30, clamp 1–90 | Full `ActivityRuntimeStats`, specified in the [runtime-stats contract](integration-contract/http.md#runtime-stats-get-apiactivitystats-additive-in-0370). Closed window, labeled coverage, raw sums, independent unpriced counters and nullable incomplete averages. | Read/computation failures 500 `{ error }`. Does not read brain.db. |
+| GET `/api/activity/turn-timings/summary` | Positive integer `limit` (default 100, capped at 200), epoch-millisecond bounds `since` and `before`, optional `origin` and `outcome` | Returns `{ limit, groups }` with per-build timings and counts of open and absent observations. See the [turn timing summary contract](integration-contract/wire.md#turn-timing-summary). | Invalid limit or window returns 400. Requires owner authorization. |
 
 For fractional/negative finite values these rules produce whole-day windows;
 query conversion does not produce a validation 400. Aggregate arrays and

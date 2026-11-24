@@ -3,6 +3,8 @@ import { parseBuildRevision } from "../config/env.js";
 import type { ActivityTurnLifecycle, ActivityTurnSubPhase, ActivityTurnOpenSubPhase, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { AwaitableActivityStore } from "./store.js";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { startAdmissionLoad } from "./admission-load.js";
+import { serverActivityDeltaSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { orderedWrites } from "./store-writes.js";
 
 /**
@@ -10,7 +12,9 @@ import { orderedWrites } from "./store-writes.js";
  * Steps ride on the record's next persisted milestone or terminal, so timing
  * adds no write to the turn path.
  */
-export type PhaseTimer = (name: string) => () => void;
+type StepDetails = Pick<ActivityTurnOpenSubPhase, "aliasScan" | "queueAhead" | "indexSettle">;
+type StepEnd = (() => void) & { annotate?(details: StepDetails): void };
+export type PhaseTimer = (name: string, details?: StepDetails) => StepEnd;
 
 const BACKEND_STEP_LIMIT = 16, BACKEND_STEP_BYTES = 2048;
 const BACKEND_DIAGNOSTIC_LIMIT = 8, BACKEND_DIAGNOSTIC_BYTES = 256, BACKEND_NAME_BYTES = 96;
@@ -52,19 +56,21 @@ export function lastLifecycleObservation(record: ActivityTurnLifecycle): number 
 type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt" | "recorderSettledAt" | "idleEmittedAt";
 
 export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,
-  acceptedAt: number, onWrite: () => void, clock?: () => number, principalId?: string, identity: { buildRevision?: string } = {}) {
+  acceptedAt: number, onWrite: () => void, clock?: () => number, principalId?: string, identity: { buildRevision?: string; queuedAt?: number } = {}) {
   // Keep one epoch anchor for the whole lifecycle. Wall-clock corrections must
   // not reorder admission, backend observations or terminal boundaries.
   if (!clock) {
     const epoch = Date.now(), started = performance.now();
     clock = () => epoch + (performance.now() - started);
   }
+  let stopAdmissionLoad: ReturnType<typeof startAdmissionLoad> | undefined;
   const observedClock = () => { try { return clock(); } catch { return undefined; } };
   const buildRevision = parseBuildRevision(identity.buildRevision);
   const record: ActivityTurnLifecycle = {
+    ...(identity.queuedAt !== undefined ? { queuedAt: identity.queuedAt } : {}),
     packageVersion: packageInfo.version, ...(buildRevision ? { buildRevision } : {}),
     recorderSettledAt: null, idleEmittedAt: null,
-    hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
+    holds: [], hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,
     journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstRelayRequestAt: null, backendMissingEvidence: [], backendEvidenceOmitted: 0, firstFrameAt: null, failureObservedAt: null,
     endedAt: null, outcome: null, reason: null, totalElapsedMs: null, timeToFirstFrameMs: null,
@@ -95,30 +101,41 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     steps.splice(next < 0 ? steps.length : next, 0, step);
     if (step.phase === "backend") applyBounds();
   };
-  // `lateEnd` lets a closing step whose work confirms after the terminal end
-  // then (#4520). That end is the one write it adds, and only after the terminal.
-  const phaseTimer = (phase: string, metadata: { pending?: boolean } = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => name => {
+  const startAdmission = () => {
+    if (!record.admissionLoad && record.endedAt === null) stopAdmissionLoad = startAdmissionLoad(record);
+  };
+  const stopAdmission = (backendStarted = false) => {
+    stopAdmissionLoad?.(backendStarted);
+    stopAdmissionLoad = undefined;
+  };
+  // A late closing step can persist its confirmed end after the terminal write (#4520).
+  const phaseTimer = (phase: string, metadata: Pick<ActivityTurnOpenSubPhase, "pending" | "indexSettle"> = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => (name, details) => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
     const startedAt = observedClock(); if (startedAt === undefined) return () => {};
-    const step = { phase, name, ...metadata, startedAt, endedAt: null as number | null, elapsedMs: null };
+    const step = { phase, name, ...metadata, ...details, startedAt, endedAt: null as number | null, elapsedMs: null };
     if (phase === "governed" || phase === "journal") {
       (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
       record.subPhases.sort((a, b) => a.startedAt - b.startedAt);
     }
     else addOpenStep(step);
     const late = lateEnd && phase === "closing";
-    return () => {
+    const end = () => {
       if (step.endedAt !== null) return;
       if (record.endedAt === null) { if (phase !== "backend" || backendOpen()) step.endedAt = observedClock() ?? null; return; }
       if (!late) return;
       const at = observedClock(); if (at === undefined) return;
       step.endedAt = at; persist();
     };
+    return Object.assign(end, { annotate(details: StepDetails) {
+      if (step.endedAt === null && record.endedAt === null) Object.assign(step, details);
+    } });
   };
   const startupTiming: NonNullable<StartTurnRequest["startupTiming"]> = {
     start: phaseTimer("backend"),
     worker(name, durationMs) {
-      if (!backendOpen() || !Number.isFinite(durationMs) || durationMs < 0) return;
+      // Claude delivers these CLI-clock durations with its result, after relay receipt.
+      const resultDuration = name === "cli_time_to_request" || name === "cli_ttft" || name === "cli_ttft_stream";
+      if (record.backendInvokedAt === null || record.endedAt !== null || (!resultDuration && !backendOpen()) || !Number.isFinite(durationMs) || durationMs < 0) return;
       const at = observedClock(); if (at === undefined) return;
       addOpenStep({ phase: "backend", name, startedAt: at, endedAt: at, elapsedMs: null,
         timeBase: "worker", workerElapsedMs: durationMs });
@@ -141,6 +158,13 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
       if (record.backendMissingEvidence!.includes(name)) return;
       record.backendMissingEvidence!.push(name); applyBounds();
     },
+    mcpInit(servers) {
+      if (record.backendInvokedAt === null || record.endedAt !== null || record.backendMcpInit) return;
+      const schema = serverActivityDeltaSchema.shape.lifecycle.unwrap().shape.backendMcpInit.unwrap();
+      const parsed = servers.length <= 8 ? schema.safeParse(servers) : undefined;
+      if (parsed?.success && Buffer.byteLength(JSON.stringify(parsed.data)) <= 192 &&
+        parsed.data.every(server => Buffer.byteLength(server.name) <= 48)) record.backendMcpInit = parsed.data;
+    },
     received() {
       if (!backendOpen()) return;
       const at = observedClock(); if (at === undefined) return; record.firstRelayRequestAt = at;
@@ -150,6 +174,8 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   };
   return {
     startupTiming,
+    startAdmission,
+    stopAdmission,
     recordHostEvent,
     settled: writes.settled,
     recordCancellation(principalId: string, kind: "turn" | "ask_user" = "turn") {
@@ -160,7 +186,11 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     mark(milestone: LifecycleMilestone, at = observedClock()) {
       if ((record.endedAt !== null && milestone !== "recorderSettledAt" && milestone !== "idleEmittedAt") || record[milestone] != null) return;
+      if (milestone === "backendInvokedAt" || milestone === "failureObservedAt") {
+        stopAdmission(milestone === "backendInvokedAt");
+      }
       if (at === undefined) return;
+      if (milestone === "dequeuedAt") startAdmission();
       record[milestone] = at;
       persist();
     },
@@ -182,6 +212,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     finish(outcome: ActivitySpanOutcome, reason: string | null = null) {
       if (record.endedAt !== null) return;
+      stopAdmission();
       const at = observedClock(); if (at === undefined) return;
       record.endedAt = at; record.outcome = outcome; record.reason = reason; persist();
     },
@@ -196,7 +227,7 @@ export function lifecycleTiming(record: ActivityTurnLifecycle): ActivityTurnLife
   return boundBackendEvidence({ ...record,
     totalElapsedMs: elapsed(record.acceptedAt, record.endedAt),
     timeToFirstFrameMs: elapsed(record.acceptedAt, record.firstFrameAt),
-    queueWaitMs: elapsed(record.acceptedAt, record.dequeuedAt),
+    queueWaitMs: elapsed(record.queuedAt ?? record.acceptedAt, record.dequeuedAt),
     governedAdmissionMs: phase(record.governedStartedAt, record.governedAcquiredAt),
     budgetAdmissionMs: phase(record.budgetStartedAt, record.budgetAdmittedAt),
     journalBeginMs: phase(record.journalStartedAt, record.journalBeganAt),

@@ -1,13 +1,15 @@
 import { previousDeltaSchema } from "./helpers/activity-schema-0-44.js";
 /** #3355: governed admission and journal begin attribute their time to named steps. */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
+import { prepareWorkerSandboxAsync } from "@schlessera/brain-ui-sdk/internal";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
+import { createHostBoundary } from "../src/brain/host-boundary.js";
 import { createGovernedTurns } from "../src/brain/governed-turn.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { replaceNativeStartupAcquisitionForFixture } from "./helpers/fixture-native-startup.js";
@@ -64,7 +66,11 @@ test("real governed admission records each step inside governedAdmissionMs", asy
       const record = store.lifecycle("turn-ithaca")!;
       // A first strict admission refreshes its checkpoint once host scratch exists.
       expect(names(record.subPhases!, "governed"), "GOVERNED_ADMISSION_STEPS").toEqual(["gate_acquire", "startup_checkpoint", "boundary_prepare",
-        "exposure_settle", "folder_retention", "sandbox_resolve", "gate_reacquire_refresh", "startup_checkpoint_refresh", "sandbox_resolve_refresh", "data_tree", "record_policy", "exposure_records"]);
+        "exposure_settle", "folder_retention", "sandbox_resolve", "sandbox_workspaces", "sandbox_scratch", "gate_reacquire_refresh", "startup_checkpoint_refresh", "sandbox_resolve_refresh", "sandbox_workspaces", "sandbox_scratch", "data_tree", "record_policy", "exposure_records"]);
+      for (const [index, step] of record.subPhases!.entries()) {
+        if (!step.name.startsWith("sandbox_resolve")) continue;
+        expectWithin(record.subPhases!.slice(index + 1, index + 3), "governed", step.startedAt, step.endedAt!);
+      }
       expectWithin(record.subPhases!, "governed", record.governedStartedAt!, record.governedAcquiredAt!);
       expect(previousDeltaSchema.safeParse({ type: "activity_delta", runId: "voyage", seq: 1, lifecycle: record }).success, "PREVIOUS_LIFECYCLE_SCHEMA_ACCEPTS_REACQUISITION_TIMING").toBe(true);
     } finally { await hold.end(); }
@@ -95,6 +101,77 @@ test("real journal begin records each step inside journalBeginMs", async () => {
     expectWithin(record.subPhases!, "journal", record.journalStartedAt!, record.journalBeganAt!);
     const observe = record.subPhases!.find(step => step.name === "observe")!;
     expectWithin(record.subPhases!.filter(step => step.name.startsWith("observe_")), "journal", observe.startedAt, observe.endedAt!);
-    await journal.finish("turn-ithaca");
+    expect(record.subPhases![0]!.queueAhead).toEqual({ count: 0, kinds: [] });
+    let after = 0;
+    const unsubscribe = journal.onObservation(() => {}, { before() {}, after() { after++; } });
+    try {
+      await journal.finish("ithaca-frozen-sample", () => Object.assign(() => {}, {
+        annotate(details: { queueAhead?: NonNullable<Step["queueAhead"]> }) {
+          if (details.queueAhead) { Object.freeze(details.queueAhead.kinds); Object.freeze(details.queueAhead); }
+        },
+      }));
+      expect(after, "FROZEN_QUEUE_DIAGNOSTIC_RELEASES_HOLDER").toBe(1);
+      let annotations = 0;
+      await journal.finish("ithaca-unavailable-mark", () => Object.assign(() => {}, {
+        async annotate() { annotations++; throw Error("Ithaca timing observer rejected its queue mark"); },
+      }));
+      await Bun.sleep(0); // Give a detached rejection a turn to surface.
+      expect(annotations).toBe(1);
+      expect(after, "REJECTED_QUEUE_DIAGNOSTIC_RELEASES_HOLDER").toBe(2);
+    } finally { unsubscribe(); }
+    const finishes = Array.from({ length: 11 }, (_, index) =>
+      journal.finish(index === 0 ? "turn-ithaca" : "odyssey-" + index, lifecycle.timer("closing")));
+    const refused = createTurnLifecycle(store, "ithaca-refused", null, Date.now(), () => {});
+    const remove = journal.onObservation(() => {}, { before() { throw Error("Ithaca stop refused"); }, after() {} });
+    try {
+      await expect(journal.finish("ithaca-refused", refused.timer("closing"))).rejects.toThrow("Ithaca stop refused");
+      refused.finish("error");
+      expect(store.lifecycle("ithaca-refused")!.openSubPhases?.find(step => step.name === "hold_wait")?.queueAhead).toBeUndefined();
+    } finally { remove(); await Promise.all(finishes); }
+    lifecycle.finish("success");
+    const waits = store.lifecycle("turn-ithaca")!.openSubPhases!.filter(step => step.name === "hold_wait");
+    expect(waits[1]!.queueAhead).toEqual({ count: 1, kinds: ["finish"] });
+    expect(waits[10]!.queueAhead).toEqual({ count: 10, kinds: Array(8).fill("finish") });
   } finally { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("diagnostic failures cannot change sandbox preparation or the host boundary decision", async () => {
+  const brain = mkdtempSync(join(tmpdir(), "odysseus-timing-"));
+  try {
+    const boundary = createHostBoundary({ brainPath: brain, workerHost: () => ({ ok: false, requirement: "fixture" }) });
+    const expected = await boundary.prepare();
+    const sandbox = await prepareWorkerSandboxAsync(brain, { areas: [] });
+    const fail = (): never => { throw Error("Ithaca timing unavailable"); };
+    for (const timing of [fail, () => fail]) {
+      expect(await boundary.prepare(undefined, undefined, timing)).toEqual(expected);
+      expect(await prepareWorkerSandboxAsync(brain, { areas: [], timing })).toEqual(sandbox);
+    }
+  } finally { rmSync(brain, { recursive: true, force: true }); }
+});
+
+test("private-state alias counts follow entries visited on each admission check", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-scan-"));
+  const brain = join(root, "brain"), state = join(root, "state");
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    mkdirSync(brain); mkdirSync(state);
+    writeFileSync(join(state, "record"), ""); linkSync(join(state, "record"), join(root, "link"));
+    const boundary = createHostBoundary({ brainPath: brain, privateStatePaths: [{ setting: "journal", path: state }],
+      workerHost: () => ({ ok: false, requirement: "fixture" }) });
+    const expected = await boundary.prepare();
+    const freeze = (details?: Pick<Step, "aliasScan">) => { if (details?.aliasScan) Object.freeze(details.aliasScan); };
+    expect(await boundary.prepare(undefined, undefined, (_name, details) => {
+      freeze(details);
+      return Object.assign(() => {}, { annotate: freeze });
+    }), "FROZEN_ALIAS_DIAGNOSTIC_CANNOT_REFUSE_ADMISSION").toEqual(expected);
+    for (const count of [1, 2]) {
+      writeFileSync(join(brain, String(count)), "");
+      const id = "ithaca-" + count;
+      const lifecycle = createTurnLifecycle(store, id, null, Date.now(), () => {});
+      await boundary.prepare(undefined, undefined, lifecycle.timer("governed"));
+      lifecycle.finish("denied");
+      const checks = store.lifecycle(id)!.subPhases!.filter(step => step.name === "boundary_private_state" || step.name === "boundary_recheck");
+      expect(checks.map(step => step.aliasScan)).toEqual(Array(2).fill({ scans: 3, entries: count + 1 }));
+    }
+  } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
 });

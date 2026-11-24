@@ -1,3 +1,5 @@
+import { requireOwner } from "../middleware/require-owner.js";
+import { turnTimingSummary } from "../activity/turn-timing-summary.js";
 import { cacheDiagnostics } from "../activity/cache-diagnostics.js";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
@@ -150,6 +152,13 @@ export function createActivityRoutes(deps: {
           500
         );
       }
+    })
+    .get("/activity/turn-timings/summary", requireOwner(), c => {
+      const limit = Number(c.req.query("limit") ?? 100), since = Number(c.req.query("since") ?? 0);
+      const before = Number(c.req.query("before") ?? Number.MAX_SAFE_INTEGER);
+      if (!Number.isSafeInteger(limit) || limit < 1 || !Number.isFinite(since) || !Number.isFinite(before) || before <= since)
+        return c.json({ error: "Expected a positive integer limit and a nonempty epoch-millisecond window" }, 400);
+      return c.json(turnTimingSummary(db, Math.min(limit, 200), since, before, c.req.query("origin"), c.req.query("outcome")));
     })
     .get("/activity/runs", (c) => {
       try {

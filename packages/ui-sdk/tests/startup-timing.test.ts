@@ -24,7 +24,9 @@ test("startup observer failures never escape any diagnostic method or returned c
   const events: string[] = [];
   const fail = (event: string) => { events.push(event); throw Error("Ithaca diagnostics unavailable"); };
   const timing = safeStartupTiming({ start: name => fail(`start:${name}`), worker: name => fail(`worker:${name}`),
-    missing: name => fail(`missing:${name}`), received: () => fail("received") })!;
+    missing: name => fail(`missing:${name}`), received: () => fail("received"),
+    get mcpInit(): never { throw Error("Ithaca MCP observer unavailable"); } })!;
+  expect(timing.mcpInit).toBeUndefined();
   timing.start("host_probe")(); timing.worker("resources", 31); timing.missing("first_enqueue"); timing.received();
   const ending = safeStartupTiming({ start: () => () => fail("end:worker_launch"), worker() {}, missing() {}, received() {} })!;
   ending.start("worker_launch")();

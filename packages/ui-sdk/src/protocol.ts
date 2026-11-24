@@ -3915,6 +3915,8 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
  */
 export interface ActivityTurnSubPhase {
   phase: "governed" | "journal";
+  queueAhead?: { count: number; kinds: Array<ActivityTurnHold["cause"] | "refresh" | "worktree" | "memory"> };
+  aliasScan?: { scans: number; entries: number };
   name: string;
   startedAt: number;
   /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */
@@ -3926,6 +3928,8 @@ export interface ActivityTurnSubPhase {
 export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
   phase: string;
   pending?: boolean;
+  indexSettle?: { queuedPaths: number; updates: number; firstAlreadyRunning: boolean; updateMs: number;
+    lastOutcome: "complete" | "failed" | "index_capacity" | "cancelled" | null };
   /** Worker durations use an independent clock; timestamps are host receipt, not worker start/end. */
   timeBase?: "worker";
   workerElapsedMs?: number;
@@ -3949,6 +3953,14 @@ export interface ActivityTurnHold {
 export interface ActivityTurnLifecycle {
   /** Running server identity; absent on historical records. */
   holds?: ActivityTurnHold[];
+  stoppedTime?: { totalMs: number; intervals: number; sharedHolds: number; openHolds: number;
+    inferenceMs: number; noInferenceMs: number; unknownMs: number };
+  admissionLoad?: {
+    atDequeue?: { load1?: number; cpuCount?: number };
+    atBackendStart?: { load1?: number; cpuCount?: number };
+    eventLoopMaxMs?: number;
+    eventLoopP99Ms?: number;
+  };
   packageVersion?: string;
   buildRevision?: string;
   runtimeVersion?: string;
@@ -3965,6 +3977,8 @@ export interface ActivityTurnLifecycle {
   sessionId: string | null;
   backendRunId: string | null;
   acceptedAt: number;
+  /** Present from enqueue, including when the follow-up never dequeues. */
+  queuedAt?: number;
   dequeuedAt: number | null;
   governedStartedAt: number | null;
   governedAcquiredAt: number | null;
@@ -3977,6 +3991,11 @@ export interface ActivityTurnLifecycle {
   firstRelayRequestAt?: number | null;
   /** SDK stages unavailable to the host; never inferred from another mark. */
   backendMissingEvidence?: string[];
+  backendMcpInit?: Array<{
+    name: string;
+    status: "connected" | "failed" | "needs-auth" | "pending" | "disabled" | "other";
+    source: "sdk" | "plugin" | "user" | "project" | "local" | "dynamic" | "managed" | "enterprise" | "claudeai" | "agent" | "other";
+  }>;
   /** Backend step/diagnostic observations omitted by count or encoded-byte limits. */
   backendEvidenceOmitted?: number;
   firstFrameAt: number | null;

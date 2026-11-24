@@ -120,6 +120,7 @@ async function runRetainedSession(
       const lifecycle = requestLifecycle(slot, current, initialLifecycle);
       activeLifecycle = lifecycle;
       if (current.queuedAt !== undefined) lifecycle?.mark("dequeuedAt");
+      else lifecycle?.startAdmission();
       slot.releaseActive = current.releaseAuthorization;
       if (bindRequest(slot, current, lifecycle) === "revoked") {
         dropHandedOver(slot, current, REVOKED_REASON);
@@ -254,7 +255,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   entry.queuedAt = Date.now();
   if (host.activity && !entry.lifecycle) {
     entry.lifecycleTurnId = crypto.randomUUID();
-    entry.lifecycle = createTurnLifecycle(host.activity.store, entry.lifecycleTurnId, sessionId, entry.queuedAt, () => host.activity!.stream.pump(), undefined, entry.principalId, { buildRevision: host.activity.buildRevision });
+    entry.lifecycle = createTurnLifecycle(host.activity.store, entry.lifecycleTurnId, sessionId, entry.queuedAt, () => host.activity!.stream.pump(), undefined, entry.principalId, { buildRevision: host.activity.buildRevision, queuedAt: entry.queuedAt });
     const release = entry.releaseAuthorization;
     entry.releaseAuthorization = () => { entry.lifecycle?.finish("cancelled", "Removed from the queue before completion"); release(); };
   }

@@ -1,3 +1,4 @@
+export { diagnosticInterval, observeDiagnostic } from "./server/startup-timing.js";
 export { safetyRecordSchema, safetyOccurrenceAdmissionSchema, safetyAdmissionSchema } from "./safety.js";
 /** First-party implementation sharing. No compatibility guarantee; use the same lockstep version. */
 export { BRAIN_INTERACTION_GUIDANCE, projectConversationGuidance, conversationOrientation, ORIENTATION_MAX_BYTES } from "./server/interaction-guidance.js";
@@ -17,7 +18,7 @@ export { GIT_LOCK_KEY } from "./server/lock-keys.js";
 export { VERSION_PROBE_TIMEOUT_MS } from "./server/version-probe.js";
 export type { WebToolUnavailableFeature } from "./server/web-search.js";
 export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS, WEB_TOOL_UNAVAILABLE_FEATURES, hasWebSearchCredential, webSearchKeySource, readWebSearchOverride, readWebSearchRouting, resolveWebSearchConfigPath, webSearchBrief, webSearchProvider } from "./server/web-search.js";
-export { canonicalModelId } from "./protocol-helpers.js";
+export { canonicalModelId, isMcpTimingServerName } from "./protocol-helpers.js";
 export { execWrapperSpawnOptions, workerExecHelpers } from "./server/exec-wrapper.js";
 
 export { assertScratchMaskAsync } from "./server/bridge-tools/mask.js";

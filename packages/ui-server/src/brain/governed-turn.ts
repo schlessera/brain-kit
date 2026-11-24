@@ -1,3 +1,4 @@
+import { diagnosticInterval } from "@schlessera/brain-ui-sdk/internal";
 import { recordIndexUpdate, type IndexUpdateReceipt } from "./index-update-receipt.js";
 /** Hosted turn admission and reconciliation; no repository code runs here. */
 import { lstatSync, realpathSync } from "node:fs";
@@ -145,7 +146,7 @@ export function createGovernedTurns(options: {
     const [turnId, signal, origin = "interactive", preference, route, timing] = args;
 
     const step = async <T>(name: string, work: () => Promise<T>): Promise<T> => {
-      const end = timing?.(name); const result = await work(); end?.(); return result;
+      const end = diagnosticInterval(() => timing?.(name)); const result = await work(); end?.(); return result;
     };
     const gate = options.execution.gate();
     const manifests = options.execution.manifests();
@@ -187,7 +188,7 @@ export function createGovernedTurns(options: {
       // it is refused here, never run on its own network (#3314).
       assertManagedTurnStartupView(startupView);
       signal.throwIfAborted();
-      const availability = await step("boundary_prepare", () => options.execution.boundary.prepare(signal, startupView!));
+      const availability = await step("boundary_prepare", () => options.execution.boundary.prepare(signal, startupView!, timing));
       assertReadable(availability);
       // A provider rule masks its folders from every turn whose recipient it
       // does not allow (#1668). Only the exact origin of the host inference
@@ -252,7 +253,7 @@ export function createGovernedTurns(options: {
       try { ensureRetainedDirectories(options.brainPath, folderPaths); } catch { /* resolver refuses */ }
       const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
       const selected = requested === "governed" && !availability.available ? "strict" : requested;
-      const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected, codeChanges: route?.codeChanges === true,
+      const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { timing, profile: selected, codeChanges: route?.codeChanges === true,
         protectedPaths: protectedPaths(policy.policy), folderPaths,
         maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
       let resolved = await step("sandbox_resolve", resolveSandbox);

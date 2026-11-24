@@ -26,7 +26,8 @@ import { retainTurnSessionBinding } from "./bridge-session-binding.js";
 
 export { emitTurnError } from "./bridge-capabilities/turn-error.js";
 
-const turnIndexSettlers = new WeakMap<BackendBridge, () => Promise<void>>();
+type IndexObservation = Parameters<IndexBatch["barrier"]>[1];
+const turnIndexSettlers = new WeakMap<BackendBridge, (observation?: IndexObservation) => Promise<void>>();
 const turnIndexPending = new WeakMap<BackendBridge, () => boolean>();
 export function hasPendingTurnIndex(bridge: BackendBridge): boolean { return turnIndexPending.get(bridge)?.() ?? false; }
 
@@ -35,8 +36,8 @@ export function hasPendingTurnIndex(bridge: BackendBridge): boolean { return tur
  * Rejects when that update fails; each application's Activity record has
  * already received the outcome, and its paths stay queued for the next reader.
  */
-export function settleTurnIndex(bridge: BackendBridge): Promise<void> {
-  return turnIndexSettlers.get(bridge)?.() ?? Promise.resolve();
+export function settleTurnIndex(bridge: BackendBridge, observation?: IndexObservation): Promise<void> {
+  return turnIndexSettlers.get(bridge)?.(observation) ?? Promise.resolve();
 }
 
 /**
@@ -201,7 +202,7 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
     };
   } else if (indexBatch) bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await indexBatch.barrier(signal); };
   if (indexBatch && turnIndex) turnIndexPending.set(bridge, () => turnIndex!.pending());
-  if (indexBatch && turnIndex) turnIndexSettlers.set(bridge, () => turnIndex!.pending() ? turnIndex!.barrier() : Promise.resolve());
+  if (indexBatch && turnIndex) turnIndexSettlers.set(bridge, observation => turnIndex!.pending() ? turnIndex!.barrier(undefined, observation) : Promise.resolve());
 }
 
 /**
