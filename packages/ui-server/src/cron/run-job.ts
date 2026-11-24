@@ -7,7 +7,7 @@ import { closeSync, existsSync, openSync, unlinkSync } from "fs";
 
 import { ingestSpanSink } from "../activity/span-sink.js";
 import { createActivityStore } from "../activity/store.js";
-import { createUiDb } from "../db/client.js";
+import { openSharedUiDb } from "../db/client.js";
 import { startCronSpan } from "./activity.js";
 import { recordCronRun } from "./scheduler.js";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
@@ -187,9 +187,9 @@ async function startRecord(
   dbPath: string,
   stderr: TextSink
 ): Promise<RunRecorder | null> {
-  let db: ReturnType<typeof createUiDb> | undefined;
+  let db: ReturnType<typeof openSharedUiDb> | undefined;
   try {
-    db = createUiDb(dbPath);
+    db = openSharedUiDb(dbPath);
     const openedDb = db;
     const record = recordCronRun(db, name);
     const store = createActivityStore(db, { writer: `cron:${process.pid}` });

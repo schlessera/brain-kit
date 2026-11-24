@@ -14,7 +14,7 @@ import { existsSync } from "fs";
 
 import { createActivityStore } from "../activity/store.js";
 import { assertOperationalStateOutsideBrain } from "../brain/operational-state.js";
-import { createUiDb } from "../db/client.js";
+import { openSharedUiDb } from "../db/client.js";
 import { brainCommandClass, type HostBoundary } from "../brain/host-boundary.js";
 import type { BrainModuleListPayload } from "./emit.js";
 import { startCronSpan } from "./activity.js";
@@ -197,7 +197,7 @@ export function persistModuleDiscovery(options: PersistModuleDiscoveryOptions): 
   try {
     assertOperationalStateOutsideBrain({ brainPath, dbPath });
     if (!hostQualified && !existsSync(dbPath)) return false;
-    db = createUiDb(dbPath);
+    db = openSharedUiDb(dbPath);
     recordModuleDiscovery(db, outcome);
     return true;
   } catch (error) {

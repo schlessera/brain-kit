@@ -263,3 +263,28 @@ for (const unfinished of [false, true]) test(`real database restart replays ${un
     } finally { history.close(); await writer.close(); db.close(); }
   } finally { if (!closed) await f.close(); else rmSync(f.root, { recursive: true, force: true }); }
 });
+
+test("a maintenance process can reconcile while a live tool owes its result", async () => {
+  const f = await safetyHistoryFixture(true, true);
+  try {
+    const collector = createSafetyCollector(f.db, f.writes, {
+      turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal,
+    });
+    await collector.begin("search", "WebSearch", { query: "Ithaca" });
+    const brain = join(f.root, "ithaca");
+    mkdirSync(brain);
+    const child = Bun.spawn([process.execPath, "-e", `
+      import { createHostExecution } from ${JSON.stringify(import.meta.resolve("../src/brain/host-execution"))};
+      const execution = createHostExecution({ brainPath: process.argv[1], dbPath: process.argv[2], exec: {} });
+      try { execution.reconcileExisting(); } finally { execution.release(); }
+    `, brain, f.path], { stdout: "pipe", stderr: "pipe" });
+    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(code, stderr).toBe(0);
+    expect(f.db.query("SELECT ended FROM safety_collections WHERE turn_id = 'voyage'").get(),
+      "MAINTENANCE_PRESERVES_LIVE_COLLECTION").toEqual({ ended: 0 });
+    await collector.result("search", "WebSearch", "Ithaca", true);
+    await f.writes.safetyEnd("voyage");
+    expect(f.writes.safety(null, "ithaca").coverage.state).toBe("complete");
+  } finally { await f.close(); }
+});
