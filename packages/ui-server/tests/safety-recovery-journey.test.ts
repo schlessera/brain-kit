@@ -317,7 +317,7 @@ test("a numbered search is attributed only to its verified single note", async (
     expect(await search("long-context", join(f.root, "fleet.md"), {...response,
       content: "1-" + contextLine + "\n2:sail", numLines: 2, totalLines: 2})).toBe(0);
     expect(await search("mismatch", path, { ...response, content: bytes.replace("crew", "fleet") })).toBe(1);
-    expect(await search("paginated", path, { ...response, appliedLimit: 3, totalLines: 4 })).toBe(2);
+    expect(await search("paginated", path, { ...response, content:"1-notes/ithaca.md", numLines:1, appliedLimit:1, totalLines:3 })).toBe(2);
     expect(await search("directory", f.root, response)).toBe(3);
     expect(await search("unverified", join(f.root, "troy.md"), response)).toBe(4);
     symlinkSync("ithaca.md", join(snapshot, "alias.md"));

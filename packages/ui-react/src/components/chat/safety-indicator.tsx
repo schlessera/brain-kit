@@ -177,6 +177,10 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
   const busy=progress?.stage==="pending",unknown=progress?.stage==="unknown";
   const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${formatAuthority(r.provenance.origin)}`:
     r.provenance?.kind==="tunnel_authority"?formatAuthority(r.provenance.authority):"Source provenance unavailable";
+  const searchSource = r.source==="workspace_read" ? "Source · A matched path is in the workspace. Its external origin was not verified."
+    : r.source==="user_marked" ? "Source · A matched path is marked untrusted."
+    : r.source==="legacy_unknown" ? "The host could not identify the source of every returned match."
+    : `Source · ${sources[r.source]}`;
   const noDelivery=entry.exposure==="not_delivered";
   const counted=!noDelivery&&!entry.decision&&!r.admission?.trusted;
   const ended=state.projection?.coverage.epochs.some(epoch=>epoch.id===r.epochId&&epoch.endSequence!==null);
@@ -199,7 +203,7 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
     {r.provenance&&<p>Destination · {provenance}</p>}
     {r.source==="egress_connection"&&!toolName&&<p>The proxy saw this connection. It could not identify which tool opened it.</p>}
     {noDelivery&&<p>The fetch never ran. This attempt stays in history and needs no review.</p>}
-    {!noDelivery&&!r.provenance&&<p>{r.detector==="tool_search_output"?(r.source==="workspace_read"?"Source · A matched path is in the workspace. Its external origin was not verified.":r.source==="user_marked"?"Source · A matched path is marked untrusted.":"The host could not identify the source of every returned match.") :"The host did not record a verified origin for this input."}</p>}
+    {!noDelivery&&!r.provenance&&<p>{r.detector==="tool_search_output"?searchSource :"The host did not record a verified origin for this input."}</p>}
     {savedRule&&<p role="status">{savedRule}</p>}
     {r.admission?.trusted&&<p>Source rule {r.admission.ruleId} · trust revision {r.admission.trustRevision}. This historical decision grants no current recipient permission.</p>}
     {r.detailPruned&&<p>Some source detail has expired. The input and any decision remain recorded.</p>}

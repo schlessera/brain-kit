@@ -274,7 +274,7 @@ export async function prepareTurnEgress(options: {
   type NetworkAnswer = boolean | "superseded" | "expired" | "unconfirmed";
   const asking = new Map<string, {decision:Promise<NetworkAnswer>;group:ApprovalGroup}>();
   const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?:string, replacement=false): Promise<NetworkAnswer> => {
-    const key = JSON.stringify([destination.host, destination.port, destination.method, destination.protocol, destination.managedReference, approvalRevision(), replacement]);
+    const key = JSON.stringify([destination.host, destination.port, destination.method, destination.protocol, destination.managedReference, approvalRevision()]);
     let pending = asking.get(key);
     if (!pending) {
       const toolUseId = crypto.randomUUID();

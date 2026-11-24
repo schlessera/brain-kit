@@ -187,6 +187,11 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
       if(typeof value==="string"){lines.push(...value.split("\n"));return;}
       if(Array.isArray(value)){for(const item of value)collect(item,depth+1);return;}
       if(value&&typeof value==="object"){
+        const page=value as Record<string,unknown>;
+        // Native Grep can return a page consisting entirely of path-like
+        // context text. That text cannot account for the omitted matches.
+        if (tool==="Grep" && ("appliedLimit" in page || "appliedOffset" in page ||
+          ("totalLines" in page && page.totalLines!==page.numLines))) unknown=true;
         let recognized=false;
         for(const [key,item] of Object.entries(value)){
           if(["truncated","has_more"].includes(key)&&item===true||key==="omitted"&&typeof item==="number"&&item>0)unknown=true;

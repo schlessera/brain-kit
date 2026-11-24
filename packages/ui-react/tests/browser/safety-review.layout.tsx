@@ -412,4 +412,9 @@ test("a workspace search names the known source and a live recorder can still ac
  const detail=document.querySelector(`[data-safety-trigger="${original.id}"]`)!;
  expect(detail.textContent).toContain("A matched path is in the workspace");
  expect(detail.textContent).not.toContain("could not identify the source of every returned match");
+ for(const [source, label] of [["staged_share","Shared input"],["chat_attachment","Chat attachment"]] as const){
+   flushSync(()=>ui!.stores.safety.setState({records:{...state.records,[original.id]:{...original,source,detector:"tool_search_output"}}}));
+   expect(detail.textContent).toContain(`Source · ${label}`);
+   expect(detail.textContent).not.toContain("could not identify the source");
+ }
 });

@@ -476,13 +476,19 @@ function declaredTypes(value:unknown): string[] | null {
 function schemaFields(schema: Record<string, unknown> | null) {
   const properties = record(schema?.properties) ?? {};
   let remaining=96, limited=false;
+  const shapeKeys=new Set(["type","properties","required","items","oneOf","anyOf","allOf"]);
+  const annotationKeys=new Set(["title","description","default","examples","$schema","$id","$comment","editor","isSecret"]);
   // Project only names, types and requiredness. Never copy example values,
   // defaults, arbitrary descriptions or remote references into the result.
-  function shape(field:Record<string,unknown>, depth:number):InputShape {
+  function shape(value:unknown, depth:number):InputShape {
+    const field=record(value);
+    if (!field) {limited=true;return {types:null};}
     const result:InputShape={types:declaredTypes(field.type)};
     const children=record(field.properties);
     const alternatives = ["oneOf", "anyOf", "allOf"] as const;
-    if ("$ref" in field || "if" in field || "not" in field || "prefixItems" in field) limited=true;
+    if (Object.keys(field).some(key=>!shapeKeys.has(key)&&!annotationKeys.has(key)) ||
+        ("type" in field && !result.types) || ("properties" in field && !children) ||
+        ("required" in field && !Array.isArray(field.required))) limited=true;
     if (depth===6 || remaining===0) {
       if (children || field.items || field.required || alternatives.some(key => key in field)) limited=true;
       return result;
@@ -493,7 +499,7 @@ function schemaFields(schema: Record<string, unknown> | null) {
         if (!remaining) {limited=true;break;}
         if(name.length>128) {limited=true;continue;}
         remaining--;
-        entries.push([name,shape(record(child)??{},depth+1)]);
+        entries.push([name,shape(child,depth+1)]);
       }
       result.properties=Object.fromEntries(entries);
     }
@@ -508,7 +514,7 @@ function schemaFields(schema: Record<string, unknown> | null) {
     }
     for (const key of alternatives) {
       const branches = field[key];
-      if (!Array.isArray(branches)) continue;
+      if (!Array.isArray(branches)) {if (key in field) limited=true;continue;}
       const projected: InputShape[] = [];
       for (const branch of branches) {
         if (!remaining) { limited=true; break; }
@@ -521,7 +527,7 @@ function schemaFields(schema: Record<string, unknown> | null) {
     }
     const item=record(field.items);
     if(item && remaining) {remaining--;result.items=shape(item,depth+1);}
-    else if(field.items) limited=true;
+    else if("items" in field) limited=true;
     return result;
   }
   const root=schema ? shape(schema,0) : null;
