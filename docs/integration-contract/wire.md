@@ -875,9 +875,9 @@ server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
 budget. Diagnostic names retain the authored configuration key, including printable
 punctuation. Path and control exclusions also apply within the SDK's scoped
 `plugin:<plugin>:<server>` form, which requires exactly two nonempty
-components. Authored keys with a single component after the prefix, such
-as `plugin:loom`, are also retained. Extra colon delimiters can conceal a drive-relative path and
-are omitted. Cloud connectors keep
+components. Authored keys can contain additional colons, as in
+`plugin:ithaca:sea:loom`, or a single suffix such as `plugin:loom`. The
+sample omits names whose extra components can encode a drive-relative path. Cloud connectors keep
 their SDK name, `claude.ai <display name>`, including spaces, punctuation
 and disambiguating suffixes such as `(2)`. An empty display name, a path
 or control characters count as omitted.

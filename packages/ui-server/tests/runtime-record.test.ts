@@ -52,14 +52,14 @@ async function recordTurn(runId: string, queryFn: typeof query) {
 }
 
 describe("the run record", () => {
-  test("persists MCP states and CLI durations from the first Claude init and result", async () => {
+  test.each(["plugin:loom", "plugin:ithaca:sea:loom"])("persists MCP states and CLI durations from the first Claude init and result (%s)", async configuredKey => {
     const db = createUiDb(":memory:");
     try {
       const store = createActivityStore(db);
       const turn = createTurnLifecycle(store, "ithaca", null, Date.now(), () => {});
       const servers: NonNullable<ActivityTurnLifecycle["backendMcpInit"]> = [
         { name: "loom", status: "connected", source: "sdk" },
-        { name: "plugin:loom", status: "pending", source: "project" },
+        { name: configuredKey, status: "pending", source: "project" },
         { name: "brain-ui", status: "failed", source: "other" },
       ];
       const initServers = servers.map(s => s.source === "other" ? { ...s, source: "unrecognized-config-scope" } : s);

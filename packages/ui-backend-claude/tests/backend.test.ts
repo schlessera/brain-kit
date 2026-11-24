@@ -120,7 +120,8 @@ test("Claude init states exclude paths and the in-process server without displac
 test("Claude retains scoped plugin servers and externally configured names at init", async () => {
   const servers = [{ name: "plugin:ithaca:loom", status: "connected", source: "plugin" },
     { name: "sea+chart", status: "connected", source: "project" }, { name: "brain-ui", status: "pending", source: "project" }, { name: "plugin:ithaca:notes/loom", status: "failed", source: "plugin" },
-    { name: "plugin:ithaca:C:loom.md", status: "failed", source: "plugin" }];
+    { name: "plugin:ithaca:C:loom.md", status: "failed", source: "plugin" },
+    { name: "plugin:C:loom.md:ithaca", status: "failed", source: "plugin" }];
   const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
     yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: servers };
     yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
@@ -132,6 +133,7 @@ test("Claude retains scoped plugin servers and externally configured names at in
   expect(names).toContain("mcp_connect:plugin:ithaca:loom");
   expect(names).not.toContain("mcp_connect:plugin:ithaca:notes/loom");
   expect(names).not.toContain("mcp_connect:plugin:ithaca:C:loom.md");
+  expect(names).not.toContain("mcp_connect:plugin:C:loom.md:ithaca");
   expect(names).toContain("mcp_connect:sea+chart");
   expect(snapshots).toEqual([servers.slice(0, 3)]);
 });

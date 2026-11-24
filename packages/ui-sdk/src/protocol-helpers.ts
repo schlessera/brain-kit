@@ -64,8 +64,9 @@ export function isMcpTimingServerName(name: unknown): name is string {
   // by the CLI in its plugin and cloud connector prefixes.
   const parts = name.startsWith("claude.ai ") ? [name.slice("claude.ai ".length)] :
     name.startsWith("plugin:") ? name.split(":").slice(1) : [name];
-  // A configured key such as "plugin:loom" need not be a scoped SDK identifier.
-  if (parts.length > 2) return false;
+  // Extra colons occur in configuration keys. In a scoped identifier they can
+  // also embed a drive path in either the plugin or the server component.
+  if (parts.length > 2 && parts.slice(0, -1).some(part => /^[A-Za-z]$/.test(part.trim()))) return false;
   return parts.every(part => {
     const key = part.trim();
     return key.length > 0 && key !== "." && key !== ".." && !/^[A-Za-z]:/.test(key) &&
