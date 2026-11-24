@@ -100,6 +100,9 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   };
   // `lateEnd` lets a closing step whose work confirms after the terminal end
   // then (#4520). That end is the one write it adds, and only after the terminal.
+  const startAdmission = () => {
+    if (!record.admissionLoad && record.endedAt === null) stopAdmissionLoad = startAdmissionLoad(record);
+  };
   const phaseTimer = (phase: string, metadata: Pick<ActivityTurnOpenSubPhase, "pending" | "indexSettle"> = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => (name, details) => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
     const startedAt = observedClock(); if (startedAt === undefined) return () => {};
@@ -162,6 +165,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   };
   return {
     startupTiming,
+    startAdmission,
     recordHostEvent,
     settled: writes.settled,
     recordCancellation(principalId: string, kind: "turn" | "ask_user" = "turn") {
@@ -173,7 +177,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     mark(milestone: LifecycleMilestone, at = observedClock()) {
       if ((record.endedAt !== null && milestone !== "recorderSettledAt" && milestone !== "idleEmittedAt") || record[milestone] != null) return;
       if (at === undefined) return;
-      if (milestone === "dequeuedAt") stopAdmissionLoad = startAdmissionLoad(record);
+      if (milestone === "dequeuedAt") startAdmission();
       if (milestone === "backendInvokedAt") { stopAdmissionLoad?.(true); stopAdmissionLoad = undefined; }
       record[milestone] = at;
       persist();

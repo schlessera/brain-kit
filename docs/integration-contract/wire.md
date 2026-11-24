@@ -730,6 +730,7 @@ and preserves the breakdown reached. No paths or other turn identifiers appear.
 Optional `admissionLoad` samples host load at dequeue and backend invocation
 (`atDequeue`, `atBackendStart`). Each sample carries the one-minute load
 average (`load1`) and available CPU count (`cpuCount`) when available.
+For direct dispatch, `atDequeue` samples entry to admission and adds no queue milestone.
 `eventLoopMaxMs` and `eventLoopP99Ms` summarize event-loop delay observed
 between those milestones, or until a refused admission ends. Missing samples
 are omitted. These fields ride the existing lifecycle writes.

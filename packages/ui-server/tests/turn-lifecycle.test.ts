@@ -111,6 +111,8 @@ test("real dispatch records delayed governed admission and first frame, and link
     expect(record.firstRelayRequestAt).toBe(1600);
     expect(record).toMatchObject({acceptedAt:1000,governedStartedAt:1000,governedAcquiredAt:1400,backendInvokedAt:1400,
       firstFrameAt:1700,endedAt:2000,sessionId:"ithaca",totalElapsedMs:1000,timeToFirstFrameMs:700,backendStartupMs:300,outcome:"success"});
+    expect(record.admissionLoad?.atBackendStart?.cpuCount).toBeGreaterThan(0);
+    expect(record.queueWaitMs).toBeNull();
     expect(record.backendRunId).toBe(record.turnId);
     expect(store.runRollup!(record.turnId)!.durationMs).toBe(200);
   }finally{monotonic.mockRestore();clock.mockRestore();host.close();stream.close();db.close();}

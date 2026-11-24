@@ -120,6 +120,7 @@ async function runRetainedSession(
       const lifecycle = requestLifecycle(slot, current, initialLifecycle);
       activeLifecycle = lifecycle;
       if (current.queuedAt !== undefined) lifecycle?.mark("dequeuedAt");
+      else lifecycle?.startAdmission();
       slot.releaseActive = current.releaseAuthorization;
       if (bindRequest(slot, current, lifecycle) === "revoked") {
         dropHandedOver(slot, current, REVOKED_REASON);
