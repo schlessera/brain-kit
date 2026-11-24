@@ -52,7 +52,7 @@ export function checkpointGrepMatches(checkpoint: GrepCheckpoint, note: string, 
         separator = true;
         continue;
       }
-      const numbered = /^([1-9]\d{0,6})([:-])(.*)$/u.exec(line);
+      const numbered = /^([1-9]\d{0,6})([:-])(.*)$/su.exec(line);
       if (!numbered) return false;
       const number = Number(numbered[1]);
       if (separator && number <= previous + 1) return false;

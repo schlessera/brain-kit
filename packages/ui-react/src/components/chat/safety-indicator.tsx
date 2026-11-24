@@ -5,7 +5,7 @@ import { useStore } from "zustand";
 import { Button, Icon, IconButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
-import { activeChat, useChatStore, type ToolCall } from "../../stores/chat-store.js";
+import { activeChat, useChatStore, type ChatMessage, type ToolCall } from "../../stores/chat-store.js";
 import { READING_COLUMN_ATTR } from "../../lib/client-environment.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
@@ -24,14 +24,25 @@ export function ToolSafetyIndicator({turnId,toolCalls}:{turnId?:string;toolCalls
 }
 
 /** Kept outside message text, including events with no provable entry join. */
-export function SessionSafety() {
+export function SessionSafety({visibleMessages}:{visibleMessages:readonly ChatMessage[]}) {
   const root=useBrainUiRoot(),state=useStore(root.stores.safety),messages=useChatStore(s=>activeChat(s).messages);
   const sessionId=useChatStore(s=>s.activeSessionId),auth=useStore(root.authLock.state,s=>s.phase);
   const retained=useRef<{scope:string;groups:Array<[string,SafetyEvidence[]]>;projection:typeof state.projection}>({scope:"",groups:[],projection:null});
   const [shown,setShown]=useState(25);
+  const toolsByTurn=useMemo(()=>{
+    const tools=new Map<string,ToolCall[]>();
+    for(const message of messages){
+      const turn=message.turnId??message.streamTurnId;
+      if(!turn||!message.toolCalls.length)continue;
+      const calls=tools.get(turn)??[];
+      for(const call of message.toolCalls)calls.push(call);
+      tools.set(turn,calls);
+    }
+    return tools;
+  },[messages]);
   const groups=useMemo(()=>{
     const visible=new Set<string>();
-    for(const message of messages){const turn=message.turnId??message.streamTurnId;if(turn)for(const tool of message.toolCalls)visible.add(`${turn}\0${tool.id}`);}
+    for(const message of visibleMessages){const turn=message.turnId??message.streamTurnId;if(turn)for(const tool of message.toolCalls)visible.add(`${turn}\0${tool.id}`);}
     const result=new Map<string,SafetyEvidence[]>();
     for(const entry of safetyEvidence(state.records).values()){
       const r=entry.occurrence;
@@ -39,12 +50,18 @@ export function SessionSafety() {
       const key=r.turnId,list=result.get(key)??[];list.push(entry);result.set(key,list);
     }
     return [...result];
-  },[messages,state.records]);
+  },[visibleMessages,state.records]);
   const scope=`${sessionId}\0${root.authLock.epoch()}\0${state.historyScopeKey}`;
   const allowed=auth==="active"&&state.supported&&(state.status!=="unavailable"||state.reason==="disconnected");
   if(retained.current.scope!==scope||!allowed)retained.current={scope,groups:[],projection:null};
   if(allowed){if(groups.length||state.status==="ready")retained.current.groups=groups;if(state.projection)retained.current.projection=state.projection;}
   const shownGroups=allowed?retained.current.groups:[];
+  const displayed=shownGroups.slice(0,shown);
+  // Keep a focus target for the next pending review even beyond this page.
+  if(!displayed.some(([,entries])=>entries.some(unresolvedInput))){
+    const next=shownGroups.slice(shown).find(([,entries])=>entries.some(unresolvedInput));
+    if(next)displayed.push(next);
+  }
   const p=allowed?(state.projection??retained.current.projection):null;
   const normal=allowed&&state.status==="ready"&&state.normal&&p?.coverage.state==="complete"&&p.unresolvedCount===0&&p.pendingCount===0&&p.restriction==="normal";
   const unknown=p?.coverage.state!=="complete";
@@ -61,16 +78,20 @@ export function SessionSafety() {
     {!!p?.pendingCount&&<p>Input is being recorded; new actions remain restricted.</p>}
     {p?.reasons.includes("recording_failed")&&<p>Recording is unavailable. Restrictions remain in effect.</p>}
     <details><summary className="min-h-11 cursor-pointer py-3">What this evidence covers</summary><p>Coverage describes the host's supported detectors. It does not verify content safety. Proxied shell local reads and opaque transport may have no tool attribution.</p></details>
-    {shownGroups.slice(0,shown).map(([turn,entries])=><div key={turn} data-safety-turn-event={turn} className="flex min-w-0 items-center gap-2">
-      <SafetyIndicator entries={entries}/><span>Turn event · {entries.some(e=>e.occurrence.source==="egress_connection")?"Network input · The proxy could not identify the tool that opened the connection.":"Input safety evidence"}</span>
+    {displayed.map(([turn,entries])=><div key={turn} data-safety-turn-event={turn} className="flex min-w-0 items-center gap-2">
+      <SafetyIndicator entries={entries} toolCalls={toolsByTurn.get(turn)} turnId={turn}/><span>Turn event · {entries.some(e=>e.occurrence.source==="egress_connection"&&!toolsByTurn.get(turn)?.some(tool=>tool.id===e.occurrence.entry?.toolUseId))?"Network input · The proxy could not identify the tool that opened the connection.":"Input safety evidence"}</span>
     </div>)}
-    {shownGroups.length>shown&&<Button label={`Show more safety events (${shownGroups.length-shown} remaining)`} tone="quiet" reach onClick={()=>setShown(n=>n+25)}/>}
+    {shownGroups.length>displayed.length&&<Button label={`Show more safety events (${shownGroups.length-displayed.length} remaining)`} tone="quiet" reach onClick={()=>setShown(n=>n+25)}/>}
   </aside>;
 }
 
 function NewChatGuidance() {
   const wide=useMediaQuery("(min-width: 1280px)");
   return <>To start with a separate history, use {wide?"New conversation in Sessions":"New chat in the chat header"}.</>;
+}
+
+function unresolvedInput(entry:SafetyEvidence) {
+  return entry.exposure!=="not_delivered"&&!entry.decision&&!entry.occurrence.admission?.trusted;
 }
 
 function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:SafetyEvidence[];toolCalls?:readonly ToolCall[];turnId?:string}) {
@@ -88,7 +109,7 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
   const entries=allowed?(currentEntries.length?currentEntries:open||readStatus!=="ready"?held.current.entries:[]):[];
   useEffect(()=>{if(!allowed)setOpen(false);},[allowed]);
   useEffect(()=>{setOpen(false);},[scope,auth]);
-  const unresolvedEntries=entries.filter(e=>e.exposure!=="not_delivered"&&!e.decision&&!e.occurrence.admission?.trusted);
+  const unresolvedEntries=entries.filter(unresolvedInput);
   const unresolved=unresolvedEntries.length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
   const trusted=entries.filter(e=>e.occurrence.admission?.trusted).length,reviewed=entries.filter(e=>e.decision).length;
   const refused=entries.filter(e=>e.exposure==="not_delivered").length;

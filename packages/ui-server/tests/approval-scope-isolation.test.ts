@@ -108,15 +108,21 @@ for (const mode of ["network grant","network deny","network expiry","network rev
         await add("voyage");
         let delivered = 0;
         const upstream = Bun.serve({hostname:"127.0.0.1",port:0,fetch:()=>{delivered++;return new Response("Ithaca");}});
+        const releaseRead = Promise.withResolvers<void>();
+        const otherRead = mode === "network grant" ? Bun.serve({
+          hostname:"127.0.0.2", port:0, async fetch() { await releaseRead.promise; return new Response("Pylos"); },
+        }) : null;
         const egress = await prepareTurnEgress({controller, turnId:"voyage",sessionId:()=>"ithaca",model:()=>null,
-          origin:"interactive",profile:"governed",policy:resolveGovernancePolicy({schema_version:1}),bridge,
+          origin:"interactive",profile:"governed",policy:resolveGovernancePolicy({schema_version:1,taint:{egress:{allow:["127.0.0.2"]}}}),bridge,
           governanceDb:db,governanceWrites:writes,record:event=>writes.record(event),
           networkRefusal:id=>host.coordinator.networkRefusal("voyage",id)});
-        const exchange = new Promise<{status:number;body:string}>((resolve,reject)=>{
-          const req=request({socketPath:egress.socketPath,path:upstream.url.href},res=>{
+        const fetchThroughProxy = (url:URL) => new Promise<{status:number;body:string}>((resolve,reject)=>{
+          const req=request({socketPath:egress.socketPath,path:url.href},res=>{
             let body="";res.on("data",part=>body+=part);res.on("end",()=>resolve({status:res.statusCode!,body}));res.on("error",reject);
           });req.on("error",err=>{if(controller.signal.aborted)resolve({status:0,body:""});else reject(err);});req.end();
         });
+        const exchange = fetchThroughProxy(upstream.url);
+        let otherExchange: ReturnType<typeof fetchThroughProxy> | undefined;
         try {
           await Promise.race([raised.promise,exchange.then(res=>{throw new Error("Missing first card: "+res.body);})]);
           const first = frames.find(f=>f.type==="tool_approval_request")!;
@@ -125,7 +131,8 @@ for (const mode of ["network grant","network deny","network expiry","network rev
           if(mode==="network expiry")armTurnTimeout(host,turn,controller);
           else if(mode==="network revocation")await writes.safetyFail("voyage");
           else {
-            await add("voyage");
+            if (otherRead) otherExchange = fetchThroughProxy(otherRead.url);
+            else await add("voyage");
             const second = await Promise.race([nextCard.promise,exchange.then(res=>{throw new Error("Missing replacement: "+res.body);})]);
             expect(second.toolUseId).not.toBe(first.toolUseId);
             expect(second.description).toContain("New safety evidence");
@@ -134,9 +141,8 @@ for (const mode of ["network grant","network deny","network expiry","network rev
             expect(delivered).toBe(0);
             expect(host.coordinator.pendingApprovals.has(second.toolUseId)).toBe(true);
             if(mode==="network grant"){
-              const id=writes.safety("voyage","ithaca").earliestUnresolvedId!;
-              await writes.record({kind:"taint_exposure",turnId:"voyage",sessionId:"ithaca",actor:"interactive",model:null,profile:"governed",
-                payload:{occurrenceId:id,state:"finalized"}});
+              releaseRead.resolve();
+              expect(await otherExchange).toEqual({status:200,body:"Pylos"});
               const third=await Promise.race([thirdCard.promise,exchange.then(res=>{throw new Error("Missing current card: "+res.body);})]);
               await click(second.toolUseId);
               expect(delivered).toBe(0);
@@ -155,7 +161,11 @@ for (const mode of ["network grant","network deny","network expiry","network rev
           }
           if(mode==="network revocation")expect(response.body).toContain("recording");
           expect(queryGovernanceEvents(db,{kinds:["safety_admission_expired"],limit:10})).toHaveLength(mode==="network grant"?2:1);
-        } finally { egress.stop();await exchange.catch(()=>{});await egress.settled();upstream.stop(true); }
+        } finally {
+          releaseRead.resolve(); egress.stop();
+          await Promise.allSettled([exchange,otherExchange]); await egress.settled();
+          upstream.stop(true); otherRead?.stop(true);
+        }
         return;
       }
       decision = bridge.requestPermission({ toolUseId: "raft-write", toolName: "Write", kind: "command",

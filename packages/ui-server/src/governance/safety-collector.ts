@@ -66,7 +66,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   try{await writes.safetyDischarge(options.turnId,op.id,neverDelivered);op.owed=false;}catch{/* Still owed: the end gaps it. */}
  };
  const tails=new Map<string,Promise<void>>();let queued=0;
- // A result record under way, which the turn's end waits for (#3812).
+ // Turn end waits for in-flight results and refusals to settle their obligations.
  const recording=(work:Promise<void>):Promise<void>=>{
   const records=safetyQueue(db).recording;let mine=records.get(options.turnId);
   if(!mine)records.set(options.turnId,mine=new Set());
@@ -202,7 +202,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // the id, under the same tool or another (the Claude runtime admits two
   // calls under one id), an allow followed by a refusal, a rejected request
   // (a stopped turn, a replay). Never rejects.
-  refused(toolUseId,denied=false){return serial(toolUseId,async()=>{
+  refused(toolUseId,denied=false){return recording(serial(toolUseId,async()=>{
    const op=operations.get(toolUseId);
    const proves=denied&&once(calls.get(toolUseId));
    if(!op){if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});return;}
@@ -212,7 +212,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
       &&op.signals.length>0&&op.signals.every(s=>s.source==="web_fetch"&&s.detector==="tool_web_input");
     await discharge(op,sameFetch?op.occurrences:undefined);
    }
-  },true).catch(()=>{});},
+  },true).catch(()=>{}));},
   // The backend's last check before it lets this call run, noted so that no
   // later refusal under the id proves the call never ran. A call whose id
   // was refused, or whose latest begin() did not complete, must not run: the

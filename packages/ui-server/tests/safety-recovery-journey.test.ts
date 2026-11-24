@@ -312,7 +312,7 @@ test("a numbered search is attributed only to its verified single note", async (
     expect(await search("verified", path, response), "VERIFIED_SINGLE_NOTE_CONTEXT").toBe(0);
     writeFileSync(join(snapshot, "pylos.md"), "sail\ncrew\nharbour\nraft\nsail\n");
     expect(await search("separated", join(f.root,"pylos.md"), {...response,content:"1:sail\n2-crew\n--\n4-raft\n5:sail",numLines:5,totalLines:5})).toBe(0);
-    const contextLine = "raft/" + "ὦ".repeat(350);
+    const contextLine = "raft/\u2028crew\u2029" + "ὦ".repeat(350);
     writeFileSync(join(snapshot, "fleet.md"), contextLine + "\nsail\n");
     expect(await search("long-context", join(f.root, "fleet.md"), {...response,
       content: "1-" + contextLine + "\n2:sail", numLines: 2, totalLines: 2})).toBe(0);
@@ -343,12 +343,11 @@ test("pre-execution fetch denial retains the audited attempt without a verdict o
     collector.admitting?.("fetch", "WebFetch");
     await collector.begin("fetch", "WebFetch", { url: "https://ithaca.example/harbour" });
     expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(2);
-    await collector.refused?.("fetch", true);
+    await Promise.all([collector.refused?.("fetch", true), f.writes.safetyEnd("voyage")]);
     expect(f.writes.safety(null, "ithaca").unresolvedCount, "REFUSED_FETCH_DELIVERED_NO_INPUT").toBe(1);
     const http = await f.get("?nonDelivery=1");
     expect(http.status).toBe(200);
     expect((await http.json()).records).toContainEqual(expect.objectContaining({ kind: "exposure", state: "not_delivered" }));
-    await f.writes.safetyEnd("voyage");
     const restarted = createUiDb(f.path);
     try {
       const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);

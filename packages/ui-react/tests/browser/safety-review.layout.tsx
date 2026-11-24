@@ -43,7 +43,7 @@ async function view(independentSocket=false){
  ws.onopen=()=>ws.send(JSON.stringify({type:'client_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,chatDeletion:true}}));
  ws.onmessage=e=>{frames.push(JSON.parse(String(e.data)));const parsed=parseServerMessage(String(e.data));if(!parsed.ok)throw new Error(parsed.error);client.frame(parsed.message);};
  host=document.createElement('div');host.dataset.readingColumn='';host.style.maxWidth='100%';document.body.append(host);renderer=createRoot(host);
- flushSync(()=>renderer!.render(<BrainUiProvider root={current}><button type="button">Outside safety details</button><SessionSafety/><MessageBubble message={message} journalVisible={false} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
+ flushSync(()=>renderer!.render(<BrainUiProvider root={current}><button type="button">Outside safety details</button><SessionSafety visibleMessages={[message]}/><MessageBubble message={message} journalVisible={false} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
  try{await expect.poll(()=>current.stores.safety.getState().status,{timeout:5000}).toBe('ready');}catch(error){throw new Error(`${String(error)} Frames:${JSON.stringify(frames)} Sent:${JSON.stringify(sent)} Safety:${JSON.stringify(current.stores.safety.getState())} Session:${current.stores.chat.getState().activeSessionId}`);}
 }
 async function scene(width:number,theme:string,independentSocket=false){await page.viewport(width,900);document.documentElement.dataset.theme=theme;fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view(independentSocket);}
@@ -88,9 +88,14 @@ for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width}
 test('open delivery, pruning, recorder loss and explicit unavailable evidence remain restrictive',async()=>{
  await scene(320,'dark');await patch({action:'add',id:'tool_open',finalized:false});
  await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount,{timeout:5000}).toBe(4);
+ // The earlier tool call remains in chat history outside the mounted transcript window.
+ const chat=ui!.stores.chat.getState(), buffer=chat.buffers.ithaca!;
+ const earlier={...message,id:"earlier",toolCalls:[{...message.toolCalls[0]!,id:"tool_open"}]};
+ flushSync(()=>ui!.stores.chat.setState({buffers:{...chat.buffers,ithaca:{...buffer,messages:[earlier,message]}}}));
  const fallback=host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!;await userEvent.click(fallback);
  expect(document.querySelector('[data-safety-details]')!.textContent,'OPEN_DELIVERY_EXPLAINS_REFUSAL').toContain('Input is still arriving');
  const section=[...document.querySelectorAll('[data-safety-trigger]')].find(e=>e.textContent?.includes('Input is still arriving'))!;
+ expect(section.textContent).toContain("Action · WebFetch");
  expect(section.querySelector('[role=button]'),'OPEN_DELIVERY_OFFERS_NO_GRANT').toBeNull();
  flushSync(()=>ui!.stores.safety.getState().refresh());
  expect(section.textContent).toContain("Current evidence is unavailable or incomplete.");
