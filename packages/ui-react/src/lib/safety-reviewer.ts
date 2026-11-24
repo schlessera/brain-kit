@@ -40,7 +40,7 @@ export function createSafetyReviewer(root:BrainUiServices,changed:(value:SafetyR
       const s=root.stores.safety.getState();
       if(s.revision!==preparedRevision||root.authLock.epoch()!==preparedEpoch||root.authLock.state.getState().phase!=="active"||s.status!=="ready"||!s.capabilities?.originRules||JSON.stringify(s.identity)!==JSON.stringify(target.session)||root.stores.chat.getState().activeSessionId!==target.session.sessionId){prepared=null;return;}
       const owned=controller=new AbortController();committing=true;prepared=null;
-      changed({stage:"pending",message:"Saving the reviewed rule, then recording this trigger's verdict…"});
+      changed({stage:"pending",message:"Saving the reviewed rule, then recording this input's verdict…"});
       try{
         const result=await root.api.safetyFutureCommit(target.session.sessionId,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash},owned.signal);
         if(disposed||owned.signal.aborted)return;
@@ -72,7 +72,7 @@ export function createSafetyReviewer(root:BrainUiServices,changed:(value:SafetyR
         if(!live())return;
         if(!matches(prepared.receipt)||prepared.receipt.stage!=="prepared"||!prepared.receipt.requestId||prepared.receipt.reason||
           root.stores.safety.getState().revision!==body.expectedEvidenceRevision){
-          changed({stage:"refused",message:"The evidence changed or this trigger cannot be reviewed. Read the current evidence before trying again."});
+          changed({stage:"refused",message:"The evidence changed or this input cannot be reviewed. Read the current evidence before trying again."});
           controller=null;root.stores.safety.getState().refresh();return;
         }
         dispatched=true;committing=true;
