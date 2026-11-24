@@ -1,3 +1,4 @@
+import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import type { AccountInfo, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { safeStartupTiming } from "@schlessera/brain-ui-sdk/server";
@@ -95,18 +96,33 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
           const servers = msg.mcp_servers;
           if (!Array.isArray(servers)) omitted = 1;
           else {
+            const states: NonNullable<ActivityTurnLifecycle["backendMcpInit"]> = [];
+            let stateBytes = 2, statesOmitted = 0;
             const length = servers.length;
             if (!Number.isSafeInteger(length) || length < 0) throw Error("MCP diagnostics length unavailable");
             omitted = Math.max(0, length - 8);
             for (let index = 0; index < Math.min(8, length); index++) {
               try {
-                const name = servers[index]?.name;
+                const entry = servers[index], name = entry?.name;
                 if (typeof name !== "string" || name.length > 48 || Buffer.byteLength(name) > 48) { omitted++; continue; }
                 const diagnostic = `mcp_connect:${name}`, size = Buffer.byteLength(JSON.stringify(diagnostic)) + 1;
                 if (bytes + size > 192) { omitted++; continue; }
                 bytes += size; startupTiming.missing(diagnostic);
+                if (startupTiming.mcpInit) {
+                  try {
+                    const rawStatus = entry!.status, rawSource = entry!.source;
+                    const status = (["connected", "failed", "needs-auth", "pending", "disabled"] as const).find(value => value === rawStatus) ?? "other";
+                    const source = (["sdk", "plugin", "user", "project", "local", "dynamic", "managed", "enterprise", "claudeai", "agent"] as const).find(value => value === rawSource) ?? "other";
+                    const state = { name, status, source } as const;
+                    const size = Buffer.byteLength(JSON.stringify(state)) + (states.length ? 1 : 0);
+                    if (stateBytes + size > 192) statesOmitted++;
+                    else { stateBytes += size; states.push(state); }
+                  } catch { statesOmitted++; }
+                }
               } catch { omitted++; }
             }
+            startupTiming.mcpInit?.(states);
+            if (statesOmitted) startupTiming.missing("mcp_init:additional_states_omitted", statesOmitted);
           }
         } catch { omitted++; }
         if (omitted) startupTiming.missing("mcp_connect:additional_servers_omitted", omitted);

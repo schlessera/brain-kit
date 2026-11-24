@@ -4590,6 +4590,11 @@ signatures (every public export and the types it is made of)
         backendInvokedAt: number | null;
         firstRelayRequestAt?: number | null;
         backendMissingEvidence?: string[];
+        backendMcpInit?: Array<{
+            name: string;
+            status: "connected" | "failed" | "needs-auth" | "pending" | "disabled" | "other";
+            source: "sdk" | "plugin" | "user" | "project" | "local" | "dynamic" | "managed" | "enterprise" | "claudeai" | "agent" | "other";
+        }>;
         backendEvidenceOmitted?: number;
         firstFrameAt: number | null;
         failureObservedAt: number | null;
@@ -22646,6 +22651,30 @@ signatures (every public export and the types it is made of)
             }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
@@ -22855,6 +22884,30 @@ signatures (every public export and the types it is made of)
             }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
@@ -25953,6 +26006,30 @@ signatures (every public export and the types it is made of)
             }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
@@ -26163,6 +26240,30 @@ signatures (every public export and the types it is made of)
             }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;

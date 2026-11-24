@@ -35,6 +35,7 @@
  */
 
 import type {
+  ActivityTurnLifecycle,
   AskUserAnnotation,
   AskUserListSpec,
   AskUserRankSpec,
@@ -622,6 +623,7 @@ export interface StartTurnRequest {
     worker(name: string, durationMs: number): void;
     /** A positive omitted count reports observations not retained by the SDK sampler. */
     missing(name: string, omitted?: number): void;
+    mcpInit?(servers: NonNullable<ActivityTurnLifecycle["backendMcpInit"]>): void;
     /** First authorized inference route received, before admission and upstream dispatch. */
     received(): void;
   };

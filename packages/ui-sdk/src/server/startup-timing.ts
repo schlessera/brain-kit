@@ -23,6 +23,7 @@ export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): St
     },
     worker: (name, durationMs) => observeDiagnostic(() => timing.worker(name, durationMs)),
     missing: (name, omitted) => observeDiagnostic(() => omitted === undefined ? timing.missing(name) : timing.missing(name, omitted)),
+    ...(timing.mcpInit ? { mcpInit: (servers: Parameters<NonNullable<typeof timing.mcpInit>>[0]) => observeDiagnostic(() => timing.mcpInit?.(servers)) } : {}),
     received: () => observeDiagnostic(() => timing.received()),
   };
 }

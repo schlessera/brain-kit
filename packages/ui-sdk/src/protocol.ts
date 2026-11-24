@@ -3985,6 +3985,11 @@ export interface ActivityTurnLifecycle {
   firstRelayRequestAt?: number | null;
   /** SDK stages unavailable to the host; never inferred from another mark. */
   backendMissingEvidence?: string[];
+  backendMcpInit?: Array<{
+    name: string;
+    status: "connected" | "failed" | "needs-auth" | "pending" | "disabled" | "other";
+    source: "sdk" | "plugin" | "user" | "project" | "local" | "dynamic" | "managed" | "enterprise" | "claudeai" | "agent" | "other";
+  }>;
   /** Backend step/diagnostic observations omitted by count or encoded-byte limits. */
   backendEvidenceOmitted?: number;
   firstFrameAt: number | null;

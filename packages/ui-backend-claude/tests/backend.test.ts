@@ -80,6 +80,25 @@ test("an observed empty MCP list stays distinct from an unavailable list", async
   expect(missing, "OBSERVED_EMPTY_MCP_LIST_IS_KNOWN").toEqual(["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui", "cli_time_to_request", "cli_ttft", "cli_ttft_stream"]);
 });
 
+test.each([false, true])("Claude samples bounded MCP states from its first init (malformed=%s)", async malformed => {
+  const snapshots: unknown[] = [], missing: string[] = [];
+  const entries = [
+    { name: "a", status: "connected", source: "sdk" }, { name: "b", status: "pending", source: "project" },
+    { name: "c", status: "failed", source: "project" }, { name: "d", status: {}, source: "x".repeat(300) },
+    { name: "e", status: "connected", source: "sdk" },
+  ];
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    for (const servers of [malformed ? entries.slice(3) : entries, []]) yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: servers };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  await backend.startTurn(makeReq(makeBridge().bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, worker() {}, missing: name => { missing.push(name); }, received() {}, mcpInit: states => { snapshots.push(states); },
+  } }));
+  expect(snapshots).toEqual([malformed ? [{ name: "d", status: "other", source: "other" }, entries[4]] : entries.slice(0, 3)]);
+  expect(Buffer.byteLength(JSON.stringify(snapshots[0]))).toBeLessThanOrEqual(192);
+  for (const entry of malformed ? entries.slice(3) : entries) expect(missing).toContain("mcp_connect:" + entry.name);
+});
+
 test("Claude collects a bounded MCP name sample only from the first initialization frame", async () => {
   const missing: string[] = [], omittedCounts: number[] = []; let nameReads = 0;
   const servers = Array.from({ length: 1000 }, (_, index) => ({ get name() { nameReads++; return index === 0 ? "🦉".repeat(80) : `ithaca-server-${index}`; }, status: "connected" }));

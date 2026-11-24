@@ -833,6 +833,13 @@ lifecycle names are at most 96 UTF-8 bytes. `backendEvidenceOmitted` replaces
 the dropped `additional_missing_evidence_omitted` marker and counts omitted
 observations. Omitted names are not retained for deduplication. Continuation
 init frames do not expand the sample; limits keep missing evidence explicit.
+Optional `backendMcpInit` records the first init's sampled server names with
+`status` (connected, failed, needs-auth, pending, disabled) and `source`
+(sdk, plugin, user, project, local, dynamic, managed, enterprise, claudeai,
+agent). Unknown values become `other`. The array has its own 192-byte JSON
+limit and uses the same bounded name sample. When a sampled state cannot
+fit, `backendEvidenceOmitted` includes it. An observed empty list is `[]`.
+
 Malformed MCP diagnostic lists or entries also mark the sample incomplete.
 Null or absent lists are unavailable evidence; an explicit empty array is an
 observed empty list. These diagnostics cannot fail an otherwise usable stream.

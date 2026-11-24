@@ -1666,6 +1666,8 @@ const activityTurnLifecycleSchema = z.looseObject({
   backendInvokedAt: z.number().nullable(),
   firstRelayRequestAt: z.number().nullable().optional(),
   backendEvidenceOmitted: z.number().int().nonnegative().optional(),
+  backendMcpInit: z.array(z.object({ name: z.string().max(48), status: z.enum(["connected", "failed", "needs-auth", "pending", "disabled", "other"]),
+    source: z.enum(["sdk", "plugin", "user", "project", "local", "dynamic", "managed", "enterprise", "claudeai", "agent", "other"]) })).max(8).optional(),
   backendMissingEvidence: z.array(z.string()).optional(),
   firstFrameAt: z.number().nullable(),
   failureObservedAt: z.number().nullable(),

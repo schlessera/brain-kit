@@ -4,6 +4,7 @@ import type { ActivityTurnLifecycle, ActivityTurnSubPhase, ActivityTurnOpenSubPh
 import type { AwaitableActivityStore } from "./store.js";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { startAdmissionLoad } from "./admission-load.js";
+import { serverActivityDeltaSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { orderedWrites } from "./store-writes.js";
 
 /**
@@ -144,6 +145,13 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
       }
       if (record.backendMissingEvidence!.includes(name)) return;
       record.backendMissingEvidence!.push(name); applyBounds();
+    },
+    mcpInit(servers) {
+      if (record.backendInvokedAt === null || record.endedAt !== null || record.backendMcpInit) return;
+      const schema = serverActivityDeltaSchema.shape.lifecycle.unwrap().shape.backendMcpInit.unwrap();
+      const parsed = servers.length <= 8 ? schema.safeParse(servers) : undefined;
+      if (parsed?.success && Buffer.byteLength(JSON.stringify(parsed.data)) <= 192 &&
+        parsed.data.every(server => Buffer.byteLength(server.name) <= 48)) record.backendMcpInit = parsed.data;
     },
     received() {
       if (!backendOpen()) return;
