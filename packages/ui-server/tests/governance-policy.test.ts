@@ -816,3 +816,37 @@ test("boundary alias walks use the real brain root captured from a configured sy
     expect(walk.mock.calls.map(([layout]) => layout.brainPath), "EVERY_ALIAS_WALK_USES_THE_CAPTURED_BRAIN_ROOT").toEqual([captured, captured, captured]);
   } finally { walk.mockRestore(); await f.turns.close(); }
 });
+
+test("one governed worker turn reaches the owner timing summary with nested admission and load", async () => {
+  const { createActivityStore } = await import("../src/activity/store.js");
+  const { createActivityStream } = await import("../src/activity/stream.js");
+  const { createActivityRoutes } = await import("../src/routes/activity.js");
+  const { testPrincipal } = await import("./helpers/principal.js");
+  const f = fixture(); f.write("profiles: { interactive: governed }");
+  const store = createActivityStore(f.db), stream = createActivityStream(store);
+  const backend = makeFakeBackend({ id: "claude", async startTurn(request) {
+    expect(request.workerSandbox?.profile).toBe("governed");
+    const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, startupView: request.workerStartupView,
+      sandbox: request.workerSandbox, env: {}, command: ["/bin/true"] }), { env: {}, stderr: "pipe" });
+    expect(worker.exitCode, worker.stderr.toString()).toBe(0);
+    request.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
+    request.bridge.emit({ type: "result", sessionId: "ithaca", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, registry: createStaticBackendRegistry([backend], backend.id),
+    catalog: createSessionCatalog(() => f.db), activity: { store, stream } });
+  try {
+    await runSession(host, { authorization: testAuthorization(), text: "Inspect Ithaca.", attachments: [] });
+    const api = new Hono<AppEnv>();
+    api.use("*", async (c, next) => { c.set("principal", testPrincipal()); await next(); });
+    api.route("/api", createActivityRoutes({ db: f.db, store }));
+    const response = await api.request("/api/activity/turn-timings/summary?limit=1&outcome=success");
+    expect(response.status).toBe(200);
+    const { groups: [group] } = await response.json();
+    expect(group.turns).toBe(1);
+    for (const name of ["boundary_prepare", "boundary_private_state", "sandbox_resolve", "sandbox_workspaces", "sandbox_scratch", "sandbox_protection"])
+      expect(group.steps).toContainEqual(expect.objectContaining({ phase: "governed", name, count: 1, open: 0, absent: 0 }));
+    expect(group.measurements["boundary_private_state.scans"].median).toBeGreaterThan(0);
+    expect(group.measurements["atDequeue.cpuCount"].median).toBeGreaterThan(0);
+    expect(group.measurements["atBackendStart.load1"].count).toBe(1);
+  } finally { host.close(); stream.close(); await f.turns.close(); }
+});

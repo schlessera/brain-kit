@@ -645,6 +645,31 @@ pairs and exposes optional `clientTimingUnavailable: "invalid_receipt"` on that
 record; the host envelope and other records remain readable. Client pairs and
 receipt diagnostics never enter provider history, inference usage or cost accounting.
 
+#### Turn timing summary
+
+`GET /api/activity/turn-timings/summary` requires an authenticated owner.
+`since` (inclusive) and `before` (exclusive) select by acceptance time in
+epoch milliseconds. The server takes the newest `limit` records in that
+window (default 100, maximum 200), then applies optional `outcome` and
+Activity `origin` filters. Origin comes from the linked backend rollup or
+root span and is `unknown` if neither supplies it.
+
+The response is `{ limit, groups }`. Each group carries `packageVersion`,
+`buildRevision` (null for missing identities), and `turns`. `intervals` maps
+milestone duration names to statistics, including `timeToFirstRelayMs`,
+`terminalToRecorderMs` and `terminalToIdleMs`. `steps` lists statistics by
+`phase` and `name`, including steps seen only in another selected build.
+`count` is the number of completed observations, `median` averages the two
+central values for even counts, `p90` is nearest rank and `max` is the
+largest value. All three are null with no completed observations. `open`
+counts started, unended observations. `absent` counts turns without the
+observation. Repeated steps contribute individual samples. Timing values are
+milliseconds. `measurements` applies the same statistics in native units to
+observed host load, alias scan counts, queue depths, stopped-time fields and
+index breakdowns. `frequencies` counts journal operation kinds, index states
+and MCP status/source categories. No turn or session identities, hold IDs,
+file paths or transcripts are returned.
+
 #### Host milestones
 
 `acceptedAt` is the observed host acceptance time, before routing/admission.

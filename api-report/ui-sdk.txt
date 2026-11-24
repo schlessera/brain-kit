@@ -22747,6 +22747,10 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 indexSettle: z.ZodOptional<z.ZodObject<{
@@ -23001,6 +23005,10 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 indexSettle: z.ZodOptional<z.ZodObject<{
@@ -26144,6 +26152,10 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 indexSettle: z.ZodOptional<z.ZodObject<{
@@ -26399,6 +26411,10 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 indexSettle: z.ZodOptional<z.ZodObject<{

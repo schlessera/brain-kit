@@ -277,7 +277,7 @@ test("admission load records a blocked loop and freezes at backend invocation", 
     expect(load?.eventLoopP99Ms).toBeGreaterThan(0);
     expect(load?.atDequeue?.cpuCount).toBeGreaterThan(0);
     expect(load?.atBackendStart?.load1).toBeGreaterThanOrEqual(0);
-    const histogram = monitor.mock.results[0]!.value!;
+    const histogram = monitor.mock.results[0]!.value as ReturnType<typeof perfHooks.monitorEventLoopDelay>;
     expect(histogram.enable(), "MONITOR_DISABLED_AT_BACKEND_START").toBe(true);
     histogram.disable();
     lifecycle.finish("success");

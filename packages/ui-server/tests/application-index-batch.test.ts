@@ -164,7 +164,7 @@ test("settle counts only local paths and attributes the receipts of every joined
   let fail = false;
   const batch = createIndexBatch({ index: async () => { await gate; if (fail) throw Error("index failed"); },
     receipt: receipt => { receipts.push(receipt.durationMs); } });
-  const observe = () => ({ turnId: "ithaca", stats: { queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null } });
+  const observe = (): NonNullable<Parameters<typeof batch.barrier>[1]> => ({ turnId: "ithaca", stats: { queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null } });
   const empty = observe();
   await batch.barrier(undefined, empty);
   expect(empty.stats).toEqual({ queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null });
