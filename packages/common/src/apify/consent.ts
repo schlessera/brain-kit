@@ -206,6 +206,9 @@ interface InputShape {
   properties?: Record<string,InputShape>;
   required?: string[];
   items?: InputShape;
+  oneOf?: InputShape[];
+  anyOf?: InputShape[];
+  allOf?: InputShape[];
 }
 export interface ApifyActorFacts {
   actor_id: string;
@@ -478,8 +481,10 @@ function schemaFields(schema: Record<string, unknown> | null) {
   function shape(field:Record<string,unknown>, depth:number):InputShape {
     const result:InputShape={types:declaredTypes(field.type)};
     const children=record(field.properties);
+    const alternatives = ["oneOf", "anyOf", "allOf"] as const;
+    if ("$ref" in field || "if" in field || "not" in field || "prefixItems" in field) limited=true;
     if (depth===6 || remaining===0) {
-      if (children || field.items) limited=true;
+      if (children || field.items || alternatives.some(key => key in field)) limited=true;
       return result;
     }
     if (children) {
@@ -495,6 +500,19 @@ function schemaFields(schema: Record<string, unknown> | null) {
         const required=new Set(field.required);
         result.required=entries.map(([name])=>name).filter(name=>required.has(name));
       }
+    }
+    for (const key of alternatives) {
+      const branches = field[key];
+      if (!Array.isArray(branches)) continue;
+      const projected: InputShape[] = [];
+      for (const branch of branches) {
+        if (!remaining) { limited=true; break; }
+        const schema=record(branch);
+        if (!schema) { limited=true; continue; }
+        remaining--;
+        projected.push(shape(schema, depth+1));
+      }
+      result[key]=projected;
     }
     const item=record(field.items);
     if(item && remaining) {remaining--;result.items=shape(item,depth+1);}

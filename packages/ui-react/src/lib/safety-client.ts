@@ -6,11 +6,13 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
   let target:SafetyTarget|null=null,requestId:string|null=null,disposed=false,awaitingPage=false,capacityRecoveryUsed=false;
   const store=root.stores.safety;
   let admissions=false,nonDelivery=false;
+  function disconnected():void{requestId=null;awaitingPage=true;store.getState().disconnected();}
+  function sendRead(message:ClientMessage):void{if(!send(message))disconnected();}
   function read(next:SafetyTarget):void{
-    if(disposed||!store.getState().supported)return;
+    if(disposed||!store.getState().supported||store.getState().reason==="disconnected")return;
     target=next;requestId=crypto.randomUUID();awaitingPage=true;store.getState().begin(requestId);
     send({type:"safety_unsubscribe",version:1});
-    send({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{})});
+    sendRead({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{})});
   }
   function selected(): void {
     capacityRecoveryUsed=false;
@@ -41,8 +43,8 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
         if(msg.requestId!==requestId||!target||!awaitingPage)return true;
         if(msg.page.cursor!==store.getState().nextCursor)return true;
         if(!store.getState().page(msg.requestId,msg.page)){read(target);return true;}
-        if(msg.page.nextCursor)send({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{})});
-        else{awaitingPage=false;send({type:"safety_subscribe",version:1,requestId:msg.requestId,identity:msg.page.identity,afterRevision:msg.page.highWater,snapshotId:msg.page.snapshotId});}return true;
+        if(msg.page.nextCursor)sendRead({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{})});
+        else{awaitingPage=false;sendRead({type:"safety_subscribe",version:1,requestId:msg.requestId,identity:msg.page.identity,afterRevision:msg.page.highWater,snapshotId:msg.page.snapshotId});}return true;
       }
       if(msg.type==="safety_update"){
         // A previous subscription may still have frames in flight. The new
@@ -71,7 +73,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       return false;
     },
     refresh():void{selected();},
-    disconnected():void{requestId=null;awaitingPage=true;store.getState().disconnected();},
+    disconnected,
     dispose():void{disposed=true;requestId=null;detach();detachRefresh();store.getState().reset();},
   };
 }

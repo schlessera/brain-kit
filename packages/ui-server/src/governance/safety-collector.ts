@@ -150,14 +150,15 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     }
     // Record output independently, before the backend releases it to the
     // model. Its bytes already exist, so a refusal here is never "before delivery".
-    const signals=outputTaintSignals(tool,output,options.brainPath,marked);
     const call=calls.get(toolUseId);
-    const verified=signals.some(signal=>signal.key==="unknown_remainder")&&op.grepNote&&options.grepCheckpoint
+    const verified=op.grepNote&&options.grepCheckpoint
       &&finalized&&!segments&&!op.uncertain&&!op.refused&&op.inputHashes.size===1
       &&call?.tools.size===1&&call.tools.get(tool)===1&&!marked(op.grepNote)
       &&checkpointGrepMatches(options.grepCheckpoint,op.grepNote,output);
+    // The checkpoint proves these are lines of note content, including any
+    // path-like text in a numbered context line.
+    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked);
     for(const signal of signals){
-      if(verified&&signal.source==="legacy_unknown"&&signal.key==="unknown_remainder")continue;
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }

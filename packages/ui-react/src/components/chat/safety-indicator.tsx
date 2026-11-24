@@ -203,8 +203,9 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
     {r.detailPruned&&<p>Some source detail has expired. The input and any decision remain recorded.</p>}
     {entry.decision&&<p>Marked safe by you · <time dateTime={new Date(entry.decision.observedAt).toISOString()}>{new Date(entry.decision.observedAt).toLocaleString()}</time></p>}
     {counted&&entry.exposure!=="finalized"&&<p>{arriving?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This input cannot be marked safe."} {!arriving&&<NewChatGuidance/>}</p>}
-    {counted&&!owner&&<p>Only the authenticated owner can mark this input safe.</p>}
-    {!readable&&<div><p>Current evidence is unavailable or incomplete.</p><Button label="Refresh safety evidence" reach tone="quiet" onClick={state.refresh}/></div>}
+    {counted&&readable&&state.capabilities&&!owner&&<p>Only the authenticated owner can mark this input safe.</p>}
+    {!readable&&<div><p>{state.reason==="disconnected"?"Current evidence is unavailable while disconnected. It will refresh on reconnect.":"Current evidence is unavailable or incomplete."}</p>
+      {state.status==="unavailable"&&state.reason!=="disconnected"&&state.reason!=="unauthorized"&&state.reason!=="retired"&&<Button label="Refresh safety evidence" reach tone="quiet" onClick={state.refresh}/>}</div>}
     {readable&&owner&&!r.admission?.trusted&&!entry.decision&&entry.exposure==="finalized"&&(
       state.projection?.reasons.includes("recording_failed")?<p>Recording failed. This chat stays restricted. <NewChatGuidance/></p>
       :state.projection?.pendingCount?<p>Input is still being recorded. Review will be available when recording finishes.</p>:null)}
@@ -221,7 +222,7 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
     </div>}
     {prepared&&progress?.stage==="review"&&canReview&&<div role="group" aria-label="Exact future rule review"><p>Exact target: {provenance}. Other verdicts remain unchanged. Recipient permission: {recipient?"allow sending data while restricted":"off"}.</p><pre className="max-h-48 overflow-auto whitespace-pre-wrap">{prepared.review.diff}</pre><Button label={recipient?"Save rule, allow sending while restricted, and mark this input safe":"Save future source rule and mark this input safe"} reach onClick={()=>void reviewer.current?.commitFuture()}/><Button label="Cancel future rule review" tone="quiet" reach onClick={()=>{reviewer.current?.cancelFuture();setPrepared(null);setProgress(null);setReview(false);}}/></div>}
     {progress&&<p role="status">{progress.message}</p>}
-    {(unknown||progress?.stage==="refused"||progress?.stage==="partial")&&!busy&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={()=>{setProgress(null);setReview(false);state.refresh();}}/>}
+    {(unknown||progress?.stage==="refused"||progress?.stage==="partial")&&readable&&!busy&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={()=>{setProgress(null);setReview(false);state.refresh();}}/>}
     <p className="text-xs" role="status" ref={statusLine} tabIndex={-1}>{readable&&state.projection
       ? `Whole chat · ${state.projection.unresolvedCount} unresolved input${state.projection.unresolvedCount===1?"":"s"}${counted?", including this one":" · this input is not counted"} · ${state.normal&&state.projection.restriction==="normal"&&state.projection.coverage.state==="complete"&&!state.projection.pendingCount&&!state.projection.unresolvedCount?"Normal policy restored":"Still restricted"}`
       :"Whole chat · current evidence unavailable"}</p>

@@ -130,7 +130,12 @@ test('same-owner disconnect and replay keep read-only evidence geometry without 
  expect(host!.querySelectorAll('[data-safety-indicator]').length,'DISCONNECT_RETAINS_READ_ONLY_INDICATORS').toBe(buttons);
  expect(notice.getBoundingClientRect().height,'DISCONNECT_RETAINS_NOTICE_HEIGHT').toBe(before.height);
  expect(current.stores.safety.getState().normal,'DISCONNECTED_EVIDENCE_CANNOT_RESTORE_NORMAL').toBe(false);
- expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Current evidence is unavailable');
+ const offline = document.querySelector('[data-safety-details]')!;
+ expect(offline.textContent).toContain('It will refresh on reconnect');
+ expect(offline.textContent).not.toContain('Only the authenticated owner');
+ expect(offline.textContent).not.toContain('Refresh safety evidence');
+ client.refresh();
+ expect(current.stores.safety.getState().reason).toBe('disconnected');
  expect(document.querySelector('[data-safety-details]')!.textContent).not.toContain('Mark this input as safe');
  socket=new WebSocket(fixture!.url.replace('http:','ws:')+'/ws');const next=socket;
  next.onopen=()=>next.send(JSON.stringify({type:'client_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,chatDeletion:true}}));

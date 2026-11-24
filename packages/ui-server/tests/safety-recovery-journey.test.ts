@@ -312,6 +312,10 @@ test("a numbered search is attributed only to its verified single note", async (
     expect(await search("verified", path, response), "VERIFIED_SINGLE_NOTE_CONTEXT").toBe(0);
     writeFileSync(join(snapshot, "pylos.md"), "sail\ncrew\nharbour\nraft\nsail\n");
     expect(await search("separated", join(f.root,"pylos.md"), {...response,content:"1:sail\n2-crew\n--\n4-raft\n5:sail",numLines:5,totalLines:5})).toBe(0);
+    const contextLine = "raft/" + "ὦ".repeat(350);
+    writeFileSync(join(snapshot, "fleet.md"), contextLine + "\nsail\n");
+    expect(await search("long-context", join(f.root, "fleet.md"), {...response,
+      content: "1-" + contextLine + "\n2:sail", numLines: 2, totalLines: 2})).toBe(0);
     expect(await search("mismatch", path, { ...response, content: bytes.replace("crew", "fleet") })).toBe(1);
     expect(await search("paginated", path, { ...response, appliedLimit: 3, totalLines: 4 })).toBe(2);
     expect(await search("directory", f.root, response)).toBe(3);
