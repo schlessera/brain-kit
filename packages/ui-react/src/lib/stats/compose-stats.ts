@@ -393,7 +393,7 @@ function windowReceipt(r: ActivityRuntimeStats): StatsSection {
   }
   rows.push(
     { k: "runs", v: count(w.runs) },
-    { k: "failed · all origins", v: count(w.failures), ...(w.failures ? { tone: "gold" as const } : {}) },
+    { k: "failed", v: count(w.failures), ...(w.failures ? { tone: "gold" as const } : {}) },
     { k: "paid", v: cost(w.effectiveCostUsd, w.unpricedRuns, w.runs), ...unknownTone(w.unpricedRuns, w.runs) },
     { k: "list price", v: cost(w.costUsd, w.unpricedListCostRuns, w.runs), ...unknownTone(w.unpricedListCostRuns, w.runs) },
   );
@@ -425,8 +425,8 @@ function windowReceipt(r: ActivityRuntimeStats): StatsSection {
     title: `Runtime · ${day(from)} – ${day(w.until)}`,
     rows,
     footnote: retention.insideWindow
-      ? `per-run detail is kept ${plural(retention.days, "day", "days")} · ${count(w.detailPrunedRuns)} of these ${plural(w.runs, "run is", "runs are")} totals only`
-      : "per-run detail is kept for the whole window",
+      ? `Chat turns and scheduled jobs · per-run detail is kept ${plural(retention.days, "day", "days")} · ${count(w.detailPrunedRuns)} of these ${plural(w.runs, "run is", "runs are")} totals only`
+      : "Chat turns and scheduled jobs · per-run detail is kept for the whole window",
     footTone: retention.insideWindow ? "gold" : "teal",
   };
 }

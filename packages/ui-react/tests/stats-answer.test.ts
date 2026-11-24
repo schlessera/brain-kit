@@ -166,7 +166,7 @@ describe("the full answer", () => {
 
   test("retention is said once, in the window's footnote, with its count", () => {
     const runtime = receipt(sections, "Runtime");
-    expect(runtime.footnote).toBe("per-run detail is kept 14 days · 38 of these 142 runs are totals only");
+    expect(runtime.footnote).toBe("Chat turns and scheduled jobs · per-run detail is kept 14 days · 38 of these 142 runs are totals only");
     expect(runtime.footTone).toBe("gold");
     const labels = all(sections, "tiles")[1].tiles.map((t) => t.label);
     expect(labels).toEqual(["runs · 30d", "spent · 30d"]);
@@ -460,5 +460,7 @@ test("failure totals disclose the combined chat and scheduled-job window", () =>
   expect(warning?.body).toContain("chat turns and scheduled jobs");
   expect(warning?.body).toContain("timeouts");
   expect(all(sections, "tiles").flatMap(s => s.tiles).find(t => t.value === "18")?.meta).toContain("all origins");
-  expect(row(receipt(sections, "Runtime"), "failed · all origins").v).toBe("7");
+  const runtime = receipt(sections, "Runtime");
+  expect(row(runtime, "failed").v).toBe("7");
+  expect(runtime.footnote).toContain("Chat turns and scheduled jobs");
 });

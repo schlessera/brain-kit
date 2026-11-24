@@ -68,13 +68,19 @@ export function SessionSafety({visibleMessages}:{visibleMessages:readonly ChatMe
   const partialEpochs=p?.coverage.epochs.filter(epoch=>epoch.status!=="complete")??[];
   const gap=partialEpochs.some(epoch=>epoch.endSequence!==null || epoch.reason!=="missing_detector_acknowledgement");
   const waiting=partialEpochs.some(epoch=>epoch.endSequence===null&&epoch.reason==="missing_detector_acknowledgement");
+  const showCoverage=auth==="active"&&state.supported&&unknown&&state.reason!=="unauthorized"&&state.reason!=="retired";
+  const canRefresh=state.status==="unavailable"&&state.reason!=="disconnected";
   const text=normal?"Normal policy restored":p?`${state.status==="ready"?"Still restricted":"Evidence unavailable · last read"} · ${p.unresolvedCount} unresolved input${p.unresolvedCount===1?"":"s"}`:"Safety evidence unavailable";
   return <aside data-session-safety className="mb-3 min-w-0 space-y-1 text-xs text-muted-foreground" aria-label="Chat safety evidence">
     <p className="flex min-h-8 items-center gap-2 leading-4"><Icon icon={normal?"secure":state.status!=="ready"||unknown?"unverified":"policy"} size={16}/><span role="status">{text}</span></p>
-    {unknown&&p&&state.status==="ready"&&(gap?<p>Earlier inputs were not fully recorded. Reviewing known inputs cannot restore normal policy. <NewChatGuidance/></p>
-      :waiting?<p>Waiting for the host to confirm input recording. This chat stays restricted while it starts.</p>
-      :<p>The host cannot confirm complete input history. This chat stays restricted. <NewChatGuidance/></p>)}
-    {auth==="active"&&state.supported&&state.status==="unavailable"&&state.reason!=="unauthorized"&&state.reason!=="retired"&&state.reason!=="disconnected"&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={state.refresh}/>}
+    {/* The same row holds the last-read explanation, reconnect state or retry action. */}
+    {showCoverage&&<div className="flex min-h-11 items-center">
+      {canRefresh?<Button label="Refresh safety evidence" tone="quiet" reach onClick={state.refresh}/>
+        :!p?<p>{state.reason==="disconnected"?"Input history will refresh on reconnect.":"Reading input history."}</p>
+        :gap?<p>Earlier inputs were not fully recorded. Reviewing known inputs cannot restore normal policy. <NewChatGuidance/></p>
+        :waiting?<p>Waiting for the host to confirm input recording. This chat stays restricted while it starts.</p>
+        :<p>The host cannot confirm complete input history. This chat stays restricted. <NewChatGuidance/></p>}
+    </div>}
     {!!p?.pendingCount&&<p>Input is being recorded; new actions remain restricted.</p>}
     {p?.reasons.includes("recording_failed")&&<p>Recording is unavailable. Restrictions remain in effect.</p>}
     <details><summary className="min-h-11 cursor-pointer py-3">What this evidence covers</summary><p>Coverage describes the host's supported detectors. It does not verify content safety. Proxied shell local reads and opaque transport may have no tool attribution.</p></details>
