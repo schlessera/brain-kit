@@ -52,7 +52,7 @@ async function recordTurn(runId: string, queryFn: typeof query) {
 }
 
 describe("the run record", () => {
-  test.each(["plugin:loom", "plugin:ithaca:sea:loom"])("persists MCP states and CLI durations from the first Claude init and result (%s)", async configuredKey => {
+  test.each(["plugin:loom", "plugin:ithaca:sea:loom", "plugin:ithaca::loom", "plugin::", "claude.ai "])("persists MCP states and CLI durations from the first Claude init and result (%s)", async configuredKey => {
     const db = createUiDb(":memory:");
     try {
       const store = createActivityStore(db);

@@ -105,13 +105,16 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
             for (let index = 0; index < Math.min(8, length); index++) {
               try {
                 const entry = servers[index], name = entry?.name;
-                if (!isMcpTimingServerName(name)) { omitted++; continue; }
+                let rawSource: unknown, sourceReadFailed = false;
+                try { rawSource = entry?.source; } catch { sourceReadFailed = true; }
+                if (!isMcpTimingServerName(name, rawSource)) { omitted++; continue; }
                 const diagnostic = `mcp_connect:${name}`, size = Buffer.byteLength(JSON.stringify(diagnostic)) + 1;
                 if (bytes + size > 192) { omitted++; continue; }
                 bytes += size; startupTiming.missing(diagnostic);
                 if (startupTiming.mcpInit) {
                   try {
-                    const rawStatus = entry!.status, rawSource = entry!.source;
+                    if (sourceReadFailed) { statesOmitted++; continue; }
+                    const rawStatus = entry!.status;
                     const status = (["connected", "failed", "needs-auth", "pending", "disabled"] as const).find(value => value === rawStatus) ?? "other";
                     const source = (["sdk", "plugin", "user", "project", "local", "dynamic", "managed", "enterprise", "claudeai", "agent"] as const).find(value => value === rawSource) ?? "other";
                     if (name === "brain-ui") {

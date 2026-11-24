@@ -872,15 +872,13 @@ claim complete runtime coverage. These observations stay in host storage and
 never enter provider history.
 Names are sampled from the first Claude system/init frame only: at most 8
 server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
-budget. Diagnostic names retain the authored configuration key, including printable
-punctuation. Path and control exclusions also apply within the SDK's scoped
-`plugin:<plugin>:<server>` form, which requires exactly two nonempty
-components. Authored keys can contain additional colons, as in
-`plugin:ithaca:sea:loom`, or a single suffix such as `plugin:loom`. The
-sample omits names whose extra components can encode a drive-relative path. Cloud connectors keep
-their SDK name, `claude.ai <display name>`, including spaces, punctuation
-and disambiguating suffixes such as `(2)`. An empty display name, a path
-or control characters count as omitted.
+budget. Configured names retain their authored key, including punctuation,
+spaces and repeated colons. The SDK's source identifies plugin and cloud
+connector names. The same path and control exclusions apply inside a scoped
+`plugin:<plugin>:<server>` or a `claude.ai <display name>`, including when an
+older CLI omits the source. Cloud display names retain disambiguating suffixes
+such as `(2)`. A path, control character or empty cloud display name counts as
+omitted.
 An incomplete sample reports `mcp_connect:additional_servers_omitted`
 when that summary label fits the lifecycle's diagnostic budget. The lifecycle
 retains at most 8 diagnostic names within 256 encoded bytes; individual
