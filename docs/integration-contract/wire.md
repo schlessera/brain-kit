@@ -665,6 +665,10 @@ largest value. All three are null with no completed observations. `open`
 counts started, unended observations. `absent` counts turns without the
 observation, including milestones omitted by an older build. Historical
 backend observations have the same read limits as a single lifecycle record.
+A queued follow-up records its enqueue timestamp as optional `queuedAt` on its
+first lifecycle write. Its wait is open until dequeue, including when cancelled
+before dequeue. A direct turn has no queue wait. For older turns only a recorded
+dequeue establishes a completed wait from acceptance.
 Repeated steps contribute individual samples. Timing values are
 milliseconds. `measurements` applies the same statistics in native units to
 observed host load, alias scan counts, queue depths, stopped-time fields and
@@ -761,8 +765,9 @@ average (`load1`) and available CPU count (`cpuCount`) when available.
 For direct dispatch, `atDequeue` samples entry to admission and adds no queue milestone.
 `eventLoopMaxMs` and `eventLoopP99Ms` summarize event-loop delay observed
 between those milestones, or until admission fails or authority is revoked before cleanup.
-The sample includes delays before the first native tick and after the last
-tick when the next timer is already overdue. Missing samples
+At a 10 ms cadence each sample takes the larger of the native event-loop
+measurement and the full interval between callbacks. This captures stalls
+before the first native tick and an overdue tick at the admission boundary. Missing samples
 are omitted. These fields ride the existing lifecycle writes.
 
 Inside `boundary_prepare`, `boundary_private_state` checks private state.

@@ -255,7 +255,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   entry.queuedAt = Date.now();
   if (host.activity && !entry.lifecycle) {
     entry.lifecycleTurnId = crypto.randomUUID();
-    entry.lifecycle = createTurnLifecycle(host.activity.store, entry.lifecycleTurnId, sessionId, entry.queuedAt, () => host.activity!.stream.pump(), undefined, entry.principalId, { buildRevision: host.activity.buildRevision });
+    entry.lifecycle = createTurnLifecycle(host.activity.store, entry.lifecycleTurnId, sessionId, entry.queuedAt, () => host.activity!.stream.pump(), undefined, entry.principalId, { buildRevision: host.activity.buildRevision, queuedAt: entry.queuedAt });
     const release = entry.releaseAuthorization;
     entry.releaseAuthorization = () => { entry.lifecycle?.finish("cancelled", "Removed from the queue before completion"); release(); };
   }

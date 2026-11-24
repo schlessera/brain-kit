@@ -4591,6 +4591,7 @@ signatures (every public export and the types it is made of)
         sessionId: string | null;
         backendRunId: string | null;
         acceptedAt: number;
+        queuedAt?: number;
         dequeuedAt: number | null;
         governedStartedAt: number | null;
         governedAcquiredAt: number | null;
@@ -22797,6 +22798,7 @@ signatures (every public export and the types it is made of)
             }>>;
             packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
             recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             runtimeVersion: z.ZodOptional<z.ZodString>;
@@ -23055,6 +23057,7 @@ signatures (every public export and the types it is made of)
             }>>;
             packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
             recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             runtimeVersion: z.ZodOptional<z.ZodString>;
@@ -26202,6 +26205,7 @@ signatures (every public export and the types it is made of)
             }>>;
             packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
             recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             runtimeVersion: z.ZodOptional<z.ZodString>;
@@ -26461,6 +26465,7 @@ signatures (every public export and the types it is made of)
             }>>;
             packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
             recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             runtimeVersion: z.ZodOptional<z.ZodString>;

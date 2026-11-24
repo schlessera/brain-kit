@@ -276,7 +276,7 @@ test("admission load records a blocked loop and freezes at backend invocation", 
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 70);
     lifecycle.mark("backendInvokedAt");
     const load = store.lifecycle("ithaca-load")!.admissionLoad;
-    expect(load?.eventLoopMaxMs, "ADMISSION_BLOCKED_LOOP_MAXIMUM").toBeGreaterThanOrEqual(55);
+    expect(load?.eventLoopMaxMs, "ADMISSION_BLOCKED_LOOP_MAXIMUM").toBeGreaterThanOrEqual(70);
     expect(load?.eventLoopP99Ms).toBeGreaterThan(0);
     expect(load?.atDequeue?.cpuCount).toBeGreaterThan(0);
     expect(load?.atBackendStart?.load1).toBeGreaterThanOrEqual(0);
@@ -298,8 +298,8 @@ test("admission records a stall before the first tick and ends at refusal before
     await Bun.sleep(55);
     life.mark("failureObservedAt");
     const load = store.lifecycle("ithaca-refusal")!.admissionLoad;
-    expect(load?.eventLoopMaxMs, "REFUSED_ADMISSION_INCLUDES_INITIAL_STALL").toBeGreaterThanOrEqual(65);
-    expect(load?.eventLoopP99Ms).toBeGreaterThanOrEqual(65);
+    expect(load?.eventLoopMaxMs, "REFUSED_ADMISSION_INCLUDES_INITIAL_STALL").toBeGreaterThanOrEqual(80);
+    expect(load?.eventLoopP99Ms).toBeGreaterThanOrEqual(80);
     expect(load?.atBackendStart).toBeUndefined();
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120);
     life.finish("error");

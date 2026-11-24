@@ -36,8 +36,10 @@ function summarize(records: Lifecycle[], vocabulary: ReadonlyMap<string, { phase
     };
     const frequency = (key: string) => frequencies.set(key, (frequencies.get(key) ?? 0) + 1);
     for (const [name, from, to] of intervals) {
-      const start = record[from], end = record[to], sample = durations.get(name)!;
-      if (start == null || end === undefined || name === "queueWaitMs" && end === null) continue;
+      const end = record[to], sample = durations.get(name)!;
+      // Older records prove they were queued only if they reached dequeue.
+      const start = name === "queueWaitMs" ? record.queuedAt ?? (end != null ? record.acceptedAt : undefined) : record[from];
+      if (start == null || end === undefined) continue;
       sample.present++;
       if (end == null) sample.open++;
       else sample.values.push(Math.max(0, end - start));

@@ -1660,6 +1660,7 @@ const activityTurnLifecycleSchema = z.looseObject({
   skippedPhases: z.array(z.enum(["governed", "budget", "journal"])),
   lifecycleId: id, turnId: id, sessionId: id.nullable(), backendRunId: id.nullable(),
   acceptedAt: z.number(),
+  queuedAt: z.number().optional(),
   dequeuedAt: z.number().nullable(),
   governedStartedAt: z.number().nullable(),
   governedAcquiredAt: z.number().nullable(),

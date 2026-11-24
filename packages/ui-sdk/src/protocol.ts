@@ -3977,6 +3977,8 @@ export interface ActivityTurnLifecycle {
   sessionId: string | null;
   backendRunId: string | null;
   acceptedAt: number;
+  /** Present from enqueue, including when the follow-up never dequeues. */
+  queuedAt?: number;
   dequeuedAt: number | null;
   governedStartedAt: number | null;
   governedAcquiredAt: number | null;

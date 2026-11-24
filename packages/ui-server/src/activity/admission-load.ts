@@ -17,19 +17,6 @@ function hostLoad(): AdmissionLoad["atDequeue"] {
   return sample;
 }
 
-/** Combine the native observations with the at most two delays crossing its sampling boundaries. */
-function nativeDelayStats(monitor: ReturnType<typeof monitorEventLoopDelay>, boundaryMs: number[]) {
-  const n = monitor.count;
-  if (!boundaryMs.length) return { eventLoopMaxMs: monitor.max / 1e6, eventLoopP99Ms: monitor.percentile(99) / 1e6 };
-  const rank = Math.ceil(.99 * (n + boundaryMs.length));
-  // Inserting k values shifts rank by at most k. Only this slice of native ranks can supply p99.
-  const first = Math.max(1, rank - boundaryMs.length);
-  const candidates = [...boundaryMs];
-  for (let i = first; i <= Math.min(rank, n); i++) candidates.push(monitor.percentile(100 * i / n) / 1e6);
-  candidates.sort((a, b) => a - b);
-  return { eventLoopMaxMs: Math.max(monitor.max / 1e6, ...boundaryMs), eventLoopP99Ms: candidates[rank - first]! };
-}
-
 function delaySampler(): () => Pick<AdmissionLoad, "eventLoopMaxMs" | "eventLoopP99Ms"> {
   const resolution = 10;
   const histogram = createHistogram();
@@ -38,26 +25,28 @@ function delaySampler(): () => Pick<AdmissionLoad, "eventLoopMaxMs" | "eventLoop
     monitor = monitorEventLoopDelay({ resolution });
     monitor.enable();
   } catch { monitor = undefined; }
-  // A turn can enter the backend before an overdue timer gets a chance to fire.
-  // Keep its deadline so stopping the monitor can include this final delay.
-  let due = performance.now() + resolution, firstTick = true;
-  const boundaryMs: number[] = [];
-  const recordDelay = (delay: number) => histogram.record(Math.max(1, Math.round(delay * 1e6)));
-  const timer = setInterval(() => {
+  let previous = performance.now();
+  // One sample per timer interval. A native tick can precede the first JS tick
+  // or miss a stall at shutdown, so also measure the full elapsed interval.
+  const sample = (terminal: boolean) => {
     const now = performance.now();
-    if (!monitor) recordDelay(now - due);
-    else if (firstTick && !monitor.count && now > due) boundaryMs.push(now - due);
-    firstTick = false;
-    due = now + resolution;
+    const gap = now - previous;
+    previous = now;
+    const native = monitor?.count ? monitor.max / 1e6 : undefined;
+    if (native !== undefined) monitor!.reset();
+    // A partial interval at shutdown is not a delayed tick.
+    if (terminal && gap < resolution && native === undefined) return;
+    const elapsed = terminal && gap < resolution ? native! : Math.max(gap, native ?? 0);
+    histogram.record(Math.max(1, Math.round(elapsed * 1e6)));
+  };
+  const timer = setInterval(() => {
+    try { sample(false); } catch { /* A diagnostic failure cannot interrupt the turn. */ }
   }, resolution);
   timer.unref();
   return () => {
-    const overdue = performance.now() - due;
     clearInterval(timer);
     monitor?.disable();
-    if (overdue > 0) boundaryMs.push(overdue);
-    if (monitor?.count) return nativeDelayStats(monitor, boundaryMs);
-    for (const delay of boundaryMs) recordDelay(delay);
+    sample(true);
     return histogram.count ? { eventLoopMaxMs: histogram.max / 1e6, eventLoopP99Ms: histogram.percentile(99) / 1e6 } : {};
   };
 }

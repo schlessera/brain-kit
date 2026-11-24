@@ -717,6 +717,12 @@ test("owner timing summary separates builds, open and absent steps, and caps the
     }
     expect((await read("?origin=session&outcome=denied&since=12&before=15")).groups.map((g: { buildRevision: string }) => g.buildRevision)).toEqual(["b"]);
     expect((await read("?limit=1")).groups.map((g: { turns: number }) => g.turns)).toEqual([1]);
+    const queued = createTurnLifecycle(store, "ithaca-queued", "ithaca", 15, () => {}, undefined, undefined, { queuedAt: 15, buildRevision: "queued" });
+    const queuedStats = async () => (await read()).groups.find((g: { buildRevision: string }) => g.buildRevision === "queued").intervals.queueWaitMs;
+    expect(await queuedStats()).toMatchObject({ count: 0, open: 1, absent: 0 });
+    queued.finish("cancelled");
+    expect(await queuedStats()).toMatchObject({ count: 0, open: 1, absent: 0 });
+    expect(legacy.intervals.queueWaitMs).toMatchObject({ count: 0, open: 0, absent: 1 });
     for (let i = 0; i < 205; i++) {
       const id = "ithaca-window-" + i;
       store.writeLifecycle({ ...record, turnId: id, lifecycleId: "lifecycle:" + id, acceptedAt: 20 + i, buildRevision: "c" });

@@ -56,7 +56,7 @@ export function lastLifecycleObservation(record: ActivityTurnLifecycle): number 
 type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt" | "recorderSettledAt" | "idleEmittedAt";
 
 export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,
-  acceptedAt: number, onWrite: () => void, clock?: () => number, principalId?: string, identity: { buildRevision?: string } = {}) {
+  acceptedAt: number, onWrite: () => void, clock?: () => number, principalId?: string, identity: { buildRevision?: string; queuedAt?: number } = {}) {
   // Keep one epoch anchor for the whole lifecycle. Wall-clock corrections must
   // not reorder admission, backend observations or terminal boundaries.
   if (!clock) {
@@ -67,6 +67,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   const observedClock = () => { try { return clock(); } catch { return undefined; } };
   const buildRevision = parseBuildRevision(identity.buildRevision);
   const record: ActivityTurnLifecycle = {
+    ...(identity.queuedAt !== undefined ? { queuedAt: identity.queuedAt } : {}),
     packageVersion: packageInfo.version, ...(buildRevision ? { buildRevision } : {}),
     recorderSettledAt: null, idleEmittedAt: null,
     hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
@@ -226,7 +227,7 @@ export function lifecycleTiming(record: ActivityTurnLifecycle): ActivityTurnLife
   return boundBackendEvidence({ ...record,
     totalElapsedMs: elapsed(record.acceptedAt, record.endedAt),
     timeToFirstFrameMs: elapsed(record.acceptedAt, record.firstFrameAt),
-    queueWaitMs: elapsed(record.acceptedAt, record.dequeuedAt),
+    queueWaitMs: elapsed(record.queuedAt ?? record.acceptedAt, record.dequeuedAt),
     governedAdmissionMs: phase(record.governedStartedAt, record.governedAcquiredAt),
     budgetAdmissionMs: phase(record.budgetStartedAt, record.budgetAdmittedAt),
     journalBeginMs: phase(record.journalStartedAt, record.journalBeganAt),
