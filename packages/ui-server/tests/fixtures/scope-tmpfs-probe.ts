@@ -14,7 +14,12 @@ const timings: Record<string, number> = {};
 try {
   await f.begin(); clock?.finishRegistration();
   if (clock && (clock.registrations.length !== 1 || clock.registrations[0]!.delay !== 15_000)) throw Error("SCOPE_TMPFS_PRODUCTION_INTERVAL_IS_15000_MS");
-  child = f.worker('i=0; while [ "$i" -lt 200 ]; do i=$((i+1)); head -c 1048576 /dev/zero > .brain/scratch/sail-$i; sleep 0.2; done; printf done > finished');
+  child = f.worker(["/usr/bin/python3", "-I", "-S", "-c", `import pathlib,time
+block=bytes(1048576)
+for i in range(1,201):
+    pathlib.Path(".brain/scratch/sail-"+str(i)).write_bytes(block)
+    time.sleep(0.2)
+pathlib.Path("finished").write_text("done")`]);
   timings.workerLaunchedMs = performance.now() - started;
   if (pausedFloor) {
     f.scope.toolCall("voyage", "loom");

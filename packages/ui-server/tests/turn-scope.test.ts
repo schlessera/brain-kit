@@ -26,7 +26,7 @@ function descendantNames(pid: number): string[] {
   return found;
 }
 /**
- * Wait until a `while :; do sleep 1; done` worker is really running. Its
+ * Wait until a single sleep process is really running. Its
  * sandbox's PID 1 forks the shell after launch, and a freeze before then
  * cannot confirm a stopped tree: on a loaded runner the first observation
  * outran the fork and failed "did not confirm its frozen state". The wait is
@@ -48,7 +48,17 @@ test("real process tree freezes, resumes once per dimension, then stops with eve
     };
     // Prime the witness, then gate native writes until the cap freezes the tree.
     // Startup latency must not exhaust the independent eight-byte scope cap.
-    child = f.worker('(printf x >> heartbeat; while [ ! -e heartbeat-start ]; do sleep 0.02; done; while :; do printf x >> heartbeat; sleep 0.02; done) & wait');
+    child = f.worker(["/usr/bin/python3", "-I", "-S", "-c", `import os,pathlib,time
+# Fork once before readiness; both live tasks remain in the managed tree.
+if os.fork():
+    os.wait()
+    raise SystemExit(0)
+fd=os.open("heartbeat",os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o666)
+os.write(fd,b"x")
+while not pathlib.Path("heartbeat-start").exists(): time.sleep(0.02)
+while True:
+    os.write(fd,b"x")
+    time.sleep(0.02)`]);
     await wait(() => Bun.file(join(f.brain, "heartbeat")).size > 0);
     f.scope.toolCall("voyage", "loom-1"); f.scope.toolCall("voyage", "loom-1"); f.scope.toolCall("voyage", "loom-2");
     // An unfrozen descendant can now write throughout the original 100 ms window.
@@ -90,7 +100,7 @@ test("real process tree freezes, resumes once per dimension, then stops with eve
 test("shared snapshots count ignored scratch, workspace bytes and repeated observed bytes, with independent finite grant", async () => {
   const f = scopeFixture({ max_bytes_written: 8, max_files_changed: 3 }); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child);
+    await f.begin(); child = f.worker(["/bin/sleep", "3600"]); await sleeping(child);
     writeFileSync(join(f.brain, ".brain/scratch/loom"), "12345678"); await f.journal.observe();
     expect(f.receipt()).toMatchObject({ dimension: "turn_bytes", count: 8, cap: 8, newCap: 16 });
     expect((await f.scope.decide(f.message("continue"), true)).state).toBe("accepted");
@@ -109,7 +119,7 @@ test("files_changed leaves out a reference clone under workspaces/ but counts ev
   // loaded worker is no budget for writing thousands of files (#4249).
   const f = scopeFixture({ max_files_changed: 20 }); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child);
+    await f.begin(); child = f.worker(["/bin/sleep", "3600"]); await sleeping(child);
     // A checkout far larger than the cap, and nothing in the brain.
     mkdirSync(join(f.brain, "workspaces/argo/src"), { recursive: true });
     for (let index = 0; index < 150; index++) writeFileSync(join(f.brain, "workspaces/argo/src", `oar-${index}.ts`), `export const oar = ${index};\n`);
@@ -132,7 +142,7 @@ test("files_changed leaves out a reference clone under workspaces/ but counts ev
 test("workspace writes still count toward turn_bytes and pause the turn there (#3793)", async () => {
   const f = scopeFixture({ max_files_changed: 1, max_bytes_written: 1024 }); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child);
+    await f.begin(); child = f.worker(["/bin/sleep", "3600"]); await sleeping(child);
     mkdirSync(join(f.brain, "workspaces/argo"));
     writeFileSync(join(f.brain, "workspaces/argo/hull.bin"), Buffer.alloc(1024, 1)); writeFileSync(join(f.brain, "workspaces/argo/keel.bin"), Buffer.alloc(1024, 2));
     await f.journal.observe();
@@ -224,7 +234,7 @@ test("the disposable index and publication copies contribute no byte scope while
 test("connected pause has no scope expiry; disconnect lifetime, reconnect and restart never resume automatically", async () => {
   let clock = Date.now(); const f = scopeFixture({ max_tool_calls: 1 }, () => clock); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child); f.scope.toolCall("voyage", "loom");
+    await f.begin(); child = f.worker(["/bin/sleep", "3600"]); await sleeping(child); f.scope.toolCall("voyage", "loom");
     clock += SCOPE_DISCONNECTED_MS * 2; await f.journal.observe(); expect(f.receipt().state).toBe("paused");
     f.disconnect(); await f.journal.observe(); clock += SCOPE_DISCONNECTED_MS - 1; await f.journal.observe(); expect(f.receipt().state).toBe("paused");
     f.reconnect(); await f.journal.observe(); expect(f.receipt().state, "SCOPE_RECONNECT_NEVER_RESUMES").toBe("paused");
@@ -236,7 +246,9 @@ test("connected pause has no scope expiry; disconnect lifetime, reconnect and re
 test("true voice stops without a grant and preserves partial work", async () => {
   const f = scopeFixture({ max_tool_calls: 1 }); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin("voice"); child = f.worker('printf Ithaca > voice-note; while :; do sleep 1; done');
+    await f.begin("voice"); child = f.worker(["/usr/bin/python3", "-I", "-S", "-c", `import pathlib,time
+pathlib.Path("voice-note").write_text("Ithaca")
+while True: time.sleep(1)`]);
     await wait(() => Bun.file(join(f.brain, "voice-note")).size > 0); f.scope.toolCall("voyage", "loom"); await child.exited;
     expect(f.receipt()).toMatchObject({ state: "voice_stopped", cap: 1, frozen: true }); expect(f.receipt().newCap).toBeUndefined();
     expect((await f.scope.decide(f.message("continue"), true)).state).toBe("answered_elsewhere"); expect(f.stopped).toContain("I stopped");
@@ -259,8 +271,8 @@ test("one long single Bash loop is frozen by the registered 15-second observatio
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
   };
   // Read actual kernel task states, independently of the freeze method returning.
-  // The bubblewrap PID-1 reaper must remain runnable; only its shell/sleep
-  // descendants execute this fixed writer command.
+  // The bubblewrap PID-1 reaper must remain runnable. The shell descendants
+  // write files; the separate pacer only supplies ticks through an owned pipe.
   function writerStates(pid: number): boolean[] {
     const children = readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number);
     return children.flatMap(childPid => {
@@ -292,7 +304,12 @@ test("one long single Bash loop is frozen by the registered 15-second observatio
     const registration = clock.registrations[0]!;
     // This separate native process keeps sampling while synchronous host IO runs.
     monitor = Bun.spawn([process.execPath, "--no-env-file", "-e", 'const fs=require("node:fs"); setInterval(()=>{fs.appendFileSync(process.argv[2],JSON.stringify({at:Date.now(),count:fs.readdirSync(process.argv[1]).length})+"\\n");},20);', scratch, samples], { stdout: "ignore", stderr: "pipe" });
-    child = f.worker('i=0; while [ "$i" -lt 10000 ]; do i=$((i+1)); printf Ithaca > .brain/scratch/sail-$i; sleep 0.05; done; printf done > finished');
+    // The shell remains the actual file writer. One in-namespace pacer replaces
+    // per-write sleep forks, so its loop contains only read/printf/arithmetic.
+    child = f.worker(`python3 -I -S -c 'import os,time
+for _ in range(10000):
+    os.write(1,b"tick\\n")
+    time.sleep(0.05)' | { i=0; while IFS= read -r tick; do i=$((i+1)); printf Ithaca > .brain/scratch/sail-$i; done; printf done > finished; }`);
     const freeze = child.freeze; child.freeze = () => { freeze(); frozenAt ||= Date.now(); };
     f.journal.onObservation(() => { observationCount++; });
     // The oracle, not the host's directory poll, must witness the cap crossing.
@@ -441,7 +458,7 @@ test("real host restart kills its paused namespace, records interruption and nev
 test("wall time uses the frozen policy independently of later edits and hard limits, then allows only one finite grant", async () => {
   let clock = Date.now(); const f = scopeFixture({ max_minutes: .25 }, () => clock); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child); f.policy.scope.max_minutes = 90; clock += 15_001; await f.journal.observe();
+    await f.begin(); child = f.worker(["/bin/sleep", "3600"]); await sleeping(child); f.policy.scope.max_minutes = 90; clock += 15_001; await f.journal.observe();
     expect(f.receipt()).toMatchObject({ dimension: "minutes", cap: .25, newCap: .5, frozen: true });
     expect((await f.scope.decide(f.message("continue"), true)).state).toBe("accepted");
     clock += 15_001; await f.journal.observe(); expect(f.receipt()).toMatchObject({ cap: .5, state: "paused" }); expect(f.receipt().newCap).toBeUndefined();
@@ -453,9 +470,17 @@ test("namespace freeze never signals the host or an unrelated worker", async () 
   expect(() => createWorkerFreezer(process.pid), "SCOPE_HOST_NAMESPACE_REFUSED_BEFORE_SIGNAL").toThrow("verified private PID namespace");
   const f = scopeFixture({ max_tool_calls: 1 }), neighborBrain = mkdtempSync(join(tmpdir(), "odysseus-scope-neighbor-")); let own: ReturnType<typeof f.worker> | undefined, neighbor: ReturnType<typeof launchAgentWorker> | undefined;
   try {
-    await f.begin(); own = f.worker('while :; do printf x >> own-heartbeat; sleep 0.02; done');
+    await f.begin(); own = f.worker(["/usr/bin/python3", "-I", "-S", "-c", `import os,time
+fd=os.open("own-heartbeat",os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o666)
+while True:
+    os.write(fd,b"x")
+    time.sleep(0.02)`]);
     neighbor = launchAgentWorker({ brainPath: neighborBrain, sandbox: prepareWorkerSandbox(neighborBrain, { profile: "governed", areas: [] }),
-      command: ["/bin/sh", "-c", 'while :; do printf x >> neighbor-heartbeat; sleep 0.3; done'], env: { PATH: "/usr/bin:/bin" } });
+      command: ["/usr/bin/python3", "-I", "-S", "-c", `import os,time
+fd=os.open("neighbor-heartbeat",os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o666)
+while True:
+    os.write(fd,b"x")
+    time.sleep(0.3)`], env: { PATH: "/usr/bin:/bin" } });
     neighbor.stdout.resume(); neighbor.stderr.resume(); neighbor.stdin.end();
     await wait(() => Bun.file(join(f.brain, "own-heartbeat")).size > 0 && Bun.file(join(neighborBrain, "neighbor-heartbeat")).size > 0);
     f.scope.toolCall("voyage", "loom");
@@ -476,7 +501,9 @@ test("failed freeze or resume stops the real worker, retains work and exposes an
   for (const failure of ["freeze", "resume"] as const) {
     const f = scopeFixture({ max_tool_calls: 1 }); let child: ReturnType<typeof f.worker> | undefined;
     try {
-      await f.begin(); child = f.worker('printf Ithaca > partial-note; while :; do sleep 1; done');
+      await f.begin(); child = f.worker(["/usr/bin/python3", "-I", "-S", "-c", `import pathlib,time
+pathlib.Path("partial-note").write_text("Ithaca")
+while True: time.sleep(1)`]);
       await wait(() => Bun.file(join(f.brain, "partial-note")).size > 0);
       if (failure === "freeze") child.freeze = () => { throw Error("Freeze could not be confirmed"); };
       f.scope.toolCall("voyage", "loom");
@@ -506,7 +533,11 @@ test("periodic capture resumes a productive worker and snapshot failure terminat
       await f.begin(); clock.finishRegistration();
       expect(clock.registrations.length, "SCOPE_PERIODIC_INTERVAL_REGISTERED").toBe(1);
       expect(clock.registrations[0]!.delay, "SCOPE_PERIODIC_INTERVAL_IS_15000_MS").toBe(15_000);
-      child = f.worker('while :; do printf x >> heartbeat; sleep 0.02; done');
+      child = f.worker(["/usr/bin/python3", "-I", "-S", "-c", `import os,time
+fd=os.open("heartbeat",os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o666)
+while True:
+    os.write(fd,b"x")
+    time.sleep(0.02)`]);
       await wait(() => Bun.file(join(f.brain, "heartbeat")).size > 0);
       if (failCapture) {
         // Actual non-root CAS publication fails on this owned read-only store.
