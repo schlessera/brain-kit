@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
+import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 import coreManifest from "../packages/core/package.json" with { type: "json" };
 
 const root = resolve(import.meta.dir, "..");
@@ -71,11 +72,9 @@ async function measureMcpStartup(repetitions: number, verifyQuiet = false) {
   if (!Number.isSafeInteger(repetitions) || repetitions < 1) throw Error("Repetitions must be a positive integer");
   const cold: Sample[] = [], warm: Sample[] = [];
   const entry = resolve(root, "packages/core", coreManifest.bin.brain);
-  if (!existsSync(entry)) {
-    // Build before preparing the corpus or starting any measured clock.
-    const build = Bun.spawnSync([process.execPath, "scripts/build.ts", "--for", "core"], { cwd: root });
-    if (build.exitCode !== 0 || !existsSync(entry)) throw Error("Could not build the declared brain executable: " + build.stdout.toString() + build.stderr.toString());
-  }
+  // Rebuild the declared bin before any measured clock, including after source edits.
+  const build = Bun.spawnSync([process.execPath, "scripts/build.ts", "--for", "core"], { cwd: root });
+  if (build.exitCode !== 0) throw Error("Could not build the declared brain executable: " + build.stdout.toString() + build.stderr.toString());
   for (let i = 0; i < repetitions; i++) {
     const directory = mkdtempSync(join(tmpdir(), "odysseus-mcp-"));
     try {
@@ -100,5 +99,8 @@ if (import.meta.main) {
   const { values } = (await import("node:util")).parseArgs({ args, options: {
     json: { type: "boolean" }, "verify-quiet": { type: "boolean" }, repetitions: { type: "string", default: "5" },
   } });
+  // Keep concurrent builders from replacing the executable between samples.
+  const coordinated = await ensureWorkspaceLease(root, "write");
+  if (coordinated !== undefined) process.exit(coordinated);
   console.log(JSON.stringify(await measureMcpStartup(Number(values.repetitions), values["verify-quiet"]), null, values.json ? undefined : 2));
 }

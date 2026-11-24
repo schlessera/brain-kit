@@ -15,4 +15,4 @@ test("one indexed corpus yields cold and warm MCP startup distributions and quie
       expect(stat).toEqual({ median: stat.median, p90: stat.median, max: stat.median });
     }
   }
-});
+}, 120_000);
