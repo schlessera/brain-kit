@@ -12,7 +12,7 @@ function fixture() {
   const timeout = setTimeout(() => {}, 30000); timeout.unref();
   const run = { host: { dialogue: { retireTurn() {} }, log: { emit() {} } }, slot: { releaseActive() {} },
     turn: { turnId: "turn-ithaca", sessionId: "ithaca" }, current: {}, lifecycle, timeoutHandle: timeout,
-    failureRecording: { async finish() { return true; } }, held: {}, stops: {}, abortController: new AbortController() } as unknown as TurnRun;
+    failureRecording: { async finish(_sid?: string | null, confirmed?: () => void) { confirmed?.(); return true; } }, held: {}, stops: {}, abortController: new AbortController() } as unknown as TurnRun;
   return { db, store, lifecycle, run, advance(ms: number) { now += ms; }, close() { clearTimeout(timeout); clock.mockRestore(); db.close(); } };
 }
 const outcome = { lifecycle: "error", work: "error", cancelledBeforeStart: false } as const;
@@ -44,7 +44,7 @@ test("caught generation and reconciliation failures leave their closing steps in
 test("scope completion records its promise settlement without adding a close-path wait", async () => {
   const f = fixture(); const scope = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>(), final = Promise.withResolvers<void>();
   Object.assign(f.run.host, { scope: { finish() { entered.resolve(); return scope.promise.then(() => true); } } });
-  f.run.failureRecording.finish = async () => { await final.promise; return true; };
+  f.run.failureRecording.finish = async (_sid, confirmed) => { await final.promise; confirmed?.(); return true; };
   let done: Promise<void> | undefined;
   try {
     done = teardownTurn(f.run, outcome); await entered.promise;
@@ -191,6 +191,145 @@ test("authority revoked during billing still times reached failure cleanup", asy
   } finally { revoke.mockRestore(); host.close(); stream.close(); db.close(); }
 });
 
+test("an answered turn through the real catalog ends failure recording once its boundary is stored", async () => {
+  const { WsHost } = await import("../src/ws/host");
+  const { runSession } = await import("../src/ws/run-session");
+  const { createSessionCatalog } = await import("../src/ws/session-catalog");
+  const { createStaticBackendRegistry } = await import("../src/agent/backend");
+  const { createActivityStream } = await import("../src/activity/stream");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const { testAuthorization } = await import("./helpers/principal");
+  let answered = false;
+  const backend = makeFakeBackend({ id: "pi",
+    async getHistory() {
+      return answered ? [{ role: "user", content: "Plan Ithaca", toolCalls: [] }, { role: "assistant", content: "Set sail for Ithaca.", toolCalls: [] }] : [];
+    },
+    async startTurn(req) {
+      req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
+      answered = true;
+      req.bridge.emit({ type: "result", sessionId: "ithaca", durationMs: 1, numTurns: 1, isError: false });
+    } });
+  const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store), catalog = createSessionCatalog(() => db);
+  const host = new WsHost({ registry: createStaticBackendRegistry([backend], "pi"), catalog, activity: { store, stream } });
+  try {
+    await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
+    await catalog.settled?.();
+    const record = store.lifecycles()[0]!;
+    expect(db.query("SELECT turn_id FROM turn_boundaries").all(), "ANSWER_BOUNDARY_IS_STORED").toEqual([{ turn_id: record.turnId }]);
+    const step = record.openSubPhases?.find(step => step.name === "failure_recording");
+    expect(step?.endedAt, "ANSWERED_TURN_ENDS_FAILURE_RECORDING").toBeNumber();
+    expect(step!.endedAt!).toBeGreaterThanOrEqual(step!.startedAt);
+  } finally { host.close(); stream.close(); db.close(); }
+});
+
+for (const stored of [true, false]) test(`a boundary write still pending at the terminal ${stored ? "ends" : "leaves"} failure recording late without a close-path wait`, async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const f = fixture(), write = Promise.withResolvers<boolean>();
+  let released = 0;
+  Object.assign(f.run.slot, { releaseActive() { released++; } });
+  const replay = new FailureReplay({ recordTurnBoundary() { return write.promise; } } as unknown as import("../src/ws/session-catalog").SessionCatalog,
+    { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }]; } });
+  try {
+    Object.assign(f.run, { failureRecording: await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal) });
+    await teardownTurn(f.run, outcome);
+    const terminal = f.store.lifecycle("turn-ithaca")!;
+    expect(terminal.endedAt, "TERMINAL_DOES_NOT_WAIT_FOR_CATALOG_WRITE").toBe(1000);
+    expect(terminal.openSubPhases?.find(step => step.name === "failure_recording")?.endedAt, "UNCONFIRMED_WRITE_IS_NOT_COMPLETE").toBeNull();
+    expect(released, "SLOT_RELEASE_DOES_NOT_WAIT_FOR_CATALOG_WRITE").toBe(1);
+    f.advance(40); write.resolve(stored); await write.promise; await Bun.sleep(0);
+    const after = f.store.lifecycle("turn-ithaca")!;
+    expect(after.openSubPhases?.find(step => step.name === "failure_recording"), "CONFIRMED_WRITE_ENDS_STEP_LATE")
+      .toMatchObject(stored ? { startedAt: 1000, endedAt: 1040, elapsedMs: 40 } : { endedAt: null });
+    expect([after.endedAt, after.outcome], "LATE_END_KEEPS_TERMINAL").toEqual([1000, "error"]);
+    expect(released, "LATE_CONFIRMATION_DOES_NOT_RELEASE_AGAIN").toBe(1);
+  } finally { write.resolve(true); f.close(); }
+});
+
+for (const failing of ["observed failure", "scratch pins"] as const) test(`a later ${failing} write failure keeps failure recording open after a confirmed boundary`, async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const failure = { message: "Odysseus cannot finish." } as import("@schlessera/brain-ui-sdk/protocol").TurnFailure;
+  const refused = Promise.withResolvers<boolean>();
+  const replay = new FailureReplay({
+    recordTurnBoundary: async () => true,
+    ...(failing === "observed failure" ? { recordTurnFailure: () => refused.promise } : { recordScratchPins: () => refused.promise }),
+  } as unknown as import("../src/ws/session-catalog").SessionCatalog, { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "", toolCalls: [], failure }]; } });
+  const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
+  if (failing === "observed failure") recording.observe("ithaca", failure);
+  let confirmed = 0;
+  try {
+    expect(await recording.finish("ithaca", () => { confirmed++; }), "PENDING_WRITES_ARE_NOT_CONFIRMED").toBe(false);
+    refused.resolve(false); await refused.promise; await replay.wait("ithaca"); await Bun.sleep(0);
+    expect(confirmed, "ONE_FAILED_WRITE_NEVER_CONFIRMS").toBe(0);
+  } finally { refused.resolve(true); }
+});
+
+test("a late end pairs repeated failure_recording steps by occurrence and keeps stored receipts", async () => {
+  const f = fixture();
+  try {
+    const late = f.lifecycle.timer("closing", {}, { lateEnd: true });
+    const first = late("failure_recording"), second = late("failure_recording");
+    f.lifecycle.finish("success");
+    expect(f.store.lifecycle("turn-ithaca")).toMatchObject({ recorderSettledAt: null, idleEmittedAt: null });
+    f.advance(12); second();
+    const ends = () => f.store.lifecycle("turn-ithaca")!.openSubPhases!.filter(step => step.name === "failure_recording").map(step => step.endedAt);
+    expect(ends(), "ONE_CONFIRMATION_ENDS_ONLY_ITS_OWN_STEP").toEqual([null, 1012]);
+    // A writer that omits the receipts still fills only the step end.
+    const current = f.store.lifecycle("turn-ithaca")!;
+    const { recorderSettledAt: _settled, idleEmittedAt: _idle, ...partial } = { ...current,
+      openSubPhases: current.openSubPhases!.map(step => step.name === "failure_recording" ? { ...step, endedAt: 1019 } : step) };
+    f.store.writeLifecycle(partial as typeof current);
+    const stored = f.store.lifecycle("turn-ithaca")!;
+    expect(ends(), "REPEATED_STEPS_KEEP_THEIR_OWN_ENDS").toEqual([1019, 1012]);
+    expect([Object.hasOwn(stored, "recorderSettledAt"), Object.hasOwn(stored, "idleEmittedAt")], "LATE_END_KEEPS_RECEIPT_FIELDS").toEqual([true, true]);
+    f.advance(7); first();
+    expect(f.store.lifecycle("turn-ithaca"), "A_SECOND_LATE_END_CHANGES_NOTHING").toEqual(stored);
+  } finally { f.close(); }
+});
+
+test("an overlapping finish waits for the first call's boundary before it confirms", async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const read = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+  const replay = new FailureReplay({ recordTurnBoundary: async () => false } as unknown as import("../src/ws/session-catalog").SessionCatalog,
+    { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { entered.resolve(); await read.promise; return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }]; } });
+  const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
+  let confirmed = 0;
+  try {
+    const first = recording.finish("ithaca"); await entered.promise;
+    const second = recording.finish("ithaca", () => { confirmed++; });
+    await Bun.sleep(0);
+    expect(confirmed, "OVERLAPPING_FINISH_DOES_NOT_CONFIRM_BEFORE_BOUNDARY").toBe(0);
+    read.resolve();
+    expect([await first, await second], "BOTH_CALLS_SEE_THE_FAILED_BOUNDARY").toEqual([false, false]);
+    await replay.wait("ithaca"); await Bun.sleep(0);
+    expect(confirmed, "FAILED_BOUNDARY_NEVER_CONFIRMS_A_LATER_CALL").toBe(0);
+  } finally { read.resolve(); }
+});
+
+test("a terminal record accepts only a late failure_recording end", async () => {
+  const f = fixture();
+  try {
+    const timer = f.lifecycle.timer("closing"), late = f.lifecycle.timer("closing", {}, { lateEnd: true });
+    const scopeEnd = timer("scope_finish"), lateIndex = late("index_settle"), failureEnd = late("failure_recording");
+    f.lifecycle.finish("success");
+    const terminal = f.store.lifecycle("turn-ithaca")!;
+    f.advance(25); scopeEnd(); lateIndex();
+    expect(f.store.lifecycle("turn-ithaca"), "ORDINARY_STEP_CANNOT_END_AFTER_TERMINAL").toEqual(terminal);
+    f.store.writeLifecycle({ ...terminal, openSubPhases: terminal.openSubPhases!.map(step => ({ ...step, endedAt: 2000 })) });
+    expect(f.store.lifecycle("turn-ithaca")!.openSubPhases?.find(step => step.name === "scope_finish")?.endedAt, "STORE_REFUSES_OTHER_LATE_ENDS").toBeNull();
+    const stored = f.store.lifecycle("turn-ithaca")!;
+    expect(stored.openSubPhases?.find(step => step.name === "failure_recording")?.endedAt, "DIRECT_WRITE_MAY_END_FAILURE_RECORDING").toBe(2000);
+    expect(stored.openSubPhases?.find(step => step.name === "index_settle")?.endedAt, "LATE_FLAG_IS_NOT_A_STORE_EXEMPTION").toBeNull();
+    failureEnd();
+    expect(f.store.lifecycle("turn-ithaca")!.openSubPhases?.find(step => step.name === "failure_recording")?.endedAt, "A LATE END IS WRITTEN ONCE").toBe(2000);
+  } finally { f.close(); }
+});
+
 test("real catalog write failure is reflected by replay completion despite its logged catch", async () => {
   const { FailureReplay } = await import("../src/ws/turn-failures");
   const { createSessionCatalog } = await import("../src/ws/session-catalog");
@@ -220,7 +359,11 @@ test("pending catalog writes do not add a wait or claim completion", async () =>
   const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }]; } });
   try {
     const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
-    expect(await recording.finish("ithaca"), "PENDING_CATALOG_WRITE_IS_UNCONFIRMED_WITHOUT_NEW_WAIT").toBe(false);
+    let confirmed = 0;
+    expect(await recording.finish("ithaca", () => { confirmed++; }), "PENDING_CATALOG_WRITE_IS_UNCONFIRMED_WITHOUT_NEW_WAIT").toBe(false);
+    expect(confirmed, "PENDING_WRITE_IS_NOT_CONFIRMED_YET").toBe(0);
+    stored.resolve(true); await stored.promise; await Bun.sleep(0);
+    expect(confirmed, "CONFIRMED_WRITE_REPORTS_ONCE").toBe(1);
   } finally { stored.resolve(true); }
 });
 

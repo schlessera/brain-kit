@@ -95,7 +95,9 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     steps.splice(next < 0 ? steps.length : next, 0, step);
     if (step.phase === "backend") applyBounds();
   };
-  const phaseTimer = (phase: string, metadata: { pending?: boolean } = {}): PhaseTimer => name => {
+  // `lateEnd` lets a closing step whose work confirms after the terminal end
+  // then (#4520). That end is the one write it adds, and only after the terminal.
+  const phaseTimer = (phase: string, metadata: { pending?: boolean } = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => name => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
     const startedAt = observedClock(); if (startedAt === undefined) return () => {};
     const step = { phase, name, ...metadata, startedAt, endedAt: null as number | null, elapsedMs: null };
@@ -104,7 +106,14 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
       record.subPhases.sort((a, b) => a.startedAt - b.startedAt);
     }
     else addOpenStep(step);
-    return () => { if (record.endedAt === null && step.endedAt === null && (phase !== "backend" || backendOpen())) step.endedAt = observedClock() ?? null; };
+    const late = lateEnd && phase === "closing";
+    return () => {
+      if (step.endedAt !== null) return;
+      if (record.endedAt === null) { if (phase !== "backend" || backendOpen()) step.endedAt = observedClock() ?? null; return; }
+      if (!late) return;
+      const at = observedClock(); if (at === undefined) return;
+      step.endedAt = at; persist();
+    };
   };
   const startupTiming: NonNullable<StartTurnRequest["startupTiming"]> = {
     start: phaseTimer("backend"),

@@ -694,7 +694,8 @@ not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
 measuring to `failureObservedAt` or terminal time once the record is terminal,
 and null before. Admission steps lie inside their phase's paired milestones, and the
 `observe_*` steps lie inside `observe`. Steps are carried by the record's next
-milestone or terminal write, never written on their own. `name` is open
+milestone or terminal write, never written on their own; the one exception
+is a late `failure_recording` end (below). `name` is open
 vocabulary, so a consumer tolerates names it does not know. A step that does
 not apply to a turn is absent. The current names are:
 
@@ -727,7 +728,9 @@ rules as `subPhases`. Each array is in nondecreasing `startedAt` order, keeping
 observation order for ties. A milestone interval learned after later-starting
 steps is inserted at its start position. The first-frame milestone and its
 step share one clock observation. Open steps are carried by the same milestone
-or terminal writes. The current open phase names are:
+or terminal writes, except that a `failure_recording` end confirmed after the
+terminal is written on its own, once, and emits a lifecycle change. The current
+open phase names are:
 
 - `backend` (#4285/#4286): host `host_probe`, Claude's separate
   `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; Pi's
@@ -752,13 +755,17 @@ or terminal writes. The current open phase names are:
   before the existing lifecycle terminal. An unopened scope, failed write or
   pending write cannot complete that step. `index_settle` and
   `failure_recording` also stay unended when the flush, history read or catalog
-  write failed, or a catalog write remains unconfirmed. Catalog confirmation
+  write failed, or a catalog write remains unconfirmed. A `failure_recording`
+  whose catalog writes are confirmed only after the terminal ends then, with
+  its actual end, so its `endedAt` may follow the record's `endedAt`; one
+  that fails stays unended. Catalog confirmation
 checks the stored turn and failure after an ignored insert conflict; an
 unrelated result-reader wait expiring does not invalidate a later successful
 recording. Logging or absorbing
   an error does not turn it into successful work. These clocks add no
   close-path wait. Closing steps record reached work on failure/cancellation too; they lie
-  between backend exit (when a backend ran) and status emission.
+  between backend exit (when a backend ran) and status emission, except that a
+  late `failure_recording` end may follow both the terminal and status emission.
 
 
 The backend bracket ends at optional `firstRelayRequestAt` (host epoch
@@ -809,7 +816,8 @@ Optional nullable `recorderSettledAt` and `idleEmittedAt` milestones follow
 `endedAt`: they confirm recorder settlement and the actual idle emission,
 respectively. They never move the existing end stamp or backend duration.
 Cancelled-before-start status is not idle, so it has no idle timestamp. Only
-these trailing receipts may enrich a terminal record, once each; restart
+these trailing receipts and a late `failure_recording` end may enrich a
+terminal record, once each; restart
 interruption remains terminal and cannot be enriched by a stale writer. Replaying
 an identical terminal or trailing receipt performs no write and emits no delta.
 

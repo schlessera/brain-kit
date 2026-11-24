@@ -67,12 +67,12 @@ export function attachTurnFailures(db: Database, sessionId: string, backendId: s
 /** How long a turn-boundary read may hold the session's next turn. */
 const BOUNDARY_READ_MS = 10_000;
 
-type RecordingState = { failed: boolean; pending: number };
+type RecordingState = { failed: boolean; pending: number; settling: Promise<void>[] };
 /** Inspect existing writes without introducing a new close-path wait. */
 function recordingCompletion(result: boolean | void | Promise<boolean | void>, state: RecordingState): void {
   if (result instanceof Promise) {
     state.pending++;
-    void result.then(stored => { state.failed ||= stored !== true; state.pending--; }, () => { state.failed = true; state.pending--; });
+    state.settling.push(result.then(stored => { state.failed ||= stored !== true; state.pending--; }, () => { state.failed = true; state.pending--; }));
   } else state.failed ||= result !== true;
 }
 
@@ -146,11 +146,16 @@ export class FailureReplay {
     observe: (sessionId: string, failure: TurnFailure) => void;
     /** The turn's own result went out: history reads of its session wait for its end (`finish`). */
     resulted: (sessionId: string) => void;
-    /** `sessionId` is the session the turn ran in, when it ran; boundaries are recorded only then. */
-    finish: (sessionId?: string | null) => Promise<boolean>;
+    /**
+     * `sessionId` is the session the turn ran in, when it ran; boundaries are
+     * recorded only then. Resolves whether every write is confirmed now.
+     * `confirmed` runs once every write is confirmed, now or after this
+     * resolves; it never runs when one failed. Nothing here waits for it.
+     */
+    finish: (sessionId?: string | null, confirmed?: () => void) => Promise<boolean>;
   }> {
     let before: number | null = null, complete = true;
-    const recording: RecordingState = { failed: false, pending: 0 };
+    const recording: RecordingState = { failed: false, pending: 0, settling: [] };
     if (this.catalog.recordTurnFailure || this.catalog.recordTurnBoundary) {
       try {
         if (sessionId) await this.wait(sessionId);
@@ -164,6 +169,7 @@ export class FailureReplay {
     let end!: () => void;
     const ended = new Promise<void>((resolve) => { end = resolve; });
     let held = false;
+    let finishing: Promise<void> | undefined;
     return {
       observe: (sid, failure) => {
         if (closed || before === null || write) return;
@@ -197,15 +203,26 @@ export class FailureReplay {
           .finally(() => clearTimeout(timer));
         this.track(sid, hold);
       },
-      finish: async (sid) => {
-        const first = !closed;
+      finish: async (sid, confirmed) => {
         closed = true; release();
-        try {
+        // Every call observes the first call's writes and boundary, so an
+        // overlapping call cannot decide before that boundary has run.
+        finishing ??= (async () => {
           await write;
-          if (first && sid && ((before !== null && this.catalog.recordTurnBoundary) || this.catalog.recordScratchPins)) {
+          if (sid && ((before !== null && this.catalog.recordTurnBoundary) || this.catalog.recordScratchPins)) {
             complete = await this.boundary(backend, sid, turnId, before, recording) && complete;
           }
-          return complete && !recording.failed && recording.pending === 0;
+        })();
+        try {
+          await finishing;
+          const now = complete && !recording.failed && recording.pending === 0;
+          // The catalog commits off the event loop, so a turn that answered
+          // always has a write in flight here (#4520). Confirm it late.
+          if (now) confirmed?.();
+          else if (confirmed && complete && !recording.failed) {
+            void Promise.all(recording.settling).then(() => { if (!recording.failed && recording.pending === 0) confirmed(); });
+          }
+          return now;
         } finally { end(); }
       },
     };

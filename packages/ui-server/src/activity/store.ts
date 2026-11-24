@@ -415,6 +415,31 @@ export interface CreateActivityStoreOptions {
   pricing?: RollupPricing;
 }
 
+/** Closing steps whose work may confirm after the terminal (#4520). */
+const LATE_CLOSING_STEPS = new Set(["failure_recording"]);
+
+/**
+ * The stored closing steps with each unended late step's end filled from
+ * `record`, or undefined when nothing new ends. Nothing else may change.
+ */
+function lateClosingEnds(previous: ActivityTurnLifecycle, record: ActivityTurnLifecycle): ActivityTurnLifecycle["openSubPhases"] {
+  let filled = false;
+  // Repeated steps keep their order, so the nth stored occurrence pairs with
+  // the nth incoming one; one confirmation never ends a sibling's step.
+  const occurrence = (steps: ActivityTurnLifecycle["openSubPhases"], name: string) => (steps ?? []).filter(step => step.phase === "closing" && step.name === name);
+  const seen = new Map<string, number>();
+  const steps = previous.openSubPhases?.map(step => {
+    if (step.phase !== "closing" || !LATE_CLOSING_STEPS.has(step.name)) return step;
+    const index = seen.get(step.name) ?? 0; seen.set(step.name, index + 1);
+    if (step.endedAt !== null) return step;
+    const other = occurrence(record.openSubPhases, step.name)[index];
+    const ended = other?.startedAt === step.startedAt ? other.endedAt : undefined;
+    if (typeof ended !== "number" || !Number.isFinite(ended) || ended < step.startedAt) return step;
+    filled = true; return { ...step, endedAt: ended };
+  });
+  return filled ? steps : undefined;
+}
+
 export function createActivityStore(
   db: Database,
   options: CreateActivityStoreOptions = {}
@@ -734,14 +759,19 @@ export function createActivityStore(
     writeLifecycle(record, principalId) {
       inWrite(() => {
         const previous = lifecycle(record.turnId);
-        // A terminal stays immutable. Only its two trailing host receipts may
-        // fill an unknown timestamp; an orphan sweep cannot be reopened.
+        // A terminal stays immutable. Only its two trailing host receipts and
+        // a late-confirmed closing step (#4520) may fill an unknown timestamp;
+        // an orphan sweep cannot be reopened.
         if (previous?.endedAt != null) {
           if (previous.outcome === "interrupted" || previous.endedAt !== record.endedAt || previous.outcome !== record.outcome) return;
+          const lateEnds = lateClosingEnds(previous, record);
           if (!(previous.recorderSettledAt == null && record.recorderSettledAt != null)
-            && !(previous.idleEmittedAt == null && record.idleEmittedAt != null)) return;
-          record = { ...previous, recorderSettledAt: previous.recorderSettledAt ?? record.recorderSettledAt,
-            idleEmittedAt: previous.idleEmittedAt ?? record.idleEmittedAt };
+            && !(previous.idleEmittedAt == null && record.idleEmittedAt != null) && !lateEnds) return;
+          // Fill only what is new; a stored receipt keeps its value and presence.
+          record = { ...previous,
+            ...(previous.recorderSettledAt == null && record.recorderSettledAt != null ? { recorderSettledAt: record.recorderSettledAt } : {}),
+            ...(previous.idleEmittedAt == null && record.idleEmittedAt != null ? { idleEmittedAt: record.idleEmittedAt } : {}),
+            ...(lateEnds ? { openSubPhases: lateEnds } : {}) };
         }
         // Client data is never part of the completed host envelope.
         const { clientTiming: _clientTiming, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
