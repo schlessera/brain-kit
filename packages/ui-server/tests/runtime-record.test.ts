@@ -52,7 +52,7 @@ async function recordTurn(runId: string, queryFn: typeof query) {
 }
 
 describe("the run record", () => {
-  test("persists MCP status and source from the first Claude init", async () => {
+  test("persists MCP states and CLI durations from the first Claude init and result", async () => {
     const db = createUiDb(":memory:");
     try {
       const store = createActivityStore(db);
@@ -64,6 +64,8 @@ describe("the run record", () => {
       ];
       const queryFn = scripted({ mcp_servers: servers }, {}, [
         { type: "system", subtype: "init", session_id: "sess-1", mcp_servers: [] },
+        { type: "result", subtype: "success", session_id: "sess-1", total_cost_usd: 0, duration_ms: 100, num_turns: 1,
+          time_to_request_ms: 17, ttft_ms: 53, ttft_stream_ms: 29 },
       ]);
       const backend = createClaudeBackend({ brainPath: "/brain", queryFn, log() {} });
       turn.mark("backendInvokedAt");
@@ -71,6 +73,11 @@ describe("the run record", () => {
         startupTiming: turn.startupTiming, bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" }) } });
       turn.finish("success");
       const record = store.lifecycle("ithaca")!;
+      const cliSteps = record.openSubPhases?.filter(step => step.phase === "backend" && step.name.startsWith("cli_"));
+      expect(cliSteps?.map(step => [step.name, step.timeBase, step.workerElapsedMs, step.elapsedMs])).toEqual([
+        ["cli_time_to_request", "worker", 17, 17], ["cli_ttft", "worker", 53, 53], ["cli_ttft_stream", "worker", 29, 29],
+      ]);
+      expect(record.backendMissingEvidence?.filter(name => name.startsWith("cli_"))).toEqual([]);
       expect(record.backendMcpInit).toEqual(servers);
       for (const server of servers) expect(record.backendMissingEvidence).toContain("mcp_connect:" + server.name);
     } finally { db.close(); }
