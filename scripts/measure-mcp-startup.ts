@@ -66,7 +66,7 @@ function summarize(samples: Sample[]) {
   }));
 }
 
-export async function measureMcpStartup(repetitions: number, verifyQuiet = false) {
+async function measureMcpStartup(repetitions: number, verifyQuiet = false) {
   if (!Number.isSafeInteger(repetitions) || repetitions < 1) throw Error("Repetitions must be a positive integer");
   const cold: Sample[] = [], warm: Sample[] = [];
   const built = join(root, "packages/core/dist/cli/brain.js");
@@ -93,7 +93,7 @@ export async function measureMcpStartup(repetitions: number, verifyQuiet = false
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const { values } = (await import("node:util")).parseArgs({ args, options: {
-    json: { type: "boolean" }, repetitions: { type: "string", default: "5" },
+    json: { type: "boolean" }, "verify-quiet": { type: "boolean" }, repetitions: { type: "string", default: "5" },
   } });
-  console.log(JSON.stringify(await measureMcpStartup(Number(values.repetitions)), null, values.json ? undefined : 2));
+  console.log(JSON.stringify(await measureMcpStartup(Number(values.repetitions), values["verify-quiet"]), null, values.json ? undefined : 2));
 }
