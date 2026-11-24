@@ -8,6 +8,7 @@ import { SafetyHistory } from "../src/governance/safety-history";
 import { resolvePrincipal, isUsablePrincipal } from "../src/db/principals";
 import { join } from "node:path";
 import { createEffectiveSafety } from "../src/governance/effective-safety";
+import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { decidePiToolPermission } from "../../ui-backend-pi/src/permission-gate";
 import { createTurnContext } from "../../ui-backend-pi/src/turn-context";
 import { createGovernanceWrites } from "../src/governance/event-writes";
@@ -371,5 +372,33 @@ test("ambiguous refusals and contradictory results stay unresolved", async () =>
     expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(4);
     await f.writes.safetyEnd("voyage");
     expect(f.writes.safety(null, "ithaca").restriction).toBe("restricted");
+  } finally { await f.close(); }
+});
+
+test("an interrupted Claude fetch retains unknown delivery after the failure hook", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const signal = new AbortController().signal;
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId,
+      backendId: "claude", sessionId: () => "ithaca", shellProxied: () => true, signal });
+    const { hooks } = createPermissionWiring({
+      req: { prompt: "Read the harbour report", signal, bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" }), inputSafety: collector } },
+      allowedTools: ["WebFetch"], confirmPatterns: [], brainPath: f.root,
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never,
+      childEnv: {}, log() {},
+    });
+    const input = { url: "https://ithaca.example/harbour" };
+    collector.admitting?.("fetch", "WebFetch");
+    await collector.begin("fetch", "WebFetch", input);
+    await collector.allowed?.("fetch");
+    const failure = hooks!.PostToolUseFailure!.find(group => !group.matcher)!.hooks[0]!;
+    await failure({ hook_event_name: "PostToolUseFailure", tool_name: "WebFetch", tool_use_id: "fetch",
+      tool_input: input, error: "Interrupted during the harbour report", is_interrupt: true,
+      cwd: f.root, session_id: "ithaca", transcript_path: "" }, undefined, { signal });
+    await f.writes.safetyEnd("voyage");
+    const history = await (await f.get("?nonDelivery=1")).json();
+    expect(history.records.filter((record: {kind:string}) => record.kind === "exposure"))
+      .toContainEqual(expect.objectContaining({ state: "interrupted_unknown" }));
+    expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(1);
   } finally { await f.close(); }
 });

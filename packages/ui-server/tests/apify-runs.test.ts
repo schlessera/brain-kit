@@ -680,6 +680,36 @@ describe("results", () => {
     expect(starts()).toHaveLength(1);
   });
 
+  test("parallel fragment reads share the durable run byte allowance", async () => {
+    fake.script = [{status: "SUCCEEDED"}];
+    fake.items = ["Ithaca".repeat(5000)];
+    const h = harness(), ctx = context(), {run} = await h.runs.run(ctx, {proposal: await proposal(h, ctx)});
+    const ledger = openLedger();
+    ledger.update(run, () => ({max_result_bytes: 15000}), clock);
+    const pages = await Promise.all([h.runs.results(ctx, {run}), h.runs.results(ctx, {run})]);
+    expect(pages.reduce((used, page) => used + Buffer.byteLength(page.item_fragment!.json_text), 0)).toBe(15000);
+    expect(ledger.get(run)!.result_bytes).toBe(15000);
+  });
+
+  test("a completed fragment reports its item cap and a later large item can use remaining bytes", async () => {
+    fake.script = [{status: "SUCCEEDED"}];
+    fake.items = ["Ithaca", "Pylos".repeat(5000), "Sparta"];
+    const h = harness(), ctx = context(), {run} = await h.runs.run(ctx, {proposal: await proposal(h, ctx)});
+    const ledger = openLedger();
+    ledger.update(run, () => ({max_result_bytes: 15000}), clock);
+    const small = await h.runs.results(ctx, {run});
+    expect(small.items).toEqual(["Ithaca"]);
+    expect(small.next_cursor).toEqual(expect.any(String));
+    const first = await h.runs.results(ctx, {run, cursor: small.next_cursor!});
+    expect(first.item_fragment!.start_byte).toBe(0);
+    ledger.update(run, () => ({max_result_items: 2, max_result_bytes: 30000}), clock);
+    const middle = await h.runs.results(ctx, {run, cursor: first.next_cursor!});
+    const end = await h.runs.results(ctx, {run, cursor: middle.next_cursor!});
+    expect(end.item_fragment!.start_byte + Buffer.byteLength(end.item_fragment!.json_text)).toBe(end.item_fragment!.total_bytes);
+    expect(end.next_cursor).toBeNull();
+    expect(end.truncated).toBe(true);
+  });
+
   test("a fragment cursor rejects changed content and a modified position", async()=>{
     fake.script=[{status:"SUCCEEDED"}];
     fake.items=["Ithaca".repeat(5000)];

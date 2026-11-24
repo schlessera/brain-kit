@@ -425,9 +425,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         // for the same pending connection only while its authority still holds.
         if (!snapshot || !beforeCard || !current || !lifecycle.active() || lifecycle.dispatched() ||
             refuseSafety(current, snapshot) || current.trustRevision !== snapshot.trustRevision || current.trustRevision !== beforeCard.trustRevision ||
-            current.evidenceRevision === beforeCard.evidenceRevision || !narrowed() || usedBytes >= options.maxBytes) {
+            current.evidenceRevision === beforeCard.evidenceRevision || !narrowed()) {
           refuseStaleApproval(); return false;
         }
+        if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
         beforeCard = current;
         answer = await askNetwork(true);
       }

@@ -652,36 +652,48 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
           throw refuse("upstream_incompatible","dataset_item_changed","This dataset item changed between fragments. Read the item again before combining its text.");
         const start = fragment?.byte ?? 0;
         // JSON text may double in size when quoted inside its result envelope.
-        let end=Math.min(first.length, start+Math.floor(APIFY_RUN_LIMITS.result_page_bytes/2), start+bytesLeft);
-        while (end>start && end<first.length && (first[end]! & 0xc0)===0x80) end--;
-        const policyCut=end===start || end<first.length && end-start>=bytesLeft;
-        const complete=end===first.length;
-        const next=policyCut ? null : !complete ? book(store=>store.fragmentCursor(row.handle,offset,end,digest))
-          : offset+1<row.max_result_items ? book(store=>store.cursor(row.handle,offset+1)) : null;
-        book(store=>store.update(row.handle,current=>({result_bytes:current.result_bytes+end-start,result_items:Math.max(current.result_items,offset+(complete?1:0))}),now()));
+        let end = start, byteCap = false;
+        book(store => store.update(row.handle, current => {
+          const available = current.max_result_bytes - current.result_bytes;
+          const limit = Math.min(available, Math.floor(APIFY_RUN_LIMITS.result_page_bytes / 2));
+          end = Math.min(first.length, start + limit);
+          byteCap = end - start >= available;
+          while (end > start && end < first.length && (first[end]! & 0xc0) === 0x80) end--;
+          return { result_bytes: current.result_bytes + end - start,
+            result_items: Math.max(current.result_items, offset + Number(end === first.length)) };
+        }, now()));
+        const complete = end === first.length;
+        const itemCap = complete && offset + 1 >= row.max_result_items;
+        const next = byteCap || itemCap ? null : complete ? book(store => store.cursor(row.handle, offset + 1))
+          : book(store => store.fragmentCursor(row.handle, offset, end, digest));
         await context.untrusted({operation:"results",detail:"apify dataset item fragment"});
         return {run:row.handle,items:[],item_fragment:{offset,start_byte:start,total_bytes:first.length,json_text:first.toString("utf8",start,end)},
-          next_cursor:next,truncated:policyCut,partial:row.state!=="succeeded",untrusted:true,
-          warnings:[policyCut?"The result byte budget ended during this item.":"Join the item’s JSON text fragments in order. Each read uses a result request."]};
+          next_cursor:next,truncated:byteCap || itemCap,partial:row.state!=="succeeded",untrusted:true,
+          warnings:[byteCap?"The run reached its result byte limit.":itemCap?"The run reached its result item limit. More dataset items may exist.":"Join the item’s JSON text fragments in order. Each read uses a result request."]};
       }
       const items: unknown[] = [];
       let bytes = 0;
       let truncated = false;
       let pageFull = false;
       const warnings: string[] = [];
-      for (const item of response.data.slice(0, asked)) {
-        const size = Buffer.byteLength(JSON.stringify(item) ?? "null");
-        if (bytes + size > bytesLeft) { truncated = true; break; }
-        if (bytes + items.length + size + 2 > APIFY_RUN_LIMITS.result_page_bytes) {
-          pageFull = true;
-          break;
+      const candidates = response.data.slice(0, asked).map(item => ({
+        item, size: Buffer.byteLength(JSON.stringify(item) ?? "null"),
+      }));
+      book(store => store.update(row.handle, current => {
+        const available = current.max_result_bytes - current.result_bytes;
+        for (const {item, size} of candidates) {
+          if (bytes < available && bytes + items.length + size + 2 > APIFY_RUN_LIMITS.result_page_bytes) {
+            pageFull = true;
+            break;
+          }
+          if (bytes + size > available) { truncated = true; break; }
+          bytes += size;
+          items.push(item);
         }
-        bytes += size;
-        items.push(item);
-      }
+        return { result_items: Math.max(current.result_items, offset + items.length), result_bytes: current.result_bytes + bytes };
+      }, now()));
       const read = items.length;
       const nextOffset = offset + read;
-      book(store => store.update(row.handle, current => ({ result_items: Math.max(current.result_items, nextOffset), result_bytes: current.result_bytes + bytes }), now()));
       const more = !truncated && (response.data.length >= asked || nextOffset < offset + response.data.length) && nextOffset < row.max_result_items;
       if (pageFull && more) warnings.push("Continue with next_cursor on this run. Each page uses a result request.");
       if (!offset && !response.data.length && row.state === "succeeded")

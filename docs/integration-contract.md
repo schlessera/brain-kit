@@ -472,8 +472,10 @@ Both first-party backends gain one host-executed bridge tool, `read_attachment`
 interactive session's fixed roster whether or not the session has
 attachments. It reads one original that a message of the calling session was
 sent: PDF text by page, at most 20 pages per call, or a text file by byte
-range, at most 65,536 bytes per call and 262,144 per turn, with a `next`
-cursor for the rest. Its result names its outcome (`read`, `partial`,
+range. Text-file pages on Claude allow 40,000 bytes per call to keep the
+cursor inline. Other reads allow 65,536 bytes per call. Both backends allow
+262,144 bytes per turn and return a `next` cursor for the rest. Its result
+names its outcome (`read`, `partial`,
 `no_text`, `encrypted`, `malformed`, `failed`, `unavailable`, `changed` or
 `refused`) and exactly what it covers; contents are quoted as data. New
 messages' `<brain-attachments>` block names the tool; messages recorded before

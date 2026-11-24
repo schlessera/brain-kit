@@ -1474,8 +1474,9 @@ text was returned, by the text inside an
 
 Every outcome except `read` and `partial` is a tool error. Text pages open with
 `[page N]`, or `[page N, continued]` when a cursor resumes inside a page. Text
-is cut on a code-point boundary at 65,536 UTF-8 bytes per call and 262,144 per
-turn; past the turn's budget the result is `partial` with an empty text and a
+is cut on a code-point boundary. Claude text-file results allow 40,000 UTF-8
+bytes per call so that the cursor stays inline. Other reads allow 65,536
+bytes per call. All reads share the 262,144-byte turn budget. Past that budget the result is `partial` with an empty text and a
 `next` for a later turn.
 
 Only originals a **message of the calling session** references are readable:

@@ -751,7 +751,11 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
       const response=input.hook_event_name==="PostToolUse"?input.tool_response:input.error;
       const parts=response&&typeof response==="object"&&Array.isArray((response as {content?:unknown}).content)
         ? ((response as {content:{type?:string;text?:string}[]}).content).filter(part=>part.type==="text"&&typeof part.text==="string").map(part=>part.text!):undefined;
-      try { await req.bridge.inputSafety.result(input.tool_use_id,input.tool_name,typeof response==="string"?response:JSON.stringify(response)??"",true,parts); }
+      // A failed web call can report an error after bytes have arrived. Its
+      // failure hook has no delivery boundary for those bytes.
+      const finalized = input.hook_event_name === "PostToolUse" ||
+        (!input.is_interrupt && input.tool_name !== "WebFetch" && input.tool_name !== "WebSearch");
+      try { await req.bridge.inputSafety.result(input.tool_use_id,input.tool_name,typeof response==="string"?response:JSON.stringify(response)??"",finalized,parts); }
       catch { return {continue:false,stopReason:"Safety input recording failed; stop before another provider request."}; }
     }
     if (input.hook_event_name !== "PostToolUseFailure" && input.hook_event_name !== "PostToolUse") return { continue: true };
