@@ -56,3 +56,9 @@ export function resolveThinkingLevel(
 export function canonicalModelId(id: string): string {
   return id.replace(/-\d{8}$/, "");
 }
+
+/** A bounded diagnostic identifier can name a server without carrying a path or arbitrary text. */
+export function isMcpTimingServerName(name: unknown): name is string {
+  return typeof name === "string" && name.length <= 48 && /^[\p{L}\p{N}_-][\p{L}\p{M}\p{N}_.-]*$/u.test(name)
+    && new TextEncoder().encode(name).byteLength <= 48;
+}

@@ -1547,6 +1547,7 @@ export "./internal" (./src/internal.ts)
   hostProviderCredential
   isEnvName
   isManagedWorkerStartupView
+  isMcpTimingServerName
   launchAgentWorker
   launchAgentWorkerAsync
   launchLimits
@@ -22671,7 +22672,7 @@ signatures (every public export and the types it is made of)
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                name: z.ZodString;
+                name: z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>;
                 source: z.ZodEnum<{
                     agent: "agent";
                     claudeai: "claudeai";
@@ -22930,7 +22931,7 @@ signatures (every public export and the types it is made of)
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                name: z.ZodString;
+                name: z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>;
                 source: z.ZodEnum<{
                     agent: "agent";
                     claudeai: "claudeai";
@@ -26078,7 +26079,7 @@ signatures (every public export and the types it is made of)
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                name: z.ZodString;
+                name: z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>;
                 source: z.ZodEnum<{
                     agent: "agent";
                     claudeai: "claudeai";
@@ -26338,7 +26339,7 @@ signatures (every public export and the types it is made of)
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                name: z.ZodString;
+                name: z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>;
                 source: z.ZodEnum<{
                     agent: "agent";
                     claudeai: "claudeai";

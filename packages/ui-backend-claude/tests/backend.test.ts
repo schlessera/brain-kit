@@ -99,6 +99,22 @@ test.each([false, true])("Claude samples bounded MCP states from its first init 
   for (const entry of malformed ? entries.slice(3) : entries) expect(missing).toContain("mcp_connect:" + entry.name);
 });
 
+test("Claude init states exclude paths and the in-process server without displacing external states", async () => {
+  const servers = ["notes/odyssey.md", "brain-ui", "a", "b", "c"].map(name => ({ name, status: "connected", source: "sdk" }));
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: servers };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const names: string[] = [], snapshots: unknown[] = [];
+  await backend.startTurn(makeReq(makeBridge().bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, worker() {}, received() {}, mcpInit(states) { snapshots.push(states); }, missing(name) { names.push(name); },
+  } }));
+  expect(snapshots).toEqual([servers.slice(2)]);
+  expect(names).toContain("mcp_connect:brain-ui");
+  expect(names).not.toContain("mcp_connect:notes/odyssey.md");
+  expect(names).toContain("mcp_connect:additional_servers_omitted");
+});
+
 test("Claude preserves the legacy server omission mark when state diagnostics fill the budget", async () => {
   const servers = ["a", "b", "c", "d", "x".repeat(49)].map(name => ({ name, status: "connected", source: "project" }));
   const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {

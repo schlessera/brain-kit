@@ -783,6 +783,23 @@ test("preparation keeps the private-state refusal ahead of the in-brain cwd shor
 });
 
 
+test("a recoverable maintenance probe ends its timing before the fallback recheck", async () => {
+  const { WorkerStateError } = await import("@schlessera/brain-ui-sdk/internal");
+  const f = fixture();
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: true });
+  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(() => { throw new WorkerStateError("worker_state_busy", "Ithaca storage is busy"); });
+  const view = createFixtureWorkerStartupView(f.brain);
+  try {
+    const marks: string[] = [];
+    const decision = await f.execution.boundary.prepare(undefined, view, name => {
+      marks.push(name);
+      return () => { marks.push("end " + name); };
+    });
+    expect(decision).toMatchObject({ available: false, reason: "worker_host_unavailable" });
+    expect(marks.slice(-4)).toEqual(["boundary_maintenance_probe", "end boundary_maintenance_probe", "boundary_recheck", "end boundary_recheck"]);
+  } finally { await view.cleanup(); maintenance.mockRestore(); probe.mockRestore(); await f.turns.close(); }
+});
+
 test("cold preparation rechecks private state after maintenance qualification and ahead of cwd", async () => {
   const f = fixture();
   const unavailable = { available: false as const, reason: "private_state_unverified" as const, detail: "OperationalStateAliasVerificationUnavailable: journal-cause-canary" };

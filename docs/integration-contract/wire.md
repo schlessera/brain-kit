@@ -870,14 +870,18 @@ claim complete runtime coverage. These observations stay in host storage and
 never enter provider history.
 Names are sampled from the first Claude system/init frame only: at most 8
 server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
-budget. An incomplete sample reports `mcp_connect:additional_servers_omitted`
+budget. Diagnostic identifiers contain letters, numbers, underscores, hyphens,
+internal periods or combining marks. Paths and free text count as omitted.
+An incomplete sample reports `mcp_connect:additional_servers_omitted`
 when that summary label fits the lifecycle's diagnostic budget. The lifecycle
 retains at most 8 diagnostic names within 256 encoded bytes; individual
 lifecycle names are at most 96 UTF-8 bytes. `backendEvidenceOmitted` replaces
 the dropped `additional_missing_evidence_omitted` marker and counts omitted
 observations. Omitted names are not retained for deduplication. Continuation
 init frames do not expand the sample; limits keep missing evidence explicit.
-Optional `backendMcpInit` records the first init's sampled server names with
+Optional `backendMcpInit` records sampled external servers from the first init.
+The in-process `brain-ui` keeps its missing connection mark without consuming
+the state sample. Each external entry carries its name with
 `status` (connected, failed, needs-auth, pending, disabled) and `source`
 (sdk, plugin, user, project, local, dynamic, managed, enterprise, claudeai,
 agent). Unknown values become `other`. The array has its own 192-byte JSON

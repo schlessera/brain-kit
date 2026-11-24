@@ -25,6 +25,7 @@ export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 
 import { z } from "zod";
+import { isMcpTimingServerName } from "./protocol-helpers.js";
 import { CONVERSATION_LIMITS, LIVE_PERSONA_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel, StateRoomObservation } from "./protocol.js";
 
@@ -1671,7 +1672,7 @@ const activityTurnLifecycleSchema = z.looseObject({
   backendInvokedAt: z.number().nullable(),
   firstRelayRequestAt: z.number().nullable().optional(),
   backendEvidenceOmitted: z.number().int().nonnegative().optional(),
-  backendMcpInit: z.array(z.object({ name: z.string().max(48), status: z.enum(["connected", "failed", "needs-auth", "pending", "disabled", "other"]),
+  backendMcpInit: z.array(z.object({ name: z.string().max(48).refine(isMcpTimingServerName), status: z.enum(["connected", "failed", "needs-auth", "pending", "disabled", "other"]),
     source: z.enum(["sdk", "plugin", "user", "project", "local", "dynamic", "managed", "enterprise", "claudeai", "agent", "other"]) })).max(8).optional(),
   backendMissingEvidence: z.array(z.string()).optional(),
   firstFrameAt: z.number().nullable(),

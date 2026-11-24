@@ -613,17 +613,19 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       if (!ordinary.ok) return recheck();
       if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenanceResourceRefused && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return recheck();
       const view = preparedView ?? await prepareInput(signal);
+      let endProbe: (() => void) | undefined;
       try {
         signal?.throwIfAborted();
-        const end = diagnosticInterval(() => timing?.("boundary_maintenance_probe"));
+        endProbe = diagnosticInterval(() => timing?.("boundary_maintenance_probe"));
         const checked = await hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain, view, signal);
-        end?.();
+        endProbe(); endProbe = undefined;
         maintenanceResourceRefused = false; maintenance = { probe: checked, at: Date.now() };
         if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
         return recheck();
       } catch (error) {
         if (!(error instanceof WorkerStateError)) throw error;
         signal?.throwIfAborted();
+        endProbe?.();
         // A transient resource refusal keeps the UI available and execution
         // isolated. The next explicit preparation retries immediately.
         maintenanceResourceRefused = true;

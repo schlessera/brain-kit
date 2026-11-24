@@ -1,6 +1,7 @@
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import type { AccountInfo, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { isMcpTimingServerName } from "@schlessera/brain-ui-sdk/internal";
 import { safeStartupTiming } from "@schlessera/brain-ui-sdk/server";
 
 import type { StreamAdapter } from "./stream-adapter.js";
@@ -104,11 +105,11 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
             for (let index = 0; index < Math.min(8, length); index++) {
               try {
                 const entry = servers[index], name = entry?.name;
-                if (typeof name !== "string" || name.length > 48 || Buffer.byteLength(name) > 48) { omitted++; continue; }
+                if (!isMcpTimingServerName(name)) { omitted++; continue; }
                 const diagnostic = `mcp_connect:${name}`, size = Buffer.byteLength(JSON.stringify(diagnostic)) + 1;
                 if (bytes + size > 192) { omitted++; continue; }
                 bytes += size; startupTiming.missing(diagnostic);
-                if (startupTiming.mcpInit) {
+                if (startupTiming.mcpInit && name !== "brain-ui") {
                   try {
                     const rawStatus = entry!.status, rawSource = entry!.source;
                     const status = (["connected", "failed", "needs-auth", "pending", "disabled"] as const).find(value => value === rawStatus) ?? "other";
