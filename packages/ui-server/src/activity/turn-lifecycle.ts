@@ -10,7 +10,7 @@ import { orderedWrites } from "./store-writes.js";
  * Steps ride on the record's next persisted milestone or terminal, so timing
  * adds no write to the turn path.
  */
-export type PhaseTimer = (name: string) => () => void;
+export type PhaseTimer = (name: string, details?: Pick<ActivityTurnSubPhase, "aliasScan">) => () => void;
 
 const BACKEND_STEP_LIMIT = 16, BACKEND_STEP_BYTES = 2048;
 const BACKEND_DIAGNOSTIC_LIMIT = 8, BACKEND_DIAGNOSTIC_BYTES = 256, BACKEND_NAME_BYTES = 96;
@@ -97,10 +97,10 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   };
   // `lateEnd` lets a closing step whose work confirms after the terminal end
   // then (#4520). That end is the one write it adds, and only after the terminal.
-  const phaseTimer = (phase: string, metadata: { pending?: boolean } = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => name => {
+  const phaseTimer = (phase: string, metadata: { pending?: boolean } = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => (name, details) => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
     const startedAt = observedClock(); if (startedAt === undefined) return () => {};
-    const step = { phase, name, ...metadata, startedAt, endedAt: null as number | null, elapsedMs: null };
+    const step = { phase, name, ...metadata, ...details, startedAt, endedAt: null as number | null, elapsedMs: null };
     if (phase === "governed" || phase === "journal") {
       (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
       record.subPhases.sort((a, b) => a.startedAt - b.startedAt);

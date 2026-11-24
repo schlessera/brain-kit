@@ -714,6 +714,15 @@ not apply to a turn is absent. The current names are:
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
 
+Inside `boundary_prepare`, `boundary_private_state` checks private state.
+Cold preparation can also record `boundary_output_lock` (time until the lock
+is acquired), `boundary_maintenance_probe` and `boundary_recheck`.
+Each private-state check carries `aliasScan: { scans, entries }`, counting
+alias-check calls and directory entries visited across private and brain
+trees, including retries. Inside `sandbox_resolve` and its refresh,
+`sandbox_workspaces`, `sandbox_scratch`, `sandbox_protection`,
+`sandbox_code_workspaces` and `sandbox_legacy_workspaces` appear when run.
+
 Optional `openSubPhases` (#4285/#4286) carries **all new phases**, using the
 same entry shape `{ phase, name, startedAt, endedAt, elapsedMs }` with an open
 string vocabulary for `phase` as well as `name`. Consumers must tolerate

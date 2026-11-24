@@ -3915,6 +3915,7 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
  */
 export interface ActivityTurnSubPhase {
   phase: "governed" | "journal";
+  aliasScan?: { scans: number; entries: number };
   name: string;
   startedAt: number;
   /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */

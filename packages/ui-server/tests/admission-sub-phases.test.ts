@@ -1,13 +1,14 @@
 import { previousDeltaSchema } from "./helpers/activity-schema-0-44.js";
 /** #3355: governed admission and journal begin attribute their time to named steps. */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
+import { createHostBoundary } from "../src/brain/host-boundary.js";
 import { createGovernedTurns } from "../src/brain/governed-turn.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { replaceNativeStartupAcquisitionForFixture } from "./helpers/fixture-native-startup.js";
@@ -64,7 +65,11 @@ test("real governed admission records each step inside governedAdmissionMs", asy
       const record = store.lifecycle("turn-ithaca")!;
       // A first strict admission refreshes its checkpoint once host scratch exists.
       expect(names(record.subPhases!, "governed"), "GOVERNED_ADMISSION_STEPS").toEqual(["gate_acquire", "startup_checkpoint", "boundary_prepare",
-        "exposure_settle", "folder_retention", "sandbox_resolve", "gate_reacquire_refresh", "startup_checkpoint_refresh", "sandbox_resolve_refresh", "data_tree", "record_policy", "exposure_records"]);
+        "exposure_settle", "folder_retention", "sandbox_resolve", "sandbox_workspaces", "sandbox_scratch", "gate_reacquire_refresh", "startup_checkpoint_refresh", "sandbox_resolve_refresh", "sandbox_workspaces", "sandbox_scratch", "data_tree", "record_policy", "exposure_records"]);
+      for (const [index, step] of record.subPhases!.entries()) {
+        if (!step.name.startsWith("sandbox_resolve")) continue;
+        expectWithin(record.subPhases!.slice(index + 1, index + 3), "governed", step.startedAt, step.endedAt!);
+      }
       expectWithin(record.subPhases!, "governed", record.governedStartedAt!, record.governedAcquiredAt!);
       expect(previousDeltaSchema.safeParse({ type: "activity_delta", runId: "voyage", seq: 1, lifecycle: record }).success, "PREVIOUS_LIFECYCLE_SCHEMA_ACCEPTS_REACQUISITION_TIMING").toBe(true);
     } finally { await hold.end(); }
@@ -97,4 +102,25 @@ test("real journal begin records each step inside journalBeginMs", async () => {
     expectWithin(record.subPhases!.filter(step => step.name.startsWith("observe_")), "journal", observe.startedAt, observe.endedAt!);
     await journal.finish("turn-ithaca");
   } finally { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("private-state alias counts follow entries visited on each admission check", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-scan-"));
+  const brain = join(root, "brain"), state = join(root, "state");
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    mkdirSync(brain); mkdirSync(state);
+    writeFileSync(join(state, "record"), ""); linkSync(join(state, "record"), join(root, "link"));
+    const boundary = createHostBoundary({ brainPath: brain, privateStatePaths: [{ setting: "journal", path: state }],
+      workerHost: () => ({ ok: false, requirement: "fixture" }) });
+    for (const count of [1, 2]) {
+      writeFileSync(join(brain, String(count)), "");
+      const id = "ithaca-" + count;
+      const lifecycle = createTurnLifecycle(store, id, null, Date.now(), () => {});
+      await boundary.prepare(undefined, undefined, lifecycle.timer("governed"));
+      lifecycle.finish("denied");
+      const checks = store.lifecycle(id)!.subPhases!.filter(step => step.name === "boundary_private_state" || step.name === "boundary_recheck");
+      expect(checks.map(step => step.aliasScan)).toEqual(Array(2).fill({ scans: 3, entries: count + 1 }));
+    }
+  } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
 });

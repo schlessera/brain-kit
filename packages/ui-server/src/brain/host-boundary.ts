@@ -43,6 +43,7 @@ import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./module-repositories.js";
 import { resolveWorkspacesMount, resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
+import type { PhaseTimer } from "../activity/turn-lifecycle.js";
 import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit, prepareMaintenanceGitTargets } from "./maintenance-git.js";
 import { createScratchIgnoreQuery } from "./scratch-mask-query.js";
@@ -244,7 +245,7 @@ export interface HostBoundary {
   isolated(): boolean;
   governed(startupView?: WorkerStartupView): GovernedAvailability;
   /** Qualifies maintenance with a fresh native input lease, then awaits release. */
-  prepare(signal?: AbortSignal, startupView?: WorkerStartupView): Promise<GovernedAvailability>;
+  prepare(signal?: AbortSignal, startupView?: WorkerStartupView, timing?: PhaseTimer): Promise<GovernedAvailability>;
   /** Both, as `/api/status` reports them. */
   status(): GovernedStatus;
   /** Runs one command to completion, inside a maintenance worker while the boundary is in force. */
@@ -584,9 +585,16 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         maintenance: { tempLimits: maintenanceTemp, maskPaths, ...(tempDomain ? { tempDomain } : {}) } }) },
     isolated,
     governed,
-    async prepare(signal, preparedView) {
+    async prepare(signal, preparedView, timing) {
       signal?.throwIfAborted();
-      const checkedState = { refusal: operationalStateRefusal(layout) };
+      const checkState = (name: string) => {
+        const aliasScan = timing ? { scans: 0, entries: 0 } : undefined;
+        const end = timing?.(name, { aliasScan });
+        const refusal = operationalStateRefusal(layout, aliasScan);
+        end?.();
+        return { refusal };
+      };
+      const checkedState = checkState("boundary_private_state");
       // Private-state refusal precedes the cwd shortcut. Only the synchronous
       // warm return may reuse this verdict; cold returns must recheck.
       if (checkedState.refusal) return checkedState.refusal;
@@ -594,10 +602,12 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       // has its own lease and must not delay this cached admission fact.
       if (passedMaintenanceProbes.has(maintenanceKey)) return governed(undefined, checkedState);
       const recheck = () => {
-        const fresh = { refusal: operationalStateRefusal(layout) };
+        const fresh = checkState("boundary_recheck");
         return fresh.refusal ?? governed(undefined, fresh);
       };
+      const acquired = timing?.("boundary_output_lock");
       return outputLock.withLock(brain, async () => {
+      acquired?.();
       signal?.throwIfAborted();
       const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
       if (!ordinary.ok) return recheck();
@@ -605,7 +615,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       const view = preparedView ?? await prepareInput(signal);
       try {
         signal?.throwIfAborted();
+        const end = timing?.("boundary_maintenance_probe");
         const checked = await hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain, view, signal);
+        end?.();
         maintenanceResourceRefused = false; maintenance = { probe: checked, at: Date.now() };
         if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
         return recheck();

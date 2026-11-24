@@ -752,11 +752,16 @@ test("one warm admitted turn walks private state exactly once", async () => {
   const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(async () => ({ ok: true }));
   let walk: ReturnType<typeof spyOn<typeof operationalState, "operationalStateRefusal">> | undefined;
   try {
-    const first = await f.turns.begin("alias-warmup", new AbortController().signal);
+    const steps: string[] = [];
+    const timing = (name: string) => { steps.push(name); return () => {}; };
+    const first = await f.turns.begin("alias-warmup", new AbortController().signal, "interactive", undefined, undefined, timing);
+    expect(steps.filter(name => name.startsWith("boundary_"))).toEqual(["boundary_prepare", "boundary_private_state", "boundary_output_lock", "boundary_maintenance_probe", "boundary_recheck"]);
+    steps.length = 0;
     await first.end();
     expect(maintenance, "FIRST_ADMISSION_POPULATES_THE_MAINTENANCE_CACHE").toHaveBeenCalledTimes(1);
     walk = spyOn(operationalState, "operationalStateRefusal");
-    const admitted = await f.turns.begin("alias-warm", new AbortController().signal);
+    const admitted = await f.turns.begin("alias-warm", new AbortController().signal, "interactive", undefined, undefined, timing);
+    expect(steps.filter(name => name.startsWith("boundary_"))).toEqual(["boundary_prepare", "boundary_private_state"]);
     try {
       expect(admitted.sandbox.profile).toBe("strict");
       expect(walk, "WARM_ADMISSION_WALKS_PRIVATE_STATE_EXACTLY_ONCE").toHaveBeenCalledTimes(1);
