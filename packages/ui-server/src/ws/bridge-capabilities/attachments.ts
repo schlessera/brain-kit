@@ -37,5 +37,5 @@ export function createAttachmentRead(ctx: Pick<BridgeContext, "host" | "turn" | 
       return recorded;
     },
   };
-  return { readAttachment: input => reader.read({ brainRoot, store, sessionId: transcript.collectedSessionId ?? turn.sessionId, turnId, signal, budget }, input) };
+  return { readAttachment: input => reader.read({ brainRoot, store, backendId, sessionId: transcript.collectedSessionId ?? turn.sessionId, turnId, signal, budget }, input) };
 }
