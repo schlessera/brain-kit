@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { experimentRunArgv } from "../scripts/test-experiments";
 import { HOST_ONLY_ENV_PREFIXES, HOST_ONLY_SECRET_ENV } from "../packages/ui-sdk/src/server/subprocess-env.ts";
-import { GUARD_HOST_ONLY_ENV, GUARD_HOST_ONLY_ENV_PREFIXES, isolateGogEnvironment, recordChosenEnv } from "../scripts/test-network-guard";
+import { GUARD_HOST_ONLY_ENV, GUARD_HOST_ONLY_ENV_PREFIXES, isolateGogEnvironment, recordChosenEnv, testBunOptions } from "../scripts/test-network-guard";
 
 const ROOT = join(import.meta.dir, "..");
 const sentinel = join(import.meta.dir, "helpers/network-sentinels.ts");
@@ -172,7 +172,7 @@ describe("offline test guard", () => {
     }
     expect(result.code, result.output).toBe(0);
   });
-  test("a Bun child that reads host settings from a dotenv file (a .env with forged notes, --env-file, BUN_OPTIONS, under bun run) holds none of them; what the test passed survives where the wrapper recorded it", async () => {
+  test("a Bun child that reads host settings from a dotenv file (a .env with forged notes, --env-file, BUN_OPTIONS, under bun run) holds none of them; what the test passed survives where the wrapper recorded it; a Bun a shell starts reads no .env", async () => {
     const result = await run("dotenv-descendants");
     const report = /DOTENV_CHILDREN=(\{[^\n]*\})/.exec(result.output);
     expect(report, result.output).not.toBeNull();
@@ -181,22 +181,52 @@ describe("offline test guard", () => {
     const none = { BRAIN_UI_GOOGLE_HOME: null, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: null, BRAIN_UI_GOG_PATH: null, BRAIN_GOOGLE_LEDGER: null, APIFY_TOKEN: null,
       BRAIN_TEST_GUARD_CHOSEN_ENV: null };
     const chosen = { BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data" };
-    expect(Object.keys(seen.children).sort(), result.output).toEqual(["bun-eval", "bun-options", "bun-run", "bun-test", "env-file", "shell"]);
+    expect(Object.keys(seen.children).sort(), result.output).toEqual(["bun-eval", "bun-option-script-unguarded", "bun-options", "bun-run", "bun-run-dotenv",
+      "bun-run-unguarded", "bun-script-unguarded", "bun-shell-unguarded", "bun-test", "env-file", "node-shell-unguarded", "shell", "shell-unguarded"]);
     // Started by the wrapper in a directory holding a .env: it reads none of it, and keeps what the test passed.
     for (const label of ["bun-eval", "bun-test"]) {
       expect(seen.children[label], `WRAPPER_STARTED_CHILD_READS_NO_DOTENV: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
     }
-    // An env file the wrapper cannot switch off, and a Bun that bun run's script starts, which reads the .env: what the
-    // file supplied is dropped or repointed, and what the test passed comes back from the wrapper's record.
-    for (const label of ["env-file", "bun-options", "bun-run"]) {
+    // Started by a shell there with no preload, so no guard runs in it (#4489): BUN_OPTIONS keeps the .env out.
+    for (const label of ["shell-unguarded", "node-shell-unguarded", "bun-shell-unguarded"]) {
+      expect(seen.children[label], `SHELL_STARTED_BUN_READS_NO_DOTENV: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
+    }
+    // Started by bun run's package script, which runs no preload: with the guard's preload or without, it reads no .env.
+    expect(seen.children["bun-run"], "BUN_RUN_SCRIPT_READS_NO_DOTENV").toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null });
+    for (const label of ["bun-run-unguarded", "bun-script-unguarded", "bun-option-script-unguarded"]) {
+      expect(seen.children[label], `UNGUARDED_BUN_RUN_SCRIPT_READS_NO_DOTENV: ${label}`).toEqual({
+        ...none, ...chosen, XDG_CONFIG_HOME: null, ODYSSEUS_DOTENV: null, BRAIN_TEST_GUARD_CHOSEN_ENV: expect.any(String),
+      });
+    }
+    // An env file the wrapper cannot switch off, and a script that empties BUN_OPTIONS so its Bun reads the .env: what
+    // the file supplied is dropped or repointed, and what the test passed comes back from the wrapper's record.
+    for (const label of ["env-file", "bun-options", "bun-run-dotenv"]) {
       expect(seen.children[label], `DOTENV_SUPPLIED_HOST_SETTINGS_DROPPED: ${label}`).toEqual({ ...none, ...chosen, XDG_CONFIG_HOME: guardXdg("config"), ODYSSEUS_DOTENV: "loaded" });
     }
-    // Through a shell, with notes forged in the .env (one by expanding $GOG_HOME, one naming a file a guard did not write):
+    // Through a shell that empties BUN_OPTIONS, with notes forged in the .env (one by expanding $GOG_HOME, one naming a file a guard did not write):
     // nothing is taken back, so the test's own values go too and every XDG base is the guard's.
     expect(seen.children.shell, "SHELL_STARTED_CHILD_TAKES_BACK_NOTHING").toEqual({
       ...none, BRAIN_GOOGLE_HOME: null, XDG_CONFIG_HOME: guardXdg("config"), XDG_DATA_HOME: guardXdg("data"), ODYSSEUS_DOTENV: "loaded",
     });
     expect(result.code, result.output).toBe(0);
+  });
+  test("BUN_OPTIONS gains --no-env-file, and text that only looks like the flag does not stop it", () => {
+    expect(testBunOptions({}).BUN_OPTIONS, "SET_WHEN_ABSENT").toBe("--no-env-file");
+    expect(testBunOptions({ BUN_OPTIONS: "--no-env-file" }).BUN_OPTIONS, "NOT_TWICE_ALONE").toBe("--no-env-file");
+    expect(testBunOptions({ BUN_OPTIONS: "--smol" }).BUN_OPTIONS, "APPENDED").toBe("--smol --no-env-file");
+    // Inside a quoted value, or as another option's argument, the text is not the flag; Bun takes the flag twice.
+    for (const options of ['--define process.env.ODYSSEUS=" --no-env-file "', "--title --no-env-file", "--smol --no-env-file"]) {
+      expect(testBunOptions({ BUN_OPTIONS: options }).BUN_OPTIONS, `LOOKALIKE_IS_NOT_THE_FLAG: ${options}`).toBe(`${options} --no-env-file`);
+    }
+  });
+  test("Bun.$ keeps a copy of its default environment, as Bun does, and adds only --no-env-file", async () => {
+    const defaults: Record<string, string> = { PATH: process.env.PATH!, ODYSSEUS_HOMEWARD: "before" };
+    Bun.$.env(defaults);
+    try {
+      defaults.ODYSSEUS_HOMEWARD = "after";
+      const seen = JSON.parse(await Bun.$`${process.execPath} -e ${"console.log(JSON.stringify([process.env.ODYSSEUS_HOMEWARD, process.env.BUN_OPTIONS]))"}`.text());
+      expect(seen, "DEFAULTS_ARE_A_COPY").toEqual(["before", "--no-env-file"]);
+    } finally { Bun.$.env(undefined); }
   });
   for (const scenario of ["local-sockets", "local-tls", "local", "local-unix", "manual", "redirect-error"]) {
     test(`${scenario} retains real loopback fixture behavior`, async () => {

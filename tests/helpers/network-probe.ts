@@ -260,9 +260,10 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
     // from a dotenv file before their preload runs: a .env in the working
     // directory (with two forged notes, one by variable expansion), an
     // explicit --env-file, one in BUN_OPTIONS, and a Bun that `bun run`'s
-    // package script starts. Each child reports the host-only names and XDG
-    // bases it holds. The test passes one synthetic Google value and one XDG
-    // base explicitly.
+    // package script starts. A Bun that a shell starts without the preload,
+    // from each way a test starts one, reads no .env at all. Each child
+    // reports the host-only names and XDG bases it holds. The test passes one
+    // synthetic Google value and one XDG base explicitly.
     const { chmodSync, mkdirSync, writeFileSync } = await import("node:fs");
     const { dirname, join } = await import("node:path");
     const root = join(process.env.PROBE_DIR!, "dotenv");
@@ -276,28 +277,54 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
     writeFileSync(join(root, "cwd", ".env"), [...host, "BRAIN_TEST_GUARD_ENV_FILES_OFF=$GOG_HOME", `BRAIN_TEST_GUARD_CHOSEN_ENV=${forged}`, ""].join("\n"));
     writeFileSync(join(root, "run", ".env"), [...host, ""].join("\n"));
     writeFileSync(join(root, "run", "package.json"), JSON.stringify({ name: "ithaca-dotenv-probe", private: true,
-      scripts: { nested: 'exec "$ODYSSEUS_BUN" --preload "$ODYSSEUS_PRELOAD" -e "$ODYSSEUS_REPORT"' } }));
+      scripts: { nested: 'exec "$ODYSSEUS_BUN" --preload "$ODYSSEUS_PRELOAD" -e "$ODYSSEUS_REPORT"',
+        "nested-dotenv": 'BUN_OPTIONS= exec "$ODYSSEUS_BUN" --preload "$ODYSSEUS_PRELOAD" -e "$ODYSSEUS_REPORT"',
+        unguarded: 'exec "$ODYSSEUS_BUN" -e "$ODYSSEUS_REPORT"' } }));
     const hostFile = join(root, "host.env");
     writeFileSync(hostFile, [...host, ""].join("\n"));
     const names = ["BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_UI_GOG_PATH", "BRAIN_GOOGLE_LEDGER", "APIFY_TOKEN",
       "XDG_CONFIG_HOME", "XDG_DATA_HOME", "ODYSSEUS_DOTENV", "BRAIN_GOOGLE_HOME", "BRAIN_TEST_GUARD_CHOSEN_ENV"];
     const report = `console.log("DOTENV_CHILD=" + JSON.stringify(Object.fromEntries(${JSON.stringify(names)}.map(name => [name, process.env[name] ?? null]))))`;
     writeFileSync(join(root, "cwd", "dotenv-child.test.ts"), `import { test } from "bun:test";\ntest("reports", () => { ${report}; });\n`);
+    writeFileSync(join(root, "cwd", "dotenv-report.ts"), `${report};\n`);
     const preload = join(import.meta.dir, "../../scripts/test-network-child-preload.ts");
     const env = { ...process.env, BRAIN_GOOGLE_HOME: "/odysseus/synthetic-standalone-home", XDG_DATA_HOME: "/odysseus/xdg-data",
       ODYSSEUS_BUN: process.execPath, ODYSSEUS_PRELOAD: preload, ODYSSEUS_REPORT: report } as Record<string, string>;
+    // This probe runs under an alias the spawn wrapper starts as it starts any
+    // child, so it holds the wrapper's BUN_OPTIONS. A test process holds none of
+    // its own; dropping it here makes every case prove what the wrapper gives.
+    delete env.BUN_OPTIONS;
     const held = (cmd: string[], cwd: string, extra: Record<string, string> = {}) => {
       const child = Bun.spawnSync(cmd, { cwd: join(root, cwd), env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe" });
       const line = `${child.stdout}${child.stderr}`.split("\n").find(text => text.startsWith("DOTENV_CHILD="));
       return line ? JSON.parse(line.slice("DOTENV_CHILD=".length)) : { exit: child.exitCode, output: `${child.stdout}${child.stderr}`.slice(-400) };
     };
+    const reported = (output: string) => {
+      const line = output.split("\n").find(text => text.startsWith("DOTENV_CHILD="));
+      return line ? JSON.parse(line.slice("DOTENV_CHILD=".length)) : { output: output.slice(-400) };
+    };
+    // A Bun a shell starts, with no preload: from Bun.spawnSync, node:child_process and Bun Shell.
+    const cp = await import("node:child_process");
+    const unguarded = 'exec "$0" ./dotenv-report.ts';
+    const viaNode = cp.spawnSync("/bin/sh", ["-c", unguarded, process.execPath], { cwd: join(root, "cwd"), env, encoding: "utf8" });
+    const viaShell = await Bun.$`${process.execPath} ./dotenv-report.ts`.cwd(join(root, "cwd")).env(env).quiet().nothrow();
     console.log(`DOTENV_CHILDREN=${JSON.stringify({
       guard: dirname(process.env.GOG_HOME!),
       children: {
         "bun-eval": held([process.execPath, "-e", report], "cwd"),
         "bun-test": held([process.execPath, "test", "./dotenv-child.test.ts"], "cwd"),
-        shell: held(["/bin/sh", "-c", 'exec "$0" --preload "$1" -e "$2"', process.execPath, preload, report], "cwd"),
+        "shell-unguarded": held(["/bin/sh", "-c", unguarded, process.execPath], "cwd"),
+        "node-shell-unguarded": reported(`${viaNode.stdout}${viaNode.stderr}`),
+        "bun-shell-unguarded": reported(`${viaShell.stdout}${viaShell.stderr}`),
+        // This shell empties BUN_OPTIONS, so its Bun reads the .env, forged notes and all.
+        shell: held(["/bin/sh", "-c", 'BUN_OPTIONS= exec "$0" --preload "$1" -e "$2"', process.execPath, preload, report], "cwd"),
         "bun-run": held([process.execPath, "run", "nested"], "run"),
+        // This script empties BUN_OPTIONS, so its Bun reads the .env.
+        "bun-run-dotenv": held([process.execPath, "run", "nested-dotenv"], "run"),
+        "bun-run-unguarded": held([process.execPath, "run", "unguarded"], "run"),
+        // The same package script run by its bare name, which dispatches as bun run does, with and without a leading option.
+        "bun-script-unguarded": held([process.execPath, "unguarded"], "run"),
+        "bun-option-script-unguarded": held([process.execPath, "--smol", "unguarded"], "run"),
         "env-file": held([process.execPath, `--env-file=${hostFile}`, "-e", report], "plain"),
         "bun-options": held([process.execPath, "-e", report], "plain", { BUN_OPTIONS: `--env-file=${hostFile}` }),
       },

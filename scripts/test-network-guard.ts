@@ -399,6 +399,40 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
   };
 }
 
+/**
+ * The environment of every child the spawn wrapper starts and of every Bun
+ * Shell command: `--no-env-file` is added to BUN_OPTIONS, which every Bun
+ * reads, so a Bun the child starts reads no `.env` from its working
+ * directory (#4489). That covers a Bun a shell starts, and one that `bun run`,
+ * `bun x` or a package script run by name starts, which run no preload. An explicit `--env-file` still loads; a guarded
+ * descendant sanitizes what it holds either way ({@link isolateGogEnvironment}).
+ *
+ * Only `--no-env-file` is added, not the child preload. The preload drops
+ * every host-only name and takes back only what a record names, and the
+ * wrapper writes a record only for a Bun it starts itself; a Bun a shell
+ * starts would find none, so a test's chosen values would be lost.
+ * BUN_OPTIONS also reaches `bun install` and `bun build`, which a guard
+ * preload must not change. Network access by such a child is outside this
+ * guard (#3672).
+ *
+ * The code under test that refuses a runtime override in BUN_OPTIONS takes
+ * a value of only `--no-env-file` as none: `attemptCiBuild`
+ * (`scripts/ci-build-operation.ts`) and the native diagram export's boundary
+ * (`assertNativeExportOverrides`,
+ * `packages/module-diagrams/tests/fixtures/export-native-boundary.ts`). The
+ * test process's own environment is left alone.
+ *
+ * It is appended to any other value, even one that seems to hold it: the
+ * text may be a quoted value or the argument of another option, and Bun
+ * takes the flag twice without complaint.
+ */
+export function testBunOptions(env: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
+  const options = env.BUN_OPTIONS?.trim() ?? "";
+  if (options === "--no-env-file") return { ...env };
+  return { ...env, BUN_OPTIONS: options ? `${options} --no-env-file` : "--no-env-file" };
+}
+
+
 /** Set while the guard is installed, so maintainer-only scripts can refuse to run under it. */
 export const NETWORK_GUARD_INSTALLED = Symbol.for("brain-kit.test-network-guard.installed");
 
@@ -524,9 +558,9 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
         // builtin/subcommand first so child tests remain child tests. Nor
         // does the child read a `.env` file from its working directory, so a
         // name the guard leaves alone (HOME, a D-Bus address) comes only from
-        // its spawner. Nothing relies on that: an explicit `--env-file`, one in
-        // BUN_OPTIONS, or a Bun a script starts still reads one, and the
-        // child's guard sanitizes what it holds either way.
+        // its spawner. Nothing relies on that: an explicit `--env-file` or one
+        // in BUN_OPTIONS still loads, and the child's guard sanitizes what it
+        // holds either way.
         const index = ["test", "run"].includes(cmd[1] ?? "") ? 2 : 1;
         const guarded = [...cmd.slice(0, index), "--preload", childPreload, "--no-env-file", ...cmd.slice(index)];
         args[0] = Array.isArray(first) ? guarded : { ...first, cmd: guarded };
@@ -541,7 +575,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
       const options = (Array.isArray(first) ? args[1] ?? {} : args[0]) as { env?: Record<string, string | undefined> };
       // Fixture helpers often replace env completely, including provider-history
       // probes. Carry test Git policy through those children as well as shells.
-      const childEnv = testGitEnvironment(options.env ?? process.env);
+      // Every child carries `--no-env-file` to the Bun it starts.
+      const childEnv = testBunOptions(testGitEnvironment(options.env ?? process.env));
       // A guarded Bun child's own guard drops every GOG_* name it is given;
       // this one makes it keep this process's gog home rather than make one.
       // Its guard drops every host-only name and repoints every XDG base, then
@@ -581,6 +616,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
       };
       check();
       const shell = Reflect.apply(target, self, args) as Shell;
+      // A Bun the command starts reads no `.env`, whichever environment it is given (#4489).
+      Reflect.apply(shell.env as (value: unknown) => Shell, shell, [testBunOptions(state.env)]);
       for (const key of ["env", "cwd"] as const) {
         const native = shell[key] as (value: unknown) => Shell;
         Object.defineProperty(shell, key, {
@@ -589,7 +626,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
             if (key === "env") state.env = (value as Env | undefined) ?? process.env;
             else state.cwd = value as string | undefined;
             check();
-            return Reflect.apply(native, this, [value]);
+            return Reflect.apply(native, this, [key === "env" ? testBunOptions(state.env) : value]);
           },
         });
       }
@@ -598,7 +635,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
     get(target, key, receiver) {
       if (key === "env" || key === "cwd" || key === "nothrow" || key === "throws") {
         return (...args: unknown[]) => {
-          if (key === "env") defaults.env = args[0] as Env | undefined;
+          // A copy, as Bun keeps one: a later change to the caller's object reaches no command.
+          if (key === "env") defaults.env = args[0] ? { ...(args[0] as Env) } : undefined;
           if (key === "cwd") defaults.cwd = args[0] as string | undefined;
           Reflect.apply(target[key] as (...rest: unknown[]) => unknown, target, args);
           return guardedShell;

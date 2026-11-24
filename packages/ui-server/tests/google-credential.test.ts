@@ -539,8 +539,8 @@ describe("google availability probe", () => {
     expect(more, "ONE_CONNECTED_CHECK").toEqual([]);
     expect(call!.command, "CONNECTED_CHECK_IS_LABELS_LIST").toBe("gmail.labels.list");
     expect(call!.argv, "CONNECTED_CHECK_DISCIPLINE").toEqual(expect.arrayContaining(["--readonly", "--gmail-no-send", "--enable-commands-exact=gmail.labels.list", `--account=${account}`]));
-    // The offline test guard adds its own Git policy and workspace lease to every child (scripts/test-network-guard.ts).
-    expect(call!.env_names.filter(name => !GUARD.test(name)).sort(), "GOG_ENVIRONMENT_IS_THE_ALLOW_LIST").toEqual([...GOG_ENVIRONMENT_NAMES].sort());
+    // The offline test guard adds its own Git policy, workspace lease and, to a child that is not Bun, a BUN_OPTIONS of exactly `--no-env-file` (scripts/test-network-guard.ts).
+    expect(call!.env_names.filter(name => !GUARD.test(name) && !(name === "BUN_OPTIONS" && call!.bun_options === "--no-env-file")).sort(), "GOG_ENVIRONMENT_IS_THE_ALLOW_LIST").toEqual([...GOG_ENVIRONMENT_NAMES].sort());
     // Within the window the probe checks the home and the pin, not Google; after it, Google again.
     clock += 60_000;
     expect(reasonOf(await google.status(account))).toBe("available");

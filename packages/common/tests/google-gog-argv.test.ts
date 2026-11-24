@@ -287,7 +287,7 @@ describe("the schema snapshot", () => {
       expect(snapshotFromSchema(await schemaFromBinary(fake.executable) as Parameters<typeof snapshotFromSchema>[0])).toEqual(GOG_SCHEMA_SNAPSHOT);
       const [call] = fake.callsOf("schema");
       expect(call!.argv).toEqual(["schema", "--json"]);
-      expect(call!.env_names.filter(name => !GUARD_ADDED.test(name))).toEqual([...GOG_ENVIRONMENT_NAMES].sort());
+      expect(call!.env_names.filter(name => !GUARD_ADDED.test(name) && !(name === "BUN_OPTIONS" && call!.bun_options === "--no-env-file"))).toEqual([...GOG_ENVIRONMENT_NAMES].sort());
     } finally {
       fake.dispose();
     }

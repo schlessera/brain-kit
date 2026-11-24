@@ -40,6 +40,8 @@ export interface FakeGogCall {
   ordinal: number;
   argv: string[];
   env_names: string[];
+  /** BUN_OPTIONS as the child saw it, so a test can tell the offline guard's own `--no-env-file` from a leaked value. */
+  bun_options: string | null;
   stdin_base64: string;
   started_at: number;
   ended_at: number | null;
@@ -75,7 +77,7 @@ export async function runFakeGog(paths: { scenario: string; calls: string }): Pr
   const { ordinal, path } = claim(paths.calls, command);
   const stdin = new Uint8Array(await Bun.stdin.arrayBuffer());
   const call: FakeGogCall = {
-    command, ordinal, argv, env_names: Object.keys(process.env).sort(), stdin_base64: Buffer.from(stdin).toString("base64"),
+    command, ordinal, argv, env_names: Object.keys(process.env).sort(), bun_options: process.env.BUN_OPTIONS ?? null, stdin_base64: Buffer.from(stdin).toString("base64"),
     started_at: Date.now(), ended_at: null, pid: process.pid, grandchild_pid: null,
   };
   // Written aside and renamed, so a reader never sees half a record.

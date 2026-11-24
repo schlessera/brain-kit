@@ -2,7 +2,7 @@ import {afterEach,expect,test} from "bun:test";
 import {mkdtempSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
-import {assertNativeExportArguments,assertNativeExportInput,assertNativeExportChild} from "../packages/module-diagrams/tests/fixtures/export-native-boundary.ts";
+import {assertNativeExportArguments,assertNativeExportInput,assertNativeExportChild,assertNativeExportOverrides} from "../packages/module-diagrams/tests/fixtures/export-native-boundary.ts";
 import {originGroup} from "../packages/module-diagrams/tests/fixtures/origin-group.ts";
 // These invoke the actual preload checks before dispatch. Positive CLI/browser
 // execution remains a separate native proof; this unit control does not launch it.
@@ -45,4 +45,11 @@ test("native origin input refuses a symlink even when its target bytes match",()
  const root=mkdtempSync(join(tmpdir(),"odysseus-export-boundary-"));roots.push(root);
  writeFileSync(join(root,"other.diagram.yaml"),JSON.stringify(originGroup));symlinkSync("other.diagram.yaml",join(root,"origin.diagram.yaml"));
  expect(()=>assertNativeExportInput(root,"origin.diagram.yaml")).toThrow("NATIVE_EXPORT_OWNED_ORIGIN_FILE");
+});
+test("native preload refuses every runtime override but the offline guard's own --no-env-file",()=>{
+ expect(()=>assertNativeExportOverrides({}),"NO_OVERRIDE").not.toThrow();
+ expect(()=>assertNativeExportOverrides({BUN_OPTIONS:"--no-env-file"}),"THE_GUARDS_OWN_SUPPRESSION").not.toThrow();
+ for(const value of ["--smol --no-env-file","--preload ./odysseus.ts",""])
+  expect(()=>assertNativeExportOverrides({BUN_OPTIONS:value}),`BUN_OPTIONS ${JSON.stringify(value)}`).toThrow("NATIVE_EXPORT_NO_BUN_OPTIONS");
+ expect(()=>assertNativeExportOverrides({NODE_OPTIONS:"--require ./odysseus.js"})).toThrow("NATIVE_EXPORT_NO_NODE_OPTIONS");
 });
