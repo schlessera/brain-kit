@@ -38,9 +38,17 @@ function delaySampler(): () => Pick<AdmissionLoad, "eventLoopMaxMs" | "eventLoop
   return () => {
     const overdue = performance.now() - due;
     clearInterval(timer);
-    if (monitor) {
-      monitor.disable();
-      histogram.add(monitor);
+    monitor?.disable();
+    if (monitor?.count) {
+      let p99 = monitor.percentile(99) / 1e6;
+      if (overdue > 0) {
+        // Insert the final sample into the percentile order without copying the histogram.
+        const n = monitor.count, rank = Math.ceil(.99 * (n + 1));
+        const lower = rank > 1 ? monitor.percentile(100 * (rank - 1) / n) / 1e6 : 0;
+        const upper = rank <= n ? monitor.percentile(100 * rank / n) / 1e6 : Infinity;
+        p99 = Math.max(lower, Math.min(upper, overdue));
+      }
+      return { eventLoopMaxMs: Math.max(monitor.max / 1e6, overdue), eventLoopP99Ms: p99 };
     }
     if (overdue > 0) recordDelay(overdue);
     return histogram.count ? { eventLoopMaxMs: histogram.max / 1e6, eventLoopP99Ms: histogram.percentile(99) / 1e6 } : {};
