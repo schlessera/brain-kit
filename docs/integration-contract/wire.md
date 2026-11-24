@@ -761,7 +761,8 @@ unrelated result-reader wait expiring does not invalidate a later successful
 recording. Logging or absorbing
   an error does not turn it into successful work. These clocks add no
   close-path wait. Closing steps record reached work on failure/cancellation too; they lie
-  between backend exit (when a backend ran) and status emission.
+  between backend exit (when a backend ran) and status emission, except that a
+  late `failure_recording` end may follow both the terminal and status emission.
 
 
 The backend bracket ends at optional `firstRelayRequestAt` (host epoch

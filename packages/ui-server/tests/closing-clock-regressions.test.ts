@@ -12,7 +12,7 @@ function fixture() {
   const timeout = setTimeout(() => {}, 30000); timeout.unref();
   const run = { host: { dialogue: { retireTurn() {} }, log: { emit() {} } }, slot: { releaseActive() {} },
     turn: { turnId: "turn-ithaca", sessionId: "ithaca" }, current: {}, lifecycle, timeoutHandle: timeout,
-    failureRecording: { async finish() { return true; } }, held: {}, stops: {}, abortController: new AbortController() } as unknown as TurnRun;
+    failureRecording: { async finish(_sid?: string | null, confirmed?: () => void) { confirmed?.(); return true; } }, held: {}, stops: {}, abortController: new AbortController() } as unknown as TurnRun;
   return { db, store, lifecycle, run, advance(ms: number) { now += ms; }, close() { clearTimeout(timeout); clock.mockRestore(); db.close(); } };
 }
 const outcome = { lifecycle: "error", work: "error", cancelledBeforeStart: false } as const;
@@ -44,7 +44,7 @@ test("caught generation and reconciliation failures leave their closing steps in
 test("scope completion records its promise settlement without adding a close-path wait", async () => {
   const f = fixture(); const scope = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>(), final = Promise.withResolvers<void>();
   Object.assign(f.run.host, { scope: { finish() { entered.resolve(); return scope.promise.then(() => true); } } });
-  f.run.failureRecording.finish = async () => { await final.promise; return true; };
+  f.run.failureRecording.finish = async (_sid, confirmed) => { await final.promise; confirmed?.(); return true; };
   let done: Promise<void> | undefined;
   try {
     done = teardownTurn(f.run, outcome); await entered.promise;
@@ -226,6 +226,8 @@ for (const stored of [true, false]) test(`a boundary write still pending at the 
   const { FailureReplay } = await import("../src/ws/turn-failures");
   const { makeFakeBackend } = await import("./helpers/fake-backend");
   const f = fixture(), write = Promise.withResolvers<boolean>();
+  let released = 0;
+  Object.assign(f.run.slot, { releaseActive() { released++; } });
   const replay = new FailureReplay({ recordTurnBoundary() { return write.promise; } } as unknown as import("../src/ws/session-catalog").SessionCatalog,
     { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
   const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }]; } });
@@ -235,12 +237,57 @@ for (const stored of [true, false]) test(`a boundary write still pending at the 
     const terminal = f.store.lifecycle("turn-ithaca")!;
     expect(terminal.endedAt, "TERMINAL_DOES_NOT_WAIT_FOR_CATALOG_WRITE").toBe(1000);
     expect(terminal.openSubPhases?.find(step => step.name === "failure_recording")?.endedAt, "UNCONFIRMED_WRITE_IS_NOT_COMPLETE").toBeNull();
+    expect(released, "SLOT_RELEASE_DOES_NOT_WAIT_FOR_CATALOG_WRITE").toBe(1);
     f.advance(40); write.resolve(stored); await write.promise; await Bun.sleep(0);
     const after = f.store.lifecycle("turn-ithaca")!;
     expect(after.openSubPhases?.find(step => step.name === "failure_recording"), "CONFIRMED_WRITE_ENDS_STEP_LATE")
       .toMatchObject(stored ? { startedAt: 1000, endedAt: 1040, elapsedMs: 40 } : { endedAt: null });
     expect([after.endedAt, after.outcome], "LATE_END_KEEPS_TERMINAL").toEqual([1000, "error"]);
+    expect(released, "LATE_CONFIRMATION_DOES_NOT_RELEASE_AGAIN").toBe(1);
   } finally { write.resolve(true); f.close(); }
+});
+
+for (const failing of ["observed failure", "scratch pins"] as const) test(`a later ${failing} write failure keeps failure recording open after a confirmed boundary`, async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const failure = { message: "Odysseus cannot finish." } as import("@schlessera/brain-ui-sdk/protocol").TurnFailure;
+  const refused = Promise.withResolvers<boolean>();
+  const replay = new FailureReplay({
+    recordTurnBoundary: async () => true,
+    ...(failing === "observed failure" ? { recordTurnFailure: () => refused.promise } : { recordScratchPins: () => refused.promise }),
+  } as unknown as import("../src/ws/session-catalog").SessionCatalog, { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "", toolCalls: [], failure }]; } });
+  const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
+  if (failing === "observed failure") recording.observe("ithaca", failure);
+  let confirmed = 0;
+  try {
+    expect(await recording.finish("ithaca", () => { confirmed++; }), "PENDING_WRITES_ARE_NOT_CONFIRMED").toBe(false);
+    refused.resolve(false); await refused.promise; await replay.wait("ithaca"); await Bun.sleep(0);
+    expect(confirmed, "ONE_FAILED_WRITE_NEVER_CONFIRMS").toBe(0);
+  } finally { refused.resolve(true); }
+});
+
+test("a late end pairs repeated failure_recording steps by occurrence and keeps stored receipts", async () => {
+  const f = fixture();
+  try {
+    const late = f.lifecycle.timer("closing", {}, { lateEnd: true });
+    const first = late("failure_recording"), second = late("failure_recording");
+    f.lifecycle.finish("success");
+    expect(f.store.lifecycle("turn-ithaca")).toMatchObject({ recorderSettledAt: null, idleEmittedAt: null });
+    f.advance(12); second();
+    const ends = () => f.store.lifecycle("turn-ithaca")!.openSubPhases!.filter(step => step.name === "failure_recording").map(step => step.endedAt);
+    expect(ends(), "ONE_CONFIRMATION_ENDS_ONLY_ITS_OWN_STEP").toEqual([null, 1012]);
+    // A writer that omits the receipts still fills only the step end.
+    const current = f.store.lifecycle("turn-ithaca")!;
+    const { recorderSettledAt: _settled, idleEmittedAt: _idle, ...partial } = { ...current,
+      openSubPhases: current.openSubPhases!.map(step => step.name === "failure_recording" ? { ...step, endedAt: 1019 } : step) };
+    f.store.writeLifecycle(partial as typeof current);
+    const stored = f.store.lifecycle("turn-ithaca")!;
+    expect(ends(), "REPEATED_STEPS_KEEP_THEIR_OWN_ENDS").toEqual([1019, 1012]);
+    expect([Object.hasOwn(stored, "recorderSettledAt"), Object.hasOwn(stored, "idleEmittedAt")], "LATE_END_KEEPS_RECEIPT_FIELDS").toEqual([true, true]);
+    f.advance(7); first();
+    expect(f.store.lifecycle("turn-ithaca"), "A_SECOND_LATE_END_CHANGES_NOTHING").toEqual(stored);
+  } finally { f.close(); }
 });
 
 test("a terminal record accepts only a late failure_recording end", async () => {
