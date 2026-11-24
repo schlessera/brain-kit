@@ -696,14 +696,25 @@ test("owner timing summary separates builds, open and absent steps, and caps the
         subPhases: duration === undefined ? [] : [{ name: "boundary_prepare", phase: "governed", startedAt: 20,
           endedAt: duration === null ? null : 20 + duration, elapsedMs: duration }] });
     }
-    db.query("UPDATE activity_turn_lifecycles SET record=json_remove(record,'$.packageVersion') WHERE turn_id=?").run("private-turn");
+    const historical = { ...record, backendInvokedAt: 5, openSubPhases: Array.from({ length: 100 }, (_, i) =>
+      ({ phase: "backend", name: "historical-" + i, startedAt: 5, endedAt: 6, elapsedMs: 1 })) };
+    delete historical.packageVersion;
+    delete historical.firstRelayRequestAt;
+    delete historical.recorderSettledAt;
+    delete historical.idleEmittedAt;
+    db.query("UPDATE activity_turn_lifecycles SET record=? WHERE turn_id=?").run(JSON.stringify(historical), record.turnId);
     expect((await app.request(url)).status).toBe(403);
     const result = await read("?limit=1000");
     expect(result.limit).toBe(200);
     expect(result.groups).toHaveLength(3);
     const a = result.groups.find((g: { buildRevision: string }) => g.buildRevision === "a");
     expect(a.steps).toContainEqual({ phase: "governed", name: "boundary_prepare", count: 2, median: 15, p90: 20, max: 20, open: 1, absent: 1 });
-    expect(result.groups.find((g: { packageVersion: string | null }) => g.packageVersion === null).steps[0].absent).toBe(1);
+    const legacy = result.groups.find((g: { packageVersion: string | null }) => g.packageVersion === null);
+    expect(legacy.steps.find((s: { name: string }) => s.name === "boundary_prepare").absent).toBe(1);
+    expect(legacy.steps.filter((s: { phase: string }) => s.phase === "backend").length, "BOUNDED_HISTORICAL_SUMMARY").toBe(16);
+    for (const interval of ["timeToFirstRelayMs", "terminalToRecorderMs", "terminalToIdleMs"]) {
+      expect(legacy.intervals[interval], "HISTORICAL_MISSING_MILESTONE").toMatchObject({ open: 0, absent: 1, count: 0 });
+    }
     expect((await read("?origin=session&outcome=denied&since=12&before=15")).groups.map((g: { buildRevision: string }) => g.buildRevision)).toEqual(["b"]);
     expect((await read("?limit=1")).groups[0].turns).toBe(1);
     expect(JSON.stringify(result)).not.toMatch(/private-turn|private-session|principal-a|voyage-/);

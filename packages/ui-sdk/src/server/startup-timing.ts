@@ -15,6 +15,8 @@ export function observeDiagnostic(operation: () => unknown): void {
  */
 export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): StartTurnRequest["startupTiming"] {
   if (!timing) return undefined;
+  let mcpInit: typeof timing.mcpInit;
+  observeDiagnostic(() => { mcpInit = timing.mcpInit?.bind(timing); });
   return {
     start(name) {
       let end: unknown;
@@ -23,7 +25,7 @@ export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): St
     },
     worker: (name, durationMs) => observeDiagnostic(() => timing.worker(name, durationMs)),
     missing: (name, omitted) => observeDiagnostic(() => omitted === undefined ? timing.missing(name) : timing.missing(name, omitted)),
-    ...(timing.mcpInit ? { mcpInit: (servers: Parameters<NonNullable<typeof timing.mcpInit>>[0]) => observeDiagnostic(() => timing.mcpInit?.(servers)) } : {}),
+    ...(mcpInit ? { mcpInit: servers => observeDiagnostic(() => mcpInit?.(servers)) } : {}),
     received: () => observeDiagnostic(() => timing.received()),
   };
 }

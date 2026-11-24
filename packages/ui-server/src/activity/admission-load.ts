@@ -19,27 +19,32 @@ function hostLoad(): AdmissionLoad["atDequeue"] {
 
 function delaySampler(): () => Pick<AdmissionLoad, "eventLoopMaxMs" | "eventLoopP99Ms"> {
   const resolution = 10;
+  const histogram = createHistogram();
+  let monitor: ReturnType<typeof monitorEventLoopDelay> | undefined;
   try {
-    const histogram = monitorEventLoopDelay({ resolution });
-    histogram.enable();
-    return () => {
-      histogram.disable();
-      return histogram.count ? { eventLoopMaxMs: histogram.max / 1e6, eventLoopP99Ms: histogram.percentile(99) / 1e6 } : {};
-    };
-  } catch {
-    const histogram = createHistogram();
-    let previous = performance.now();
-    const timer = setInterval(() => {
-      const now = performance.now();
-      histogram.record(Math.max(1, Math.round((now - previous - resolution) * 1e6)));
-      previous = now;
-    }, resolution);
-    timer.unref();
-    return () => {
-      clearInterval(timer);
-      return histogram.count ? { eventLoopMaxMs: histogram.max / 1e6, eventLoopP99Ms: histogram.percentile(99) / 1e6 } : {};
-    };
-  }
+    monitor = monitorEventLoopDelay({ resolution });
+    monitor.enable();
+  } catch { monitor = undefined; }
+  // A turn can enter the backend before an overdue timer gets a chance to fire.
+  // Keep its deadline so stopping the monitor can include this final delay.
+  let due = performance.now() + resolution;
+  const recordDelay = (delay: number) => histogram.record(Math.max(1, Math.round(delay * 1e6)));
+  const timer = setInterval(() => {
+    const now = performance.now();
+    if (!monitor) recordDelay(now - due);
+    due = now + resolution;
+  }, resolution);
+  timer.unref();
+  return () => {
+    const overdue = performance.now() - due;
+    clearInterval(timer);
+    if (monitor) {
+      monitor.disable();
+      histogram.add(monitor);
+    }
+    if (overdue > 0) recordDelay(overdue);
+    return histogram.count ? { eventLoopMaxMs: histogram.max / 1e6, eventLoopP99Ms: histogram.percentile(99) / 1e6 } : {};
+  };
 }
 
 export function startAdmissionLoad(record: ActivityTurnLifecycle): (backendStarted: boolean) => void {

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { ActivityTurnLifecycle as Lifecycle, ActivityTurnOpenSubPhase } from "@schlessera/brain-ui-sdk/protocol";
+import { lifecycleTiming } from "./turn-lifecycle.js";
 
 interface Samples { values: number[]; open: number; present: number }
 const samples = (): Samples => ({ values: [], open: 0, present: 0 });
@@ -36,7 +37,7 @@ function summarize(records: Lifecycle[], vocabulary: ReadonlyMap<string, { phase
     const frequency = (key: string) => frequencies.set(key, (frequencies.get(key) ?? 0) + 1);
     for (const [name, from, to] of intervals) {
       const start = record[from], end = record[to], sample = durations.get(name)!;
-      if (start == null || name === "queueWaitMs" && end == null) continue;
+      if (start == null || end === undefined || name === "queueWaitMs" && end === null) continue;
       sample.present++;
       if (end == null) sample.open++;
       else sample.values.push(Math.max(0, end - start));
@@ -100,7 +101,7 @@ export function turnTimingSummary(db: Database, limit: number, since: number, be
       'unknown'))`).all(since, before, limit, outcome ?? null, outcome ?? null, origin ?? null, origin ?? null) as { record: string }[];
   const groups = new Map<string, Lifecycle[]>(), vocabulary = new Map<string, { phase: string; name: string }>();
   for (const row of rows) {
-    const record: Lifecycle = JSON.parse(row.record);
+    const record = lifecycleTiming(JSON.parse(row.record));
     const identity = JSON.stringify([record.packageVersion ?? null, record.buildRevision ?? null]);
     let group = groups.get(identity);
     if (!group) { group = []; groups.set(identity, group); }

@@ -663,7 +663,9 @@ milestone duration names to statistics, including `timeToFirstRelayMs`,
 central values for even counts, `p90` is nearest rank and `max` is the
 largest value. All three are null with no completed observations. `open`
 counts started, unended observations. `absent` counts turns without the
-observation. Repeated steps contribute individual samples. Timing values are
+observation, including milestones omitted by an older build. Historical
+backend observations have the same read limits as a single lifecycle record.
+Repeated steps contribute individual samples. Timing values are
 milliseconds. `measurements` applies the same statistics in native units to
 observed host load, alias scan counts, queue depths, stopped-time fields and
 index breakdowns. `frequencies` counts journal operation kinds, index states
@@ -757,7 +759,9 @@ Optional `admissionLoad` samples host load at dequeue and backend invocation
 average (`load1`) and available CPU count (`cpuCount`) when available.
 For direct dispatch, `atDequeue` samples entry to admission and adds no queue milestone.
 `eventLoopMaxMs` and `eventLoopP99Ms` summarize event-loop delay observed
-between those milestones, or until a refused admission ends. Missing samples
+between those milestones, or until a refused admission ends. The sample
+includes an overdue timer at the admission boundary even when backend
+invocation precedes its next callback. Missing samples
 are omitted. These fields ride the existing lifecycle writes.
 
 Inside `boundary_prepare`, `boundary_private_state` checks private state.

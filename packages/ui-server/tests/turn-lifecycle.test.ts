@@ -269,8 +269,7 @@ test("admission load records a blocked loop and freezes at backend invocation", 
     const lifecycle = createTurnLifecycle(store, "ithaca-load", null, Date.now(), () => {});
     lifecycle.mark("dequeuedAt");
     await Bun.sleep(35);
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60);
-    await Bun.sleep(20);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 70);
     lifecycle.mark("backendInvokedAt");
     const load = store.lifecycle("ithaca-load")!.admissionLoad;
     expect(load?.eventLoopMaxMs, "ADMISSION_BLOCKED_LOOP_MAXIMUM").toBeGreaterThanOrEqual(55);
