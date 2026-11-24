@@ -484,7 +484,7 @@ function schemaFields(schema: Record<string, unknown> | null) {
     const alternatives = ["oneOf", "anyOf", "allOf"] as const;
     if ("$ref" in field || "if" in field || "not" in field || "prefixItems" in field) limited=true;
     if (depth===6 || remaining===0) {
-      if (children || field.items || alternatives.some(key => key in field)) limited=true;
+      if (children || field.items || field.required || alternatives.some(key => key in field)) limited=true;
       return result;
     }
     if (children) {
@@ -496,9 +496,14 @@ function schemaFields(schema: Record<string, unknown> | null) {
         entries.push([name,shape(record(child)??{},depth+1)]);
       }
       result.properties=Object.fromEntries(entries);
-      if(Array.isArray(field.required)) {
-        const required=new Set(field.required);
-        result.required=entries.map(([name])=>name).filter(name=>required.has(name));
+    }
+    if (Array.isArray(field.required)) {
+      result.required=[];
+      for (const name of field.required) {
+        if (!remaining) {limited=true;break;}
+        if (typeof name!=="string" || name.length>128) {limited=true;continue;}
+        remaining--;
+        result.required.push(name);
       }
     }
     for (const key of alternatives) {

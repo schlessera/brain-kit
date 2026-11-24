@@ -77,6 +77,8 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
   const root=useBrainUiRoot(),sessionId=useChatStore(s=>s.activeSessionId),auth=useStore(root.authLock.state,s=>s.phase);
   const supported=useStore(root.stores.safety,s=>s.supported),readReason=useStore(root.stores.safety,s=>s.reason);
   const readStatus=useStore(root.stores.safety,s=>s.status),historyScopeKey=useStore(root.stores.safety,s=>s.historyScopeKey);
+  const chatCount=useStore(root.stores.safety,s=>s.status==="ready"&&s.identity&&"sessionId" in s.identity&&s.identity.sessionId===sessionId?s.projection?.unresolvedCount:undefined);
+  const chatTotal=chatCount===undefined?"Whole chat · current count unavailable":`Whole chat · ${chatCount} unresolved input${chatCount===1?"":"s"}`;
   const [open,setOpen]=useState(false),[limit,setLimit]=useState(20),[position,setPosition]=useState({left:12,top:12});
   const trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null),id=useId();
   const scope=`${sessionId}\0${root.authLock.epoch()}\0${historyScopeKey}`,held=useRef<{scope:string;entries:SafetyEvidence[]}>({scope,entries:[]});
@@ -128,7 +130,7 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
   }
   if(!entries.length||auth!=="active")return null;
   return <span data-safety-indicator data-unresolved={unresolved>0} className="group relative inline-flex shrink-0 items-center">
-    <IconButton ref={trigger} name={`${name}; ${reason}`} icon={unresolved?unknown?"unverified":"policy":"secure"} expanded={open} controls={id} haspopup="dialog"
+    <IconButton ref={trigger} name={`${name}; ${reason}; ${chatTotal}`} icon={unresolved?unknown?"unverified":"policy":"secure"} expanded={open} controls={id} haspopup="dialog"
       style={{minWidth:44,minHeight:44}} onClick={()=>setOpen(v=>!v)}/>
     {entries.length>1&&<span className="pointer-events-none absolute right-0 top-0 font-mono text-[10px]" aria-hidden="true">{unresolved||entries.length}</span>}
     {!open&&<span role="tooltip" className="pointer-events-none absolute bottom-full left-0 z-popover w-max max-w-56 rounded border border-border bg-surface p-2 text-xs text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">{reason}</span>}

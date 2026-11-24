@@ -53,6 +53,7 @@ for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width}
  await scene(width,theme);
  expect(host!.textContent,'OPAQUE_TRAFFIC_HAS_OWN_NAMED_TURN_EVENT').toContain('The proxy could not identify the tool');
  const indicator=buttonForTool();expect(indicator,'COLLAPSED_RUN_RETAINS_BOTH_TRIGGERS').toBeTruthy();
+ expect(indicator.getAttribute('aria-label')).toContain('Whole chat · 3 unresolved inputs');
  const box=indicator.getBoundingClientRect();expect(box.width).toBeGreaterThanOrEqual(44);expect(box.height).toBeGreaterThanOrEqual(44);
  indicator.focus();await expect.poll(()=>getComputedStyle(indicator.parentElement!.querySelector('[role=tooltip]')!).opacity).toBe('1');
  const tooltipLayer=getComputedStyle(indicator.parentElement!.querySelector('[role=tooltip]')!).zIndex;

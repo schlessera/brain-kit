@@ -27,7 +27,13 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       if (store.getState().supported) send({ type: "safety_unsubscribe", version: 1 });
     }
   }
-  const detach=root.stores.chat.subscribe((state,previous)=>{if(state.activeSessionId!==previous.activeSessionId)selected();});
+  const detach=root.stores.chat.subscribe((state,previous)=>{
+    if(state.activeSessionId===previous.activeSessionId)return;
+    if(!connected&&target&&store.getState().reason==="disconnected") {
+      target=null;
+      store.getState().unavailable("disconnected");
+    } else selected();
+  });
   const detachRefresh=store.subscribe((state,previous)=>{if(state.refreshTick!==previous.refreshTick)selected();});
   return {
     frame(msg:ServerMessage):boolean{

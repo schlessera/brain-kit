@@ -321,3 +321,19 @@ test("a failed safety read stays disconnected until this client receives a new h
     expect(safety.getState().status).toBe("loading");
   } finally { client.dispose(); }
 });
+
+test("switching chats offline clears the former chat's safety evidence", () => {
+  const {client,chat,safety,sent}=supportedClient("ithaca");
+  try {
+    client.frame(hello);
+    const read=sent.find(message=>message.type==="safety_read")!;
+    client.frame({type:"safety_history",requestId:read.requestId,page});
+    expect(safety.getState().identity).toEqual(page.identity);
+    client.disconnected();
+    expect(safety.getState().identity).toEqual(page.identity);
+    chat.setState({activeSessionId:"pylos"});
+    expect(safety.getState()).toMatchObject({reason:"disconnected",identity:null,projection:null,records:{}});
+    client.frame(hello);
+    expect(sent.at(-1)).toMatchObject({type:"safety_read",target:{sessionId:"pylos"}});
+  } finally { client.dispose(); }
+});

@@ -67,7 +67,7 @@ function fakeApify(): Fake {
         defaultRunOptions: { build: "latest", timeoutSecs: 3600, memoryMbytes: 1024 },
         taggedBuilds: { latest: { buildId: "SeaBuild142", buildNumber: "1.4.2" } }, pricingInfos: fake.pricing } });
     if (url.pathname === "/v2/actor-builds/SeaBuild142")
-      return Response.json({ data: { id: "SeaBuild142", actId: "SeaCharts01", buildNumber: "1.4.2", status: "SUCCEEDED", actorDefinition: { input: fake.geographic ? {...SEA_CHARTS_SCHEMA,properties:{...SEA_CHARTS_SCHEMA.properties,coordinates:{oneOf:[{type:"string"},{type:"array",items:{type:"number"}}]},area:{type:"object",properties:{latitude:{type:"number"},radius:{type:"integer"}},required:["latitude","radius"]}}} : SEA_CHARTS_SCHEMA } } });
+      return Response.json({ data: { id: "SeaBuild142", actId: "SeaCharts01", buildNumber: "1.4.2", status: "SUCCEEDED", actorDefinition: { input: fake.geographic ? {...SEA_CHARTS_SCHEMA,properties:{...SEA_CHARTS_SCHEMA.properties,coordinates:{oneOf:[{type:"string"},{type:"array",items:{type:"number"}}]},area:{type:"object",anyOf:[{required:["latitude","radius"]},{required:["address"]}],properties:{latitude:{type:"number"},radius:{type:"integer"}},required:["latitude","radius"]}}} : SEA_CHARTS_SCHEMA } } });
     if (url.pathname === "/v2/acts/SeaCharts01/runs" && request.method === "POST") {
       if (fake.start === "hang") return new Promise<Response>(() => undefined);
       if (fake.start === "500") return Response.json({ error: { type: "internal-error" } }, { status: 500 });
@@ -644,6 +644,7 @@ describe("results", () => {
     const candidate=(await h.consent.discover(ctx,{query:"sea charts"})).candidates[0]!.candidate;
     const facts=await h.consent.inspect(ctx,{candidate});
     expect(facts.input_shape?.root.properties?.area).toMatchObject({types:["object"],properties:{latitude:{types:["number"]},radius:{types:["integer"]}},required:["latitude","radius"]});
+    expect(facts.input_shape?.root.properties?.area?.anyOf).toEqual([{types:null,required:["latitude","radius"]},{types:null,required:["address"]}]);
     expect(facts.input_shape?.root.properties?.coordinates?.oneOf).toEqual([{types:["string"]},{types:["array"],items:{types:["number"]}}]);
     const ticket=(await h.consent.prepare(ctx,{candidate,input:{ latitude:38,radius:5 },max_charge_usd:2})).proposal;
     fake.start = "400";
