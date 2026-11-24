@@ -862,6 +862,15 @@ test("one governed worker turn reaches the owner timing summary with nested admi
     expect(group.turns).toBe(1);
     for (const name of ["boundary_prepare", "boundary_private_state", "sandbox_resolve", "sandbox_workspaces", "sandbox_scratch", "sandbox_protection"])
       expect(group.steps).toContainEqual(expect.objectContaining({ phase: "governed", name, count: 1, open: 0, absent: 0 }));
+    const steps = store.lifecycles(undefined, 1)[0]!.subPhases!;
+    const boundary = steps.find(step => step.name === "boundary_prepare")!;
+    for (const name of ["boundary_private_state", "boundary_output_lock", "boundary_maintenance_probe", "boundary_recheck"]) {
+      const child = steps.find(step => step.name === name);
+      expect(child, name).toBeDefined();
+      expect(child!.startedAt, name).toBeGreaterThanOrEqual(boundary.startedAt);
+      expect(child!.endedAt, name).toBeGreaterThanOrEqual(child!.startedAt);
+      expect(child!.endedAt!, name).toBeLessThanOrEqual(boundary.endedAt!);
+    }
     expect(group.measurements["boundary_private_state.scans"].median).toBeGreaterThan(0);
     expect(group.measurements["atDequeue.cpuCount"].median).toBeGreaterThan(0);
     expect(group.measurements["atBackendStart.load1"].count).toBe(1);
