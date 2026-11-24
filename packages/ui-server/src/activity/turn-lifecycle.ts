@@ -98,11 +98,10 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     steps.splice(next < 0 ? steps.length : next, 0, step);
     if (step.phase === "backend") applyBounds();
   };
-  // `lateEnd` lets a closing step whose work confirms after the terminal end
-  // then (#4520). That end is the one write it adds, and only after the terminal.
   const startAdmission = () => {
     if (!record.admissionLoad && record.endedAt === null) stopAdmissionLoad = startAdmissionLoad(record);
   };
+  // A late closing step can persist its confirmed end after the terminal write (#4520).
   const phaseTimer = (phase: string, metadata: Pick<ActivityTurnOpenSubPhase, "pending" | "indexSettle"> = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => (name, details) => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
     const startedAt = observedClock(); if (startedAt === undefined) return () => {};
@@ -176,9 +175,9 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     mark(milestone: LifecycleMilestone, at = observedClock()) {
       if ((record.endedAt !== null && milestone !== "recorderSettledAt" && milestone !== "idleEmittedAt") || record[milestone] != null) return;
+      if (milestone === "backendInvokedAt") { stopAdmissionLoad?.(true); stopAdmissionLoad = undefined; }
       if (at === undefined) return;
       if (milestone === "dequeuedAt") startAdmission();
-      if (milestone === "backendInvokedAt") { stopAdmissionLoad?.(true); stopAdmissionLoad = undefined; }
       record[milestone] = at;
       persist();
     },
@@ -200,8 +199,8 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     finish(outcome: ActivitySpanOutcome, reason: string | null = null) {
       if (record.endedAt !== null) return;
-      const at = observedClock(); if (at === undefined) return;
       stopAdmissionLoad?.(false); stopAdmissionLoad = undefined;
+      const at = observedClock(); if (at === undefined) return;
       record.endedAt = at; record.outcome = outcome; record.reason = reason; persist();
     },
   };
