@@ -29,7 +29,7 @@ import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  diagnosticInterval, WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  diagnosticInterval, observeDiagnostic, WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
@@ -589,9 +589,11 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       signal?.throwIfAborted();
       const checkState = (name: string) => {
         const aliasScan = timing ? { scans: 0, entries: 0 } : undefined;
-        const end = diagnosticInterval(() => timing?.(name, { aliasScan }));
+        let end: ReturnType<PhaseTimer> | undefined;
+        observeDiagnostic(() => end = timing?.(name));
         const refusal = operationalStateRefusal(layout, aliasScan);
-        end?.();
+        if (aliasScan) observeDiagnostic(() => end?.annotate?.({ aliasScan }));
+        observeDiagnostic(() => end?.());
         return { refusal };
       };
       const checkedState = checkState("boundary_private_state");

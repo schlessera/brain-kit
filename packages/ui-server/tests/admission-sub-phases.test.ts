@@ -102,6 +102,16 @@ test("real journal begin records each step inside journalBeginMs", async () => {
     const observe = record.subPhases!.find(step => step.name === "observe")!;
     expectWithin(record.subPhases!.filter(step => step.name.startsWith("observe_")), "journal", observe.startedAt, observe.endedAt!);
     expect(record.subPhases![0]!.queueAhead).toEqual({ count: 0, kinds: [] });
+    let after = 0;
+    const unsubscribe = journal.onObservation(() => {}, { before() {}, after() { after++; } });
+    try {
+      await journal.finish("ithaca-frozen-sample", () => Object.assign(() => {}, {
+        annotate(details: { queueAhead?: NonNullable<Step["queueAhead"]> }) {
+          if (details.queueAhead) { Object.freeze(details.queueAhead.kinds); Object.freeze(details.queueAhead); }
+        },
+      }));
+      expect(after, "FROZEN_QUEUE_DIAGNOSTIC_RELEASES_HOLDER").toBe(1);
+    } finally { unsubscribe(); }
     const finishes = Array.from({ length: 11 }, (_, index) =>
       journal.finish(index === 0 ? "turn-ithaca" : "odyssey-" + index, lifecycle.timer("closing")));
     const refused = createTurnLifecycle(store, "ithaca-refused", null, Date.now(), () => {});
@@ -141,6 +151,12 @@ test("private-state alias counts follow entries visited on each admission check"
     writeFileSync(join(state, "record"), ""); linkSync(join(state, "record"), join(root, "link"));
     const boundary = createHostBoundary({ brainPath: brain, privateStatePaths: [{ setting: "journal", path: state }],
       workerHost: () => ({ ok: false, requirement: "fixture" }) });
+    const expected = await boundary.prepare();
+    const freeze = (details?: Pick<Step, "aliasScan">) => { if (details?.aliasScan) Object.freeze(details.aliasScan); };
+    expect(await boundary.prepare(undefined, undefined, (_name, details) => {
+      freeze(details);
+      return Object.assign(() => {}, { annotate: freeze });
+    }), "FROZEN_ALIAS_DIAGNOSTIC_CANNOT_REFUSE_ADMISSION").toEqual(expected);
     for (const count of [1, 2]) {
       writeFileSync(join(brain, String(count)), "");
       const id = "ithaca-" + count;

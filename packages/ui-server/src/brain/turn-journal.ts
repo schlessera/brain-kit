@@ -134,7 +134,7 @@ const bothTimers = (a?: PhaseTimer, b?: PhaseTimer): PhaseTimer | undefined => !
   const first = diagnostic(() => a?.(name, details)), second = diagnostic(() => b?.(name, details));
   const end = () => { diagnostic(() => first?.()); diagnostic(() => second?.()); };
   return Object.assign(end, { annotate(details: Parameters<PhaseTimer>[1]) {
-    if (details) { diagnostic(() => first?.annotate?.(details)); diagnostic(() => second?.annotate?.(details)); }
+    if (details) { diagnostic(() => first?.annotate?.(structuredClone(details))); diagnostic(() => second?.annotate?.(structuredClone(details))); }
   } });
 };
 
@@ -456,9 +456,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   type QueueAhead = NonNullable<import("@schlessera/brain-ui-sdk/protocol").ActivityTurnSubPhase["queueAhead"]>;
   type QueueKind = QueueAhead["kinds"][number];
   const pendingOperations = new Set<{ kind: QueueKind }>();
-  function serialize<T>(kind: QueueKind, operation: () => Promise<T>, snapshot?: QueueAhead): Promise<T> {
+  function serialize<T>(kind: QueueKind, operation: () => Promise<T>, waited?: ReturnType<PhaseTimer>): Promise<T> {
+    const snapshot: QueueAhead | undefined = waited?.annotate ? { count: pendingOperations.size, kinds: [] } : undefined;
     if (snapshot) {
-      snapshot.count = pendingOperations.size;
       for (const ahead of pendingOperations) {
         if (snapshot.kinds.length === 8) break;
         snapshot.kinds.push(ahead.kind);
@@ -470,6 +470,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       try { return await operation(); } finally { pendingOperations.delete(entry); }
     });
     tail = work.catch(() => {});
+    if (snapshot) diagnostic(() => waited?.annotate?.({ queueAhead: snapshot }));
     return work;
   }
   /** A capacity refusal collects the oldest ended turn and retries, until none is left. */
@@ -516,7 +517,6 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       } };
     for (const id of evidence.keys()) interval.participant(id);
     const timing = bothTimers(lifecycle, trace), hold = bothTimers(trace)?.("hold");
-    const queueAhead: QueueAhead | undefined = timing ? { count: 0, kinds: [] } : undefined;
     const waited = timing?.("hold_wait");
     // Backend event emission is synchronous: establish the hold before yielding
     // or queueing so a provider cannot launch another tool past this boundary.
@@ -525,7 +525,6 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     let acquired = 0;
     try { for (const holder of holders) { acquired++; holder.before(interval); } }
     catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false, interval); return Promise.reject(error); }
-    if (queueAhead) waited?.annotate?.({ queueAhead });
     return serialize(cause.kind, async () => {
       waited?.();
       currentHold = interval;
@@ -541,7 +540,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         currentHold = undefined;
         hold?.();
       }
-    }, queueAhead);
+    }, waited);
   }
   /** The turn is partial at once; its durable marker commits after. */
   async function fail(turnId: string, error: unknown) {

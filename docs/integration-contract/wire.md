@@ -870,9 +870,9 @@ claim complete runtime coverage. These observations stay in host storage and
 never enter provider history.
 Names are sampled from the first Claude system/init frame only: at most 8
 server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
-budget. Diagnostic identifiers contain letters, numbers, underscores, hyphens,
-internal periods or combining marks. The SDK's scoped `plugin:<plugin>:<server>`
-form accepts the same identifiers in both components. Cloud connectors keep
+budget. Diagnostic names retain the authored configuration key, including printable
+punctuation. Path and control exclusions also apply within the SDK's scoped
+`plugin:<plugin>:<server>` form. Cloud connectors keep
 their SDK name, `claude.ai <display name>`, including spaces, punctuation
 and disambiguating suffixes such as `(2)`. An empty display name, a path
 or control characters count as omitted.

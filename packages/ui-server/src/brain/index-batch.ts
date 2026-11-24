@@ -121,22 +121,28 @@ export function createIndexBatch(options: {
     },
     async barrier(signal, observation) {
       const target = queued;
-      const stats = observation?.stats;
-      if (observation) {
-        observation.stats.queuedPaths = new Set(entries.filter(entry => entry.turnId === observation.turnId).flatMap(entry => entry.paths)).size;
-        observation.stats.firstAlreadyRunning = indexed < target && flight !== undefined;
-        observeDiagnostic(() => observation.observed?.());
-      }
+      const stats: NonNullable<ActivityTurnOpenSubPhase["indexSettle"]> | undefined = observation ? {
+        queuedPaths: new Set(entries.filter(entry => entry.turnId === observation.turnId).flatMap(entry => entry.paths)).size,
+        updates: 0, firstAlreadyRunning: indexed < target && flight !== undefined, updateMs: 0, lastOutcome: null,
+      } : undefined;
+      const publish = () => {
+        if (stats && observation) observeDiagnostic(() => {
+          Object.assign(observation.stats, stats);
+          return observation.observed?.();
+        });
+      };
+      publish();
       // A running update may predate the paths this caller waits for: after
       // it settles, the next one covers them.
       while (indexed < target) {
         const running = flight ?? start();
-        if (stats) stats.updates++;
+        if (stats) { stats.updates++; publish(); }
         try { await wait(running.work, signal); }
         finally {
           if (stats && running.receipt) {
             stats.updateMs += running.receipt.durationMs;
             stats.lastOutcome = running.receipt.outcome;
+            publish();
           }
         }
       }

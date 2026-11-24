@@ -131,7 +131,7 @@ export async function openTurnBridge(
     const indexSettle = { queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null };
     const pending = hasPendingTurnIndex(bridge);
     const end = run.lifecycle?.timer("closing", { pending })("index_settle");
-    const observed = () => end?.annotate?.({ indexSettle });
+    const observed = () => end?.annotate?.({ indexSettle: { ...indexSettle } });
     if (!pending) observed();
     try { await settleTurnIndex(bridge, end ? { turnId: turn.turnId, stats: indexSettle, observed } : undefined); end?.(); } catch { /* Failed flush remains queued; the step stays unended. */ }
   };

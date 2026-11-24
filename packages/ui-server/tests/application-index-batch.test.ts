@@ -180,4 +180,9 @@ test("settle counts only local paths and attributes the receipts of every joined
   const failed = observe();
   await expect(batch.barrier(undefined, failed)).rejects.toBeInstanceOf(IndexFlushError);
   expect(failed.stats).toEqual({ queuedPaths: 1, updates: 1, firstAlreadyRunning: false, updateMs: receipts[2], lastOutcome: "failed" });
+  fail = false;
+  const frozen = observe();
+  frozen.observed = () => { Object.freeze(frozen.stats); };
+  await batch.barrier(undefined, frozen);
+  expect(batch.pending(), "FROZEN_DIAGNOSTICS_CANNOT_BLOCK_INDEX_SETTLEMENT").toBe(false);
 });
