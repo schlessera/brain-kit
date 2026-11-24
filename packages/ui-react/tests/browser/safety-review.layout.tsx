@@ -92,6 +92,11 @@ test('open delivery, pruning, recorder loss and explicit unavailable evidence re
  expect(document.querySelector('[data-safety-details]')!.textContent,'OPEN_DELIVERY_EXPLAINS_REFUSAL').toContain('Input is still arriving');
  const section=[...document.querySelectorAll('[data-safety-trigger]')].find(e=>e.textContent?.includes('Input is still arriving'))!;
  expect(section.querySelector('[role=button]'),'OPEN_DELIVERY_OFFERS_NO_GRANT').toBeNull();
+ flushSync(()=>ui!.stores.safety.getState().refresh());
+ expect(section.textContent).toContain("Current evidence is unavailable or incomplete.");
+ expect(section.textContent,"REFRESH_PRESERVES_DELIVERY_UNCERTAINTY").not.toContain("Delivery could not be confirmed");
+ expect(section.textContent).not.toContain("New chat");
+ await expect.poll(()=>section.textContent).toContain("Input is still arriving");
  const live=ui!.stores.safety.getState().projection!;
  flushSync(()=>ui!.stores.safety.setState({projection:{...live,reasons:[...live.reasons,"recording_failed"]}}));
  expect(section.textContent).toContain("Recording failed. This chat stays restricted.");

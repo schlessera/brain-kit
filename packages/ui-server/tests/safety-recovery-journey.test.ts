@@ -296,7 +296,7 @@ test("a numbered search is attributed only to its verified single note", async (
   try {
     const snapshot = join(f.root, "checkpoint");
     mkdirSync(snapshot);
-    writeFileSync(join(snapshot, "ithaca.md"), "The crew assembled.\nThe sail was ready.\nThe ship departed.\n");
+    writeFileSync(join(snapshot, "ithaca.md"), "\uFEFFThe crew assembled.\nThe sail was ready.\nThe ship departed.\n");
     const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
       sessionId: () => "ithaca", brainPath: f.root, grepCheckpoint: { root: snapshot, masked: [] },
       shellProxied: () => true, signal: new AbortController().signal });

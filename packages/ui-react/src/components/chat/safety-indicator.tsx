@@ -210,7 +210,7 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
     {r.detailPruned&&<p>Some source detail has expired. The input and any decision remain recorded.</p>}
     {entry.decision&&<p>Marked safe by you · <time dateTime={new Date(entry.decision.observedAt).toISOString()}>{new Date(entry.decision.observedAt).toLocaleString()}</time></p>}
     {counted&&readable&&recordingFailed&&<p>Recording failed. This chat stays restricted. <NewChatGuidance/></p>}
-    {counted&&!recordingFailed&&entry.exposure!=="finalized"&&<p>{arriving?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This input cannot be marked safe."} {!arriving&&<NewChatGuidance/>}</p>}
+    {counted&&readable&&!recordingFailed&&entry.exposure!=="finalized"&&<p>{arriving?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This input cannot be marked safe."} {!arriving&&<NewChatGuidance/>}</p>}
     {counted&&readable&&state.capabilities&&!owner&&<p>{state.capabilities.readOnlyReason==="owner_required"?"Only the authenticated owner can mark this input safe.":"This host has not enabled safety reviews. The input stays restricted."}</p>}
     {!readable&&<div><p>{state.reason==="disconnected"?"Current evidence is unavailable while disconnected. It will refresh on reconnect.":"Current evidence is unavailable or incomplete."}</p>
       {state.status==="unavailable"&&state.reason!=="disconnected"&&state.reason!=="unauthorized"&&state.reason!=="retired"&&<Button label="Refresh safety evidence" reach tone="quiet" onClick={state.refresh}/>}</div>}

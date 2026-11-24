@@ -41,7 +41,8 @@ export function checkpointGrepMatches(checkpoint: GrepCheckpoint, note: string, 
     if (realpathSync(path) !== path) return false;
     const file = lstatSync(path);
     if (!file.isFile() || file.nlink !== 1 || file.size > 1_048_576) return false;
-    const lines = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(readFileSync(path)).split(/\r?\n/);
+    // Ripgrep consumes a leading UTF-8 BOM before numbering the first line.
+    const lines = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path)).split(/\r?\n/);
     const delivered = result.content.split("\n");
     let previous = 0, matched = false, separator = false;
     if (delivered.length !== result.numLines) return false;
