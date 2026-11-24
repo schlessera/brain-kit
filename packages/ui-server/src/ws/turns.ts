@@ -310,6 +310,7 @@ export interface PendingApproval {
  */
 interface ToolResolutionRecord {
   outcome: "granted" | "denied" | "expired";
+  expiryCause?: "safety_changed" | "turn_ended" | "grant_storage_failed";
   turnId: string;
   sessionId: string | null;
   channel?: ApprovalChannel;
@@ -836,7 +837,7 @@ export class TurnCoordinator {
     this.#expiringApprovals.add(toolUseId);
     if (p.expire) p.expire(reason, cause);
     else {
-      this.recordApprovalOutcome(toolUseId, { outcome: "expired", turnId: p.turnId, sessionId: p.turn.sessionId, reason });
+      this.recordApprovalOutcome(toolUseId, { outcome: "expired", turnId: p.turnId, sessionId: p.turn.sessionId, expiryCause: cause, reason });
       p.resolve({ behavior: "deny", message: reason });
     }
     return true;
@@ -1085,6 +1086,15 @@ export class TurnCoordinator {
   recordCancellation(turn: RunningTurn, principalId: string): void {
     if (turn.recorder) turn.recorder.recordCancellation(principalId);
     else turn.pendingCancellationPrincipalIds.push(principalId);
+  }
+
+  /** The terminal host receipt distinguishes a superseded card from an owner denial. */
+  networkRefusal(turnId:string,toolUseId:string): false | "superseded" | "expired" | "unconfirmed" {
+    const record = this.#resolvedApprovals.get(toolUseId);
+    if (record?.turnId !== turnId) return "unconfirmed";
+    if (record.outcome === "denied") return false;
+    if (record.outcome !== "expired" || record.expiryCause === "grant_storage_failed") return "unconfirmed";
+    return record.expiryCause === "safety_changed" ? "superseded" : "expired";
   }
 
   /** Record a settled permission outcome and tell the host. */

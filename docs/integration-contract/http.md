@@ -912,6 +912,15 @@ is pending records the connection as `cancelled` with `turn_cancelled`, as any
 connection its turn stops. Voice turns refuse without a request, as before,
 with `reason: "taint_not_allowed"`.
 
+When new evidence withdraws a Network card while the connection is still
+waiting, the host can present one new request for the same destination with
+a new tool-use ID. It rechecks the current policy, scope, authority, trust
+revision and recording state before asking. Late replies to the withdrawn
+ID retain their expired outcome. An unanswered expiry records
+`network_approval_expired`, and a missing outcome records
+`network_approval_unconfirmed`. An explicit owner denial still records
+`taint_not_approved`.
+
 The `outward_action` kind's `action` gains `compute_run` and the `taint`
 kind's `source` gains `compute_output` (both additive, #3108): a hosted
 external compute run's approval decision, its target the instance id, and a

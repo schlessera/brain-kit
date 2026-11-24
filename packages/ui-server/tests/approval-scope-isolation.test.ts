@@ -3,6 +3,9 @@ import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { request } from "node:http";
+import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { prepareTurnEgress } from "../src/brain/turn-egress";
 import { join } from "node:path";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
@@ -21,7 +24,7 @@ import { createStaticBackendRegistry } from "../src/agent/backend";
 import { WsHost } from "../src/ws/host";
 import { makeBridge } from "../src/ws/bridge";
 import type { RunningTurn } from "../src/ws/turns";
-import { handleToolApproval } from "../src/ws/handlers/tool-permission";
+import { handleToolApproval, handleToolDenial } from "../src/ws/handlers/tool-permission";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import * as heldWriter from "./fixtures/held-publication-writer";
 import { openDialogue, bindDialogue } from "../src/ws/dialogue-storage";
@@ -44,7 +47,7 @@ for (const mode of ["backward cursor", "exhausted admission"] as const) test(`ad
   } finally { await loss; await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-for (const mode of ["other collection", "other occurrence", "own occurrence", "own exposure", "external exposure", "other chat loss", "own loss", "adoption", "adopted pending"] as const) {
+for (const mode of ["network grant","network deny","network expiry","network revocation","other collection", "other occurrence", "own occurrence", "own exposure", "external exposure", "other chat loss", "own loss", "adoption", "adopted pending"] as const) {
   test(`pending approval follows its canonical safety scope: ${mode}`, async () => {
     const root = mkdtempSync(join(tmpdir(), "odysseus-approval-scope-")), path = join(root, "ui.db"), db = createUiDb(path);
     const writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer), store = createActivityStore(db);
@@ -59,9 +62,10 @@ for (const mode of ["other collection", "other occurrence", "own occurrence", "o
     const controller = new AbortController();
     const turn = { sessionId: null, turnId: "voyage", principalId: principal.id, authorization, startedAt: 1,
       abortController: controller, queue: [] } as unknown as RunningTurn;
+    const nextCard = Promise.withResolvers<Extract<ServerMessage,{type:"tool_approval_request"}>>();
     const frames: ServerMessage[] = [], raised = Promise.withResolvers<void>();
     const ws = { send(text: string) { const frame = JSON.parse(text) as ServerMessage; frames.push(frame);
-      if (frame.type === "tool_approval_request") raised.resolve(); } };
+      if (frame.type === "tool_approval_request") { raised.resolve(); if(frames.filter(f=>f.type==="tool_approval_request").length===2)nextCard.resolve(frame); } } };
     host.clients.add(ws, principal.id);
     let decision: Promise<PermissionDecision> | undefined, externalDb: Database | undefined;
     let externalWriter: ReturnType<typeof openSqliteWriter> | undefined;
@@ -97,6 +101,48 @@ for (const mode of ["other collection", "other occurrence", "own occurrence", "o
           principalId: principal.id, historyOwnerId: scout.id, backendId: backend.id, at: 0 });
         if (mode === "adoption") await add("other", null);
         else bindDialogue(db, "scout-voice", principal.id, "ithaca");
+      }
+      if (mode.startsWith("network ")) {
+        await add("voyage");
+        let delivered = 0;
+        const upstream = Bun.serve({hostname:"127.0.0.1",port:0,fetch:()=>{delivered++;return new Response("Ithaca");}});
+        const egress = await prepareTurnEgress({controller, turnId:"voyage",sessionId:()=>"ithaca",model:()=>null,
+          origin:"interactive",profile:"governed",policy:resolveGovernancePolicy({schema_version:1}),bridge,
+          governanceDb:db,governanceWrites:writes,record:event=>writes.record(event),
+          networkRefusal:id=>host.coordinator.networkRefusal("voyage",id)});
+        const exchange = new Promise<{status:number;body:string}>((resolve,reject)=>{
+          const req=request({socketPath:egress.socketPath,path:upstream.url.href},res=>{
+            let body="";res.on("data",part=>body+=part);res.on("end",()=>resolve({status:res.statusCode!,body}));res.on("error",reject);
+          });req.on("error",reject);req.end();
+        });
+        try {
+          await Promise.race([raised.promise,exchange.then(res=>{throw new Error("Missing first card: "+res.body);})]);
+          const first = frames.find(f=>f.type==="tool_approval_request")!;
+          const ctx = {host,ws,requireEcho:true,connection:{principal,authorization,capabilities:{toolResolution:true}}} as never;
+          const click = (id:string)=>handleToolApproval(ctx,{type:"tool_approval",turnId:"voyage",toolUseId:id,channel:"card"});
+          if(mode==="network expiry")host.coordinator.expireApproval(first.toolUseId,"Turn deadline reached","turn_ended");
+          else if(mode==="network revocation")await writes.safetyFail("voyage");
+          else {
+            await add("voyage");
+            const second = await Promise.race([nextCard.promise,exchange.then(res=>{throw new Error("Missing replacement: "+res.body);})]);
+            expect(second.toolUseId).not.toBe(first.toolUseId);
+            expect(second.description).toContain("New safety evidence");
+            expect(second.input).toMatchObject({port:upstream.port,host:"127.0.0.1"});
+            await click(first.toolUseId);
+            expect(delivered).toBe(0);
+            expect(host.coordinator.pendingApprovals.has(second.toolUseId)).toBe(true);
+            if(mode==="network grant")await click(second.toolUseId);
+            else await handleToolDenial(ctx,{type:"tool_denial",turnId:"voyage",toolUseId:second.toolUseId,channel:"card",message:STALE_SAFETY_ADMISSION});
+          }
+          const response=await exchange;
+          expect(response.status).toBe(mode==="network grant"?200:mode==="network revocation"?503:403);
+          expect(delivered).toBe(mode==="network grant"?1:0);
+          if(mode==="network deny")expect(response.body).toContain("user declined");
+          if(mode==="network expiry")expect(response.body).toContain("expired");
+          if(mode==="network revocation")expect(response.body).toContain("recording");
+          expect(queryGovernanceEvents(db,{kinds:["safety_admission_expired"],limit:10})).toHaveLength(1);
+        } finally { egress.stop();await exchange.catch(()=>{});await egress.settled();upstream.stop(true); }
+        return;
       }
       decision = bridge.requestPermission({ toolUseId: "raft-write", toolName: "Write", kind: "command",
         input: { file_path: "raft.md", content: "Odysseus repairs the raft." } });

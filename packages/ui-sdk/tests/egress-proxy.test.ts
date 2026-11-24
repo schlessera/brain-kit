@@ -329,8 +329,8 @@ test("a narrowed destination asks through taint.approve before refusing; a faile
     answer = async () => { throw new Error("Scylla"); };
     const refused = await get(proxy.socketPath, origin.url.href);
     expect(refused.status, "EGRESS_TAINT_FAILED_APPROVAL_REFUSES").toBe(403);
-    expect(refused.body, "EGRESS_TAINT_DECLINE_REASON").toContain("the user declined the connection");
-    expect(records.at(-1)).toMatchObject({ outcome: "denied", reason: "taint_not_approved", bytes: 0 });
+    expect(refused.body, "EGRESS_TAINT_UNKNOWN_REASON").toContain("could not confirm approval");
+    expect(records.at(-1)).toMatchObject({ outcome: "denied", reason: "network_approval_unconfirmed", bytes: 0 });
     // The relay's own admission is never narrowed, so never asked about.
     const relay = proxy.inference("POST", new URL(`${origin.url.href}v1/messages`), new AbortController().signal);
     expect(await relay.admit()).toBe(true); relay.finish("completed");

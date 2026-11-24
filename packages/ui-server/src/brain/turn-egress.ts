@@ -10,6 +10,7 @@ import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from
 import type { GovernanceWrites } from "../governance/event-writes.js";
 import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
 import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
+import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
 import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { createTurnExtraction } from "./turn-extraction.js";
@@ -104,6 +105,7 @@ export async function prepareTurnEgress(options: {
   record?(event: GovernanceEventInput): unknown;
   /** The record the session's taint and contacted hosts are read from (G6). Absent: no taint narrowing. */
   governanceDb?: Database;
+  networkRefusal?(toolUseId:string): false | "superseded" | "expired" | "unconfirmed";
   /**
    * Where the session's occurrences commit, and how admission reads it back
    * before that commit lands (#2850). Absent: the taint commits on
@@ -215,7 +217,7 @@ export async function prepareTurnEgress(options: {
       });
       const reason = record.reason === "destination_not_allowed" ? denied ? "denied_host" : "not_allowlisted"
         : record.reason === "max_bytes_per_turn" ? "byte_cap"
-        : record.reason === "taint_not_allowed" || record.reason === "taint_not_approved" ? "taint_allowlist" : undefined;
+        : ["taint_not_allowed","taint_not_approved","network_approval_expired","network_approval_unconfirmed"].includes(record.reason ?? "") ? "taint_allowlist" : undefined;
       if (reason) track(options.record({ ...base(), kind: "egress_denial", payload: {
         host: record.host, port: record.port, method: record.method, reason, bytes: record.bytes,
       } }));
@@ -269,21 +271,49 @@ export async function prepareTurnEgress(options: {
         writes?.recordingAvailable?.(options.turnId, options.sessionId(),excludedPending) ?? safety?.recordingAvailable,callGeneration]);
       approvalMarkers.set(key,{version,marker}); return marker;
     };
-  const asking = new Map<string, {decision:Promise<boolean>;group:ApprovalGroup}>();
-  const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?:string): Promise<boolean> => {
-    const key = JSON.stringify([destination.host, destination.port, destination.method, destination.protocol, destination.managedReference, approvalRevision()]);
+  type NetworkAnswer = boolean | "superseded" | "expired" | "unconfirmed";
+  const asking = new Map<string, {decision:Promise<NetworkAnswer>;group:ApprovalGroup}>();
+  const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?:string, replacement=false): Promise<NetworkAnswer> => {
+    const key = JSON.stringify([destination.host, destination.port, destination.method, destination.protocol, destination.managedReference, approvalRevision(), replacement]);
     let pending = asking.get(key);
     if (!pending) {
-      const decision = requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network", kind: "command",
+      const toolUseId = crypto.randomUUID();
+      const decision = requestToolPermission(options.bridge, { toolUseId, toolName: "Network", kind: "command",
         input: { ...destination, target: networkAuthority(destination) },
-        description: taintedDestinationDescription(destination, firstTaint()?.source ?? null),
-      }).then(decision => decision.behavior === "allow", () => false).finally(() => asking.delete(key));
+        description: (replacement ? "New safety evidence arrived while the previous request was waiting. " : "") + taintedDestinationDescription(destination, firstTaint()?.source ?? null),
+      }).then(decision => decision.behavior === "allow" ? true : options.networkRefusal?.(toolUseId) ?? false, () => "unconfirmed" as const).finally(() => asking.delete(key));
       pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set()}};
       asking.set(key, pending);
     }
     if(connectionId){pending.group.members.add(connectionId);approvalGroups.set(connectionId,pending.group);}
     const allowed = await pending.decision;
-    return allowed && !signal.aborted;
+    const safety = options.bridge.admissionSafety;
+    if (allowed === "superseded" && db && safety && !signal.aborted && currentProjection().pendingCount > 0) {
+      // A new input withdraws the old card before its write commits. Wait only
+      // for this chat's pending write, then let the proxy recheck all authority.
+      let unsubscribe: (() => void) | undefined;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const settled = Promise.withResolvers<void>();
+      const check = () => {
+        try {
+          const now = safety.read();
+          if (signal.aborted || !now.authorityCurrent || now.operationRecordingAvailable === false ||
+              !currentProjection().pendingCount) settled.resolve();
+        } catch { settled.resolve(); }
+      };
+      try {
+        unsubscribe = safety.subscribe(check);
+        signal.addEventListener("abort", check, {once:true});
+        timer = setTimeout(settled.resolve, STORAGE_SETTLEMENT_MS);
+        check();
+        await settled.promise;
+      } finally {
+        clearTimeout(timer);
+        unsubscribe?.();
+        signal.removeEventListener("abort", check);
+      }
+    }
+    return signal.aborted ? false : allowed;
   };
   // The extraction classifier (#4088), off unless the policy turns it on. It
   // needs the session's taint record, so a host that keeps none never runs it.

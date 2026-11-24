@@ -133,13 +133,13 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
             trustRevision: snapshot.trustRevision, authorityEpoch: snapshot.authorityEpoch, reason: cause } }))
           : snapshot ? Promise.reject(new Error("Safety withdrawal storage is unavailable")) : Promise.resolve();
         void committed.then(() => {
-          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, reason });
+          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, expiryCause: cause, reason });
           recorded({ behavior: "deny", message: reason });
         }, error => {
           // No successful durable-withdrawal claim on storage failure, but
           // cleanup and the backend still receive one explicit terminal.
           const failed = "Safety withdrawal could not be retained; the turn was stopped.";
-          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, reason: failed });
+          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, expiryCause: "grant_storage_failed", reason: failed });
           recorded({ behavior: "deny", message: failed });
           turn.abortController.abort(error);
         });

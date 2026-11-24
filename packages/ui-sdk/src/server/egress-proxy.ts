@@ -107,7 +107,7 @@ export interface EgressProxyOptions {
     /** Immutable evidence/authority marker; excludes inputs admitted under this exact shared card. */
     approvalRevision?(connectionId?: string, kind?: "network" | "outward"): string;
     recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean | Extract<EgressRecipientAuthority,{kind:"rule"}>["admission"];
-    approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?: string): Promise<boolean>;
+    approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?: string, replacement?:boolean): Promise<boolean | "superseded" | "expired" | "unconfirmed">;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
   /**
@@ -209,6 +209,8 @@ function describeRefusal(reason: string | undefined, host: string, denied: boole
   switch (reason) {
     case "safety_changed": case "source_trust_changed": return { cause: "safety_changed", message: "Blocked: this turn's safety or authority changed. A fresh request needs a fresh decision." };
     case "egress_unavailable": return { cause: "egress_unavailable", message: "Blocked: this turn's network admission is unavailable because safety recording could not be verified." };
+    case "network_approval_expired": return { cause: "taint_allowlist", message: "The destination approval expired before the owner answered. No connection was made." };
+    case "network_approval_unconfirmed": return { cause: "taint_allowlist", message: "The host could not confirm approval for this connection. No connection was made." };
     case "taint_not_approved": return { cause: "taint_allowlist",
       message: "Blocked: this session read untrusted content, this host is outside its allow-list, and the user declined the connection. Do not retry it; say what you needed it for." };
     case "taint_not_allowed": return { cause: "taint_allowlist",
@@ -254,7 +256,7 @@ function refusalHead(refusal: EgressRefusal | undefined, reason: string | undefi
     if (!failure) return undefined; const detail=egressChargeRefusal(failure,"Network");
     return {code:detail.status,status:detail.status===503?"Service Unavailable":detail.status===499?"Client Closed Request":"Forbidden",body:detail.message+"\n"};
   }
-  const status = reason === "taint_not_approved" ? "Forbidden - declined by the user" : REFUSAL_STATUS[refusal.cause];
+  const status = reason === "taint_not_approved" ? "Forbidden - declined by the user" : reason === "network_approval_expired" ? "Forbidden - approval expired" : REFUSAL_STATUS[refusal.cause];
   return { code: refusal.cause === "egress_unavailable" ? 503 : 403, status, body: `${refusal.message}\n` };
 }
 /** No header controlled by the peer can select a second upstream or carry proxy authority. */
@@ -361,9 +363,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const receive=(count:number):EgressChargeResult=>chargeReceivedBytes(count,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
     const receiveHead=(first:string,rawHeaders:readonly string[]):EgressChargeResult=>readReceivedHead(first,rawHeaders,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
-    const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
+    const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean | "superseded" | "expired" | "unconfirmed">) | undefined) => {
       if (!ask || !lifecycle.active()) return false;
-      let approved = false;
+      let answer: boolean | "superseded" | "expired" | "unconfirmed" = "unconfirmed";
       let cancelled: (() => void) | undefined;
       try {
         const cancellation = new Promise<false>(resolve => {
@@ -371,10 +373,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           controller.signal.addEventListener("abort", cancelled, { once: true });
           if (controller.signal.aborted) resolve(false);
         });
-        approved = await Promise.race([ask({ host, port, method, protocol: url.protocol, managedReference }, controller.signal), cancellation]) === true;
+        answer = await Promise.race([ask({ host, port, method, protocol: url.protocol, managedReference }, controller.signal), cancellation]);
       } catch { /* A failed approval denies. */ }
       finally { if (cancelled) controller.signal.removeEventListener("abort", cancelled); }
-      return approved && !controller.signal.aborted && !stopped;
+      return controller.signal.aborted || stopped ? false : answer;
     };
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
@@ -409,9 +411,29 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const narrowed = (final = false) => recipientDecision(final) === null;
     const narrowing = async () => {
       if (!narrowed()) return true;
-      if (options.taint?.approve) { grantRevision = approvalRevision(); granted = await approval((destination, signal) => options.taint!.approve!(destination, signal, connectionId));
-        if (granted && !grantCurrent()) { refuseStaleApproval(); return false; } }
-      if (!granted) finish(stopped ? "cancelled" : "denied", options.taint?.approve ? "taint_not_approved" : "taint_not_allowed");
+      const ask = options.taint?.approve;
+      if (!ask) { finish("denied","taint_not_allowed"); return false; }
+      const askNetwork = (replacement:boolean) => {
+        grantRevision = approvalRevision();
+        return approval((destination, signal) => ask(destination, signal, connectionId, replacement));
+      };
+      const beforeCard = readSafety();
+      let answer = await askNetwork(false);
+      if (answer === "superseded") {
+        const current = readSafety();
+        // The host withdrew this card. A new card can ask about new evidence
+        // for the same pending connection only while its authority still holds.
+        if (!snapshot || !beforeCard || !current || !lifecycle.active() || lifecycle.dispatched() ||
+            refuseSafety(current, snapshot) || current.trustRevision !== snapshot.trustRevision || current.trustRevision !== beforeCard.trustRevision ||
+            current.evidenceRevision === beforeCard.evidenceRevision || !narrowed() || usedBytes >= options.maxBytes) {
+          refuseStaleApproval(); return false;
+        }
+        answer = await askNetwork(true);
+      }
+      granted = answer === true;
+      if (answer === "superseded" || granted && !grantCurrent()) { refuseStaleApproval(); return false; }
+      if (!granted) finish(stopped ? "cancelled" : "denied", answer === "expired" ? "network_approval_expired"
+        : answer === "unconfirmed" ? "network_approval_unconfirmed" : "taint_not_approved");
       return granted;
     };
     const refuseSafety = (current: AdmissionSafetySnapshot | undefined, before?: AdmissionSafetySnapshot) => {
@@ -445,7 +467,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
         outwardRevision = approvalRevision(false,true);
         const approveOutward=options.approveOutward;
-        if (!await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
+        if ((await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) !== true) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
         outwardApproved = true;
         if (!grantCurrent()) { refuseStaleApproval(); return false; }
       }

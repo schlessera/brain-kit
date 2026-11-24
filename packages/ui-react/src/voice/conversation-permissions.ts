@@ -104,13 +104,13 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
     const phase = message.outcome === "granted" ? "granted" : message.outcome === "expired" ? "expired" : message.outcome === "denied" ? "denied" : "unknown";
     // A posture denial can have an outcome without ever having a grant card.
     const byVoice = phase === "unknown" ? previous?.byVoice === true : previous?.heardAt !== undefined && message.channel === "voice";
-    const word = phase === "granted" ? previous?.heardAt ? "The screen decision was already accepted." : "Approved on screen" : phase === "expired" ? "Expired · denied · no answer before the turn ended"
+    const word = phase === "granted" ? previous?.heardAt ? "The screen decision was already accepted." : "Approved on screen" : phase === "expired" ? (message.reason || "Approval expired before an answer")
       : phase === "unknown" ? "Couldn't confirm the refusal" : byVoice ? previous?.ambiguous ? "Denied · by voice · heard unclearly · taken as refusal" : "Denied · by voice"
       : message.reason === "voice_posture" ? "not done · denied by voice posture · no card" : "Denied on screen";
     put({ sessionId, turnId, toolUseId: message.toolUseId, announced: previous?.announced ?? false, ambiguous: previous?.ambiguous ?? false, byVoice,
       ...(previous?.heardAt ? { heardAt: previous.heardAt } : {}), ...(message.reason === "voice_posture" ? { postureDenied: true as const } : {}), label: previous?.label, phase, word,
       script: phase === "denied" && byVoice ? previous?.ambiguous ? "I couldn't hear that clearly, so I took it as a refusal. The action was denied." : "I took that as a refusal. The action was denied."
-        : phase === "expired" ? "I stopped without doing it. Ask me again when you can look at a screen." : word });
+        : phase === "expired" ? "That request closed without approval." : word });
     publish();
   }
   function input(event: Extract<ConversationWireEvent, { kind: "input_fragment" }>) {
