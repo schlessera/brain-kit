@@ -1905,7 +1905,7 @@ signatures (every public export and the types it is made of)
         minSchemaVersion?: number;
     }
   PhaseTimer (packages/ui-server/src/activity/turn-lifecycle.ts)
-    export type PhaseTimer = (name: string, details?: Pick<ActivityTurnSubPhase, "aliasScan">) => () => void;
+    export type PhaseTimer = (name: string, details?: Pick<ActivityTurnSubPhase, "aliasScan" | "queueAhead">) => () => void;
   Principal (packages/ui-server/src/db/principals.ts)
     export interface Principal {
         id: string;

@@ -3915,6 +3915,7 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
  */
 export interface ActivityTurnSubPhase {
   phase: "governed" | "journal";
+  queueAhead?: { count: number; kinds: Array<ActivityTurnHold["cause"] | "refresh" | "worktree" | "memory"> };
   aliasScan?: { scans: number; entries: number };
   name: string;
   startedAt: number;

@@ -714,6 +714,11 @@ not apply to a turn is absent. The current names are:
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
 
+A journal or closing `hold_wait` can carry `queueAhead: { count, kinds }`.
+The count includes the active operation and all earlier queued operations at
+enqueue. The list gives the first eight in order, using only `begin`, `finish`,
+`tool`, `periodic`, `scope`, `refresh`, `worktree` or `memory`.
+
 Optional `admissionLoad` samples host load at dequeue and backend invocation
 (`atDequeue`, `atBackendStart`). Each sample carries the one-minute load
 average (`load1`) and available CPU count (`cpuCount`) when available.

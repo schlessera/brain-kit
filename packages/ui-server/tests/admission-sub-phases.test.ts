@@ -100,7 +100,14 @@ test("real journal begin records each step inside journalBeginMs", async () => {
     expectWithin(record.subPhases!, "journal", record.journalStartedAt!, record.journalBeganAt!);
     const observe = record.subPhases!.find(step => step.name === "observe")!;
     expectWithin(record.subPhases!.filter(step => step.name.startsWith("observe_")), "journal", observe.startedAt, observe.endedAt!);
-    await journal.finish("turn-ithaca");
+    expect(record.subPhases![0]!.queueAhead).toEqual({ count: 0, kinds: [] });
+    const finishes = Array.from({ length: 11 }, (_, index) =>
+      journal.finish(index === 0 ? "turn-ithaca" : "odyssey-" + index, lifecycle.timer("closing")));
+    await Promise.all(finishes);
+    lifecycle.finish("success");
+    const waits = store.lifecycle("turn-ithaca")!.openSubPhases!.filter(step => step.name === "hold_wait");
+    expect(waits[1]!.queueAhead).toEqual({ count: 1, kinds: ["finish"] });
+    expect(waits[10]!.queueAhead).toEqual({ count: 10, kinds: Array(8).fill("finish") });
   } finally { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 

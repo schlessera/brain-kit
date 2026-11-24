@@ -1589,6 +1589,7 @@ export const serverMaskRequestSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerMaskRequest>;
 
+const queueAhead = z.object({ count: z.number().int().nonnegative(), kinds: z.array(z.enum(["begin", "finish", "tool", "periodic", "scope", "refresh", "worktree", "memory"])).max(8) });
 const hostLoadSample = z.object({ load1: z.number().nonnegative().optional(), cpuCount: z.number().int().positive().optional() });
 
 export const serverMarkupRequestSchema = z.looseObject({
@@ -1676,9 +1677,9 @@ const activityTurnLifecycleSchema = z.looseObject({
   budgetAdmissionMs: z.number().nullable(),
   journalBeginMs: z.number().nullable(),
   backendStartupMs: z.number().nullable(),
-  subPhases: z.array(z.looseObject({ aliasScan: z.object({ scans: z.number().int().nonnegative(), entries: z.number().int().nonnegative() }).optional(), phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
+  subPhases: z.array(z.looseObject({ queueAhead: queueAhead.optional(), aliasScan: z.object({ scans: z.number().int().nonnegative(), entries: z.number().int().nonnegative() }).optional(), phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
     endedAt: z.number().nullable(), elapsedMs: z.number().nullable() })).optional(),
-  openSubPhases: z.array(z.looseObject({ phase: z.string(), name: z.string(), startedAt: z.number(),
+  openSubPhases: z.array(z.looseObject({ queueAhead: queueAhead.optional(), phase: z.string(), name: z.string(), startedAt: z.number(),
     endedAt: z.number().nullable(), elapsedMs: z.number().nullable(), pending: z.boolean().optional(), timeBase: z.literal("worker").optional(), workerElapsedMs: z.number().nonnegative().optional() })).optional(),
   outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(), reason: z.string().nullable(),
 });

@@ -4616,6 +4616,10 @@ signatures (every public export and the types it is made of)
   ActivityTurnSubPhase (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnSubPhase {
         phase: "governed" | "journal";
+        queueAhead?: {
+            count: number;
+            kinds: Array<ActivityTurnHold["cause"] | "refresh" | "worktree" | "memory">;
+        };
         aliasScan?: {
             scans: number;
             entries: number;
@@ -22703,6 +22707,19 @@ signatures (every public export and the types it is made of)
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
                 timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
                 workerElapsedMs: z.ZodOptional<z.ZodNumber>;
@@ -22738,6 +22755,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -22886,6 +22916,19 @@ signatures (every public export and the types it is made of)
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
                 timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
                 workerElapsedMs: z.ZodOptional<z.ZodNumber>;
@@ -22921,6 +22964,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -25958,6 +26014,19 @@ signatures (every public export and the types it is made of)
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
                 timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
                 workerElapsedMs: z.ZodOptional<z.ZodNumber>;
@@ -25993,6 +26062,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -26142,6 +26224,19 @@ signatures (every public export and the types it is made of)
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
                 timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
                 workerElapsedMs: z.ZodOptional<z.ZodNumber>;
@@ -26177,6 +26272,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;

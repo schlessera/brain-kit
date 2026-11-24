@@ -130,8 +130,8 @@ export type JournalTraceKind = "begin" | "finish" | "tool" | "periodic";
 /** Diagnostics never enter the control/capture failure path. */
 const diagnostic = <T>(read: () => T): T | undefined => { try { return read(); } catch { return undefined; } };
 /** Both timers see every step independently; a failed mark stays missing. */
-const bothTimers = (a?: PhaseTimer, b?: PhaseTimer): PhaseTimer | undefined => !a && !b ? undefined : name => {
-  const first = diagnostic(() => a?.(name)), second = diagnostic(() => b?.(name));
+const bothTimers = (a?: PhaseTimer, b?: PhaseTimer): PhaseTimer | undefined => !a && !b ? undefined : (name, details) => {
+  const first = diagnostic(() => a?.(name, details)), second = diagnostic(() => b?.(name, details));
   return () => { diagnostic(() => first?.()); diagnostic(() => second?.()); };
 };
 
@@ -450,8 +450,22 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     return completed;
   }
   let tail: Promise<unknown> = Promise.resolve();
-  function serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const work = tail.then(operation);
+  type QueueAhead = NonNullable<import("@schlessera/brain-ui-sdk/protocol").ActivityTurnSubPhase["queueAhead"]>;
+  type QueueKind = QueueAhead["kinds"][number];
+  const pendingOperations = new Set<{ kind: QueueKind }>();
+  function serialize<T>(kind: QueueKind, operation: () => Promise<T>, snapshot?: QueueAhead): Promise<T> {
+    if (snapshot) {
+      snapshot.count = pendingOperations.size;
+      for (const ahead of pendingOperations) {
+        if (snapshot.kinds.length === 8) break;
+        snapshot.kinds.push(ahead.kind);
+      }
+    }
+    const entry = { kind };
+    pendingOperations.add(entry);
+    const work = tail.then(async () => {
+      try { return await operation(); } finally { pendingOperations.delete(entry); }
+    });
     tail = work.catch(() => {});
     return work;
   }
@@ -498,7 +512,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         return record;
       } };
     for (const id of evidence.keys()) interval.participant(id);
-    const timing = bothTimers(lifecycle, trace), hold = bothTimers(trace)?.("hold"), waited = timing?.("hold_wait");
+    const timing = bothTimers(lifecycle, trace), hold = bothTimers(trace)?.("hold");
+    const queueAhead: QueueAhead | undefined = timing ? { count: 0, kinds: [] } : undefined;
+    const waited = timing?.("hold_wait", { queueAhead });
     // Backend event emission is synchronous: establish the hold before yielding
     // or queueing so a provider cannot launch another tool past this boundary.
     const holders = [...periodicObservers];
@@ -506,7 +522,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     let acquired = 0;
     try { for (const holder of holders) { acquired++; holder.before(interval); } }
     catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false, interval); return Promise.reject(error); }
-    return serialize(async () => {
+    return serialize(cause.kind, async () => {
       waited?.();
       currentHold = interval;
       let completed = false;
@@ -521,7 +537,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         currentHold = undefined;
         hold?.();
       }
-    });
+    }, queueAhead);
   }
   /** The turn is partial at once; its durable marker commits after. */
   async function fail(turnId: string, error: unknown) {
@@ -641,7 +657,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   function maintain(): Promise<void> {
     if (closing) return Promise.resolve();
     if (active.size || holds) return maintaining ??= scrub().then(() => {}).catch(() => {}).finally(() => { maintaining = undefined; });
-    return maintaining ??= serialize(async () => {
+    return maintaining ??= serialize("refresh", async () => {
       if (closing || active.size) return;
       // Retry unresolved dead-producer barriers while idle, not on admission.
       // Refresh the authenticated status once the existing recovery path settles.
@@ -911,7 +927,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * Cover one managed worktree (#2430) for an active turn before any of its
      * workers can reach it: a baseline checkpoint and inventory of that root.
      */
-    attachWorktree(turnId: string, worktreeId: string, signal?: AbortSignal): Promise<void> { return serialize(async () => {
+    attachWorktree(turnId: string, worktreeId: string, signal?: AbortSignal): Promise<void> { return serialize("worktree", async () => {
       if (!options.referencePool) throw new JournalStorageUnavailable("managed worktree coverage requires the reference pool");
       if (!active.has(turnId) || failures.has(turnId)) throw new JournalStorageUnavailable("worktree coverage requires an active complete observation window");
       const receiptHolder = [...checkouts.values()].find(root => root.checkout === referenceWorktreeJournalPath(worktreeId, ""));
@@ -1085,7 +1101,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * its turn beside observations: a save requested before `finish` is
      * recorded before the turn ends, and one requested after is refused unsaved.
      */
-    persistClaudeMemory(turnId: string, change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void): Promise<void> { return serialize(async () => {
+    persistClaudeMemory(turnId: string, change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void): Promise<void> { return serialize("memory", async () => {
       if (!active.has(turnId)) throw new JournalStorageUnavailable("memory persistence requires an active turn");
       const path = change ? `claude-memory://${change.note}` : "claude-memory://";
       try {
@@ -1125,7 +1141,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * Takes its turn beside observations, so its sequence follows any committing one.
      */
     recordClaudeMemory(turnId: string, path: string, target: { directory: string; device: string; inode: string; note: string }, before: JournalVersion | null, after: JournalVersion | null): Promise<void> {
-      return serialize(() => recordClaudeMemory(turnId, path, target, before, after));
+      return serialize("memory", () => recordClaudeMemory(turnId, path, target, before, after));
     },
     /** All operation metadata uses the journal's existing physical allocation owner: one accounted write of these statements. */
     async writeOperation(statements: readonly JournalStatement[]): Promise<number[]> {

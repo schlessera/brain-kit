@@ -11,7 +11,7 @@ import { orderedWrites } from "./store-writes.js";
  * Steps ride on the record's next persisted milestone or terminal, so timing
  * adds no write to the turn path.
  */
-export type PhaseTimer = (name: string, details?: Pick<ActivityTurnSubPhase, "aliasScan">) => () => void;
+export type PhaseTimer = (name: string, details?: Pick<ActivityTurnSubPhase, "aliasScan" | "queueAhead">) => () => void;
 
 const BACKEND_STEP_LIMIT = 16, BACKEND_STEP_BYTES = 2048;
 const BACKEND_DIAGNOSTIC_LIMIT = 8, BACKEND_DIAGNOSTIC_BYTES = 256, BACKEND_NAME_BYTES = 96;
