@@ -2,4 +2,4 @@
 "@schlessera/brain-common": minor
 ---
 
-Report declared Actor input shapes and explain rejected starts and successful empty datasets. Bound dataset pages by bytes and return readable fragments of large items with a continuation cursor.
+Report declared Actor input shapes and explain rejected starts and successful empty datasets. Expose an optional bounded cursor for reading large dataset items in fragments while preserving whole-item pagination.

@@ -658,14 +658,24 @@ describe("results", () => {
     expect(starts()).toHaveLength(1);
   });
 
+  test("ordinary result cursors preserve whole items for existing clients", async () => {
+    fake.script = [{status:"SUCCEEDED"}];
+    fake.items = ["harbour","Ithaca".repeat(5000)];
+    const h=harness(), ctx=context(), {run}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
+    const first=await h.runs.results(ctx,{run,limit:1});
+    const second=await h.runs.results(ctx,{run,cursor:first.next_cursor!});
+    expect([...first.items,...second.items]).toEqual(fake.items);
+    expect(second.item_fragment).toBeUndefined();
+  });
+
   test("bounded dataset pages reassemble large items without another start", async () => {
     fake.script = [{status:"SUCCEEDED"}];
     const h = harness(), ctx = context();
-    const {run} = await h.runs.run(ctx, {proposal:await proposal(h, ctx)});
+    const {run,results} = await h.runs.run(ctx, {proposal:await proposal(h, ctx)});
 
     fake.items = ["Ithaca".repeat(2200), "Pylos".repeat(2700), "Ω".repeat(12000), "harbour"];
     const features: unknown[] = [];
-    let cursor: string | null = null;
+    let cursor: string | null = results.bounded_cursor!;
     let text = "";
     do {
       const page = await h.runs.results(ctx, {run, ...(cursor ? {cursor} : {})});
@@ -686,10 +696,10 @@ describe("results", () => {
   test("parallel fragment reads share the durable run byte allowance", async () => {
     fake.script = [{status: "SUCCEEDED"}];
     fake.items = ["Ithaca".repeat(5000)];
-    const h = harness(), ctx = context(), {run} = await h.runs.run(ctx, {proposal: await proposal(h, ctx)});
+    const h = harness(), ctx = context(), {run,results} = await h.runs.run(ctx, {proposal: await proposal(h, ctx)});
     const ledger = openLedger();
     ledger.update(run, () => ({max_result_bytes: 15000}), clock);
-    const pages = await Promise.all([h.runs.results(ctx, {run}), h.runs.results(ctx, {run})]);
+    const pages = await Promise.all([h.runs.results(ctx, {run,cursor:results.bounded_cursor}), h.runs.results(ctx, {run,cursor:results.bounded_cursor})]);
     expect(pages.reduce((used, page) => used + Buffer.byteLength(page.item_fragment!.json_text), 0)).toBe(15000);
     expect(ledger.get(run)!.result_bytes).toBe(15000);
   });
@@ -697,10 +707,10 @@ describe("results", () => {
   test("a completed fragment reports its item cap and a later large item can use remaining bytes", async () => {
     fake.script = [{status: "SUCCEEDED"}];
     fake.items = ["Ithaca", "Pylos".repeat(5000), "Sparta"];
-    const h = harness(), ctx = context(), {run} = await h.runs.run(ctx, {proposal: await proposal(h, ctx)});
+    const h = harness(), ctx = context(), {run,results} = await h.runs.run(ctx, {proposal: await proposal(h, ctx)});
     const ledger = openLedger();
     ledger.update(run, () => ({max_result_bytes: 15000}), clock);
-    const small = await h.runs.results(ctx, {run});
+    const small = await h.runs.results(ctx, {run,cursor:results.bounded_cursor});
     expect(small.items).toEqual(["Ithaca"]);
     expect(small.next_cursor).toEqual(expect.any(String));
     const first = await h.runs.results(ctx, {run, cursor: small.next_cursor!});
@@ -716,11 +726,11 @@ describe("results", () => {
   test("a fragment cursor rejects changed content and a modified position", async()=>{
     fake.script=[{status:"SUCCEEDED"}];
     fake.items=["Ithaca".repeat(5000)];
-    const h=harness(),ctx=context(),{run}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
-    const page=await h.runs.results(ctx,{run});
+    const h=harness(),ctx=context(),{run,results}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
+    const page=await h.runs.results(ctx,{run,cursor:results.bounded_cursor});
     expect(page.item_fragment?.start_byte).toBe(0);
     const cursor=page.next_cursor!;
-    const forged=cursor.replace(/^0\./,"1.");
+    const forged=cursor.replace(/^b\.0\./,"b.1.");
     await expect(h.runs.results(ctx,{run,cursor:forged})).rejects.toBeInstanceOf(ApifyInputError);
     fake.items=["Pylos".repeat(6000)];
     await expect(h.runs.results(ctx,{run,cursor})).rejects.toMatchObject({reason:"dataset_item_changed"});
@@ -729,11 +739,11 @@ describe("results", () => {
 
   test("single-item transport overflow lets the caller continue to later dataset items", async()=>{
     fake.script=[{status:"SUCCEEDED"}];
-    const h=harness(),ctx=context(),{run}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
-    expect((await h.runs.results(ctx,{run})).warnings.join(" ")).toContain("does not establish");
+    const h=harness(),ctx=context(),{run,results}=await h.runs.run(ctx,{proposal:await proposal(h,ctx)});
+    expect((await h.runs.results(ctx,{run,cursor:results.bounded_cursor})).warnings.join(" ")).toContain("does not establish");
     fake.items=["x".repeat(1_100_000),"Pylos"];
-    await expect(h.runs.results(ctx,{run})).rejects.toMatchObject({reason:"dataset_response_too_large"});
-    const skipped=await h.runs.results(ctx,{run,limit:1});
+    await expect(h.runs.results(ctx,{run,cursor:results.bounded_cursor})).rejects.toMatchObject({reason:"dataset_response_too_large"});
+    const skipped=await h.runs.results(ctx,{run,limit:1,cursor:results.bounded_cursor});
     expect(skipped.items).toEqual([]);
     expect(skipped.truncated).toBe(true);
     expect((await h.runs.results(ctx,{run,cursor:skipped.next_cursor!})).items).toEqual(["Pylos"]);

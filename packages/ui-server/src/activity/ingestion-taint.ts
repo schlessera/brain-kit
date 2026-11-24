@@ -192,6 +192,10 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
         // context text. That text cannot account for the omitted matches.
         if (tool==="Grep" && ("appliedLimit" in page || "appliedOffset" in page ||
           ("totalLines" in page && page.totalLines!==page.numLines))) unknown=true;
+        // Content without filename evidence is note text, even when the
+        // entire match happens to look like a file path.
+        if (tool==="Grep" && page.mode==="content" && page.numFiles===0 &&
+            Array.isArray(page.filenames) && !page.filenames.length && typeof page.content==="string" && page.content) unknown=true;
         let recognized=false;
         for(const [key,item] of Object.entries(value)){
           if(["truncated","has_more"].includes(key)&&item===true||key==="omitted"&&typeof item==="number"&&item>0)unknown=true;

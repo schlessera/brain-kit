@@ -134,7 +134,7 @@ export interface ApifyRunView {
   /** Opaque, bound to this brain, principal and session. */
   run: string;
   state: ApifyRunState;
-  results: { available: boolean; partial: boolean; expires_at: string | null };
+  results: { available: boolean; partial: boolean; expires_at: string | null; bounded_cursor?: string };
   abort: "requested" | "confirmed" | "unresolved" | null;
   /** True while BrainKit cannot tell whether the start reached Apify. */
   remote_outcome_unknown: boolean;
@@ -355,7 +355,7 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
     if (row.state === "unknown") notes.push("BrainKit cannot tell whether this run started. Its reserved cost is kept until an operator resolves it; it will not be started again.");
     if (row.abort_state) notes.push(NOT_ZERO);
     return { run: row.handle, state: row.state, abort: row.abort_state, remote_outcome_unknown: row.state === "unknown",
-      results: { available: readable, partial: readable && row.state !== "succeeded", expires_at: expires === null ? null : new Date(expires).toISOString() },
+      results: { available: readable, ...(readable ? {bounded_cursor: "b." + book(store=>store.cursor(row.handle,0))} : {}), partial: readable && row.state !== "succeeded", expires_at: expires === null ? null : new Date(expires).toISOString() },
       warnings: notes };
   }
 
@@ -602,12 +602,16 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       let row = owned(context, raw.run);
       let offset = 0;
       let fragment: ReturnType<ApifyLedger["fragmentPosition"]> = null;
+      const bounded = typeof raw.cursor === "string" && raw.cursor.startsWith("b.");
       if (raw.cursor !== undefined) {
-        const parsed = typeof raw.cursor === "string" ? book(store => store.offset(row.handle, raw.cursor as string)) : null;
-        if (parsed === null && typeof raw.cursor === "string") fragment=book(store=>store.fragmentPosition(row.handle,raw.cursor as string));
+        if (typeof raw.cursor !== "string") throw new ApifyInputError("Expected a result cursor.");
+        const token = bounded ? raw.cursor.slice(2) : raw.cursor;
+        const parsed = book(store => store.offset(row.handle, token));
+        if (bounded && parsed === null) fragment=book(store=>store.fragmentPosition(row.handle,token));
         if (parsed === null && !fragment) throw new ApifyInputError("That cursor does not belong to this run.");
         offset = parsed ?? fragment!.offset;
       }
+      const cursorAt = (next:number) => (bounded ? "b." : "") + book(store=>store.cursor(row.handle,next));
       if (row.state === "unknown" || row.state === "dispatching")
         throw refuse("remote_outcome_unknown", "start_unconfirmed", "BrainKit cannot tell whether this run started, so it has no results.");
       if (row.state === "refused" || row.validated !== 1 || !row.dataset_id)
@@ -629,13 +633,13 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       const response = await options.authority.request(binding(row), { method: "GET", path: `/v2/datasets/${row.dataset_id}/items`,
         query: { offset, limit: asked, clean: true, format: "json" }, ...(context.signal ? { signal: context.signal } : {}) }).catch(error => {
           if (!(error instanceof ApifyResponseTooLarge) || !error.datasetPage) throw error;
-          if (asked === 1) return null;
+          if (asked === 1 && bounded) return null;
           throw refuse("upstream_incompatible", "dataset_response_too_large",
-            "The dataset page exceeded the host read limit. Read the same run and cursor with limit 1. Each read uses a result request.");
+            "The dataset page exceeded the host read limit. Use the bounded_cursor from this run’s status to inspect bounded results, or retry a bounded page at the same cursor with limit 1. Each read uses a result request.");
         });
       if (!response) {
         await context.untrusted({operation:"results",detail:"apify result exceeded the transport limit"});
-        return {run:row.handle,items:[],next_cursor:offset+1 < row.max_result_items ? book(store=>store.cursor(row.handle,offset+1)) : null,
+        return {run:row.handle,items:[],next_cursor:offset+1 < row.max_result_items ? cursorAt(offset+1) : null,
           truncated:true,partial:row.state!=="succeeded",untrusted:true,
           warnings:[`The dataset response for offset ${offset} exceeded the transport limit. No content was inspected. The next cursor skips that offset.`]};
       }
@@ -646,7 +650,7 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       // A fragment cursor pins its content so pages from different revisions
       // cannot be joined. Inspect the full item for credential risk above.
       const first = response.data.length ? Buffer.from(JSON.stringify(response.data[0]) ?? "null") : null;
-      if (fragment || first && first.length + 2 > APIFY_RUN_LIMITS.result_page_bytes) {
+      if (fragment || bounded && first && first.length + 2 > APIFY_RUN_LIMITS.result_page_bytes) {
         const digest = first ? sha256(first.toString("utf8")).slice(0,20) : null;
         if (!first || !digest || fragment && (fragment.digest !== digest || fragment.byte >= first.length))
           throw refuse("upstream_incompatible","dataset_item_changed","This dataset item changed between fragments. Read the item again before combining its text.");
@@ -664,8 +668,8 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
         }, now()));
         const complete = end === first.length;
         const itemCap = complete && offset + 1 >= row.max_result_items;
-        const next = byteCap || itemCap ? null : complete ? book(store => store.cursor(row.handle, offset + 1))
-          : book(store => store.fragmentCursor(row.handle, offset, end, digest));
+        const next = byteCap || itemCap ? null : complete ? cursorAt(offset + 1)
+          : "b." + book(store => store.fragmentCursor(row.handle, offset, end, digest));
         await context.untrusted({operation:"results",detail:"apify dataset item fragment"});
         return {run:row.handle,items:[],item_fragment:{offset,start_byte:start,total_bytes:first.length,json_text:first.toString("utf8",start,end)},
           next_cursor:next,truncated:byteCap || itemCap,partial:row.state!=="succeeded",untrusted:true,
@@ -682,7 +686,7 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       book(store => store.update(row.handle, current => {
         const available = current.max_result_bytes - current.result_bytes;
         for (const {item, size} of candidates) {
-          if (bytes < available && bytes + items.length + size + 2 > APIFY_RUN_LIMITS.result_page_bytes) {
+          if (bounded && bytes < available && bytes + items.length + size + 2 > APIFY_RUN_LIMITS.result_page_bytes) {
             pageFull = true;
             break;
           }
@@ -703,7 +707,7 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       await context.untrusted({ operation: "results", detail: `apify run results: ${read} items` });
       // Reaching the run's item bound with a full page means more items may exist than the policy lets this host read.
       const capped = nextOffset >= row.max_result_items && response.data.length >= asked;
-      return { run: row.handle, items: items.filter(item => item !== null), next_cursor: more ? book(store => store.cursor(row.handle, nextOffset)) : null,
+      return { run: row.handle, items: items.filter(item => item !== null), next_cursor: more ? cursorAt(nextOffset) : null,
         truncated: truncated || capped, partial: row.state !== "succeeded",
         warnings: [...new Set(warnings)], untrusted: true };
     },

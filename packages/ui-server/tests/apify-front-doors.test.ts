@@ -206,13 +206,14 @@ describe("one implementation behind every front door", () => {
     await cli(["inspect", candidate]);
     const prepared = data<{ proposal: string; admission: string }>((await cli(["prepare", candidate, "--input", JSON.stringify(APIFY_INPUT), "--max-charge-usd", "2"])).envelope);
     expect(prepared.admission, "APIFY_GRANT_MATCHES_EXACTLY").toBe("grant");
-    const started = data<{ run: string; state: string; results: { available: boolean } }>((await cli(["run", prepared.proposal])).envelope);
+    const started = data<{ run: string; state: string; results: { available: boolean; bounded_cursor:string } }>((await cli(["run", prepared.proposal])).envelope);
     expect(started.state).toBe("succeeded");
     // The view passed on is the model view only: no accounting, ledger or remote ids.
     expect(Object.keys(started).sort(), "APIFY_RUN_VIEW_ONLY").toEqual(["abort", "remote_outcome_unknown", "results", "run", "state", "warnings"]);
     expect((await cli(["run", prepared.proposal])).envelope, "APIFY_PROPOSAL_ONCE").toMatchObject({ ok: false, error: { code: "proposal_stale" } });
     expect(code((await cli(["status", started.run])).envelope)).toBe("ok");
-    const page = data<{ items: unknown[]; untrusted: true }>((await cli(["results", started.run, "--limit", "2"])).envelope);
+    expect(started.results.bounded_cursor).toEqual(expect.any(String));
+    const page = data<{ items: unknown[]; untrusted: true }>((await cli(["results", started.run, "--cursor", started.results.bounded_cursor, "--limit", "2"])).envelope);
     expect(page.items).toHaveLength(2);
     expect(page.untrusted).toBe(true);
     expect(data<{ outcome: string }>((await cli(["abort", started.run])).envelope).outcome).toBe("not_needed");
