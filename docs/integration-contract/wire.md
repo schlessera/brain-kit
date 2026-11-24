@@ -719,6 +719,14 @@ The count includes the active operation and all earlier queued operations at
 enqueue. The list gives the first eight in order, using only `begin`, `finish`,
 `tool`, `periodic`, `scope`, `refresh`, `worktree` or `memory`.
 
+On the closing `index_settle` step, `indexSettle` records the number of
+distinct paths queued by this turn at entry (`queuedPaths`), the number of
+updates the barrier waited through (`updates`), whether the first was already
+running (`firstAlreadyRunning`), and the sum of their receipt durations
+(`updateMs`). `lastOutcome` is null without a receipt, otherwise `complete`,
+`failed`, `index_capacity` or `cancelled`. Failure leaves the step unended
+and preserves the breakdown reached. No paths or other turn identifiers appear.
+
 Optional `admissionLoad` samples host load at dequeue and backend invocation
 (`atDequeue`, `atBackendStart`). Each sample carries the one-minute load
 average (`load1`) and available CPU count (`cpuCount`) when available.

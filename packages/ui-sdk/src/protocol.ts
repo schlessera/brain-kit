@@ -3928,6 +3928,8 @@ export interface ActivityTurnSubPhase {
 export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
   phase: string;
   pending?: boolean;
+  indexSettle?: { queuedPaths: number; updates: number; firstAlreadyRunning: boolean; updateMs: number;
+    lastOutcome: "complete" | "failed" | "index_capacity" | "cancelled" | null };
   /** Worker durations use an independent clock; timestamps are host receipt, not worker start/end. */
   timeBase?: "worker";
   workerElapsedMs?: number;

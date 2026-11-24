@@ -4624,6 +4624,13 @@ signatures (every public export and the types it is made of)
     export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
         phase: string;
         pending?: boolean;
+        indexSettle?: {
+            queuedPaths: number;
+            updates: number;
+            firstAlreadyRunning: boolean;
+            updateMs: number;
+            lastOutcome: "complete" | "failed" | "index_capacity" | "cancelled" | null;
+        };
         timeBase?: "worker";
         workerElapsedMs?: number;
     }
@@ -22742,6 +22749,18 @@ signatures (every public export and the types it is made of)
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
@@ -22984,6 +23003,18 @@ signatures (every public export and the types it is made of)
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
@@ -26115,6 +26146,18 @@ signatures (every public export and the types it is made of)
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
@@ -26358,6 +26401,18 @@ signatures (every public export and the types it is made of)
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
                 name: z.ZodString;
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;

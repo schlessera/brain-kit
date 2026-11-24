@@ -235,7 +235,7 @@ test("real dispatch attributes a queued index delay and final observation only t
     await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
     const record = store.lifecycles()[0]!;
     expect(record.openSubPhases?.filter(s => s.phase === "closing" && ["index_settle", "final_observation"].includes(s.name)), "CLOSING_DELAYS_ARE_ATTRIBUTED")
-      .toEqual([{ phase: "closing", name: "index_settle", pending: true, startedAt: 1100, endedAt: 1600, elapsedMs: 500 },
+      .toEqual([{ phase: "closing", name: "index_settle", pending: true, indexSettle: { queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null }, startedAt: 1100, endedAt: 1600, elapsedMs: 500 },
         { phase: "closing", name: "final_observation", startedAt: 1600, endedAt: 1900, elapsedMs: 300 }]);
     expect(record.openSubPhases?.filter(s => s.name === "journal_finish").map(s => s.elapsedMs)).toEqual([300, 0]);
     expect(record).toMatchObject({ endedAt: 1900, recorderSettledAt: 1900, idleEmittedAt: 1900 });

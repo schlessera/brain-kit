@@ -100,7 +100,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   };
   // `lateEnd` lets a closing step whose work confirms after the terminal end
   // then (#4520). That end is the one write it adds, and only after the terminal.
-  const phaseTimer = (phase: string, metadata: { pending?: boolean } = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => (name, details) => {
+  const phaseTimer = (phase: string, metadata: Pick<ActivityTurnOpenSubPhase, "pending" | "indexSettle"> = {}, { lateEnd = false }: { lateEnd?: boolean } = {}): PhaseTimer => (name, details) => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
     const startedAt = observedClock(); if (startedAt === undefined) return () => {};
     const step = { phase, name, ...metadata, ...details, startedAt, endedAt: null as number | null, elapsedMs: null };

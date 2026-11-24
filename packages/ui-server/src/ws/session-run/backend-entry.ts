@@ -128,8 +128,9 @@ export async function openTurnBridge(
   // A failed update is already on each application's Activity record,
   // and its paths stay queued for the next reader; the turn still ends.
   held.settleIndex = async () => {
-    const end = run.lifecycle?.timer("closing", { pending: hasPendingTurnIndex(bridge) })("index_settle");
-    try { await settleTurnIndex(bridge); end?.(); } catch { /* Failed flush remains queued; the step stays unended. */ }
+    const indexSettle = { queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null };
+    const end = run.lifecycle?.timer("closing", { pending: hasPendingTurnIndex(bridge), indexSettle })("index_settle");
+    try { await settleTurnIndex(bridge, end ? { turnId: turn.turnId, stats: indexSettle } : undefined); end?.(); } catch { /* Failed flush remains queued; the step stays unended. */ }
   };
   const fallback = governedHold?.sandbox.fallbackReason;
   if (fallback) {
