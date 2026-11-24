@@ -864,6 +864,15 @@ absent. Optional `runtimeVersion` is the selected backend's reported runtime
 version for this turn, absent when it reports none. These are host metadata
 and never enter the provider conversation.
 
+On its first terminal write, a lifecycle records `stoppedTime`. `totalMs`
+is the duration of the union of closed stop/resume intervals. `intervals`
+counts distinct endpoint pairs, `sharedHolds` counts additional holds with
+identical endpoints, and `openHolds` counts stops awaiting resume. An open
+stop contributes no elapsed estimate. Within the union, `inferenceMs`
+counts time covered by a hold reporting inference, `unknownMs` covers
+remaining time with unknown inference, and `noInferenceMs` covers the rest.
+The three durations sum to `totalMs`. Historical records may omit the total.
+
 Optional `holds` lists observation intervals joinable by `holdId`. Each
 record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),
 `causeTurnId` (this turn when it caused the hold, otherwise null), optional
@@ -871,7 +880,8 @@ record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),
 and `resumedAt`, nullable `changedPaths`, `otherTurnsStopped` and
 nullable `inferenceInFlight`. Stop/resume mean **the host's worker control
 acknowledged the stop/resume** under that control's existing confirmation
-semantics (PID namespace, cgroup or broker). They do not independently prove
+semantics (PID namespace, cgroup or broker). During its own begin and finish
+holds, a turn has no running worker to stop. Both marks are null in that case. They do not independently prove
 kernel process state. A false or void return leaves the corresponding mark
 null. Timing adds no `/proc` or cgroup evidence reads and performs no stop-state
 rechecks. Diagnostic callbacks and clock failures are best-effort: a throw

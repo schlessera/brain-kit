@@ -3951,6 +3951,8 @@ export interface ActivityTurnHold {
 export interface ActivityTurnLifecycle {
   /** Running server identity; absent on historical records. */
   holds?: ActivityTurnHold[];
+  stoppedTime?: { totalMs: number; intervals: number; sharedHolds: number; openHolds: number;
+    inferenceMs: number; noInferenceMs: number; unknownMs: number };
   admissionLoad?: {
     atDequeue?: { load1?: number; cpuCount?: number };
     atBackendStart?: { load1?: number; cpuCount?: number };

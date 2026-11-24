@@ -1643,6 +1643,9 @@ const activitySpanEventSchema = z.looseObject({
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
 const activityTurnLifecycleSchema = z.looseObject({
+  stoppedTime: z.object({ totalMs: z.number().nonnegative(), intervals: z.number().int().nonnegative(),
+    sharedHolds: z.number().int().nonnegative(), openHolds: z.number().int().nonnegative(),
+    inferenceMs: z.number().nonnegative(), noInferenceMs: z.number().nonnegative(), unknownMs: z.number().nonnegative() }).optional(),
   admissionLoad: z.object({ atDequeue: hostLoadSample.optional(), atBackendStart: hostLoadSample.optional(),
     eventLoopMaxMs: z.number().nonnegative().optional(), eventLoopP99Ms: z.number().nonnegative().optional() }).optional(),
   holds: z.array(z.looseObject({ holdId: id, cause: z.enum(["begin", "finish", "tool", "periodic", "scope"]), causeTurnId: id.nullable(),

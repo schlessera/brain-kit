@@ -282,3 +282,22 @@ test("admission load records a blocked loop and freezes at backend invocation", 
     expect(store.lifecycle("ithaca-load")!.admissionLoad).toEqual(load);
   } finally { monitor.mockRestore(); db.close(); }
 });
+
+test("terminal hold accounting counts shared stops once and partitions overlapping evidence", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    const lifecycle = createTurnLifecycle(store, "ithaca-stops", null, 0, () => {}, () => 200);
+    const hold = (stoppedAt: number | null, resumedAt: number | null, inferenceInFlight: boolean | null) =>
+      lifecycle.hold({ holdId: "loom", cause: "periodic", causeTurnId: null, requestedAt: 12, stoppedAt, resumedAt, inferenceInFlight, changedPaths: null, otherTurnsStopped: 0 });
+    hold(10, 30, false); hold(10, 30, false); hold(50, 65, true); hold(60, 70, null); hold(85, null, false);
+    lifecycle.finish("success");
+    expect(store.lifecycle("ithaca-stops")!.stoppedTime).toEqual({ totalMs: 40, intervals: 3, sharedHolds: 1, openHolds: 1,
+      inferenceMs: 15, noInferenceMs: 20, unknownMs: 5 });
+    const empty = createTurnLifecycle(store, "ithaca-empty", null, 0, () => {}, () => 200);
+    for (const cause of ["begin", "finish"] as const) empty.hold({ holdId: cause, cause, causeTurnId: "ithaca-empty", requestedAt: 0,
+      stoppedAt: null, resumedAt: null, changedPaths: null, otherTurnsStopped: 0, inferenceInFlight: null });
+    empty.finish("success");
+    expect(store.lifecycle("ithaca-empty")!.stoppedTime).toEqual({ totalMs: 0, intervals: 0, sharedHolds: 0, openHolds: 0,
+      inferenceMs: 0, noInferenceMs: 0, unknownMs: 0 });
+  } finally { db.close(); }
+});

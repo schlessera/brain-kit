@@ -4550,6 +4550,15 @@ signatures (every public export and the types it is made of)
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnLifecycle {
         holds?: ActivityTurnHold[];
+        stoppedTime?: {
+            totalMs: number;
+            intervals: number;
+            sharedHolds: number;
+            openHolds: number;
+            inferenceMs: number;
+            noInferenceMs: number;
+            unknownMs: number;
+        };
         admissionLoad?: {
             atDequeue?: {
                 load1?: number;
@@ -22772,6 +22781,15 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 aliasScan: z.ZodOptional<z.ZodObject<{
                     entries: z.ZodNumber;
@@ -23005,6 +23023,15 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 aliasScan: z.ZodOptional<z.ZodObject<{
                     entries: z.ZodNumber;
@@ -26127,6 +26154,15 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 aliasScan: z.ZodOptional<z.ZodObject<{
                     entries: z.ZodNumber;
@@ -26361,6 +26397,15 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 aliasScan: z.ZodOptional<z.ZodObject<{
                     entries: z.ZodNumber;
