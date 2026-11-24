@@ -74,6 +74,7 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyRequestMeter
   type ApifyReservation
   type ApifyResponse
+  ApifyResponseTooLarge
   type ApifyResultsPage
   type ApifyRunAccounting
   type ApifyRunCode
