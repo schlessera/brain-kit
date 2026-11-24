@@ -51,7 +51,7 @@ export function SessionSafety() {
   return <aside data-session-safety className="mb-3 min-w-0 space-y-1 text-xs text-muted-foreground" aria-label="Chat safety evidence">
     <p className="flex min-h-8 items-center gap-2 leading-4"><Icon icon={normal?"secure":state.status!=="ready"||unknown?"unverified":"policy"} size={16}/><span role="status">{text}</span></p>
     {unknown&&p&&state.status==="ready"&&<p>Earlier inputs were not fully recorded. Reviewing known inputs cannot restore normal policy. <NewChatGuidance/></p>}
-    {auth==="active"&&state.supported&&state.status==="unavailable"&&state.reason!=="unauthorized"&&state.reason!=="retired"&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={state.refresh}/>}
+    {auth==="active"&&state.supported&&state.status==="unavailable"&&state.reason!=="unauthorized"&&state.reason!=="retired"&&state.reason!=="disconnected"&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={state.refresh}/>}
     {!!p?.pendingCount&&<p>Input is being recorded; new actions remain restricted.</p>}
     {p?.reasons.includes("recording_failed")&&<p>Recording is unavailable. Restrictions remain in effect.</p>}
     <details><summary className="min-h-11 cursor-pointer py-3">What this evidence covers</summary><p>Coverage describes the host's supported detectors. It does not verify content safety. Proxied shell local reads and opaque transport may have no tool attribution.</p></details>
@@ -80,16 +80,17 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
   const entries=allowed?(currentEntries.length?currentEntries:open||readStatus!=="ready"?held.current.entries:[]):[];
   useEffect(()=>{if(!allowed)setOpen(false);},[allowed]);
   useEffect(()=>{setOpen(false);},[scope,auth]);
-  const unresolvedEntries=entries.filter(e=>!e.decision&&!e.occurrence.admission?.trusted);
+  const unresolvedEntries=entries.filter(e=>e.exposure!=="not_delivered"&&!e.decision&&!e.occurrence.admission?.trusted);
   const unresolved=unresolvedEntries.length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
   const trusted=entries.filter(e=>e.occurrence.admission?.trusted).length,reviewed=entries.filter(e=>e.decision).length;
-  const accepted=[...(trusted?[`${trusted} trusted at admission`]:[]),...(reviewed?[`${reviewed} marked safe by you`]:[])].join("; ");
+  const refused=entries.filter(e=>e.exposure==="not_delivered").length;
+  const accepted=[...(refused?[`${refused} refused before delivery`]:[]),...(trusted?[`${trusted} trusted at admission`]:[]),...(reviewed?[`${reviewed} marked safe by you`]:[])].join("; ");
   const name=unresolved?`Safety restrictions · ${entries.length===1?"This input":"This group"} · ${unresolved} unresolved input${unresolved===1?"":"s"}${accepted?`; ${accepted}`:""}`
     :trusted===entries.length&&!reviewed?`Trusted at admission${entries.length>1?`: ${entries.length} inputs`:""}: show details`
     :reviewed===entries.length&&!trusted?`Marked safe by you${entries.length>1?`: ${entries.length} inputs`:""}: show details`
     :`Safety history: ${accepted}: show details`;
   const reason=unresolved?`${sources[unresolvedEntries[0]!.occurrence.source]} · Review one input at a time`
-    :trusted&&reviewed?"Historical source trust and human decisions retained; current rules may differ"
+    :refused===entries.length?"The host refused this fetch before it ran":trusted&&reviewed?"Historical source trust and human decisions retained; current rules may differ"
     :trusted?"Historical source trust retained; current rules may differ":"Human decision retained; content remains in the model context";
   useLayoutEffect(()=>{
     if(!open)return;
@@ -151,19 +152,24 @@ function SafetyTrigger({entry,toolName}:{entry:SafetyEvidence;toolName?:string})
   const busy=progress?.stage==="pending",unknown=progress?.stage==="unknown";
   const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${formatAuthority(r.provenance.origin)}`:
     r.provenance?.kind==="tunnel_authority"?formatAuthority(r.provenance.authority):"Source provenance unavailable";
+  const noDelivery=entry.exposure==="not_delivered";
+  const counted=!noDelivery&&!entry.decision&&!r.admission?.trusted;
+  const ended=state.projection?.coverage.epochs.some(epoch=>epoch.id===r.epochId&&epoch.endSequence!==null);
+  const arriving=entry.exposure==="open"&&!ended;
   return <section data-safety-trigger={r.id} className="space-y-2 border-t border-border py-3">
-    <p className="font-medium">{r.admission?.trusted?"Trusted at admission":entry.decision?"Marked safe by you":"Safety restrictions enabled"}</p>
+    <p className="font-medium">{noDelivery?"Fetch refused before delivery":r.admission?.trusted?"Trusted at admission":entry.decision?"Marked safe by you":"Safety restrictions enabled"}</p>
     <p>Observed · {r.detector==="tool_search_output"?"Local search result":sources[r.source]} · <time dateTime={new Date(r.observedAt).toISOString()}>{new Date(r.observedAt).toLocaleString()}</time></p>
     {toolName&&<p>Action · {["Grep","grep","Glob"].includes(toolName)?`Local search (${toolName})`:toolName}</p>}
     {r.provenance&&<p>Destination · {provenance}</p>}
     {r.source==="egress_connection"&&!toolName&&<p>The proxy saw this connection. It could not identify which tool opened it.</p>}
-    {!r.provenance&&<p>{r.detector==="tool_search_output"?"The host could not identify the source of every returned match.":"The host did not record a verified origin for this input."}</p>}
+    {noDelivery&&<p>The fetch never ran. This attempt stays in history and needs no review.</p>}
+    {!noDelivery&&!r.provenance&&<p>{r.detector==="tool_search_output"?"The host could not identify the source of every returned match.":"The host did not record a verified origin for this input."}</p>}
     {savedRule&&<p role="status">{savedRule}</p>}
     {r.admission?.trusted&&<p>Source rule {r.admission.ruleId} · trust revision {r.admission.trustRevision}. This historical decision grants no current recipient permission.</p>}
     {r.detailPruned&&<p>Some source detail has expired. The input and any decision remain recorded.</p>}
     {entry.decision&&<p>Marked safe by you · <time dateTime={new Date(entry.decision.observedAt).toISOString()}>{new Date(entry.decision.observedAt).toLocaleString()}</time></p>}
-    {!r.admission?.trusted&&!entry.decision&&entry.exposure!=="finalized"&&<p>{entry.exposure==="open"?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This input cannot be marked safe."} {entry.exposure==="interrupted_unknown"&&<NewChatGuidance/>}</p>}
-    {!r.admission?.trusted&&!owner&&!entry.decision&&<p>Only the authenticated owner can mark this input safe.</p>}
+    {counted&&entry.exposure!=="finalized"&&<p>{arriving?"Input is still arriving. Mark as safe is unavailable until delivery is finalized.":"Delivery could not be confirmed. This input cannot be marked safe."} {!arriving&&<NewChatGuidance/>}</p>}
+    {counted&&!owner&&<p>Only the authenticated owner can mark this input safe.</p>}
     {!readable&&<div><p>Current evidence is unavailable or incomplete.</p><Button label="Refresh safety evidence" reach tone="quiet" onClick={state.refresh}/></div>}
     {readable&&owner&&!r.admission?.trusted&&!entry.decision&&entry.exposure==="finalized"&&(
       state.projection?.reasons.includes("recording_failed")?<p>Recording failed. This chat stays restricted. <NewChatGuidance/></p>
@@ -183,7 +189,7 @@ function SafetyTrigger({entry,toolName}:{entry:SafetyEvidence;toolName?:string})
     {progress&&<p role="status">{progress.message}</p>}
     {(unknown||progress?.stage==="refused"||progress?.stage==="partial")&&!busy&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={()=>{setProgress(null);setReview(false);state.refresh();}}/>}
     <p className="text-xs" role="status">{readable&&state.projection
-      ? `Whole chat · ${state.projection.unresolvedCount} unresolved input${state.projection.unresolvedCount===1?"":"s"}${entry.decision||r.admission?.trusted?" · this input is not counted":", including this one"} · ${state.normal&&state.projection.restriction==="normal"&&state.projection.coverage.state==="complete"&&!state.projection.pendingCount&&!state.projection.unresolvedCount?"Normal policy restored":"Still restricted"}`
+      ? `Whole chat · ${state.projection.unresolvedCount} unresolved input${state.projection.unresolvedCount===1?"":"s"}${counted?", including this one":" · this input is not counted"} · ${state.normal&&state.projection.restriction==="normal"&&state.projection.coverage.state==="complete"&&!state.projection.pendingCount&&!state.projection.unresolvedCount?"Normal policy restored":"Still restricted"}`
       :"Whole chat · current evidence unavailable"}</p>
   </section>;
 }

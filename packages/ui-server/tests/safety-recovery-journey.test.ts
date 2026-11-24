@@ -321,3 +321,53 @@ test("a numbered search is attributed only to its verified single note", async (
       .some(event => event.payload.source === "user_marked")).toBe(true);
   } finally { await f.close(); }
 });
+
+test("pre-execution fetch denial retains the audited attempt without a verdict or unresolved input", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+    const independent = await f.add("connection", true);
+    collector.admitting?.("fetch", "WebFetch");
+    await collector.begin("fetch", "WebFetch", { url: "https://ithaca.example/harbour" });
+    expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(2);
+    await collector.refused?.("fetch", true);
+    expect(f.writes.safety(null, "ithaca").unresolvedCount, "REFUSED_FETCH_DELIVERED_NO_INPUT").toBe(1);
+    const http = await f.get("?nonDelivery=1");
+    expect(http.status).toBe(200);
+    expect((await http.json()).records).toContainEqual(expect.objectContaining({ kind: "exposure", state: "not_delivered" }));
+    await f.writes.safetyEnd("voyage");
+    const restarted = createUiDb(f.path);
+    try {
+      const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);
+      expect(page.projection.earliestUnresolvedId).toBe(independent.id);
+      expect(page.records.filter(record => record.kind === "occurrence")).toHaveLength(2);
+      expect(page.records.filter(record => record.kind === "exposure").map(record => record.state)).toEqual(["not_delivered"]);
+      expect(page.records.some(record => record.kind === "safe_decision")).toBe(false);
+      const legacy = await f.history.read(f.principal, { sessionId: "ithaca" });
+      expect(legacy.records.filter(record => record.kind === "exposure").map(record => record.state)).toEqual(["interrupted_unknown"]);
+    } finally { restarted.close(); }
+  } finally { await f.close(); }
+});
+
+test("ambiguous refusals and contradictory results stay unresolved", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+    for (const id of ["duplicate", "allowed", "cancelled", "late"]) {
+      collector.admitting?.(id, "WebFetch");
+      await collector.begin(id, "WebFetch", { url: "https://ithaca.example/harbour" });
+      if (id === "duplicate") collector.admitting?.(id, "WebFetch");
+      if (id === "allowed") await collector.allowed?.(id);
+      await collector.refused?.(id, id !== "cancelled");
+      if (id === "late") {
+        expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(3);
+        await collector.result(id, "WebFetch", "Interrupted after receiving harbour notes", false);
+      }
+    }
+    expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(4);
+    await f.writes.safetyEnd("voyage");
+    expect(f.writes.safety(null, "ithaca").restriction).toBe("restricted");
+  } finally { await f.close(); }
+});

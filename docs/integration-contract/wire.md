@@ -3673,6 +3673,13 @@ existing outcome or reason enum gains a value. This ships in a minor.
 
 ### Historical admission evidence (additive, #3609)
 
+A server advertising `sessionSafetyNonDelivery:true` accepts
+`includeNonDelivery:true` on `safety_read`. This opts the snapshot, all its
+pages and its subscription into the terminal exposure state `not_delivered`
+for a fetch the host proved never ran. Legacy readers receive
+`interrupted_unknown` for that record. The aggregate excludes the proven
+attempt in both cases. The original occurrence remains inspectable (#4514).
+
 A server advertising `sessionSafetyAdmissionEvidence:true` accepts optional
 `includeAdmissions:true` on `safety_read`. Only opted-in snapshot pages and
 their subscriptions include occurrence `admission` evidence. Cursor continuation

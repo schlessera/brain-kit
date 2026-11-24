@@ -366,3 +366,23 @@ test('fable F2 browser: cancel future preparation then individual review remains
  await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);await userEvent.click(page.getByRole('radio',{name:'Only this input',exact:true}));await userEvent.click(page.getByRole('button',{name:'Mark this input as safe',exact:true}));
  await expect.poll(()=>section().textContent).toContain('Decision recorded');ui!.stores.safety.getState().refresh();await expect.poll(()=>ui!.stores.safety.getState().status).toBe('ready');expect(section().textContent).not.toContain('No decision was sent');
 });
+
+for (const width of [320,1280]) test(`${width}: refused fetches need no verdict and ended unknown delivery explains recovery`, async () => {
+ await scene(width,'light');
+ const state=ui!.stores.safety.getState();
+ const entry=Object.values(state.records).find(r=>r.kind==='occurrence'&&r.entry?.toolUseId==='tool_a')!;
+ const identity=state.identity!;
+ const projection={...state.projection!,unresolvedCount:2};
+ const exposure={id:'refused_fetch',sequence:'999999',observedAt:entry.observedAt,turnId:entry.turnId,bindingId:entry.bindingId,
+   occurrenceId:entry.id,detailPruned:false,kind:'exposure' as const,state:'not_delivered' as const};
+ flushSync(()=>ui!.stores.safety.setState({identity,records:{...state.records,[exposure.id]:exposure},projection}));
+ const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getAttribute('aria-label')?.includes('1 refused before delivery'))!;
+ await userEvent.click(indicator);
+ const section=document.querySelector<HTMLElement>(`[data-safety-trigger="${entry.id}"]`)!;
+ expect(section.textContent).toContain('Fetch refused before delivery');
+ expect(section.textContent).toContain('this input is not counted');
+ expect(section.querySelector('[role=button],button')).toBeNull();
+ flushSync(()=>ui!.stores.safety.setState({records:{...state.records,[exposure.id]:{...exposure,state:'interrupted_unknown'}},projection:state.projection}));
+ expect(section.textContent).toContain('Delivery could not be confirmed');
+ expect(section.textContent).toContain(width===320?'New chat in the chat header':'New conversation in Sessions');
+});

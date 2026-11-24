@@ -754,6 +754,14 @@ identities refuse late callbacks even after private detail is removed.
 The principal binds as its account
 ([additive, #3952](#account-bound-safety-history-additive-3952)).
 
+A fetch proved refused before execution remains an audited attempt and contributes
+zero unresolved inputs (#4514). This also applies to the first unresolved ID
+and handoff selection. Delivery uncertainty and earlier records without proof
+remain restricted. On the session safety history route, `nonDelivery=1`
+requests the terminal exposure state `not_delivered`. Without this option
+the attempt has the conservative v1 terminal representation `interrupted_unknown`.
+The host's aggregate excludes proven non-delivery for both readers.
+
 Effective admission is restricted for any unresolved occurrence, incomplete or
 unknown coverage, pending recording, failure or exhausted capacity. Only a
 proven new session with acknowledged mandatory collectors and zero unresolved

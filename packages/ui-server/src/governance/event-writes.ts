@@ -44,7 +44,7 @@ export function setup(db: Database): WriteProcedures {
     safetyBegin: (input:SafetyCollectionInput) => beginSafetyCollection(db,input),
     safetyReady: (turnId:string,backendId:string,version:number) => acknowledgeSafety(db,turnId,backendId,version),
     safetyOblige: (turnId:string,id:string,toolUseId:string,tool:string) => openSafetyObligation(db,turnId,id,toolUseId,tool),
-    safetyDischarge: (turnId:string,id:string) => dischargeSafetyObligation(db,turnId,id),
+    safetyDischarge: (turnId:string,id:string,neverDelivered?:readonly string[]) => dischargeSafetyObligation(db,turnId,id,neverDelivered),
     safetyEnd: (turnId:string,loss=false) => {
       // Never seal an apparently complete epoch if its loss notice rolled
       // back. A failed retry leaves it open for restart classification.
@@ -97,7 +97,7 @@ export interface GovernanceWrites {
   /** The call's result is durably recorded, or the backend's own denial of
    * the only admission under its id, never allowed, proves it never ran. A
    * failure leaves the obligation, and so the gap. */
-  safetyDischarge(turnId:string,obligationId:string):Promise<void>;
+  safetyDischarge(turnId:string,obligationId:string,neverDelivered?:readonly string[]):Promise<void>;
   /** Ends the turn's collection once its result records under way settle. */
   safetyEnd(turnId:string):Promise<void>;
   /** Marks the turn's chat failed (`cause` is error text only); the brain only when that cannot commit. */
@@ -278,7 +278,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
         throw new SafetyRecordingUnavailable(brainFailed(),error);
       }
     },
-    safetyDischarge: (turnId,obligationId)=>call("safetyDischarge",turnId,obligationId),
+    safetyDischarge: (turnId,obligationId,neverDelivered)=>call("safetyDischarge",turnId,obligationId,neverDelivered),
     async safetyEnd(turnId){
       // A tool result's record already under way finishes first: stopping a
       // turn refuses new tools, never the record of one that ran (#3812).

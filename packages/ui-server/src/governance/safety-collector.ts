@@ -61,9 +61,9 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // A recorded result discharges an obligation, and so does a denial that
  // proves the call never ran (`refused`). A discharge that cannot commit
  // leaves it, and so its chat's gap when the collection ends.
- const discharge=async(op:Operation)=>{
+ const discharge=async(op:Operation,neverDelivered?:readonly string[])=>{
   if(!op.owed)return;
-  try{await writes.safetyDischarge(options.turnId,op.id);op.owed=false;}catch{/* Still owed: the end gaps it. */}
+  try{await writes.safetyDischarge(options.turnId,op.id,neverDelivered);op.owed=false;}catch{/* Still owed: the end gaps it. */}
  };
  const tails=new Map<string,Promise<void>>();let queued=0;
  // A result record under way, which the turn's end waits for (#3812).
@@ -203,7 +203,11 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    const proves=denied&&once(calls.get(toolUseId));
    if(!op){if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});return;}
    op.refused=true;
-   if(proves&&!op.done)await discharge(op);
+   if(proves&&!op.done){
+    const sameFetch=calls.get(toolUseId)?.tools.has(op.tool)&&!op.uncertain&&op.inputHashes.size===1&&op.admitted
+      &&op.signals.length>0&&op.signals.every(s=>s.source==="web_fetch"&&s.detector==="tool_web_input");
+    await discharge(op,sameFetch?op.occurrences:undefined);
+   }
   },true).catch(()=>{});},
   // The backend's last check before it lets this call run, noted so that no
   // later refusal under the id proves the call never ran. A call whose id

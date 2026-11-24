@@ -16487,6 +16487,7 @@ signatures (every public export and the types it is made of)
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
+        includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
         target: z.ZodUnion<readonly [z.ZodObject<{
@@ -16654,6 +16655,7 @@ signatures (every public export and the types it is made of)
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
+        includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
         target: z.ZodUnion<readonly [z.ZodObject<{
@@ -21904,11 +21906,11 @@ signatures (every public export and the types it is made of)
             observedAt: z.ZodNumber;
             occurrenceId: z.ZodString;
             sequence: z.ZodString;
-            state: z.ZodEnum<{
+            state: z.ZodUnion<readonly [z.ZodEnum<{
                 finalized: "finalized";
                 interrupted_unknown: "interrupted_unknown";
                 open: "open";
-            }>;
+            }>, z.ZodLiteral<"not_delivered">]>;
             turnId: z.ZodString;
         }, z.core.$strict>, z.ZodObject<{
             bindingId: z.ZodString;
@@ -22061,11 +22063,11 @@ signatures (every public export and the types it is made of)
         observedAt: z.ZodNumber;
         occurrenceId: z.ZodString;
         sequence: z.ZodString;
-        state: z.ZodEnum<{
+        state: z.ZodUnion<readonly [z.ZodEnum<{
             finalized: "finalized";
             interrupted_unknown: "interrupted_unknown";
             open: "open";
-        }>;
+        }>, z.ZodLiteral<"not_delivered">]>;
         turnId: z.ZodString;
     }, z.core.$strict>, z.ZodObject<{
         bindingId: z.ZodString;
@@ -22569,11 +22571,11 @@ signatures (every public export and the types it is made of)
             observedAt: z.ZodNumber;
             occurrenceId: z.ZodString;
             sequence: z.ZodString;
-            state: z.ZodEnum<{
+            state: z.ZodUnion<readonly [z.ZodEnum<{
                 finalized: "finalized";
                 interrupted_unknown: "interrupted_unknown";
                 open: "open";
-            }>;
+            }>, z.ZodLiteral<"not_delivered">]>;
             turnId: z.ZodString;
         }, z.core.$strict>, z.ZodObject<{
             bindingId: z.ZodString;
@@ -27672,11 +27674,11 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 occurrenceId: z.ZodString;
                 sequence: z.ZodString;
-                state: z.ZodEnum<{
+                state: z.ZodUnion<readonly [z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
                     open: "open";
-                }>;
+                }>, z.ZodLiteral<"not_delivered">]>;
                 turnId: z.ZodString;
             }, z.core.$strict>, z.ZodObject<{
                 bindingId: z.ZodString;
@@ -27841,11 +27843,11 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 occurrenceId: z.ZodString;
                 sequence: z.ZodString;
-                state: z.ZodEnum<{
+                state: z.ZodUnion<readonly [z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
                     open: "open";
-                }>;
+                }>, z.ZodLiteral<"not_delivered">]>;
                 turnId: z.ZodString;
             }, z.core.$strict>, z.ZodObject<{
                 bindingId: z.ZodString;
@@ -28531,11 +28533,11 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 occurrenceId: z.ZodString;
                 sequence: z.ZodString;
-                state: z.ZodEnum<{
+                state: z.ZodUnion<readonly [z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
                     open: "open";
-                }>;
+                }>, z.ZodLiteral<"not_delivered">]>;
                 turnId: z.ZodString;
             }, z.core.$strict>, z.ZodObject<{
                 bindingId: z.ZodString;
@@ -28716,11 +28718,11 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 occurrenceId: z.ZodString;
                 sequence: z.ZodString;
-                state: z.ZodEnum<{
+                state: z.ZodUnion<readonly [z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
                     open: "open";
-                }>;
+                }>, z.ZodLiteral<"not_delivered">]>;
                 turnId: z.ZodString;
             }, z.core.$strict>, z.ZodObject<{
                 bindingId: z.ZodString;
