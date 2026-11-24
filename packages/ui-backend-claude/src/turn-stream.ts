@@ -81,6 +81,7 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
   const { input, adapter, terminal } = inputs;
   let announced = false;
   let mcpInitObserved = false;
+  let resultTimingObserved = false;
   let reported = false;
   let carried: CarriedResult | null = null;
   try {
@@ -130,6 +131,17 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
       }
       let frames = adapter.adapt(msg);
       if (msg.type === "result") {
+        if (startupTiming && !resultTimingObserved) {
+          resultTimingObserved = true;
+          for (const [field, name] of [
+            ["time_to_request_ms", "cli_time_to_request"], ["ttft_ms", "cli_ttft"], ["ttft_stream_ms", "cli_ttft_stream"],
+          ] as const) {
+            let ms: unknown;
+            try { if (msg.subtype === "success") ms = msg[field]; } catch { /* unavailable diagnostic */ }
+            if (typeof ms === "number" && Number.isFinite(ms) && ms >= 0 && ms <= 86_400_000) startupTiming.worker(name, ms);
+            else startupTiming.missing(name);
+          }
+        }
         const { continues, unacknowledged } = input.settle();
         if (continues && !terminal.sawResult) {
           // Not the turn's last: hold it, in case no continuation comes.

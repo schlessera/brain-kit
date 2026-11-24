@@ -91,6 +91,7 @@ test("real dispatch records delayed governed admission and first frame, and link
     request.startupTiming?.worker("resources", 37);
     request.startupTiming?.missing("mcp_connect:brain");
     now=1600; request.startupTiming?.received();
+    now=1650; request.startupTiming?.worker("cli_time_to_request", 18);
     now=1700;request.bridge.emit({type:"session_info",sessionId:"ithaca",isNew:true});
     now=1900;request.bridge.emit({type:"result",sessionId:"ithaca",durationMs:200,numTurns:1,isError:false,costUsd:0});
   }});
@@ -104,6 +105,7 @@ test("real dispatch records delayed governed admission and first frame, and link
       {phase:"backend",name:"host_probe",startedAt:1400,endedAt:1500,elapsedMs:100},
       {phase:"backend",name:"first_relay_request",startedAt:1400,endedAt:1600,elapsedMs:200},
       {phase:"backend",name:"resources",startedAt:1500,endedAt:1500,elapsedMs:37,timeBase:"worker",workerElapsedMs:37},
+      {phase:"backend",name:"cli_time_to_request",startedAt:1650,endedAt:1650,elapsedMs:18,timeBase:"worker",workerElapsedMs:18},
     ]);
     expect(record.backendMissingEvidence).toEqual(["mcp_connect:brain"]);
     expect(record.firstRelayRequestAt).toBe(1600);

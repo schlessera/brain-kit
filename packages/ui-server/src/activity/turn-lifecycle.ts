@@ -120,7 +120,9 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   const startupTiming: NonNullable<StartTurnRequest["startupTiming"]> = {
     start: phaseTimer("backend"),
     worker(name, durationMs) {
-      if (!backendOpen() || !Number.isFinite(durationMs) || durationMs < 0) return;
+      // Claude delivers these CLI-clock durations with its result, after relay receipt.
+      const resultDuration = name === "cli_time_to_request" || name === "cli_ttft" || name === "cli_ttft_stream";
+      if (record.backendInvokedAt === null || record.endedAt !== null || (!resultDuration && !backendOpen()) || !Number.isFinite(durationMs) || durationMs < 0) return;
       const at = observedClock(); if (at === undefined) return;
       addOpenStep({ phase: "backend", name, startedAt: at, endedAt: at, elapsedMs: null,
         timeBase: "worker", workerElapsedMs: durationMs });

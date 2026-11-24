@@ -794,7 +794,7 @@ milliseconds), the first model request received on an authorized inference
 relay route, before admission, body reading and dispatch. Token-count routes
 do not end it. Null means not observed; historical records omit the field.
 Backend steps start only after `backendInvokedAt`; new steps and completions
-after relay receipt are ignored. An unfinished backend step has a null
+after relay receipt are ignored except for the CLI result durations below. An unfinished backend step has a null
 `endedAt`; its elapsed value is bounded by relay receipt when observed,
 otherwise the same failure/interruption rule as other steps. The receipt
 persists a milestone; other startup observations add no writes of their own.
@@ -808,6 +808,14 @@ Pi `session` includes resource loading, and `initialize` includes both; steps
 can overlap and must not be summed as disjoint costs. A Pi worker contributes
 at most one observation per startup phase (four total), before readiness;
 duplicate and post-readiness reports are ignored in both timing and debug totals.
+
+Claude's first result supplies up to three worker durations. All start at
+the CLI's monotonic turn-loop sample. `cli_time_to_request` ends at first
+request send, `cli_ttft` at the first top-level assistant message, and
+`cli_ttft_stream` at the first stream message-start event. They arrive
+after relay receipt and before terminal recording. Missing, non-finite,
+negative or longer-than-one-day durations are reported as missing.
+Continuation results do not replace them.
 
 Optional `backendMissingEvidence` lists unavailable SDK marks, rather than
 inventing durations: Claude `first_enqueue`, `prompt_recorded`, and

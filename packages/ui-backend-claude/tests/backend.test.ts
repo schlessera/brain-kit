@@ -22,6 +22,20 @@ import { defineProfiles } from "../src/profiles";
 
 type Gen = (options: Options) => AsyncGenerator<unknown>;
 
+test("Claude reports durations only from its first result, including missing clocks", async () => {
+  const worker: Array<[string, number]> = [], missing: string[] = [];
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    const result = { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+    yield { ...result, time_to_request_ms: 17, ttft_ms: -1, ttft_stream_ms: Infinity };
+    yield { ...result, time_to_request_ms: 70, ttft_ms: 90, ttft_stream_ms: 80 };
+  }) });
+  await backend.startTurn(makeReq(makeBridge().bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, worker: (name, ms) => { worker.push([name, ms]); }, missing: name => { missing.push(name); }, received() {},
+  } }));
+  expect(worker).toEqual([["cli_time_to_request", 17]]);
+  expect(missing.filter(name => name.startsWith("cli_"))).toEqual(["cli_ttft", "cli_ttft_stream"]);
+});
+
 for (const observed of [false, true]) {
   for (const malformed of ["absent", "null", "non-array", "null-entry", "throwing-list", "throwing-name"] as const) {
     test(`malformed MCP diagnostics (${malformed}, observer=${observed}) never fail a usable Claude stream`, async () => {
@@ -63,7 +77,7 @@ test("an observed empty MCP list stays distinct from an unavailable list", async
     start: () => () => {}, missing: name => { missing.push(name); }, worker() {}, received() {},
   } }));
   expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
-  expect(missing, "OBSERVED_EMPTY_MCP_LIST_IS_KNOWN").toEqual(["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui"]);
+  expect(missing, "OBSERVED_EMPTY_MCP_LIST_IS_KNOWN").toEqual(["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui", "cli_time_to_request", "cli_ttft", "cli_ttft_stream"]);
 });
 
 test("Claude collects a bounded MCP name sample only from the first initialization frame", async () => {
@@ -80,7 +94,7 @@ test("Claude collects a bounded MCP name sample only from the first initializati
   } }));
   expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
   expect(nameReads, "CLAUDE_MCP_SAMPLER_READS_AT_MOST_EIGHT_NAMES").toBe(8);
-  expect(missing.length, "CLAUDE_MCP_NAMES_ARE_BOUNDED").toBeLessThanOrEqual(12);
+  expect(missing.filter(name => name.startsWith("mcp_connect:")).length, "CLAUDE_MCP_NAMES_ARE_BOUNDED").toBeLessThanOrEqual(12);
   const sampled = missing.filter(name => name.startsWith("mcp_connect:ithaca-server-"));
   expect(sampled.length).toBeLessThanOrEqual(8);
   expect(Buffer.byteLength(JSON.stringify(sampled)), "CLAUDE_MCP_BYTES_ARE_BOUNDED").toBeLessThanOrEqual(192);
@@ -102,7 +116,7 @@ test("Claude startup records its host probe and names unavailable SDK and per-se
   } }));
   expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
   expect(completed, "CLAUDE_HOST_STARTUP_TIMING").toEqual(["host_probe"]);
-  expect(missing, "CLAUDE_MISSING_SDK_MARKS_ARE_EXPLICIT").toEqual(["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui", "mcp_connect:brain"]);
+  expect(missing, "CLAUDE_MISSING_SDK_MARKS_ARE_EXPLICIT").toEqual(["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui", "mcp_connect:brain", "cli_time_to_request", "cli_ttft", "cli_ttft_stream"]);
 });
 
 test("configured live guidance selects personal/capture sections without copying host instructions", () => {
