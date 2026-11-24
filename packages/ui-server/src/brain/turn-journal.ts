@@ -11,7 +11,7 @@ import { JournalObservationCounters } from "./journal-observation-counters.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { CheckoutCaptureRefused, captureCodeChanges, checkedCodeDirectory, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES, CODE_EVIDENCE_BYTES } from "./code-change-worker.js";
-import type { MaintenanceHost, WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { observeDiagnostic, type MaintenanceHost, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { randomUUID } from "node:crypto";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
 import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
@@ -128,7 +128,11 @@ export interface JournalHold {
 }
 export type JournalTraceKind = "begin" | "finish" | "tool" | "periodic";
 /** Diagnostics never enter the control/capture failure path. */
-const diagnostic = <T>(read: () => T): T | undefined => { try { return read(); } catch { return undefined; } };
+const diagnostic = <T>(read: () => T): T | undefined => {
+  let value: T | undefined;
+  observeDiagnostic(() => value = read());
+  return value;
+};
 /** Both timers see every step independently; a failed mark stays missing. */
 const bothTimers = (a?: PhaseTimer, b?: PhaseTimer): PhaseTimer | undefined => !a && !b ? undefined : (name, details) => {
   const first = diagnostic(() => a?.(name, details)), second = diagnostic(() => b?.(name, details));

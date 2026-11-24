@@ -111,6 +111,13 @@ test("real journal begin records each step inside journalBeginMs", async () => {
         },
       }));
       expect(after, "FROZEN_QUEUE_DIAGNOSTIC_RELEASES_HOLDER").toBe(1);
+      let annotations = 0;
+      await journal.finish("ithaca-unavailable-mark", () => Object.assign(() => {}, {
+        async annotate() { annotations++; throw Error("Ithaca timing observer rejected its queue mark"); },
+      }));
+      await Bun.sleep(0); // Give a detached rejection a turn to surface.
+      expect(annotations).toBe(1);
+      expect(after, "REJECTED_QUEUE_DIAGNOSTIC_RELEASES_HOLDER").toBe(2);
     } finally { unsubscribe(); }
     const finishes = Array.from({ length: 11 }, (_, index) =>
       journal.finish(index === 0 ? "turn-ithaca" : "odyssey-" + index, lifecycle.timer("closing")));
