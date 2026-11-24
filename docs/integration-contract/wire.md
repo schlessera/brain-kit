@@ -694,7 +694,8 @@ not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
 measuring to `failureObservedAt` or terminal time once the record is terminal,
 and null before. Admission steps lie inside their phase's paired milestones, and the
 `observe_*` steps lie inside `observe`. Steps are carried by the record's next
-milestone or terminal write, never written on their own. `name` is open
+milestone or terminal write, never written on their own; the one exception
+is a late `failure_recording` end (below). `name` is open
 vocabulary, so a consumer tolerates names it does not know. A step that does
 not apply to a turn is absent. The current names are:
 
@@ -727,7 +728,9 @@ rules as `subPhases`. Each array is in nondecreasing `startedAt` order, keeping
 observation order for ties. A milestone interval learned after later-starting
 steps is inserted at its start position. The first-frame milestone and its
 step share one clock observation. Open steps are carried by the same milestone
-or terminal writes. The current open phase names are:
+or terminal writes, except that a `failure_recording` end confirmed after the
+terminal is written on its own, once, and emits a lifecycle change. The current
+open phase names are:
 
 - `backend` (#4285/#4286): host `host_probe`, Claude's separate
   `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; Pi's

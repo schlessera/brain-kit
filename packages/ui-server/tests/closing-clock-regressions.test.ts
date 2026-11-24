@@ -290,6 +290,27 @@ test("a late end pairs repeated failure_recording steps by occurrence and keeps 
   } finally { f.close(); }
 });
 
+test("an overlapping finish waits for the first call's boundary before it confirms", async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const read = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+  const replay = new FailureReplay({ recordTurnBoundary: async () => false } as unknown as import("../src/ws/session-catalog").SessionCatalog,
+    { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { entered.resolve(); await read.promise; return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }]; } });
+  const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
+  let confirmed = 0;
+  try {
+    const first = recording.finish("ithaca"); await entered.promise;
+    const second = recording.finish("ithaca", () => { confirmed++; });
+    await Bun.sleep(0);
+    expect(confirmed, "OVERLAPPING_FINISH_DOES_NOT_CONFIRM_BEFORE_BOUNDARY").toBe(0);
+    read.resolve();
+    expect([await first, await second], "BOTH_CALLS_SEE_THE_FAILED_BOUNDARY").toEqual([false, false]);
+    await replay.wait("ithaca"); await Bun.sleep(0);
+    expect(confirmed, "FAILED_BOUNDARY_NEVER_CONFIRMS_A_LATER_CALL").toBe(0);
+  } finally { read.resolve(); }
+});
+
 test("a terminal record accepts only a late failure_recording end", async () => {
   const f = fixture();
   try {

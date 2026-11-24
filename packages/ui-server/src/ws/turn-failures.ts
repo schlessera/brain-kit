@@ -169,6 +169,7 @@ export class FailureReplay {
     let end!: () => void;
     const ended = new Promise<void>((resolve) => { end = resolve; });
     let held = false;
+    let finishing: Promise<void> | undefined;
     return {
       observe: (sid, failure) => {
         if (closed || before === null || write) return;
@@ -203,13 +204,17 @@ export class FailureReplay {
         this.track(sid, hold);
       },
       finish: async (sid, confirmed) => {
-        const first = !closed;
         closed = true; release();
-        try {
+        // Every call observes the first call's writes and boundary, so an
+        // overlapping call cannot decide before that boundary has run.
+        finishing ??= (async () => {
           await write;
-          if (first && sid && ((before !== null && this.catalog.recordTurnBoundary) || this.catalog.recordScratchPins)) {
+          if (sid && ((before !== null && this.catalog.recordTurnBoundary) || this.catalog.recordScratchPins)) {
             complete = await this.boundary(backend, sid, turnId, before, recording) && complete;
           }
+        })();
+        try {
+          await finishing;
           const now = complete && !recording.failed && recording.pending === 0;
           // The catalog commits off the event loop, so a turn that answered
           // always has a write in flight here (#4520). Confirm it late.
