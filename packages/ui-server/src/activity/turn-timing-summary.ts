@@ -111,5 +111,12 @@ export function turnTimingSummary(db: Database, limit: number, since: number, be
     for (const { phase, name } of [...(record.subPhases ?? []), ...(record.openSubPhases ?? [])])
       vocabulary.set(JSON.stringify([phase, name]), { phase, name });
   }
-  return { limit, groups: [...groups.values()].map(group => summarize(group, vocabulary)) };
+  const summaries = [...groups.values()].map(group => summarize(group, vocabulary));
+  const measurementNames = new Set(summaries.flatMap(group => Object.keys(group.measurements)));
+  for (const group of summaries) {
+    for (const name of measurementNames) {
+      group.measurements[name] ??= stats(samples(), group.turns);
+    }
+  }
+  return { limit, groups: summaries };
 }

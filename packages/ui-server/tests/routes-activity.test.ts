@@ -693,6 +693,7 @@ test("owner timing summary separates builds, open and absent steps, and caps the
       store.writeLifecycle({ ...record, turnId: id, lifecycleId: "lifecycle:" + id, acceptedAt: 10 + i, endedAt: 100,
         packageVersion: "0.44.0", buildRevision: i === 4 ? "b" : "a", backendRunId: i === 4 ? "turn-1" : null,
         outcome: i === 4 ? "denied" : "success",
+        ...(i === 4 ? { admissionLoad: { atDequeue: { cpuCount: 4 } } } : {}),
         subPhases: duration === undefined ? [] : [{ name: "boundary_prepare", phase: "governed", startedAt: 20,
           endedAt: duration === null ? null : 20 + duration, elapsedMs: duration }] });
     }
@@ -708,6 +709,11 @@ test("owner timing summary separates builds, open and absent steps, and caps the
     expect(result.limit).toBe(200);
     expect(result.groups).toHaveLength(3);
     const a = result.groups.find((g: { buildRevision: string }) => g.buildRevision === "a");
+    expect(a.measurements["atDequeue.cpuCount"], "CROSS_BUILD_MISSING_MEASUREMENT").toEqual({
+      count: 0, median: null, p90: null, max: null, open: 0, absent: 4,
+    });
+    const b = result.groups.find((g: { buildRevision: string }) => g.buildRevision === "b");
+    expect(b.measurements["atDequeue.cpuCount"]).toEqual({ count: 1, median: 4, p90: 4, max: 4, open: 0, absent: 0 });
     expect(a.steps).toContainEqual({ phase: "governed", name: "boundary_prepare", count: 2, median: 15, p90: 20, max: 20, open: 1, absent: 1 });
     const legacy = result.groups.find((g: { packageVersion: string | null }) => g.packageVersion === null);
     expect(legacy.steps.find((s: { name: string }) => s.name === "boundary_prepare").absent).toBe(1);

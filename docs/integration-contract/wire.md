@@ -672,7 +672,9 @@ dequeue establishes a completed wait from acceptance.
 Repeated steps contribute individual samples. Timing values are
 milliseconds. `measurements` applies the same statistics in native units to
 observed host load, alias scan counts, queue depths, stopped-time fields and
-index breakdowns. `frequencies` counts journal operation kinds, index states
+index breakdowns. Each group includes every measurement observed in the
+selected builds. A group with no samples reports its turn count in `absent`.
+`frequencies` counts journal operation kinds, index states
 and MCP status/source categories. No turn or session identities, hold IDs,
 file paths or transcripts are returned.
 
