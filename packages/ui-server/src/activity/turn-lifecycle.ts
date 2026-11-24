@@ -3,6 +3,7 @@ import { parseBuildRevision } from "../config/env.js";
 import type { ActivityTurnLifecycle, ActivityTurnSubPhase, ActivityTurnOpenSubPhase, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { AwaitableActivityStore } from "./store.js";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { startAdmissionLoad } from "./admission-load.js";
 import { orderedWrites } from "./store-writes.js";
 
 /**
@@ -59,6 +60,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     const epoch = Date.now(), started = performance.now();
     clock = () => epoch + (performance.now() - started);
   }
+  let stopAdmissionLoad: ReturnType<typeof startAdmissionLoad> | undefined;
   const observedClock = () => { try { return clock(); } catch { return undefined; } };
   const buildRevision = parseBuildRevision(identity.buildRevision);
   const record: ActivityTurnLifecycle = {
@@ -161,6 +163,8 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     mark(milestone: LifecycleMilestone, at = observedClock()) {
       if ((record.endedAt !== null && milestone !== "recorderSettledAt" && milestone !== "idleEmittedAt") || record[milestone] != null) return;
       if (at === undefined) return;
+      if (milestone === "dequeuedAt") stopAdmissionLoad = startAdmissionLoad(record);
+      if (milestone === "backendInvokedAt") { stopAdmissionLoad?.(true); stopAdmissionLoad = undefined; }
       record[milestone] = at;
       persist();
     },
@@ -183,6 +187,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     finish(outcome: ActivitySpanOutcome, reason: string | null = null) {
       if (record.endedAt !== null) return;
       const at = observedClock(); if (at === undefined) return;
+      stopAdmissionLoad?.(false); stopAdmissionLoad = undefined;
       record.endedAt = at; record.outcome = outcome; record.reason = reason; persist();
     },
   };

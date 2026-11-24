@@ -1589,6 +1589,8 @@ export const serverMaskRequestSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerMaskRequest>;
 
+const hostLoadSample = z.object({ load1: z.number().nonnegative().optional(), cpuCount: z.number().int().positive().optional() });
+
 export const serverMarkupRequestSchema = z.looseObject({
   type: z.literal("markup_request"),
   requestId: z.string().max(MAX_ID_CHARS),
@@ -1640,6 +1642,8 @@ const activitySpanEventSchema = z.looseObject({
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
 const activityTurnLifecycleSchema = z.looseObject({
+  admissionLoad: z.object({ atDequeue: hostLoadSample.optional(), atBackendStart: hostLoadSample.optional(),
+    eventLoopMaxMs: z.number().nonnegative().optional(), eventLoopP99Ms: z.number().nonnegative().optional() }).optional(),
   holds: z.array(z.looseObject({ holdId: id, cause: z.enum(["begin", "finish", "tool", "periodic", "scope"]), causeTurnId: id.nullable(),
     toolUseId: id.optional(), requestedAt: z.number(), stoppedAt: z.number().nullable(), resumedAt: z.number().nullable(),
     changedPaths: z.number().nonnegative().nullable(), otherTurnsStopped: z.number().nonnegative(), inferenceInFlight: z.boolean().nullable() })).optional(),

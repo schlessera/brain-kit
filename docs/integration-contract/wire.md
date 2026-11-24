@@ -714,6 +714,13 @@ not apply to a turn is absent. The current names are:
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
 
+Optional `admissionLoad` samples host load at dequeue and backend invocation
+(`atDequeue`, `atBackendStart`). Each sample carries the one-minute load
+average (`load1`) and available CPU count (`cpuCount`) when available.
+`eventLoopMaxMs` and `eventLoopP99Ms` summarize event-loop delay observed
+between those milestones, or until a refused admission ends. Missing samples
+are omitted. These fields ride the existing lifecycle writes.
+
 Inside `boundary_prepare`, `boundary_private_state` checks private state.
 Cold preparation can also record `boundary_output_lock` (time until the lock
 is acquired), `boundary_maintenance_probe` and `boundary_recheck`.

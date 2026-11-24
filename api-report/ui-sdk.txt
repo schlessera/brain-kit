@@ -4550,6 +4550,18 @@ signatures (every public export and the types it is made of)
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnLifecycle {
         holds?: ActivityTurnHold[];
+        admissionLoad?: {
+            atDequeue?: {
+                load1?: number;
+                cpuCount?: number;
+            };
+            atBackendStart?: {
+                load1?: number;
+                cpuCount?: number;
+            };
+            eventLoopMaxMs?: number;
+            eventLoopP99Ms?: number;
+        };
         packageVersion?: string;
         buildRevision?: string;
         runtimeVersion?: string;
@@ -22616,6 +22628,18 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
@@ -22787,6 +22811,18 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
@@ -25847,6 +25883,18 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
@@ -26019,6 +26067,18 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
             backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;

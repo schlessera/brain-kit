@@ -1,5 +1,6 @@
 import packageInfo from "@schlessera/brain-ui-server/package.json" with { type: "json" };
-import { expect, test } from "bun:test";
+import * as perfHooks from "node:perf_hooks";
+import { expect, spyOn, test } from "bun:test";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
@@ -254,4 +255,28 @@ test("identical terminal replay emits no new change while a new trailing receipt
     store.writeLifecycle({ ...terminal, recorderSettledAt: 9999, idleEmittedAt: 1300 });
     expect(store.lifecycle("turn-replay")).toMatchObject({ recorderSettledAt: 1200, idleEmittedAt: 1300 });
   } finally { db.close(); }
+});
+
+test("admission load records a blocked loop and freezes at backend invocation", async () => {
+  const db = createUiDb(":memory:");
+  const monitor = spyOn(perfHooks, "monitorEventLoopDelay");
+  try {
+    const store = createActivityStore(db);
+    const lifecycle = createTurnLifecycle(store, "ithaca-load", null, Date.now(), () => {});
+    lifecycle.mark("dequeuedAt");
+    await Bun.sleep(35);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60);
+    await Bun.sleep(20);
+    lifecycle.mark("backendInvokedAt");
+    const load = store.lifecycle("ithaca-load")!.admissionLoad;
+    expect(load?.eventLoopMaxMs, "ADMISSION_BLOCKED_LOOP_MAXIMUM").toBeGreaterThanOrEqual(55);
+    expect(load?.eventLoopP99Ms).toBeGreaterThan(0);
+    expect(load?.atDequeue?.cpuCount).toBeGreaterThan(0);
+    expect(load?.atBackendStart?.load1).toBeGreaterThanOrEqual(0);
+    const histogram = monitor.mock.results[0]!.value!;
+    expect(histogram.enable(), "MONITOR_DISABLED_AT_BACKEND_START").toBe(true);
+    histogram.disable();
+    lifecycle.finish("success");
+    expect(store.lifecycle("ithaca-load")!.admissionLoad).toEqual(load);
+  } finally { monitor.mockRestore(); db.close(); }
 });

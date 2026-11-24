@@ -3950,6 +3950,12 @@ export interface ActivityTurnHold {
 export interface ActivityTurnLifecycle {
   /** Running server identity; absent on historical records. */
   holds?: ActivityTurnHold[];
+  admissionLoad?: {
+    atDequeue?: { load1?: number; cpuCount?: number };
+    atBackendStart?: { load1?: number; cpuCount?: number };
+    eventLoopMaxMs?: number;
+    eventLoopP99Ms?: number;
+  };
   packageVersion?: string;
   buildRevision?: string;
   runtimeVersion?: string;
