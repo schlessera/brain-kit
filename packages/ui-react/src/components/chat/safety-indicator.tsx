@@ -6,6 +6,7 @@ import { Button, Icon, IconButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { activeChat, useChatStore, type ToolCall } from "../../stores/chat-store.js";
+import { READING_COLUMN_ATTR } from "../../lib/client-environment.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
 
@@ -103,8 +104,25 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
     return ()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",escape,true);window.removeEventListener("resize",place);window.removeEventListener("scroll",place,true);};
   },[open]);
   const close=()=>{setOpen(false);trigger.current?.focus({preventScroll:true});};
+  function nextIndicator() {
+    const current = trigger.current;
+    const column = current?.closest(`[${READING_COLUMN_ATTR}]`);
+    if (!current || !column) return null;
+    const buttons = [...column.querySelectorAll<HTMLButtonElement>("[data-safety-indicator] > button")]
+      .filter(button => button.getClientRects().length > 0);
+    const index = buttons.indexOf(current);
+    return [...buttons.slice(index + 1), ...buttons.slice(0, index + 1)]
+      .find(button => button.parentElement?.dataset.unresolved === "true");
+  }
+  function showNext() {
+    const target = nextIndicator();
+    if (!target) return;
+    setOpen(false);
+    target.focus();
+    target.scrollIntoView({block:"nearest"});
+  }
   if(!entries.length||auth!=="active")return null;
-  return <span data-safety-indicator className="group relative inline-flex shrink-0 items-center">
+  return <span data-safety-indicator data-unresolved={unresolved>0} className="group relative inline-flex shrink-0 items-center">
     <IconButton ref={trigger} name={`${name}; ${reason}`} icon={unresolved?unknown?"unverified":"policy":"secure"} expanded={open} controls={id} haspopup="dialog"
       style={{minWidth:44,minHeight:44}} onClick={()=>setOpen(v=>!v)}/>
     {entries.length>1&&<span className="pointer-events-none absolute right-0 top-0 font-mono text-[10px]" aria-hidden="true">{unresolved||entries.length}</span>}
@@ -113,13 +131,13 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
       style={{...position,width:"min(384px, calc(100vw - 24px))",maxHeight:"min(65vh, 520px)",overflowWrap:"anywhere"}}>
       <div className="flex items-center justify-between gap-2"><strong>{name}</strong><IconButton icon="dismiss" name="Close safety details" style={{minWidth:44,minHeight:44}} onClick={close}/></div>
       <p className="mb-3 text-xs">Marking an input safe accepts that input for this chat. Its contents stay in the model’s context.</p>
-      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} toolName={entry.occurrence.turnId===turnId ? toolCalls?.find(tool=>tool.id===entry.occurrence.entry?.toolUseId)?.name : undefined}/>)}
+      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} toolName={entry.occurrence.turnId===turnId ? toolCalls?.find(tool=>tool.id===entry.occurrence.entry?.toolUseId)?.name : undefined}/>)}
       {entries.length>limit&&<Button label="Show more inputs" tone="quiet" reach onClick={()=>setLimit(n=>n+20)}/>}
     </div>,document.body)}
   </span>;
 }
 
-function SafetyTrigger({entry,toolName}:{entry:SafetyEvidence;toolName?:string}) {
+function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvidence;toolName?:string;nextIndicator:()=>HTMLButtonElement|null|undefined;showNext:()=>void}) {
   const root=useBrainUiRoot(),state=useStore(root.stores.safety),auth=useStore(root.authLock.state,s=>s.phase);
   const [savedRule,setSavedRule]=useState<string|null>(null);
   const [future,setFuture]=useState(false),[recipient,setRecipient]=useState(false),[prepared,setPrepared]=useState<SafetyFuturePrepared|null>(null);
@@ -156,6 +174,17 @@ function SafetyTrigger({entry,toolName}:{entry:SafetyEvidence;toolName?:string})
   const counted=!noDelivery&&!entry.decision&&!r.admission?.trusted;
   const ended=state.projection?.coverage.epochs.some(epoch=>epoch.id===r.epochId&&epoch.endSequence!==null);
   const arriving=entry.exposure==="open"&&!ended;
+  const statusLine=useRef<HTMLParagraphElement>(null);
+  const [hasNext,setHasNext]=useState(false);
+  const committed=progress?.stage==="committed" && !!entry.decision && readable;
+  const focused=useRef(false);
+  useLayoutEffect(()=>{
+    setHasNext(committed && !!state.projection?.unresolvedCount && !!nextIndicator());
+    if(committed && !focused.current) {
+      focused.current=true;
+      statusLine.current?.focus();
+    }
+  },[committed,state.projection,nextIndicator]);
   return <section data-safety-trigger={r.id} className="space-y-2 border-t border-border py-3">
     <p className="font-medium">{noDelivery?"Fetch refused before delivery":r.admission?.trusted?"Trusted at admission":entry.decision?"Marked safe by you":"Safety restrictions enabled"}</p>
     <p>Observed · {r.detector==="tool_search_output"?"Local search result":sources[r.source]} · <time dateTime={new Date(r.observedAt).toISOString()}>{new Date(r.observedAt).toLocaleString()}</time></p>
@@ -188,8 +217,9 @@ function SafetyTrigger({entry,toolName}:{entry:SafetyEvidence;toolName?:string})
     {prepared&&progress?.stage==="review"&&canReview&&<div role="group" aria-label="Exact future rule review"><p>Exact target: {provenance}. Other verdicts remain unchanged. Recipient permission: {recipient?"allow sending data while restricted":"off"}.</p><pre className="max-h-48 overflow-auto whitespace-pre-wrap">{prepared.review.diff}</pre><Button label={recipient?"Save rule, allow sending while restricted, and mark this input safe":"Save future source rule and mark this input safe"} reach onClick={()=>void reviewer.current?.commitFuture()}/><Button label="Cancel future rule review" tone="quiet" reach onClick={()=>{reviewer.current?.cancelFuture();setPrepared(null);setProgress(null);setReview(false);}}/></div>}
     {progress&&<p role="status">{progress.message}</p>}
     {(unknown||progress?.stage==="refused"||progress?.stage==="partial")&&!busy&&<Button label="Refresh safety evidence" tone="quiet" reach onClick={()=>{setProgress(null);setReview(false);state.refresh();}}/>}
-    <p className="text-xs" role="status">{readable&&state.projection
+    <p className="text-xs" role="status" ref={statusLine} tabIndex={-1}>{readable&&state.projection
       ? `Whole chat · ${state.projection.unresolvedCount} unresolved input${state.projection.unresolvedCount===1?"":"s"}${counted?", including this one":" · this input is not counted"} · ${state.normal&&state.projection.restriction==="normal"&&state.projection.coverage.state==="complete"&&!state.projection.pendingCount&&!state.projection.unresolvedCount?"Normal policy restored":"Still restricted"}`
       :"Whole chat · current evidence unavailable"}</p>
+    {hasNext&&<Button label="Show next unresolved input" tone="quiet" reach onClick={showNext}/>}
   </section>;
 }

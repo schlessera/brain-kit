@@ -42,7 +42,7 @@ async function view(independentSocket=false){
  const client=safetyClient=createSafetyClient(current,m=>{sent.push(m);const target=independentSocket?ws:socket;if(target?.readyState!==WebSocket.OPEN)return false;target.send(JSON.stringify(m));return true;});
  ws.onopen=()=>ws.send(JSON.stringify({type:'client_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,chatDeletion:true}}));
  ws.onmessage=e=>{frames.push(JSON.parse(String(e.data)));const parsed=parseServerMessage(String(e.data));if(!parsed.ok)throw new Error(parsed.error);client.frame(parsed.message);};
- host=document.createElement('div');host.style.maxWidth='100%';document.body.append(host);renderer=createRoot(host);
+ host=document.createElement('div');host.dataset.readingColumn='';host.style.maxWidth='100%';document.body.append(host);renderer=createRoot(host);
  flushSync(()=>renderer!.render(<BrainUiProvider root={current}><button type="button">Outside safety details</button><SessionSafety/><MessageBubble message={message} journalVisible={false} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
  try{await expect.poll(()=>current.stores.safety.getState().status,{timeout:5000}).toBe('ready');}catch(error){throw new Error(`${String(error)} Frames:${JSON.stringify(frames)} Sent:${JSON.stringify(sent)} Safety:${JSON.stringify(current.stores.safety.getState())} Session:${current.stores.chat.getState().activeSessionId}`);}
 }
@@ -74,8 +74,12 @@ for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width}
  await expect.element(panel).toBeVisible();
  await expect.element(page.getByText('Marked safe by you',{exact:true}).first()).toBeVisible();
  await page.screenshot({element:document.querySelector('[data-safety-details]') as HTMLElement,path:`../../.vitest-attachments/safety-review/${theme}-${width}.png`});
+ await expect.poll(()=>document.activeElement?.textContent).toContain('Whole chat · 2 unresolved inputs');
  const bounds=document.querySelector('[data-safety-details]')!.getBoundingClientRect();expect(bounds.left).toBeGreaterThanOrEqual(0);expect(bounds.right).toBeLessThanOrEqual(innerWidth);
- await userEvent.keyboard('{Escape}');expect(document.querySelector('[data-safety-details]')).toBeNull();expect(document.activeElement).toBe(reopener);
+ await userEvent.click(page.getByRole('button',{name:'Show next unresolved input'}));
+ expect(document.querySelector('[data-safety-details]')).toBeNull();
+ expect(document.activeElement).toBe(host!.querySelector('[data-safety-turn-event] button'));
+ reopener.focus();
  await userEvent.keyboard('{Enter}');await expect.element(panel).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Outside safety details'}));expect(document.querySelector('[data-safety-details]')).toBeNull();
  await disposeView();await view();expect((await patch()).commits,'RELOAD_NEVER_REPLAYS_A_VERDICT').toBe(1);expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(2);
 });
