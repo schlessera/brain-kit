@@ -210,14 +210,19 @@ test("text pasted while a Send's snapshot is unacknowledged is shown in the fiel
   s.sendButton().click();
   expect(s.draft()!.snapshots?.length, "SECOND_SEND_WAITS_AFTER_REFUSAL").toBe(1);
   expect(s.field().value).toBe("Bring the wine for Polyphemus.");
-  // Nor beside a Send again replacement the host has not acknowledged.
+  // Nor beside a Send again replacement alone: the first snapshot as the host
+  // holds it, and its replacement not yet. The first save is still held, so no
+  // other save can go out while the draft is shown this way.
   const d2 = s.draft()!;
-  const again = { snapshotId: "snap-again", requestId: "req-again", text: "Muster again", files: [], state: "dispatched" as const, createdAt: null, replaces: d2.snapshots![0]!.snapshotId };
-  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: { ...st.drafts[d2.draftId]!, snapshots: [...st.drafts[d2.draftId]!.snapshots!, again] } } }));
-  s.root.stores.drafts.getState().saveFailed(d2.draftId, { kind: "unsaved" });
+  const first = d2.snapshots![0]!;
+  const again = { snapshotId: "snap-again", requestId: "req-again", text: "Muster again", files: [], state: "dispatched" as const, createdAt: null, replaces: first.snapshotId };
+  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: { ...d2, failure: null,
+    host: { ...d2.host!, snapshots: [{ snapshotId: first.snapshotId, requestId: first.requestId, text: first.text, fileIds: [], state: first.state }] },
+    snapshots: [first, again] } } }));
   s.sendButton().click();
   expect(s.draft()!.snapshots?.length, "SECOND_SEND_WAITS_BESIDE_REPLACEMENT").toBe(2);
-  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: { ...st.drafts[d2.draftId]!, snapshots: st.drafts[d2.draftId]!.snapshots!.filter((x) => x.snapshotId !== "snap-again") } } }));
+  expect(s.field().value).toBe("Bring the wine for Polyphemus.");
+  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: d2 } }));
   // An edit clears the refusal for the acknowledgement below.
   s.root.stores.drafts.getState().saveFailed(d1.draftId, { kind: "unsaved" });
   expect(s.field().value).toBe("Bring the wine for Polyphemus.");
@@ -225,6 +230,7 @@ test("text pasted while a Send's snapshot is unacknowledged is shown in the fiel
   await acknowledged(fixture, s, "Muster the crew at dawn.");
   expect(s.field().value, "the acknowledged send leaves it alone").toBe("Bring the wine for Polyphemus.");
   expect(fixture.snapshotsOf(s.draft()!.draftId).map((x) => x.text), "only the sent text is the snapshot").toEqual(["Muster the crew at dawn."]);
+
 });
 
 test("case 22: when another device frees a slot, the queue-full notice clears within one re-read interval, from reads alone", async () => {
