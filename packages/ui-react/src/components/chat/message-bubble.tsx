@@ -528,7 +528,7 @@ function AssistantContent({
 
       {/* How the turn stopped, when no failure says so (#3356): a status
           after its content, never the agent's words. */}
-      {message.runtimeNotice && !message.failure && !message.isStreaming ? <TurnNotice message={message} /> : null}
+      {message.runtimeNotice && (!message.failure || message.runtimeNotice.cause === "host_stop") && !message.isStreaming ? <TurnNotice message={message} /> : null}
 
       {(message.isStreaming || approval?.restored) && (message.retry ? (
         <TurnStatus message={message} mode="retry" />

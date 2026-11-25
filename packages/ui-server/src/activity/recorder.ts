@@ -49,6 +49,7 @@ import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
 import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 import { orderedWrites } from "./store-writes.js";
+import { HOST_STOP_REASONS } from "../ws/host-stop.js";
 
 export interface TurnRecorderDeps {
   store: AwaitableActivityStore;
@@ -424,7 +425,9 @@ export function createTurnRecorder(
             const outcome: SpanOutcome = msg.isError ? "error" : "success";
             store.endSpan(msg.toolUseId, {
               outcome,
-              reason: outcome === "error" ? clip(msg.output, 500) : undefined,
+              // A tool the host cut short records the host's stop, not the
+              // runtime's text, which reads as the user refusing it (#4565).
+              reason: outcome === "error" ? msg.hostStop ? HOST_STOP_REASONS[msg.hostStop] : clip(msg.output, 500) : undefined,
             });
             // Error output rides along too — a failed call's output is what
             // the drill-in needs most. appendEvent no-ops on unknown spans.

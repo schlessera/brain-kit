@@ -91,7 +91,9 @@ function normalizeFrame(ctx: BridgeContext, thinkingLevel: ReturnType<typeof cap
   // The host itself stopped this turn (#4565): its terminal says why, and a
   // tool it cut short is shown as stopped, not as the user's refusal. Only
   // labels are added: `output` stays what the model already received.
-  const stopped = turn.turnId === turnId && !turn.cancelled ? hostStopOf(turn, turnId) : undefined;
+  // Recorded only when nothing had ended the turn, so a cancel that lands
+  // while the stop unwinds does not relabel it.
+  const stopped = turn.turnId === turnId ? hostStopOf(turn, turnId) : undefined;
   if (stopped) {
     if (msg.type === "status" && msg.status === "cancelled") msg = { ...msg, detail: TURN_STOPPED_BY_HOST };
     else if (msg.type === "result" && msg.outcome === "cancelled") msg = { ...msg, outcomeDetail: hostStopOutcomeDetail(stopped) };
@@ -132,6 +134,9 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
   options: Pick<MakeBridgeOptions, "promptText" | "onSessionNamed" | "onTerminalFailure" | "onTurnResult" | "promptLabel" | "pricingContext">): BridgeSlice<"emit"> {
   const { host, turn, turnId, requestId, backendId, principalId, authorization, work, recorder, mainModel, workerProfile } = ctx;
   const { coordinator, catalog } = host;
+  // This bridge's turn, as the context's signal is: a failure that settles
+  // after the slot moved on stops its own turn, never the successor (#4565).
+  const controller = turn.abortController;
   const { promptText, onTerminalFailure, onTurnResult, promptLabel, pricingContext } = options;
   const { thinkingLevel, draftRef, attachmentFileIds, draftPrincipalId, resumedSession } = captureFrameFields(ctx);
   let profileBound = false;
@@ -179,7 +184,8 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
     }
     // Submitted after the catalog row; every share read/effect joins this queue.
     void host.inboxTools?.shares?.bind(turnId, msg.sessionId).catch(error => {
-      stopTurnForHost(turn, turnId, turn.abortController, "inbox_share", error); emitTurnError(host, turn, error);
+      stopTurnForHost(turn, turnId, controller, "inbox_share", error);
+      if (turn.turnId === turnId) emitTurnError(host, turn, error);
     });
     if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
       // Both commit after the row above (#2850); the frame reads them as submitted.
@@ -287,7 +293,7 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
       }
       // Never awaited here: an observation's hold freezes the turn's workers,
       // which is what delays a worker's next provider request (#2834).
-      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.toolEnded(turnId, msg.toolUseId).catch(error => { stopTurnForHost(turn, turnId, turn.abortController, "change_journal", error); emitTurnError(host, turn, error); });
+      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.toolEnded(turnId, msg.toolUseId).catch(error => { stopTurnForHost(turn, turnId, controller, "change_journal", error); if (turn.turnId === turnId) emitTurnError(host, turn, error); });
       if (transcript.collector && turn.turnId === turnId) transcript.collector.observe(msg);
       if (msg.type === "session_info") msg = onSessionInfo(msg);
       if (msg.type === "result") msg = onResult(msg);

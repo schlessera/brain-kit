@@ -16,7 +16,11 @@ const BECAUSE: Record<HostStopCause, string> = {
 
 /** The status row of a host-stopped turn; `null` is a cause this client does not know. */
 export function hostStopNoticeCopy(cause: HostStopCause | null): { tag: string; body: string } {
-  const next = cause === "change_journal" ? "Check any partial work, then try again." : "Try again.";
+  // Retrying cannot free a chat or server out of safety-record room, so that
+  // cause names the way out too.
+  const next = cause === "change_journal" ? "Check any partial work before you continue."
+    : cause === "safety_recording" ? "Try again. If it happens again, start a new chat or report it."
+    : "Try again.";
   return {
     tag: "Stopped by the host",
     body: cause ? `The host stopped this turn because ${BECAUSE[cause]}. ${next}` : `The host stopped this turn. ${next}`,

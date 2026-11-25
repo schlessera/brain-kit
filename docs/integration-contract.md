@@ -717,8 +717,10 @@ so instead of reading as a timeout: `result.outcomeDetail: "host_stop:<cause>"`
 on its cancelled result, `detail: "Stopped by the host"` on its
 `status: cancelled`, and `tool_result.hostStop` on the result of a tool it cut
 short, whose `output` the model already received is unchanged. Its Activity
-run ends `error` with a reason naming the cause; only the host's elapsed-time
-limit records `timeout`, whose meaning is unchanged. The SDK exports
+run ends `error` with a reason naming the cause, and the interrupted tool's
+span records the same reason. A host stop no longer records `timeout`; the
+host's elapsed-time limit and a runtime's own max-turns or max-budget stop
+still do, and `timeout` keeps its meaning. The SDK exports
 `HostStopCause`, `HOST_STOP_CAUSES`, `HOST_STOP_OUTCOME_DETAIL_PREFIX`,
 `hostStopOutcomeDetail` and `hostStopFromOutcomeDetail`;
 `@schlessera/brain-ui-react` adds `TurnNotice` cause `host_stop` with

@@ -89,7 +89,9 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
           const owner = last === -1 ? undefined : msgs[last].turnId ?? msgs[last].streamTurnId;
           if (last !== -1 && (owner === undefined || owner === turnId)) index = last;
         }
-        if (index !== -1 && (msgs[index].failure || msgs[index].runtimeNotice?.cause === notice.cause)) return {};
+        // A failure is the one account of a stop, except the host's own stop
+        // (#4565): the diagnostic error it raised does not say why it stopped.
+        if (index !== -1 && ((msgs[index].failure && notice.cause !== "host_stop") || msgs[index].runtimeNotice?.cause === notice.cause)) return {};
         if (index === -1) {
           msgs.push({
             id: nextId(),

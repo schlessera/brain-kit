@@ -135,7 +135,7 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     else host.reportTurnCompleted(turn, Date.now() - run.startedAt);
     outcome = completed;
     // A host stop's reason outranks the runtime's own cancelled result.
-    recorder?.finish(completed.recorder, completed.hostStopped ? completed.reason : undefined);
+    recorder?.finish(completed.recorder, completed.recorderReason);
   } catch (err) {
     lifecycle?.mark("failureObservedAt");
     await held.settleIndex?.();
@@ -155,7 +155,7 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     turn.backendStarted = false;
     if (failed.delivery === "reported") emitTurnError(host, turn, failed.terminal);
     outcome = failed;
-    recorder?.finish(failed.recorder, failed.hostStopped ? failed.reason : undefined);
+    recorder?.finish(failed.recorder, failed.recorderReason);
   } finally {
     await teardownTurn(run, outcome);
   }

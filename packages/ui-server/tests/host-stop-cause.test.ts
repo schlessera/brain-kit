@@ -21,6 +21,7 @@ import { HOST_STOP_REASONS } from "../src/ws/host-stop";
 import { WsHost, type WsHostOptions } from "../src/ws/host";
 import { runSession } from "../src/ws/run-session";
 import { createSessionCatalog } from "../src/ws/session-catalog";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
 
@@ -43,7 +44,7 @@ function interruptedTurn(trigger: (request: StartTurnRequest) => void | Promise<
     await Promise.resolve(trigger(request)).catch(() => {});
     // Watchdog only: every owner below aborts within milliseconds.
     if (!signal.aborted) await new Promise<void>((resolve, reject) => {
-      const watchdog = setTimeout(() => reject(new Error("the turn was never stopped")), 10_000);
+      const watchdog = setTimeout(() => reject(new Error("the turn was never stopped")), watchdogMs(10_000));
       signal.addEventListener("abort", () => { clearTimeout(watchdog); resolve(); }, { once: true });
     });
     bridge.emit({ type: "tool_result", toolUseId: "loom", output: RUNTIME_REFUSAL, isError: true });
@@ -70,11 +71,12 @@ async function stoppedTurn(backend: ReturnType<typeof interruptedTurn>, options:
   await runSession(host, { authorization: testAuthorization(principal.id), text: "Weave the shroud", attachments: [] });
   const result = frames.find(frame => frame.type === "result") as Extract<ServerMessage, { type: "result" }> | undefined;
   const turnId = (result as { turnId?: string } | undefined)?.turnId;
-  if (!turnId) throw new Error(`no scoped result: ${JSON.stringify(frames)}`);
+  if (!result || !turnId) throw new Error(`no scoped result: ${JSON.stringify(frames)}`);
   // The run's root span, which its recorder ends with the turn's outcome.
   const run = store.getSpan(`${turnId}:turn`);
   return {
     run: { outcome: run?.outcome, reason: run?.outcomeReason },
+    toolSpan: store.getSpan("loom"),
     result,
     tool: frames.find(frame => frame.type === "tool_result" && frame.toolUseId === "loom") as Extract<ServerMessage, { type: "tool_result" }>,
     status: frames.find(frame => frame.type === "status" && frame.status === "cancelled") as Extract<ServerMessage, { type: "status" }>,
@@ -88,6 +90,8 @@ function expectHostStop(turn: Awaited<ReturnType<typeof stoppedTurn>>, cause: ke
   expect(turn.status.detail, `${label}_STATUS_NOT_TIMEOUT`).toBe("Stopped by the host");
   // Display label only: the model received the runtime's text as written.
   expect(turn.tool, `${label}_TOOL_SHOWN_AS_HOST_STOP`).toMatchObject({ output: RUNTIME_REFUSAL, hostStop: cause });
+  // Activity's tool span says the host stopped it, not that the user refused it.
+  expect(turn.toolSpan, `${label}_TOOL_SPAN_NAMES_HOST_STOP`).toMatchObject({ outcome: "error", outcomeReason: HOST_STOP_REASONS[cause] });
 }
 
 test("the real time limit still records a timeout", async () => {

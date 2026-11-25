@@ -12,8 +12,12 @@ export interface TurnOutcome {
   readonly lifecycle: ActivitySpanOutcome;
   readonly work: HostWorkOutcome;
   readonly reason?: string;
-  /** The host itself stopped the turn (#4565); `reason` says why. */
-  readonly hostStopped?: boolean;
+  /**
+   * The reason the Activity run records over the runtime's own buffered
+   * result: set where a host-owned failure or stop ended the turn (#4565),
+   * so a runtime's `cancelled` result never relabels it.
+   */
+  readonly recorderReason?: string;
   /** No backend ran, so the slot publishes the cancelled status itself. */
   readonly cancelledBeforeStart: boolean;
   /** Admission refused the turn because its principal was revoked or expired. */
@@ -63,6 +67,15 @@ function hostAbort(facts: TurnFacts): { readonly recorder: "timeout" | "error"; 
 }
 
 /**
+ * A host stop is recorded only while nothing has ended the turn, so it
+ * predates any cancel: a cancel that lands while it unwinds does not
+ * relabel what stopped the turn.
+ */
+function cancelledFirst(facts: TurnFacts): boolean {
+  return facts.cancelled && !facts.hostStop;
+}
+
+/**
  * Classify a turn whose backend call resolved. A resolved startTurn is not a
  * successful turn: backends resolve for runtime failures and report them on
  * the terminal result frame, which the bridge recorded on the turn. A host
@@ -70,7 +83,7 @@ function hostAbort(facts: TurnFacts): { readonly recorder: "timeout" | "error"; 
  * the receipt keeps the reason.
  */
 export function classifyCompletedTurn(facts: TurnFacts): CompletedTurn {
-  const { cancelled, aborted, lastResult, stops } = facts;
+  const { aborted, lastResult, stops } = facts, cancelled = cancelledFirst(facts);
   const work: HostWorkOutcome = cancelled || aborted || lastResult === "cancelled"
     ? "cancelled"
     : lastResult === "error"
@@ -85,7 +98,7 @@ export function classifyCompletedTurn(facts: TurnFacts): CompletedTurn {
     lifecycle: recorder,
     work,
     ...(reason !== undefined ? { reason } : {}),
-    ...(host?.hostStopped && !stops.scope ? { hostStopped: true } : {}),
+    ...(host?.hostStopped && !stops.scope ? { recorderReason: host.reason } : {}),
     cancelledBeforeStart: false,
     recorder,
     resultFailed: lastResult === "error",
@@ -120,7 +133,7 @@ type FailedTurn = TurnOutcome & {
 
 /** Classify a turn whose admission or backend call threw. */
 export function classifyFailedTurn(facts: FailedTurnFacts): FailedTurn {
-  const { cancelled, aborted, stops, egressFailure, enteredBackend, error } = facts;
+  const { aborted, stops, egressFailure, enteredBackend, error } = facts, cancelled = cancelledFirst(facts);
   const budget = stops.budget, journal = stops.journal, scope = stops.scope;
   const revoked = error instanceof AdmissionRevoked;
   const terminal = budget ?? journal ?? egressFailure ?? error;
@@ -140,7 +153,10 @@ export function classifyFailedTurn(facts: FailedTurnFacts): FailedTurn {
     lifecycle: admissionBlock ? "denied" : recorder,
     work,
     reason,
-    ...(host?.hostStopped ? { hostStopped: true } : {}),
+    // A journal or egress failure is host-owned too: its reason, not the
+    // runtime's buffered result, is the run's account.
+    ...(host?.hostStopped ? { recorderReason: host.reason }
+      : !budget && !cancelled && !revoked && (journal || egressFailure) ? { recorderReason: reason } : {}),
     cancelledBeforeStart,
     delivery,
     recorder,

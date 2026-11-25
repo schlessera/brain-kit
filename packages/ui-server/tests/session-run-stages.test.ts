@@ -174,18 +174,26 @@ describe("outcome classification", () => {
 
   test("a host stop records its own cause, never a timeout (#4565)", () => {
     for (const cause of HOST_STOP_CAUSES) {
-      const stopped = { lifecycle: "error", recorder: "error", work: "cancelled", reason: HOST_STOP_REASONS[cause], hostStopped: true };
+      const stopped = { lifecycle: "error", recorder: "error", work: "cancelled", reason: HOST_STOP_REASONS[cause], recorderReason: HOST_STOP_REASONS[cause] };
       expect(classifyCompletedTurn(facts({ aborted: true, hostStop: cause })), `COMPLETED_${cause}`).toMatchObject(stopped);
       expect(classifyFailedTurn(failed({ aborted: true, hostStop: cause })), `FAILED_${cause}`).toMatchObject({ ...stopped, delivery: "reported" });
     }
     // An abort whose owner named nothing is still the host's, not the time limit.
-    expect(classifyCompletedTurn(facts({ aborted: true }))).toMatchObject({ recorder: "error", reason: HOST_STOP_UNSPECIFIED_REASON, hostStopped: true });
-    expect(classifyFailedTurn(failed({ aborted: true }))).toMatchObject({ recorder: "error", reason: HOST_STOP_UNSPECIFIED_REASON, hostStopped: true });
-    // A cancel and a recorded journal stop keep their own account.
-    expect(classifyCompletedTurn(facts({ aborted: true, cancelled: true, hostStop: "inbox_share" }))).toMatchObject({ recorder: "cancelled" });
-    expect(classifyCompletedTurn(facts({ aborted: true, cancelled: true, hostStop: "inbox_share" })).hostStopped).toBeUndefined();
+    expect(classifyCompletedTurn(facts({ aborted: true }))).toMatchObject({ recorder: "error", reason: HOST_STOP_UNSPECIFIED_REASON, recorderReason: HOST_STOP_UNSPECIFIED_REASON });
+    expect(classifyFailedTurn(failed({ aborted: true }))).toMatchObject({ recorder: "error", reason: HOST_STOP_UNSPECIFIED_REASON, recorderReason: HOST_STOP_UNSPECIFIED_REASON });
+    // A stop is recorded only before any cancel, so a cancel that lands while
+    // it unwinds does not relabel it; a cancel on its own stays a cancel.
+    expect(classifyCompletedTurn(facts({ aborted: true, cancelled: true, hostStop: "inbox_share" })), "LATER_CANCEL_KEEPS_HOST_STOP")
+      .toMatchObject({ recorder: "error", reason: HOST_STOP_REASONS.inbox_share });
+    expect(classifyFailedTurn(failed({ aborted: true, cancelled: true, hostStop: "approval_record" })))
+      .toMatchObject({ recorder: "error", reason: HOST_STOP_REASONS.approval_record });
+    expect(classifyCompletedTurn(facts({ aborted: true, cancelled: true }))).toMatchObject({ recorder: "cancelled" });
+    expect(classifyCompletedTurn(facts({ aborted: true, cancelled: true })).recorderReason).toBeUndefined();
+    // A recorded journal stop keeps the journal's own words, and the run
+    // records them over a runtime's cancelled result.
     const journal = new Error("journal storage failed");
-    expect(classifyFailedTurn(failed({ aborted: true, hostStop: "change_journal", stops: { journal } }))).toMatchObject({ recorder: "error", reason: journal.message });
+    expect(classifyFailedTurn(failed({ aborted: true, hostStop: "change_journal", stops: { journal } })), "JOURNAL_STOP_REASON_RECORDED")
+      .toMatchObject({ recorder: "error", reason: journal.message, recorderReason: journal.message });
   });
 
   test("a host stop is kept only when nothing ended the turn first, and keeps its error as the abort reason", () => {
