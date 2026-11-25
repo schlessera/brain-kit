@@ -1,5 +1,7 @@
 /** Real FULL SQLite writers, loopback transport and backend permission bindings. */
 import { expect, test } from "bun:test";
+import { watchdogMs } from "../../../scripts/test-deadlines";
+import * as pendingWriter from "./fixtures/pending-safety-writer";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
@@ -229,6 +231,85 @@ const get = (socketPath: string, target: string) => new Promise<number>((resolve
   const req = request({ socketPath, path: target }, res => { res.resume(); res.once("end", () => resolve(res.statusCode!)); res.once("error", reject); });
   req.once("error", reject); req.end();
 });
+
+for (const mode of ["allowed", "tainted", "lost", "tool"] as const) {
+  test(`sibling evidence settlement during ${mode} admission`, async () => {
+    const f = await fixture();
+    const hits: string[] = [];
+    const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) {
+      hits.push(new URL(req.url).pathname);
+      return new Response("Ithaca");
+    } });
+    const read = f.safety.read.bind(f.safety);
+    let pendingRead: (() => void) | undefined;
+    f.safety.read = (...args) => {
+      const snapshot = read(...args);
+      if (!snapshot.recordingAvailable) pendingRead?.();
+      return snapshot;
+    };
+    const submitted = Promise.withResolvers<void>();
+    const bridge: BackendBridge = { emit() {}, admissionSafety: f.safety,
+      requestPermission: async () => ({ behavior: "deny", message: "Odysseus declines" }) };
+    const proxy = await prepareTurnEgress({
+      policy: resolveGovernancePolicy({ schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }),
+      bridge, controller: f.controller, turnId: "voyage", sessionId: () => "ithaca", model: () => null,
+      profile: "governed", origin: "voice", governanceDb: f.db, record: f.writes.record,
+      governanceWrites: { ...f.writes, firstTaint: (...args) => {
+        const pending = f.writes.firstTaint(...args);
+        submitted.resolve();
+        return pending;
+      } },
+    });
+    const channel = f.writer.channel(pendingWriter, undefined);
+    const entered = new Int32Array(new SharedArrayBuffer(4)), gate = new Int32Array(new SharedArrayBuffer(4));
+    const release = () => { Atomics.store(gate, 0, 1); Atomics.notify(gate, 0); };
+    const requests: Promise<number>[] = [];
+    let hold: Promise<unknown> | undefined;
+    try {
+      if (mode === "lost") f.db.exec("CREATE TRIGGER lost_notice BEFORE INSERT ON governance_events WHEN NEW.kind='taint' BEGIN SELECT RAISE(FAIL,'Harbour notice unavailable'); END");
+      await channel.ready;
+      hold = channel.call("hold", entered, gate, watchdogMs(15000));
+      requests.push(get(proxy.socketPath, new URL("/first", origin.url).href));
+      await submitted.promise;
+      expect(f.state().reasons).toContain("recording_pending");
+      let tool: Promise<unknown> | undefined;
+      if (mode === "tool") {
+        const wiring = createPermissionWiring({ req: { prompt: "Read the harbour notice", bridge, signal: f.controller.signal },
+          allowedTools: ["Read"], confirmPatterns: [], brainPath: f.root, turnLock: { releaseForTool() {} } as never, childEnv: {}, log() {} });
+        const hook = wiring.hooks!.PreToolUse!.find(group => !group.matcher)!.hooks[0]!;
+        tool = hook({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "harbour.md" },
+          tool_use_id: "notice" } as never, "notice", { signal: f.controller.signal });
+      } else {
+        for (let sibling = 0; sibling < 3; sibling++) {
+          const seen = Promise.withResolvers<void>();
+          pendingRead = seen.resolve;
+          const target = new URL(`/sibling-${sibling}`, origin.url);
+          if (mode === "tainted") target.hostname = "localhost";
+          requests.push(get(proxy.socketPath, target.href));
+          await seen.promise;
+          pendingRead = undefined;
+        }
+      }
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(hits).toEqual([]);
+      release();
+      if (tool) expect(await tool, "SETTLED_TOOL_ADMISSION").toEqual({ continue: true });
+      const statuses = await Promise.all(requests);
+      await proxy.settled();
+      const siblings = queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })
+        .map(row => row.payload).filter(row => typeof row.path === "string" && row.path.startsWith("/sibling"));
+      if (mode !== "tool") {
+        expect(siblings.map(row => row.reason ?? row.outcome), "SIBLING_EGRESS_CAUSE")
+          .toEqual(Array(3).fill(mode === "allowed" ? "completed" : mode === "tainted" ? "taint_not_allowed" : "egress_unavailable"));
+        expect(statuses.slice(1)).toEqual(Array(3).fill(mode === "allowed" ? 200 : mode === "tainted" ? 403 : 503));
+      }
+      expect(statuses[0]).toBe(mode === "lost" ? 503 : 200);
+      expect(hits.length).toBe(mode === "allowed" ? 4 : mode === "lost" ? 0 : 1);
+    } finally {
+      release(); await hold; await Promise.allSettled(requests); proxy.stop(); await proxy.settled(); origin.stop(true); await f.close();
+    }
+  });
+}
 
 test("an independent connection cannot borrow another request's own-input authority; dispatched legacy grants still work", async () => {
   const f = await fixture(); let reached = 0, admissions = 0;

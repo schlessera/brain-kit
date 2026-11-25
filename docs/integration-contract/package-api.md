@@ -6264,8 +6264,11 @@ changes still invalidate the decision. An unknown collection does not become
 clean through this exclusion.
 
 An operation-specific recorder failure is 503 egress_unavailable. A different
-recorder’s loss or an independent pending input changes the safety context and
-refuses with 403 safety_changed. The internal optional
+recorder’s loss changes the safety context and refuses with 403 safety_changed.
+When an independent evidence reservation is the only recording block, the
+proxy, inference relay and PreToolUse admission wait up to two seconds and
+check the settled evidence and current authority before proceeding. A
+reservation still pending at the deadline retains the stale-safety refusal. The internal optional
 AdmissionSafetySnapshot.operationRecordingAvailable distinguishes the two;
 legacy snapshots without that detail retain conservative unavailable behavior.
 

@@ -13,6 +13,29 @@ import { workerIdentityHelper } from "./worker-identity.js";
 import { join } from "node:path";
 import { safetySnapshotRefusal, type AdmissionSafety, type AdmissionSafetySnapshot } from "./admission-safety.js";
 
+/** A readable may emit its last data and end together. Hold both in order,
+ * applying backpressure while this connection waits for another writer. */
+function guardedStream(source: { pause(): unknown; resume(): unknown }, wait: () => Iterable<Promise<void>>) {
+  let queued: Array<() => void> | undefined;
+  const resume = () => { if (!queued) source.resume(); };
+  const on = <Args extends unknown[]>(handle: (...args: Args) => void) => async (...args: Args) => {
+    if (queued) { queued.push(() => handle(...args)); return; }
+    for (const pending of wait()) {
+      if (!queued) {
+        queued = [() => handle(...args)];
+        source.pause();
+      }
+      await pending;
+    }
+    if (!queued) { handle(...args); return; }
+    const ready = queued;
+    queued = undefined;
+    resume();
+    for (const deliver of ready) deliver();
+  };
+  return { on, resume };
+}
+
 export const WORKER_EGRESS_DIR = "/run/brain-egress";
 export const WORKER_EGRESS_SOCKET = `${WORKER_EGRESS_DIR}/proxy.sock`;
 /** What the worker bootstrap sets so a tool's network reaches the turn proxy; a tool spawn must keep them. */
@@ -381,6 +404,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
     const readSafety=()=>options.admissionSafety?.read(options.pendingReservations?.(connectionId));
+    function* pendingRecording() {
+      try {
+        yield* options.admissionSafety?.pendingRecording?.(snapshot, controller.signal,
+          () => options.pendingReservations?.(connectionId)) ?? [];
+      } catch { finish("denied", "egress_unavailable"); }
+    }
     const approvalRevision = (own = false, outward = false) => options.taint?.approvalRevision?.(own || !outward ? connectionId : undefined, outward ? "outward" : "network") ?? JSON.stringify(readSafety());
     const grantCurrent = (own = false) => {
       if (!granted && !outwardApproved) return true;
@@ -410,6 +439,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     const narrowed = (final = false) => recipientDecision(final) === null;
     const narrowing = async () => {
+      for (const pending of pendingRecording()) await pending;
+      if (options.admissionSafety?.pendingRecording) {
+        if (!lifecycle.active() || refuseSafety(readSafety(), snapshot)) return false;
+      }
       if (!narrowed()) return true;
       const ask = options.taint?.approve;
       if (!ask) { finish("denied","taint_not_allowed"); return false; }
@@ -447,7 +480,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!lifecycle.active()) return false;
       try { snapshot = readSafety(); }
       catch { finish("denied","egress_unavailable");return false; }
-      if (refuseSafety(snapshot,snapshot)) return false;
+      for (const pending of pendingRecording()) await pending;
+      if (!lifecycle.active() || refuseSafety(snapshot?.recordingAvailable === false ? readSafety() : snapshot, snapshot)) return false;
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
@@ -475,8 +509,13 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (!await narrowing() || !lifecycle.active()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
-      try { if (!await lifecycle.effect(() => options.admitted?.({ host, port, method, inference, provider, managedReference, connectionId, protocol:url.protocol }))) return false; }
-      catch (error) { if (error instanceof EgressAdmissionRefused && error.reason === "source_trust_changed") revokeInput(); else if (error instanceof EgressAdmissionRefused) finish("denied", error.reason); else finish("failed", "proxy_error"); return false; }
+      try {
+        for (const pending of pendingRecording()) await pending;
+        if (options.admissionSafety?.pendingRecording) {
+          if (!lifecycle.active() || refuseSafety(readSafety(), snapshot)) return false;
+        }
+        if (!await lifecycle.effect(() => options.admitted?.({ host, port, method, inference, provider, managedReference, connectionId, protocol:url.protocol }))) return false;
+      } catch (error) { if (error instanceof EgressAdmissionRefused && error.reason === "source_trust_changed") revokeInput(); else if (error instanceof EgressAdmissionRefused) finish("denied", error.reason); else finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     });
@@ -525,7 +564,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { observeUsage, mark, host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, receiveHead, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { pendingRecording, observeUsage, mark, host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, receiveHead, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -550,25 +589,29 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     };
     void (async () => {
-      if (!await op.admit() || client.destroyed || !op.receive(head.length).ok || !op.prepare().ok) {
+      if (!await op.admit() || client.destroyed || !op.prepare().ok) {
         refuseConnect();return;
       }
+      for (const pending of op.pendingRecording()) await pending;
+      if (!op.receive(head.length).ok) { refuseConnect(); return; }
       const address = op.pinned();
       const sent=op.dispatch(()=>{upstream=track(connect({host:address?.address??op.dialHost,port:Number(target.port||80),signal:op.signal}));});
       if(!sent.ok){refuseConnect();return;}
       const tunnel = upstream!;
-      tunnel.once("connect", () => {
+      const fromTunnel = guardedStream(tunnel, op.pendingRecording);
+      const fromClient = guardedStream(client, op.pendingRecording);
+      tunnel.once("connect", fromTunnel.on(() => {
         if (stopped || op.signal.aborted || client.destroyed || !op.charge(0).ok) { tunnel.destroy(); return; }
         connected = true;
         client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
         if (head.length) tunnel.write(head);
-        client.on("data", chunk => { if (!op.receive(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!tunnel.write(chunk)) client.pause(); });
-        tunnel.on("data", chunk => { if (!op.receive(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!client.write(chunk)) tunnel.pause(); });
-        tunnel.on("drain", () => client.resume()); client.on("drain", () => tunnel.resume());
-      });
+        client.on("data", fromClient.on((chunk: Buffer) => { if (!op.receive(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!tunnel.write(chunk)) client.pause(); }));
+        tunnel.on("data", fromTunnel.on((chunk: Buffer) => { if (!op.receive(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!client.write(chunk)) tunnel.pause(); }));
+        tunnel.on("drain", fromClient.resume); client.on("drain", fromTunnel.resume);
+      }));
       tunnel.once("error",upstreamFailed);
-      tunnel.once("end", () => { if (!op.charge(0).ok) { client.destroy(); tunnel.destroy(); return; } client.end(); });
-      client.once("end", () => { if (!op.charge(0).ok) { client.destroy(); tunnel.destroy(); return; } tunnel.end(); });
+      tunnel.once("end", fromTunnel.on(() => { if (!op.charge(0).ok) { client.destroy(); tunnel.destroy(); return; } client.end(); }));
+      client.once("end", fromClient.on(() => { if (!op.charge(0).ok) { client.destroy(); tunnel.destroy(); return; } tunnel.end(); }));
       client.once("close", () => tunnel.destroy());
       tunnel.once("close", () => {if(connected||op.outcome()!=="failed")client.destroy();});
     })().catch(error => {if(error instanceof TransportHandoffFailed)upstreamFailed();else{op.finish("failed","proxy_error");client.destroy();}});
@@ -592,6 +635,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     void (async () => {
       if (!await op.admit() || response.destroyed) { refuse(); return; }
+      for (const pending of op.pendingRecording()) await pending;
       if(!op.receiveHead(`${request.method} ${request.url} HTTP/${request.httpVersion}`,request.rawHeaders).ok){refuse();return;}
       const outgoingHeaders = { ...headers(request), host: target.host, connection: "close" };
       const address = op.pinned();
@@ -606,24 +650,27 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         catch(error){if(error instanceof TransportHandoffFailed){upstreamFailed();return false;}}
         outgoing?.destroy();if(!response.headersSent)refuse();else response.destroy();return false;
       };
+      for (const pending of op.pendingRecording()) await pending;
       const dispatched=sendUpstream(()=>{outgoing=httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal,
         // This operation owns its connection. A pooled socket can have an
         // unread origin FIN when another independently fenced request takes it.
-        agent: false }, incoming => {
+        agent: false }, async incoming => {
+        incoming.once("error", () => { op.finish("failed", "upstream_response_failed"); response.destroy(); });
+        for (const pending of op.pendingRecording()) await pending;
+        const fromOrigin = guardedStream(incoming, op.pendingRecording);
         if (!op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders).ok) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
         }
         const writeHeaders = () => { if (!response.headersSent) response.writeHead(incoming.statusCode ?? 502, headers(incoming)); };
-        incoming.on("data", chunk => {
+        incoming.on("data", fromOrigin.on((chunk: Buffer) => {
           if (!op.receive(chunk.length + 16).ok) {
             if (!response.headersSent) refuse(); else response.destroy();
             incoming.destroy(); outgoing.destroy(); return;
           }
           writeHeaders(); if (!response.write(chunk)) incoming.pause();
-        });
-        response.on("drain", () => incoming.resume());
-        incoming.once("end", () => { if (!response.destroyed && !response.writableEnded) { if (!op.charge(0).ok) { response.destroy(); return; } writeHeaders(); response.end(); } });
-        incoming.once("error", () => { op.finish("failed", "upstream_response_failed"); response.destroy(); });
+        }));
+        response.on("drain", fromOrigin.resume);
+        incoming.once("end", fromOrigin.on(() => { if (!response.destroyed && !response.writableEnded) { if (!op.charge(0).ok) { response.destroy(); return; } writeHeaders(); response.end(); } }));
       });});
       if(!dispatched)return;
       outgoing.on("information",incoming=>{
@@ -639,9 +686,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       op.signal.addEventListener("abort", () => { outgoing.destroy(); if (op.outcome() === "cancelled") response.destroy(); }, { once: true });
       outgoing.once("error",upstreamFailed);
       response.once("close", () => outgoing.destroy());
-      request.on("data", chunk => { if (!op.receive(chunk.length + 16).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } let accepted=false;if(!sendUpstream(()=>{accepted=outgoing.write(chunk);}))return;if(!accepted)request.pause(); });
-      outgoing.on("drain", () => request.resume());
-      request.once("end", () => { if (!op.charge(0).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } sendUpstream(()=>{outgoing.end();}); });
+      const fromWorker = guardedStream(request, op.pendingRecording);
+      request.on("data", fromWorker.on((chunk: Buffer) => { if (!op.receive(chunk.length + 16).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } let accepted=false;if(!sendUpstream(()=>{accepted=outgoing.write(chunk);}))return;if(!accepted)request.pause(); }));
+      outgoing.on("drain", fromWorker.resume);
+      request.once("end", fromWorker.on(() => { if (!op.charge(0).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } sendUpstream(()=>{outgoing.end();}); }));
       request.once("error", () => { op.finish("cancelled", "client_disconnected"); outgoing.destroy(); });
     })().catch(() => { op.finish("failed", "proxy_error"); response.destroy(); });
   });
@@ -690,7 +738,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     signal.addEventListener("abort", abort, { once: true });
     op.ownCleanup(()=>signal.removeEventListener("abort",abort));
     if (signal.aborted) abort();
-    return { observeUsage: op.observeUsage, mark: op.mark, charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason, failure: op.failure,
+    return { ...(options.admissionSafety?.pendingRecording ? { pendingRecording: op.pendingRecording } : {}), observeUsage: op.observeUsage, mark: op.mark, charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason, failure: op.failure,
       admit: async () => !op.signal.aborted && await op.admit(),
       prepare:op.prepare,dispatch:op.dispatch,
       finish:op.finish,

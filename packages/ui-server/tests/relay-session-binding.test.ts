@@ -193,7 +193,7 @@ for (const kind of ["inference", "provider"] as const) {
     });
   }
 
-  test(`${kind} does not join or exempt an independent pending input after binding`, async () => {
+  test(`${kind} refuses an independent input that stays pending past the admission deadline`, async () => {
     const f = await adverseFixture(kind);
     try {
       f.announce(); await f.catalog.settled!();
@@ -208,6 +208,24 @@ for (const kind of ["inference", "provider"] as const) {
       expect(f.requests(), "INDEPENDENT_PENDING_INPUT_NEVER_REACHES_PROVIDER").toBe(0);
       expect(f.reads.some(value => !value.recordingAvailable)).toBe(true);
       held.release();
+    } finally { await f.close(); }
+  });
+
+  if (kind === "inference") test("inference resumes when independent evidence submitted during credential lookup settles", async () => {
+    const f = await adverseFixture(kind, true);
+    try {
+      f.announce(); await f.catalog.settled!();
+      const response = f.send();
+      await f.finalReached;
+      const held = await f.hold();
+      f.track(f.writes.firstTaint({ kind: "taint", turnId: "voyage", sessionId: "ithaca", actor: "interactive", model: null, profile: null,
+        payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus harbour notice" } }));
+      f.releaseFinal();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(f.requests()).toBe(0);
+      held.release();
+      expect((await response).status, "SETTLED_INFERENCE_DISPATCH").toBe(200);
+      expect(f.requests()).toBe(1);
     } finally { await f.close(); }
   });
 
