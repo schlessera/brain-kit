@@ -196,16 +196,26 @@ function watchNavigation(root: BrainUiRoot, moved: () => void): () => void {
 function backToBranch(root: BrainUiRoot, fromId: string): void {
   const drafts = root.stores.drafts.getState();
   const from = drafts.drafts[fromId];
-  if (from?.sessionId !== null || !from) return;
+  if (!from) return;
+  const chat = root.stores.chat.getState();
+  const show = (sessionId: string) => {
+    if (chat.activeSessionId === sessionId) return;
+    chat.setActiveSession(sessionId);
+    root.connection.send({ type: "session_resume", sessionId });
+  };
+  // A branch that gained its own chat since: that chat.
+  if (from.sessionId !== null) { show(from.sessionId); return; }
   const sessionId = from.deviceConflict?.sessionId ?? null;
   if (sessionId !== null) {
     drafts.showDeviceBranch(sessionId, fromId);
-    if (root.stores.chat.getState().activeSessionId !== sessionId) root.stores.chat.getState().setActiveSession(sessionId);
-  } else {
-    // A branch of no chat is the new-chat view's: the gone chat leaves the screen with it.
-    root.stores.chat.getState().clearMessages();
-    root.stores.drafts.getState().openUnbound(fromId);
+    show(sessionId);
+    return;
   }
+  // Already in view: nothing to change, and the new chat's transcript stays.
+  if (chat.activeSessionId === null && drafts.fresh === fromId) return;
+  // A branch of no chat is the new-chat view's: the chat on screen leaves with it.
+  if (chat.activeSessionId !== null) chat.clearMessages();
+  root.stores.drafts.getState().openUnbound(fromId);
 }
 
 /**

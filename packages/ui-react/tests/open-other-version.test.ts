@@ -394,3 +394,34 @@ test("returning to a branch of no chat takes the gone chat off the screen", asyn
   expect(drafts.getState().fresh).toBe(BRANCH);
   expect(drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "chat_gone" });
 });
+
+test("a missing version opened from a branch of no chat already in view leaves its transcript and pending first message", async () => {
+  const root = createBrainUiRoot({ storage: null, request: async () => Response.json({}) });
+  roots.push(root);
+  const drafts = root.stores.drafts;
+  const chat = root.stores.chat;
+  const original = drafts.getState().fresh;
+  drafts.getState().edit(original, null, { text: "Telemachus checks the harbour" });
+  drafts.getState().keepDeviceBranch(original, BRANCH, { draftId: original, sessionId: null, text: OTHER_TEXT, attachments: [], editedAt: 1, host: null }, null);
+  chat.getState().addUserMessage(null, "Sail for Ithaca at dawn", "typed");
+  chat.getState().startDraftTurn();
+  drafts.setState((st) => { const d = { ...st.drafts }; delete d[original]; return { drafts: d }; });
+  openOtherVersion(root, original, BRANCH);
+  await turn();
+  expect(drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "missing" });
+  expect(chat.getState().pendingDraftId, "PENDING_TURN_KEPT").not.toBeNull();
+  expect(chat.getState().draft?.messages.length).toBeGreaterThan(0);
+});
+
+test("a missing version from a branch that gained its own chat returns to that chat", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  // The branch was sent as a new conversation: it is that chat's draft now.
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [BRANCH]: { ...st.drafts[BRANCH]!, sessionId: "odysseus-voyage" } } }));
+  s.chat.getState().setActiveSession("odysseus-voyage");
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.drafts.getState().hostGone(s.original);
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(s.chat.getState().activeSessionId, "BACK_TO_BRANCH_CHAT").toBe("odysseus-voyage");
+  expect(s.drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "missing" });
+});
