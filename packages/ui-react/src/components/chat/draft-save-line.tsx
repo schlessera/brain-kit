@@ -6,7 +6,7 @@ import type { BrainUiRoot } from "../../root.js";
 import { SAVING_SHOWN_AFTER_MS, draftSaveView } from "../../lib/drafts.js";
 import { VERSION_SWITCH_COPY } from "../../lib/draft-indicator.js";
 import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
-import { holdsSnapshots, type DraftConflictChoice } from "../../stores/draft-state.js";
+import { hasContent, holdsSnapshots, type DraftConflictChoice } from "../../stores/draft-state.js";
 
 /**
  * The line under the composer while a draft exists (D52 §5): `draft ·
@@ -44,6 +44,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   if (draft?.deviceConflict && !draft.conflict && (!localFailed || switchNote)) return (
     <div className="mx-auto mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 px-1 font-mono text-[10.5px] leading-4 text-foreground" data-device-conflict="">
       {localFailed ? null : <span role="status">Another tab changed this draft · Both versions kept</span>}
+      {draft.failure?.kind === "refused" && draft.failure.edit === draft.edit ? <span className="text-primary" data-draft-save="refused">· not saved · refused by the brain</span> : null}
       {switchNote ? <span data-version-switch={switchNote}>{localFailed ? "" : "· "}{VERSION_SWITCH_COPY[switchNote]}</span> : null}
       <TextButton tone="inherit" label="Open other version" onClick={() => openOtherVersion(root, draft.deviceConflict!.otherId, draftId)} />
     </div>
@@ -161,7 +162,8 @@ export function openOtherVersion(root: BrainUiRoot, otherId: string, fromId: str
     else drafts.getState().openDeviceVersion(otherId);
     if (controller.signal.aborted) { note("cancelled"); return; }
     unwatch.forEach(stop => stop());
-    const found = (id: string | undefined) => (id && drafts.getState().drafts[id] ? id : undefined);
+    // Where its content is: an emptied record the device kept under the old id is not it.
+    const found = (id: string | undefined) => { const d = id ? drafts.getState().drafts[id] : undefined; return d && (hasContent(d) || holdsSnapshots(d)) ? id : undefined; };
     const target = found(otherId) ?? found(drafts.getState().versionHome(otherId)) ?? found(before);
     if (!target) {
       // Opening the missing version released this branch's place in its chat: it gets it back.

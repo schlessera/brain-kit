@@ -774,6 +774,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const current = store.drafts[draftId];
     if (current && draftFilesOf(current).some((f) => f.lineage !== current.draftId)) { setEffortNotice("Your draft is kept. Remove the files marked not attached, or choose them again, before sending."); return; }
     if (current?.conflict) { setEffortNotice("Your draft is kept. Choose which version to keep before sending."); return; }
+    // One snapshot is created at a time (#4567): text typed while the last
+    // one's save is out stays here until the host has it, then sends.
+    if (current && (!current.failure || current.failure.kind === "unsaved") && draftSnapshots(current).some((x) => !x.replaces && !current.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId))) {
+      setEffortNotice("Your draft is kept. Send waits until your last message is saved."); return;
+    }
     // A refused save does not hold Send: the send is the next edit, saved again (#4566).
     if (current?.failure && current.failure.kind !== "unsaved" && current.failure.kind !== "refused") { setEffortNotice("Your draft is kept. Its files couldn't be saved with it; remove one and try again."); return; }
     // A typed answer to a pending question is still an answer, never a message (D38 §1).

@@ -840,10 +840,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       versionHome(draftId) {
+        // An emptied record left under the old id (a device tombstone) is not where the content went.
+        const holds = (id: string) => { const d = get().drafts[id]; return !!d && (hasContent(d) || holdsSnapshots(d)); };
         let id = draftId;
         const visited = new Set<string>();
-        while (!get().drafts[id] && successors.has(id) && !visited.has(id)) { visited.add(id); id = successors.get(id)!; }
-        return get().drafts[id] ? id : undefined;
+        while (!holds(id) && successors.has(id) && !visited.has(id)) { visited.add(id); id = successors.get(id)!; }
+        return holds(id) ? id : undefined;
       },
       detachVersion(draftId) {
         const d = get().drafts[draftId];
