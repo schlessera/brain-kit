@@ -87,7 +87,7 @@ export const MARKER_CLUSTER_GAP = 20;
 /** The future zone's share of the plot width. */
 export const FUTURE_SHARE = 0.2;
 /** A gutter label's text starts this far right of the plot: a 6px gap and its 16px dash sample. */
-export const GUTTER_TEXT_OFFSET = 22;
+const GUTTER_TEXT_OFFSET = 22;
 /** Height of the event lane under the x axis. */
 const EVENT_LANE = 28;
 

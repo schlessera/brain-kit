@@ -13,6 +13,7 @@ import {
   SHORT_FLAT,
   SHORT_GAP,
   SHORT_NONE,
+  SHORT_SCOPE,
   SHORT_VERY_LOW,
   allUnknown,
   singlePoint,
@@ -296,12 +297,13 @@ export const ScopeChangeDesktop = ScopeChange.extend({ ...desktop });
  */
 export const ScopeChangeAtNow = meta.story({
   ...phone,
-  args: { points: scopeChangedAtNow, markers: [], scenarios: [SHORT_NONE, LONG_SCOPE] },
+  args: { points: scopeChangedAtNow, markers: [], scenarios: [SHORT_SCOPE, LONG_SCOPE] },
   play: async (ctx) => {
     const { svg } = await open(ctx);
     await expect(parts(svg, "scope-break")).toHaveLength(1);
     const said = (svg.textContent ?? "") + caption(ctx.canvasElement).join(" ");
     await expect(said).toContain("\u21ba scope changed");
+    await expect(caption(ctx.canvasElement)).toContain("No projection \u00b7 volume changed in the window");
   },
 });
 export const ScopeChangeAtNowDesktop = ScopeChangeAtNow.extend({ ...desktop });

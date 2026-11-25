@@ -127,6 +127,7 @@ export const scopeChanged: HistoryPoint[] = sixHourFull.map((p) =>
   p.at < SCOPE_CHANGE_AT ? { at: p.at, value: p.value === null ? null : p.value + 3.4 * GB, otherScope: true } : p,
 );
 export const LONG_SCOPE: HistoryScenario = { window: "long", name: "30-day", reason: projectionReasonText("changed-scope") };
+export const SHORT_SCOPE: HistoryScenario = { window: "short", name: "7-day", reason: projectionReasonText("changed-scope") };
 
 export const allUnknown: HistoryPoint[] = sixHourFull.map((p) => ({ at: p.at, value: null }));
 export const SHORT_NONE: HistoryScenario = { window: "short", name: "7-day", reason: projectionReasonText("no-observation") };
