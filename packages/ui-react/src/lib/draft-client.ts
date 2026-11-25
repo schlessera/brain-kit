@@ -138,7 +138,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     // and the host refuses an empty one. It waits for content or a file
     // chosen again; what the host still holds of it (older text, deleted
     // snapshots) is deleted there.
-    if (!saveable(d)) return (d.host !== null || d.uncertain) && !held(d.draftId);
+    // Only after a change here: a draft restored clean (its device record keeps no snapshots) is not emptied.
+    if (!saveable(d)) return (d.host !== null ? d.host.edit !== d.edit : d.uncertain) && !held(d.draftId);
     return d.host === null || d.host.edit !== d.edit;
   }
 

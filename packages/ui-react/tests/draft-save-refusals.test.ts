@@ -711,13 +711,17 @@ test("a delete refused for a message still waiting there brings that message bac
   const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const, createdAt: 5 };
   const current = { draftId: "", sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [], snapshots: [held] };
   const s = scene({ snapshots: true, remove: async () => { deletes++; return { ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "A message of this draft is still waiting.", current: { ...current, draftId: s.id } } }; } });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [] });
   s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [], editedAt: 1, edit: 3,
     host: { revision: 3, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ ...held }], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
   await run(LONG);
   const d = s.drafts.getState().drafts[s.id]!;
   expect(deletes, "WAITING_MESSAGE_NOT_DELETED_AGAIN").toBe(1);
   expect(d.snapshots?.map((x) => x.snapshotId), "WAITING_MESSAGE_BACK").toEqual(["snap-held"]);
-  expect(d.host?.revision).toBe(3);
+  // Saved over the host's revision, with the waiting message listed.
+  expect(s.rows.get(s.id)?.revision, "SAVED_OVER_HOST_REVISION").toBe(4);
+  expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.snapshotId)).toEqual(["snap-held"]);
+  expect(d.host?.edit).toBe(d.edit);
 });
 
 test("after a lost save, a delete refused for a waiting message brings it back instead of repeating", async () => {
