@@ -1516,9 +1516,10 @@ hostStopOutcomeDetail(cause), hostStopFromOutcomeDetail(detail)   // exported fr
   that text reads as the user refusing the tool; a client shows the host's
   stop instead.
 - **Activity.** The turn's run ends `outcome: "error"` with a reason naming
-  the cause (`Stopped by the host: …`) where it used to end `timeout`, and
-  the interrupted tool's span records that reason instead of the runtime's
-  text. A host stop no longer records `timeout`; the host's elapsed-time
+  the cause (`Stopped by the host: …`) where it used to end `timeout`. A
+  journal stop the turn's own journal raised keeps the journal's words on the
+  run instead. The interrupted tool's span records the cause's
+  `Stopped by the host: …` reason instead of the runtime's text. A host stop no longer records `timeout`; the host's elapsed-time
   limit and a runtime's own `max_turns` or `max_budget` stop still do, and
   `timeout` keeps its meaning.
 - **Apify.** Actor runs that a host-stopped turn started and that are still

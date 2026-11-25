@@ -727,7 +727,7 @@ on its cancelled result, `detail: "Stopped by the host"` on its
 `status: cancelled`, and `tool_result.hostStop` on the result of a tool it cut
 short, whose `output` the model already received is unchanged. Its Activity
 run ends `error` with a reason naming the cause, and the interrupted tool's
-span records the same reason. A host stop no longer records `timeout`; the
+span records the cause's host-stop reason. A host stop no longer records `timeout`; the
 host's elapsed-time limit and a runtime's own max-turns or max-budget stop
 still do, and `timeout` keeps its meaning. A `policy_confirm` governance event
 pending when the host stopped the turn records the new `decision:
@@ -736,7 +736,8 @@ and that kind's `schema_version` becomes 2. The SDK exports
 `HostStopCause`, `HOST_STOP_CAUSES`, `HOST_STOP_OUTCOME_DETAIL_PREFIX`,
 `hostStopOutcomeDetail` and `hostStopFromOutcomeDetail`;
 `@schlessera/brain-ui-react` adds `TurnNotice` cause `host_stop` with
-`hostStop`, and `ToolCall.hostStop`. See [wire](integration-contract/wire.md#host-stops-additive-in-0450).
+`hostStop`, `ToolCall.hostStop`, and `AskUserExchange.endedBy: "host_stop"`
+for a question the stop closed. See [wire](integration-contract/wire.md#host-stops-additive-in-0450).
 This ships in a minor; no breaking ruling is required.
 
 ## Turn timeouts and runtime stop notices (additive, 0.45.0, #3356)

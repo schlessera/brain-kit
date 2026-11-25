@@ -162,7 +162,7 @@ signatures (every public export and the types it is made of)
     export interface AskUserExchange {
         requestId: string;
         terminal?: true;
-        endedBy?: "timeout";
+        endedBy?: "timeout" | "host_stop";
         turnId?: string;
         questions: AskUserQuestion[];
         list?: AskUserListSpec;

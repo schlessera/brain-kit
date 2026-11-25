@@ -632,7 +632,7 @@ function DeliveredExchange({
   // nothing left to cancel.
   const [endedDismissed, setEndedDismissed] = useState(false);
   const ended = exchange.terminal === true && !endedDismissed && (!delivery || isRefusedAdmission(delivery.state));
-  const endedBy = exchange.endedBy === "timeout" ? "timed out" : "ended";
+  const endedBy = exchange.endedBy === "timeout" ? "timed out" : exchange.endedBy === "host_stop" ? "was stopped by the host" : "ended";
   const keep = (payload: AnswerPayload) => {
     const at = Date.now();
     root.stores.chat.getState().setDelivery(exchange.requestId, {

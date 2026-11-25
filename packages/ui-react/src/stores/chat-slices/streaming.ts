@@ -9,6 +9,7 @@ import type { ChatMessage, ChatState } from "../chat-state.js";
 import type { ChatSliceContext } from "./buffers.js";
 import { withoutRetry } from "./buffers.js";
 import { textsOf } from "./transcript.js";
+import { unownedReplyIndex } from "./turn-reply.js";
 
 type StreamingSliceSlice = Pick<ChatState,
   | "finishAssistantMessage"
@@ -41,15 +42,8 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
           if (turnId) {
             index = msgs.findLastIndex((m) => m.role === "assistant" && m.turnId === turnId);
           }
-          if (index === -1) {
-            // The composer opens the turn's message before the turn has an
-            // id, and a failure with no deltas never stamps one — so the
-            // last assistant message, unless another turn owns it or it
-            // answers an earlier request (#4565).
-            const last = msgs.findLastIndex((m) => m.role === "assistant");
-            const owner = last === -1 ? undefined : msgs[last].turnId;
-            if (last !== -1 && last > msgs.findLastIndex((m) => m.role === "user") && (owner === undefined || owner === turnId)) index = last;
-          }
+          // The composer opens the turn's message before the turn has an id.
+          if (index === -1) index = unownedReplyIndex(msgs, turnId, (m) => m.turnId);
           if (index === -1) {
             msgs.push({
               id: nextId(),
@@ -83,14 +77,8 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
       mutateBuffer(key, (chat) => {
         const msgs = [...chat.messages];
         let index = turnId ? msgs.findLastIndex((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === turnId) : -1;
-        if (index === -1) {
-          // As failAssistantMessage: the last assistant message, unless
-          // another turn owns it or it answers an earlier request: a stop
-          // before this request's reply opened gets a reply of its own.
-          const last = msgs.findLastIndex((m) => m.role === "assistant");
-          const owner = last === -1 ? undefined : msgs[last].turnId ?? msgs[last].streamTurnId;
-          if (last !== -1 && last > msgs.findLastIndex((m) => m.role === "user") && (owner === undefined || owner === turnId)) index = last;
-        }
+        // As failAssistantMessage.
+        if (index === -1) index = unownedReplyIndex(msgs, turnId);
         // A failure is the one account of a stop, except the host's own stop
         // (#4565): the diagnostic error it raised does not say why it stopped.
         if (index !== -1 && ((msgs[index].failure && notice.cause !== "host_stop") || msgs[index].runtimeNotice?.cause === notice.cause)) return {};

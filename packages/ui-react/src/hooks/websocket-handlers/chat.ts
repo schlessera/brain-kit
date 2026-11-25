@@ -1,5 +1,6 @@
 import { FIRST_PARTY_FAILURE_CLASSES, HOST_TIMEOUT_OUTCOME_DETAIL, hostStopFromOutcomeDetail } from "@schlessera/brain-ui-sdk/protocol";
 import { hostStopToolOutput } from "../../lib/host-stop.js";
+import { unownedReplyIndex } from "../../stores/chat-slices/turn-reply.js";
 import { ASK_USER_FORM_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { askUserFormSpec, askUserFormPayload } from "@schlessera/brain-ui-sdk/internal/client";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
@@ -392,25 +393,22 @@ export const chatFrameHandlers = {
     // The host's hard turn limit ended it (#3356): the conversation says so,
     // and its open questions say why they closed.
     const timedOut = msg.outcome === "cancelled" && msg.outcomeDetail === HOST_TIMEOUT_OUTCOME_DETAIL;
-    context.state.endTurnQuestions(context.key, context.frameTurnId, timedOut ? "timeout" : undefined);
-    if (timedOut) context.state.setTurnNotice(context.key, { cause: "timeout" }, context.frameTurnId);
-    // The host itself stopped it (#4565): the conversation names why.
+    // The host itself stopped it (#4565): the conversation, and the
+    // questions it closed, name that instead of an unexplained end.
     const hostStop = msg.outcome === "cancelled" ? hostStopFromOutcomeDetail(msg.outcomeDetail) : undefined;
+    context.state.endTurnQuestions(context.key, context.frameTurnId, timedOut ? "timeout" : hostStop !== undefined ? "host_stop" : undefined);
+    if (timedOut) context.state.setTurnNotice(context.key, { cause: "timeout" }, context.frameTurnId);
     if (hostStop !== undefined) context.state.setTurnNotice(context.key, { cause: "host_stop", hostStop }, context.frameTurnId);
     // A tool the runtime never answered before it stopped shows the host's
     // account, not an empty finished card.
     if (hostStop) {
-      // This turn's message, or the reply to the latest request that no
-      // turn owns yet (the composer opens it before the host names its
-      // turn); never an answer to an earlier request.
+      // Every message of this turn (a diagnostic, then more text, splits
+      // it), or the reply no turn owns yet. Without a turn id on the frame
+      // nothing establishes which reply it ends.
       const messages = context.buffer()?.messages ?? [];
-      const lastIndex = messages.findLastIndex((m) => m.role === "assistant"), last = messages[lastIndex];
-      // A turn can span several messages (a diagnostic, then more text).
       const owned = context.frameTurnId ? messages.filter((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === context.frameTurnId) : [];
-      // Without a turn id on the frame nothing establishes which reply it ends.
-      const replies = owned.length ? owned
-        : context.frameTurnId && last && lastIndex > messages.findLastIndex((m) => m.role === "user")
-          && [undefined, context.frameTurnId].includes(last.turnId ?? last.streamTurnId) ? [last] : [];
+      const fallback = owned.length || !context.frameTurnId ? -1 : unownedReplyIndex(messages, context.frameTurnId);
+      const replies = owned.length ? owned : fallback === -1 ? [] : [messages[fallback]!];
       for (const tool of replies.flatMap((m) => m.toolCalls)) {
         if (tool.output === undefined && tool.status !== "denied") context.state.setToolResult(context.key, tool.id, hostStopToolOutput(hostStop), true, undefined, hostStop);
       }

@@ -246,10 +246,11 @@ export interface AskUserExchange {
   /** Host terminal state ended the unanswered exchange. */
   terminal?: true;
   /**
-   * The host's turn limit is what ended it (#3356), from the terminal frame;
-   * absent when the host did not say why the turn ended.
+   * What ended it, from the terminal frame: the host's turn limit (#3356)
+   * or the host itself stopping the turn (#4565); absent when the host did
+   * not say why the turn ended.
    */
-  endedBy?: "timeout";
+  endedBy?: "timeout" | "host_stop";
   /**
    * The host turn that raised the request, from the request frame. A card
    * rebuilt from history has none until the host re-delivers the request.
@@ -545,7 +546,7 @@ export interface ChatState {
    * `endedBy` records the host's stated reason on them, including on
    * questions an earlier terminal frame of the same turn already ended.
    */
-  endTurnQuestions: (key: ChatKey, turnId?: string, endedBy?: "timeout") => void;
+  endTurnQuestions: (key: ChatKey, turnId?: string, endedBy?: "timeout" | "host_stop") => void;
   /**
    * Record how a turn stopped (#3356) on its assistant message, as
    * `failAssistantMessage` finds it. A turn that already shows a failure
