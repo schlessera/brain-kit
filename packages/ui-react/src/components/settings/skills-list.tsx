@@ -62,7 +62,8 @@ export function SkillsList(p: SkillsListProps) {
           built-in <code>add-skill</code> skill walks through design and setup.
         </Prose>
 
-        {/* Create and Install are two field groups: two-up from 840px of pane. */}
+        {/* Create and Install are two field groups: two-up from 840px of pane.
+            Each text field keeps the 480px field cap at every width. */}
         <div className="grid items-start gap-x-3 @[840px]/settings-pane:grid-cols-2">
           <div className="mt-4 flex items-center gap-2">
             <input
@@ -72,7 +73,7 @@ export function SkillsList(p: SkillsListProps) {
                 if (e.key === "Enter" && p.newName.trim()) p.onCreate();
               }}
               placeholder="new-skill-name (kebab-case)"
-              className="min-w-0 flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+              className="min-w-0 max-w-[480px] flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
             />
             <Button label="Create" icon="add" tone="primary" size="sm" block={false} disabled={!p.newName.trim()} onClick={p.onCreate} />
           </div>
@@ -114,7 +115,7 @@ export function SkillsList(p: SkillsListProps) {
                   if (e.key === "Enter" && canInstall) p.onInstallGitHub();
                 }}
                 placeholder="GitHub: owner/repo or https://github.com/…/tree/main/skills"
-                className="min-w-0 flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+                className="min-w-0 max-w-[480px] flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
               />
               {p.installing ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden /> : null}
               <Button label="Install" icon="install" tone="ghost" size="sm" block={false} disabled={!canInstall} onClick={p.onInstallGitHub} />

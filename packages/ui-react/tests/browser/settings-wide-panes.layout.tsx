@@ -120,6 +120,9 @@ function columns(grid: HTMLElement): number {
   return tracks === "none" ? 1 : tracks.split(" ").length;
 }
 
+/** Text fields and selects; checkboxes, radios and file pickers have no measure. */
+const FIELDS = 'input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select';
+
 function overflowing(panel: HTMLElement): string[] {
   const scrollers = [document.documentElement, panel, ...panel.querySelectorAll<HTMLElement>("*")]
     .filter(element => element === document.documentElement || element === panel || ["auto", "scroll"].includes(getComputedStyle(element).overflowY));
@@ -143,6 +146,10 @@ function assertLayout(pane: (typeof PANES)[number], panel: HTMLElement, width: n
   if (width >= 1440) {
     if (pane.wide) expect.soft(container, `SETTINGS_WIDE_PANE_GROWS ${pane.name}`).toBeGreaterThan(720);
     else expect.soft(container, `SETTINGS_STANDARD_PANE_KEEPS_720 ${pane.name}`).toBe(720);
+  }
+  // A wide pane's form fields keep the 480px field cap at every width (Q2).
+  if (pane.wide) for (const field of panel.querySelectorAll<HTMLElement>(FIELDS)) {
+    expect.soft(field.getBoundingClientRect().width, `SETTINGS_FIELD_CAP ${pane.name} at ${container}: ${field.getAttribute("aria-label") ?? field.getAttribute("placeholder")}`).toBeLessThanOrEqual(480);
   }
   const prose = [...panel.querySelectorAll<HTMLElement>("[data-prose]")];
   if (pane.prose) expect.soft(prose.length, `SETTINGS_WIDE_PANE_HAS_PROSE ${pane.name}`).toBeGreaterThan(0);
@@ -180,4 +187,15 @@ for (const pane of PANES) test(`Settings ${pane.name} pane at 1920 caps content,
   const { panel } = await mount(ctx, pane, 1920, 800, "dark");
   expect(panel.closest<HTMLElement>("[data-settings-pane]")!.getBoundingClientRect().width, "SETTINGS_PANE_PAST_CAP").toBeGreaterThan(1200);
   assertLayout(pane, panel, 1920);
+});
+
+// Between the 560 and 840 breakpoints grids are two-up but field groups are
+// not, so a full-width field there would outgrow its 480px cap.
+for (const pane of PANES.filter(p => p.wide)) test(`Settings ${pane.name} pane at a 676px container keeps two-up grids and capped fields`, async ctx => {
+  const { panel } = await mount(ctx, pane, 1100, 800, "dark");
+  const container = panel.getBoundingClientRect().width;
+  expect(container, "SETTINGS_INTERMEDIATE_BAND").toBeGreaterThanOrEqual(560);
+  expect(container, "SETTINGS_INTERMEDIATE_BAND").toBeLessThan(840);
+  if (pane.name === "skills") expect(panel.querySelectorAll(FIELDS).length, "SETTINGS_SKILLS_HAS_FIELDS").toBe(2);
+  assertLayout(pane, panel, 1100);
 });
