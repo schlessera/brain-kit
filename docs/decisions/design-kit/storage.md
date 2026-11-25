@@ -100,6 +100,9 @@ Brain tiles use a solid outline; App uses hatching and an owner label; backups
 use a neutral dashed outline. The legend spells out ownership. Existing dark
 and paper tokens apply, and neither ownership nor state depends on color.
 
+> **2026-11-25 — Superseded by D8 ([the composed pane](#2026-11-25--the-composed-pane-volumes-history-breakdown-and-tools-4537-4549)).** Ownership
+> is tint, edge and label; App is a dotted edge, never hatching.
+
 The list has the same hierarchy and denominator as the map, with name, owner,
 size, percent and a bar. Sort by size or name; search within the current node.
 Lists over 200 children page in 200s. Refresh reports changes without reordering
@@ -429,6 +432,10 @@ Each tile names **name, owner, size, percent of parent**; the aggregate names
 **N smaller items, size. Open list.** Its description points to the equivalent
 list, which can be used without geometry.
 
+> **2026-11-25 — Pane order superseded ([the composed pane](#2026-11-25--the-composed-pane-volumes-history-breakdown-and-tools-4537-4549)).** Header,
+> banner, volumes, history, breakdown (with Find large files as its mode), Free
+> up space, About these numbers. The map, list and keyboard rules below hold.
+
 The sortable table uses `aria-sort`; selection checkboxes name file, size and
 status. Space toggles; Enter opens the file sheet. Disabled reasons are
 descriptions visible at rest. Drilling down focuses the current breadcrumb;
@@ -510,3 +517,115 @@ cleanup; new journal/backup/session expiry; and retention defaults. These need
 separate scope and, where they remove recovery or broaden access, separate
 maintainer decisions. The approved S1-S4 choices and complete UI design do not
 need another approval round.
+
+## 2026-11-25 — The composed pane: volumes, history, breakdown and tools (#4537, #4549)
+
+The maintainer's [epic rulings](https://github.com/schlessera/brain-kit/issues/4537)
+(D1–D16, 2026-11-24) and the [composition brief and its decision](https://github.com/schlessera/brain-kit/issues/4549)
+(2026-11-25) replace the prose pane above. The 2026-10-16 entry still binds
+for numbers, ownership semantics, eligibility, review, removal, recovery and
+maintenance ownership; where the two differ, this entry controls. The
+components are the kit's (#4542–#4545); the derivations are ui-react's
+(#4546); the pane composes them in `StorageSession`
+(`packages/ui-react/src/components/settings/storage-tab.tsx:63-381`).
+
+| Ruling | What the pane does | Supersedes |
+| --- | --- | --- |
+| D2 | The map and the ranked list sit side by side from 840px of section and stack below it; below 560px the map is a 120px strip. The owner switch (All · Brain · App · Operator), the size basis and search sit above them. | "list only" and map-above-list ordering |
+| D3 | **Available space over time** is a main section after the volumes, following the selected volume, with Recent, Daily and Weekly. The exact endpoints sit behind **Measurements behind this chart**. | The always-visible observations section |
+| D4 | One attention banner, only when a volume is Low or Very low: one sentence and one link, **Free up space ↓**. | Cleanup prose above the fold |
+| D5 | The wording is **available**, never "free": "16.4 GB available of 161 GB". | — |
+| D6 | Storage is a wide Settings pane (#4538); the pane has no width cap of its own. Prose keeps the 68ch measure. | The 720px column |
+| D7 | Volumes are named from their contents on the client (Brain disk, App data disk, Memory (tmpfs), Unidentified volume), never after the loudest store. | "Disk · data volume" for every card |
+| D8 | Ownership is tint, edge and label: Brain solid, App dotted, Operator dashed, the smaller aggregate a neutral outline, an owner letter on tiles large enough to carry it. No hatching. | "App uses hatching" (Exploration and selection) |
+| D9 | One dashed line per qualified window, labelled with its window; see [storage guidance](../storage-guidance.md#2026-11-25--scenario-drawing-and-shared-constants-4537-4539-4549). | — |
+| D10 | The UI derives names, threshold bytes, series, markers, unmeasured rows and before → after deltas. The chart ships with derived markers, before the events timeline (#4541, #4548). | — |
+| D11 | **Find large files** is a mode of the breakdown and the pane's single primary button. | Find large files in the pane heading |
+| D12 | The chart is hand-rolled SVG in ui-kit with pure, unit-tested geometry. | — |
+
+### Section order and layout
+
+At every width: header (title, **Measure again**, one mono status line, the
+Alerts row), banner, volume cards, available space over time, what's using
+space, Free up space, then **About these numbers** (collapsed). The cards are
+one radiogroup (`auto-fit, minmax(260px, 1fr)`); the selected card drives the
+chart, and with more than one volume the section says they are never added
+together. Tool rows reflow inside `ToolList`. No element sums capacities,
+draws a gap as zero or prints an unknown as `0`.
+
+The status line's glyph carries its state: `●` complete, `◑` partial (`≥`
+entries, stores not measured), `◷` out of date (from `staleAfter`), `◐`
+measuring (with Cancel in place of Measure again), `○` not measured yet (with
+the primary **Measure**), `!` last measurement failed. A new measurement waits
+behind **New measurement ready · Show**, as before
+(`storageStatusLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:45-104`).
+
+The Alerts row follows the server, not the brief's first draft: notices go
+out only at Very low; the 22:00–08:00 quiet hours hold Very low too; an
+unknown timezone sends nothing (`packages/ui-server/src/storage/notify-writes.ts:62-69`).
+The bounds are read from the guidance response's `quietHours`. **Change**
+reveals this device's push switch, the reported devices and, behind a
+disclosure, the delivery receipts
+(`storageAlertsLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:116-132`).
+
+### Find large files mode
+
+**Find large files** in the section heading switches the section: Type,
+Larger than (presets 5, 10, 100, 500 MB and 1 GB, plus Custom…), Where and
+search replace the owner switch, basis, legend, map and list. The heading
+becomes **Find large files** with **Back to overview**. The basis is file
+size, because removal is per file; the basis select is hidden, not disabled.
+D11's bound filters (PDF · > 5 MB · Brain files) are the defaults. Rows are
+the kit's filter rows; an unverified row's checkbox opens its inspection,
+whose sheet carries **Select file**, so every step is reachable from a row
+and from a button. The selection bar is `{n} selected · {size} file size ·
+not space freed`, Clear and **Review removal**; with no selection its slot
+shows the last removal and its receipt. On a host that cannot remove, one
+line says so and the rows have no checkboxes.
+
+| Action | Focus | Announced (polite) |
+| --- | --- | --- |
+| Find large files | the mode's heading | "Find large files. {n} matching PDFs." |
+| Back to overview | the Find large files button; owner and breadcrumb restored, search cleared | "Overview. {folder}." |
+| Back with a selection | first "Discard {n} selected files?" with Keep selection (focused) and Discard | — |
+| Changing a filter | stays on the control | "{n} matching PDFs" |
+
+### Where every caveat went
+
+The pane no longer prints caveats inline. Each line the old pane printed is
+kept (reworded where noted), moved to a legend, tooltip or disclosure, or
+dropped with a reason; the full table is the brief's item 3 on #4549. The
+moved paragraphs live in **About these numbers**, in order: units, On disk vs
+file size (and capacity provenance), partial coverage with each root's error
+and the omitted count, the Find large files matching rules with the exact
+entry sum and object union, maintenance scope (including scratch's seven-day
+/ 1,073,741,824-byte policy), and the history's own rules. Two lines are
+dropped: **Use list only**, because the list is always present and
+equivalent, and the per-unknown-store sentences, which the `?` rows replace.
+The sort buttons became the sortable column header with `aria-sort`.
+
+### Proof
+
+The proof matrix above holds, as real-browser baselines in the pinned
+container (`packages/ui-react/tests/browser/storage-pane.layout.tsx`), with
+these chart states added in `storage-guidance.layout.tsx`: full, gap, no
+projection, one window, two windows and scope change, at 320 and 1280 in
+dark and paper. Each matrix scenario also runs a list-only keyboard pass
+(every row reached by Tab, no map), 200% zoom at 320, a greyscale capture and
+a control-name review. The default state has exactly one primary-tone
+button.
+
+### Rejected alternatives
+
+| Alternative | Why it was not selected |
+| --- | --- |
+| Map above a full-width list (3250-D1) | At wide widths the list fell below the fold; side by side shows both, and stacking keeps the narrow layout (D2). |
+| A **Use list only** switch | The list is always present and equivalent; at 320 the map is a 120px strip, so there is nothing to opt out of. |
+| History behind a closed section (3250-D6) | "Is it getting worse" is the second question the pane answers; only the exact endpoints are evidence on demand (D3). |
+| A banner in every state, or one per volume | Noise when all is well; one sentence and one link suffice (D4). |
+| Naming a volume after its largest store | Repeats the bug #3250 reported; contents name it (D7). |
+| Full-tile hatching for App | Made the map unreadable when App dominated; tint, edge and label survive greyscale (D8). |
+| A filter chip on the list instead of a mode | The removal journey needs its own controls, selection and receipt slot; a mode keeps the overview uncluttered (D11). |
+| A chart library | A dependency for one chart, with gap and scope semantics it does not model; the geometry is unit-tested instead (D12). |
+| Keeping the selection silently on Back | A hidden selection could be reviewed later without the user seeing it; Back asks first. |
+| A separate Storage destination for width | Settings panes go wide instead (D6, #4538). |
