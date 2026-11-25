@@ -400,3 +400,19 @@ test("Open other version whose chat is gone moves it off that chat and shows it 
   expect(s.field().value, "OTHER_TEXT_RENDERED_AFTER_GONE").toBe("Penelope keeps the loom");
   await expect.poll(() => s.host.textContent ?? "").toContain(UNATTACHED);
 });
+
+test("Open other version of a version a rotation moved within its chat opens that chat with its text (#4567)", async () => {
+  const s = await mount(snapshotHost(), { device: device() });
+  const original = s.root.stores.drafts.getState().idFor(SESSION);
+  await typed(s, "Telemachus keeps the voyage");
+  flushSync(() => s.root.stores.drafts.getState().keepDeviceBranch(original, "voyage-branch",
+    { draftId: original, sessionId: "odysseus-raft", text: "Penelope keeps the loom", attachments: [], editedAt: 1, host: null }, SESSION));
+  // The other version's id is gone on the host: its content moves to a new id of the same chat.
+  flushSync(() => s.root.stores.drafts.getState().removed(original));
+  await expect.poll(() => s.key()).toBe("device_conflict");
+  s.trigger()!.click();
+  await expect.poll(() => detailAction("other_version")).not.toBeNull();
+  detailAction("other_version")!.click();
+  await expect.poll(() => s.root.stores.chat.getState().activeSessionId, { timeout: 5_000 }).toBe("odysseus-raft");
+  await expect.poll(() => s.field().value, { message: "ROTATED_LANDING_RENDERED" }).toBe("Penelope keeps the loom");
+});

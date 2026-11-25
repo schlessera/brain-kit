@@ -197,7 +197,10 @@ test("text pasted while a Send's snapshot is unacknowledged is shown in the fiel
   await userEvent.paste();
   await expect.poll(() => s.field().value, { message: "PASTE_KEPT_VISIBLE" }).toBe("Bring the wine for Polyphemus.");
   expect(s.draft()!.text, "it is the draft's, so a reload or a sign-out keeps it as any text").toBe("Bring the wine for Polyphemus.");
-  // A second Send waits: one snapshot is created at a time.
+  // A second Send waits: one snapshot is created at a time, even with a
+  // late refusal of an older edit on the draft.
+  const d0 = s.draft()!;
+  s.root.stores.drafts.getState().saveFailed(d0.draftId, { kind: "refused", edit: d0.edit - 1, reason: "An older edit was refused." });
   s.sendButton().click();
   await expect.poll(() => s.host.textContent ?? "", { message: "SECOND_SEND_WAITS" }).toContain("Send waits until your last message is saved.");
   expect(s.draft()!.snapshots?.length, "no second snapshot while the first is unacknowledged").toBe(1);
