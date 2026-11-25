@@ -5052,6 +5052,9 @@ independent store/capacity measurements in the
 [maintenance HTTP contract](../http-api.md#storage-maintenance-additive-2011).
 They do not add an agent tool or generic executor. Existing automatic retention
 and owner APIs retain their previous defaults.
+Additive in #4540: the receipt and row `headroom` adds nullable
+`packingRequiredBytes`, core's pack preflight need on a `pack-git` receipt
+([pack headroom](http.md#storage-maintenance-pack-headroom-additive-4540)).
 
 ### Selected attachment application (additive, 0.44.0, #2012)
 
@@ -5110,6 +5113,36 @@ authorized guidance read, preserves Settings leave guards and clears the link
 when Storage closes. These additions create no navigation destination, keyboard
 shortcut or new exported component. Evidence is isolated by root, account and
 authentication epoch; forbidden responses clear it.
+
+### Storage pressure policy constants (additive, #4539)
+
+`@schlessera/brain-ui-sdk/protocol` (and the package root) exports the pressure
+policy from the [storage guidance decision](../decisions/storage-guidance.md) as
+named numeric constants. The host's severity computation reads them, so a client
+drawing threshold ticks, bands or recovery copy stays in step with the severity
+`GET /api/storage/guidance` reports:
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `STORAGE_PRESSURE_LOW_PERCENT` | 10 | Low enters at or below this percentage of total available. |
+| `STORAGE_PRESSURE_CRITICAL_PERCENT` | 5 | Critical enters at or below this percentage. |
+| `STORAGE_PRESSURE_LOW_RECOVERY_PERCENT` | 12 | A Low capacity cause recovers only above this percentage. |
+| `STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT` | 7 | A Critical capacity cause recovers to Low only above this percentage. |
+| `STORAGE_PRESSURE_LOW_FORECAST_DAYS` | 30 | Low enters when either qualified scenario is within this many days. |
+| `STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS` | 7 | Critical enters when both qualified scenarios are within this many days. |
+| `STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS` | 45 | A Low forecast cause recovers when both scenarios are beyond this. |
+| `STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS` | 10 | A Critical forecast cause recovers to Low when either scenario is beyond this. |
+| `STORAGE_PRESSURE_RECOVERY_OBSERVATIONS` | 2 | Consecutive qualifying fresh observations a recovery needs. |
+| `STORAGE_PRESSURE_RECOVERY_SPACING_MS` | 60000 | Minimum time from the first to the last of those observations. |
+| `STORAGE_PRESSURE_EVIDENCE_WINDOW_MS` | 21600000 | Evidence or a refusal older than this (six hours) is not current. |
+
+Percentages compare caller-available bytes with the capacity total. Entry is
+inclusive and recovery strict; a non-depleting scenario counts as beyond every
+recovery horizon. Every active cause must recover, and an owner no-space refusal
+still enters Critical independently of these values. The thresholds are not wire
+fields: no HTTP or wire payload changes, and a client derives threshold bytes
+from a capacity's `total`. A future change to a value is a change of meaning and
+follows the breaking rule.
 
 ### Claude cumulative usage evidence (additive, #2025)
 

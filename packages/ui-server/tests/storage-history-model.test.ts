@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
-import { DAY, HOUR, RECENT, HISTORY_LIMITS, bucket, bucketStart, hashScope, jsonBytes, retainAggregate, validateHistory, type Aggregate, type HistoryPayload } from "../src/storage/history-model.js";
+import { DAY, HOUR, RECENT, HISTORY_LIMITS, aggregateCollection, bucket, bucketStart, hashScope, jsonBytes, retainAggregate, validateHistory, type Aggregate, type HistoryPayload } from "../src/storage/history-model.js";
 import { capacityEvidence } from "../src/storage/history-evidence.js";
+import type { StorageCollection } from "../src/storage/collect.js";
+import type { StorageCapacityView, StorageFileEntry, StorageRoot } from "@schlessera/brain-ui-sdk/protocol";
 
 const at = Date.UTC(2026, 6, 12);
 const identity = hashScope("Odysseus volume"), scope = hashScope("Odysseus stores");
@@ -161,4 +163,38 @@ test("collector patch versions keep comparable scopes without manufacturing gaps
   const changed = retainAggregate(payload, next);
   expect(changed.samples.find(row => row[1] === 0 && row[3] === next.at)?.[2], "STORAGE_PATCH_VERSION_SAME_BASIS").toBe(0);
   expect(capacityEvidence(changed, identity, next.at)?.short.state).toBe("finite");
+});
+
+// #3251: owner totals per disk when a root's disk is not known.
+function collection(roots: StorageRoot[], capacities: Array<Pick<StorageCapacityView, "id" | "rootIds" | "identity">>, entries: Array<Pick<StorageFileEntry, "rootId" | "capacityId" | "allocated" | "logical">>): StorageCollection {
+  const disk = (value: (typeof capacities)[number]): StorageCapacityView => ({ ...value, total: 1_000_000, used: 400_000, free: 600_000, available: 500_000, provenance: "statfs", kind: "filesystem", quota: null, measured: null, other: null, reason: null });
+  const files = entries.map((value, index): StorageFileEntry => ({ ...value, id: `entry-${index}`, parentId: null, path: `chart-${index}.md`, name: `chart-${index}.md`, kind: "file", objectId: `object-${index}`, version: "1", aliasOf: null, links: 1, references: { state: "unchecked", count: null, observedAt: null, unchecked: [] } }));
+  const bytes = { logical: null, allocated: null, coverage: "unknown" as const };
+  return { bytes: 0, entries: files, summary: { id: "Odysseus scan", startedAt: at - 100, observedAt: at, staleAfter: at + 60_000, coverage: "partial", consistency: "live-observation", basis: "512 * st_blocks; shared extents may be charged more than once",
+    roots, capacities: capacities.map(disk), totals: { all: bytes, brain: bytes, app: bytes, operator: bytes }, entries: files.length, errors: [], omittedErrors: 0 } };
+}
+const store = (id: string, owner: StorageRoot["owner"], logical: number | null, coverage: StorageRoot["coverage"] = "complete"): StorageRoot =>
+  ({ id, label: id, category: owner === "brain" ? "content" : "journal", owner, logical, allocated: logical, coverage, reason: null });
+const row = (value: StorageCollection, id: string) => aggregateCollection(value, 0, "0.44.0").capacities.find(capacity => capacity.descriptor[0] === id)!.values;
+
+test("a root on a disk of unknown identity makes its owner unknown on every other disk", () => {
+  const value = collection([store("ithaca-brain", "brain", 4096), store("ithaca-journal", "app", 8192)],
+    [{ id: "disk-a", rootIds: ["ithaca-journal"], identity: "resolved" }, { id: "disk-b", rootIds: ["ithaca-brain"], identity: "unknown" }],
+    [{ rootId: "ithaca-journal", capacityId: "disk-a", logical: 8192, allocated: 8192 }, { rootId: "ithaca-brain", capacityId: "disk-b", logical: 4096, allocated: 4096 }]);
+  const a = row(value, "disk-a");
+  expect([a[5], a[6]], "UNRESOLVED_DISK_BRAIN_IS_UNKNOWN_ELSEWHERE").toEqual([null, null]);
+  expect([a[7], a[8], a[4]], "RESOLVED_APP_KEPT_DISK_PARTIAL").toEqual([8192, 8192, 1]);
+  expect([row(value, "disk-b")[5], row(value, "disk-b")[6]], "UNRESOLVED_DISK_KEEPS_ITS_OWN_ROWS").toEqual([4096, 4096]);
+});
+
+test("an unplaced root keeps an owner's measured rows as a partial lower bound, and an absent optional root places nothing", () => {
+  const value = collection([store("ithaca-git", "brain", 2048), store("ithaca-brain", "brain", null, "unknown"), store("ithaca-journal", "app", 8192), store("ithaca-wal", "app", 0)],
+    [{ id: "disk-a", rootIds: ["ithaca-git", "ithaca-journal"], identity: "resolved" }],
+    [{ rootId: "ithaca-git", capacityId: "disk-a", logical: 2048, allocated: 2048 }, { rootId: "ithaca-journal", capacityId: "disk-a", logical: 8192, allocated: 8192 }]);
+  const a = row(value, "disk-a");
+  expect([a[5], a[6], a[4]], "UNPLACED_ROOT_PARTIAL_LOWER_BOUND").toEqual([2048, 2048, 1]);
+  expect([a[7], a[8]], "ABSENT_OPTIONAL_ROOT_PLACES_NOTHING").toEqual([8192, 8192]);
+  const placed = collection([store("ithaca-journal", "app", 8192), store("ithaca-wal", "app", 0)], [{ id: "disk-a", rootIds: ["ithaca-journal"], identity: "resolved" }],
+    [{ rootId: "ithaca-journal", capacityId: "disk-a", logical: 8192, allocated: 8192 }]);
+  expect(row(placed, "disk-a")[4], "ABSENT_OPTIONAL_ROOT_KEEPS_DISK_COMPLETE").toBe(0);
 });
