@@ -228,7 +228,9 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
       "compute_output",
       "apify_result",
       // Additive (#3797): issue and pull request text a host GitHub tool returned.
-      "github_result", "legacy_unknown"]),
+      "github_result",
+      // Additive (#4207): mail text a host Gmail tool returned in its content view.
+      "google_result", "legacy_unknown"]),
     tool: z.string().min(1).max(200).nullable(),
     detail: text.nullable(),
     occurrence: OccurrenceSchema.optional(),
@@ -236,6 +238,20 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   taint_exposure: kind(1, z.strictObject({
     occurrenceId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
     state: z.enum(["finalized", "interrupted_unknown"]),
+  })),
+  /**
+   * Additive (#4207): one host Google call and how it ended (plan §6 step 13),
+   * a model's tool call or the owner's display read. Never safety evidence:
+   * the safety projection reads only taint records, and nothing Google
+   * returned is in it.
+   */
+  google_call: kind(1, z.strictObject({
+    tool: z.string().min(1).max(200),
+    operation: z.string().regex(/^[a-z]+(?:\.[a-z_]+)+$/).max(64).nullable(),
+    view: z.enum(["structured", "content"]).nullable(),
+    outcome: z.enum(["returned", "refused"]),
+    code: z.string().regex(/^[a-z_]{1,64}$/).nullable(),
+    reason: z.string().max(64).nullable(),
   })),
   /** A provider a worker command needed but could not reach without a key (#1666). */
   provider_unavailable: kind(1, z.strictObject({

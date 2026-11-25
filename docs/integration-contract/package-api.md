@@ -772,6 +772,40 @@ input and forwards `{ tool, input }` to the optional new
 [the MCP component](mcp.md#host-github-tools-additive-0450-3797). No existing
 export changes.
 
+## Host Gmail tools (additive, 0.46.0, #4207)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+the six Gmail tool contracts (`GOOGLE_TOOL_CONTRACTS` and each
+`GMAIL_*_CONTRACT`), their names (`GMAIL_TOOL_NAMES`, `GOOGLE_TOOL_NAMES`,
+`GMAIL_READ_TOOL_NAMES`, `GMAIL_WRITE_TOOL_NAMES`, `isGoogleToolName`,
+`isGmailReadToolName`), re-exported from the Google catalog the six strict
+input schemas (`GMAIL_SEARCH_INPUT`, `GMAIL_READ_INPUT`, `GMAIL_MODIFY_INPUT`,
+`GMAIL_TRASH_INPUT`, `GMAIL_DRAFT_INPUT`, `GMAIL_SEND_INPUT`), `GMAIL_LIMITS`,
+`GMAIL_READ_TARGETS`, `GOOGLE_VIEWS` and `GOOGLE_ERROR_CODES`; the payload
+schemas for both views (`GMAIL_LABEL_SCHEMA`,
+`GMAIL_STRUCTURED_MESSAGE_SCHEMA`, `GMAIL_UNTRUSTED_MESSAGE_SCHEMA`,
+`GMAIL_CONTENT_MESSAGE_SCHEMA`, `GMAIL_STRUCTURED_SEARCH_HIT_SCHEMA`,
+`GMAIL_CONTENT_SEARCH_HIT_SCHEMA`, `GMAIL_STRUCTURED_LABEL_ENTRY_SCHEMA`,
+`GMAIL_SEARCH_PAYLOAD_SCHEMA`, `GMAIL_READ_PAYLOAD_SCHEMA`),
+`GOOGLE_ERROR_SCHEMA`, `GOOGLE_RESULT_SCHEMAS`, and for the internal display
+route `GMAIL_DETAIL_LIMITS`, `GMAIL_MESSAGE_BODY_SCHEMA` and
+`GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA`, with the matching types
+(`GoogleToolCall`, `GoogleToolResult`, `GoogleToolError`, `GmailReadToolName`,
+`GmailWriteToolName`, each payload and input). Content-view text is marked
+`untrusted: true` in its JSON Schema; nothing structured is.
+`@schlessera/brain-ui-sdk/server` adds the experimental backend toolkit helper
+`handleGoogleTool(name, input, bridge)`, which validates the strict input and
+forwards `{ tool, input }` to the optional new `BackendBridge.google(call)`;
+without it the tool refuses `unavailable` (`no_host`). `buildSystemPromptAppend`
+accepts optional `googleTools`, of the type `GoogleToolsBrief`
+(`{ search, read, modify, trash, draft, send }`, the visible tool names); with
+it the brief gains one fixed bullet that sends Gmail through those tools, and
+without it the output is unchanged. Shapes are documented in
+[the MCP component](mcp.md#host-gmail-tools-additive-0460-4207).
+`@schlessera/brain-ui-server`'s exported `GOVERNANCE_EVENT_SCHEMAS` gains the
+`google_call` kind and the `taint` source `google_result`
+([governance events](../http-api.md)). No existing export changes.
+
 ## Per-review line-comment counts (additive, 0.45.0, #4147)
 
 `@schlessera/brain-ui-sdk/tool-contracts` adds the optional, nullable

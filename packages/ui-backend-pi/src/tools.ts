@@ -1,4 +1,4 @@
-import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE, GITHUB_READ_TOOL_NAMES, GITHUB_TOOL_NAMES, WEB_TOOL_NAME_LIST } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE, GITHUB_READ_TOOL_NAMES, GITHUB_TOOL_NAMES, GOOGLE_TOOL_NAMES, WEB_TOOL_NAME_LIST } from "@schlessera/brain-ui-sdk/server";
 /**
  * The curated brain tool surface for the pi backend.
  *
@@ -116,6 +116,7 @@ export interface BrainToolDeps {
     attachments?: boolean;
     web?: boolean;
     github?: boolean;
+    google?: boolean;
   };
 }
 
@@ -159,6 +160,10 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   brain_github_issue_read: "read", brain_github_issue_search: "read",
   // Host GitHub writes (#3798): outward, behind the host's allow-list and per-write card.
   brain_github_issue_create: "mutate", brain_github_issue_comment: "mutate",
+  // Host Gmail reads (#4207): the host reads Gmail with its own credential.
+  brain_google_gmail_search: "read", brain_google_gmail_read: "read",
+  // Host Gmail writes (#4207, wired by #4211): the owner's mail, behind the host's policy and cards.
+  brain_google_gmail_modify: "mutate", brain_google_gmail_trash: "mutate", brain_google_gmail_draft: "mutate", brain_google_gmail_send: "mutate",
   // Echoes the block it was given; the surface draws it. Touches nothing.
   show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor
@@ -222,6 +227,11 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   // per exact write on its own card; a tool card would ask twice and offer a
   // rememberable grant. Voice and no-grant turns refuse before the host.
   GITHUB_TOOL_NAMES.create, GITHUB_TOOL_NAMES.comment,
+  // Host Gmail tools (#4207): the host decides every call under the turn's
+  // policy, posture included (voice runs only what standing admission admits,
+  // ruling 6), and asks on its own card where one is needed; a tool card
+  // would ask twice and offer a rememberable grant.
+  ...GOOGLE_TOOL_NAMES,
   // pi-subagents (recommended fan-out extension) — parity with Claude's
   // auto-allowed Agent tool. NOTE: a child agent's own tool calls run inside
   // pi's child session with that agent's declared tools, NOT through this

@@ -5,6 +5,11 @@ import { join } from "node:path";
 
 import * as worker from "@schlessera/brain-ui-sdk/internal";
 import { APIFY_TOOL_NAMES, BRAIN_APPLICATION_TOOLS, BRIDGE_TOOL_POSTURE, GITHUB_READ_TOOL_NAMES, GITHUB_TOOL_CONTRACTS, GITHUB_TOOL_NAME_LIST, GITHUB_TOOL_NAMES, READ_ATTACHMENT_TOOL_NAME, toolInputJsonSchema } from "@schlessera/brain-ui-sdk/server";
+import * as sdkServer from "@schlessera/brain-ui-sdk/server";
+// Read from the namespace, so a missing export fails an assertion rather than the module load.
+const GOOGLE_CONTRACTS = ((sdkServer as Record<string, unknown>).GOOGLE_TOOL_CONTRACTS ?? []) as readonly { name: string; description: string }[];
+const GOOGLE_NAMES = ["brain_google_gmail_search", "brain_google_gmail_read", "brain_google_gmail_modify", "brain_google_gmail_trash",
+  "brain_google_gmail_draft", "brain_google_gmail_send"];
 
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
 
@@ -76,7 +81,7 @@ describe("the SDK options a turn is built with", () => {
       // The full roster, because a handler that silently failed to register
       // would leave a tool deferred by absence rather than by policy.
       expect(tools.map((tool) => tool.name).sort()).toEqual(
-        [...BRIDGE_TOOL_POSTURE.names, "propose_policy_change", "brain_read_base", ...Object.values(BRAIN_APPLICATION_TOOLS), ...Object.values(APIFY_TOOL_NAMES), READ_ATTACHMENT_TOOL_NAME, ...GITHUB_TOOL_NAME_LIST].sort()
+        [...BRIDGE_TOOL_POSTURE.names, "propose_policy_change", "brain_read_base", ...Object.values(BRAIN_APPLICATION_TOOLS), ...Object.values(APIFY_TOOL_NAMES), READ_ATTACHMENT_TOOL_NAME, ...GITHUB_TOOL_NAME_LIST, ...GOOGLE_NAMES].sort()
       );
       for (const tool of tools) {
         expect(tool._meta?.["anthropic/alwaysLoad"]).toBe(true);
@@ -147,6 +152,78 @@ describe("the SDK options a turn is built with", () => {
       for (const name of allowed) expect(turn.options.allowedTools?.includes(name) ?? false, `GITHUB_AUTO_ALLOWED_${mode}`).toBe(handler && mode !== "autonomous");
       for (const name of [GITHUB_TOOL_NAMES.create, GITHUB_TOOL_NAMES.comment].map(name => `mcp__brain-ui__${name}`))
         expect(turn.options.allowedTools?.includes(name) ?? false, `GITHUB_WRITE_AUTO_ALLOWED_${mode}`).toBe(handler && mode === "typed");
+      await client.close();
+    } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
+  });
+
+  // #4207: all six Gmail tools, reads and writes, are in every interactive
+  // mode's roster in the contract's order, with or without a host handler,
+  // with the contract's exact schemas and always loaded; never in an
+  // autonomous roster. The host decides each call, posture included, so
+  // every one is auto-allowed wherever a handler exists.
+  const googleRosters = new Map<string, unknown>();
+  for (const mode of ["typed", "no-grant", "voice", "autonomous"] as const) for (const handler of [true, false]) test(`Gmail tools: ${mode} ${handler ? "with" : "without"} a host handler`, async () => {
+    const brain = mkdtempSync(join(tmpdir(), "google-roster-"));
+    let finish: (() => Promise<void>) | undefined;
+    try {
+      const bridge = handler ? { google: async () => { throw new Error("not invoked while enumerating"); } } : {};
+      const turn = turnFor(brain, bridge, mode === "no-grant" || mode === "voice", mode === "voice" ? "voice" : undefined,
+        mode === "autonomous" ? { allowedTools: [], systemPromptAppend: "Autonomous." } : undefined);
+      finish = turn.finishWorker;
+      const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+      const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "google-roster", version: "0.1.0" }, {});
+      await (turn.options.mcpServers!["brain-ui"] as { instance: { connect(t: unknown): Promise<void> } }).instance.connect(serverTransport);
+      await client.connect(clientTransport);
+      const tools = (await client.listTools()).tools;
+      const google = tools.filter(tool => tool.name.startsWith("brain_google_"));
+      if (mode === "autonomous") expect(google, "GOOGLE_ABSENT_FROM_AUTONOMOUS_ROSTER").toEqual([]);
+      else {
+        expect(google.map(tool => tool.name), `GOOGLE_STABLE_ROSTER_${mode}`).toEqual(GOOGLE_NAMES);
+        for (const tool of google) expect(tool._meta?.["anthropic/alwaysLoad"], `GOOGLE_ALWAYS_LOADED ${tool.name}`).toBe(true);
+        // Byte-identical definitions in every interactive mode: posture, profile and handler never change them.
+        const definitions = JSON.stringify(google.map(tool => [tool.name, tool.description, tool.inputSchema]));
+        for (const previous of googleRosters.values()) expect(definitions, `GOOGLE_ROSTER_IDENTICAL_${mode}`).toBe(previous as string);
+        googleRosters.set(`${mode}:${handler}`, definitions);
+        for (const contract of GOOGLE_CONTRACTS) {
+          const listed = google.find(tool => tool.name === contract.name)!;
+          expect(listed.description).toBe(contract.description);
+          const { $schema: _schema, ...schema } = listed.inputSchema as Record<string, unknown>;
+          expect(schema, `GOOGLE_EXACT_SCHEMA_${contract.name}`).toEqual(toolInputJsonSchema(contract as never) as never);
+        }
+      }
+      for (const name of GOOGLE_NAMES.map(name => `mcp__brain-ui__${name}`))
+        expect(turn.options.allowedTools?.includes(name) ?? false, `GOOGLE_AUTO_ALLOWED_${mode} ${name}`).toBe(handler && mode !== "autonomous");
+      await client.close();
+    } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
+  });
+
+  // #4207: a call to a registered Gmail tool reaches the turn's host handler
+  // with the parsed input only, and its refusal comes back as a tool error.
+  test("Gmail tools: a registered tool forwards the parsed input to the host and returns its envelope", async () => {
+    const brain = mkdtempSync(join(tmpdir(), "google-call-"));
+    let finish: (() => Promise<void>) | undefined;
+    try {
+      const calls: unknown[] = [];
+      const bridge = { google: async (call: unknown) => { calls.push(call);
+        return { ok: false, tool: "brain_google_gmail_search", error: { code: "unavailable", reason: "not_enabled", message: "Google is not enabled." } }; } };
+      const turn = turnFor(brain, bridge, false, undefined, undefined);
+      finish = turn.finishWorker;
+      const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+      const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "google-call", version: "0.1.0" }, {});
+      await (turn.options.mcpServers!["brain-ui"] as { instance: { connect(t: unknown): Promise<void> } }).instance.connect(serverTransport);
+      await client.connect(clientTransport);
+      const answer = await client.callTool({ name: "brain_google_gmail_search", arguments: { query: "from:penelope" } }) as { isError?: boolean; content: { text: string }[] };
+      expect(calls, "GOOGLE_CLAUDE_FORWARDS_PARSED_INPUT").toEqual([{ tool: "brain_google_gmail_search", input: { query: "from:penelope", view: "content" } }]);
+      expect(answer.isError, "GOOGLE_CLAUDE_REFUSAL_IS_TOOL_ERROR").toBe(true);
+      expect(JSON.parse(answer.content[0]!.text), "GOOGLE_CLAUDE_ENVELOPE").toMatchObject({ ok: false, error: { code: "unavailable", reason: "not_enabled" } });
+      const bad = await client.callTool({ name: "brain_google_gmail_read", arguments: { target: "thread", id: "Penelope" } }) as { isError?: boolean; content: { text: string }[] };
+      // The MCP server validates the registered strict schema first; the handler's own check backs it.
+      expect(bad.isError, "GOOGLE_CLAUDE_INVALID_INPUT").toBe(true);
+      expect(calls, "GOOGLE_CLAUDE_INVALID_NEVER_FORWARDED").toHaveLength(1);
       await client.close();
     } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
   });

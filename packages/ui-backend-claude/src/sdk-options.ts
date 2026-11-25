@@ -21,7 +21,7 @@ import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWork
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
-import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, GITHUB_READ_TOOL_NAMES, GITHUB_TOOL_NAMES, READ_ATTACHMENT_TOOL_NAME, visibleToolName } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, GITHUB_READ_TOOL_NAMES, GITHUB_TOOL_NAMES, GMAIL_TOOL_NAMES, GOOGLE_TOOL_NAMES, READ_ATTACHMENT_TOOL_NAME, visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
@@ -283,6 +283,11 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
     // gate, which refuses them before the host is reached.
     if (req.bridge.github && !req.noGrantSurface && req.posture !== "voice")
       allowed.push(visibleToolName(GITHUB_TOOL_NAMES.create, "claude"), visibleToolName(GITHUB_TOOL_NAMES.comment, "claude"));
+    // Gmail (#4207): the host decides every call under the turn's policy,
+    // posture included (a voice turn runs only what standing admission
+    // admits, ruling 6), and asks on its own card where one is needed; a
+    // runtime card would ask twice and offer a rememberable grant.
+    if (req.bridge.google) allowed.push(...GOOGLE_TOOL_NAMES.map(name => visibleToolName(name, "claude")));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
@@ -380,6 +385,7 @@ export function assemblePromptContext(
       reference: Boolean(req.bridge.referenceAccess),
       compute: Boolean(req.bridge.compute),
       github: Boolean(req.bridge.github),
+      google: Boolean(req.bridge.google),
     },
     req.turnBudgetMs
   );
@@ -388,7 +394,7 @@ export function assemblePromptContext(
   const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId);
   const append = context ? context.retainAppend([buildAppend(backend, undefined, {
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-    location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true, github: true,
+    location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true, github: true, google: true,
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
   const owned = context?.prepare(req.prompt, {
@@ -609,6 +615,8 @@ function turnMcpServer(
     ...(!req.autonomous ? { apify: req.bridge } : {}),
     // Interactive sessions only, whether or not the host holds a GitHub credential (#3797).
     ...(!req.autonomous ? { github: req.bridge } : {}),
+    // Interactive sessions only, whether or not the host's policy enables Google (#4207).
+    ...(!req.autonomous ? { google: req.bridge } : {}),
     // Every interactive session, with or without attachments, so a file never changes the roster.
     ...(!req.autonomous ? { attachments: req.bridge } : {}),
     ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
@@ -687,6 +695,7 @@ function buildAppend(
     reference: boolean;
     compute: boolean;
     github: boolean;
+    google: boolean;
   },
   turnBudgetMs: number | undefined
 ): string {
@@ -700,6 +709,10 @@ function buildAppend(
       // The host GitHub tools (#3797), in every interactive roster.
       ...(tools.github ? { githubTools: { read: visibleToolName(GITHUB_TOOL_NAMES.read, "claude"), search: visibleToolName(GITHUB_TOOL_NAMES.search, "claude"),
         create: visibleToolName(GITHUB_TOOL_NAMES.create, "claude"), comment: visibleToolName(GITHUB_TOOL_NAMES.comment, "claude") } } : {}),
+      // The host Gmail tools (#4207), in every interactive roster.
+      ...(tools.google ? { googleTools: { search: visibleToolName(GMAIL_TOOL_NAMES.search, "claude"), read: visibleToolName(GMAIL_TOOL_NAMES.read, "claude"),
+        modify: visibleToolName(GMAIL_TOOL_NAMES.modify, "claude"), trash: visibleToolName(GMAIL_TOOL_NAMES.trash, "claude"),
+        draft: visibleToolName(GMAIL_TOOL_NAMES.draft, "claude"), send: visibleToolName(GMAIL_TOOL_NAMES.send, "claude") } } : {}),
       tools: {
         policyChange: tools.policyChange ? "mcp__brain-ui__propose_policy_change" : undefined,
         askUser: tools.askUser && ASK_USER_TOOL_NAME,

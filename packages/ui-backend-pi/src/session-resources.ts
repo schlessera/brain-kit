@@ -4,7 +4,7 @@ import {
   SettingsManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { buildSystemPromptAppend, GITHUB_TOOL_NAMES } from "@schlessera/brain-ui-sdk/server";
+import { buildSystemPromptAppend, GITHUB_TOOL_NAMES, GMAIL_TOOL_NAMES } from "@schlessera/brain-ui-sdk/server";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -75,6 +75,7 @@ export function createSessionResources(options: {
         attachments: caps.attachments,
         web: caps.web,
         github: caps.github,
+        google: caps.google,
       },
     });
     return { tools, turnContext };
@@ -116,7 +117,7 @@ export function createSessionResources(options: {
     const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
       : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
         policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-        location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, web: true, github: true,
+        location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, web: true, github: true, google: true,
       } }, subagentTool, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
     options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
@@ -189,6 +190,9 @@ function buildAppend(
       // The host GitHub tools (#3797), listed in every interactive session.
       ...(env.caps.github ? { githubTools: { read: GITHUB_TOOL_NAMES.read, search: GITHUB_TOOL_NAMES.search,
         create: GITHUB_TOOL_NAMES.create, comment: GITHUB_TOOL_NAMES.comment } } : {}),
+      // The host Gmail tools (#4207), listed in every interactive session.
+      ...(env.caps.google ? { googleTools: { search: GMAIL_TOOL_NAMES.search, read: GMAIL_TOOL_NAMES.read, modify: GMAIL_TOOL_NAMES.modify,
+        trash: GMAIL_TOOL_NAMES.trash, draft: GMAIL_TOOL_NAMES.draft, send: GMAIL_TOOL_NAMES.send } } : {}),
       // Named only when the bridge actually provides the handler — the toolkit
       // registers each tool on the same condition.
       tools: {

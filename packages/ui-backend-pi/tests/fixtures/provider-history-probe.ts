@@ -30,6 +30,8 @@ const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness", "immutable"];
 const COMPUTE_STATES = ["running", "running", "succeeded"] as const;
 /** Scenarios whose every turn calls a host bridge tool. */
 const TOOL_SCENARIOS = [...REFERENCE_SCENARIOS, "compute"];
+/** #4207: the brief a session retained before the host Gmail tools existed; it names no Gmail tool. */
+const RETAINED_BRIEF = "Retained brief from before the host Gmail tools: GitHub goes through the host tools.";
 let scenario = "", brain = "";
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
@@ -63,7 +65,7 @@ writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "models.json"), JSON.string
 // credential only to an origin the operator lists for it: here, the loopback stub.
 process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = `openai=${server.url.origin}`;
 try {
-  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {
+  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety", "retained"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     let backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
@@ -73,6 +75,10 @@ try {
     for (turnIndex = 0; turnIndex < 3; turnIndex++) {
       if (scenario === "safety") backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
         systemPromptAppend: turnIndex === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal.",
+        profiles: [{ id: "fixture", label: "Fixture", vendor: "openai", model: "gpt-4o-mini", thinkingLevel: "off" }], confirmBashPatterns: [] });
+      // #4207: `retained` opens its session under a brief from before the Gmail tools, then resumes under the current one.
+      if (scenario === "retained") backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
+        ...(turnIndex === 0 ? { systemPromptAppend: RETAINED_BRIEF } : {}),
         profiles: [{ id: "fixture", label: "Fixture", vendor: "openai", model: "gpt-4o-mini", thinkingLevel: "off" }], confirmBashPatterns: [] });
       turnOpen = true;
       if (scenario === "repository" && turnIndex) changeRepository(brain, turnIndex);

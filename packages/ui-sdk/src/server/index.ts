@@ -151,6 +151,7 @@ export {
 export {
   handleApifyTool,
   handleGithubTool,
+  handleGoogleTool,
   formatAttachmentRead,
   handleReadAttachment,
   handleAskUser,

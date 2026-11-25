@@ -1,4 +1,4 @@
-import { APIFY_TOOL_NAMES, GITHUB_TOOL_NAMES, GITHUB_TOOL_NAME_LIST, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, GITHUB_TOOL_NAMES, GITHUB_TOOL_NAME_LIST, GOOGLE_TOOL_NAMES, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 
 const handlers: Record<string, string> = {
   ask_user: "askUser", ask_user_list: "askUserList", ask_user_rank: "askUserRank",
@@ -13,6 +13,8 @@ const handlers: Record<string, string> = {
   ...Object.fromEntries(Object.values(APIFY_TOOL_NAMES).map(name => [name, "apify"])),
   read_attachment: "readAttachment",
   ...Object.fromEntries(GITHUB_TOOL_NAME_LIST.map(name => [name, "github"])),
+  // Gmail (#4207): the host decides posture per call (ruling 6), so no membership here beyond its handler.
+  ...Object.fromEntries(GOOGLE_TOOL_NAMES.map(name => [name, "google"])),
   brain_add: "applyBrain", brain_update: "applyBrain", brain_archive: "applyBrain",
   write_file: "applyBrain", edit_file: "applyBrain", apply_staged_changes: "applyBrain",
 };

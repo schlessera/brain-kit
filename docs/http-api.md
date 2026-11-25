@@ -1514,6 +1514,52 @@ asserts the isolation and both accepted behaviours. In a split topology, where
 the client is served from another origin, `frame-ancestors 'self'` refuses the
 preview frame; the new-tab link is not subject to framing rules.
 
+<a id="gmail-message-body-internal-0460-4207"></a>
+
+## Gmail message body (internal, 0.46.0, #4207)
+
+One internal route lets the chat's Gmail components show the whole text body
+of a message a
+[host Gmail tool](integration-contract/mcp.md#host-gmail-tools-additive-0460-4207)
+read returned, beyond the 32,768 characters the model is given, without putting it in the
+model's context. Its raw path and payload carry no compatibility guarantee;
+its authority and disclosure rules are security properties pinned by
+`packages/ui-server/tests/ws-google-details.test.ts` and
+`packages/ui-server/tests/google-tools-host.test.ts`.
+
+### `GET /api/sessions/:id/google/gmail/messages/:message/body`
+
+**Authority.** The caller must be the chat's owner account, by the same rule
+as the GitHub detail routes; anyone else gets 403 (`forbidden`, `not_owner`).
+The route then reads the session's recorded history from its owning backend
+and serves only a message id that a successful `brain_google_gmail_read`
+result in it returned, in either view: a thread's messages, a message, or a
+draft's message. Anything else, a retired chat included, is 404 (`not_found`,
+`not_in_session`) and sends Google nothing; an id that is not a Gmail message
+id is 400 (`invalid_input`, `message`). The read is decided again under the
+brain's current policy, as a read of that message: the caller's principal is
+the owner (else 403 `policy_denied`, `not_owner`), Google is enabled (else 503
+`unavailable`), and the message's thread is checked against
+`google.gmail.hidden_labels`, so a thread hidden since the turn read it
+answers 404 `not_found` with no reason, as a missing one does. It is not
+routed: the host sends Google only an id Google minted, and nothing returns to
+a turn.
+
+`200` returns `GMAIL_MESSAGE_BODY_SCHEMA` `{ message_id, body_text,
+body_length, body_truncated }` with `Cache-Control: no-store`: the text body
+up to `GMAIL_DETAIL_LIMITS.bodyChars` (1,048,576 characters), marked
+untrusted, or `null` when the message has none. Failures are `{ error: { code,
+reason, message } }` (`GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA`) with the tools'
+codes: 503 `unavailable` or `transport_incompatible`, 429 `rate_limited`, 403
+`policy_denied` or `forbidden`, 404 `not_found` and 502 `upstream_error`. A
+revoked or expired login gets the guard's 401.
+
+**Display data only.** A response is never added to the session's provider
+conversation, not journaled as turn input, and records no taint. A read the
+host decides records one `google_call` audit event (`tool`
+`gmail_message_body`, `actor` `user`), which is never safety evidence.
+Reading it changes nothing the next turn sends.
+
 <a id="github-detail-pages-internal-0450-3796"></a>
 
 ## GitHub detail pages and avatars (internal, 0.45.0, #3796)
@@ -1952,8 +1998,9 @@ read by any authenticated principal.
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
 | `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write`, `outward_host_connect` or `compute_run` (a hosted external compute job start, #3108, its `target` the instance id); `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
-| `taint` | 1 | `source`, `tool`, `detail`, `occurrence` (optional) | Each independent observed untrusted-input signal, including later signals while already restricted. A host identity deduplicates only exact delivery retries; changed-body reuse refuses. `legacy_unknown` denotes unknown search-result provenance. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), additively since #3797 `github_result` (issue, pull request or search text a host GitHub tool returned; `tool` names the `brain_github_*` tool), or `compute_output` (a collected external compute job's output, #3108). Additively since #3685, Pi's host-owned `get_search_content` records `web_fetch` and `source_check` records `web_search`. |
+| `taint` | 1 | `source`, `tool`, `detail`, `occurrence` (optional) | Each independent observed untrusted-input signal, including later signals while already restricted. A host identity deduplicates only exact delivery retries; changed-body reuse refuses. `legacy_unknown` denotes unknown search-result provenance. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), additively since #3797 `github_result` (issue, pull request or search text a host GitHub tool returned; `tool` names the `brain_github_*` tool), additively since #4207 `google_result` (mail text a host Gmail tool returned in its `content` view; `tool` names the `brain_google_gmail_*` tool, `detail` the operation and, for a read, its target, such as `gmail.thread.get thread`; a `structured` result records nothing), or `compute_output` (a collected external compute job's output, #3108). Additively since #3685, Pi's host-owned `get_search_content` records `web_fetch` and `source_check` records `web_search`. |
 | `taint_exposure` | 1 | `occurrenceId`, `state` | A separate terminal observation for an open occurrence: `finalized` only after a completed bounded HTTP response, otherwise `interrupted_unknown`. Opaque CONNECT closure never establishes source finalization. This observation authorizes no safe verdict. |
+| `google_call` | 1 | `tool`, `operation`, `view`, `outcome`, `code`, `reason` | Additively since #4207: one host Google call and how it ended, recorded after it answered, for every call the host decides: a model's `brain_google_gmail_*` call (`actor` `interactive` or `voice`) or the owner's [Gmail message body](#gmail-message-body-internal-0460-4207) read (`tool` `gmail_message_body`, `actor` `user`, no turn). `operation` is the catalog operation (`gmail.search`, `gmail.thread.get`, …), or null when the call's input did not parse; `view` is the view a returned result carried (`structured` or `content`), null for a refusal; `outcome` is `returned` or `refused`, with the refusal's `code` and `reason`. It records nothing Google returned, is never safety evidence (the safety projection reads only `taint` records), and a failure to record it changes no answer. |
 | `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider whose key the host withheld from the worker. Recorded from the token the CLI prints ([CLI contract](integration-contract/cli.md#withheld-provider-keys-additive-0440-1666)), one event per distinct token in a tool result and at most 20 per turn. `capability` is `embeddings`, `completions`, `reranking` or `image`; `command` is the shell command, or the tool's name for any other tool; `degradedTo` names the fallback used (`keyword_search`, `keyword_index`, `lifecycle_order`) or is `null`. The token is text in tool output, so the event is a diagnostic, not proof. |
 | `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data`, `cpu` or `open_files`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
 | `roadblock` | 1 | `category`, `family`, `signature`, `failures`, `resolution`, `remedy`, `waste`, `eventIds` | One classified roadblock episode, written when its turn ends ([classification](decisions/governed-writable-workers.md#roadblocks)). An episode opens at a failed step and closes at the next successful call of the same `family`, or at turn end. `family` is the tool family: `shell:<program>` (with the subcommand for multi-command programs, such as `shell:git push`), `file_write`, `file_read`, `search`, `web`, `brain_write`, `subagent`, `mcp:<server>:<tool>` or `tool:<name>`; a governance event with no call has `budget`, `scope`, `network`, `policy` or `outward`. `category` is `tool_error`, `shell_nonzero`, `fs_denied`, `permission_denied`, `policy_block`, `budget`, `scope_cap`, `network_refused` or `retry`. It is `retry` when the episode repeated a near-identical failed input, and otherwise the first failure's category. `signature` is the grouping key `<family>\|<target>\|<category> <detail>` of the first failure, for example `file_write\|.brain/*\|fs_denied EROFS .brain/*`. The target is the command's program and, for multi-command programs, its subcommand (`<script>` for a program run by path); the directory a path sits in, by its last name, when that is one of the brain's structural or write areas (`<dir>` otherwise); or a URL's scheme (`https-url`). A signature therefore never carries file names, arguments, hosts, user-chosen directory names or absolute roots. The detail after the category is the error code and target area, `exit <code>`, or the deciding rule or limit, so equal signatures mean the same roadblock. Each failure is `{ toolCallId, signature, category }`, where `toolCallId` is `null` for a governance event with no call. `resolution` is `{ toolCallId, signature }` or `null`. `remedy` is `guidance` when a call the turn could already make resolved the episode. It is `abandoned` for exactly one unresolved failure with no retry followed by an eligible later success; repeated unresolved failures or turn-temp workarounds remain `capability`. `waste` is `{ tokens, costUsd, ms }`, measured from the first failed call's start to the resolving call's start; unresolved waste stops at the first successful call starting strictly after the last failure was known, otherwise at turn end. That accounting boundary does not create semantic resolution. Usage is sampled at that boundary; final usage cannot fill an earlier bound. Unknown tokens or cost are `null`, never 0. `eventIds` names the governance events the episode drew on. |

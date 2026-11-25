@@ -20,6 +20,37 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Host Gmail tools (additive, 0.46.0, #4207)
+
+Both first-party backends' interactive sessions gain six host-executed Gmail
+tools in their fixed roster, always loaded: `brain_google_gmail_search`,
+`brain_google_gmail_read`, `brain_google_gmail_modify`,
+`brain_google_gmail_trash`, `brain_google_gmail_draft` and
+`brain_google_gmail_send` (`mcp__brain-ui__*` on Claude, plain on pi). The
+roster never depends on configuration; each read is decided by the host under
+the turn's frozen `google` policy block (the owner account only, Google enabled,
+routing as the provider-policy recipient `google`). The four write tools
+answer `unavailable` (`writes_unavailable`) until #4211. Results are typed
+payloads in two views: `structured`, only host-validated ids, label ids and
+names, timestamps, counts, size buckets and flags, which taints nothing; and
+`content`, which adds the untrusted text, marked in the schema, and taints the
+session with the new governance taint source `google_result` before it
+returns, withholding the result when that record fails; every call the host
+decides records the new governance event `google_call`, never safety
+evidence. `hidden_labels` keeps
+a thread out of every search and makes every read of it `not_found`. Search
+pages carry a host cursor, never Google's page token. The fixed system brief
+gains one line naming the tools; a session retained earlier keeps its append.
+The SDK gains the contracts, payload and result schemas, `handleGoogleTool`,
+`BackendBridge.google` and the brief option `googleTools`; the internal route
+`GET /api/sessions/:id/google/gmail/messages/:message/body` serves the owner a
+returned message's full body for display, never provider context. No
+autonomous roster lists the tools. See
+[the MCP component](integration-contract/mcp.md#host-gmail-tools-additive-0460-4207),
+[the package API](integration-contract/package-api.md#host-gmail-tools-additive-0460-4207)
+and [the HTTP API](http-api.md#gmail-message-body-internal-0460-4207).
+This ships in a minor.
+
 ## Per-review line-comment counts (additive, 0.45.0, #4147)
 
 Each review in a `brain_github_issue_read` pull request result gains
@@ -42,8 +73,8 @@ overrides (`allow` refused on an irreversible operation), `gmail.send_to`,
 `gmail.max_recipients`, `gmail.hidden_labels`, `standalone.reversible` and
 `limits`. Absent, Google is disabled. Every object is strict, so a malformed
 block makes the policy invalid like any other key, and `brain policy check
---json` reports `effective.google` and each error with its path. No released
-host tool reads it yet. See [the supported input](supported-inputs.md#governance-policy),
+--json` reports `effective.google` and each error with its path. The host
+Gmail tools read it (#4207). See [the supported input](supported-inputs.md#governance-policy),
 [the CLI component](integration-contract/cli.md#governance-policy-check-additive-1650)
 and [the package API](integration-contract/package-api.md#google-policy-block-additive-0450-4204).
 This ships in a minor; no breaking ruling is required.

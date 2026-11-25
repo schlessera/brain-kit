@@ -43,6 +43,37 @@ test("Pi fixed system names the host GitHub tools on every request", () => {
     expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("GitHub goes through the host tools.");
   }
 });
+// The host Gmail tools are in every interactive request's tools and the fixed
+// brief names them (#4207); the identity guards above hold their bytes across
+// turns, and every scenario carries them.
+const GMAIL_TOOLS = ["brain_google_gmail_search", "brain_google_gmail_read", "brain_google_gmail_modify", "brain_google_gmail_trash", "brain_google_gmail_draft", "brain_google_gmail_send"];
+test("Pi lists the host Gmail tools on every request and the fixed system names them", () => {
+  for (const [name, capture] of Object.entries(captures)) for (const exchange of main(capture)) {
+    const names = (body(exchange).tools as { name: string }[]).map(tool => tool.name);
+    expect(GMAIL_TOOLS.filter(tool => !names.includes(tool)), `GMAIL_TOOLS_IN_EVERY_REQUEST ${name}`).toEqual([]);
+  }
+  for (const name of ["control", "repository", "promotion", "datatree"]) for (const exchange of main(captures[name]!)) {
+    const text = JSON.stringify(system(exchange));
+    expect(text, `GMAIL_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("Gmail goes through the host tools.");
+    expect(text, `GMAIL_TOOLS_NOTE_NAMES ${name}`).toContain("`brain_google_gmail_search`");
+  }
+});
+// A session retained before the Gmail tools existed keeps its append byte for
+// byte (#4207): the tools join its roster, the brief that names them does not
+// join its system, and nothing earlier in its history moves.
+test("a Pi session retained before the Gmail tools keeps its append and gains only the tools", () => {
+  const capture = captures.retained!;
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "GMAIL_RETAINED_TOOLS_STABLE");
+    identical(system(a), system(b), "GMAIL_RETAINED_SYSTEM_STABLE");
+    history(a, b);
+  }
+  for (const exchange of main(capture)) {
+    const text = JSON.stringify(system(exchange));
+    expect(text, "GMAIL_RETAINED_KEEPS_ITS_BRIEF").toContain("Retained brief from before the host Gmail tools");
+    expect(text, "GMAIL_RETAINED_NO_NEW_LINE").not.toContain("Gmail goes through the host tools.");
+  }
+});
 test("Pi requests contain no internal budget notes at the backend boundary", () => {
   for (const [name, capture] of Object.entries(captures)) if (name !== "budget") noInternalNotes(capture);
 });
