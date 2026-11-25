@@ -470,6 +470,13 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     });
   }
 
+  /** Another version took this id's place: what was refused or being recovered was the old one's (#4566). */
+  function forgetVersion(draftId: string) {
+    refusals.delete(draftId);
+    recoveries.delete(draftId);
+    endReconcile(draftId);
+  }
+
   function endReconcile(draftId: string) {
     reconciling.delete(draftId);
     clearTimeout(reconcileTimers.get(draftId));
@@ -748,10 +755,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     for (const [id, d] of Object.entries(state.drafts)) if (d.deviceEpoch !== undefined && d.deviceEpoch !== prev.drafts[id]?.deviceEpoch) {
       deviceSeq.set(id, (deviceSeq.get(id) ?? 0) + 1);
       bumpHost(id);
-      // Another version took this id's place: what was refused or being recovered was the old one's.
-      refusals.delete(id);
-      recoveries.delete(id);
-      endReconcile(id);
+      forgetVersion(id);
+      // Its edit count starts again, so the change below may not look like one: it is owed as itself.
+      if (owed(d)) schedule(id, 0);
     }
     for (const [id, d] of Object.entries(state.drafts)) if (!prev.drafts[id] && d.deviceConflict) {
       // The other identity can be a predecessor retired by a send while
@@ -760,6 +766,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       for (const source of sources) if (state.resolveId(source) === id || source === d.deviceConflict.otherId) {
         deviceSeq.set(source, (deviceSeq.get(source) ?? 0) + 1);
         bumpHost(source);
+        forgetVersion(source);
       }
     }
     if (!live()) return;

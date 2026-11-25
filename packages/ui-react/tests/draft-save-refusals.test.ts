@@ -6,7 +6,6 @@ import type { DraftApi, DraftCallResult } from "../src/lib/draft-api.ts";
 import { draftIndicatorView } from "../src/lib/draft-indicator.ts";
 import { GONE_LINEAGE, holdsUnsaved, type ComposerDraft } from "../src/stores/draft-state.ts";
 import { parseDraft, storeDraft } from "../src/lib/local-work.ts";
-import { unboundDrafts } from "../src/lib/drafts.ts";
 import type { PendingAttachment } from "../src/lib/image-attachments.ts";
 
 // A save the host refuses with a 400 it will give again (#4566): the client
@@ -550,13 +549,6 @@ test("another version taking the draft's place ends a pending file recovery: its
   expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
 });
 
-test("a draft holding only originals to choose again is listed in Drafts", () => {
-  const s = scene();
-  const id = "4e2a6c8d-0f1b-4d3e-9a5c-7b9d1f3e5a70";
-  s.drafts.getState().edit(id, null, { files: [{ file: CREW, lineage: "a-rotated-away-draft" }] });
-  expect(unboundDrafts(s.drafts.getState().drafts).map((d) => d.draftId), "FILES_ONLY_DRAFT_LISTED").toContain(id);
-});
-
 test("a re-read waiting to retry stops asking a host that no longer keeps drafts", async () => {
   const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } } : null) });
   s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
@@ -569,4 +561,30 @@ test("a re-read waiting to retry stops asking a host that no longer keeps drafts
   const gets = s.gets();
   await run(LONG);
   expect(s.gets() - gets, "NO_REREAD_WITHOUT_DRAFTS").toBe(0);
+});
+
+test("a refused edit replaced by an adopted version at the same edit count is saved as that version", async () => {
+  const s = scene({ refuse: (body) => (body.text === "Crew list" ? { status: 400, body: { error: "DRAFT_INVALID", message: "The draft names an unknown field." } } : null) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Crew list" });
+  await run(LONG);
+  expect(s.drafts.getState().drafts[s.id]?.failure?.kind).toBe("refused");
+  s.drafts.getState().adoptDeviceRecord({ draftId: s.id, sessionId: SESSION, text: "Penelope keeps the loom", attachments: [], editedAt: 5, host: null });
+  expect(s.drafts.getState().drafts[s.id]?.edit).toBe(1);
+  await run(SAVE_DELAY + 100);
+  expect(s.rows.get(s.id)?.text, "ADOPTED_AFTER_REFUSAL_SAVED").toBe("Penelope keeps the loom");
+});
+
+test("a two-tab fork ends the source's pending file recovery", async () => {
+  const s = scene();
+  s.swept.add(CREW.fileId);
+  s.silenceGets(1_000);
+  s.drafts.getState().edit(s.id, SESSION, { text: "Crew list", files: [{ file: CREW, lineage: s.id }] });
+  await run(10_000);
+  s.silenceGets(0);
+  const gets = s.gets();
+  // The retained writer's version takes the id back; this tab continues on a branch.
+  s.drafts.getState().keepDeviceBranch(s.id, "voyage-branch", { draftId: s.id, sessionId: SESSION, text: "Penelope keeps the loom", attachments: [], editedAt: 1, host: null }, SESSION);
+  await run(LONG);
+  expect(s.gets() - gets, "FORK_ENDS_RECOVERY").toBe(0);
+  expect(s.drafts.getState().drafts[s.id]?.failure ?? null).toBeNull();
 });

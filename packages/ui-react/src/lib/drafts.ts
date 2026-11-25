@@ -120,8 +120,7 @@ export function draftEntryWord(d: ComposerDraft, store: Pick<DraftStoreState, "s
 export function unboundDrafts(drafts: Record<string, ComposerDraft>): ComposerDraft[] {
   return Object.values(drafts)
     // An emptied draft with another device's version waiting stays reachable: its Compare is still owed.
-    // One holding only originals to choose again stays reachable too (#4566).
-    .filter((d) => d.sessionId === null && (d.text.length > 0 || d.attachments.length > 0 || (d.files?.length ?? 0) > 0 || d.conflict !== null))
+    .filter((d) => d.sessionId === null && (d.text.length > 0 || d.attachments.length > 0 || d.conflict !== null))
     .sort((a, b) => b.editedAt - a.editedAt);
 }
 
