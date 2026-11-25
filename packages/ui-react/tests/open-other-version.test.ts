@@ -1,0 +1,152 @@
+import { afterEach, expect, test } from "bun:test";
+import { createBrainUiRoot, type BrainUiRoot } from "../src/root.ts";
+import { openOtherVersion } from "../src/components/chat/draft-save-line.tsx";
+import { draftIndicatorView } from "../src/lib/draft-indicator.ts";
+import { restorationOf } from "../src/stores/chat-state.ts";
+import type { LocalDraft } from "../src/stores/draft-state.ts";
+
+// Open other version (#4567) always ends at the other version's content: in
+// its live chat, where a rotation moved it, or on its own in the new-chat
+// view when it has no chat or its chat is gone. A switch that is cancelled
+// or fails says so on the draft it left. Never an empty new chat.
+// Odysseus fixtures; no host, no network.
+
+const ITHACA = "odysseus-ithaca";
+const RAFT = "odysseus-raft";
+const BRANCH = "voyage-branch";
+const OTHER_TEXT = "Penelope keeps the loom";
+const roots: BrainUiRoot[] = [];
+afterEach(() => { for (const r of roots.splice(0)) r.dispose(); });
+const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/**
+ * This tab continues the voyage on a device branch of Ithaca's draft; the
+ * other version, as another tab kept it, is `other`.
+ */
+function scene(other: Partial<LocalDraft> = {}) {
+  const root = createBrainUiRoot({ storage: null, request: async () => Response.json({}) });
+  roots.push(root);
+  const drafts = root.stores.drafts;
+  const chat = root.stores.chat;
+  chat.getState().setActiveSession(ITHACA);
+  const original = drafts.getState().idFor(ITHACA);
+  drafts.getState().edit(original, ITHACA, { text: "Telemachus keeps the voyage" });
+  const kept: LocalDraft = { draftId: original, sessionId: ITHACA, text: OTHER_TEXT, attachments: [], editedAt: 1,
+    host: { revision: 2, sessionId: ITHACA, updatedAt: 1, clean: false }, ...other };
+  drafts.getState().keepDeviceBranch(original, BRANCH, kept, ITHACA);
+  expect(drafts.getState().idFor(ITHACA), "this tab shows its own branch").toBe(BRANCH);
+  /** What the composer shows now: the view's session, and its draft's text. */
+  const shown = () => {
+    const sessionId = chat.getState().activeSessionId;
+    const s = drafts.getState();
+    return { sessionId, text: s.drafts[s.idFor(sessionId)]?.text ?? "" };
+  };
+  return { root, drafts, chat, original, shown };
+}
+
+test("a live chat: the other version opens in it", () => {
+  const s = scene();
+  openOtherVersion(s.root, s.original, BRANCH);
+  expect(s.shown()).toEqual({ sessionId: ITHACA, text: OTHER_TEXT });
+});
+
+test("case 1: a version a rotation moved off its id opens where it lives now, not as an empty new chat", async () => {
+  const s = scene();
+  // The host took the delete while it was edited: its content moves to a new id of the same chat.
+  s.drafts.getState().removed(s.original);
+  expect(s.drafts.getState().drafts[s.original], "no longer under its own id").toBeUndefined();
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  expect(s.shown(), "OTHER_VERSION_MOVED").toEqual({ sessionId: ITHACA, text: OTHER_TEXT });
+});
+
+test("case 2: a version moved off a deleted chat opens on its own, labelled as not in a chat", async () => {
+  const s = scene();
+  // Deleted elsewhere while edited here: the content becomes a draft of no chat.
+  s.drafts.getState().hostGone(s.original);
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  expect(s.shown(), "OTHER_VERSION_NO_CHAT").toEqual({ sessionId: null, text: OTHER_TEXT });
+  const at = s.drafts.getState().fresh;
+  expect(s.drafts.getState().versionSwitch).toEqual({ draftId: at, outcome: "unattached" });
+});
+
+test("case 3: a version whose chat turns out to be gone moves off it and opens on its own", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  expect(s.shown()).toEqual({ sessionId: RAFT, text: OTHER_TEXT });
+  // The resume finds no such conversation on this host.
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(restorationOf(s.chat.getState()), "OTHER_VERSION_CHAT_GONE: not left on Conversation unavailable").toBeNull();
+  expect(s.shown()).toEqual({ sessionId: null, text: OTHER_TEXT });
+  expect(s.drafts.getState().versionSwitch).toMatchObject({ outcome: "unattached", draftId: s.drafts.getState().fresh });
+  // It is a draft of no chat now: sending starts one, and Raft's view has nothing of it.
+  expect(s.drafts.getState().drafts[s.drafts.getState().fresh]?.sessionId).toBeNull();
+  expect(s.drafts.getState().drafts[s.drafts.getState().idFor(RAFT)]).toBeUndefined();
+});
+
+test("a version whose restore fails for another reason stays in its chat, with that state's own Retry", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.chat.getState().failRestore(RAFT, { reason: "timeout" });
+  expect(s.shown()).toEqual({ sessionId: RAFT, text: OTHER_TEXT });
+  expect(s.drafts.getState().versionSwitch).toBeNull();
+});
+
+/** A device store whose read waits until released, so a navigation can cancel it. */
+function slowDevice(root: BrainUiRoot) {
+  let release!: () => void;
+  let fail!: (error: Error) => void;
+  const read = new Promise<void>((resolve, reject) => { release = resolve; fail = reject; });
+  root.localWork = { openDeviceVersion: () => read, dispose() {} } as unknown as NonNullable<BrainUiRoot["localWork"]>;
+  return { release, fail };
+}
+
+/** The indicator's view of a draft, with the note its component reads from the store. Its DOM is proved in Chromium. */
+function summary(root: BrainUiRoot, draftId: string) {
+  const s = root.stores.drafts.getState();
+  const note = s.versionSwitch?.draftId === draftId && s.versionSwitch.outcome !== "unattached" ? s.versionSwitch.outcome : null;
+  const view = draftIndicatorView({ draft: s.drafts[draftId], store: s, queued: [], online: true, switchNote: note });
+  return view.key === "none" ? "" : view.summary;
+}
+
+test("a switch cancelled by navigation says so on the draft it left, in the indicator and the save line", async () => {
+  const s = scene();
+  const device = slowDevice(s.root);
+  openOtherVersion(s.root, s.original, BRANCH);
+  // The reader opens another panel while the device read is out.
+  s.root.stores.ui.getState().setActiveView("activity");
+  device.release();
+  await turn();
+  s.root.localWork = null;
+  expect(s.shown(), "the view is the reader's, untouched").toEqual({ sessionId: ITHACA, text: "Telemachus keeps the voyage" });
+  expect(s.drafts.getState().versionSwitch, "SWITCH_CANCELLED_NOTED").toEqual({ draftId: BRANCH, outcome: "cancelled" });
+  expect(summary(s.root, BRANCH)).toBe("Another tab changed this draft. Both versions are kept. Other version not opened: you moved away first.");
+  // The next try clears it.
+  openOtherVersion(s.root, s.original, BRANCH);
+  expect(s.drafts.getState().versionSwitch?.outcome).not.toBe("cancelled");
+});
+
+test("a switch whose device read fails says so instead of doing nothing", async () => {
+  const s = scene();
+  const device = slowDevice(s.root);
+  openOtherVersion(s.root, s.original, BRANCH);
+  device.fail(new Error("partition refused"));
+  await turn();
+  s.root.localWork = null;
+  expect(s.drafts.getState().versionSwitch, "SWITCH_FAILED_NOTED").toEqual({ draftId: BRANCH, outcome: "failed" });
+  expect(summary(s.root, BRANCH)).toBe("Another tab changed this draft. Both versions are kept. Couldn't open the other version.");
+  expect(s.shown()).toEqual({ sessionId: ITHACA, text: "Telemachus keeps the voyage" });
+});
+
+test("a version found nowhere says so, and the view stays", async () => {
+  const s = scene();
+  s.drafts.setState((st) => { const d = { ...st.drafts }; delete d[s.original]; return { drafts: d }; });
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  expect(s.drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "missing" });
+  expect(summary(s.root, BRANCH)).toBe("Another tab changed this draft. Both versions are kept. The other version isn't on this device any more.");
+  expect(s.shown()).toEqual({ sessionId: ITHACA, text: "Telemachus keeps the voyage" });
+});

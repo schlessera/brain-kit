@@ -354,9 +354,12 @@ originals, on a host that advertises `composerFiles`:
     paused. Typing keeps its save pause, and retries keep their backoff.
   - **A full chat sends nothing.** `409 DRAFT_OUTGOING_FULL` gives the text
     and files back to the composer and shows the notice with **Show**. Until
-    the save that creates a snapshot is acknowledged, the field takes no new
-    edits. That window is one save, and it means a refusal gives the text back
-    alone, never joined to newer words (rev 4 correction 3). Only
+    the save that creates a snapshot is acknowledged, nothing new reaches the
+    draft. That window is one save, and it means a refusal gives the text back
+    first (rev 4 correction 3). What is typed or pasted meanwhile is held in
+    the field, never dropped, with the hint `New text waits until your
+    message is saved`. It goes into the draft once the host answers, after
+    the returned text on a new line when the answer is a refusal (#4567). Only
     Send waits. Drafting and every bubble action stay available, and Cancel
     never asks for a slot. The notice clears when this tab frees one: a
     Delete…, an Edit, or an acceptance. When another tab or device frees a

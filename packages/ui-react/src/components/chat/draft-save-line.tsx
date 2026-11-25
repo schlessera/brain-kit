@@ -4,6 +4,7 @@ import { Overlay, Button, TextButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import type { BrainUiRoot } from "../../root.js";
 import { SAVING_SHOWN_AFTER_MS, draftSaveView } from "../../lib/drafts.js";
+import { VERSION_SWITCH_COPY } from "../../lib/draft-indicator.js";
 import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
 import type { DraftConflictChoice } from "../../stores/draft-state.js";
 
@@ -21,6 +22,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   const supported = useRootStore("drafts", (s) => s.supported);
   const limits = useRootStore("drafts", (s) => s.limits);
   const localFailed = useLocalWorkStatus((s) => s.failed);
+  const switchNote = useRootStore("drafts", (s) => (s.versionSwitch?.draftId === draftId && s.versionSwitch.outcome !== "unattached" ? s.versionSwitch.outcome : null));
   const [, tick] = useState(0);
   const [comparing, setComparing] = useState(false);
   const compareRef = useRef<HTMLButtonElement>(null);
@@ -41,7 +43,8 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   if (draft?.deviceConflict && !draft.conflict && !localFailed) return (
     <div className="mx-auto mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 px-1 font-mono text-[10.5px] leading-4 text-foreground" data-device-conflict="">
       <span role="status">Another tab changed this draft · Both versions kept</span>
-      <TextButton tone="inherit" label="Open other version" onClick={() => openOtherVersion(root, draft.deviceConflict!.otherId)} />
+      {switchNote ? <span data-version-switch={switchNote}>· {VERSION_SWITCH_COPY[switchNote]}</span> : null}
+      <TextButton tone="inherit" label="Open other version" onClick={() => openOtherVersion(root, draft.deviceConflict!.otherId, draftId)} />
     </div>
   );
   if (view.state === "none") {
@@ -129,12 +132,21 @@ export function CompareDrafts({ draftId, onClose, returnFocus }: { draftId: stri
  * Open the other version of a device-local keep-both branch (#1014). This
  * may wait for native storage; a later navigation owns the view, including
  * New conversation while already in a new chat, and cancels it.
+ *
+ * It always ends at the other version's content, or says why not (#4567):
+ * a version a rotation moved is opened where it lives now; one with no
+ * chat, or whose chat turns out to be gone, opens on its own in the
+ * new-chat view, labelled; a cancelled or failed switch is noted on the
+ * draft it left (`versionSwitch`), never an empty new chat.
  */
-export function openOtherVersion(root: BrainUiRoot, otherId: string): void {
+export function openOtherVersion(root: BrainUiRoot, otherId: string, fromId: string): void {
+  const drafts = root.stores.drafts;
+  drafts.getState().noteVersionSwitch(null);
+  const note = (outcome: "cancelled" | "failed" | "missing") => drafts.getState().noteVersionSwitch({ draftId: fromId, outcome });
   const controller = new AbortController();
   const unwatch = [
     root.stores.chat.subscribe((s, prev) => { if (s.activeSessionId !== prev.activeSessionId) controller.abort(); }),
-    root.stores.drafts.subscribe((s, prev) => {
+    drafts.subscribe((s, prev) => {
       if (s.fresh === prev.fresh || s.fresh === otherId) return;
       const continued = s.drafts[s.fresh]?.deviceConflict && s.resolveId(prev.fresh) === s.fresh;
       if (!continued) controller.abort();
@@ -146,16 +158,60 @@ export function openOtherVersion(root: BrainUiRoot, otherId: string): void {
     root.stores.connection.subscribe((s, prev) => { if (s.accountKey !== prev.accountKey) controller.abort(); }),
   ];
   const open = async () => {
+    // Read before opening: opening forgets the rotation that moved it.
+    const moved = drafts.getState().versionHome(otherId);
     if (root.localWork) await root.localWork.openDeviceVersion(otherId, controller.signal);
-    else root.stores.drafts.getState().openDeviceVersion(otherId);
-    if (controller.signal.aborted) return;
+    else drafts.getState().openDeviceVersion(otherId);
+    if (controller.signal.aborted) { note("cancelled"); return; }
     unwatch.forEach(stop => stop());
-    const other = root.stores.drafts.getState().drafts[otherId];
-    const sessionId = other?.sessionId ?? null;
-    const changedSession = root.stores.chat.getState().activeSessionId !== sessionId;
-    root.stores.chat.getState().setActiveSession(sessionId);
-    if (sessionId !== null && changedSession) root.connection.send({ type: "session_resume", sessionId });
+    const target = drafts.getState().drafts[otherId] ? otherId : moved && drafts.getState().drafts[moved] ? moved : undefined;
+    if (!target) {
+      // Opening the missing version released this branch's place in its chat: it gets it back.
+      const from = drafts.getState().drafts[fromId];
+      if (from?.sessionId === null && from.deviceConflict?.sessionId) drafts.getState().showDeviceBranch(from.deviceConflict.sessionId, fromId);
+      note("missing");
+      return;
+    }
+    if (target !== otherId) drafts.getState().openDeviceVersion(target);
+    const sessionId = drafts.getState().drafts[target]!.sessionId;
+    if (sessionId === null) {
+      root.stores.chat.getState().setActiveSession(null);
+      drafts.getState().noteVersionSwitch({ draftId: target, outcome: "unattached" });
+    } else {
+      const changedSession = root.stores.chat.getState().activeSessionId !== sessionId;
+      root.stores.chat.getState().setActiveSession(sessionId);
+      if (changedSession) root.connection.send({ type: "session_resume", sessionId });
+      detachIfGone(root, target, sessionId);
+    }
     root.stores.ui.getState().setActiveView("chat");
   };
-  void open().catch(() => { /* Failed snapshot keeps the current editable view and its storage-failure hint. */ }).finally(() => { unwatch.forEach(stop => stop()); });
+  void open().catch(() => { note("failed"); }).finally(() => { unwatch.forEach(stop => stop()); });
+}
+
+/**
+ * The other version's chat may be gone, which only its restore says (#4567):
+ * then the version moves off it and opens on its own in the new-chat view,
+ * instead of leaving the reader on Conversation unavailable. Watching ends
+ * when the history arrives, another failure has its own Retry, or the
+ * reader moves to another view.
+ */
+function detachIfGone(root: BrainUiRoot, draftId: string, sessionId: string): void {
+  const chat = root.stores.chat;
+  let stop = () => {};
+  const check = () => {
+    const c = chat.getState();
+    if (c.activeSessionId !== sessionId || c.buffers[sessionId]?.historyConfirmed) { stop(); return; }
+    const failure = c.restoreFailures[sessionId];
+    if (!failure) return;
+    stop();
+    if (failure.reason !== "missing") return;
+    const drafts = root.stores.drafts.getState();
+    const detached = drafts.detachVersion(draftId);
+    if (!detached) return;
+    root.stores.drafts.getState().openDeviceVersion(detached);
+    c.setActiveSession(null);
+    root.stores.drafts.getState().noteVersionSwitch({ draftId: detached, outcome: "unattached" });
+  };
+  stop = chat.subscribe(check);
+  check();
 }

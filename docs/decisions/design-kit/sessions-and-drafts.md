@@ -757,6 +757,13 @@ reload context, while draft records remain shared and account-partitioned.
 
 Only after transaction commit does the stale writer show
 `Another tab changed this draft · Both versions kept`, with `Open other version`.
+That action ends at the other version's content or says why not (#4567). A
+version a rotation moved opens where it lives now. One with no chat, or whose
+chat's restore answers that it is gone, opens on its own in the new-chat view
+with the hint `Other version · not in a chat yet`; one whose chat is gone moves
+to a new draft of no chat first. A switch cancelled by a change of view, a
+failed device read, or a version found nowhere leaves the reader where they
+are and adds the reason to the indicator's summary and facts.
 Both versions remain reachable through the draft/session surfaces after a
 reload, including a fresh third tab. A failed write leaves editable content
 in memory and uses the existing storage-failure copy; it makes no retention

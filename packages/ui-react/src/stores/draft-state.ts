@@ -260,6 +260,17 @@ export interface DraftSend {
 export type DraftConflictChoice = "mine" | "other" | "both";
 
 /**
+ * How the last Open other version ended, where it says so (#4567). `from`
+ * outcomes belong to the draft the switch left: it was cancelled by a
+ * change of view, failed, or found the other version nowhere. `unattached`
+ * belongs to the draft it opened: the other version has no live chat, so it
+ * is open on its own in the new-chat view.
+ */
+type VersionSwitchNote =
+  | { draftId: string; outcome: "cancelled" | "failed" | "missing" }
+  | { draftId: string; outcome: "unattached" };
+
+/**
  * A draft as this device kept it (#1014): its content, and the host
  * revision it last knew. `clean` says the content is that revision.
  */
@@ -306,6 +317,8 @@ export interface DraftStoreState {
    * notice until this tab frees a slot.
    */
   outgoingFull: { draftId: string; sessionId: string | null; limit: number } | null;
+  /** How the last Open other version ended (#4567), until the next one. */
+  versionSwitch: VersionSwitchNote | null;
 
   /**
    * The id a draft lives under now: a rotation hands its content to a
@@ -390,6 +403,15 @@ export interface DraftStoreState {
   showDeviceBranch(sessionId: string, draftId: string): void;
   /** @internal Explicitly open the other retained version. */
   openDeviceVersion(draftId: string, kept?: LocalDraft): void;
+  /**
+   * @internal The id a retained version lives under now (#4567): its own,
+   * or the draft a rotation moved its content to. Device-branch redirects
+   * are not followed: they lead back to the branch the reader is leaving.
+   */
+  versionHome(draftId: string): string | undefined;
+  /** @internal A version whose chat is gone moves, content and all, to a new draft of no chat (#4567). Returns its id. */
+  detachVersion(draftId: string): string | undefined;
+  noteVersionSwitch(note: VersionSwitchNote | null): void;
 
   // The draft client's reports.
   setSupport(supported: boolean, limits?: SessionDraftLimits, fileLimits?: AttachmentLimits | null, snapshotsOn?: boolean): void;
@@ -641,6 +663,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       orphans: [],
       snapshotsOn: false,
       outgoingFull: null,
+      versionSwitch: null,
 
       idFor(sessionId) {
         const state = get();
@@ -806,6 +829,23 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         for (const [session, branch] of deviceViews) if (branch === draftId || get().drafts[resolve(branch)]?.deviceConflict?.otherId === draftId) deviceViews.delete(session);
         const d = get().drafts[draftId];
         set(s => ({ drafts: { ...s.drafts }, ...(d?.sessionId === null ? { fresh: draftId } : {}) }));
+      },
+
+      versionHome(draftId) {
+        let id = draftId;
+        const visited = new Set<string>();
+        while (!get().drafts[id] && successors.has(id) && !visited.has(id)) { visited.add(id); id = successors.get(id)!; }
+        return get().drafts[id] ? id : undefined;
+      },
+      detachVersion(draftId) {
+        const d = get().drafts[draftId];
+        if (!d) return undefined;
+        if (d.sessionId === null) return draftId;
+        // The host's copy is bound to that chat: the content moves to a new id, and the old one is deleted there.
+        return rotate(d, null);
+      },
+      noteVersionSwitch(note) {
+        if (note !== get().versionSwitch) set({ versionSwitch: note });
       },
 
       beginSend(input, consumedText) {

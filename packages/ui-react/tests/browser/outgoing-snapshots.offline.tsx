@@ -143,19 +143,20 @@ test("case 22: at ten snapshots Send is refused with nothing sent and the text k
   for (const b of s.bubbles()) expect(indicatorName(b), "no message text in the indicator's name").not.toMatch(/Oar|wind/);
   await typed(s, "Turn the ship for Aeaea.");
   await expect.poll(() => saved(s), { timeout: 5_000 }).toBe(true);
-  // Typing while the creating save is out cannot reach the field, so a
-  // refusal gives the text back alone: never joined to newer words.
+  // Typing while the creating save is out is held beside the draft (#4567):
+  // a refusal gives the text back first, and the held words follow it.
   const release = fixture.holdSaves();
   s.sendButton().click();
   await expect.poll(() => s.field().value).toBe("");
   await userEvent.type(s.field(), "and more");
-  expect(s.field().value, "no edit while the snapshot is unacknowledged").toBe("");
+  expect(s.field().value, "the words typed meanwhile are shown, not dropped").toBe("and more");
+  expect(s.draft()!.text, "nothing lands in the draft while the snapshot is unacknowledged").toBe("");
   const before = document.activeElement;
   release();
   await expect.poll(() => s.host.querySelector("[data-outgoing-full]")?.textContent ?? "", { timeout: 5_000 }).toContain(FULL);
   expect(s.messages(), "no chat_message").toHaveLength(0);
   expect(fixture.saves.some((x) => x.status === 409), "the creating save was refused").toBe(true);
-  expect(s.field().value, "the text stays here").toBe("Turn the ship for Aeaea.");
+  await expect.poll(() => s.field().value, { message: "the text stays here, then the held words" }).toBe("Turn the ship for Aeaea.\nand more");
   expect(s.sendButton().getAttribute("aria-disabled")).toBe("true");
   expect(document.activeElement, "focus unchanged").toBe(before);
   expect(fixture.count()).toBe(10);
@@ -176,6 +177,33 @@ test("case 22: at ten snapshots Send is refused with nothing sent and the text k
   await expect.poll(() => fixture.count(), { timeout: 5_000 }).toBe(9);
   await expect.poll(() => s.host.querySelector("[data-outgoing-full]")).toBeNull();
   expect(s.sendButton().getAttribute("aria-disabled")).toBeNull();
+});
+
+test("text pasted while a Send's snapshot is unacknowledged is held in the field, says so, and is kept once the host holds the send (#4567)", async () => {
+  const fixture = snapshotHost();
+  const s = await mount(fixture);
+  await typed(s, "Muster the crew at dawn.");
+  await expect.poll(() => saved(s), { timeout: 5_000 }).toBe(true);
+  const release = fixture.holdSaves();
+  s.sendButton().click();
+  await expect.poll(() => s.field().value).toBe("");
+  // A real clipboard paste: copied from another field, pasted into the composer.
+  const source = document.createElement("textarea");
+  source.value = "Bring the wine for Polyphemus.";
+  document.body.append(source);
+  source.focus(); source.select();
+  await userEvent.copy();
+  source.remove();
+  s.field().focus();
+  await userEvent.paste();
+  await expect.poll(() => s.field().value, { message: "PASTE_HELD_VISIBLE" }).toBe("Bring the wine for Polyphemus.");
+  expect(s.host.textContent, "the field says it is holding").toContain("New text waits until your message is saved");
+  expect(s.draft()!.text, "nothing lands in the draft before the host answers").toBe("");
+  release();
+  await acknowledged(fixture, s, "Muster the crew at dawn.");
+  await expect.poll(() => s.draft()!.text, { timeout: 5_000 }).toBe("Bring the wine for Polyphemus.");
+  expect(s.field().value).toBe("Bring the wine for Polyphemus.");
+  expect(s.host.textContent).not.toContain("New text waits until your message is saved");
 });
 
 test("case 22: when another device frees a slot, the queue-full notice clears within one re-read interval, from reads alone", async () => {

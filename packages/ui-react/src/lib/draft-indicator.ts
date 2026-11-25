@@ -54,6 +54,13 @@ export type DraftIndicatorView =
     action?: DraftIndicatorAction;
   };
 
+/** Why Open other version did not open it (#4567), in the indicator's words. */
+export const VERSION_SWITCH_COPY = {
+  cancelled: "Other version not opened: you moved away first",
+  failed: "Couldn't open the other version",
+  missing: "The other version isn't on this device any more",
+} as const;
+
 export interface DraftIndicatorInput {
   draft: ComposerDraft | undefined;
   store: Pick<DraftStoreState, "supported" | "limits">;
@@ -65,6 +72,8 @@ export interface DraftIndicatorInput {
   localFailed?: boolean;
   /** Formats a timestamp as the reader's clock; injectable for tests. */
   clock?: (ms: number) => string;
+  /** How the last Open other version from this draft ended, when it did not open it (#4567). */
+  switchNote?: keyof typeof VERSION_SWITCH_COPY | null;
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -105,8 +114,10 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
   const files = draftFiles(d);
 
   if (d?.deviceConflict && !d.conflict && !input.localFailed) {
+    const note = input.switchNote ? VERSION_SWITCH_COPY[input.switchNote] : null;
     return { key: "device_conflict", state: "attention", stateLabel: "Another tab changed this draft",
-      summary: "Another tab changed this draft. Both versions are kept.", facts: [], action: "other_version" };
+      summary: `Another tab changed this draft. Both versions are kept.${note ? ` ${note}.` : ""}`,
+      facts: note ? [{ key: "Other version", value: note }] : [], action: "other_version" };
   }
   // Shown even over an emptied composer: the other version still waits.
   if (d?.conflict) {

@@ -346,3 +346,24 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"] as const)
     await page.screenshot({ element: s.host, path: `../../.vitest-attachments/draft-indicator/${theme}-${width}.png` });
   });
 }
+
+test("Open other version cancelled by a change of view says so in the indicator, and the view is the reader's (#4567)", async () => {
+  const fixture = snapshotHost();
+  const s = await mount(fixture, { device: device() });
+  const original = s.root.stores.drafts.getState().idFor(SESSION);
+  await typed(s, "Telemachus keeps the voyage");
+  // Another tab kept its own version of this draft: this tab continues on a branch.
+  flushSync(() => s.root.stores.drafts.getState().keepDeviceBranch(original, "voyage-branch",
+    { draftId: original, sessionId: SESSION, text: "Penelope keeps the loom", attachments: [], editedAt: 1, host: null }, SESSION));
+  await expect.poll(() => s.key()).toBe("device_conflict");
+  expect(s.summary()).toBe("Another tab changed this draft. Both versions are kept.");
+  s.trigger()!.click();
+  await expect.poll(() => detailAction("other_version")).not.toBeNull();
+  // The device read is out when the reader opens another view.
+  detailAction("other_version")!.click();
+  flushSync(() => s.root.stores.ui.getState().setActiveView("activity"));
+  await expect.poll(() => s.summary(), { timeout: 5_000 }).toBe("Another tab changed this draft. Both versions are kept. Other version not opened: you moved away first.");
+  expect(s.field().value, "the reader's own version stays in the field").toBe("Telemachus keeps the voyage");
+  s.trigger()!.click();
+  await expect.poll(() => details()?.textContent ?? "").toContain("Other version not opened: you moved away first");
+});
