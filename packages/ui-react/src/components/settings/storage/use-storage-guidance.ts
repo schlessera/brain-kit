@@ -38,7 +38,11 @@ function createEvidence(root: BrainUiRoot) {
     histories = 0,
     generation = 0;
   let controller: AbortController | null = null,
-    active: Promise<void> | null = null;
+    active: Promise<void> | null = null,
+    // One read queued behind the active one: a refresh asked for while a read
+    // is in flight may follow what that read predates (a finished measurement,
+    // a refocus after the owner's access changed), so it is not answered by it.
+    again: Promise<void> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null,
     unwatch: (() => void) | null = null,
     disconnect: (() => void) | null = null;
@@ -47,12 +51,25 @@ function createEvidence(root: BrainUiRoot) {
     controller?.abort();
     controller = null;
     active = null;
+    again = null;
     state.setState(empty(root.authLock.epoch()), true);
   }
   function refresh(): Promise<void> {
     if (!users || root.authLock.state.getState().phase !== "active")
       return Promise.resolve();
-    if (active) return active;
+    if (active) {
+      if (!again) {
+        // A clear() between now and then drops the queued read.
+        const next = () => {
+          if (again !== queued) return;
+          again = null;
+          return refresh();
+        };
+        const queued: Promise<void> = active.then(next, next);
+        again = queued;
+      }
+      return again;
+    }
     const request = new AbortController(),
       epoch = root.authLock.epoch(),
       account = root.stores.connection.getState().accountKey,
@@ -123,8 +140,14 @@ function createEvidence(root: BrainUiRoot) {
         controller = null;
         active = null;
         state.setState({ loading: false });
-        // The pane may have subscribed while an indicator-only read was in flight.
-        if (!withHistory && histories && state.getState().error === null)
+        // The pane may have subscribed while an indicator-only read was in
+        // flight; a queued read already covers it.
+        if (
+          !again &&
+          !withHistory &&
+          histories &&
+          state.getState().error === null
+        )
           void refresh();
       });
     return active;
