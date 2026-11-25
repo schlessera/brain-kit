@@ -5,7 +5,8 @@ import { useRef, type CSSProperties, type KeyboardEvent } from "react";
  * tier). One `radiogroup`, one tab stop at the checked option, arrows (with
  * Home and End) move the choice and wrap. Each option takes the kit's
  * `.bk-hit` utility, so a coarse pointer gets a 44px target without
- * inflating the paint. The checked option is filled; its state is also
+ * inflating the paint; under a coarse pointer each option is also at least
+ * 44px wide, so neighbours' reaches never overlap (as `FilterRow`'s pills). The checked option is filled; its state is also
  * `aria-checked`, so meaning never rests on colour.
  */
 export function StorageSegmented<T extends string>({
@@ -62,7 +63,7 @@ export function StorageSegmented<T extends string>({
                 ? { background: "var(--bk-color-ink)", color: "var(--bk-color-canvas)", "--hv-bg": "var(--bk-color-ink)", "--hv-fg": "var(--bk-color-canvas)" }
                 : { "--hv-bg": "var(--bk-hover-veil-strong)" }) as unknown as CSSProperties
             }
-            className={`bk-row bk-hit min-h-8 px-3 text-xs font-medium first:rounded-l-md last:rounded-r-md ${on ? "" : "text-muted-foreground"}`}
+            className={`bk-row bk-hit min-h-8 px-3 text-xs any-pointer-coarse:min-w-11 font-medium first:rounded-l-md last:rounded-r-md ${on ? "" : "text-muted-foreground"}`}
           >
             {option.label}
           </button>
