@@ -213,7 +213,7 @@ export function appUsage(input: {
   const { pressure, history, identity, metric, now } = input;
   const rate = metric === "allocated" ? pressure?.evidence?.appAllocated : pressure?.evidence?.appLogical;
   const summary = appAddedSummary(pressure?.scopeChanged ? null : rate, input.format);
-  const points = history ? appPoints(storageSeries(history, identity, "six-hour", now)) : [];
+  const points = history ? appPoints(storageSeries(history, identity, "six-hour", now), metric) : [];
   return { points, ...summary };
 }
 

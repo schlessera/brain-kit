@@ -57,6 +57,8 @@ interface StorageSeriesPoint {
   available: number | null;
   /** App stores' on-disk bytes; `null` when not measured. */
   appAllocated: number | null;
+  /** App stores' file-size bytes; `null` when not measured. */
+  appLogical: number | null;
   /** The tier recorded no comparable observation of this volume for the bucket. */
   gap: boolean;
   /** The current bucket, still filling. */
@@ -102,6 +104,7 @@ export function storageSeries(
       at: row.at,
       available: measured ? measured.available : null,
       appAllocated: measured ? measured.owners.app.allocated : null,
+      appLogical: measured ? measured.owners.app.logical : null,
       gap: !measured,
       provisional: index === held.length - 1 && bucketOf(tier, row.at) === bucketOf(tier, now),
       otherScope: !!measured && latestScope !== null && keyOf(row, measured) !== latestScope,
@@ -121,9 +124,9 @@ const point = (value: StorageSeriesPoint, of: number | null): HistoryPoint => {
 export function availablePoints(series: readonly StorageSeriesPoint[]): HistoryPoint[] {
   return series.map((value) => point(value, value.available));
 }
-/** The "What this app added" sparkline's points. */
-export function appPoints(series: readonly StorageSeriesPoint[]): HistoryPoint[] {
-  return series.map((value) => point(value, value.appAllocated));
+/** The "What this app added" sparkline's points, in the pane's size basis. */
+export function appPoints(series: readonly StorageSeriesPoint[], metric: "allocated" | "logical" = "allocated"): HistoryPoint[] {
+  return series.map((value) => point(value, metric === "allocated" ? value.appAllocated : value.appLogical));
 }
 
 /** The chart's Low and Very-low bands, in this volume's bytes; empty when its total is unknown. */
