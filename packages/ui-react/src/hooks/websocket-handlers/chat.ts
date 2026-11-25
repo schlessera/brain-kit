@@ -324,6 +324,8 @@ export const chatFrameHandlers = {
     // interleave fan-out work with the main turn's steps.
     if (msg.parentToolUseId) return;
     context.state.startToolCall(context.key, msg.toolUseId, msg.toolName);
+    // As a delta does: a tool-only reply still belongs to its turn (#4565).
+    if (context.frameTurnId) context.state.stampToolTurn(context.key, msg.toolUseId, context.frameTurnId);
   },
   tool_input_delta: (msg, context) => {
     context.state.appendToolInput(context.key, msg.partialJson);
@@ -396,7 +398,8 @@ export const chatFrameHandlers = {
     // The host itself stopped it (#4565): the conversation, and the
     // questions it closed, name that instead of an unexplained end.
     const hostStop = msg.outcome === "cancelled" ? hostStopFromOutcomeDetail(msg.outcomeDetail) : undefined;
-    context.state.endTurnQuestions(context.key, context.frameTurnId, timedOut ? "timeout" : hostStop !== undefined ? "host_stop" : undefined);
+    // Only a result that names its turn can say why that turn's questions closed.
+    context.state.endTurnQuestions(context.key, context.frameTurnId, timedOut ? "timeout" : hostStop !== undefined && context.frameTurnId ? "host_stop" : undefined);
     if (timedOut) context.state.setTurnNotice(context.key, { cause: "timeout" }, context.frameTurnId);
     if (hostStop !== undefined) context.state.setTurnNotice(context.key, { cause: "host_stop", hostStop }, context.frameTurnId);
     // A tool the runtime never answered before it stopped shows the host's

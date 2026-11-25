@@ -597,6 +597,8 @@ export interface ChatState {
    * before any turn exists, so the id arrives with the deltas.
    */
   stampTurn: (key: ChatKey, turnId: string) => void;
+  /** Stamp `turnId` on the streaming reply holding `toolUseId`, when it has none yet. */
+  stampToolTurn: (key: ChatKey, toolUseId: string, turnId: string) => void;
   setStreaming: (key: ChatKey, streaming: boolean) => void;
   /** Replace a session's transcript (first replayed history chunk). Creates the buffer. */
   setMessages: (key: ChatKey, messages: ChatMessage[]) => void;

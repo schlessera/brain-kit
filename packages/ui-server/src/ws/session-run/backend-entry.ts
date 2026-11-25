@@ -191,6 +191,7 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
   await host.originTrust?.refresh?.(abortController.signal);
   abortController.signal.throwIfAborted();
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
+    stop: error => stopTurnForHost(host, turn, run.turnId, abortController, "egress_record", error),
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
     networkRefusal: toolUseId => host.coordinator.networkRefusal(turn.turnId,toolUseId),
     trust: host.originTrust,

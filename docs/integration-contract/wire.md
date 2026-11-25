@@ -1499,14 +1499,15 @@ HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout"          // exported from @schlesse
 result.outcomeDetail?: "host_stop:<cause>"            // on outcome: "cancelled"
 status.detail?: "Stopped by the host"                 // on the same turn's status: "cancelled"
 tool_result.hostStop?: HostStopCause                  // on a tool the host cut short
-HostStopCause = "safety_recording" | "change_journal" | "approval_record" | "inbox_share"
+HostStopCause = "safety_recording" | "change_journal" | "approval_record" | "inbox_share" | "egress_record"
 HOST_STOP_CAUSES, HOST_STOP_OUTCOME_DETAIL_PREFIX = "host_stop:",
 hostStopOutcomeDetail(cause), hostStopFromOutcomeDetail(detail)   // exported from @schlessera/brain-ui-sdk/protocol
 ```
 
 - **A host stop** is the host itself ending a turn because something it must
   keep for that turn failed: its safety checks, its change journal, an
-  approval's outcome or the chat's inbox shares could not be recorded. Like a
+  approval's outcome, the chat's inbox shares or its network requests could
+  not be recorded. Like a
   timeout it is set by the owner that stopped the turn, never inferred from an
   aborted signal, and never over a cancel or a timeout that ended the turn
   first. The turn stays `outcome: "cancelled"` and `isError: false`.

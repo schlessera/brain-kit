@@ -1416,11 +1416,12 @@ export const HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout";
  * - `change_journal`: the host could not record the turn's changes.
  * - `approval_record`: the host could not keep an approval's outcome.
  * - `inbox_share`: the host could not bind the chat's inbox shares.
+ * - `egress_record`: the host could not record the turn's network requests.
  *
  * A new cause is additive; a client that does not know one shows a generic
  * host stop.
  */
-export const HOST_STOP_CAUSES = ["safety_recording", "change_journal", "approval_record", "inbox_share"] as const;
+export const HOST_STOP_CAUSES = ["safety_recording", "change_journal", "approval_record", "inbox_share", "egress_record"] as const;
 export type HostStopCause = (typeof HOST_STOP_CAUSES)[number];
 
 /** The prefix of every host-stop `result.outcomeDetail`. */

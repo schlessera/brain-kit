@@ -230,3 +230,39 @@ test("a question the host stop closed says the host stopped the turn", () => {
   expect(view.container.textContent, "QUESTION_SAYS_HOST_STOPPED").toContain("The turn was stopped by the host before you answered");
   expect(view.container.textContent).not.toContain("timed out");
 });
+
+test("a tool-only reply with a follow-up queued below it keeps the stop, even after its streaming ended", () => {
+  const send = (frame: ServerMessage) => act(() => { root.connection.handleServerMessage(frame); });
+  root.stores.chat.getState().setActiveSession("s1");
+  send({ type: "session_history", sessionId: "s1", messages: [{ role: "user", content: "Weave the shroud", toolCalls: [] }] } as ServerMessage);
+  const chat = root.stores.chat.getState(), buffer = chat.buffers.s1!;
+  root.stores.chat.setState({ buffers: { ...chat.buffers, s1: { ...buffer, isStreaming: true, messages: [...buffer.messages,
+    { id: "reply", role: "assistant", content: "", toolCalls: [], parts: [], isStreaming: true, timestamp: Date.now() }] } } });
+  send({ type: "tool_use_start", toolUseId: "loom", toolName: "Bash", ...scoped } as ServerMessage);
+  send({ type: "tool_use_complete", toolUseId: "loom", toolName: "Bash", input: { command: "unweave --shroud" }, ...scoped } as ServerMessage);
+  // A follow-up lands below the reply, then the runtime's cancelled status ends its streaming.
+  const now = root.stores.chat.getState(), current = now.buffers.s1!;
+  root.stores.chat.setState({ buffers: { ...now.buffers, s1: { ...current, messages: [...current.messages,
+    { id: "follow-up", role: "user", content: "And unweave it tonight", toolCalls: [], parts: [], isStreaming: false, timestamp: Date.now() }] } } });
+  send({ type: "status", status: "cancelled", detail: "Stopped by the host", ...scoped } as ServerMessage);
+  send({ type: "result", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("egress_record"), durationMs: 1, numTurns: 1, isError: false, ...scoped } as ServerMessage);
+  const messages = root.stores.chat.getState().buffers.s1!.messages;
+  const reply = messages.find((m) => m.id === "reply")!;
+  expect({ notice: reply.runtimeNotice?.cause, tool: reply.toolCalls.find((t) => t.id === "loom")?.hostStop }, "TOOL_ONLY_REPLY_KEEPS_STOP")
+    .toEqual({ notice: "host_stop", tool: "egress_record" });
+  expect(messages.at(-1)?.id).toBe("follow-up");
+});
+
+test("a host-stop result without a turn id rewrites no other turn's closed questions", () => {
+  const send = (frame: ServerMessage) => act(() => { root.connection.handleServerMessage(frame); });
+  root.stores.chat.getState().setActiveSession("s1");
+  send({ type: "session_history", sessionId: "s1", messages: [{ role: "user", content: "Plan the voyage", toolCalls: [] }] } as ServerMessage);
+  send({ type: "status", status: "thinking", ...scoped } as ServerMessage);
+  send({ type: "text_delta", text: "Before we sail: ", ...scoped } as ServerMessage);
+  send({ type: "ask_user_request", requestId: "req-1", ...scoped, questions: [{ question: "Which harbour first?", header: "Harbour", multiSelect: false,
+    options: [{ label: "Ithaca", description: "Home" }, { label: "Pylos", description: "Nestor's court" }] }] } as ServerMessage);
+  send({ type: "result", outcome: "cancelled", outcomeDetail: "host_timeout", durationMs: 1, numTurns: 1, isError: false, ...scoped } as ServerMessage);
+  send({ type: "result", sessionId: "s1", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("inbox_share"), durationMs: 1, numTurns: 1, isError: false } as ServerMessage);
+  const exchange = root.stores.chat.getState().buffers.s1!.messages.flatMap((m) => m.askUserExchanges ?? []).find((e) => e.requestId === "req-1");
+  expect(exchange?.endedBy, "TIMED_OUT_QUESTION_KEEPS_ITS_CAUSE").toBe("timeout");
+});

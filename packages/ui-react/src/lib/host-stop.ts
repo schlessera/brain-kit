@@ -12,6 +12,7 @@ const BECAUSE: Record<HostStopCause, string> = {
   change_journal: "it couldn't record the turn's changes",
   approval_record: "it couldn't save an approval's outcome",
   inbox_share: "it couldn't link this chat's inbox shares",
+  egress_record: "it couldn't record the turn's network requests",
 };
 
 /** The status row of a host-stopped turn; `null` is a cause this client does not know. */

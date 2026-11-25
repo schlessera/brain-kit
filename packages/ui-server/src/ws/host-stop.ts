@@ -14,6 +14,7 @@ export const HOST_STOP_REASONS: Readonly<Record<HostStopCause, string>> = {
   change_journal: "Stopped by the host: the turn's changes could not be recorded",
   approval_record: "Stopped by the host: an approval's outcome could not be kept",
   inbox_share: "Stopped by the host: the chat's inbox shares could not be bound",
+  egress_record: "Stopped by the host: the turn's network requests could not be recorded",
 };
 
 /** The reason of an aborted turn whose stopping owner did not say why. */

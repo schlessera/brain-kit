@@ -721,7 +721,8 @@ This ships in a minor; no breaking ruling is required.
 ## Host stops (additive, 0.45.0, #4565)
 
 A turn the host itself stopped, because its safety checks, change journal, an
-approval's outcome or the chat's inbox shares could not be recorded, now says
+approval's outcome, the chat's inbox shares or its network requests could not
+be recorded, now says
 so instead of reading as a timeout: `result.outcomeDetail: "host_stop:<cause>"`
 on its cancelled result, `detail: "Stopped by the host"` on its
 `status: cancelled`, and `tool_result.hostStop` on the result of a tool it cut

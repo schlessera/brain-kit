@@ -10397,7 +10397,7 @@ signatures (every public export and the types it is made of)
   HANDOFF_REFERENCES_HEADING (packages/ui-sdk/src/protocol.ts)
     const HANDOFF_REFERENCES_HEADING: "References:";
   HOST_STOP_CAUSES (packages/ui-sdk/src/protocol.ts)
-    const HOST_STOP_CAUSES: readonly ["safety_recording", "change_journal", "approval_record", "inbox_share"];
+    const HOST_STOP_CAUSES: readonly ["safety_recording", "change_journal", "approval_record", "inbox_share", "egress_record"];
   HOST_STOP_OUTCOME_DETAIL_PREFIX (packages/ui-sdk/src/protocol.ts)
     const HOST_STOP_OUTCOME_DETAIL_PREFIX: "host_stop:";
   HOST_TIMEOUT_OUTCOME_DETAIL (packages/ui-sdk/src/protocol.ts)
@@ -25218,6 +25218,7 @@ signatures (every public export and the types it is made of)
         hostStop: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
             approval_record: "approval_record";
             change_journal: "change_journal";
+            egress_record: "egress_record";
             inbox_share: "inbox_share";
             safety_recording: "safety_recording";
         }>>>;
@@ -30123,6 +30124,7 @@ signatures (every public export and the types it is made of)
         hostStop: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
             approval_record: "approval_record";
             change_journal: "change_journal";
+            egress_record: "egress_record";
             inbox_share: "inbox_share";
             safety_recording: "safety_recording";
         }>>>;

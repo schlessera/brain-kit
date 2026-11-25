@@ -20,11 +20,12 @@ type StreamingSliceSlice = Pick<ChatState,
   | "setTurnJournal"
   | "rewriteMessageLinks"
   | "stampTurn"
+  | "stampToolTurn"
   | "setStreaming"
 >;
 
 export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice {
-  const { nextId, mutateBuffer, mutateLastAssistant } = ctx;
+  const { nextId, mutateBuffer, mutateLastAssistant, mutateToolHolder } = ctx;
   return {
     finishAssistantMessage: (key) =>
       mutateLastAssistant(
@@ -181,6 +182,11 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
     stampTurn: (key, turnId) =>
       mutateLastAssistant(key, (last) =>
         last.isStreaming && !last.turnId ? { ...last, turnId } : last
+      ),
+
+    stampToolTurn: (key, toolUseId, turnId) =>
+      mutateToolHolder(key, toolUseId, (holder) =>
+        holder.isStreaming && !holder.turnId && holder.toolCalls.some((t) => t.id === toolUseId) ? { ...holder, turnId } : holder
       ),
 
     setStreaming: (key, streaming) => mutateBuffer(key, () => ({ isStreaming: streaming })),
