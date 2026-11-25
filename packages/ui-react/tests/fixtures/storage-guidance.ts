@@ -10,7 +10,8 @@ export const guidanceTime = Date.UTC(2026, 6, 12, 9, 41),
 export function storageGuidanceFixture() {
   const inventory = storageViewFixture(),
     at = guidanceTime,
-    identity = "a".repeat(32),
+    // The inventory's one capacity, so the volume joins its roots (#4537 D7).
+    identity = inventory.snapshot.capacities[0]!.id,
     scope = "b".repeat(32);
   const scenario = (days: number) => ({
     state: "finite" as const,
