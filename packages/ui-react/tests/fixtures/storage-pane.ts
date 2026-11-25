@@ -7,8 +7,16 @@ import type {
   StorageHistoryResponse,
   StorageMaintenanceReceipt,
   StorageMaintenanceRow,
+  StoragePressureEvent,
   StoragePressureView,
   StorageScenario,
+} from "@schlessera/brain-ui-sdk/protocol";
+import {
+  STORAGE_PRESSURE_CRITICAL_PERCENT,
+  STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT,
+  STORAGE_PRESSURE_LOW_PERCENT,
+  STORAGE_PRESSURE_LOW_RECOVERY_PERCENT,
+  STORAGE_PRESSURE_RECOVERY_OBSERVATIONS,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { storageViewFixture, type StorageScene } from "./storage-view.js";
 
@@ -18,13 +26,40 @@ const HOUR = 3_600_000,
   DAY = 24 * HOUR,
   GB = 1_000_000_000;
 
-export type PaneState = "healthy" | "low" | "very-low";
+/** `recovered` (#4548): the Brain disk went Low, then Very low, and is back to OK a day ago. */
+export type PaneState = "healthy" | "low" | "very-low" | "recovered";
 export type ChartState = "full" | "gap" | "no-projection" | "one-window" | "two-windows" | "scope-change";
 /** The events timeline (#4548): an older host's 404, recorded events, the same with warnings paused, or a failure. */
 export type TimelineState = "missing" | "events" | "paused" | "error";
 
-const AVAILABLE: Record<PaneState, number> = { healthy: 48.2 * GB, low: 16.4 * GB, "very-low": 7.2 * GB };
-const SEVERITY: Record<PaneState, StoragePressureView["severity"]> = { healthy: "observed", low: "low", "very-low": "critical" };
+const AVAILABLE: Record<PaneState, number> = { healthy: 48.2 * GB, low: 16.4 * GB, "very-low": 7.2 * GB, recovered: 24.6 * GB };
+const SEVERITY: Record<PaneState, StoragePressureView["severity"]> = { healthy: "observed", low: "low", "very-low": "critical", recovered: "observed" };
+/**
+ * The recovered Brain disk's available space, as [days ago, GB] corners joined
+ * by straight lines: a slow fall, a drop through Low and Very low, then a
+ * climb back past Low's recovery threshold to today's figure.
+ */
+const RECOVERED: [number, number][] = [
+  [16, 31.4],
+  [5.4, 17.2],
+  [4.9, 15.4],
+  [3.4, 9.6],
+  [2.9, 7.2],
+  [2.7, 7.1],
+  [2.5, 12.2],
+  [2, 14.6],
+  [1.4, 18.4],
+  [1.2, 20.6],
+  [0, AVAILABLE.recovered / GB],
+];
+function recovered(ago: number) {
+  const days = ago / DAY;
+  for (const [i, [from, high]] of RECOVERED.entries()) {
+    const next = RECOVERED[i + 1];
+    if (next && days <= from && days >= next[0]) return (next[1] + ((days - next[0]) / (from - next[0])) * (high - next[1])) * GB;
+  }
+  return RECOVERED[0]![1] * GB;
+}
 
 /**
  * The composed pane's synthetic walkthrough (#4549): the inventory fixture's
@@ -89,10 +124,11 @@ export function storagePaneFixture({
     depletionPerDay: null,
     days: null,
   });
-  const short = chart === "no-projection" ? unavailable("gap") : finite("short", state === "healthy" ? 60 : state === "low" ? 14 : 5);
+  const ok = state === "healthy" || state === "recovered";
+  const short = chart === "no-projection" ? unavailable("gap") : finite("short", ok ? 60 : state === "low" ? 14 : 5);
   const long =
     chart === "two-windows" || chart === "full" || chart === "gap"
-      ? finite("long", state === "healthy" ? 90 : state === "low" ? 41 : 12)
+      ? finite("long", ok ? 90 : state === "low" ? 41 : 12)
       : unavailable(chart === "no-projection" ? "gap" : "insufficient-span");
   const flat = (window: "short" | "long"): StorageScenario => ({ ...finite(window, 1), state: "non-depleting", days: null, depletionPerDay: null });
   const evidence = (identity: string, total: number, value: number) => ({
@@ -166,7 +202,8 @@ export function storagePaneFixture({
     },
     union: { logical: 28.0 * GB, allocated: 29.1 * GB },
   });
-  const value = (ago: number) => available + (ago / (16 * DAY)) * 22 * GB + Math.sin(ago / DAY) * 0.6 * GB;
+  const value = (ago: number) =>
+    state === "recovered" ? recovered(ago) : available + (ago / (16 * DAY)) * 22 * GB + Math.sin(ago / DAY) * 0.6 * GB;
   const observation = (tier: StorageHistoryObservation["tier"], ago: number, gap = false): StorageHistoryObservation => ({
     tier,
     at: at - ago,
@@ -264,28 +301,46 @@ export function storagePaneFixture({
       latest: null,
     },
   ] as StorageMaintenanceRow[];
-  // The Brain disk's warning, low → critical → low → observed, and the Pack run
-  // its latest receipt also reports, matched by receipt id and phase.
+  // The Brain disk's warning, read off its six-hour series by the capacity
+  // policy (#4539): Low at or below 10 % of total, Very low at or below 5 %, and
+  // each step back only after consecutive observations above its recovery
+  // threshold. Then the Pack run its latest receipt also reports, matched by
+  // receipt id and phase.
+  const share = (percent: number) => (161 * GB * percent) / 100;
+  const warnings: Omit<StoragePressureEvent, "seq">[] = [];
+  let severity: StoragePressureView["severity"] = "observed",
+    streak = 0;
+  for (const point of observations.filter((row) => row.tier === "six-hour")) {
+    const space = point.capacities.find((row) => row.identity === data.id)?.available ?? null;
+    if (space === null) {
+      streak = 0;
+      continue;
+    }
+    const recovery = share(severity === "critical" ? STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT : STORAGE_PRESSURE_LOW_RECOVERY_PERCENT);
+    streak = severity !== "observed" && space > recovery ? streak + 1 : 0;
+    const next =
+      severity === "observed" && space <= share(STORAGE_PRESSURE_LOW_PERCENT)
+        ? "low"
+        : severity === "low" && space <= share(STORAGE_PRESSURE_CRITICAL_PERCENT)
+          ? "critical"
+          : streak === STORAGE_PRESSURE_RECOVERY_OBSERVATIONS
+            ? severity === "critical"
+              ? "low"
+              : "observed"
+            : severity;
+    if (next === severity) continue;
+    warnings.push({ at: point.at, kind: "pressure", identity: data.id, phase: severity === "observed" ? "start" : next === "observed" ? "end" : "step", severity: next, episode: 1 });
+    severity = next;
+    streak = 0;
+  }
   const pack = operations[0]!.latest!;
-  const warning = (seq: number, ago: number, phase: "start" | "step" | "end", severity: StoragePressureView["severity"]): StorageEvent => ({
-    seq,
-    at: at - ago,
-    kind: "pressure",
-    identity: data.id,
-    phase,
-    severity,
-    episode: 1,
-  });
   const events: StorageEvent[] = [
-    warning(1, 5 * DAY - 13 * 60_000, "start", "low"),
-    warning(2, 3 * DAY - 2 * HOUR, "step", "critical"),
-    warning(3, 2 * DAY - 5 * HOUR, "step", "low"),
-    warning(4, DAY - 3 * HOUR, "end", "observed"),
-    { seq: 5, at: pack.requestedAt, kind: "maintenance", receipt: pack.id, operation: pack.operation, phase: "requested" },
+    ...warnings,
+    { at: pack.requestedAt, kind: "maintenance", receipt: pack.id, operation: pack.operation, phase: "requested" },
     ...(pack.completedAt === null || pack.state === "waiting" || pack.state === "running"
       ? []
-      : [{ seq: 6, at: pack.completedAt, kind: "maintenance" as const, receipt: pack.id, operation: pack.operation, phase: "finished" as const, state: pack.state, reason: pack.reason }]),
-  ];
+      : [{ at: pack.completedAt, kind: "maintenance" as const, receipt: pack.id, operation: pack.operation, phase: "finished" as const, state: pack.state, reason: pack.reason }]),
+  ].map((event, i) => ({ ...event, seq: i + 1 }) as StorageEvent);
   const eventReads: number[] = [];
   const reads: string[] = [];
   const request = async (url: string, init?: RequestInit) => {

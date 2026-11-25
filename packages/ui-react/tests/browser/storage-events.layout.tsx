@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 async function scene({ width = 320, theme = "dark", timeline = "events" as TimelineState } = {}) {
-  const fixture = storagePaneFixture({ state: "healthy", chart: "full", timeline });
+  const fixture = storagePaneFixture({ state: "recovered", chart: "full", timeline });
   outer ??= await commands.formViewport(width, 900);
   await page.viewport(width, 900);
   document.documentElement.dataset.theme = theme;
