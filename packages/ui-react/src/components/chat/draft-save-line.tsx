@@ -197,10 +197,16 @@ function watchNavigation(root: BrainUiRoot, moved: () => void): () => void {
 }
 
 /** The reader's own branch back in view, where Open other version left it. */
-function backToBranch(root: BrainUiRoot, fromId: string): void {
+/**
+ * `gone`: a chat just found missing, never returned to. The branch is
+ * followed to the id it lives under now (a fork may have moved it). Returns
+ * that id, for the note.
+ */
+function backToBranch(root: BrainUiRoot, branchId: string, gone?: string): string {
   const drafts = root.stores.drafts.getState();
+  const fromId = drafts.resolveId(branchId);
   const from = drafts.drafts[fromId];
-  if (!from) return;
+  if (!from) return fromId;
   const chat = root.stores.chat.getState();
   const show = (sessionId: string) => {
     if (chat.activeSessionId === sessionId) return;
@@ -208,18 +214,19 @@ function backToBranch(root: BrainUiRoot, fromId: string): void {
     root.connection.send({ type: "session_resume", sessionId });
   };
   // A branch that gained its own chat since: that chat.
-  if (from.sessionId !== null) { show(from.sessionId); return; }
+  if (from.sessionId !== null && from.sessionId !== gone) { show(from.sessionId); return fromId; }
   const sessionId = from.deviceConflict?.sessionId ?? null;
-  if (sessionId !== null) {
+  if (sessionId !== null && sessionId !== gone) {
     drafts.showDeviceBranch(sessionId, fromId);
     show(sessionId);
-    return;
+    return fromId;
   }
   // Already in view: nothing to change, and the new chat's transcript stays.
-  if (chat.activeSessionId === null && drafts.fresh === fromId) return;
-  // A branch of no chat is the new-chat view's: the chat on screen leaves with it.
+  if (chat.activeSessionId === null && drafts.fresh === fromId) return fromId;
+  // A branch of no chat (or of the chat that is gone) is the new-chat view's: the chat on screen leaves with it.
   if (chat.activeSessionId !== null) chat.clearMessages();
-  root.stores.drafts.getState().openUnbound(fromId);
+  if (from.sessionId === null) root.stores.drafts.getState().openUnbound(fromId);
+  return fromId;
 }
 
 /**
@@ -258,12 +265,12 @@ function detachIfGone(root: BrainUiRoot, draftId: string, sessionId: string, fro
     const home = root.stores.drafts.getState().versionHome(draftId) ?? draftId;
     const d = root.stores.drafts.getState().drafts[home];
     // Gone with its chat (deleted elsewhere, nothing newer here): back where the reader was, saying so.
-    if (!d) { backToBranch(root, fromId); root.stores.drafts.getState().noteVersionSwitch({ draftId: fromId, outcome: "missing" }); return; }
+    if (!d) { const at = backToBranch(root, fromId, sessionId); root.stores.drafts.getState().noteVersionSwitch({ draftId: at, outcome: "missing" }); return; }
     if (d.sessionId === null) { openUnattached(root, home); return; }
     if (d.sessionId !== sessionId) return;
     const detached = root.stores.drafts.getState().detachVersion(home);
     // Only outgoing messages, and they stay with the gone chat: back to the branch, saying so.
-    if (!detached) { backToBranch(root, fromId); root.stores.drafts.getState().noteVersionSwitch({ draftId: fromId, outcome: "chat_gone" }); return; }
+    if (!detached) { const at = backToBranch(root, fromId, sessionId); root.stores.drafts.getState().noteVersionSwitch({ draftId: at, outcome: "chat_gone" }); return; }
     if (detached) openUnattached(root, detached);
   };
   stops.push(chat.subscribe(check), watchNavigation(root, stop));

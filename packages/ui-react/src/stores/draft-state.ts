@@ -787,7 +787,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const live = state.drafts[liveId] ?? blank(sourceId, sessionId, now());
         const viewSession = live.sessionId ?? sessionId;
         const viewed = viewSession !== null && (state.idFor(viewSession) === liveId || (followed === liveId && !hasContent(state.drafts[state.idFor(viewSession)])));
-        const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId: viewSession } };
+        // A refusal was of the original's save, under its id and chat: the branch's first save is its own.
+        const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId: viewSession },
+          failure: live.failure?.kind === "refused" ? null : live.failure };
         // Navigation redirects can be removed when the reader opens the
         // original. Pending sends keep a separate editable-target binding.
         for (const send of Object.values(state.sends)) if (sendTarget(send) === liveId) sendTargets.set(send.requestId, branchId);
@@ -873,9 +875,11 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           // The copy gets its own previews of the same bytes: releasing either side cannot break the other's.
           const attachments = d.attachments.map((a) => ({ ...a, previewUrl: `data:${a.attachment.mediaType};base64,${a.attachment.data}` }));
           const copy: ComposerDraft = { ...blank(mintDraftId(), null, now()), text: d.text, attachments, files: d.files, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly };
+          // Branches naming this version, directly or through a rotation that moved it here.
+          const naming = Object.entries(get().drafts).filter(([, x]) => x.deviceConflict && (x.deviceConflict.otherId === d.draftId || get().versionHome(x.deviceConflict.otherId) === d.draftId)).map(([id]) => id);
           set((st) => {
             const drafts = { ...st.drafts, [copy.draftId]: copy };
-            for (const [id, x] of Object.entries(drafts)) if (x.deviceConflict?.otherId === d.draftId) drafts[id] = { ...x, deviceConflict: { ...x.deviceConflict, otherId: copy.draftId } };
+            for (const id of naming) { const x = drafts[id]; if (x?.deviceConflict) drafts[id] = { ...x, deviceConflict: { ...x.deviceConflict, otherId: copy.draftId } }; }
             return { drafts };
           });
           return copy.draftId;
