@@ -93,3 +93,8 @@ test("storage filter rows: selection bar, phone", async () => {
 test("storage filter rows: one row of columns, desktop, paper", async () => {
   await capture(breakdown.FilterWithSelectionDesktop, "filter-selection", 1280, "light", false);
 });
+
+// Tiles a few pixels wide keep their owner's edge at 1px and their computed box (#4559 review F1, F2).
+test("storage map: thin tiles keep their edges, phone", async () => {
+  await capture(storageMap.ThinTiles, "map-thin-tiles", 320, "dark");
+});

@@ -4,7 +4,8 @@ import { expect, fn } from "storybook/test";
 import { storageAll, storageAppDominant, storageBrainEmpty, storageLongNames, storagePackFolder, type StorageEntry } from "../../fixtures/storage.js";
 import { StorageMap } from "../../src/storage/StorageMap.js";
 import { StorageMapLegend } from "../../src/storage/StorageMapLegend.js";
-import { TILE_LABEL_MIN, TILE_TARGET_MIN } from "../../src/storage/storage-geometry.js";
+import { TILE_LABEL_MIN, TILE_TARGET_MIN, storageTiles } from "../../src/storage/storage-geometry.js";
+import type { StorageMapItem } from "../../src/storage/StorageMap.js";
 import { viewportAt } from "../_viewports.js";
 import { Frame, legendFor, mapItemsFor, storageViewport, useWidth } from "./_storage.js";
 
@@ -78,8 +79,31 @@ async function gates(root: HTMLElement) {
     }
     for (const el of [tile, ...tile.querySelectorAll<HTMLElement>("*")])
       await expect(getComputedStyle(el).backgroundImage, "STORAGE_NO_HATCH").not.toContain("repeating");
-    if (box.width > 4 && box.height > 4) await expect(tile.querySelector("svg[data-edge]"), `${name}: draws its edge`).not.toBeNull();
+    await edged(tile, name ?? "");
   }
+}
+
+/** Each owner's edge pattern, as a property of its dash array rather than its exact numbers. */
+const PATTERN: Record<string, (dash: number[]) => boolean> = {
+  solid: (dash) => dash.length === 0,
+  outline: (dash) => dash.length === 0,
+  dotted: (dash) => dash.length === 2 && dash[0] === dash[1],
+  dashed: (dash) => dash.length === 2 && dash[0]! > dash[1]!,
+};
+const EDGE_OF = { brain: "solid", app: "dotted", operator: "dashed", aggregate: "outline" } as Record<string, string>;
+
+/** EVERY tile, at any size, draws a non-empty edge in its owner's pattern (#4544: the edge is the primary cue). */
+async function edged(tile: HTMLElement, name: string) {
+  const svg = tile.querySelector<SVGSVGElement>("svg[data-edge]");
+  await expect(svg, `${name}: draws its edge`).not.toBeNull();
+  await expect(svg!.dataset.edge, `${name}: edge names its owner`).toBe(EDGE_OF[tile.dataset.owner!]);
+  const mark = svg!.querySelector<SVGGeometryElement>("rect, line")!;
+  await expect(mark, `${name}: the edge has a shape`).not.toBeNull();
+  const box = mark.getBBox();
+  await expect(box.width + box.height, `${name}: the edge is not empty`).toBeGreaterThan(0);
+  await expect(Number(mark.getAttribute("stroke-width")), `${name}: the edge has a stroke`).toBeGreaterThan(0);
+  const dash = (mark.getAttribute("stroke-dasharray") ?? "").split(/[\s,]+/).filter(Boolean).map(Number);
+  await expect(PATTERN[svg!.dataset.edge!]!(dash), `${name}: ${svg!.dataset.edge} pattern from dash "${dash.join(" ")}"`).toBe(true);
 }
 
 /** Ownership survives without colour: each owner its own edge, each labelled tile its letter, at any width. */
@@ -263,3 +287,76 @@ export const ArrowKeys = meta.story({
     await expect(canvasElement.querySelector('[role="group"]')!.contains(document.activeElement), "Tab leaves the map").toBe(false);
   },
 });
+
+const THIN_MAPS: { label: string; items: StorageMapItem[] }[] = [
+  {
+    label: "98 / 1 / 1",
+    items: [
+      { id: "packs", name: "Packs", owner: "app", bytes: 98, label: "98 B" },
+      { id: "backups", name: "Backups", owner: "operator", bytes: 1, label: "1 B" },
+      { id: "logs", name: "Logs", owner: "app", bytes: 1, label: "1 B" },
+    ],
+  },
+  {
+    label: "99 / 1, Brain thin",
+    items: [
+      { id: "models", name: "Models", owner: "app", bytes: 99, label: "99 B" },
+      { id: "notes", name: "Voyage notes", owner: "brain", bytes: 1, label: "1 B" },
+    ],
+  },
+  {
+    label: "99 / 0.3 / 0.7, a 1px sliver",
+    items: [
+      { id: "attachments", name: "Attachments", owner: "brain", bytes: 99, label: "99 B" },
+      { id: "sliver", name: "Sliver", owner: "operator", bytes: 0.3, label: "0.3 B" },
+      { id: "smaller", name: "+40 smaller", owner: "app", bytes: 0.7, label: "0.7 B", smaller: true },
+    ],
+  },
+];
+
+/**
+ * THIN TILES RENDER AT THEIR COMPUTED BOX AND KEEP THEIR EDGE (#4559 review
+ * F1, F2). A 296 x 120 map whose small entries come out a few pixels wide:
+ * every tile's rendered rect equals its computed, gutter-trimmed box and lies
+ * inside the map, and every tile draws its owner's edge pattern.
+ */
+export const ThinTiles = meta.story({
+  render: () => (
+    <Frame>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {THIN_MAPS.map((map, i) => (
+          <div key={map.label} data-thin-map={i} style={{ width: 296 }}>
+            <StorageMap items={map.items} width={296} height={120} highlightedId={i === 0 ? "backups" : null} label={`Storage map, ${map.label}`} descriptionId="map-story-description" onOpen={() => undefined} onUp={() => undefined} />
+          </div>
+        ))}
+        <p id="map-story-description" style={{ margin: 0 }}>The list has every entry.</p>
+      </div>
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    for (const [i, map] of THIN_MAPS.entries()) {
+      const group = canvasElement.querySelector<HTMLElement>(`[data-thin-map="${i}"] [role="group"]`)!;
+      const frame = group.getBoundingClientRect();
+      const computed = storageTiles(map.items, 296, 120);
+      const drawn = tiles(group);
+      await expect(drawn.length, `${map.label}: one tile per computed box`).toBe(computed.length);
+      for (const [j, tile] of drawn.entries()) {
+        const want = computed[j]!;
+        const got = tile.getBoundingClientRect();
+        const name = `${map.label} / ${want.item.name}`;
+        await expect(Math.abs(got.left - frame.left - want.x), `STORAGE_TILE_AT_COMPUTED_BOX ${name}: x`).toBeLessThanOrEqual(0.5);
+        await expect(Math.abs(got.top - frame.top - want.y), `STORAGE_TILE_AT_COMPUTED_BOX ${name}: y`).toBeLessThanOrEqual(0.5);
+        await expect(Math.abs(got.width - want.width), `STORAGE_TILE_AT_COMPUTED_BOX ${name}: width ${got.width} vs ${want.width}`).toBeLessThanOrEqual(0.5);
+        await expect(Math.abs(got.height - want.height), `STORAGE_TILE_AT_COMPUTED_BOX ${name}: height`).toBeLessThanOrEqual(0.5);
+        await expect(got.left >= frame.left - 0.5 && got.right <= frame.left + 296 + 0.5 && got.top >= frame.top - 0.5 && got.bottom <= frame.top + 120 + 0.5, `${name}: inside the map`).toBe(true);
+        await edged(tile, name);
+      }
+    }
+    // A highlighted thin tile rings at 1px on itself, never 2px into the gutter.
+    const ringed = canvasElement.querySelector<HTMLElement>('[data-thin-map="0"] [data-highlighted="true"]')!;
+    await expect(ringed.dataset.thin).toBe("true");
+    const ring = getComputedStyle(ringed);
+    await expect(`${ring.outlineWidth} ${ring.outlineOffset}`, "STORAGE_THIN_RING_INSIDE").toBe("1px -1px");
+  },
+});
+export const ThinTilesDesktop = ThinTiles.extend({ globals: viewportAt(1280) });
