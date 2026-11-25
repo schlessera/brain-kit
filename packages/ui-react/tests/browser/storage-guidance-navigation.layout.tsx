@@ -27,7 +27,7 @@ for (const view of ["graph", "activity"] as const) for (const entry of ["indicat
     history.replaceState(null, "", `#/${view}`); const fixture = storageGuidanceFixture(); ui = createBrainUiRoot({ storage: null, request: fixture.request });
     ui.stores.ui.getState().setActiveView(view); renderer = createRoot(host);
     flushSync(() => renderer.render(<BrainUiProvider root={ui}><Shell /></BrainUiProvider>));
-    const indicator = page.getByRole("button", { name: "Open Storage: Very low space", exact: true }); await expect.poll(() => indicator.elements().length).toBe(1);
+    const indicator = page.getByRole("button", { name: "Open Storage: Disk very low", exact: true }); await expect.poll(() => indicator.elements().length).toBe(1);
     if (entry === "indicator") { (indicator.element() as HTMLElement).focus(); await userEvent.keyboard("{Enter}"); }
     else if (entry === "notification") { history.replaceState(null, "", "#/settings/storage"); window.dispatchEvent(new HashChangeEvent("hashchange")); }
     else { await page.getByRole("button", { name: /^All commands/ }).click(); await page.getByRole("option", { name: /^Storage/ }).click(); }

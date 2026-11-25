@@ -3,14 +3,22 @@ import { createStore } from "zustand/vanilla";
 import type {
   StorageGuidanceResponse,
   StorageHistoryResponse,
+  StorageSnapshot,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiRoot } from "../../../root.js";
 import { ApiRequestError } from "../../../lib/api-client.js";
 import { storageApi } from "../../../lib/storage-api.js";
+import { latestInventory } from "./storage-volumes.js";
 interface EvidenceState {
   epoch: number;
   guidance: StorageGuidanceResponse | null;
   history: StorageHistoryResponse | null;
+  /**
+   * The newest inventory snapshot, read with the guidance so a volume's name
+   * (#4537 D7) joins the same roots everywhere. `null` when unread or refused;
+   * names then fall back to "Unidentified volume", never a guess.
+   */
+  inventory: StorageSnapshot | null;
   error: "unavailable" | "forbidden" | null;
   loading: boolean;
 }
@@ -18,6 +26,7 @@ const empty = (epoch: number): EvidenceState => ({
   epoch,
   guidance: null,
   history: null,
+  inventory: null,
   error: null,
   loading: false,
 });
@@ -29,7 +38,11 @@ function createEvidence(root: BrainUiRoot) {
     histories = 0,
     generation = 0;
   let controller: AbortController | null = null,
-    active: Promise<void> | null = null;
+    active: Promise<void> | null = null,
+    // One read queued behind the active one: a refresh asked for while a read
+    // is in flight may follow what that read predates (a finished measurement,
+    // a refocus after the owner's access changed), so it is not answered by it.
+    again: Promise<void> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null,
     unwatch: (() => void) | null = null,
     disconnect: (() => void) | null = null;
@@ -38,12 +51,25 @@ function createEvidence(root: BrainUiRoot) {
     controller?.abort();
     controller = null;
     active = null;
+    again = null;
     state.setState(empty(root.authLock.epoch()), true);
   }
   function refresh(): Promise<void> {
     if (!users || root.authLock.state.getState().phase !== "active")
       return Promise.resolve();
-    if (active) return active;
+    if (active) {
+      if (!again) {
+        // A clear() between now and then drops the queued read.
+        const next = () => {
+          if (again !== queued) return;
+          again = null;
+          return refresh();
+        };
+        const queued: Promise<void> = active.then(next, next);
+        again = queued;
+      }
+      return again;
+    }
     const request = new AbortController(),
       epoch = root.authLock.epoch(),
       account = root.stores.connection.getState().accountKey,
@@ -52,11 +78,19 @@ function createEvidence(root: BrainUiRoot) {
     controller = request;
     const deadline = setTimeout(() => request.abort(), 10_000);
     state.setState({ loading: true, epoch });
+    const guidanceRead = api.guidance(request.signal);
+    // Inventory names the volumes; it is read only when there is pressure to name.
+    const inventoryRead = guidanceRead.then((value) =>
+      Array.isArray(value?.capacities) && value.capacities.length
+        ? api.status(request.signal)
+        : null
+    );
     active = Promise.allSettled([
-      api.guidance(request.signal),
+      guidanceRead,
       withHistory ? api.history(request.signal) : Promise.resolve(null),
+      inventoryRead,
     ])
-      .then(([guidance, history]) => {
+      .then(([guidance, history, status]) => {
         if (
           owner !== generation ||
           account !== root.stores.connection.getState().accountKey ||
@@ -64,7 +98,9 @@ function createEvidence(root: BrainUiRoot) {
           root.authLock.state.getState().phase !== "active"
         )
           return;
-        const denied = [guidance, history].some(
+        // Every read in the batch is owner-scoped: a refusal of any of them,
+        // including the inventory read after accepted guidance, clears it all.
+        const denied = [guidance, history, status].some(
           (value) =>
             value.status === "rejected" &&
             value.reason instanceof ApiRequestError &&
@@ -79,7 +115,14 @@ function createEvidence(root: BrainUiRoot) {
           guidance.value.version === 1 &&
           Array.isArray(guidance.value.capacities)
         )
-          state.setState({ guidance: guidance.value, error: null });
+          state.setState({
+            guidance: guidance.value,
+            inventory:
+              status.status === "fulfilled" && status.value?.version === 1
+                ? latestInventory(status.value)
+                : null,
+            error: null,
+          });
         else state.setState({ error: "unavailable" });
         if (withHistory)
           state.setState({
@@ -97,8 +140,14 @@ function createEvidence(root: BrainUiRoot) {
         controller = null;
         active = null;
         state.setState({ loading: false });
-        // The pane may have subscribed while an indicator-only read was in flight.
-        if (!withHistory && histories && state.getState().error === null)
+        // The pane may have subscribed while an indicator-only read was in
+        // flight; a queued read already covers it.
+        if (
+          !again &&
+          !withHistory &&
+          histories &&
+          state.getState().error === null
+        )
           void refresh();
       });
     return active;
