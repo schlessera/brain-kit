@@ -69,6 +69,11 @@ export async function captureRuntime(browser: Browser, root: string, cache: stri
           observed.search=evidence.transcript;
           observed.fonts=fonts;
         } else {
+          // This scripted backend never acknowledges an input detector. Ending
+          // the turn closes its coverage gap after the decision text can appear.
+          const safety = page.getByRole("complementary", { name: "Chat safety evidence" });
+          const recording = safety.getByText("Waiting for the host to confirm input recording.", { exact: false });
+          const ended = safety.getByText("Earlier inputs were not fully recorded.", { exact: false });
           await page.waitForFunction(()=> (window as unknown as {__captureFixture?:{connected():boolean}}).__captureFixture?.connected());
           const composer=page.locator("textarea");
           await composer.fill("Write a raft-supplies note for Odysseus.");await composer.press("Enter");
@@ -83,6 +88,7 @@ export async function captureRuntime(browser: Browser, root: string, cache: stri
           const sequence=decision==="allow"?1:2;
           const path=`notes/raft-supplies-${sequence}.md`;
           phase = "before-decision capture";
+          await recording.waitFor({ state: "visible", timeout: 15_000 });
           await save(`approval-${decision}-before-dark.png`,[path,APPROVAL_CONTENT,"Allow","Deny"]);
           phase = "decision and executor effect";
           await card.getByRole("button",{name:decision==="allow"?"Allow":"Deny",exact:true}).click();
@@ -96,6 +102,7 @@ export async function captureRuntime(browser: Browser, root: string, cache: stri
           if(!file || (decision==="allow"?file.content!==APPROVAL_CONTENT:file.content!==null))throw new Error(`Executor ${decision} effect differs from the actual decision`);
           if(!evidence.history[`odysseus-approval-${sequence}`]?.length)throw new Error("Persisted backend transcript is empty");
           phase = "after-decision capture";
+          await ended.waitFor({ state: "visible", timeout: 15_000 });
           await save(`approval-${decision}-after-dark.png`,[message]);
           phase = "reload";
           await page.reload({waitUntil:"load"});
@@ -104,6 +111,7 @@ export async function captureRuntime(browser: Browser, root: string, cache: stri
           await page.waitForFunction(()=> (window as unknown as {__captureFixture?:{connected():boolean}}).__captureFixture?.connected());
           await page.getByText(message,{exact:true}).first().waitFor({timeout:15_000});
           phase = "reload capture";
+          await ended.waitFor({ state: "visible", timeout: 15_000 });
           await save(`approval-${decision}-reload-dark.png`,[message]);
           observed[decision]={tool_use_id:`raft-write-${sequence}`,path,fonts,decision:payload,effect:file,history:evidence.history[`odysseus-approval-${sequence}`]};
         }
