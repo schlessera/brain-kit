@@ -480,3 +480,16 @@ test("returning to a branch that forked again while the chat restored follows it
   s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
   expect(s.drafts.getState().versionSwitch, "NOTE_FOLLOWS_FORKED_BRANCH").toEqual({ draftId: "voyage-branch-2", outcome: "missing" });
 });
+
+test("a branch whose first message starts its own chat keeps the rotation that moved the other version", () => {
+  const s = scene();
+  s.drafts.getState().removed(s.original);
+  const moved = s.drafts.getState().versionHome(s.original);
+  expect(moved).toBeDefined();
+  expect(moved).not.toBe(s.original);
+  // The branch's first message started a chat of its own.
+  s.drafts.getState().associateVoice(BRANCH, "odysseus-voyage", "req-voyage");
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [BRANCH]: { ...st.drafts[BRANCH]!, sessionId: "odysseus-voyage" } } }));
+  s.drafts.getState().edit(BRANCH, "odysseus-voyage", { text: "Telemachus keeps the voyage, sent" });
+  expect(s.drafts.getState().versionHome(s.original), "ROTATION_KEPT_WHEN_BRANCH_BOUND").toBe(moved);
+});

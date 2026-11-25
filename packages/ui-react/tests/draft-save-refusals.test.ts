@@ -685,3 +685,49 @@ test("text erased after a save whose answer was lost is deleted on the host, eve
   await run(LONG);
   expect(s.removes(), "LOST_SAVE_RECONCILED").toBe(1);
 });
+
+test("a Send with originals made while the emptied draft's delete is out comes back unsent, its files to choose again", async () => {
+  let answer!: (r: DraftCallResult<null>) => void;
+  const s = scene({ snapshots: true, remove: () => new Promise((resolve) => { answer = resolve; }) });
+  const old = { snapshotId: "snap-old", requestId: "req-old", text: "Lash the raft", fileIds: [], state: "returned" as const };
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [{ ...old, files: [], createdAt: 1 }], editedAt: 1, edit: 2,
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [old], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  s.drafts.getState().deleteSnapshot(s.id, "snap-old");
+  await run(SAVE_DELAY + 100);
+  const message = { type: "chat_message" as const, text: "Read the permit", sessionId: SESSION, requestId: "req-permit" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-permit", requestId: "req-permit", text: "Read the permit", files: [{ fileId: PERMIT.fileId, file: PERMIT }], state: "held", createdAt: null, message }, "");
+  answer({ ok: true, value: null });
+  await run(LONG);
+  const all = Object.values(s.drafts.getState().drafts);
+  expect(all.some((d) => d.snapshots?.some((x) => x.snapshotId === "snap-permit")), "FILE_SNAPSHOT_NOT_CARRIED").toBe(false);
+  const back = all.find((d) => d.text === "Read the permit");
+  expect(back?.files?.map((f) => f.file.fileId)).toEqual([PERMIT.fileId]);
+  expect(back?.files?.[0]?.lineage, "its file reads as choose again").not.toBe(back?.draftId);
+  expect(s.saves.some((x) => (x.body.snapshots ?? []).some((w) => w.fileIds.includes(PERMIT.fileId)))).toBe(false);
+});
+
+test("a delete refused for a message still waiting there brings that message back with the host's revision", async () => {
+  let deletes = 0;
+  const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const, createdAt: 5 };
+  const current = { draftId: "", sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [], snapshots: [held] };
+  const s = scene({ snapshots: true, remove: async () => { deletes++; return { ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "A message of this draft is still waiting.", current: { ...current, draftId: s.id } } }; } });
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [], editedAt: 1, edit: 3,
+    host: { revision: 3, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ ...held }], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(deletes, "WAITING_MESSAGE_NOT_DELETED_AGAIN").toBe(1);
+  expect(d.snapshots?.map((x) => x.snapshotId), "WAITING_MESSAGE_BACK").toEqual(["snap-held"]);
+  expect(d.host?.revision).toBe(3);
+});
+
+test("after a lost save, a delete refused for a waiting message brings it back instead of repeating", async () => {
+  let deletes = 0;
+  const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const, createdAt: 5 };
+  const s = scene({ snapshots: true, remove: async () => { deletes++; return { ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "waiting", current: { draftId: s.id, sessionId: SESSION, revision: 1, updatedAt: 9, text: "", attachments: [], snapshots: [held] } } }; } });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 1, updatedAt: 9, text: "", attachments: [] });
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [], editedAt: 1, edit: 2,
+    host: null, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: true, bind: null } } }));
+  await run(LONG);
+  expect(deletes, "LOST_SAVE_PENDING_NOT_REPEATED").toBe(1);
+  expect(s.drafts.getState().drafts[s.id]?.snapshots?.map((x) => x.snapshotId)).toEqual(["snap-held"]);
+});
