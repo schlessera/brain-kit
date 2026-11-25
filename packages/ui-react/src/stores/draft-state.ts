@@ -64,10 +64,11 @@ export interface DraftFile {
 
 /**
  * The lineage of an original the host said it no longer stores (#4566): no
- * draft id is this, so it reads as needing to be chosen again, like one
- * carried from another id, and no save lists it.
+ * draft id is this (the host's draft ids cannot contain `~`), so it reads as
+ * needing to be chosen again, like one carried from another id, and no save
+ * lists it.
  */
-export const GONE_LINEAGE = "gone";
+export const GONE_LINEAGE = "~gone";
 
 const NO_FILES: readonly DraftFile[] = [];
 /** A draft's originals; none when it was built without the field. */
@@ -809,7 +810,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
             const edit = 1;
             const { uncertain: _uncertain, bind: _bind, refused: _refused, ...content } = other;
             drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...content, files: content.files ?? [], edit,
-              host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null };
+              host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null,
+              ...(other.refused ? { failure: { kind: "refused" as const, edit, reason: other.refused } } : {}) };
           }
           return { drafts, fresh: s.fresh === sourceId || s.fresh === liveId ? branchId : s.fresh };
         });
@@ -821,7 +823,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // Another tab's pending reconciliation stays that tab's to finish.
         const { uncertain: _uncertain, bind: _bind, refused: _refused, ...content } = kept;
         const d = { ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...content, files: content.files ?? [], edit, deviceEpoch: (current?.deviceEpoch ?? 0) + 1,
-          host: kept.host ? { ...kept.host, edit: kept.host.clean ? edit : -1, attachmentIds: [] } : null };
+          host: kept.host ? { ...kept.host, edit: kept.host.clean ? edit : -1, attachmentIds: [] } : null,
+          // A refusal kept with the record stays one (#4566).
+          ...(kept.refused ? { failure: { kind: "refused" as const, edit, reason: kept.refused } } : {}) };
         set(s => ({ drafts: { ...s.drafts, [kept.draftId]: d } }));
       },
       showDeviceBranch(sessionId, draftId) {

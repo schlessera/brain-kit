@@ -71,7 +71,12 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   const failures = new Map<string, number>();
   /** 400s for one edit of a draft (#4566): a refused edit is not sent again. */
-  const refusals = new Map<string, { edit: number; counts: Partial<Record<RefusalKind, number>>; spared?: true }>();
+  const refusals = new Map<string, { edit: number; counts: Partial<Record<RefusalKind, number>> }>();
+  /**
+   * A refused save whose missing originals are still to be found (#4566):
+   * its read got no answer. The read is tried again, never the refused body.
+   */
+  const recoveries = new Map<string, { edit: number; fileIds: string[]; body: { message?: string } }>();
   /** Drafts whose refused snapshot list is being read again: no save goes out meanwhile. */
   const reconciling = new Set<string>();
   /** Idempotency keys per draft for the save in flight: a retry of the same body reuses it. */
@@ -154,13 +159,23 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   }
 
   /**
-   * A recovery that could not run (its read got no answer) does not use up
-   * the edit's attempt, once: a read that keeps failing then counts.
+   * A recovery that changed the body (some originals left out) made progress:
+   * another refusal of the smaller body may recover again. Each one leaves out
+   * at least one original, so this ends.
    */
-  function uncount(draftId: string, kind: RefusalKind) {
+  function progressed(draftId: string, kind: RefusalKind) {
     const last = refusals.get(draftId);
     const count = last?.counts[kind] ?? 0;
-    if (last && !last.spared && count > 0) refusals.set(draftId, { ...last, spared: true, counts: { ...last.counts, [kind]: count - 1 } });
+    if (last && count > 0) refusals.set(draftId, { ...last, counts: { ...last.counts, [kind]: count - 1 } });
+  }
+
+  /** Apply what a recovery read found: originals left out, or the edit refused when none is proven. */
+  function applyGone(d: ComposerDraft, gone: string[], body: { message?: string }) {
+    recoveries.delete(d.draftId);
+    if (gone.length === 0) { refuse(d.draftId, d.edit, body); return; }
+    drafts.getState().filesGone(d.draftId, gone);
+    progressed(d.draftId, "file");
+    backoff(d.draftId);
   }
 
   function refuse(draftId: string, edit: number, body: { message?: string }) {
@@ -326,6 +341,16 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
     // Only originals minted for this id can be bound here (#3155); one
     // carried from another id waits to be chosen again, and is not listed.
+    // A refused save's read got no answer: read again rather than send the refused body (#4566).
+    const pending = recoveries.get(d.draftId);
+    if (pending && pending.edit !== d.edit) recoveries.delete(d.draftId);
+    else if (pending) {
+      const gone = await goneFiles(d, pending.fileIds);
+      if (!current()) return;
+      if (gone === null) { backoff(d.draftId); return; }
+      applyGone(d, gone, pending.body);
+      return;
+    }
     const fileIds = bindableFiles(d).map((f) => f.file.fileId);
     // The whole snapshot list on every save, once the draft has one (#3588).
     const list = store.snapshotsOn && holdsSnapshots(d) ? snapshotSaveList(d) : null;
@@ -352,6 +377,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       saveKeys.delete(d.draftId);
       failures.delete(d.draftId);
       refusals.delete(d.draftId);
+      recoveries.delete(d.draftId);
       bumpHost(d.draftId);
       drafts.getState().saved(d.draftId, {
         // A Send again swap is two saves: until the second, this is not the whole edit.
@@ -371,11 +397,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!mayRecover(d.draftId, d.edit, result.body, "file")) return;
       const gone = await goneFiles(d, fileIds);
       if (!current()) return;
-      // The read got no answer: nothing was learned, so the recovery is still owed.
-      if (gone === null) { uncount(d.draftId, "file"); backoff(d.draftId); return; }
-      if (gone.length === 0) { refuse(d.draftId, d.edit, result.body); return; }
-      drafts.getState().filesGone(d.draftId, gone);
-      backoff(d.draftId);
+      // The read got no answer: nothing was learned. The next try reads again.
+      if (gone === null) { recoveries.set(d.draftId, { edit: d.edit, fileIds, body: result.body }); backoff(d.draftId); return; }
+      applyGone(d, gone, result.body);
       return;
     }
     // An image the host no longer stores (swept, or dropped by another
@@ -1023,6 +1047,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     dispose(): void {
       disposed = true;
       refusals.clear();
+      recoveries.clear();
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
       for (const retry of orphanRetries.values()) clearTimeout(retry.timer);

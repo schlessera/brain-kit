@@ -241,7 +241,7 @@ test("a read that gets no answer does not use up the file recovery", async () =>
   expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
 });
 
-test("a read that keeps getting no answer stops the file recovery instead of looping", async () => {
+test("while the recovery read gets no answer, the read is retried and the refused body is never sent again", async () => {
   const s = scene();
   s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees", files: [{ file: PERMIT, lineage: s.id }] });
   await run(SAVE_DELAY + 100);
@@ -251,8 +251,26 @@ test("a read that keeps getting no answer stops the file recovery instead of loo
   s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees for the permit" });
   await run(LONG);
   await run(LONG);
-  expect(s.saves.length - before, "PERSISTENT_READ_FAILURE_BOUNDED").toBeLessThanOrEqual(3);
-  expect(s.drafts.getState().drafts[s.id]?.failure).toMatchObject({ kind: "refused" });
+  expect(s.saves.slice(before).map((x) => x.body.fileIds), "REFUSED_BODY_NOT_RESENT").toEqual([[PERMIT.fileId]]);
+  // Reads answer again: the recovery completes and the edit is saved without the gone original.
+  s.silenceGets(0);
+  await run(LONG);
+  expect(s.saves.at(-1)!.body).toEqual({ sessionId: SESSION, text: "Harbour fees for the permit", attachmentIds: [], fileIds: [] });
+  expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
+});
+
+test("two stale originals, one bound before and one new, are both left out", async () => {
+  const s = scene();
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees", files: [{ file: PERMIT, lineage: s.id }] });
+  await run(SAVE_DELAY + 100);
+  s.swept.add(PERMIT.fileId);
+  s.swept.add(CREW.fileId);
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees and crew", files: [{ file: PERMIT, lineage: s.id }, { file: CREW, lineage: s.id }] });
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.failure, "BOTH_STALE_LEFT_OUT").toBeNull();
+  expect(d.files?.map((f) => f.lineage)).toEqual([GONE_LINEAGE, GONE_LINEAGE]);
+  expect(s.saves.at(-1)!.body).toEqual({ sessionId: SESSION, text: "Harbour fees and crew", attachmentIds: [], fileIds: [] });
 });
 
 test("no save goes out while a refused snapshot list is read again, and the corrected draft is saved", async () => {
@@ -266,10 +284,13 @@ test("no save goes out while a refused snapshot list is read again, and the corr
   s.drafts.getState().edit(s.id, SESSION, { text: "Then sail" });
   await run(LONG);
   expect(s.saves.filter((x) => x.body.snapshots?.length).length, "RECONCILE_HOLDS_SAVES").toBe(1);
+  const held = s.saves.length;
   release();
   await run(LONG);
+  expect(s.saves.length, "a save follows the re-read").toBeGreaterThan(held);
+  expect(s.rows.get(s.id)?.text, "RECONCILED_DRAFT_SAVED").toBe("Then sail");
+  expect(s.drafts.getState().drafts[s.id]?.host?.edit).toBe(s.drafts.getState().drafts[s.id]?.edit);
   expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
-  expect(s.saves.at(-1)!.body.text).toBe("Then sail");
 });
 
 test("a Send's snapshot the host never acknowledged, and a refused edit, hold updates", async () => {
