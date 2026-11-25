@@ -36,7 +36,7 @@ def already_inside(browser=False):
             hidden = not managed.exists() or not any(managed.iterdir())
         except PermissionError:
             hidden = True
-        return hidden and any(row['ifname'] == 'lo' and 'UP' in row['flags'] for row in links) and all(
+        return hidden and (not browser or any(row['ifname'] == 'offline0' and 'UP' in row['flags'] for row in links)) and any(row['ifname'] == 'lo' and 'UP' in row['flags'] for row in links) and all(
             row['ifname'] in allowed for row in links) and all(not query(family, 'route', 'show', 'table', 'main') for family in ('-4', '-6'))
     except (OSError, ValueError, subprocess.CalledProcessError, TypeError):
         return False

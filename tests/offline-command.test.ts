@@ -105,3 +105,11 @@ test("mixed command reports retain every executed file in the requested aggregat
     expect(Object.keys(JSON.parse(readFileSync(join(scratch, "timings.json"), "utf8")).files).sort()).toEqual(files);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
+
+
+test("a pure loopback boundary still needs the browser online indicator", () => {
+  const pure = Bun.spawnSync(offlineCommand(["--check"]), { stdout: "pipe", stderr: "pipe" });
+  expect(pure.exitCode, "ORDINARY_BOUNDARY_IS_REUSABLE").toBe(0);
+  const browser = Bun.spawnSync(offlineCommand(["--check"], true), { stdout: "pipe", stderr: "pipe" });
+  expect(browser.exitCode, "BROWSER_BOUNDARY_REQUIRES_ITS_INDICATOR").toBe(1);
+});
