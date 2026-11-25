@@ -161,6 +161,18 @@ describe("google search cursors", () => {
     const fresh = store.mint("ithaca", "in:inbox", "third", store.generation());
     expect(store.resolve("ithaca", "in:inbox", fresh)).toBe("third");
   });
+
+  test("google cursors: a cursor file written back by a search that began before a connect brings no old cursor back", () => {
+    const home = dir();
+    const store = googleCursorStore(home, () => 1_783_850_000_000);
+    const old = store.mint("ithaca", "in:inbox", "old-account", store.generation());
+    // A search that read the cursor file before the connect renames its snapshot over it afterwards.
+    const snapshot = readFileSync(join(home, GOOGLE_CURSOR_FILE));
+    store.clear();
+    rmSync(join(home, GOOGLE_CURSOR_FILE));
+    writeFileSync(join(home, GOOGLE_CURSOR_FILE), snapshot, { mode: 0o600 });
+    expect(store.resolve("ithaca", "in:inbox", old)).toBeNull();
+  });
 });
 
 describe("google cursor file", () => {
@@ -241,6 +253,12 @@ describe("google connect timeout", () => {
       expect(alive(call!.pid)).toBe(false);
       expect(alive(call!.grandchild_pid!)).toBe(false);
     } finally {
+      // Whatever this test started, if the guard under test failed to.
+      for (const call of fake.callsOf("auth.add")) {
+        for (const pid of [call.pid, call.grandchild_pid]) {
+          if (pid) try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
+        }
+      }
       fake.dispose();
     }
   }, watchdogMs(60_000));

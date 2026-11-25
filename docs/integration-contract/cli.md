@@ -45,7 +45,7 @@ prose that never carries an address, a token, a password or gog's own text.
 
 - `status` (always `ok: true`): `{ state: "available" | "unavailable", reason, boundary: "standalone" | "host", statement, home: { path, source, exists, ok, reason }, pin: { state: "verified" | "fake" | "refused" | "not_checked", version, commit, sha256, reason }, policy: { status, enabled, account, services, read, standalone_reversible }, account: { alias, connected }, scopes: { granted, needed, broader, missing, write }, warnings }`. `source` is `BRAIN_UI_GOOGLE_HOME`, `BRAIN_GOOGLE_HOME`, `XDG_DATA_HOME` or `HOME`. `statement` is, on the standalone boundary, the plain statement that a local agent with shell access is inside it, and `null` on a host. `granted` is the scopes gog recorded for the alias's grant, `null` when nothing is connected or gog's answer holds a value that is not a scope (`reason: "unexpected_shape"`); `broader` lists any beyond gog's identity scopes (`openid`, `email`, `userinfo.email`), `gmail.readonly` and, while the policy can admit any Gmail write, `gmail.modify`, and adds a warning; `needed` is `gmail.readonly` while the policy lists Gmail, and `missing` what of it the grant lacks. Status never contacts Google.
 - `connect`: `{ state: "connected", alias, write, boundary, home, scopes, warnings }`, or with `--remote` and no `--auth-url`, `{ state: "authorize", alias, auth_url, write, next }`, where `auth_url` is gog's authorization URL as gog built it. A grant broader than asked for is removed and refused as `policy_denied` / `scopes_broader` (the message says whether the removal failed); one lacking a scope asked for is `unavailable` / `scopes_missing`. Either way the alias is left unchanged. A step gog did not finish (a timeout or a signal) may or may not have taken effect. A successful connect forgets every search cursor and voids the next page of any search running meanwhile (`unavailable` / `connection_changed`); `warnings` says when the cursors could not be forgotten.
-- `gmail.search`: the operations' search result, `{ view, threads, next_cursor, result_size_estimate }`, each thread under `content` with an `untrusted` object. `next_cursor` is a host cursor (`gc_…`) for the same query and alias, valid for an hour or until 64 newer cursors exist; a cursor that is not is refused as `invalid_input` / `cursor`. Label names appear only where the policy admits `gmail.labels.list`, and are `null` otherwise.
+- `gmail.search`: the operations' search result, `{ view, threads, next_cursor, result_size_estimate }`, each thread under `content` with an `untrusted` object. `next_cursor` is a host cursor (`gc_…`) for the same query and alias, valid for an hour, until 64 newer cursors exist, or until the next successful connect; a cursor that is not is refused as `invalid_input` / `cursor`. Label names appear only where the policy admits `gmail.labels.list`, and are `null` otherwise.
 - `gmail.thread.get`, `gmail.message.get`, `gmail.draft.get`: `{ view, thread_id, message_count, messages }`, `{ view, message }`, `{ view, draft_id, message }`.
 - `gmail.labels.list`: `{ view: "structured", labels: [{ id, name, type, messages_total, messages_unread, threads_total, threads_unread }] }`.
 
@@ -58,9 +58,12 @@ a policy whose provider rules keep anything from recipient `google` refuses as
 `google.gmail.hidden_labels` label on any message is left out of a search and
 answers a read with the same `not_found` error, without a reason, as a real
 miss; while any label is hidden, so does a thread, message or draft whose
-labels could not be established: one too large to read, in a shape the codec
-refuses, answered for another id, a draft with no message, or one whose
-thread's labels could not be read, whatever kept them from being read. The process uses `BRAIN_UI_GOOGLE_HOME`, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`
+labels could not be established: any failed fetch that may be the target's own
+(a timeout, a refusal from Google, an answer too large or in a shape the
+codec refuses, an answer for another id), a draft with no message, or one
+whose thread's labels could not be read. Only a failure that says nothing
+about the target (the account unavailable or rate limited, the input or the
+binary refused) keeps its code. The process uses `BRAIN_UI_GOOGLE_HOME`, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`
 and `BRAIN_UI_GOG_PATH` when the first is set (an operator's shell on a host),
 else `BRAIN_GOOGLE_HOME` (default `$XDG_DATA_HOME/brain/google`),
 `BRAIN_GOOGLE_KEYRING_PASSWORD` and `BRAIN_GOOGLE_GOG_PATH`. A home inside or

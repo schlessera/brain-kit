@@ -1163,11 +1163,20 @@ describe("google", () => {
     // A draft with no message has no labels to establish.
     fake.setScenario({ "gmail.drafts.get": { stdout: { draft: { id: "r-1234567890123456789" } } } });
     expect(JSON.parse((await google(["gmail", "read", "draft", "r-1234567890123456789"])).stdout).error).toEqual(miss.error);
-    // A target too large to read, or in a shape the codec refuses, was never seen: it reads as a miss while anything is hidden.
+    // A target whose fetch failed in a way that may be its own was never seen: it reads as a miss while anything is hidden.
     fake.setScenario({ "gmail.thread.get": { stdout_bytes: 9 * 1024 * 1024 }, "gmail.get": { stdout: "not json" }, "gmail.drafts.get": { stdout: { draft: { id: "r-1" } } } });
     expect(JSON.parse((await google(["gmail", "read", "thread", HALL])).stdout).error).toEqual(miss.error);
     expect(JSON.parse((await google(["gmail", "read", "message", "19a0c3d2e4f50601"])).stdout).error).toEqual(miss.error);
     expect(JSON.parse((await google(["gmail", "read", "draft", "r-1234567890123456789"])).stdout).error).toEqual(miss.error);
+    for (const exit of [1, 6]) {
+      fake.setScenario({ "gmail.thread.get": { exit }, "gmail.get": { exit }, "gmail.drafts.get": { exit } });
+      for (const [target, id] of [["thread", HALL], ["message", "19a0c3d2e4f50601"], ["draft", "r-1234567890123456789"]]) {
+        expect(JSON.parse((await google(["gmail", "read", target!, id!])).stdout).error, `${target} exit ${exit}`).toEqual(miss.error);
+      }
+    }
+    // A failure that says nothing about the target keeps its code.
+    fake.setScenario({ "gmail.thread.get": { exit: 7 } });
+    expect(JSON.parse((await google(["gmail", "read", "thread", HALL])).stdout).error).toMatchObject({ code: "rate_limited" });
     // A hidden label on the message itself decides without reading its thread.
     fake.dispose();
     fake = createFakeGog({ "gmail.get": { stdout: fixture("message-get.json") } });
@@ -1331,7 +1340,7 @@ describe("google", () => {
   });
 
   test("google connect warns when it cannot forget earlier search cursors", async () => {
-    mkdirSync(join(home, "brain-search-cursors.json", "occupied"), { recursive: true });
+    mkdirSync(join(home, "brain-search-generation", "occupied"), { recursive: true });
     fake.setScenario({ "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: {} } });
     const out = JSON.parse((await google(["connect", ADDRESS])).stdout);
     expect(out).toMatchObject({ ok: true, data: { state: "connected" } });

@@ -40,7 +40,7 @@ import {
   type GoogleErrorCode, type GooglePolicy, type GoogleRoutingVerdict,
 } from "@schlessera/brain-common/internal/google-operations";
 import {
-  createGogTransport, gogEnvironment, type GogBinary, type GogEnvironment, type GogResult, type GogTransport, type GogTransportOptions,
+  createGogTransport, GOG_PIN_REFUSALS, gogEnvironment, type GogBinary, type GogEnvironment, type GogResult, type GogTransport, type GogTransportOptions,
 } from "@schlessera/brain-common/internal/google-gog";
 import { resolveEnv } from "../../config/env.js";
 import { checkGovernancePolicy, type EffectiveGovernancePolicy, type GovernancePolicyCheck } from "../governance-policy.js";
@@ -508,13 +508,18 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
     };
     const shape = () => refused(operation, shapeError);
     /**
-     * A failure that depends on what the target holds (too large, or a shape
-     * the codec refuses), before its labels were seen. While anything is
-     * hidden it reads as a miss too, so no answer tells a hidden target from
-     * a missing one; a failure that does not depend on the target keeps its code.
+     * A fetch that failed before the target's labels were seen. While anything
+     * is hidden, it reads as a miss unless the failure says nothing about the
+     * target (the account is not connected or rate limited, the input or the
+     * binary was refused): a timeout, a refusal from Google or an answer the
+     * codec cannot read may be the target's own, so no answer tells a hidden
+     * target from a missing one.
      */
-    const fetchFailure = (failure: GoogleError) => hidden.length > 0 && failure.code === "transport_incompatible"
-      && ["output_too_large", "unexpected_shape", "unexpected_output"].includes(failure.reason ?? "") ? NOT_FOUND : asMiss(failure);
+    const targetIndependent = (failure: GoogleError) =>
+      failure.code === "unavailable" || failure.code === "rate_limited" || failure.code === "invalid_input"
+      || (failure.code === "transport_incompatible"
+        && (failure.reason === "spawn_failed" || failure.reason === "usage" || (GOG_PIN_REFUSALS as readonly string[]).includes(failure.reason ?? "")));
+    const fetchFailure = (failure: GoogleError) => hidden.length > 0 && !targetIndependent(failure) ? NOT_FOUND : asMiss(failure);
     const mismatch = () => refused(operation, hidden.length > 0 ? NOT_FOUND : shapeError);
     const ok = (data: unknown): GoogleEnvelope => ({ ok: true, operation, data });
 
