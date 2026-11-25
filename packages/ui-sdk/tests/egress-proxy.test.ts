@@ -34,6 +34,43 @@ function tunnel(socketPath: string, target: string, body: string): Promise<strin
   });
 }
 
+test("CONNECT delivers the origin's final bytes and FIN after a pending evidence write", async () => {
+  const peer = Promise.withResolvers<nodeNet.Socket>(), waiting = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>(), closed = Promise.withResolvers<void>();
+  const origin = createServer(socket => { peer.resolve(socket); socket.once("close", () => closed.resolve()); });
+  await new Promise<void>(resolve => origin.listen(0, "127.0.0.1", resolve));
+  const port = (origin.address() as nodeNet.AddressInfo).port;
+  let held = false;
+  const records: EgressRecord[] = [];
+  const proxy = await startEgressProxy({ ...defaults(records), admissionSafety: {
+    read: () => ({ scope: "voyage", evidenceRevision: "1", trustRevision: "0", authorityEpoch: "0", policyHash: null,
+      authorityCurrent: true, operationRecordingAvailable: true, restricted: false, recordingAvailable: !held }),
+    subscribe: () => () => {},
+    *pendingRecording() { if (held) { waiting.resolve(); yield release.promise; } },
+  } });
+  const worker = connect(proxy.socketPath);
+  const established = Promise.withResolvers<void>(), ended = Promise.withResolvers<void>();
+  let wire = "";
+  worker.on("data", chunk => { wire += chunk; if (wire.includes("\r\n\r\n")) established.resolve(); });
+  worker.once("close", () => ended.resolve());
+  try {
+    worker.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`);
+    await established.promise;
+    const upstream = await peer.promise;
+    held = true;
+    upstream.end("Return to Ithaca.");
+    await waiting.promise;
+    // The origin closes while its final data is held in the proxy.
+    await closed.promise;
+    held = false; release.resolve();
+    await ended.promise;
+    expect(wire.split("\r\n\r\n")[1], "HELD_CONNECT_FINAL_BYTES_REACH_WORKER").toBe("Return to Ithaca.");
+  } finally {
+    held = false; release.resolve(); worker.destroy(); proxy.stop(); await proxy.settled();
+    await new Promise<void>(resolve => origin.close(() => resolve()));
+  }
+});
+
 test("invalid byte ceilings are rejected before creating a proxy", async () => {
   for (const maxBytes of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     await expect(startEgressProxy({ ...defaults([]), maxBytes }), `INVALID_EGRESS_BYTE_CEILING_${maxBytes}`)
@@ -479,6 +516,32 @@ test('review14: oversized HTTP headers never publish a contacted-host grant', as
 for(const method of ['GET','CONNECT'])test(`review14: initial recording loss is unavailable for ${method}`,async()=>{
  const records:EgressRecord[]=[];const proxy=await startEgressProxy({...defaults(records),admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:false,authorityCurrent:true}),subscribe:()=>()=>{}}});
  try{const status=method==='GET'?(await get(proxy.socketPath,'http://127.0.0.1:443/')).status:Number(/^HTTP\/1.1 (\d+)/.exec(await tunnel(proxy.socketPath,'127.0.0.1:443',''))?.[1]);expect(status,'INITIAL_RECORDING_LOSS_USES_SAME_503_CLASS').toBe(503);expect(records[0]).toMatchObject({outcome:'denied',reason:'egress_unavailable'});}finally{proxy.stop();}
+});
+
+test("an unreadable snapshot after sibling settlement records unavailable and refuses before dispatch", async () => {
+  const records: EgressRecord[] = [], waiting = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  let unreadable = false, hits = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ ...defaults(records), admissionSafety: {
+    read() {
+      if (unreadable) throw new Error("The safety snapshot is unavailable");
+      return { evidenceRevision: "1", trustRevision: "1", authorityEpoch: "1", scope: "ithaca", policyHash: null,
+        restricted: true, recordingAvailable: false, recordingPending: true, operationRecordingAvailable: true, authorityCurrent: true };
+    },
+    subscribe: () => () => {},
+    *pendingRecording() { waiting.resolve(); yield release.promise; },
+  } });
+  try {
+    const reply = get(proxy.socketPath, origin.url.href);
+    await Promise.race([waiting.promise, reply]);
+    unreadable = true; release.resolve();
+    const result = await reply;
+    expect(records, "UNREADABLE_SETTLED_SNAPSHOT_RETAINS_RECORDING_CAUSE").toMatchObject([
+      { dispatched: false, outcome: "denied", reason: "egress_unavailable" },
+    ]);
+    expect(result.status).toBe(503);
+    expect(hits).toBe(0);
+  } finally { release.resolve(); proxy.stop(); origin.stop(true); }
 });
 
 test('review14: charged preparation does not commit until final dispatch',async()=>{
