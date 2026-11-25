@@ -190,18 +190,16 @@ if (projects.some(project => project.startsWith("diagrams-"))) {
 // Worktree .git indirection points outside the container mount. Capture on the
 // host and check again after exit; the reporter must not guess an identity.
 const proofCheckout = argv.includes("--proof-report") ? gitCheckout() : undefined;
+const onlineIndicator = !projects.some(project => ["ui-react-layout", "ui-react-endurance"].includes(project));
 const status = run("docker", [
   "run",
   "--rm",
   "--ipc=host",
-  // All browser projects use a network-none container with a route-free indicator.
-  // Disable IPv6 autoconfiguration on that new link; existing loopback is unchanged.
   "--network=none",
-  "--sysctl=net.ipv6.conf.default.disable_ipv6=1",
-  "--user",
-  "0:0",
-  "--cap-drop=ALL",
-  "--cap-add=NET_ADMIN", "--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=SETPCAP",
+  // Preserve main's offline layout/endurance signal. Other projects used a
+  // connected Docker interface; replace it with a route-free indicator.
+  ...(onlineIndicator ? ["--sysctl=net.ipv6.conf.default.disable_ipv6=1", "--user", "0:0", "--cap-drop=ALL",
+    "--cap-add=NET_ADMIN", "--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=SETPCAP"] : ["--user", `${uid}:${gid}`]),
   "-v",
   `${REPO}:/repo`,
   "-v",
@@ -221,7 +219,7 @@ const status = run("docker", [
   ...(nativePrepared ? ["-e", `BRAIN_NATIVE_DIAGRAM_PREPARED=${nativePrepared}`] : []),
   IMAGE,
   // Capture public setup source before switching UID; a local checkout may be mode 0700.
-  "python3", "-c", readFileSync(resolve(REPO, "scripts/browser-offline-entry.py"), "utf8"), String(uid), String(gid),
+  ...(onlineIndicator ? ["python3", "-c", readFileSync(resolve(REPO, "scripts/browser-offline-entry.py"), "utf8"), String(uid), String(gid)] : []),
   "node",
   "scripts/visual.mjs",
   "--inside",
