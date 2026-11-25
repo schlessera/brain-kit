@@ -205,7 +205,8 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
             </h2>
             {headerAction}
           </div>
-          <p className="flex min-w-0 flex-wrap items-center gap-x-2 font-mono text-xs text-muted-foreground" data-storage-status={status.state}>
+          {/* A div, not a p: the Show button is a block element. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 font-mono text-xs text-muted-foreground" data-storage-status={status.state}>
             <span aria-hidden="true">{status.glyph}</span>
             <span className="min-w-0">{status.text}</span>
             {snapshot && view.newest && view.newest.id !== snapshot.id && (
@@ -224,7 +225,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                 />
               </>
             )}
-          </p>
+          </div>
           <StorageAlertsRow
             notifications={guidance.guidance?.notifications ?? null}
             onDevices={() => root.stores.ui.getState().setSettingsTab("devices")}
