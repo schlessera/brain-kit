@@ -167,10 +167,12 @@ export function toolResultLines(p: ToolResultInput): string[] {
   }
 }
 
-/** What the running state's slot reads: a count only when one is supplied. */
-export function toolWorkingText(count?: number | null): string {
-  return typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? `Working… · ${count} done` : "Working…";
-}
+/**
+ * What the running state's slot reads, beside the indeterminate stripe. There
+ * is no count: two owners report only at the end, and the one that streams
+ * items knows no total (maintainer ruling on #4545, 2026-11-25).
+ */
+export const TOOL_WORKING = "Working…";
 
 type ToolActionKind = "run" | "retry" | "cancel" | "none";
 interface ToolAction {

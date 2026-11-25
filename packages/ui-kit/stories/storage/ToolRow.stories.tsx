@@ -144,8 +144,8 @@ export const WaitingDesktop = Waiting.extend({ parameters: desktop });
 
 /**
  * Running, with Cancel. Pressing it enters the busy state at once —
- * `Cancelling…`, button disabled — until the receipt moves on. No total is
- * known in advance, so there is no "n of m".
+ * `Cancelling…`, button disabled — until the receipt moves on. The slot reads
+ * `Working…` only: no count and no "n of m" (ruling).
  */
 export const Running = meta.story({
   args: { state: "running", at: "03:09" },
@@ -154,8 +154,7 @@ export const Running = meta.story({
     const canvas = within(canvasElement);
     await expect(canvas.getByText("Running")).toBeVisible();
     await expect(canvas.getByText("· since 03:09", { exact: false })).toBeVisible();
-    await expect(canvas.getByText("Working…")).toBeVisible();
-    await expect(canvas.queryByText(/ of /), "no n-of-m progress").toBeNull();
+    await expect(canvasElement.querySelector("[data-tool-working]")?.textContent, "Working… only, with no count").toBe("Working…");
     await expect(canvas.queryByRole("meter"), "the stripe takes the meter's slot").toBeNull();
     await expect(canvasElement.querySelector(".bk-tool-stripe")?.getAttribute("aria-hidden")).toBe("true");
     const cancel = await quietWithChip(canvasElement, /^Cancel Pack Git objects$/);
@@ -169,17 +168,6 @@ export const Running = meta.story({
   },
 });
 export const RunningDesktop = Running.extend({ parameters: desktop });
-
-/** Only staging cleanup streams items while it runs; when the caller has a
- * count it reads `Working… · {n} done`. */
-export const RunningWithCount = meta.story({
-  args: { ...STAGING, headroom: undefined, state: "running", at: "03:09", doneCount: 14 },
-  play: async ({ canvasElement }) => {
-    await laidOut(canvasElement);
-    await expect(within(canvasElement).getByText("Working… · 14 done")).toBeVisible();
-  },
-});
-export const RunningWithCountDesktop = RunningWithCount.extend({ parameters: desktop });
 
 /** The caller can also hold the busy state itself, e.g. after a reload. */
 export const Cancelling = meta.story({
@@ -447,7 +435,6 @@ const EVERY_STATE: ToolRowProps[] = [
   { ...PACK, state: "never", headroom: HEADROOM_OK },
   { ...PACK, state: "waiting", at: "12 Jul 03:08" },
   { ...PACK, state: "running", at: "03:09" },
-  { ...STAGING, state: "running", at: "03:09", doneCount: 14 },
   { ...PACK, state: "running", at: "03:09", cancelling: true },
   { ...PACK, state: "complete", at: "12 Jul 03:10", change: { delta: "+1.8 GB" }, headroom: HEADROOM_OK },
   { ...PACK, state: "complete", at: "12 Jul 03:10", change: { notMeasured: "volume changed" }, headroom: HEADROOM_SHORT },
@@ -462,7 +449,6 @@ const EVERY_STATE: ToolRowProps[] = [
 const EVERY_STATE_LINES = [
   "○Never run",
   "◌Waiting · queued 12 Jul 03:08",
-  "◐Running · since 03:09",
   "◐Running · since 03:09",
   "◌Cancelling…",
   "●Done · 12 Jul 03:10",

@@ -10,7 +10,6 @@ import {
   toolResultLines,
   toolStateLine,
   toolStateText,
-  toolWorkingText,
   type ToolRunState,
 } from "../src/storage/tool-row-model.js";
 
@@ -101,11 +100,10 @@ describe("result lines", () => {
     expect(toolResultLines({ state: "unknown" })).toEqual(["Couldn't confirm the result"]);
     expect(toolResultLines({ state: "complete", available: false })).toEqual([]);
   });
-  test("running reads a count only when one is supplied, and never n of m", () => {
-    expect(toolWorkingText()).toBe("Working…");
-    expect(toolWorkingText(null)).toBe("Working…");
-    expect(toolWorkingText(14)).toBe("Working… · 14 done");
-    expect(toolWorkingText(1.5)).toBe("Working…");
+  test("running reads Working… only, with no count", () => {
+    const html = row({ state: "running", at: "03:09" });
+    expect(html).toMatch(/data-tool-working=""><span class="bk-tool-stripe" aria-hidden="true"><\/span><span>Working…<\/span><\/span>/);
+    expect(text(html)).not.toMatch(/\bdone\b|\d+ of \d+/);
   });
 });
 

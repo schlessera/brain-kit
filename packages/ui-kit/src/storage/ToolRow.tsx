@@ -6,11 +6,11 @@ import { TextButton } from "../primitives/TextButton.js";
 import { accent } from "../tokens.js";
 import {
   HEADROOM_CAVEAT,
+  TOOL_WORKING,
   toolAction,
   toolHeadroomView,
   toolResultLines,
   toolStateLine,
-  toolWorkingText,
   type ToolChange,
   type ToolHeadroom,
   type ToolOutcomeCounts,
@@ -55,9 +55,6 @@ export interface ToolRowProps {
   counts?: ToolOutcomeCounts | null;
   /** Leave out for a tool that frees space and has no estimate. */
   headroom?: ToolHeadroom | null;
-  /** Items finished so far, only when the owner streams them. There is no
-   * total: the running state reads "Working… · {n} done" or "Working…". */
-  doneCount?: number | null;
   /** The effect chip's label. */
   effect?: string;
   /** Forces the cancelling state. The row also enters it by itself when
@@ -103,7 +100,7 @@ export function ToolRow(p: ToolRowProps) {
           {running ? (
             <span className="bk-tool-working" data-tool-working="">
               <span className="bk-tool-stripe" aria-hidden="true" />
-              <span>{toolWorkingText(p.doneCount)}</span>
+              <span>{TOOL_WORKING}</span>
             </span>
           ) : null}
           {running ? <span className="bk-tool-line bk-tool-wide-only">Result shown when it finishes</span> : null}

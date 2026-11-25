@@ -3110,7 +3110,6 @@ signatures (every public export and the types it is made of)
         change?: ToolChange | null;
         counts?: ToolOutcomeCounts | null;
         headroom?: ToolHeadroom | null;
-        doneCount?: number | null;
         effect?: string;
         cancelling?: boolean;
         onRun?: () => void;
