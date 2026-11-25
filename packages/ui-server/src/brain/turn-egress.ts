@@ -400,7 +400,8 @@ export async function prepareTurnEgress(options: {
     if (match && !inputCurrent(destination.connectionId)) throw new EgressAdmissionRefused("Source trust changed before dispatch","source_trust_changed");
   };
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */
-  const settled = async () => { await proxy.settled(); while (recording.size) await Promise.all([...recording]); };
+  const settleRecords = async () => { while (recording.size) await Promise.all([...recording]); };
+  const settled = async () => { await proxy.settled(); await settleRecords(); };
   const proxy = await startEgressProxy({ pendingReservations, mode: options.policy.egress.mode, allow: options.policy.egress.allow,
     ...(options.bridge.admissionSafety ? { admissionSafety: options.bridge.admissionSafety } : {}),
     deny: options.policy.egress.deny, maxBytes: options.policy.egress.max_bytes_per_turn ?? Number.MAX_SAFE_INTEGER,
@@ -450,11 +451,12 @@ export async function prepareTurnEgress(options: {
       // Join this proxy's terminal records and this bridge's announced
       // session binding before the new snapshot. A concurrent FULL binding
       // must not change a healthy scope underneath its first admission.
-      // Independent pending input still refuses in the unchanged final fences.
+      // Active siblings own their admission effects. The operation's bounded
+      // evidence wait handles those after binding, without joining their requests.
       if (operation.signal.aborted) return false;
       let abort: (() => void) | undefined;
       try {
-        const refusal = await Promise.race([settled().then(() => settleTurnSessionBinding(original, operation.signal)).catch(() => "session_binding_unavailable" as const), new Promise<SessionBindingRefusal>(resolve => {
+        const refusal = await Promise.race([settleRecords().then(() => settleTurnSessionBinding(original, operation.signal)).catch(() => "session_binding_unavailable" as const), new Promise<SessionBindingRefusal>(resolve => {
           abort = () => resolve("turn_cancelled");
           operation.signal.addEventListener("abort", abort, { once: true });
           if (operation.signal.aborted) resolve("turn_cancelled");

@@ -1,0 +1,211 @@
+{
+ "recordedFrom": "The pressure state after running SEQUENCES in storage-events.test.ts on origin/main 85c32e1e8, before #4541. Episode identities are normalized.",
+ "pressures": {
+  "cross-target A10 B15 A20": [
+   {
+    "identity": "9bf6f95b192e781d1612b47206b6ace3",
+    "rootScope": "46405796ddc1b6388d0052b09ee22bc7",
+    "severity": "critical",
+    "capacity": false,
+    "forecast": false,
+    "refusals": [
+     {
+      "target": "955cca1ceba45052d85984d3a2565f4c",
+      "resource": "bytes",
+      "at": 1783849275000,
+      "successAt": null
+     },
+     {
+      "target": "798640599597df7a8daa32b1132f0785",
+      "resource": "bytes",
+      "at": 1783849280000,
+      "successAt": null
+     }
+    ],
+    "at": 1783849280000,
+    "recoveryAt": null,
+    "episode": "uuid",
+    "resolvedEpisode": null,
+    "supportAt": 1783849280000,
+    "scopeChanged": false
+   }
+  ],
+  "late A20 A10 A30": [
+   {
+    "identity": "9bf6f95b192e781d1612b47206b6ace3",
+    "rootScope": "46405796ddc1b6388d0052b09ee22bc7",
+    "severity": "critical",
+    "capacity": false,
+    "forecast": false,
+    "refusals": [
+     {
+      "target": "798640599597df7a8daa32b1132f0785",
+      "resource": "bytes",
+      "at": 1783849290000,
+      "successAt": null
+     }
+    ],
+    "at": 1783849290000,
+    "recoveryAt": null,
+    "episode": "uuid",
+    "resolvedEpisode": null,
+    "supportAt": 1783849290000,
+    "scopeChanged": false
+   }
+  ],
+  "broken run A10 sA15 A20": [
+   {
+    "identity": "9bf6f95b192e781d1612b47206b6ace3",
+    "rootScope": "46405796ddc1b6388d0052b09ee22bc7",
+    "severity": "critical",
+    "capacity": false,
+    "forecast": false,
+    "refusals": [
+     {
+      "target": "798640599597df7a8daa32b1132f0785",
+      "resource": "bytes",
+      "at": 1783849280000,
+      "successAt": null
+     }
+    ],
+    "at": 1783849280000,
+    "recoveryAt": null,
+    "episode": "uuid",
+    "resolvedEpisode": null,
+    "supportAt": 1783849280000,
+    "scopeChanged": false
+   }
+  ],
+  "mixed A10 B15 A20 sB25": [
+   {
+    "identity": "9bf6f95b192e781d1612b47206b6ace3",
+    "rootScope": "46405796ddc1b6388d0052b09ee22bc7",
+    "severity": "critical",
+    "capacity": false,
+    "forecast": false,
+    "refusals": [
+     {
+      "target": "955cca1ceba45052d85984d3a2565f4c",
+      "resource": "bytes",
+      "at": 1783849275000,
+      "successAt": 1783849285000
+     },
+     {
+      "target": "798640599597df7a8daa32b1132f0785",
+      "resource": "bytes",
+      "at": 1783849280000,
+      "successAt": null
+     }
+    ],
+    "at": 1783849285000,
+    "recoveryAt": null,
+    "episode": "uuid",
+    "resolvedEpisode": null,
+    "supportAt": 1783849280000,
+    "scopeChanged": false
+   }
+  ],
+  "stored A then sA B A": [
+   {
+    "identity": "9bf6f95b192e781d1612b47206b6ace3",
+    "rootScope": "46405796ddc1b6388d0052b09ee22bc7",
+    "severity": "critical",
+    "capacity": false,
+    "forecast": false,
+    "refusals": [
+     {
+      "target": "798640599597df7a8daa32b1132f0785",
+      "resource": "bytes",
+      "at": 1783849345000,
+      "successAt": null
+     },
+     {
+      "target": "955cca1ceba45052d85984d3a2565f4c",
+      "resource": "bytes",
+      "at": 1783849340000,
+      "successAt": null
+     }
+    ],
+    "at": 1783849345000,
+    "recoveryAt": null,
+    "episode": "uuid",
+    "resolvedEpisode": null,
+    "supportAt": 1783849345000,
+    "scopeChanged": false
+   }
+  ],
+  "two capacities": [
+   {
+    "identity": "9bf6f95b192e781d1612b47206b6ace3",
+    "rootScope": "46405796ddc1b6388d0052b09ee22bc7",
+    "severity": "critical",
+    "capacity": false,
+    "forecast": false,
+    "refusals": [
+     {
+      "target": "798640599597df7a8daa32b1132f0785",
+      "resource": "bytes",
+      "at": 1783849280000,
+      "successAt": null
+     }
+    ],
+    "at": 1783849280000,
+    "recoveryAt": null,
+    "episode": "uuid",
+    "resolvedEpisode": null,
+    "supportAt": 1783849280000,
+    "scopeChanged": false
+   },
+   {
+    "identity": "c21a818cbf328ae54eeb050559370b1b",
+    "rootScope": "46405796ddc1b6388d0052b09ee22bc7",
+    "severity": "critical",
+    "capacity": false,
+    "forecast": false,
+    "refusals": [
+     {
+      "target": "c2e8c0cc2e73b9bd1ba9ef1979e73169",
+      "resource": "bytes",
+      "at": 1783849272000,
+      "successAt": null
+     }
+    ],
+    "at": 1783849272000,
+    "recoveryAt": null,
+    "episode": "uuid",
+    "resolvedEpisode": null,
+    "supportAt": 1783849272000,
+    "scopeChanged": false
+   }
+  ],
+  "late success after refusal": [
+   {
+    "identity": "9bf6f95b192e781d1612b47206b6ace3",
+    "rootScope": "46405796ddc1b6388d0052b09ee22bc7",
+    "severity": "critical",
+    "capacity": false,
+    "forecast": false,
+    "refusals": [
+     {
+      "target": "798640599597df7a8daa32b1132f0785",
+      "resource": "bytes",
+      "at": 1783849350000,
+      "successAt": null
+     },
+     {
+      "target": "955cca1ceba45052d85984d3a2565f4c",
+      "resource": "bytes",
+      "at": 1783849355000,
+      "successAt": null
+     }
+    ],
+    "at": 1783849355000,
+    "recoveryAt": null,
+    "episode": "uuid",
+    "resolvedEpisode": null,
+    "supportAt": 1783849355000,
+    "scopeChanged": false
+   }
+  ]
+ }
+}

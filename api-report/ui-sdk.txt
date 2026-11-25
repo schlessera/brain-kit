@@ -446,6 +446,9 @@ export "." (./src/index.ts)
   type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvent
+  type StorageEventKind
+  type StorageEventsResponse
   type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
@@ -454,6 +457,7 @@ export "." (./src/index.ts)
   type StorageHistoryObservation
   type StorageHistoryResponse
   type StorageHistoryTier
+  type StorageMaintenanceEvent
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
@@ -463,8 +467,10 @@ export "." (./src/index.ts)
   type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureEvent
   type StoragePressureView
   type StorageReferenceEvidence
+  type StorageRefusalEvent
   type StorageRemovalCapability
   type StorageRemovalFile
   type StorageRemovalInspection
@@ -476,6 +482,7 @@ export "." (./src/index.ts)
   type StorageRemovalUndoRequest
   type StorageRoot
   type StorageScenario
+  type StorageScopeEvent
   type StorageSeverity
   type StorageSnapshot
   type StorageStatus
@@ -1247,6 +1254,9 @@ export "./client" (./src/client/index.ts)
   type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvent
+  type StorageEventKind
+  type StorageEventsResponse
   type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
@@ -1255,6 +1265,7 @@ export "./client" (./src/client/index.ts)
   type StorageHistoryObservation
   type StorageHistoryResponse
   type StorageHistoryTier
+  type StorageMaintenanceEvent
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
@@ -1264,8 +1275,10 @@ export "./client" (./src/client/index.ts)
   type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureEvent
   type StoragePressureView
   type StorageReferenceEvidence
+  type StorageRefusalEvent
   type StorageRemovalCapability
   type StorageRemovalFile
   type StorageRemovalInspection
@@ -1277,6 +1290,7 @@ export "./client" (./src/client/index.ts)
   type StorageRemovalUndoRequest
   type StorageRoot
   type StorageScenario
+  type StorageScopeEvent
   type StorageSeverity
   type StorageSnapshot
   type StorageStatus
@@ -1639,6 +1653,7 @@ export "./internal" (./src/internal.ts)
   safetyAdmissionSchema
   safetyOccurrenceAdmissionSchema
   safetyRecordSchema
+  sameAuthority
   sameSafetyAdmission
   sessionPromptContext
   sessionPromptContextLocation
@@ -2131,6 +2146,9 @@ export "./protocol" (./src/protocol.ts)
   type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvent
+  type StorageEventKind
+  type StorageEventsResponse
   type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
@@ -2139,6 +2157,7 @@ export "./protocol" (./src/protocol.ts)
   type StorageHistoryObservation
   type StorageHistoryResponse
   type StorageHistoryTier
+  type StorageMaintenanceEvent
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
@@ -2148,8 +2167,10 @@ export "./protocol" (./src/protocol.ts)
   type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureEvent
   type StoragePressureView
   type StorageReferenceEvidence
+  type StorageRefusalEvent
   type StorageRemovalCapability
   type StorageRemovalFile
   type StorageRemovalInspection
@@ -2161,6 +2182,7 @@ export "./protocol" (./src/protocol.ts)
   type StorageRemovalUndoRequest
   type StorageRoot
   type StorageScenario
+  type StorageScopeEvent
   type StorageSeverity
   type StorageSnapshot
   type StorageStatus
@@ -3236,6 +3258,9 @@ export "./server" (./src/server/index.ts)
   type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvent
+  type StorageEventKind
+  type StorageEventsResponse
   type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
@@ -3244,6 +3269,7 @@ export "./server" (./src/server/index.ts)
   type StorageHistoryObservation
   type StorageHistoryResponse
   type StorageHistoryTier
+  type StorageMaintenanceEvent
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
@@ -3253,8 +3279,10 @@ export "./server" (./src/server/index.ts)
   type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureEvent
   type StoragePressureView
   type StorageReferenceEvidence
+  type StorageRefusalEvent
   type StorageRemovalCapability
   type StorageRemovalFile
   type StorageRemovalInspection
@@ -3266,6 +3294,7 @@ export "./server" (./src/server/index.ts)
   type StorageRemovalUndoRequest
   type StorageRoot
   type StorageScenario
+  type StorageScopeEvent
   type StorageSeverity
   type StorageSnapshot
   type StorageStatus
@@ -14478,6 +14507,30 @@ signatures (every public export and the types it is made of)
     }
   StorageCoverage (packages/ui-sdk/src/storage.ts)
     export type StorageCoverage = "complete" | "partial" | "unknown";
+  StorageEvent (packages/ui-sdk/src/storage-events.ts)
+    export type StorageEvent = StoragePressureEvent | StorageRefusalEvent | StorageScopeEvent | StorageMaintenanceEvent;
+  StorageEventBase (packages/ui-sdk/src/storage-events.ts)
+    interface StorageEventBase {
+        seq: number;
+        at: number;
+    }
+  StorageEventKind (packages/ui-sdk/src/storage-events.ts)
+    export type StorageEventKind = "pressure" | "refusal" | "scope" | "maintenance";
+  StorageEventsResponse (packages/ui-sdk/src/storage-events.ts)
+    export interface StorageEventsResponse {
+        version: 1;
+        since: number;
+        next: number;
+        limits: {
+            pressure: 256;
+            refusal: 128;
+            scope: 64;
+            maintenance: 512;
+            payloadBytes: 262144;
+        };
+        paused: Record<StorageEventKind, boolean>;
+        events: StorageEvent[];
+    }
   StorageEvidenceReason (packages/ui-sdk/src/storage-guidance.ts)
     export type StorageEvidenceReason = "no-observation" | "stale" | "future" | "incomplete" | "changed-scope" | "changed-capacity" | "gap" | "ordering" | "insufficient-count" | "insufficient-span" | "mixed-direction" | "single-burst" | "arithmetic";
   StorageFileEntry (packages/ui-sdk/src/storage.ts)
@@ -14598,6 +14651,18 @@ signatures (every public export and the types it is made of)
     }
   StorageHistoryTier (packages/ui-sdk/src/storage-guidance.ts)
     export type StorageHistoryTier = "six-hour" | "daily" | "weekly";
+  StorageMaintenanceEvent (packages/ui-sdk/src/storage-events.ts)
+    export type StorageMaintenanceEvent = StorageEventBase & {
+        kind: "maintenance";
+        receipt: string;
+        operation: StorageMaintenanceKind;
+    } & ({
+        phase: "requested";
+    } | {
+        phase: "finished";
+        state: Exclude<StorageMaintenanceReceipt["state"], "waiting" | "running">;
+        reason: string | null;
+    });
   StorageMaintenanceItem (packages/ui-sdk/src/storage.ts)
     export interface StorageMaintenanceItem {
         id: string;
@@ -14683,6 +14748,14 @@ signatures (every public export and the types it is made of)
         matched: number;
         totals: StorageBytes;
     }
+  StoragePressureEvent (packages/ui-sdk/src/storage-events.ts)
+    export interface StoragePressureEvent extends StorageEventBase {
+        kind: "pressure";
+        identity: string;
+        phase: "start" | "step" | "recovery-started" | "end";
+        severity: StorageSeverity;
+        episode: number;
+    }
   StoragePressureView (packages/ui-sdk/src/storage-guidance.ts)
     export interface StoragePressureView {
         identity: string;
@@ -14722,6 +14795,14 @@ signatures (every public export and the types it is made of)
         newestIndexedAt: string | null;
         freshness: "unchecked";
         unchecked: string[];
+    }
+  StorageRefusalEvent (packages/ui-sdk/src/storage-events.ts)
+    export interface StorageRefusalEvent extends StorageEventBase {
+        kind: "refusal";
+        identity: string;
+        phase: "refused" | "succeeded";
+        target: string;
+        resource: "bytes" | "quota" | "inodes" | "unknown";
     }
   StorageRemovalCapability (packages/ui-sdk/src/storage-removal.ts)
     export interface StorageRemovalCapability {
@@ -14834,6 +14915,14 @@ signatures (every public export and the types it is made of)
         samples: number;
         depletionPerDay: number | null;
         days: number | null;
+    }
+  StorageScopeEvent (packages/ui-sdk/src/storage-events.ts)
+    export interface StorageScopeEvent extends StorageEventBase {
+        kind: "scope";
+        identity: string;
+        phase: "changed";
+        rootScope: string;
+        previousRootScope: string;
     }
   StorageSeverity (packages/ui-sdk/src/storage-guidance.ts)
     export type StorageSeverity = "observed" | "low" | "critical";

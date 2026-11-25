@@ -40,6 +40,8 @@ interface StorageConsumerMember {
   /** `null` when this member's size was not measured. */
   bytes: number | null;
   coverage: StorageTreeNode["area"]["coverage"];
+  /** Why this member's size is unknown or a lower bound; absent when it is complete. */
+  reason?: string;
 }
 
 /** One row: the kit's props without callbacks, plus what the pane keys on. */
@@ -79,11 +81,10 @@ function sizeOf(members: readonly StorageConsumerMember[]) {
   return { value, complete };
 }
 
-function reasonFor(node: StorageTreeNode, inventory: StorageSnapshot | null | undefined, complete: boolean, known: boolean) {
-  if (complete) return undefined;
+/** A node's own reason, or for a store the scan's error for its root. */
+function causeOf(node: StorageTreeNode, inventory: StorageSnapshot | null | undefined): string | null {
   const error = node.kind === "root" ? inventory?.errors.find((value) => value.rootId === node.rootId)?.reason : undefined;
-  const reason = node.reason ?? error ?? (known ? "partial" : null);
-  return storageUnknownReason(reason);
+  return node.reason ?? error ?? null;
 }
 
 /**
@@ -102,15 +103,15 @@ export function storageConsumerRows(
   const format = options.format ?? ((value: number) => bytes(value));
   const sort = options.sort ?? { key: "size", direction: "descending" };
   const folded = new Map<string, StorageTreeNode[]>();
-  // A store's sidecar is its own root with the same owner; a file's sits
-  // beside it in the same root.
+  // A store's sidecar is its own root with the same owner; a file's is a file
+  // beside it in the same root. A folder or link with a sidecar name is not one.
   const database = (node: StorageTreeNode, base: string) =>
     page.nodes.find(
       (value) =>
         value.name === base &&
         (node.kind === "root"
           ? value.kind === "root" && value.owner === node.owner
-          : value.kind === "file" && value.rootId === node.rootId)
+          : node.kind === "file" && value.kind === "file" && value.rootId === node.rootId)
     );
   for (const node of page.nodes) {
     const base = sidecarBase(node.name);
@@ -125,7 +126,12 @@ export function storageConsumerRows(
     const members = nodes
       .slice()
       .sort((a, b) => (a.id === id ? -1 : b.id === id ? 1 : a.name.localeCompare(b.name)))
-      .map((node) => ({ id: node.id, name: node.name, bytes: node.area[metric], coverage: node.area.coverage }));
+      .map((node) => {
+        const member: StorageConsumerMember = { id: node.id, name: node.name, bytes: node.area[metric], coverage: node.area.coverage };
+        if (member.bytes === null || member.coverage !== "complete")
+          member.reason = storageUnknownReason(causeOf(node, options.inventory) ?? (member.bytes !== null ? "partial" : null));
+        return member;
+      });
     const { value, complete } = sizeOf(members);
     const sidecars = members.slice(1).map((member) => member.name.slice(head.name.length));
     // A hard-linked alias: its object is already counted in another row's
@@ -149,8 +155,13 @@ export function storageConsumerRows(
     if (meta) row.meta = meta;
     if (shared) row.shared = true;
     if (value !== null && !complete) row.atLeast = true;
-    const reason = reasonFor(head, options.inventory, complete, value !== null);
-    if (reason) row.reason = reason;
+    if (!complete) {
+      // The database's own reason first, then the first folded member's: an
+      // unreadable sidecar is why a readable database's row is incomplete.
+      const byId = new Map(nodes.map((node) => [node.id, node]));
+      const cause = members.map((member) => causeOf(byId.get(member.id)!, options.inventory)).find((value) => value !== null);
+      row.reason = storageUnknownReason(cause ?? (value !== null ? "partial" : null));
+    }
     return row;
   });
   const largest = Math.max(0, ...all.map((row) => row.bytes ?? 0));

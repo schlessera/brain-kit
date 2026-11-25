@@ -12,7 +12,7 @@
  */
 /// <reference types="@vitest/browser/matchers" />
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import * as gauge from "../../stories/storage/CapacityGauge.stories.js";
 import * as card from "../../stories/storage/VolumeCard.stories.js";
@@ -45,12 +45,39 @@ function stageOf(selector: string, self = false): HTMLElement {
   return stage;
 }
 
+/**
+ * Put the pointer where no subject reaches, and prove nothing in `subject`
+ * is hovered.
+ *
+ * The browser outlives this file. A spec that ran before it
+ * (`storage-map.visual.tsx` parks the pointer on its own frame) leaves the
+ * real mouse wherever it stopped. A card under it takes the `.bk-control`
+ * hover veil, and the capture differs by one card's area, about 59,000
+ * pixels. Every subject fits inside 1008 × 687 at the top left, so the
+ * viewport's bottom-right corner is clear of all of them. A temporary fixed
+ * target gives the pointer something to land on there.
+ */
+async function parkPointer(subject: HTMLElement) {
+  const spot = document.createElement("div");
+  spot.style.cssText = "position:fixed;right:0;bottom:0;width:4px;height:4px";
+  document.body.append(spot);
+  try {
+    await userEvent.hover(page.elementLocator(spot));
+  } finally {
+    spot.remove();
+  }
+  const hovered = [...subject.querySelectorAll(":hover")].map((el) => el.outerHTML.slice(0, 60));
+  expect(hovered, "nothing in the subject is hovered").toEqual([]);
+}
+
 async function looksRight(story: unknown, selector: string, name: string, theme: "dark" | "light") {
   await (story as ComposedStory).run({ globals: { theme } });
   expect(document.documentElement.dataset.theme).toBe(theme);
   expect(getComputedStyle(document.documentElement).colorScheme).toBe(theme);
   await document.fonts.ready;
-  await expect(page.elementLocator(stageOf(selector, selector === "[data-phone-sheet]"))).toMatchScreenshot(`${name}-${theme}`, TOLERANCE);
+  const subject = stageOf(selector, selector === "[data-phone-sheet]");
+  await parkPointer(subject);
+  await expect(page.elementLocator(subject)).toMatchScreenshot(`${name}-${theme}`, TOLERANCE);
 }
 
 const SUBJECTS: Array<[string, unknown, string]> = [
@@ -73,6 +100,7 @@ test("volume cards in greyscale, desktop", async () => {
   await (card.Greyscale as unknown as ComposedStory).run({ globals: { theme: "dark" } });
   await document.fonts.ready;
   const grey = stageOf(".bk-volume-group");
+  await parkPointer(grey);
   expect(getComputedStyle(grey).filter).toBe("grayscale(1)");
   await expect(page.elementLocator(grey)).toMatchScreenshot("volume-cards-greyscale", TOLERANCE);
 });

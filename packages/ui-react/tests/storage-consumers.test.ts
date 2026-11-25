@@ -30,12 +30,28 @@ describe("sidecar folding", () => {
     expect(database.bytes).toBe(5_400_000_000);
     expect(database.atLeast).toBe(true);
     expect(database.size).toBe(bytes(5_400_000_000));
-    expect(database.reason).toBe("size so far · scan stopped early");
+    // The database itself was read; the unreadable -shm member is why the size is a lower bound.
+    expect(database.reason).toBe("couldn't read file details");
     expect(database.meta).toBe("database · with -shm, -wal");
-    expect(database.members.map((member) => [member.name, member.bytes])).toEqual([
-      ["Operational database", 5 * GB],
-      ["Operational database-shm", null],
-      ["Operational database-wal", 400_000_000],
+    expect(database.members.map((member) => [member.name, member.bytes, member.reason])).toEqual([
+      ["Operational database", 5 * GB, undefined],
+      ["Operational database-shm", null, "couldn't read file details"],
+      ["Operational database-wal", 400_000_000, undefined],
+    ]);
+  });
+
+  test("a folded member's reason survives, and the database's own reason comes first", () => {
+    const nodes = [
+      node({ id: 24, rootId: 6, name: "ledger.db", kind: "file", owner: "app", bytes: 2 * GB, coverage: "partial", reason: "cancelled" }),
+      node({ id: 25, rootId: 6, name: "ledger.db-wal", kind: "file", owner: "app", bytes: null, reason: "metadata-unavailable" }),
+      node({ id: 26, rootId: 6, name: "ledger.db-shm", kind: "file", owner: "app", bytes: null }),
+    ];
+    const [ledger] = storageConsumerRows(page(nodes, appRoots[1]!.id), "allocated").rows;
+    expect(ledger!.reason).toBe("scan was cancelled · scan again");
+    expect(ledger!.members.map((member) => [member.name, member.reason])).toEqual([
+      ["ledger.db", "scan was cancelled · scan again"],
+      ["ledger.db-shm", "not measured"],
+      ["ledger.db-wal", "couldn't read file details"],
     ]);
   });
 
@@ -62,6 +78,21 @@ describe("sidecar folding", () => {
       node({ id: 31, rootId: 6, name: "notes-wal", kind: "file", owner: "app", bytes: 1_000 }),
     ];
     expect(storageConsumerRows(page(nodes, appRoots[1]!.id), "allocated").rows).toHaveLength(2);
+  });
+
+  test("only a file folds beside a file: a sidecar-named folder keeps its own row and drill", () => {
+    const nodes = [
+      node({ id: 32, rootId: 6, name: "ledger", kind: "file", owner: "app", bytes: GB }),
+      node({ id: 33, rootId: 6, name: "ledger-journal", kind: "directory", owner: "app", bytes: 3 * GB }),
+      node({ id: 34, rootId: 6, name: "ledger-wal", kind: "symlink", owner: "app", bytes: 100 }),
+    ];
+    expect(
+      storageConsumerRows(page(nodes, appRoots[1]!.id), "allocated").rows.map((row) => [row.name, row.bytes, row.action, row.members.length])
+    ).toEqual([
+      ["ledger-journal", 3 * GB, "drill", 1],
+      ["ledger", GB, "inspect", 1],
+      ["ledger-wal", 100, "inspect", 1],
+    ]);
   });
 });
 

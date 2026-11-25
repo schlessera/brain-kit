@@ -65,7 +65,7 @@ export type { CompiledWorkerCommandPolicy, WorkerCommandPolicy } from "./server/
 
 export { prepareOutwardPlan, commitOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL, workerOutwardNote } from "./server/outward-policy.js";
 export type { OutwardPlan } from "./server/outward-policy.js";
-export { sameSafetyAdmission, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION } from "./server/admission-safety.js";
+export { sameAuthority, sameSafetyAdmission, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION } from "./server/admission-safety.js";
 export type { AdmissionSafety, AdmissionSafetySnapshot } from "./server/admission-safety.js";
 export { NativeFileVersions, nativeFileVersion } from "./server/native-file-versions.js";
 export { createWorkerFileObserver } from "./server/worker-file-observer.js";

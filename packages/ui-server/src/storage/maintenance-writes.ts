@@ -4,12 +4,16 @@ import type { StorageMaintenanceReceipt } from "@schlessera/brain-ui-sdk/protoco
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { StorageUnavailable } from "./coordinator.js";
 import { STORAGE_MAINTENANCE_LIMITS } from "./maintenance.js";
+import { recordStorageEvent } from "./events.js";
+import { hashScope } from "./history-model.js";
 export const url = import.meta.url;
 export function setup(db: Database, { brain, self: SELF }: { brain: string; self: { pid: number; start: string } }, authorized = (id: string) => {
   const principal = resolvePrincipal(db, id);
   return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now());
 }) {
   const authorize = (principal: string) => { if (!authorized(principal)) throw new StorageUnavailable(403, "Storage maintenance requires current human-owner access."); };
+  // The events timeline keys brains like the history does.
+  const events = hashScope(brain);
   function encoded(receipt: StorageMaintenanceReceipt, strict = false) {
     let text = JSON.stringify(receipt);
     if (strict && Buffer.byteLength(text) > STORAGE_MAINTENANCE_LIMITS.receiptBytes) throw Error("receipt_item_budget");
@@ -18,7 +22,18 @@ export function setup(db: Database, { brain, self: SELF }: { brain: string; self
     return text + " ".repeat(STORAGE_MAINTENANCE_LIMITS.receiptBytes - Buffer.byteLength(text));
   }
   function write(receipt: StorageMaintenanceReceipt, strict = false) {
-    db.query("UPDATE storage_maintenance_operations SET state=?,receipt=? WHERE id=? AND brain=?").run(receipt.state, encoded(receipt, strict), receipt.id, brain);
+    const text = encoded(receipt, strict);
+    db.transaction(() => {
+      const { changes } = db.query("UPDATE storage_maintenance_operations SET state=?,receipt=? WHERE id=? AND brain=?").run(receipt.state, text, receipt.id, brain);
+      // A terminal receipt records its finish once, at its own completion time,
+      // and only after its recorded request: a receipt from before the
+      // timeline, or one whose request found the kind full, never finishes in it.
+      if (!changes || receipt.completedAt === null || ["waiting", "running"].includes(receipt.state)
+        || !db.query("SELECT 1 FROM storage_events WHERE brain=? AND receipt=? AND phase='requested'").get(events, receipt.id)
+        || db.query("SELECT 1 FROM storage_events WHERE brain=? AND receipt=? AND phase='finished'").get(events, receipt.id)) return;
+      const { principal_id } = db.query("SELECT principal_id FROM storage_maintenance_operations WHERE id=? AND brain=?").get(receipt.id, brain) as { principal_id: string };
+      recordStorageEvent(db, events, { kind: "maintenance", phase: "finished", at: receipt.completedAt, receipt: receipt.id, operation: receipt.operation, state: receipt.state, reason: receipt.reason, principal: principal_id });
+    })();
     return receipt.outcome;
   }
   return {
@@ -30,6 +45,7 @@ export function setup(db: Database, { brain, self: SELF }: { brain: string; self
         const { total } = db.query("SELECT count(*) AS total FROM storage_maintenance_operations WHERE brain=?").get(brain) as {total: number};
         if (total >= STORAGE_MAINTENANCE_LIMITS.receipts) throw new StorageUnavailable(503, "Maintenance receipt capacity reached; existing receipts are retained.");
         db.query("INSERT INTO storage_maintenance_operations (id,brain,principal_id,operation,state,pid,pid_start,requested_at,receipt) VALUES (?,?,?,?,?,?,?,?,?)").run(result.id, brain, principal, result.operation, result.state, SELF.pid, SELF.start, result.requestedAt, encoded(result));
+        recordStorageEvent(db, events, { kind: "maintenance", phase: "requested", at: result.requestedAt, receipt: result.id, operation: result.operation, principal });
       }).immediate();
     },
     cancel(principal: string, id: string) {

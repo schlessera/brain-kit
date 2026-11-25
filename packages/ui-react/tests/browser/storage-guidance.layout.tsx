@@ -9,6 +9,7 @@ import { StorageTab } from "../../src/components/settings/storage-tab.js";
 import { StorageIndicator } from "../../src/components/layout/storage-indicator.js";
 import { useHashRoutes } from "../../src/hooks/use-hash-routes.js";
 import { storageVolumes } from "../../src/components/settings/storage/storage-volumes.js";
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 import {
   storageGuidanceFixture,
   guidanceTime,
@@ -89,6 +90,9 @@ async function scene({
 const button = (name: string | RegExp) =>
   page.getByRole("button", { name, exact: typeof name === "string" });
 const refresh = () => window.dispatchEvent(new Event("focus"));
+// A refresh is answered after any read already in flight and its own read,
+// with no product timing between: the bound only catches a hang.
+const reread = { timeout: watchdogMs(5000) };
 const warning = () => host.querySelector("[data-storage-indicator]");
 async function settled() {
   await expect.poll(() => warning()?.textContent).toContain("Disk very low");
@@ -235,7 +239,7 @@ test("Missing scenarios never hide refusal pressure or invent a range", async ()
   capacity.scopeChanged = true;
   capacity.state = "unknown";
   refresh();
-  await expect.poll(() => host.querySelector("[data-volume-id]")?.textContent).toContain("scope changed");
+  await expect.poll(() => host.querySelector("[data-volume-id]")?.textContent, reread).toContain("scope changed");
   expect(section().querySelectorAll('[data-part="scenario"]'), "STORAGE_CHANGED_SCOPE_NO_PROJECTION").toHaveLength(0);
   expect(warning()?.textContent).toContain("Disk very low");
 });
@@ -283,16 +287,73 @@ test("Unavailable evidence retains an explicitly stale warning; forbidden remove
   f.setStatus(503);
   refresh();
   await expect
-    .poll(() => warning()?.textContent)
+    .poll(() => warning()?.textContent, reread)
     .toContain("Disk very low · evidence unknown");
   await expect.poll(() => host.textContent).toContain("out of date; refresh");
   f.setStatus(403);
   refresh();
   await expect
-    .poll(warning, { message: "STORAGE_FORBIDDEN_HIDES_INDICATOR" })
+    .poll(warning, { ...reread, message: "STORAGE_FORBIDDEN_HIDES_INDICATOR" })
     .toBeNull();
   expect(host.textContent).not.toContain("App journal: 4");
 });
+// The refresh asked for while a read is in flight follows what that read
+// predates, so the in-flight read cannot answer it.
+test("A refresh asked for during a read gets a read of its own", async () => {
+  const f = await scene();
+  await settled();
+  let release!: () => void;
+  f.hold(
+    new Promise<void>((resolve) => {
+      release = resolve;
+    })
+  );
+  const before = f.reads.length;
+  refresh();
+  // A held read, answered with the status it was asked with (200), is in flight.
+  await expect.poll(() => f.reads.length, reread).toBeGreaterThan(before);
+  f.hold(null);
+  f.setStatus(503);
+  refresh();
+  release();
+  await expect
+    .poll(() => warning()?.textContent, {
+      ...reread,
+      message: "STORAGE_REFRESH_DURING_READ_REREADS",
+    })
+    .toContain("Disk very low · evidence unknown");
+});
+// Owner access revoked between the guidance read and the inventory read: the
+// refused inventory clears the guidance exactly as a refused guidance read does.
+for (const refused of [401, 403])
+  test(`A refused inventory read clears accepted guidance (${refused})`, async () => {
+    const f = storageGuidanceFixture();
+    let refuse = false;
+    const fixture = {
+      ...f,
+      request: (url: string, init?: RequestInit) =>
+        refuse &&
+        new URL(url, "http://fixture.invalid").pathname === "/api/storage"
+          ? Promise.resolve(
+              Response.json(
+                { error: "Synthetic authority response" },
+                { status: refused }
+              )
+            )
+          : f.request(url, init),
+    };
+    await scene({ fixture });
+    await settled();
+    refuse = true;
+    refresh();
+    await expect
+      .poll(warning, {
+        ...reread,
+        message: "STORAGE_INVENTORY_FORBIDDEN_HIDES_INDICATOR",
+      })
+      .toBeNull();
+    expect(host.textContent).not.toContain("App journal: 4");
+  });
 test("A late response from the prior account cannot replace current evidence", async () => {
   const f = await scene({ route: true });
   await settled();
@@ -342,7 +403,7 @@ test("Indicator and authenticated tap-through honor Settings leave guards and cl
   ui.stores.ui.getState().closeAllPanels();
   f.setStatus(403);
   refresh();
-  await expect.poll(warning).toBeNull();
+  await expect.poll(warning, reread).toBeNull();
   history.replaceState(null, "", "#/settings/storage");
   const answered = f.answered();
   // Commit the route change and its effects synchronously: the open decision
@@ -356,7 +417,9 @@ test("Indicator and authenticated tap-through honor Settings leave guards and cl
   ).toBe(false);
   f.setStatus(200);
   refresh();
-  await expect.poll(() => ui.stores.ui.getState().settingsPanelOpen).toBe(true);
+  await expect
+    .poll(() => ui.stores.ui.getState().settingsPanelOpen, reread)
+    .toBe(true);
   expect(ui.stores.ui.getState().settingsTab).toBe("storage");
   ui.stores.ui.getState().closeAllPanels();
   await expect
@@ -400,7 +463,7 @@ test("Refreshing guidance and measurement preserves selection, review and focus 
   f.guidance.pending = true;
   refresh();
   await expect
-    .poll(() => warning()?.textContent)
+    .poll(() => warning()?.textContent, reread)
     .toContain("Disk very low · evidence unknown");
   expect(button("Remove 1 file").elements()).toHaveLength(1);
 });
