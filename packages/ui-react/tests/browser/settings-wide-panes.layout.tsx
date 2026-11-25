@@ -72,7 +72,7 @@ const PANES: Array<{ tab: SettingsTab; name: string; module?: () => Promise<unkn
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
 /** Mount the shell at a CSS viewport and wait until the pane's requests are answered. */
-async function mount(ctx: { onTestFinished: (fn: () => Promise<void>) => void }, pane: (typeof PANES)[number], width: number, height: number, theme: "dark" | "light") {
+async function mount(ctx: { onTestFinished: (fn: () => Promise<void>) => void }, pane: (typeof PANES)[number], width: number, height: number, theme: "dark" | "light", respond: (path: string) => Response = fixtures, ready = pane.ready) {
   const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };
   const outer = await commands.formViewport(width, height);
   await page.viewport(width, height);
@@ -83,7 +83,7 @@ async function mount(ctx: { onTestFinished: (fn: () => Promise<void>) => void },
   let pending = 0;
   const ui = createBrainUiRoot({ storage: null, request: async url => {
     pending++;
-    try { return fixtures(new URL(String(url), "http://fixture.invalid").pathname); } finally { pending--; }
+    try { return respond(new URL(String(url), "http://fixture.invalid").pathname); } finally { pending--; }
   } });
   ui.stores.ui.setState({ theme });
   ui.stores.ui.getState().openSettings(pane.tab);
@@ -97,7 +97,7 @@ async function mount(ctx: { onTestFinished: (fn: () => Promise<void>) => void },
   await pane.module?.();
   flushSync(() => react.render(<BrainUiProvider root={ui}><SettingsPanel open onClose={() => {}} /></BrainUiProvider>));
   const panel = () => page.getByRole("tabpanel").element() as HTMLElement;
-  await expect.poll(() => panel().textContent ?? "", { timeout: watchdogMs(5000) }).toContain(pane.ready);
+  await expect.poll(() => panel().textContent ?? "", { timeout: watchdogMs(5000) }).toContain(ready);
   await expect.poll(() => pending, { timeout: watchdogMs(5000) }).toBe(0);
   await document.fonts.ready;
   await frame(); await frame();
@@ -198,4 +198,17 @@ for (const pane of PANES.filter(p => p.wide)) test(`Settings ${pane.name} pane a
   expect(container, "SETTINGS_INTERMEDIATE_BAND").toBeLessThan(840);
   if (pane.name === "skills") expect(panel.querySelectorAll(FIELDS).length, "SETTINGS_SKILLS_HAS_FIELDS").toBe(2);
   assertLayout(pane, panel, 1100);
+});
+
+// A failed module list shows the server's own words, which can run long: the
+// error copy keeps the 68ch measure while the pane around it is wide.
+const MODULES_ERROR = "The module registry on Ithaca could not be read: the council's ledger of workflows is locked while Penelope's weaving is undone each night, so no module can be listed until Telemachus restores the household configuration and the next council convenes.";
+for (const width of [1440, 1920]) test(`Settings modules pane error at ${width} keeps the prose measure`, async ctx => {
+  const pane = PANES.find(p => p.tab === "modules")!;
+  const { panel } = await mount(ctx, pane, width, 800, "dark", path => path === "/api/modules" ? Response.json({ error: MODULES_ERROR }, { status: 500 }) : fixtures(path), MODULES_ERROR);
+  const alert = panel.querySelector<HTMLElement>('[role="alert"]')!;
+  const copy = [...alert.querySelectorAll<HTMLElement>("p")].filter(p => p.textContent === MODULES_ERROR);
+  expect(copy.length, "SETTINGS_MODULES_ERROR_SHOWN").toBe(1);
+  expect(copy[0]!.getBoundingClientRect().width, "SETTINGS_ERROR_PROSE_MEASURE modules").toBeLessThanOrEqual(measure(copy[0]!) + 0.5);
+  assertLayout({ ...pane, grids: 0 }, panel, width);
 });
