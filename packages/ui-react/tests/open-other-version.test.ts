@@ -425,3 +425,25 @@ test("a missing version from a branch that gained its own chat returns to that c
   expect(s.chat.getState().activeSessionId, "BACK_TO_BRANCH_CHAT").toBe("odysseus-voyage");
   expect(s.drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "missing" });
 });
+
+test("a panel open when the switch lands does not end the gone-chat watch", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  s.root.stores.ui.setState({ filePanelOpen: true } as never);
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(s.shown(), "PANEL_CLOSE_KEEPS_WATCH").toEqual({ sessionId: null, text: OTHER_TEXT });
+});
+
+test("a failed switch is said on the branch the reader is on now, after a fork during the read", async () => {
+  const s = scene();
+  const device = slowDevice(s.root);
+  openOtherVersion(s.root, s.original, BRANCH);
+  // Another fork moves this tab's branch to a new id while the read is out.
+  s.drafts.getState().keepDeviceBranch(BRANCH, "voyage-branch-2", { draftId: BRANCH, sessionId: null, text: "Eurylochus keeps watch", attachments: [], editedAt: 3, host: null }, ITHACA);
+  device.fail(new Error("partition refused"));
+  await turn();
+  s.root.localWork = null;
+  expect(s.drafts.getState().versionSwitch, "NOTE_ON_CURRENT_BRANCH").toEqual({ draftId: s.drafts.getState().resolveId(BRANCH), outcome: "failed" });
+  expect(s.drafts.getState().resolveId(BRANCH)).toBe("voyage-branch-2");
+});

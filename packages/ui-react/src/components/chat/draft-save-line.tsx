@@ -144,7 +144,8 @@ export function CompareDrafts({ draftId, onClose, returnFocus }: { draftId: stri
 export function openOtherVersion(root: BrainUiRoot, otherId: string, fromId: string): void {
   const drafts = root.stores.drafts;
   drafts.getState().noteVersionSwitch(null);
-  const note = (outcome: "cancelled" | "failed" | "missing") => drafts.getState().noteVersionSwitch({ draftId: fromId, outcome });
+  // Said on the branch as it is then: a fork during the read may have moved it to a new id.
+  const note = (outcome: "cancelled" | "failed" | "missing") => drafts.getState().noteVersionSwitch({ draftId: drafts.getState().resolveId(fromId), outcome });
   const controller = new AbortController();
   const unwatch = [
     root.stores.chat.subscribe((s, prev) => { if (s.activeSessionId !== prev.activeSessionId) controller.abort(); }),
@@ -175,7 +176,10 @@ export function openOtherVersion(root: BrainUiRoot, otherId: string, fromId: str
       const changedSession = root.stores.chat.getState().activeSessionId !== sessionId;
       root.stores.chat.getState().setActiveSession(sessionId);
       if (changedSession) root.connection.send({ type: "session_resume", sessionId });
+      // The view changes first: the watcher ends only on the reader's own later navigation.
+      root.stores.ui.getState().setActiveView("chat");
       detachIfGone(root, target, sessionId, fromId);
+      return;
     }
     root.stores.ui.getState().setActiveView("chat");
   };
