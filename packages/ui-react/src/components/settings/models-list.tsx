@@ -139,7 +139,7 @@ function DefaultModelSelect({ catalog, onChange }: { catalog: ModelCatalogRespon
         value={stored ?? "auto"}
         onChange={(e) => onChange(e.target.value === "auto" ? null : e.target.value)}
         aria-label="Default model"
-        className="h-8 max-w-[45%] shrink-0 truncate rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+        className="h-8 max-w-[min(45%,480px)] shrink-0 truncate rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
       >
         <option value="auto">{!stored && resolved ? `Auto (${resolved.label})` : "Auto"}</option>
         {options.map((model) => (

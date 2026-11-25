@@ -200,6 +200,23 @@ for (const pane of PANES.filter(p => p.wide)) test(`Settings ${pane.name} pane a
   assertLayout(pane, panel, 1100);
 });
 
+// A model label is the provider's own words and can run long. The default-model
+// select sizes to its longest option, so only a long label shows whether the
+// select keeps the 480px field cap once the pane is wide (#4538 Q2). The
+// shared fixture's labels are short, which is why the cap went untested.
+const LONG_LABEL = "Odysseus long-voyage reasoning model with the twenty-year context window for the council of Ithaca (preview)";
+const longLabelFixtures = (path: string) => path === "/api/models"
+  ? Response.json({ models: [...models, { ...models[1]!, id: "ithaca/odysseus", label: LONG_LABEL, hidden: false }], customModels: [], defaultModelId: null, resolvedDefaultId: models[0]!.id, refreshedAt: null, stale: false, discovery: { enabled: false, error: null } })
+  : fixtures(path);
+for (const width of [320, 900, 1100, 1280, 1440, 1920]) test(`Settings models pane with a long model label at ${width} keeps the field cap`, async ctx => {
+  const pane = PANES.find(p => p.tab === "models")!;
+  const { panel } = await mount(ctx, pane, width, 800, "dark", longLabelFixtures, LONG_LABEL);
+  const select = panel.querySelector<HTMLSelectElement>('select[aria-label="Default model"]')!;
+  expect([...select.options].some(option => option.text === LONG_LABEL), "SETTINGS_LONG_LABEL_OFFERED").toBe(true);
+  assertLayout({ ...pane, grids: 1 }, panel, width);
+  if (width === 320) expect(overflowing(panel), "SETTINGS_NO_HORIZONTAL_SCROLL models long label").toEqual([]);
+});
+
 // A failed module list shows the server's own words, which can run long: the
 // error copy keeps the 68ch measure while the pane around it is wide.
 const MODULES_ERROR = "The module registry on Ithaca could not be read: the council's ledger of workflows is locked while Penelope's weaving is undone each night, so no module can be listed until Telemachus restores the household configuration and the next council convenes.";
