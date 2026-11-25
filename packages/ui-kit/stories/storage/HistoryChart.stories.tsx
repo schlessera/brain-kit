@@ -443,7 +443,7 @@ export const CrowdedEvents = meta.story({
 export const CrowdedEventsDesktop = CrowdedEvents.extend({ ...desktop });
 
 const WIDTHS = [136, 200, 240, 296, 360, 480, 599, 600, 720, 880, 1100, 1240];
-const WIDTH_CASES: Array<[string, Partial<HistoryChartProps>]> = [
+const WIDTH_CASES: Record<string, Partial<HistoryChartProps>> = Object.fromEntries<Partial<HistoryChartProps>>([
   ["full", {}],
   ["crowded events", { markers: CROWDED_EVENTS }],
   ["gap", { points: sixHourGap }],
@@ -456,30 +456,36 @@ const WIDTH_CASES: Array<[string, Partial<HistoryChartProps>]> = [
   ["all unknown", { points: allUnknown, markers: [], scenarios: [SHORT_NONE, LONG_NONE] }],
   ["nearly empty, thin bands", { points: nearlyEmpty, nowState: undefined, scenarios: [LONG_SHORT_HISTORY] }],
   ["2 TB volume", { points: twoTerabytes, thresholds: TB_THRESHOLDS, nowState: undefined, scenarios: [LONG_SHORT_HISTORY] }],
-];
+]);
 
 /**
  * The invariant at every width, not just the two the design draws: from a
  * 136px chart (320px at 200% zoom) to 1240px, every text and every painted
- * shape of every state sits inside its SVG.
+ * shape of every state sits inside its SVG. One story per state, each drawing
+ * that state at every width: a single story holding all 144 charts took 34s
+ * on CI, past the story timeout, and starved the frame-timing stories that
+ * ran beside it (#4582).
  */
 export const EveryWidth = meta.story({
   ...desktop,
-  render: (args) => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {WIDTH_CASES.flatMap(([name, over]) =>
-        WIDTHS.map((w) => (
-          <div key={`${name}-${w}`} data-case={`${name} at ${w}px`} style={{ width: w }}>
-            <HistoryChart {...args} {...over} />
+  parameters: { widthCase: "full" },
+  render: (args, { parameters }) => {
+    const name = parameters.widthCase as string;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        {WIDTHS.map((w) => (
+          <div key={w} data-case={`${name} at ${w}px`} style={{ width: w }}>
+            <HistoryChart {...args} {...WIDTH_CASES[name]} />
           </div>
-        )),
-      )}
-    </div>
-  ),
-  play: async ({ canvasElement, globals }) => {
+        ))}
+      </div>
+    );
+  },
+  play: async ({ canvasElement, globals, parameters }) => {
+    await expect(Object.keys(WIDTH_CASES), "the case exists").toContain(parameters.widthCase);
     await openAt(DESKTOP, globals);
     const cases = [...canvasElement.querySelectorAll<HTMLElement>("[data-case]")];
-    await expect(cases).toHaveLength(WIDTH_CASES.length * WIDTHS.length);
+    await expect(cases).toHaveLength(WIDTHS.length);
     for (const c of cases) {
       const svg = await waitFor(() => {
         const found = c.querySelector<SVGSVGElement>('svg[data-part="history-svg"]');
@@ -491,6 +497,17 @@ export const EveryWidth = meta.story({
     }
   },
 });
+export const EveryWidthCrowdedEvents = EveryWidth.extend({ parameters: { widthCase: "crowded events" } });
+export const EveryWidthGap = EveryWidth.extend({ parameters: { widthCase: "gap" } });
+export const EveryWidthScopeChangeAtNow = EveryWidth.extend({ parameters: { widthCase: "scope change at now" } });
+export const EveryWidthNowNotMeasured = EveryWidth.extend({ parameters: { widthCase: "now not measured" } });
+export const EveryWidthBothWindowsReachZero = EveryWidth.extend({ parameters: { widthCase: "both windows reach zero" } });
+export const EveryWidthVeryLowNow = EveryWidth.extend({ parameters: { widthCase: "very low now" } });
+export const EveryWidthWeekly = EveryWidth.extend({ parameters: { widthCase: "weekly" } });
+export const EveryWidthSinglePoint = EveryWidth.extend({ parameters: { widthCase: "single point" } });
+export const EveryWidthAllUnknown = EveryWidth.extend({ parameters: { widthCase: "all unknown" } });
+export const EveryWidthNearlyEmpty = EveryWidth.extend({ parameters: { widthCase: "nearly empty, thin bands" } });
+export const EveryWidthTwoTerabytes = EveryWidth.extend({ parameters: { widthCase: "2 TB volume" } });
 
 /**
  * A nearly empty volume (#4559 review): 150 GB available on 161 GB, so the
