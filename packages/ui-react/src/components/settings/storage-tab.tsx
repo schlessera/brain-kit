@@ -73,7 +73,6 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
     keepButton = useRef<HTMLDivElement>(null),
     freeUp = useRef<HTMLDivElement>(null),
     trigger = useRef<HTMLElement | null>(null),
-    saved = useRef<{ owner: typeof view.owner; parent: string | undefined } | null>(null),
     entering = useRef(false),
     leaving = useRef(false);
   const [now, setNow] = useState(Date.now()),
@@ -130,23 +129,19 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
   }, [confirmBack]);
 
   function enterFind() {
-    saved.current = { owner: view.owner, parent: view.parent };
     entering.current = true;
     view.setFiltering(true);
     view.setSearch("");
     view.setCursor(undefined);
   }
   function leaveFind() {
-    const back = saved.current;
     setConfirmBack(false);
     leaving.current = true;
     view.setFiltering(false);
     view.setSearch("");
     view.setCursor(undefined);
-    if (back) {
-      view.setOwner(back.owner);
-      view.setParent(back.parent);
-    }
+    // The owner switch and breadcrumb keep their state through the mode, so
+    // the overview returns where it was left; only search is cleared.
     setSaid(`Overview. ${view.tree?.name ?? "All stores"}.`);
   }
   function requestBack() {
