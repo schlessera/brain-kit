@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { offlineCommand } from "../scripts/offline-command";
 import { isDockerTest } from "../scripts/docker-test-files";
 
@@ -31,4 +33,16 @@ test("host Docker driver environments omit inherited provider credentials", asyn
   const { cleanTestEnvironment } = await import("../scripts/offline-command");
   const env = cleanTestEnvironment({ PATH: "/usr/bin:/bin", ANTHROPIC_API_KEY: "odysseus-fixture-key", OPENAI_API_KEY: "odysseus-fixture-key", CLAUDE_CODE_OAUTH_TOKEN: "odysseus-fixture-token" });
   expect(env).toEqual({ PATH: "/usr/bin:/bin" });
+});
+
+
+test("guarded Bun children do not autoload provider credentials from a fixture dotenv", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-child-env-"));
+  try {
+    writeFileSync(join(scratch, ".env"), "ANTHROPIC_API_KEY=odysseus-fixture-key\n");
+    const child = Bun.spawnSync([process.execPath, "-e", "if(process.env.ANTHROPIC_API_KEY)throw Error('BUN_CHILD_DOTENV_MUST_NOT_LOAD_CREDENTIALS')"], {
+      cwd: scratch, env: { PATH: process.env.PATH }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(child.exitCode, child.stderr.toString()).toBe(0);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
