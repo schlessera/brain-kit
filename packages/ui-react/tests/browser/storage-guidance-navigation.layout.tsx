@@ -32,7 +32,7 @@ for (const view of ["graph", "activity"] as const) for (const entry of ["indicat
     else if (entry === "notification") { history.replaceState(null, "", "#/settings/storage"); window.dispatchEvent(new HashChangeEvent("hashchange")); }
     else { await page.getByRole("button", { name: /^All commands/ }).click(); await page.getByRole("option", { name: /^Storage/ }).click(); }
     await expect.poll(() => host.querySelector("[data-storage-pane]"), { timeout: 5000, message: "STORAGE_FULL_SHELL_PANE_DRAWN" }).not.toBeNull();
-    await expect.poll(() => host.querySelector("[data-storage-pane]")?.textContent).toContain("Pressure and growth");
+    await expect.poll(() => host.querySelector("[data-storage-pane]")?.textContent).toContain("Available space · ");
     expect(host.querySelector("[data-storage-pane]")!.getBoundingClientRect().height).toBeGreaterThan(0);
     expect(ui.stores.ui.getState().activeView, "STORAGE_PRESERVES_HOSTING_VIEW").toBe(view);
     expect(ui.stores.ui.getState().settingsTab).toBe("storage");

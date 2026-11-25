@@ -58,19 +58,20 @@ async function scene(width: number) {
       </BrainUiProvider>
     )
   );
-  await expect.poll(() => page.getByRole("table", { name: "Storage contents table" }).elements().length).toBe(1);
-  await expect.poll(() => host!.textContent).toContain("Very low space");
+  await expect.poll(() => page.getByRole("table", { name: /^Contents of / }).elements().length).toBe(1);
+  await expect.poll(() => host!.querySelector("[data-storage-banner]")?.textContent).toContain(" is Very low");
   expect(host!.querySelector("[data-storage-scenario-range]"), "STORAGE_HTTP_INSUFFICIENT_HISTORY_NO_RANGE").toBeNull();
   await button("Find large files").click();
+  const inspect = page.getByRole("button", { name: /^chart\.pdf, .*inspect$/ });
   await expect
-    .poll(() => button("Inspect chart.pdf").elements().length)
+    .poll(() => inspect.elements().length)
     .toBe(1);
-  await button("Inspect chart.pdf").click();
+  await inspect.click();
   await expect
     .poll(() => button("Select file").element().getAttribute("aria-disabled"))
     .not.toBe("true");
   await button("Select file").click();
-  await button("Review selected files").click();
+  await button("Review removal").click();
   await expect.poll(() => button("Remove 1 file").elements().length).toBe(1);
 }
 for (const width of [320, 1280])
