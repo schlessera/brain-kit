@@ -1,6 +1,7 @@
 /** Real FULL SQLite writers, loopback transport and backend permission bindings. */
 import { expect, test } from "bun:test";
 import { watchdogMs } from "../../../scripts/test-deadlines";
+import { holdSiblingEvidence } from "./helpers/pending-sibling-evidence";
 import * as pendingWriter from "./fixtures/pending-safety-writer";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
@@ -173,6 +174,94 @@ for (const mode of ["in-process-lock", "rpc-lock", "rpc-final"] as const) for (c
     }
   });
 }
+
+/** Start a real reservation at the indicated tool boundary. Release the writer when the
+ * tool subscribes, or after its decision if a missing wait let it finish early. */
+async function raceSiblingWrite<T>(f: Fixture, run: (reserve: () => Promise<void>) => Promise<T>): Promise<T> {
+  const waiting = Promise.withResolvers<void>();
+  let settle: (() => Promise<void>) | undefined;
+  const subscribe = f.safety.subscribe;
+  f.safety.subscribe = changed => {
+    const release = subscribe(changed);
+    if (settle) waiting.resolve();
+    return release;
+  };
+  try {
+    const result = run(async () => {
+      settle = await holdSiblingEvidence(f.writer, f.writes, "voyage", f.bindingId, "ithaca");
+      expect(f.state().reasons).toContain("recording_pending");
+    });
+    try {
+      await Promise.race([result, waiting.promise]);
+      expect(settle, "A sibling reserved evidence at the tested boundary").toBeDefined();
+    } finally { await settle?.(); }
+    return await result;
+  } finally { f.safety.subscribe = subscribe; }
+}
+
+test("Claude canUseTool allows the approved call after a sibling write at its final input check", async () => {
+  const f = await fixture();
+  try {
+    const result = await raceSiblingWrite(f, reserve => execute(f, "claude-callback", {
+      phase: "input", explicit: true, interleave: reserve,
+    }));
+    expect(result.interleaved).toBe(true);
+    expect(result.executed, "CLAUDE_CALLBACK_SETTLED_ADMISSION").toBe(true);
+  } finally { await f.close(); }
+});
+
+for (const method of ["permit", "fileObservation", "lock", "admission"] as const) {
+  test(`Pi worker ${method} admits a granted call after a sibling write at dispatch`, async () => {
+    const f = await fixture();
+    try {
+      const reply = await raceSiblingWrite(f, async reserve => {
+        const toolName = method === "fileObservation" ? "read_file" : "bash";
+        const input = method === "fileObservation" ? { path: "harbour.md" } : { command: "git add raft.md" };
+        const bridge: BackendBridge = { emit() {}, requestPermission: async () => ({ behavior: "allow" }),
+          admissionSafety: f.safety, inputSafety: { ...f.collector, async allowed(id) {
+            await f.collector.allowed?.(id);
+            if (method === "permit") await reserve();
+          } } };
+        const context = {
+          brainPath: f.root, turn: { ...createTurnContext(), bridge, signal: f.controller.signal }, live() {},
+          grants: new Map(), releases: new Map(), admitTool() {}, allowedTools: new Set([toolName]), confirmPatterns: [],
+          sandbox: { profile: "governed" }, workerLock: { async acquire() { await reserve(); return () => {}; } },
+          observeFile: () => ({ key: "harbour.md", version: "1" }), nativeVersions: { beginRead: reserve },
+          executed: () => ({ name: toolName, lock: false, host: false, phases: new Set() }),
+        } as unknown as PiWorkerRpcContext;
+        const dispatch = createPiWorkerRpcDispatcher(context);
+        const call = { type: "rpc" as const, toolName, toolCallId: "harbour-call" };
+        try {
+          const permission = await dispatch({ ...call, id: 1, method: "permission", input });
+          if (method === "permit") return permission;
+          expect(permission).toMatchObject({ behavior: "allow" });
+          if (method === "admission") await reserve();
+          const args = method === "fileObservation" ? { path: "harbour.md", phase: "read_start" }
+            : method === "lock" ? { key: bashLockKey("git add raft.md") } : input;
+          return await dispatch({ ...call, id: 2, method, input: args });
+        } finally { for (const release of context.releases.values()) release(); }
+      }).then(result => result, error => ({ refusal: String(error) }));
+      expect(reply, `PI_SETTLED_WORKER_${method}`).toMatchObject(
+        method === "permit" ? { behavior: "allow" } : method === "lock" ? { lockId: expect.any(String) } : { ok: true });
+    } finally { await f.close(); }
+  });
+}
+
+test("Pi in-process Bash runs after a sibling write starts under its execution lock", async () => {
+  const f = await fixture(), input = { command: "printf Ithaca" }, id = "harbour-call";
+  try {
+    const bridge: BackendBridge = { emit() {}, requestPermission: async () => ({ behavior: "allow" }), admissionSafety: f.safety };
+    const turn = { ...createTurnContext(), bridge, signal: f.controller.signal };
+    const decision = await decidePiToolPermission({ turn, allowedTools: new Set(["bash"]), confirmPatterns: [] }, "bash", input, id);
+    expect(decision.behavior).toBe("allow");
+    const reply = await raceSiblingWrite(f, reserve => {
+      const tool = bashTool(createBrainToolKit({ brain: createBrainAccess(f.root), turn, exec: {},
+        lock: { async withKey(_key, body) { await reserve(); return body(); } } }));
+      return tool.execute(id, input, f.controller.signal, undefined, {} as never);
+    }).then(result => result, error => ({ refusal: String(error) }));
+    expect(reply, "PI_SETTLED_IN_PROCESS_BASH").toMatchObject({ content: [{ type: "text", text: "Ithaca" }] });
+  } finally { await f.close(); }
+});
 
 for (const binding of ["claude-hook", "claude-callback", "pi"] as const) {
   test(`${binding}: A/B/C individual verdicts change later admissions without rewriting prior facts`, async () => {

@@ -113,7 +113,8 @@ for (const mode of ["healthy", "own-turn-recording-loss", "other-chat-recording-
       const result = await response;
       if (mode === "sibling timeout" || mode === "effective recorder loss") {
         expect(result.status).toBe(mode === "sibling timeout" ? 403 : 503);
-        expect(JSON.parse(result.body).error.reason).toBe(mode === "sibling timeout" ? "safety_changed" : "egress_unavailable");
+        expect(JSON.parse(result.body)).toMatchObject({ type: "error", error: { type: "brain_provider_refused",
+          reason: mode === "sibling timeout" ? "safety_changed" : "egress_unavailable", message: expect.any(String) } });
         expect(requests).toBe(0);
         return;
       }
