@@ -244,6 +244,57 @@ export const Group = meta.story({
 });
 
 /**
+ * Opening another card's stores selects that card, and the tab stop moves
+ * with the selection even when a different radio was focused last. Tab then
+ * enters the group at the card that is checked, never at a stale one.
+ */
+export const StoresSelectionMovesTabStop = meta.story({
+  render: () => <SelectableGroup volumes={v.group} initial="data" />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const [data, system] = radios(canvasElement);
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(data);
+    await userEvent.click(canvas.getByRole("button", { name: /^2 stores · Models/ }));
+    await expect(system).toHaveAttribute("aria-checked", "true");
+    await expect(system).toHaveAttribute("tabindex", "0");
+    await expect(data).toHaveAttribute("tabindex", "-1");
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(system);
+  },
+});
+
+/**
+ * The caller can change the selection too (the chart's own picker, say).
+ * The tab stop follows the `selected` prop, not the radio focused last.
+ */
+export const OutsideSelectionMovesTabStop = meta.story({
+  render: () => {
+    function Outside() {
+      const [selected, setSelected] = useState("data");
+      return (
+        <div style={{ width: "100%" }}>
+          <VolumeGroup volumes={v.group} selected={selected} thresholds={v.THRESHOLDS} format={v.formatBytes} onSelect={setSelected} />
+          <button type="button" onClick={() => setSelected("app")}>
+            Show App data
+          </button>
+        </div>
+      );
+    }
+    return <Outside />;
+  },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const [data, , app] = radios(canvasElement);
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(data);
+    await userEvent.click(canvas.getByRole("button", { name: "Show App data" }));
+    await expect(app).toHaveAttribute("aria-checked", "true");
+    await expect(app).toHaveAttribute("tabindex", "0");
+    await expect(canvasElement.querySelectorAll('[role="radio"][tabindex="0"]')).toHaveLength(1);
+  },
+});
+
+/**
  * The same three side by side at desktop width: `auto-fit, minmax(260px,
  * 1fr)` gives three to a row with a 12px gap, and the selected card's notch
  * points down at the chart.

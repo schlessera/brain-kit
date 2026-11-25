@@ -2,7 +2,7 @@ import { useId, useState, type CSSProperties, type KeyboardEvent, type ReactNode
 
 import { Chip } from "../primitives/Chip.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
-import { edgeFor, focusEdge, focusSibling, useRoving } from "../internal/roving.js";
+import { edgeFor, focusEdge, focusSibling } from "../internal/roving.js";
 import { color, font, token } from "../tokens.js";
 import type { Tone } from "../types.js";
 import { CapacityGauge, type CapacityLevel } from "./CapacityGauge.js";
@@ -390,13 +390,18 @@ export interface VolumeGroupProps {
  * sideways. That gives one to three cards a row on desktop and one column on
  * a phone, gap 12 and 8. Capacities are never added together, so the group
  * draws no total.
+ *
+ * The tab stop is the selected card, or the first card when none is
+ * selected, and nothing else. It does not use `useRoving`'s memory of the
+ * radio focused last. Here selection follows focus, so the two agree for
+ * the arrow keys. But the selection also moves without focus: through a
+ * card's stores button, or from the caller (`selected` is a prop). Then the
+ * remembered radio would keep the stop while another one was checked, and
+ * Tab would enter the group at an unchecked card.
  */
 export function VolumeGroup(p: VolumeGroupProps) {
   const selectedIndex = p.volumes.findIndex((v) => v.id === p.selected);
-  const roving = useRoving(
-    p.volumes.map(() => true),
-    selectedIndex,
-  );
+  const stop = selectedIndex >= 0 ? selectedIndex : 0;
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const from = event.target as HTMLElement;
@@ -419,21 +424,14 @@ export function VolumeGroup(p: VolumeGroupProps) {
         {p.volumes.map((volume, i) => {
           const { id, ...card } = volume;
           return (
-            <div
-              key={id}
-              data-volume-id={id}
-              style={{ display: "flex", minWidth: 0 }}
-              onFocus={(event) => {
-                if ((event.target as HTMLElement).getAttribute("role") === "radio") roving.onItemFocus(i);
-              }}
-            >
+            <div key={id} data-volume-id={id} style={{ display: "flex", minWidth: 0 }}>
               <VolumeCard
                 {...card}
                 thresholds={p.thresholds}
                 format={p.format}
                 selected={id === p.selected}
                 onSelect={() => p.onSelect(id)}
-                tabStop={roving.tabIndexFor(i) === 0}
+                tabStop={i === stop}
               />
             </div>
           );
