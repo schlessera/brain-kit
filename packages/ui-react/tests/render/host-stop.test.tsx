@@ -183,3 +183,15 @@ test("a turn split over two messages labels the unanswered tool in each", () => 
   const tool = root.stores.chat.getState().buffers.s1!.messages.flatMap((m) => m.toolCalls).find((t) => t.id === "loom");
   expect(tool?.hostStop, "SPLIT_TURN_TOOL_LABELLED").toBe("inbox_share");
 });
+
+test("a host-stop result without a turn id labels no earlier reply's tool", () => {
+  const send = (frame: ServerMessage) => act(() => { root.connection.handleServerMessage(frame); });
+  root.stores.chat.getState().setActiveSession("s1");
+  send({ type: "session_history", sessionId: "s1", messages: [
+    { role: "user", content: "Read the log", toolCalls: [] },
+    { role: "assistant", content: "Reading it.", toolCalls: [{ id: "read", name: "Read", input: { path: "log.md" } }] },
+  ] } as ServerMessage);
+  send({ type: "result", sessionId: "s1", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("inbox_share"), durationMs: 1, numTurns: 1, isError: false } as ServerMessage);
+  const earlier = root.stores.chat.getState().buffers.s1!.messages.find((m) => m.content === "Reading it.")!;
+  expect(earlier.toolCalls[0]?.hostStop, "UNSCOPED_RESULT_LABELS_NO_TOOL").toBeUndefined();
+});

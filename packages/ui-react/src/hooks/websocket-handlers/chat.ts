@@ -406,9 +406,10 @@ export const chatFrameHandlers = {
       const messages = context.buffer()?.messages ?? [];
       const lastIndex = messages.findLastIndex((m) => m.role === "assistant"), last = messages[lastIndex];
       // A turn can span several messages (a diagnostic, then more text).
-      const owned = messages.filter((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === context.frameTurnId);
+      const owned = context.frameTurnId ? messages.filter((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === context.frameTurnId) : [];
+      // Without a turn id on the frame nothing establishes which reply it ends.
       const replies = owned.length ? owned
-        : last && lastIndex > messages.findLastIndex((m) => m.role === "user")
+        : context.frameTurnId && last && lastIndex > messages.findLastIndex((m) => m.role === "user")
           && [undefined, context.frameTurnId].includes(last.turnId ?? last.streamTurnId) ? [last] : [];
       for (const tool of replies.flatMap((m) => m.toolCalls)) {
         if (tool.output === undefined && tool.status !== "denied") context.state.setToolResult(context.key, tool.id, hostStopToolOutput(hostStop), true, undefined, hostStop);
