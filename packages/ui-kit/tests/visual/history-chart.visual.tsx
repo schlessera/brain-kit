@@ -16,7 +16,7 @@
  * (`scripts/visual.mjs`), like every other baseline here.
  */
 /// <reference types="@vitest/browser/matchers" />
-import { commands, page } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 import { expect, test } from "vitest";
 
 import * as chart from "../../stories/storage/HistoryChart.stories.js";
@@ -52,6 +52,26 @@ const STATES: Array<[string, unknown, unknown]> = [
 ];
 const ON_PAPER = new Set(["full", "gap", "scope-change", "all-unknown"]);
 
+/**
+ * The browser outlives each file, so an earlier spec can leave the real
+ * pointer over the tier buttons or the table link, and a hovered control would
+ * be captured (the volume-card determinism failure on #4559). Park it in the
+ * viewport's bottom-right corner, clear of every subject, and prove nothing is
+ * hovered.
+ */
+async function parkPointer() {
+  const spot = document.createElement("div");
+  spot.style.cssText = "position:fixed;right:0;bottom:0;width:4px;height:4px";
+  document.body.append(spot);
+  try {
+    await userEvent.hover(page.elementLocator(spot));
+  } finally {
+    spot.remove();
+  }
+  const hovered = [...document.querySelectorAll("#storybook-root :hover, [data-part] :hover")].map((el) => el.outerHTML.slice(0, 60));
+  expect(hovered, "nothing in the subject is hovered").toEqual([]);
+}
+
 async function capture(story: unknown, name: string, width: 320 | 1280, theme: "dark" | "light") {
   const before = { width: innerWidth, height: innerHeight };
   const outer = await commands.formViewport(width, 900);
@@ -63,6 +83,7 @@ async function capture(story: unknown, name: string, width: 320 | 1280, theme: "
     const svg = document.querySelector<SVGSVGElement>('svg[data-part="history-svg"], [data-part="sparkline"] svg');
     if (svg?.dataset.layout) expect(svg.dataset.layout).toBe(width === 1280 ? "gutter" : "caption");
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
+    await parkPointer();
     await expect(document.body).toMatchScreenshot(`${name}${theme === "light" ? "-light" : ""}`, TOLERANCE);
   } finally {
     await page.viewport(before.width, before.height);
