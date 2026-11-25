@@ -316,6 +316,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (read.ok) {
         const result = await api.remove(d.draftId, read.value.revision);
         if (!current()) return;
+        if (!result.ok && pendingOnHost(d, result)) return;
         if (!result.ok && result.status !== 404 && result.status !== 410) { failed(d.draftId, result, d.edit); return; }
       } else if (read.status !== 404 && read.status !== 410) { failed(d.draftId, read, d.edit); return; }
       bumpHost(d.draftId);
@@ -328,8 +329,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!current()) return;
       if (result.ok) { bumpHost(d.draftId); failures.delete(d.draftId); drafts.getState().removed(d.draftId); retryFull(); return; }
       if (result.status === 410 || result.status === 404) { bumpHost(d.draftId); drafts.getState().removed(d.draftId); return; }
-      // The host still holds a waiting message of this draft: deleting is refused until it is settled, so it is not asked again.
-      if (result.status === 409 && result.body.error === "DRAFT_OUTGOING_PENDING") { refuse(d.draftId, d.edit, result.body); return; }
+      if (pendingOnHost(d, result)) return;
       // The edit this delete was for: one typed since is not refused by its answer.
       failed(d.draftId, result, d.edit);
       return;
@@ -476,6 +476,19 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       // A newer edit waited for this re-read: it goes now.
       if (again) schedule(draftId, 0);
     });
+  }
+
+  /**
+   * A delete the host refused because a message of this draft still waits there (#4567): the host's
+   * list comes back, so that message shows with its Cancel and Check again, and saves list it. Not
+   * asked to delete again until then. True when handled.
+   */
+  function pendingOnHost(d: ComposerDraft, result: Exclude<DraftCallResult<unknown>, { ok: true }>): boolean {
+    if (result.status !== 409 || result.body.error !== "DRAFT_OUTGOING_PENDING") return false;
+    bumpHost(d.draftId);
+    if (result.body.current) drafts.getState().adoptHostSnapshots(d.draftId, result.body.current as Draft);
+    else refuse(d.draftId, d.edit, result.body);
+    return true;
   }
 
   /** Another version took this id's place: what was refused or being recovered was the old one's (#4566). */
