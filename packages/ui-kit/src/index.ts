@@ -421,3 +421,14 @@ export { StorageSelectionBar, type StorageSelectionBarProps } from "./storage/St
 export { StorageBreadcrumb, type StorageBreadcrumbProps, type StorageCrumb } from "./storage/StorageBreadcrumb.js";
 export { StorageSummaryRow, type StorageSummaryRowProps } from "./storage/StorageSummaryRow.js";
 export { STORAGE_PARTIAL_REASON, storageUnknownReason, type StorageEligibility, type StorageGitFacet } from "./storage/storage-copy.js";
+/* Storage maintenance tools: one row per owner-supported tool, and the list
+ * with its single footnote (#4545). */
+export { ToolList, ToolRow, type ToolListProps, type ToolRowProps } from "./storage/ToolRow.js";
+export {
+  type ToolChange,
+  type ToolHeadroom,
+  type ToolHeadroomFigure,
+  type ToolNotMeasuredReason,
+  type ToolOutcomeCounts,
+  type ToolRunState,
+} from "./storage/tool-row-model.js";
