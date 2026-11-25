@@ -215,6 +215,12 @@ test("a recorder fed frames directly never takes a frame's own host-stop claim",
     recorder.observeFrame({ type: "tool_use_start", toolUseId: "bow", toolName: "Bash" } as never);
     recorder.observeFrame({ type: "tool_result", toolUseId: "bow", output: "bash: string: command not found", isError: true, hostStop: "change_journal" } as never);
     expect(store.getSpan("bow")?.outcomeReason, "DIRECT_FRAME_HOST_STOP_IGNORED").toBe("bash: string: command not found");
+    recorder.observeActivity({ kind: "policy_confirm", toolUseId: "bow", payload: { tool: "Bash", input: "git push origin main", inputTruncated: false,
+      rule: { list: "commands.confirm", index: 0, pattern: "^git push" }, decision: "host_stopped", policyHash: null } });
+    recorder.observeFrame({ type: "result", sessionId: "ithaca", outcome: "cancelled", outcomeDetail: "host_stop:change_journal", isError: false, durationMs: 1, numTurns: 1 } as never);
     recorder.finish("error");
+    const confirm = store.snapshotRun("suitors")?.events.find(event => event.eventType === "policy_confirm")?.payload as { decision?: string } | undefined;
+    expect(confirm?.decision, "DIRECT_ACTIVITY_HOST_STOPPED_DECLINED").toBe("declined");
+    expect((store.getSpan("suitors:turn")?.attrs as Record<string, unknown> | undefined)?.["outcome.detail"], "DIRECT_RESULT_HOST_STOP_DETAIL_DROPPED").toBeUndefined();
   } finally { db.close(); }
 });

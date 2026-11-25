@@ -405,10 +405,12 @@ export const chatFrameHandlers = {
       // turn); never an answer to an earlier request.
       const messages = context.buffer()?.messages ?? [];
       const lastIndex = messages.findLastIndex((m) => m.role === "assistant"), last = messages[lastIndex];
-      const message = messages.findLast((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === context.frameTurnId)
-        ?? (last && lastIndex > messages.findLastIndex((m) => m.role === "user")
-          && [undefined, context.frameTurnId].includes(last.turnId ?? last.streamTurnId) ? last : undefined);
-      for (const tool of message?.toolCalls ?? []) {
+      // A turn can span several messages (a diagnostic, then more text).
+      const owned = messages.filter((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === context.frameTurnId);
+      const replies = owned.length ? owned
+        : last && lastIndex > messages.findLastIndex((m) => m.role === "user")
+          && [undefined, context.frameTurnId].includes(last.turnId ?? last.streamTurnId) ? [last] : [];
+      for (const tool of replies.flatMap((m) => m.toolCalls)) {
         if (tool.output === undefined && tool.status !== "denied") context.state.setToolResult(context.key, tool.id, hostStopToolOutput(hostStop), true, undefined, hostStop);
       }
     }

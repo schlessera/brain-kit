@@ -149,3 +149,37 @@ test("a host stop before the new reply opens never labels an earlier answer's to
   expect(earlier.runtimeNotice, "EARLIER_ANSWER_HAS_NO_NOTICE").toBeUndefined();
   expect(messages.at(-1), "NOTICE_ON_A_REPLY_TO_THE_FAILED_REQUEST").toMatchObject({ role: "assistant", runtimeNotice: { cause: "host_stop", hostStop: "inbox_share" } });
 });
+
+test("a diagnostic before the new reply opens never claims an earlier answer for the stopped turn", () => {
+  const send = (frame: ServerMessage) => act(() => { root.connection.handleServerMessage(frame); });
+  root.stores.chat.getState().setActiveSession("s1");
+  send({ type: "session_history", sessionId: "s1", messages: [
+    { role: "user", content: "Read the log", toolCalls: [] },
+    { role: "assistant", content: "Reading it.", toolCalls: [{ id: "read", name: "Read", input: { path: "log.md" } }] },
+    { role: "user", content: "Weave the shroud", toolCalls: [] },
+  ] } as ServerMessage);
+  // The journal's own error arrives first, then the host-stopped result.
+  send({ type: "error", code: "JOURNAL_UNAVAILABLE", message: "The change journal became unavailable.", failure: { errorClass: "journal_unavailable", message: "The change journal became unavailable." }, ...scoped } as ServerMessage);
+  send({ type: "result", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("change_journal"), durationMs: 1, numTurns: 1, isError: false, ...scoped } as ServerMessage);
+  const messages = root.stores.chat.getState().buffers.s1!.messages;
+  const earlier = messages.find((m) => m.role === "assistant" && m.content === "Reading it.")!;
+  expect({ notice: earlier.runtimeNotice, failure: earlier.failure, tool: earlier.toolCalls[0]?.hostStop }, "EARLIER_ANSWER_NOT_CLAIMED")
+    .toEqual({ notice: undefined, failure: undefined, tool: undefined });
+  expect(messages.at(-1)).toMatchObject({ role: "assistant", runtimeNotice: { cause: "host_stop" } });
+});
+
+test("a turn split over two messages labels the unanswered tool in each", () => {
+  const send = (frame: ServerMessage) => act(() => { root.connection.handleServerMessage(frame); });
+  root.stores.chat.getState().setActiveSession("s1");
+  send({ type: "session_history", sessionId: "s1", messages: [{ role: "user", content: "Weave the shroud", toolCalls: [] }] } as ServerMessage);
+  send({ type: "status", status: "thinking", ...scoped } as ServerMessage);
+  send({ type: "text_delta", text: "Unravelling tonight's work. ", ...scoped } as ServerMessage);
+  send({ type: "tool_use_start", toolUseId: "loom", toolName: "Bash", ...scoped } as ServerMessage);
+  send({ type: "tool_use_complete", toolUseId: "loom", toolName: "Bash", input: { command: "unweave --shroud" }, ...scoped } as ServerMessage);
+  // A diagnostic, then more text: the turn now spans two messages.
+  send({ type: "error", code: "AGENT_ERROR", message: "SQLITE_IOERR", ...scoped } as ServerMessage);
+  send({ type: "text_delta", text: "Still here.", ...scoped } as ServerMessage);
+  send({ type: "result", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("inbox_share"), durationMs: 1, numTurns: 1, isError: false, ...scoped } as ServerMessage);
+  const tool = root.stores.chat.getState().buffers.s1!.messages.flatMap((m) => m.toolCalls).find((t) => t.id === "loom");
+  expect(tool?.hostStop, "SPLIT_TURN_TOOL_LABELLED").toBe("inbox_share");
+});

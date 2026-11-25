@@ -20,7 +20,7 @@ import { changedPrefix, validFirstRequest, validPrefix } from "./cache-diagnosti
  * Activity failures are observational. Safety recording failures stop the
  * producer and retain a restrictive host failure instead of dropping input.
  */
-import type { HostStopCause } from "@schlessera/brain-ui-sdk/protocol";
+import { hostStopFromOutcomeDetail, type HostStopCause } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   BackendActivityEvent,
   ServerMessage,
@@ -454,13 +454,16 @@ export function createTurnRecorder(
                     ? "timeout"
                     : "error";
             resultFailureReason = msg.failure?.message;
-            outcomeDetail = msg.outcomeDetail ?? null;
+            // Only the host attests a host stop (#4565): a frame's own
+            // `host_stop:` detail without one is dropped.
+            const detail = hostStopFromOutcomeDetail(msg.outcomeDetail) !== undefined && !deps.hostStop?.() ? undefined : msg.outcomeDetail;
+            outcomeDetail = detail ?? null;
             if (msg.usage) resultUsage = usageFromTurnUsage(msg.usage);
             if (typeof msg.costUsd === "number") {
               resultUsage = { ...(resultUsage ?? {}), costUsd: msg.costUsd };
             }
             resultAttrs = {
-              ...(msg.outcomeDetail ? { "outcome.detail": msg.outcomeDetail } : {}),
+              ...(detail ? { "outcome.detail": detail } : {}),
               ...(msg.usage?.perModel
                 ? { "gen_ai.usage.per_model": msg.usage.perModel }
                 : {}),
@@ -605,9 +608,13 @@ export function createTurnRecorder(
           case "policy_block":
           case "policy_confirm": {
             ensureRoot();
-            store.appendEvent(rootSpanId, event.kind, event.payload);
+            // Only the host attests a host stop (#4565): a backend's own
+            // `host_stopped` without one is a confirmation that never ran.
+            const payload = event.kind === "policy_confirm" && event.payload.decision === "host_stopped" && !deps.hostStop?.()
+              ? { ...event.payload, decision: "declined" as const } : event.payload;
+            store.appendEvent(rootSpanId, event.kind, payload);
             try {
-              govern({ kind: event.kind, payload: event.payload,
+              govern({ kind: event.kind, payload,
                 sessionId: sessionId ?? null, turnId: runId,
                 actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
                 model: turn.origin === "autonomous" ? resultUsage?.model ?? null : mainModel, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });

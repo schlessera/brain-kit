@@ -44,10 +44,11 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
           if (index === -1) {
             // The composer opens the turn's message before the turn has an
             // id, and a failure with no deltas never stamps one — so the
-            // last assistant message, unless another turn owns it.
+            // last assistant message, unless another turn owns it or it
+            // answers an earlier request (#4565).
             const last = msgs.findLastIndex((m) => m.role === "assistant");
             const owner = last === -1 ? undefined : msgs[last].turnId;
-            if (last !== -1 && (owner === undefined || owner === turnId)) index = last;
+            if (last !== -1 && last > msgs.findLastIndex((m) => m.role === "user") && (owner === undefined || owner === turnId)) index = last;
           }
           if (index === -1) {
             msgs.push({
