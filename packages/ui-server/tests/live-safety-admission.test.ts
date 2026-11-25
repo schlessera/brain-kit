@@ -232,7 +232,7 @@ const get = (socketPath: string, target: string) => new Promise<number>((resolve
   req.once("error", reject); req.end();
 });
 
-for (const mode of ["allowed", "tainted", "lost", "tool"] as const) {
+for (const mode of ["allowed", "tainted", "lost", "tool", "pi-tool"] as const) {
   test(`sibling evidence settlement during ${mode} admission`, async () => {
     const f = await fixture();
     const hits: string[] = [];
@@ -273,7 +273,10 @@ for (const mode of ["allowed", "tainted", "lost", "tool"] as const) {
       await submitted.promise;
       expect(f.state().reasons).toContain("recording_pending");
       let tool: Promise<unknown> | undefined;
-      if (mode === "tool") {
+      if (mode === "pi-tool") {
+        tool = decidePiToolPermission({ turn: { ...createTurnContext(), bridge, signal: f.controller.signal },
+          allowedTools: new Set(["read_file"]), confirmPatterns: [] }, "read_file", { path: "harbour.md" }, "notice");
+      } else if (mode === "tool") {
         const wiring = createPermissionWiring({ req: { prompt: "Read the harbour notice", bridge, signal: f.controller.signal },
           allowedTools: ["Read"], confirmPatterns: [], brainPath: f.root, turnLock: { releaseForTool() {} } as never, childEnv: {}, log() {} });
         const hook = wiring.hooks!.PreToolUse!.find(group => !group.matcher)!.hooks[0]!;
@@ -293,12 +296,12 @@ for (const mode of ["allowed", "tainted", "lost", "tool"] as const) {
       await new Promise<void>(resolve => setImmediate(resolve));
       expect(hits).toEqual([]);
       release();
-      if (tool) expect(await tool, "SETTLED_TOOL_ADMISSION").toEqual({ continue: true });
+      if (tool) expect(await tool, "SETTLED_TOOL_ADMISSION").toEqual(mode === "pi-tool" ? { behavior: "allow" } : { continue: true });
       const statuses = await Promise.all(requests);
       await proxy.settled();
       const siblings = queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })
         .map(row => row.payload).filter(row => typeof row.path === "string" && row.path.startsWith("/sibling"));
-      if (mode !== "tool") {
+      if (!tool) {
         expect(siblings.map(row => row.reason ?? row.outcome), "SIBLING_EGRESS_CAUSE")
           .toEqual(Array(3).fill(mode === "allowed" ? "completed" : mode === "tainted" ? "taint_not_allowed" : "egress_unavailable"));
         expect(statuses.slice(1)).toEqual(Array(3).fill(mode === "allowed" ? 200 : mode === "tainted" ? 403 : 503));

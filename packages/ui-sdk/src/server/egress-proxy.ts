@@ -663,12 +663,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         outgoing?.destroy();if(!response.headersSent)refuse();else response.destroy();return false;
       };
       for (const pending of op.pendingRecording()) await pending;
-      const dispatched=sendUpstream(()=>{outgoing=httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal,
-        // This operation owns its connection. A pooled socket can have an
-        // unread origin FIN when another independently fenced request takes it.
-        agent: false }, async incoming => {
-        incoming.once("error", () => { op.finish("failed", "upstream_response_failed"); response.destroy(); });
-        for (const pending of op.pendingRecording()) await pending;
+      const responseEvents = guardedStream({
+        pause: () => outgoing.socket?.pause(), resume: () => outgoing.socket?.resume(),
+      }, op.pendingRecording);
+      const acceptResponse = responseEvents.on((incoming: IncomingMessage) => {
         const fromOrigin = guardedStream(incoming, op.pendingRecording);
         if (!op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders).ok) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
@@ -683,17 +681,27 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         }));
         response.on("drain", fromOrigin.resume);
         incoming.once("end", fromOrigin.on(() => { if (!response.destroyed && !response.writableEnded) { if (!op.charge(0).ok) { response.destroy(); return; } writeHeaders(); response.end(); } }));
+      });
+      const dispatched=sendUpstream(()=>{outgoing=httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal,
+        // This operation owns its connection. A pooled socket can have an
+        // unread origin FIN when another independently fenced request takes it.
+        agent: false }, incoming => {
+        incoming.once("error", () => { op.finish("failed", "upstream_response_failed"); response.destroy(); });
+        void acceptResponse(incoming);
       });});
       if(!dispatched)return;
-      outgoing.on("information",incoming=>{
+      outgoing.on("information",responseEvents.on(incoming=>{
         if(!op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders).ok){refuse();outgoing.destroy();}
-      });
+      }));
       // 101 uses upgrade rather than information; this HTTP path never tunnels it.
-      outgoing.once("upgrade",(incoming,socket,head)=>{
-        socket.on("error",()=>{});
-        const received=op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders);
-        if(received.ok&&head.length)op.receive(head.length);
-        socket.destroy();if(op.failure())refuse();else upstreamFailed();
+      outgoing.once("upgrade", (incoming, socket, head) => {
+        socket.on("error", () => {});
+        void responseEvents.on(() => {
+          const received = op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`, incoming.rawHeaders);
+          if (received.ok && head.length) op.receive(head.length);
+          socket.destroy();
+          if (op.failure()) refuse(); else upstreamFailed();
+        })();
       });
       op.signal.addEventListener("abort", () => { outgoing.destroy(); if (op.outcome() === "cancelled") response.destroy(); }, { once: true });
       outgoing.once("error",upstreamFailed);

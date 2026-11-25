@@ -88,7 +88,7 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       check(recipient, capability.credentialed);
       const target = new URL(recipient === "git" ? repository!.canonical : resource.metadataUrl);
       const operation = options.egress.managedReference(target, controller.signal); operations.add(operation);
-      let upstream: Socket | undefined;
+      let upstream: Socket | undefined, piping = false;
       const operationStopped = () => {
         if (operation.outcome() === "completed") return;
         upstream?.destroy(); client.destroy();
@@ -101,15 +101,22 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       const finish = (outcome: "completed" | "failed" | "cancelled") => {
         operations.delete(operation); operation.signal.removeEventListener("abort", operationStopped); operation.finish(outcome);
       };
-      client.once("close", () => { upstream?.destroy(); finish(controller.signal.aborted ? "cancelled" : "completed"); });
+      client.once("close", () => {
+        const closed = () => { upstream?.destroy(); finish(controller.signal.aborted ? "cancelled" : "completed"); };
+        if (piping && client.readableEnded && upstream && !upstream.destroyed && !upstream.writableFinished) upstream.once("finish", closed);
+        else closed();
+      });
       try {
         if (!await operation.admit()) throw chargeError(operation.failure() ?? {ok:false,reason:"unavailable"});
         const addresses = options.lookup ? await options.lookup(target.hostname, { all: true, verbatim: true })
           : await lookupHost(target.hostname, { all: true, verbatim: true });
         if (!addresses.length || addresses.some(value => egressAddressRefusal(value.address)))
           throw new ReferenceTransportError("denied", "reference recipient did not resolve to public addresses");
+        for (const pending of operation.pendingRecording?.() ?? []) await pending;
         check(recipient, capability.credentialed);
         const beforeConnection = operation.prepare(); if (!beforeConnection.ok) throw chargeError(beforeConnection);
+        for (const pending of operation.pendingRecording?.() ?? []) await pending;
+        check(recipient, capability.credentialed);
         if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed before connection");
         const dispatched=operation.dispatch(()=>{upstream=track((options.connect??connect)({host:addresses[0]!.address,port:443,signal:AbortSignal.any([controller.signal,operation.signal])}));});
         if(!dispatched.ok)throw chargeError(dispatched);
@@ -130,12 +137,14 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
           controller.signal.addEventListener("abort", cancel, { once: true });
           if (controller.signal.aborted) cancel();
         });
+        for (const pending of operation.pendingRecording?.() ?? []) await pending;
         check(recipient, capability.credentialed);
         const afterConnection = operation.charge(0); if (!afterConnection.ok) throw chargeError(afterConnection);
         if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed after connection");
-        const meter = (incoming: boolean) => new Transform({ transform(chunk: Buffer, _encoding, done) {
+        const meter = (incoming: boolean) => new Transform({ async transform(chunk: Buffer, _encoding, done) {
           if (incoming) observedIncomingBytes += chunk.length;
           try {
+            for (const pending of operation.pendingRecording?.() ?? []) await pending;
             check(recipient, capability.credentialed);
             const remaining = Math.min(options.maxBytes - chargedBytes, options.egress.remainingBytes());
             if (chunk.length > remaining) {
@@ -154,10 +163,15 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
         incoming.on("error", () => { upstream?.destroy(); client.destroy(); });
         heldUpstream.once("error", () => { finish("failed"); client.destroy(); });
         heldUpstream.once("close", () => {
-          finish(controller.signal.aborted ? "cancelled" : upstream?.readableEnded ? "completed" : "failed");
-          if (!upstream?.readableEnded) client.destroy();
+          const closed = () => {
+            finish(controller.signal.aborted ? "cancelled" : heldUpstream.readableEnded ? "completed" : "failed");
+            if (!heldUpstream.readableEnded) client.destroy();
+          };
+          if (heldUpstream.readableEnded && !client.destroyed && !client.writableFinished) client.once("finish", closed);
+          else closed();
         });
         client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        piping = true;
         if (head.length) outgoing.write(head);
         client.pipe(outgoing).pipe(heldUpstream); heldUpstream.pipe(incoming).pipe(client);
         client.resume();

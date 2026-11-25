@@ -211,7 +211,7 @@ for (const kind of ["inference", "provider"] as const) {
     } finally { await f.close(); }
   });
 
-  if (kind === "inference") test("inference resumes when independent evidence submitted during credential lookup settles", async () => {
+  test(`${kind} resumes when independent evidence submitted at its final admission settles`, async () => {
     const f = await adverseFixture(kind, true);
     try {
       f.announce(); await f.catalog.settled!();
@@ -224,7 +224,7 @@ for (const kind of ["inference", "provider"] as const) {
       await new Promise<void>(resolve => setImmediate(resolve));
       expect(f.requests()).toBe(0);
       held.release();
-      expect((await response).status, "SETTLED_INFERENCE_DISPATCH").toBe(200);
+      expect((await response).status, "SETTLED_RELAY_DISPATCH").toBe(200);
       expect(f.requests()).toBe(1);
     } finally { await f.close(); }
   });
