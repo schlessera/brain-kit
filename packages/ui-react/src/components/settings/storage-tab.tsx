@@ -227,7 +227,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   size="sm"
                   reach
                   block={false}
-                  onClick={view.adopt}
+                  onClick={() => {
+                    // Show removes itself; the pane's heading keeps focus.
+                    view.adopt();
+                    heading.current?.focus();
+                  }}
                 />
               </>
             )}
