@@ -376,3 +376,15 @@ export { GitHubMergeEvent, type GitHubMergeEventProps } from "./github/GitHubMer
 export { GitHubResultList, type GitHubResult, type GitHubResultListProps } from "./github/GitHubResultList.js";
 export { GitHubDetailSection, type GitHubDetailSectionProps, type GitHubDetailState } from "./github/GitHubDetailSection.js";
 export { githubHref, type GitHubPerson, type GitHubState } from "./github/shared.js";
+
+/* Storage maintenance tools: one row per owner-supported tool, and the list
+ * with its single footnote (#4545). */
+export { ToolList, ToolRow, type ToolListProps, type ToolRowProps } from "./storage/ToolRow.js";
+export {
+  type ToolChange,
+  type ToolHeadroom,
+  type ToolHeadroomFigure,
+  type ToolNotMeasuredReason,
+  type ToolOutcomeCounts,
+  type ToolRunState,
+} from "./storage/tool-row-model.js";

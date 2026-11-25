@@ -1533,6 +1533,9 @@
   /* A spoken turn's Details pill appears without fading (#3728). Its shown
    * rules carry two classes or a class and a pseudo-class, so this carries three. */
   .bk-spoken-turn[data-details] .bk-transcript-reveal { transition: none; }
+  /* A storage tool's running stripe holds still (#4545); "Working…" beside it
+   * carries the state. Two classes, because the stripe is declared below. */
+  .bk-tool-row .bk-tool-stripe { animation: none; }
 }
 
 /* ── Interaction states ────────────────────────────────────────────────────
@@ -1660,6 +1663,106 @@
   .bk-filter-row { overflow-x: clip; overflow-y: visible; }
   .bk-filter-row > .bk-hit { min-width: 44px; }
 }
+
+/* ── Storage tool rows (#4545) ────────────────────────────────────────────
+ * `ToolRow` lays itself out from its OWN width, so a Settings pane of any
+ * width gets the right shape: stacked below 720px (name with the chip, then
+ * the description, the evidence and a full-width button last), three columns
+ * from 720px. The query container is the row's outer element, because a
+ * container cannot restyle itself. Rows are divided by a rule, not cards. */
+.bk-tool-row { container: bk-tool-row / inline-size; min-width: 0; }
+.bk-tool-row-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name chip" "desc desc" "result result" "action action";
+  column-gap: 12px;
+  row-gap: 6px;
+  align-items: start;
+  padding: 12px 0;
+  color: var(--bk-color-ink);
+  font: 400 12px/1.45 "Plus Jakarta Sans", sans-serif;
+}
+.bk-tool-name { grid-area: name; min-width: 0; font-weight: 600; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.bk-tool-chip { grid-area: chip; display: inline-flex; }
+.bk-tool-desc {
+  grid-area: desc;
+  min-width: 0;
+  color: var(--bk-color-ink-mute);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.bk-tool-result { grid-area: result; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bk-tool-state { font: 500 11px/1.4 "JetBrains Mono", ui-monospace, monospace; overflow-wrap: anywhere; }
+.bk-tool-glyph { display: inline-block; min-width: 1.1em; font-size: 13px; line-height: 1; }
+.bk-tool-detail { color: var(--bk-color-ink-dim); }
+.bk-tool-line { color: var(--bk-color-ink-dim); overflow-wrap: anywhere; }
+.bk-tool-wide-only { display: none; }
+.bk-tool-headroom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--bk-color-ink-dim);
+  overflow-wrap: anywhere;
+}
+.bk-tool-label { font: 500 10px/1.4 "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-mute); text-transform: uppercase; letter-spacing: .07em; }
+.bk-tool-meter {
+  position: relative;
+  flex: 1 1 120px;
+  min-width: 96px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--bk-color-line);
+}
+.bk-tool-meter-fill { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: var(--bk-teal-fill); }
+.bk-tool-meter[data-short] .bk-tool-meter-fill { background: var(--bk-gold-fill); }
+/* What is missing to reach the estimate: a hatch, so short reads without hue. */
+.bk-tool-meter-short {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--bk-gold-mark) 3px 4px);
+  box-shadow: inset 0 0 0 1px var(--bk-gold-mark);
+  border-radius: 0 99px 99px 0;
+}
+/* The required figure: a 2px ink bar standing proud of the track. */
+.bk-tool-meter-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--bk-color-ink); }
+.bk-tool-caption { flex: 1 1 100%; }
+.bk-tool-caveat { flex: 1 1 100%; font: 400 10px/1.4 "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-mute); }
+.bk-tool-working { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--bk-color-ink-dim); }
+/* Indeterminate: motion only reinforces the words beside it. Reduced motion
+ * parks it in the shared override above. */
+@keyframes bk-tool-stripe { to { background-position: 16px 0; } }
+.bk-tool-stripe {
+  flex: 1 1 120px;
+  min-width: 96px;
+  height: 6px;
+  border-radius: 99px;
+  background: repeating-linear-gradient(90deg, var(--bk-color-line) 0 8px, var(--bk-amber-mark) 8px 16px);
+  animation: bk-tool-stripe 1s linear infinite;
+}
+.bk-tool-action { grid-area: action; display: flex; min-width: 0; }
+@container bk-tool-row (min-width: 720px) {
+  .bk-tool-row-grid {
+    /* The action column has a floor so every row's columns line up whatever
+     * its button reads; the second row takes the slack, so the description
+     * stays under the name when the result block is taller. */
+    grid-template-columns: minmax(200px, 1fr) minmax(240px, 1.2fr) auto minmax(7rem, max-content);
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "name result chip action" "desc result . .";
+  }
+  .bk-tool-chip { padding-top: 2px; }
+  .bk-tool-wide-only { display: block; }
+}
+.bk-tool-list { min-width: 0; }
+.bk-tool-list-heading { margin: 0 0 4px; font: 600 14px/1.35 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); }
+.bk-tool-list-rows { margin: 0; padding: 0; list-style: none; }
+.bk-tool-list-rows > li + li { border-top: 1px solid var(--bk-color-line); }
+.bk-tool-footnote { margin: 4px 0 0; font: 400 11px/1.5 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-mute); overflow-wrap: anywhere; }
 
 /* ── Rows ─────────────────────────────────────────────────────────────────
  *

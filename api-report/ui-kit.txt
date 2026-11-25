@@ -365,6 +365,16 @@ export "." (./src/index.ts)
   type ToggleProps
   type ToggleTone
   type Tone
+  type ToolChange
+  type ToolHeadroom
+  type ToolHeadroomFigure
+  ToolList
+  type ToolListProps
+  type ToolNotMeasuredReason
+  type ToolOutcomeCounts
+  ToolRow
+  type ToolRowProps
+  type ToolRunState
   type TraceState
   type TraceStep
   TraceSteps
@@ -3048,6 +3058,66 @@ signatures (every public export and the types it is made of)
     export type ToggleTone = "amber" | "teal" | "purple";
   Tone (packages/ui-kit/src/types.ts)
     export type Tone = "amber" | "gold" | "teal" | "purple" | "blue" | "red" | "neutral";
+  ToolChange (packages/ui-kit/src/storage/tool-row-model.ts)
+    export type ToolChange = {
+        delta: string;
+    } | {
+        notMeasured: ToolNotMeasuredReason;
+    };
+  ToolHeadroom (packages/ui-kit/src/storage/tool-row-model.ts)
+    export interface ToolHeadroom {
+        required: ToolHeadroomFigure | null;
+        available: ToolHeadroomFigure | null;
+        shortfall?: string;
+        note?: string;
+    }
+  ToolHeadroomFigure (packages/ui-kit/src/storage/tool-row-model.ts)
+    export interface ToolHeadroomFigure {
+        bytes: number;
+        text: string;
+    }
+  ToolList (packages/ui-kit/src/storage/ToolRow.tsx)
+    export function ToolList(p: ToolListProps): import("react").JSX.Element;
+  ToolListProps (packages/ui-kit/src/storage/ToolRow.tsx)
+    export interface ToolListProps {
+        heading?: string;
+        headingLevel?: 2 | 3 | 4;
+        children: ReactNode;
+        onFindLargeFiles?: () => void;
+        announcement?: string;
+    }
+  ToolNotMeasuredReason (packages/ui-kit/src/storage/tool-row-model.ts)
+    export type ToolNotMeasuredReason = "before measurement missing" | "after measurement missing" | "volume changed" | "measurement incomplete";
+  ToolOutcomeCounts (packages/ui-kit/src/storage/tool-row-model.ts)
+    export interface ToolOutcomeCounts {
+        packed?: number | null;
+        removed?: number | null;
+        failed?: number | null;
+        deferred?: number | null;
+        suspended?: boolean;
+    }
+  ToolRow (packages/ui-kit/src/storage/ToolRow.tsx)
+    export function ToolRow(p: ToolRowProps): import("react").JSX.Element;
+  ToolRowProps (packages/ui-kit/src/storage/ToolRow.tsx)
+    export interface ToolRowProps {
+        name: string;
+        description: string;
+        state: ToolRunState;
+        at?: string;
+        available?: boolean;
+        unavailableReason?: string | null;
+        reason?: string | null;
+        change?: ToolChange | null;
+        counts?: ToolOutcomeCounts | null;
+        headroom?: ToolHeadroom | null;
+        doneCount?: number | null;
+        effect?: string;
+        cancelling?: boolean;
+        onRun?: () => void;
+        onCancel?: () => void;
+    }
+  ToolRunState (packages/ui-kit/src/storage/tool-row-model.ts)
+    export type ToolRunState = "never" | "waiting" | "running" | "complete" | "partial" | "refused" | "cancelled" | "unknown";
   TraceState (packages/ui-kit/src/types.ts)
     export type TraceState = "done" | "active" | "paused" | "failed" | "skipped";
   TraceStep (packages/ui-kit/src/evidence/TraceSteps.tsx)
