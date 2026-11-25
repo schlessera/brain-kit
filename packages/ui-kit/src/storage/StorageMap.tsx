@@ -44,7 +44,7 @@ const LINE: CSSProperties = { display: "block", whiteSpace: "nowrap", overflow: 
  * Ownership is tint, edge and label (#4537 D8, #4544): Brain solid, App inner
  * dotted, Operator dashed, the smaller aggregate a neutral outline. The edge
  * is drawn on every tile at any size; a tile of at least 62 × 40 also carries
- * the owner's letter (`A · Packs`), or its word from 96px wide. No hatching.
+ * the owner's letter (`A · Packs`) whatever its width. No hatching.
  * Unknown and nonpositive sizes have no tile. Geometry lives in
  * `storage-geometry.ts`.
  */

@@ -48,14 +48,15 @@ describe("storage map geometry (#4544)", () => {
     expect(storageRectangles([{ id: "a", bytes: 1 }], 0, 100)).toEqual([]);
   });
 
-  test("labels need 62 × 40; the full owner word needs 96px of width", () => {
+  test("labels need 62 × 40, and a labelled tile always carries the owner letter", () => {
     expect(tileLabel(61.9, 200)).toBe("none");
     expect(tileLabel(200, 39.9)).toBe("none");
     expect(tileLabel(62, 40)).toBe("letter");
     expect(tileLabel(95.9, 40)).toBe("letter");
-    expect(tileLabel(96, 40)).toBe("word");
+    expect(tileLabel(96, 40), "no word variant on a wide tile").toBe("letter");
+    expect(tileLabel(1280, 800)).toBe("letter");
     expect(ownerCue("app", "letter")).toBe("A ·");
-    expect(ownerCue("brain", "word")).toBe("Brain ·");
+    expect(ownerCue("brain", "letter")).toBe("B ·");
     expect(ownerCue("operator", "letter")).toBe("O ·");
     expect(ownerCue("operator", "none")).toBe("");
   });

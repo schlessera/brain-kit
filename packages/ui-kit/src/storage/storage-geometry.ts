@@ -12,8 +12,9 @@
  * - an activation target only at 44 × 44 or larger;
  * - ownership by tint, edge and label, never colour alone and never a hatch
  *   (#4537 D8). The edge is the primary non-colour cue and is drawn on every
- *   tile; the label prefix (`B ·`, `A ·`, `O ·`, or the full word on a tile at
- *   least 96px wide) is the second cue.
+ *   tile; the owner's letter prefix (`B ·`, `A ·`, `O ·`) on every labelled
+ *   tile is the second cue, and the legend decodes the letters (maintainer
+ *   decision of 2026-11-25, 13:30Z).
  */
 
 export type StorageOwner = "brain" | "app" | "operator";
@@ -33,8 +34,6 @@ interface StorageEdgeSpec {
 export const TILE_LABEL_MIN = { width: 62, height: 40 } as const;
 /** A tile is an activation target only from here; smaller items use the list. */
 export const TILE_TARGET_MIN = 44;
-/** From this width a labelled tile spells the owner's word instead of its letter. */
-const TILE_WORD_MIN_WIDTH = 96;
 
 export const OWNER_WORD: Record<StorageOwner, string> = { brain: "Brain", app: "App", operator: "Operator" };
 const OWNER_LETTER: Record<StorageOwner, string> = { brain: "B", app: "A", operator: "O" };
@@ -52,18 +51,18 @@ export function ownerEdge(owner: StorageOwner | null): StorageEdgeSpec {
   return { edge: "solid", width: 2, dash: null };
 }
 
-type TileLabel = "none" | "letter" | "word";
+type TileLabel = "none" | "letter";
 
 /** Which owner cue a tile of this size carries, if any. */
 export function tileLabel(width: number, height: number): TileLabel {
   if (!(width >= TILE_LABEL_MIN.width && height >= TILE_LABEL_MIN.height)) return "none";
-  return width >= TILE_WORD_MIN_WIDTH ? "word" : "letter";
+  return "letter";
 }
 
-/** The in-tile prefix: `B ·` on a labelled tile, `Brain ·` on a wide one, nothing otherwise. */
+/** The in-tile prefix: `B ·`, `A ·` or `O ·` on a labelled tile of any width, nothing otherwise. */
 export function ownerCue(owner: StorageOwner, label: TileLabel): string {
   if (label === "none") return "";
-  return `${label === "word" ? OWNER_WORD[owner] : OWNER_LETTER[owner]} ·`;
+  return `${OWNER_LETTER[owner]} ·`;
 }
 
 /** Whether a tile of this size may be a target (`interactive` false opts out). */

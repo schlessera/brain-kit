@@ -5101,10 +5101,10 @@ small tiles have no activation target. It preserves one roving tab stop.
 ownership is tint, edge and label with no hatching (#4537 D8). Brain tiles
 draw a solid edge, App an inner dotted edge, Operator a dashed edge, and the
 `smaller` aggregate a neutral outline whatever its `owner`. Tiles of at least
-62 × 40 prefix their name with the owner's letter (`B ·`, `A ·`, `O ·`), or
-its word from 96px wide. It adds optional `highlightedId`, `onHighlight(id |
-null)` and `muted`. A tile's accessible name uses the owner word, and the
-aggregate's ends in "Open list.".
+62 × 40 prefix their name with the owner's letter (`B ·`, `A ·`, `O ·`) at
+any width, and the legend decodes the letters. It adds optional
+`highlightedId`, `onHighlight(id | null)` and `muted`. A tile's accessible
+name uses the owner word, and the aggregate's ends in "Open list.".
 
 `@schlessera/brain-ui-kit` also exports `StorageMapLegend`, `StorageConsumerList`,
 `StorageConsumerRow`, `StorageFilterRow`, `StorageSelectionBar`,

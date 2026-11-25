@@ -43,7 +43,8 @@ describe("StorageMap ownership skin (#4544)", () => {
   });
 
   test("labelled tiles carry the owner cue; the aggregate names its list", () => {
-    expect(html).toMatch(/data-owner-cue="App ·"/);
+    expect(html, "a wide tile still carries the letter, not the word").toMatch(/data-owner-cue="A ·"/);
+    expect(html, "STORAGE_OWNER_LETTER_ONLY").not.toMatch(/data-owner-cue="(Brain|App|Operator) /);
     expect(html).toContain('aria-label="Packs, App, 9.8 GB"');
     expect(html).toContain('aria-label="+38 smaller, 0.6 GB. Open list."');
   });

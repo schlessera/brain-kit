@@ -82,7 +82,7 @@ async function gates(root: HTMLElement) {
   }
 }
 
-/** Ownership survives without colour: each owner its own edge, each labelled tile its letter or word. */
+/** Ownership survives without colour: each owner its own edge, each labelled tile its letter, at any width. */
 async function ownership(root: HTMLElement) {
   const edges = new Map<string, Set<string>>();
   for (const tile of tiles(root)) {
@@ -91,8 +91,8 @@ async function ownership(root: HTMLElement) {
     if (tile.dataset.label === "none" || owner === "aggregate") continue;
     const cue = tile.querySelector<HTMLElement>("[data-owner-cue]")?.dataset.ownerCue;
     const width = tile.getBoundingClientRect().width;
-    const expected = { brain: ["B ·", "Brain ·"], app: ["A ·", "App ·"], operator: ["O ·", "Operator ·"] }[owner]!;
-    await expect(cue, `${tile.getAttribute("aria-label")}: owner cue`).toBe(width >= 96 ? expected[1] : expected[0]);
+    const expected = { brain: "B ·", app: "A ·", operator: "O ·" }[owner]!;
+    await expect(cue, `${tile.getAttribute("aria-label")}: owner letter, ${Math.round(width)}px wide`).toBe(expected);
   }
   for (const [owner, set] of edges) await expect(set.size, `${owner} draws one edge style`).toBe(1);
   const styles = [...edges.values()].map((set) => [...set][0]);
@@ -136,7 +136,7 @@ export const AppDominantDesktop = AppDominant.extend({ globals: viewportAt(1280)
 /**
  * THE GREYSCALE CAPTURE the acceptance criteria name: App-heavy, Brain-light
  * and an Operator mix under `grayscale(1)`. Hue is gone; the edge pattern and
- * the letter or word still tell each owner apart. The visual baseline is of
+ * the owner letter still tell each owner apart. The visual baseline is of
  * this story.
  */
 export const Greyscale = meta.story({
