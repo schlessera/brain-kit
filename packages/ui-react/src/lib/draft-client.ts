@@ -236,7 +236,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         // once: the same list refused again is not sent again (#4566). A
         // draft the host never stored has no list of its own to read.
         if (mayRecover(draftId, at, body, "list")) {
-          reconcile(draftId);
+          reconcile(draftId, at);
         }
         return;
       }
@@ -451,13 +451,15 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    * that gets no answer is tried again, backing off; the refused list is not
    * sent again until one does.
    */
-  function reconcile(draftId: string, tries = 0) {
-    const edit = drafts.getState().drafts[draftId]?.edit ?? 0;
+  /** `edit`: the edit the refused save carried; a newer one is saved as itself. */
+  function reconcile(draftId: string, edit: number, tries = 0) {
+    // Refused for an edit already superseded: the newer one is saved instead.
+    if (drafts.getState().drafts[draftId]?.edit !== edit) { schedule(draftId, 0); return; }
     reconciling.set(draftId, edit);
-    void reconcileSnapshots(draftId).then((again) => {
+    void reconcileSnapshots(draftId, edit).then((again) => {
       if (reconciling.get(draftId) !== edit) return;
       if (again && !disposed && drafts.getState().drafts[draftId]?.edit === edit) {
-        reconcileTimers.set(draftId, setTimeout(() => { reconcileTimers.delete(draftId); if (reconciling.get(draftId) === edit) reconcile(draftId, tries + 1); }, RETRY_MS[Math.min(tries, RETRY_MS.length - 1)]));
+        reconcileTimers.set(draftId, setTimeout(() => { reconcileTimers.delete(draftId); if (reconciling.get(draftId) === edit) reconcile(draftId, edit, tries + 1); }, RETRY_MS[Math.min(tries, RETRY_MS.length - 1)]));
         return;
       }
       reconciling.delete(draftId);
@@ -473,9 +475,12 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   }
 
   /** True when the read got no answer and is owed again. */
-  async function reconcileSnapshots(draftId: string): Promise<boolean> {
+  async function reconcileSnapshots(draftId: string, edit: number): Promise<boolean> {
+    const seq = hostSeq.get(draftId) ?? 0;
     const read = await api.get(draftId);
     if (disposed) return false;
+    // A newer edit took over, or the host's copy changed here meanwhile: this read is stale.
+    if (reconciling.get(draftId) !== edit || (hostSeq.get(draftId) ?? 0) !== seq) return false;
     const store = drafts.getState();
     const d = store.drafts[draftId];
     if (!d) return false;
