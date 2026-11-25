@@ -20,6 +20,7 @@ import { changedPrefix, validFirstRequest, validPrefix } from "./cache-diagnosti
  * Activity failures are observational. Safety recording failures stop the
  * producer and retain a restrictive host failure instead of dropping input.
  */
+import type { HostStopCause } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   BackendActivityEvent,
   ServerMessage,
@@ -79,6 +80,11 @@ export interface TurnRecorderDeps {
   brainPath?: string;
   /** Stops the turn when its untrusted-input taint cannot be persisted: outward rules must not stay loose. */
   abort?(error: Error): void;
+  /**
+   * The cause the host itself stopped this turn for, if it did (#4565). Only
+   * the host attests one: a frame's own `hostStop` is never read here.
+   */
+  hostStop?(): HostStopCause | undefined;
 }
 
 export interface TurnRecorder {
@@ -423,16 +429,17 @@ export function createTurnRecorder(
             // the outcome first) rejects this as a no-op, and an unknown
             // span id is equally a no-op — no bookkeeping set needed.
             const outcome: SpanOutcome = msg.isError ? "error" : "success";
+            const interrupted = msg.isError ? deps.hostStop?.() : undefined;
             store.endSpan(msg.toolUseId, {
               outcome,
               // A tool the host cut short records the host's stop, not the
               // runtime's text, which reads as the user refusing it (#4565).
-              reason: outcome === "error" ? msg.hostStop ? HOST_STOP_REASONS[msg.hostStop] : clip(msg.output, 500) : undefined,
+              reason: outcome === "error" ? interrupted ? HOST_STOP_REASONS[interrupted] : clip(msg.output, 500) : undefined,
             });
             // Error output rides along too — a failed call's output is what
             // the drill-in needs most. appendEvent no-ops on unknown spans.
             // A tool the host cut short shows the host's account here too.
-            store.appendEvent(msg.toolUseId, "tool_output", msg.hostStop ? HOST_STOP_REASONS[msg.hostStop] : msg.output, undefined, PAYLOAD_EVENT_CAP);
+            store.appendEvent(msg.toolUseId, "tool_output", interrupted ? HOST_STOP_REASONS[interrupted] : msg.output, undefined, PAYLOAD_EVENT_CAP);
             onWrite?.();
             break;
           }

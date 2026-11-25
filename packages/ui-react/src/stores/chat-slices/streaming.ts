@@ -84,10 +84,11 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
         let index = turnId ? msgs.findLastIndex((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === turnId) : -1;
         if (index === -1) {
           // As failAssistantMessage: the last assistant message, unless
-          // another turn owns it.
+          // another turn owns it or it answers an earlier request: a stop
+          // before this request's reply opened gets a reply of its own.
           const last = msgs.findLastIndex((m) => m.role === "assistant");
           const owner = last === -1 ? undefined : msgs[last].turnId ?? msgs[last].streamTurnId;
-          if (last !== -1 && (owner === undefined || owner === turnId)) index = last;
+          if (last !== -1 && last > msgs.findLastIndex((m) => m.role === "user") && (owner === undefined || owner === turnId)) index = last;
         }
         // A failure is the one account of a stop, except the host's own stop
         // (#4565): the diagnostic error it raised does not say why it stopped.

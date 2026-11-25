@@ -13,6 +13,7 @@ import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createActivityStore } from "../src/activity/store";
 import { createActivityStream } from "../src/activity/stream";
+import { createTurnRecorder } from "../src/activity/recorder";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
 import { openSqliteWriter } from "../src/db/write-worker";
@@ -193,6 +194,8 @@ test("a backend cannot claim a host stop the host did not make", async () => {
     bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
     bridge.emit({ type: "tool_use_start", toolUseId: "loom", toolName: "Bash" });
     bridge.emit({ type: "tool_result", toolUseId: "loom", output: "bash: unweave: command not found", isError: true, hostStop: "safety_recording" } as never);
+    bridge.activity?.({ kind: "policy_confirm", toolUseId: "push", payload: { tool: "Bash", input: "git push origin main", inputTruncated: false,
+      rule: { list: "commands.confirm", index: 0, pattern: "^git push" }, decision: "host_stopped", policyHash: null } });
     bridge.emit({ type: "result", sessionId: "ithaca", outcome: "cancelled", outcomeDetail: "host_stop:safety_recording", isError: false, durationMs: 1, numTurns: 1 });
   } });
   const turn = await stoppedTurn(backend as never);
@@ -200,4 +203,18 @@ test("a backend cannot claim a host stop the host did not make", async () => {
   expect(turn.tool.output).toBe("bash: unweave: command not found");
   expect(turn.result.outcomeDetail, "BACKEND_HOST_STOP_DETAIL_DROPPED").toBeUndefined();
   expect(turn.toolSpan?.outcomeReason).toBe("bash: unweave: command not found");
+  expect(turn.policyConfirm?.decision, "BACKEND_HOST_STOPPED_DECISION_DROPPED").toBe("declined");
+});
+
+test("a recorder fed frames directly never takes a frame's own host-stop claim", () => {
+  // Autonomous and handoff runs hand backend frames to their recorder without the bridge.
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db, { writer: "test" });
+    const recorder = createTurnRecorder({ store }, { turnId: "suitors", sessionId: null });
+    recorder.observeFrame({ type: "tool_use_start", toolUseId: "bow", toolName: "Bash" } as never);
+    recorder.observeFrame({ type: "tool_result", toolUseId: "bow", output: "bash: string: command not found", isError: true, hostStop: "change_journal" } as never);
+    expect(store.getSpan("bow")?.outcomeReason, "DIRECT_FRAME_HOST_STOP_IGNORED").toBe("bash: string: command not found");
+    recorder.finish("error");
+  } finally { db.close(); }
 });

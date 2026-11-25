@@ -731,7 +731,8 @@ span records the same reason. A host stop no longer records `timeout`; the
 host's elapsed-time limit and a runtime's own max-turns or max-budget stop
 still do, and `timeout` keeps its meaning. A `policy_confirm` governance event
 pending when the host stopped the turn records the new `decision:
-"host_stopped"` (also on the SDK's `BackendActivityEvent`), not `timed_out`. The SDK exports
+"host_stopped"` (also on the SDK's `BackendActivityEvent`), not `timed_out`,
+and that kind's `schema_version` becomes 2. The SDK exports
 `HostStopCause`, `HOST_STOP_CAUSES`, `HOST_STOP_OUTCOME_DETAIL_PREFIX`,
 `hostStopOutcomeDetail` and `hostStopFromOutcomeDetail`;
 `@schlessera/brain-ui-react` adds `TurnNotice` cause `host_stop` with

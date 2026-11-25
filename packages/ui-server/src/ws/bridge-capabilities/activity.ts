@@ -110,7 +110,10 @@ export function createActivity(ctx: BridgeContext, transcript: TurnTranscript,
         } else recorder?.observeActivity(event.kind === "policy_confirm" && signal.aborted
           // A host stop is recorded before any cancel and is never a timeout (#4565).
           ? { ...event, payload: { ...event.payload, decision: hostStopOf(turn, turnId) ? "host_stopped" : turn.cancelled ? "cancelled" : "timed_out" } }
-          : event);
+          // Only the host attests a host stop; a confirmation it did not stop never ran.
+          : event.kind === "policy_confirm" && event.payload.decision === "host_stopped"
+            ? { ...event, payload: { ...event.payload, decision: "declined" } }
+            : event);
       }
     },
     ...(queryActivity

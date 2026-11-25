@@ -125,6 +125,8 @@ test("a composer-opened reply's unanswered tool shows the host's stop, before an
     { id: "reply", role: "assistant", content: "", toolCalls: [], parts: [], isStreaming: true, timestamp: Date.now() }] } } });
   send({ type: "tool_use_start", toolUseId: "loom", toolName: "Bash", ...scoped } as ServerMessage);
   send({ type: "tool_use_complete", toolUseId: "loom", toolName: "Bash", input: { command: "unweave --shroud" }, ...scoped } as ServerMessage);
+  // The runtime's cancelled status ends streaming before its result arrives.
+  send({ type: "status", status: "cancelled", detail: "Stopped by the host", ...scoped } as ServerMessage);
   send({ type: "result", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("inbox_share"), durationMs: 1, numTurns: 1, isError: false, ...scoped } as ServerMessage);
   const tool = root.stores.chat.getState().buffers.s1!.messages.find((m) => m.id === "reply")!.toolCalls.find((t) => t.id === "loom");
   expect(tool, "COMPOSER_REPLY_TOOL_SHOWS_HOST_STOP").toMatchObject({ hostStop: "inbox_share", isError: true });
@@ -142,4 +144,8 @@ test("a host stop before the new reply opens never labels an earlier answer's to
   send({ type: "result", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("inbox_share"), durationMs: 1, numTurns: 1, isError: false, ...scoped } as ServerMessage);
   const earlier = root.stores.chat.getState().buffers.s1!.messages.find((m) => m.role === "assistant" && m.content === "Reading it.")!;
   expect(earlier.toolCalls.find((t) => t.id === "read")?.hostStop, "EARLIER_ANSWER_UNTOUCHED").toBeUndefined();
+  // The notice belongs to the request that failed, after it, not above it.
+  const messages = root.stores.chat.getState().buffers.s1!.messages;
+  expect(earlier.runtimeNotice, "EARLIER_ANSWER_HAS_NO_NOTICE").toBeUndefined();
+  expect(messages.at(-1), "NOTICE_ON_A_REPLY_TO_THE_FAILED_REQUEST").toMatchObject({ role: "assistant", runtimeNotice: { cause: "host_stop", hostStop: "inbox_share" } });
 });

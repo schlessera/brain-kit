@@ -400,12 +400,14 @@ export const chatFrameHandlers = {
     // A tool the runtime never answered before it stopped shows the host's
     // account, not an empty finished card.
     if (hostStop) {
-      // This turn's message, or the live reply the composer opened before
-      // the host named its turn; never an earlier, finished answer.
+      // This turn's message, or the reply to the latest request that no
+      // turn owns yet (the composer opens it before the host names its
+      // turn); never an answer to an earlier request.
       const messages = context.buffer()?.messages ?? [];
-      const last = messages.findLast((m) => m.role === "assistant");
+      const lastIndex = messages.findLastIndex((m) => m.role === "assistant"), last = messages[lastIndex];
       const message = messages.findLast((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === context.frameTurnId)
-        ?? (last?.isStreaming && [undefined, context.frameTurnId].includes(last.turnId ?? last.streamTurnId) ? last : undefined);
+        ?? (last && lastIndex > messages.findLastIndex((m) => m.role === "user")
+          && [undefined, context.frameTurnId].includes(last.turnId ?? last.streamTurnId) ? last : undefined);
       for (const tool of message?.toolCalls ?? []) {
         if (tool.output === undefined && tool.status !== "denied") context.state.setToolResult(context.key, tool.id, hostStopToolOutput(hostStop), true, undefined, hostStop);
       }

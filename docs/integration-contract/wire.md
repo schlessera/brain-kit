@@ -1527,7 +1527,10 @@ hostStopOutcomeDetail(cause), hostStopFromOutcomeDetail(detail)   // exported fr
   aborted signal first keeps its existing `stopped:cancelled` note.
 - **Governance.** A `policy_confirm` event whose confirmation was pending when
   the host stopped the turn records `decision: "host_stopped"`, not
-  `timed_out`. Its lifecycle record ends `error` with the host-stop reason.
+  `timed_out`. The value is new, so the kind's `schema_version` is now 2;
+  stored version 1 rows keep their version and never carry it. Only the host
+  sets it: a backend's own `host_stopped` before any host stop is recorded as
+  `declined`. Its lifecycle record ends `error` with the host-stop reason.
 - **Attestation.** Only the host sets these: a backend's own
   `tool_result.hostStop` or `host_stop:` result detail is dropped.
 - **Tolerance.** A client that does not read these shows a cancelled turn and

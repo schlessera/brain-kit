@@ -94,6 +94,7 @@ export function createRunRecorder(
           ...(host.brainPath ? { brainPath: host.brainPath } : {}),
           // Every recorder stop is a safety-recording failure.
           abort: error => stopTurnForHost(host, turn, turnId, abortController, "safety_recording", error),
+          hostStop: () => hostStopOf(turn, turnId),
         },
         {
           turnId: turn.turnId,
