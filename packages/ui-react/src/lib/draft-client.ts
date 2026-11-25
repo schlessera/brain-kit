@@ -79,6 +79,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   const recoveries = new Map<string, { edit: number; fileIds: string[]; body: { message?: string } }>();
   /** Drafts whose refused snapshot list is being read again: no save goes out meanwhile. */
   const reconciling = new Set<string>();
+  const reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Idempotency keys per draft for the save in flight: a retry of the same body reuses it. */
   const saveKeys = new Map<string, { body: string; key: string }>();
   /**
@@ -234,8 +235,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         // once: the same list refused again is not sent again (#4566). A
         // draft the host never stored has no list of its own to read.
         if (mayRecover(draftId, at, body, "list")) {
-          reconciling.add(draftId);
-          void reconcileSnapshots(draftId).finally(() => reconciling.delete(draftId));
+          reconcile(draftId);
         }
         return;
       }
@@ -428,8 +428,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     const unlisted = fileIds.filter((id) => !listed.has(id));
     const proven = unlisted.filter((id) => bound.has(id));
     if (proven.length > 0) return proven;
-    // A snapshot's originals may be the refused ones: those are not the composer's to leave out.
-    return draftSnapshots(d).some((s) => s.files.length > 0) ? [] : unlisted;
+    // A new or changed snapshot's originals may be the refused ones (the host
+    // checks only those): they are not the composer's to leave out.
+    const acked = new Map((d.host?.snapshots ?? []).map((s) => [s.snapshotId, s.fileIds.join()]));
+    return draftSnapshots(d).some((s) => s.files.length > 0 && acked.get(s.snapshotId) !== s.files.map((f) => f.fileId).join()) ? [] : unlisted;
   }
 
   /**
@@ -437,13 +439,33 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    * dispatched snapshot it no longer lists was released by its acceptance,
    * the only way one leaves without being returned first.
    */
-  async function reconcileSnapshots(draftId: string): Promise<void> {
+  /**
+   * Re-read a refused list with no save going out meanwhile (#4566). A read
+   * that gets no answer is tried again, backing off; the refused list is not
+   * sent again until one does.
+   */
+  function reconcile(draftId: string, tries = 0) {
+    reconciling.add(draftId);
+    void reconcileSnapshots(draftId).then((again) => {
+      if (again && !disposed) {
+        reconcileTimers.set(draftId, setTimeout(() => { reconcileTimers.delete(draftId); reconcile(draftId, tries + 1); }, RETRY_MS[Math.min(tries, RETRY_MS.length - 1)]));
+        return;
+      }
+      reconciling.delete(draftId);
+    });
+  }
+
+  /** True when the read got no answer and is owed again. */
+  async function reconcileSnapshots(draftId: string): Promise<boolean> {
     const read = await api.get(draftId);
-    if (disposed) return;
+    if (disposed) return false;
     const store = drafts.getState();
     const d = store.drafts[draftId];
-    if (!d) return;
-    if (!read.ok) { if (read.status === 404 || read.status === 410) { bumpHost(draftId); store.hostGone(draftId); } else backoff(draftId); return; }
+    if (!d) return false;
+    if (!read.ok) {
+      if (read.status === 404 || read.status === 410) { bumpHost(draftId); store.hostGone(draftId); return false; }
+      return true;
+    }
     const held = new Set((read.value.snapshots ?? []).map((x) => x.snapshotId));
     for (const s of draftSnapshots(d)) {
       const acked = d.host?.snapshots?.some((x) => x.snapshotId === s.snapshotId);
@@ -454,12 +476,13 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       }
     }
     const now = drafts.getState().drafts[draftId];
-    if (!now?.host) { backoff(draftId); return; }
+    if (!now?.host) { backoff(draftId); return false; }
     // Saved again over the host's revision, with the host's list as acknowledged.
     bumpHost(draftId);
     drafts.setState((st) => st.drafts[draftId] ? { drafts: { ...st.drafts, [draftId]: { ...st.drafts[draftId]!, host: { ...st.drafts[draftId]!.host!, revision: read.value.revision, edit: -1,
       snapshots: (read.value.snapshots ?? []).map(({ createdAt: _at, ...w }) => w) } } } } : st);
     backoff(draftId);
+    return false;
   }
 
   /** Whether a snapshot of this draft may send now: connected, and a new chat's only from its own view. */
@@ -1047,6 +1070,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     dispose(): void {
       disposed = true;
       refusals.clear();
+      for (const timer of reconcileTimers.values()) clearTimeout(timer);
+      reconcileTimers.clear();
       recoveries.clear();
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();

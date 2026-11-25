@@ -399,3 +399,32 @@ test("a draft whose id the host allows and spells like the gone lineage still se
   expect(s.drafts.getState().drafts[id]?.files, "GONE_LINEAGE_NEVER_A_DRAFT_ID").toEqual([{ file: PERMIT, lineage: GONE_LINEAGE }]);
   expect(s.saves.at(-1)!.body.fileIds).toEqual([]);
 });
+
+test("an unchanged acknowledged snapshot with files does not stop a stale composer file from being left out", async () => {
+  const s = scene({ snapshots: true });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew", files: [{ file: PERMIT, lineage: s.id }] });
+  await run(SAVE_DELAY + 100);
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-muster" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-muster", requestId: "req-muster", text: "Muster the crew", files: [{ fileId: PERMIT.fileId, file: PERMIT }], state: "held", createdAt: null, message }, "Muster the crew");
+  await run(SAVE_DELAY + 100);
+  expect(s.drafts.getState().drafts[s.id]?.host?.snapshots?.[0]?.fileIds).toEqual([PERMIT.fileId]);
+  s.swept.add(CREW.fileId);
+  s.drafts.getState().edit(s.id, SESSION, { text: "Crew list", files: [{ file: CREW, lineage: s.id }] });
+  await run(LONG);
+  expect(s.drafts.getState().drafts[s.id]?.files, "ACKED_SNAPSHOT_FILES_DO_NOT_BLOCK").toEqual([{ file: CREW, lineage: GONE_LINEAGE }]);
+  expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
+});
+
+test("a reconciliation read that gets no answer is read again, and the refused list is not sent meanwhile", async () => {
+  let refusals = 1;
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length && refusals-- > 0 ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } } : null) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  s.silenceGets(3);
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-muster" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-muster", requestId: "req-muster", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "Muster the crew");
+  await run(LONG);
+  expect(s.saves.filter((x) => x.body.snapshots?.length).length, "RECONCILE_READ_RETRIED").toBe(2);
+  expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
+  expect(s.drafts.getState().drafts[s.id]?.host?.snapshots).toHaveLength(1);
+});
