@@ -25,7 +25,7 @@ export class RelayResponseRefused extends Error {
  constructor(readonly failure:EgressChargeFailure){super('Relay response refused');}
 }
 /** Owns header-first accounting, charge-before-size ordering and the EOF fence. */
-export function readRelayResponse(response:Response,options:{charge(count:number):EgressChargeFailure|undefined;remaining():number;maxBytes?:number}) {
+export function readRelayResponse(response:Response,options:{charge(count:number):EgressChargeFailure|undefined;remaining():number;maxBytes?:number;pendingRecording?:()=>Iterable<Promise<void>>}) {
  let reader:ReadableStreamDefaultReader<Uint8Array>|undefined,size=0;
  const received=(count:number)=>chargeReceivedBytes(count,options);
  const headerFailure=readReceivedHead(`HTTP/1.1 ${response.status} ${response.statusText}`,[...response.headers].flat(),options,1024);
@@ -37,6 +37,7 @@ export function readRelayResponse(response:Response,options:{charge(count:number
    if(headerFailure)throw new RelayResponseRefused(headerFailure);
    reader??=response.body?.getReader();
    const next=reader?await reader.read():{done:true as const,value:undefined};
+   for (const pending of options.pendingRecording?.() ?? []) await pending;
    const failure=next.done?fence():received(next.value.byteLength+16);
    if(failure)throw new RelayResponseRefused(failure);
    if(!next.done){size+=next.value.byteLength;if(options.maxBytes!==undefined&&size>options.maxBytes)throw new Error('Relay response too large');}

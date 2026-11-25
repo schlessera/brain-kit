@@ -144,6 +144,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const initialAdmissionFailure=await admitFailure();
         if (initialAdmissionFailure) return chargeDenied(initialAdmissionFailure);
         mark("admitMs");
+        for (const pending of operation?.pendingRecording?.() ?? []) await pending;
         const initialDecision = operation?.charge(0);
         if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
         const requestHead=readRelayRequestHead(`${request.method} ${url.pathname}${url.search} HTTP/1.1`,request.headers,{charge:chargeFailure,remaining:allowance.remaining});
@@ -161,6 +162,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         try {
           if (reader) for (;;) {
             const next = await reader.read();
+            for (const pending of operation?.pendingRecording?.() ?? []) await pending;
             if (next.done) break;
             length += next.value.byteLength;
             const failure = receivedFailure(next.value.byteLength + 16);
@@ -206,6 +208,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         // HTTP application framing before provider TLS: never describe this as
         // measured TLS ciphertext/handshake bytes. Include every observable
         // query/header byte plus a conservative runtime framing allowance.
+        for (const pending of operation?.pendingRecording?.() ?? []) await pending;
         const requestChargeFailure = requestHead.forward(`${request.method} ${path}${url.search} HTTP/1.1`,headers);
         if (requestChargeFailure) return chargeDenied(requestChargeFailure);
         // Body/credential waits may have crossed an input-recording failure.
@@ -214,6 +217,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         if (finalAdmissionFailure) return chargeDenied(finalAdmissionFailure);
         const dispatchDecision = operation?.prepare();
         if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
+        for (const pending of operation?.pendingRecording?.() ?? []) await pending;
         let response: Response;
         try {
           // Never follow a redirect: the upstream must not choose another host.
@@ -229,7 +233,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           return cause.failure?chargeDenied(cause.failure):refuse(request.method,path,cause.status,"Inference upstream unreachable");
         }
         mark("headersMs");
-        const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining});
+        for (const pending of operation?.pendingRecording?.() ?? []) await pending;
+        const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining,pendingRecording:operation?.pendingRecording});
         if(incoming.headerFailure){await incoming.cancel().catch(()=>{});return chargeDenied(incoming.headerFailure);}
         if (response.status >= 300 && response.status < 400) {
           operation?.finish("failed", "upstream_redirected");
@@ -259,6 +264,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
               operation?.finish(cause.outcome,"upstream_response_failed");
               release();controller.error(new Error(cause.failure?inferenceRefusalMessage(cause.failure):"Inference response interrupted"));return;
             }
+            for (const pending of operation?.pendingRecording?.() ?? []) await pending;
             const failure=next.deliver(()=>{
               if(next.done){controller.close();operation?.finish("completed");release();}
               else { controller.enqueue(next.value); observeDiagnostic(() => observeUsage?.(next.value)); }

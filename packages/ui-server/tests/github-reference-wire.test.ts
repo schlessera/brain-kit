@@ -13,10 +13,10 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 const publicAddress = "93.184.216.34";
 const metadata = { id: 101, owner: { id: 201, login: "Odysseus" }, name: "Ithaca", private: false };
 async function fixture(port: number, options: { owner?: string; maxBytes?: number; turnBytes?: number; timeoutMs?: number; signal?: AbortSignal; authorize?: (recipient: "git" | "metadata", credentialed: boolean) => void;
-  recordingAvailable?: () => boolean;
+  recordingAvailable?: () => boolean; pendingRecording?: () => Iterable<Promise<void>>;
   lookup?: (host: string, options: { all: true; verbatim: true }) => Promise<{ address: string; family: number }[]> } = {}) {
   const records: EgressRecord[] = [], destinations: unknown[] = [];
-  const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: options.turnBytes ?? 1048576, observe: r => records.push(r),...(options.recordingAvailable?{admissionSafety:{read:()=>({evidenceRevision:"1",trustRevision:"1",authorityEpoch:"1",scope:"ithaca",policyHash:null,restricted:false,recordingAvailable:options.recordingAvailable!(),authorityCurrent:true}),subscribe:()=>()=>{}}}:{}) });
+  const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: options.turnBytes ?? 1048576, observe: r => records.push(r),...(options.recordingAvailable?{admissionSafety:{read:()=>({evidenceRevision:"1",trustRevision:"1",authorityEpoch:"1",scope:"ithaca",policyHash:null,restricted:false,recordingAvailable:options.recordingAvailable!(),authorityCurrent:true}),subscribe:()=>()=>{},pendingRecording:options.pendingRecording}}:{}) });
   try {
     const wire = await createGitHubReferenceWire({ ...(options.owner ? { owner: options.owner } : { repository: "odysseus/ithaca" }), egress, maxBytes: options.maxBytes ?? 1048576,
       authorize: options.authorize ?? (() => {}), timeoutMs: options.timeoutMs, signal: options.signal, ca: readFileSync(tls.ca, "utf8"),
@@ -81,6 +81,23 @@ test("the Git channel forwards and counts raw bidirectional wire, including CONN
     expect(f.wire.bytes(), "REFERENCE_ACTUAL_BIDIRECTIONAL_WIRE").toMatchObject({ chargedBytes: 8, incomingWireBytes: 4, outgoingWireBytes: 4 });
     expect(f.egress.usedBytes()).toBe(8);
   } finally { await f.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test("managed Git waits for evidence before delivering the origin's final bytes", async () => {
+  let held = false;
+  const waiting = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const server = createServer(socket => socket.once("data", () => { held = true; socket.end("ITHACA"); }));
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const f = await fixture((server.address() as { port: number }).port, {
+    recordingAvailable: () => !held,
+    *pendingRecording() { if (held) { waiting.resolve(); yield release.promise; } },
+  });
+  const answer = tunnel(f.wire.gitProxyUrl(false), "github.com:443", "oars");
+  try {
+    await Promise.race([waiting.promise, answer]);
+    held = false; release.resolve();
+    expect(await answer, "SETTLED_MANAGED_GIT_FINAL_BYTES").toEndWith("ITHACA");
+  } finally { held = false; release.resolve(); await f.close(); await new Promise<void>(r => server.close(() => r())); }
 });
 
 test("Git proxy capability cannot reach API metadata or another recipient", async () => {
