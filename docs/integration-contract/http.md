@@ -1381,6 +1381,22 @@ The next compatible server/SDK minor includes these endpoints; clients must
 retain an unavailable state when an older host does not provide them. No core
 CLI, MCP, frontmatter, config or content-index contract changes.
 
+### Storage events timeline (additive, 0.45.0, #4541)
+
+The [storage events operation](../http-api.md#storage-events-timeline),
+`GET /api/storage/events?identity=&since=`, and SDK `StorageEventsResponse`,
+`StorageEvent`, `StorageEventKind` and the four `Storage*Event` types are
+version 1 additive contracts. They keep current human-owner authorization and
+the per-principal boundary of maintenance receipts. Events carry the time of
+the evidence, report or receipt that caused them; `seq` is the recording order
+and the `since` continuation, so equal `at` values stay distinct. A maintenance
+event matches its receipt by `receipt` and `phase`, never by time. Each kind is
+bounded (256 pressure, 128 refusal, 64 scope, 512 maintenance) so the worst case
+fits the 262,144-byte cap; a full kind reports `paused` and keeps every earlier
+event. Episodes open before recording began are omitted. `StorageHistoryResponse`
+and the other storage shapes are unchanged; a client keeps an unavailable state
+when an older host returns 404.
+
 ### Activity host timing envelopes (additive)
 
 `GET /api/activity/runs` adds `lifecycles: ActivityTurnLifecycle[]`, bounded by

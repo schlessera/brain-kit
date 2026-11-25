@@ -95,3 +95,22 @@ are purged with obsolete episodes or subscription deletion.
 Operational export includes history, episodes and receipts. Restore suppresses
 all old episode delivery authority, clears collection leases and requires fresh
 evidence. It does not restore content files, replay a notice or perform cleanup.
+
+## Events timeline
+
+The UI server also records a bounded events timeline in the operational
+database, in the `storage_events` table ([HTTP contract](http-api.md#storage-events-timeline)).
+Each event is written in the same transaction that changes the state it
+describes: warning starts, severity steps, recovery attempts and ends, and
+owner refusals and scope changes in the history flush; maintenance requests and
+finishes in the receipt write. Its time is that of the observation, owner report
+or receipt, so a slow flush never moves a start.
+
+The limits are fixed per kind: 256 pressure, 128 refusal, 64 scope and 512
+maintenance events per brain. Their worst-case encodings (187, 195, 228 and 323
+bytes) total 252,800 bytes, so a full response fits the 262,144-byte cap;
+`STORAGE_EVENT_LIMITS` in `packages/ui-server/src/storage/events.ts` carries
+the arithmetic. A full kind stops recording and reports `paused`. No event is
+updated or deleted, and pausing never blocks the history, pressure policy or
+maintenance. Episodes already open before this table existed are not emitted.
+Operational export and restore carry the table like the history.
