@@ -124,13 +124,19 @@ export function storagePaneFixture({
     depletionPerDay: null,
     days: null,
   });
-  const ok = state === "healthy" || state === "recovered";
-  const short = chart === "no-projection" ? unavailable("gap") : finite("short", ok ? 60 : state === "low" ? 14 : 5);
+  const flat = (window: "short" | "long"): StorageScenario => ({ ...finite(window, 1), state: "non-depleting", days: null, depletionPerDay: null });
+  // The recovered disk climbed over the last week and still fell over thirty days.
+  const trend = (days: number) => (recovered(0) - recovered(days * DAY)) / days;
+  const short =
+    chart === "no-projection"
+      ? unavailable("gap")
+      : state === "recovered"
+        ? flat("short")
+        : finite("short", state === "healthy" ? 60 : state === "low" ? 14 : 5);
   const long =
     chart === "two-windows" || chart === "full" || chart === "gap"
-      ? finite("long", ok ? 90 : state === "low" ? 41 : 12)
+      ? finite("long", state === "recovered" ? Math.round(available / -trend(30)) : state === "healthy" ? 90 : state === "low" ? 41 : 12)
       : unavailable(chart === "no-projection" ? "gap" : "insufficient-span");
-  const flat = (window: "short" | "long"): StorageScenario => ({ ...finite(window, 1), state: "non-depleting", days: null, depletionPerDay: null });
   const evidence = (identity: string, total: number, value: number) => ({
     identity,
     rootScope: scope,
@@ -142,7 +148,7 @@ export function storagePaneFixture({
     long: identity === data.id ? long : flat("long"),
     appAllocated: { start: at - 7 * DAY, end: at, samples: 28, bytesPerDay: 0.49 * GB },
     appLogical: { start: at - 7 * DAY, end: at, samples: 28, bytesPerDay: 0.47 * GB },
-    availableChange: { start: at - 7 * DAY, end: at, samples: 28, bytesPerDay: identity === data.id ? -1.2 * GB : -0.1 * GB },
+    availableChange: { start: at - 7 * DAY, end: at, samples: 28, bytesPerDay: identity !== data.id ? -0.1 * GB : state === "recovered" ? trend(7) : -1.2 * GB },
   });
   const pressure = (identity: string, severity: StoragePressureView["severity"], total: number, value: number, labels: string[], refused: boolean): StoragePressureView => ({
     identity,
