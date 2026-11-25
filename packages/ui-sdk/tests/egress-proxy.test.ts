@@ -34,6 +34,43 @@ function tunnel(socketPath: string, target: string, body: string): Promise<strin
   });
 }
 
+test("CONNECT delivers the origin's final bytes and FIN after a pending evidence write", async () => {
+  const peer = Promise.withResolvers<nodeNet.Socket>(), waiting = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>(), closed = Promise.withResolvers<void>();
+  const origin = createServer(socket => { peer.resolve(socket); socket.once("close", () => closed.resolve()); });
+  await new Promise<void>(resolve => origin.listen(0, "127.0.0.1", resolve));
+  const port = (origin.address() as nodeNet.AddressInfo).port;
+  let held = false;
+  const records: EgressRecord[] = [];
+  const proxy = await startEgressProxy({ ...defaults(records), admissionSafety: {
+    read: () => ({ scope: "voyage", evidenceRevision: "1", trustRevision: "0", authorityEpoch: "0", policyHash: null,
+      authorityCurrent: true, operationRecordingAvailable: true, restricted: false, recordingAvailable: !held }),
+    subscribe: () => () => {},
+    *pendingRecording() { if (held) { waiting.resolve(); yield release.promise; } },
+  } });
+  const worker = connect(proxy.socketPath);
+  const established = Promise.withResolvers<void>(), ended = Promise.withResolvers<void>();
+  let wire = "";
+  worker.on("data", chunk => { wire += chunk; if (wire.includes("\r\n\r\n")) established.resolve(); });
+  worker.once("close", () => ended.resolve());
+  try {
+    worker.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`);
+    await established.promise;
+    const upstream = await peer.promise;
+    held = true;
+    upstream.end("Return to Ithaca.");
+    await waiting.promise;
+    // The origin closes while its final data is held in the proxy.
+    await closed.promise;
+    held = false; release.resolve();
+    await ended.promise;
+    expect(wire.split("\r\n\r\n")[1], "HELD_CONNECT_FINAL_BYTES_REACH_WORKER").toBe("Return to Ithaca.");
+  } finally {
+    held = false; release.resolve(); worker.destroy(); proxy.stop(); await proxy.settled();
+    await new Promise<void>(resolve => origin.close(() => resolve()));
+  }
+});
+
 test("invalid byte ceilings are rejected before creating a proxy", async () => {
   for (const maxBytes of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     await expect(startEgressProxy({ ...defaults([]), maxBytes }), `INVALID_EGRESS_BYTE_CEILING_${maxBytes}`)

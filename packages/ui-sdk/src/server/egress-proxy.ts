@@ -33,7 +33,13 @@ function guardedStream(source: { pause(): unknown; resume(): unknown }, wait: ()
     resume();
     for (const deliver of ready) deliver();
   };
-  return { on, resume };
+  // Close follows queued data/FIN, but a disconnect without buffered data
+  // still cancels a pending admission immediately.
+  const afterQueued = (handle: () => void) => () => {
+    if (queued) queued.push(handle);
+    else handle();
+  };
+  return { on, resume, afterQueued };
 }
 
 export const WORKER_EGRESS_DIR = "/run/brain-egress";
@@ -576,8 +582,14 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     } catch { client.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"); return; }
     const op = operation("CONNECT", target);
     let connected = false, upstream: Socket | undefined;
-    op.signal.addEventListener("abort", () => { if (upstream) { if(connected||op.outcome()!=="failed")client.destroy();upstream.destroy(); } }, { once: true });
-    client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
+    op.signal.addEventListener("abort", () => {
+      if (!upstream) return;
+      if (connected || op.outcome() !== "failed") client.destroy();
+      if (op.outcome() === "completed" && upstream.writableEnded) upstream.destroySoon();
+      else upstream.destroy();
+    }, { once: true });
+    const fromClient = guardedStream(client, op.pendingRecording);
+    client.once("close", fromClient.afterQueued(() => op.finish(stopped || !connected ? "cancelled" : "completed")));
     const upstreamFailed=()=>{
       const prior=op.outcome();op.finish("failed","upstream_unreachable");
       if(connected||(prior&&prior!=="failed")){client.destroy();return;}
@@ -595,11 +607,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       for (const pending of op.pendingRecording()) await pending;
       if (!op.receive(head.length).ok) { refuseConnect(); return; }
       const address = op.pinned();
-      const sent=op.dispatch(()=>{upstream=track(connect({host:address?.address??op.dialHost,port:Number(target.port||80),signal:op.signal}));});
+      const sent=op.dispatch(()=>{upstream=track(connect({host:address?.address??op.dialHost,port:Number(target.port||80)}));});
       if(!sent.ok){refuseConnect();return;}
       const tunnel = upstream!;
       const fromTunnel = guardedStream(tunnel, op.pendingRecording);
-      const fromClient = guardedStream(client, op.pendingRecording);
       tunnel.once("connect", fromTunnel.on(() => {
         if (stopped || op.signal.aborted || client.destroyed || !op.charge(0).ok) { tunnel.destroy(); return; }
         connected = true;
@@ -612,8 +623,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       tunnel.once("error",upstreamFailed);
       tunnel.once("end", fromTunnel.on(() => { if (!op.charge(0).ok) { client.destroy(); tunnel.destroy(); return; } client.end(); }));
       client.once("end", fromClient.on(() => { if (!op.charge(0).ok) { client.destroy(); tunnel.destroy(); return; } tunnel.end(); }));
-      client.once("close", () => tunnel.destroy());
-      tunnel.once("close", () => {if(connected||op.outcome()!=="failed")client.destroy();});
+      tunnel.once("close", fromTunnel.afterQueued(() => {
+        if (!client.writableEnded && (connected || op.outcome() !== "failed")) client.destroy();
+      }));
     })().catch(error => {if(error instanceof TransportHandoffFailed)upstreamFailed();else{op.finish("failed","proxy_error");client.destroy();}});
   });
   server.on("request", (request, response) => {

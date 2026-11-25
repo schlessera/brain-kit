@@ -311,6 +311,35 @@ for (const mode of ["allowed", "tainted", "lost", "tool"] as const) {
   });
 }
 
+test("a parallel PreToolUse rewrite leaves the outward decision to its command card after evidence settles", async () => {
+  const f = await fixture();
+  const cards: PermissionRequest[] = [], writes: Promise<boolean>[] = [];
+  const original = f.safety.pendingRecording!.bind(f.safety);
+  const bridge: BackendBridge = { emit() {}, admissionSafety: f.safety,
+    async requestPermission(card) { cards.push(card); return { behavior: "deny", message: "Odysseus declines the push" }; } };
+  const input = { command }, args = { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: input, tool_use_id: "voyage-push" } as const;
+  const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca", bridge, signal: f.controller.signal },
+    allowedTools: ["Bash"], confirmPatterns: [], brainPath: f.root, turnLock: { releaseForTool() {} } as never, childEnv: {}, log() {} });
+  const hooks = wiring.hooks!.PreToolUse!;
+  try {
+    // Submit an independent write as each rewrite gate reads. The real FULL
+    // writer and subscription decide when the gate can continue.
+    f.safety.pendingRecording = function* (...params) {
+      writes.push(f.writes.firstTaint({ kind: "taint", turnId: "voyage", sessionId: "ithaca",
+        actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: null } }));
+      yield* original(...params);
+    };
+    const invoke = (matcher: string) => hooks.find(group => group.matcher === matcher)!.hooks[0]!(args as never, args.tool_use_id, { signal: f.controller.signal });
+    const rewrite = await invoke("^Bash$");
+    expect(writes.length).toBeGreaterThan(0);
+    expect(rewrite, "PARALLEL_REWRITE_LEAVES_OUTWARD_CARD_REACHABLE").toEqual({ continue: true });
+    f.safety.pendingRecording = original;
+    const result = await invoke(MUTATING_TOOL_MATCHER);
+    expect(cards.map(card => card.kind)).toEqual(["command"]);
+    expect(result).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "Odysseus declines the push" } });
+  } finally { f.safety.pendingRecording = original; await Promise.allSettled(writes); await f.close(); }
+});
+
 test("an independent connection cannot borrow another request's own-input authority; dispatched legacy grants still work", async () => {
   const f = await fixture(); let reached = 0, admissions = 0;
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { reached++; return new Response("Ithaca"); } });

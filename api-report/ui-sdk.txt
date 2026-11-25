@@ -1617,6 +1617,7 @@ export "./internal" (./src/internal.ts)
   safetyAdmissionSchema
   safetyOccurrenceAdmissionSchema
   safetyRecordSchema
+  sameAuthority
   sameSafetyAdmission
   sessionPromptContext
   sessionPromptContextLocation

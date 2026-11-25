@@ -198,7 +198,7 @@ export function createPermissionContext(options: PermissionWiringOptions, native
   // Only a host-completed per-use admission, with exact input identity, may
   // suppress the same command card when the runtime subsequently asks for its
   // separate tool grant. Never borrowed across turns, retries or edited input.
-  const shownOutward = new Map<string, string>();
+  const outwardAdmissions = new Map<string, { input: string; kind: "per-use" | "standing"; toolName: string }>();
   const denyCommand = (toolName: string, input: unknown, toolUseId: string) => {
     const refusal = backgroundBashRefusal(toolName, input) ?? denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
     if (refusal) observe(prepareOutwardPlan({ toolName, shellToolName: "Bash", input, taint: req.workerSandbox?.commandPolicy?.taint, autonomous: Boolean(req.autonomous) }), toolName, input, toolUseId, "refused");
@@ -254,7 +254,7 @@ export function createPermissionContext(options: PermissionWiringOptions, native
     return refusal;
   };
   return { req, brainPath, turnLock, log, nativeAuthorityRefusal, nativeRefusal, commandPolicy, confirmPatterns, outward, observe,
-    shownOutward, denyCommand, allowed, updateName, routed, enforced, permissionOptions, withheld, commandAllowed, recheckEdit };
+    outwardAdmissions, denyCommand, allowed, updateName, routed, enforced, permissionOptions, withheld, commandAllowed, recheckEdit };
 }
 
 // DO NOT WEAKEN THIS INTO A FALLTHROUGH. Withholding OUR shortcuts is not
@@ -345,7 +345,7 @@ export function enforcementHookFor(ctx: PermissionContext): HookCallback {
 /** The SDK callback for a call nothing auto-allowed: the grantable card, then the write lock. */
 export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canUseTool"]> {
   const { req, brainPath, turnLock, nativeAuthorityRefusal, nativeRefusal, commandPolicy, confirmPatterns, outward, observe,
-    shownOutward, denyCommand, allowed, routed, enforced, permissionOptions, recheckEdit } = ctx;
+    outwardAdmissions, denyCommand, allowed, routed, enforced, permissionOptions, recheckEdit } = ctx;
   return async (
     toolName,
     input,
@@ -368,8 +368,9 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
     const outwardPlan = outward(toolName, input);
     const snapshot = req.bridge.admissionSafety?.read();
     if (outwardPlan.voiceRefusal) { observe(outwardPlan, toolName, input, opts.toolUseID, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
-    const shown = shownOutward.get(opts.toolUseID) === JSON.stringify(input);
-    shownOutward.delete(opts.toolUseID);
+    const admission = outwardAdmissions.get(opts.toolUseID);
+    const shown = admission?.kind === "per-use" && admission.toolName === toolName && admission.input === JSON.stringify(input);
+    outwardAdmissions.delete(opts.toolUseID);
     let perUseDecision: Awaited<ReturnType<typeof requestPolicyPermission>> | undefined;
     if (outwardPlan.pattern && !shown) {
       const approval = { kind: "command" as const, reason: outwardPlan.pattern.effect! };
@@ -451,7 +452,7 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
 // across turns no matter which permission path admitted the tool.
 export function mutatingHookFor(ctx: PermissionContext): HookCallback {
   const { req, brainPath, turnLock, nativeAuthorityRefusal, nativeRefusal, commandPolicy, confirmPatterns, outward, observe,
-    shownOutward, denyCommand, updateName, routed, permissionOptions, commandAllowed, recheckEdit } = ctx;
+    outwardAdmissions, denyCommand, updateName, routed, permissionOptions, commandAllowed, recheckEdit } = ctx;
   return async (hookInput) => {
     if (hookInput.hook_event_name !== "PreToolUse") {
       return { continue: true };
@@ -590,7 +591,10 @@ export function mutatingHookFor(ctx: PermissionContext): HookCallback {
     const refusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, before: snapshot, approved, signal: req.signal });
     observe(finalPlan, hookInput.tool_name, finalInput, hookInput.tool_use_id, refusal ? "refused" : { behavior: "allow" });
     if (refusal) { turnLock.releaseForTool(hookInput.tool_use_id); return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } }; }
-    if (approved) shownOutward.set(hookInput.tool_use_id, JSON.stringify(finalInput));
+    if (approved || finalPlan.rules.some(Boolean)) {
+      outwardAdmissions.set(hookInput.tool_use_id, { toolName: hookInput.tool_name,
+        input: JSON.stringify(finalInput), kind: approved ? "per-use" : "standing" });
+    }
     if (edited !== undefined) {
       // Applied by returning `updatedInput` with NO permissionDecision. A
       // PreToolUse hook's rewrite takes effect without one — measured for #124
@@ -754,14 +758,12 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
     let refusal = safetyAdmissionRefusal(req.bridge.admissionSafety, snapshot)
       ?? (signal.aborted ? "Turn cancelled before tool admission." : null);
     if (!refusal && waited && args[0].hook_event_name === "PreToolUse") {
-      // The hook checked this input before its last wait. Independent evidence
-      // may have withdrawn a standing outward rule during that wait.
-      const result = "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse"
-        ? output.hookSpecificOutput : undefined;
-      if (result?.permissionDecision !== "deny" && result?.permissionDecision !== "ask") {
-        const input = result?.updatedInput ?? args[0].tool_input;
-        const approved = ctx.shownOutward.get(args[0].tool_use_id) === JSON.stringify(input);
-        refusal = commitOutwardPlan(ctx.outward(args[0].tool_name, input), { bridge: req.bridge, before: snapshot, approved, signal });
+      // Parallel hooks share this call. Recheck only a standing rule that
+      // actually admitted it. A pending per-use card still owns its decision.
+      const admission = ctx.outwardAdmissions.get(args[0].tool_use_id);
+      if (admission?.kind === "standing" && admission.toolName === args[0].tool_name) {
+        refusal = commitOutwardPlan(ctx.outward(admission.toolName, JSON.parse(admission.input)),
+          { bridge: req.bridge, before: snapshot, approved: false, signal });
       }
     }
     if (refusal) {
