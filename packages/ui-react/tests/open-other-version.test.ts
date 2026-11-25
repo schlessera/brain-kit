@@ -150,3 +150,95 @@ test("a version found nowhere says so, and the view stays", async () => {
   expect(summary(s.root, BRANCH)).toBe("Another tab changed this draft. Both versions are kept. The other version isn't on this device any more.");
   expect(s.shown()).toEqual({ sessionId: ITHACA, text: "Telemachus keeps the voyage" });
 });
+
+test("a chat whose transcript was cached still moves the version off it when the resume says it is gone", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  // Raft was visited before: its transcript is cached and confirmed.
+  s.chat.getState().setActiveSession(RAFT);
+  s.chat.setState((c) => ({ buffers: { ...c.buffers, [RAFT]: { ...c.buffers[RAFT]!, historyConfirmed: true } } }));
+  s.chat.getState().setActiveSession(ITHACA);
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(s.shown(), "CACHED_CHAT_GONE").toEqual({ sessionId: null, text: OTHER_TEXT });
+});
+
+test("a timeout, then Retry answering that the chat is gone, still moves the version off it", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.chat.getState().failRestore(RAFT, { reason: "timeout" });
+  s.chat.getState().clearRestoreFailure(RAFT);
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(s.shown(), "RETRY_THEN_GONE").toEqual({ sessionId: null, text: OTHER_TEXT });
+});
+
+test("a reader who moved to another view before the chat answered is left alone", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.root.stores.ui.getState().setActiveView("activity");
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(s.chat.getState().activeSessionId, "NAVIGATED_AWAY_UNTOUCHED").toBe(RAFT);
+  expect(s.drafts.getState().drafts[s.original]?.sessionId, "the version stays where it was").toBe(RAFT);
+  expect(s.drafts.getState().versionSwitch).toBeNull();
+});
+
+test("a version holding outgoing messages is not moved off its gone chat: they would be lost", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  const message = { type: "chat_message" as const, text: "Lash the raft", sessionId: RAFT, requestId: "req-raft" };
+  s.drafts.getState().createSnapshot(s.original, RAFT, { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", files: [], state: "returned", createdAt: 1, message }, "");
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  const d = s.drafts.getState().drafts[s.original];
+  expect(d?.snapshots?.map((x) => x.text), "SNAPSHOTS_NOT_DROPPED").toEqual(["Lash the raft"]);
+  expect(d?.sessionId).toBe(RAFT);
+});
+
+test("a second Open other version still finds a version a rotation moved, and one moved during the device read", async () => {
+  const s = scene();
+  s.drafts.getState().hostGone(s.original);
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  expect(s.shown()).toEqual({ sessionId: null, text: OTHER_TEXT });
+  // Back to the branch's chat, and Open other version again.
+  s.chat.getState().setActiveSession(ITHACA);
+  s.drafts.getState().showDeviceBranch(ITHACA, BRANCH);
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  expect(s.shown(), "SECOND_ATTEMPT_FINDS_IT").toEqual({ sessionId: null, text: OTHER_TEXT });
+
+  const t = scene();
+  const device = slowDevice(t.root);
+  openOtherVersion(t.root, t.original, BRANCH);
+  t.drafts.getState().hostGone(t.original);
+  device.release();
+  await turn();
+  t.root.localWork = null;
+  expect(t.shown(), "ROTATED_DURING_READ").toEqual({ sessionId: null, text: OTHER_TEXT });
+});
+
+test("opening a version of no chat sets aside the previous new chat's pending first message, as a Draft entry does", async () => {
+  const s = scene();
+  s.drafts.getState().hostGone(s.original);
+  // A new chat's first message is waiting for its session.
+  s.chat.getState().setActiveSession(null);
+  s.chat.getState().addUserMessage(null, "Sail for Ithaca at dawn", "typed");
+  s.chat.getState().startDraftTurn();
+  s.chat.getState().setActiveSession(ITHACA);
+  expect(s.chat.getState().pendingDraftId).not.toBeNull();
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  expect(s.chat.getState().pendingDraftId, "PENDING_TURN_SET_ASIDE").toBeNull();
+  expect(Object.keys(s.chat.getState().detachedDrafts), "kept aside for its own session").toHaveLength(1);
+  expect(s.shown()).toEqual({ sessionId: null, text: OTHER_TEXT });
+});
+
+test("a failed switch is still said when the device write failed too", () => {
+  const s = scene();
+  s.drafts.getState().noteVersionSwitch({ draftId: BRANCH, outcome: "failed" });
+  const st = s.drafts.getState();
+  const view = draftIndicatorView({ draft: st.drafts[BRANCH], store: st, queued: [], online: true, localFailed: true, switchNote: "failed" });
+  expect(view, "SWITCH_NOTE_WITH_LOCAL_FAILURE").toMatchObject({ key: "device_conflict", summary: "Couldn't open the other version.", action: "other_version" });
+});

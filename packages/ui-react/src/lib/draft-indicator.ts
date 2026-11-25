@@ -113,11 +113,16 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
   const own = input.queued;
   const files = draftFiles(d);
 
+  const note = input.switchNote ? VERSION_SWITCH_COPY[input.switchNote] : null;
   if (d?.deviceConflict && !d.conflict && !input.localFailed) {
-    const note = input.switchNote ? VERSION_SWITCH_COPY[input.switchNote] : null;
     return { key: "device_conflict", state: "attention", stateLabel: "Another tab changed this draft",
       summary: `Another tab changed this draft. Both versions are kept.${note ? ` ${note}.` : ""}`,
       facts: note ? [{ key: "Other version", value: note }] : [], action: "other_version" };
+  }
+  // A failed device write takes back "both versions are kept", not the switch's outcome (#4567).
+  if (d?.deviceConflict && !d.conflict && note) {
+    return { key: "device_conflict", state: "attention", stateLabel: note, summary: `${note}.`,
+      facts: [{ key: "Other version", value: note }], action: "other_version" };
   }
   // Shown even over an emptied composer: the other version still waits.
   if (d?.conflict) {

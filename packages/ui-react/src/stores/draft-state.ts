@@ -824,7 +824,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
       openDeviceVersion(draftId, kept) {
         if (kept) get().adoptDeviceRecord(kept);
-        successors.delete(draftId);
+        // Opening the original bypasses its continuation; one no longer here keeps it, so it is still found (#4567).
+        if (get().drafts[draftId]) successors.delete(draftId);
         for (const [source, target] of deviceRedirects) if (source === draftId || target === draftId) deviceRedirects.delete(source);
         for (const [session, branch] of deviceViews) if (branch === draftId || get().drafts[resolve(branch)]?.deviceConflict?.otherId === draftId) deviceViews.delete(session);
         const d = get().drafts[draftId];
@@ -841,6 +842,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const d = get().drafts[draftId];
         if (!d) return undefined;
         if (d.sessionId === null) return draftId;
+        // Outgoing messages belong to that chat: a draft of no chat would lose them, so it stays.
+        if (holdsSnapshots(d)) return undefined;
         // The host's copy is bound to that chat: the content moves to a new id, and the old one is deleted there.
         return rotate(d, null);
       },

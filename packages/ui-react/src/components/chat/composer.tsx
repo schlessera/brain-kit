@@ -44,24 +44,9 @@ import { DraftIndicator } from "./draft-indicator.js";
 import { WorkerHostNotice } from "./worker-host-notice.js";
 import { useSessionProfile } from "../../hooks/use-session-profile.js";
 import { useLocalWorkStatus, useWorkRestore } from "../../hooks/use-local-work.js";
-import type { BrainUiRoot } from "../../root.js";
 
 /** The hint when the work context could not be written to this device (#1014). */
 const LOCAL_SAVE_FAILED = "Couldn't save your draft on this device.";
-/** What the field took while a Send's snapshot was unacknowledged (#4567); `base` was the draft's text then. */
-interface HeldInput { draftId: string; sessionId: string | null; base: string; text: string }
-
-/** The held words go into their draft: as typed when nothing else changed it, after what came back when a refusal did. */
-function releaseHeld(root: BrainUiRoot, held: HeldInput) {
-  const store = root.stores.drafts.getState();
-  const current = store.drafts[store.resolveId(held.draftId)]?.text ?? "";
-  const typed = held.text.startsWith(held.base) ? held.text.slice(held.base.length) : held.text;
-  const text = current === held.base ? held.text : current && typed ? `${current}\n${typed}` : current || typed;
-  store.edit(held.draftId, held.sessionId, { text });
-}
-
-/** Typing while a Send's snapshot is unacknowledged (#4567): the words are kept, and wait. */
-const HOLDING_HINT = "New text waits until your message is saved";
 /** Open other version opened a version that has no live chat (#4567). */
 const UNATTACHED_HINT = "Other version · not in a chat yet";
 
@@ -130,27 +115,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // The draft's content is the revision the host acknowledged, file bindings included.
   const draftClean = !!draft && draft.host !== null && draft.host.edit === draft.edit && draft.conflict === null;
   const draftFailure = draft?.failure ?? null;
-  // A Send whose snapshot the host has not acknowledged yet (#3155): a
-  // refusal gives its text back to the field, so nothing typed meanwhile
-  // lands in the draft. The window is one save, or until the host refuses
-  // that save outright.
-  const creatingSnapshot = draftSnapshots(draft).some((x) => !x.replaces && !draft?.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId))
-    && (!draft?.failure || draft.failure.kind === "unsaved");
-  // What is typed or pasted in that window is held here and shown in the
-  // field, never dropped (#4567). It goes into the draft once the window
-  // closes: as typed after an acknowledgement, after the returned text on a
-  // new line after a refusal.
-  const [heldInput, setHeldInput] = useState<HeldInput | null>(null);
-  const holding = heldInput !== null && heldInput.draftId === draftId;
-  const heldRef = useRef(heldInput);
-  heldRef.current = heldInput;
-  useEffect(() => {
-    if (!heldInput || (creatingSnapshot && heldInput.draftId === draftId)) return;
-    setHeldInput(null);
-    releaseHeld(root, heldInput);
-  }, [root, heldInput, creatingSnapshot, draftId]);
-  // A view torn down mid-window writes what it held at once: losing it would be worse than joining it.
-  useEffect(() => () => { if (heldRef.current) releaseHeld(root, heldRef.current); }, [root]);
+  // Typing while a Send's snapshot is unacknowledged goes into the draft as
+  // always (#4567): a refusal gives the snapshot's text back ahead of it, on
+  // its own line (`snapshotsRefused`), so nothing typed is ever dropped.
   /** Write the view's draft. A function reads the draft as it is now, not as rendered. */
   const setInput = (value: string | ((current: string) => string)) => {
     const store = root.stores.drafts.getState();
@@ -1131,7 +1098,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           micLabel={micLabel}
           micTip={micMode === "dictate" && voiceMode !== "dictate" && dictateLabel !== undefined}
           micUnavailable={dictationUnavailable}
-          value={holding ? heldInput!.text : input}
+          value={input}
           // The kit's `state` drives placeholder, hint and the trailing control
           // together (D37): streaming shows the stop, reconnecting keeps send
           // live, offline disables it and keeps the draft. While dictation
@@ -1159,7 +1126,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={localPhase === "recording" ? "Recording on this device" : holding ? HOLDING_HINT : unattachedVersion ? UNATTACHED_HINT : heldSend ? heldHint() : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : localSaveFailed ? LOCAL_SAVE_FAILED : unattachedVersion ? UNATTACHED_HINT : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" && outgoingFull !== null && restorePhase === null && !sessionProfile.saving && !sessionProfile.awaitingDraftFacts ? `${outgoingFull.limit} messages waiting · your text stays here`
               : wsStatus === "connected" && sessionProfile.saving ? "saving this chat profile · your draft is kept"
@@ -1228,10 +1195,6 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           providerMenuRef={providerMenuRef}
           onChange={(value) => {
             if (capturing) return;
-            if (creatingSnapshot) {
-              setHeldInput((held) => ({ draftId, sessionId, base: held?.draftId === draftId ? held.base : input, text: value }));
-              return;
-            }
             setInput(value);
             setPaletteDismissed(false);
             setPaletteIndex(0);
