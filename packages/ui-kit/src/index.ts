@@ -376,3 +376,17 @@ export { GitHubMergeEvent, type GitHubMergeEventProps } from "./github/GitHubMer
 export { GitHubResultList, type GitHubResult, type GitHubResultListProps } from "./github/GitHubResultList.js";
 export { GitHubDetailSection, type GitHubDetailSectionProps, type GitHubDetailState } from "./github/GitHubDetailSection.js";
 export { githubHref, type GitHubPerson, type GitHubState } from "./github/shared.js";
+
+/* Storage history (#4543): the available-space chart, its event legend and a sparkline. */
+export { HistoryChart, SCENARIO_DASH, type HistoryChartProps } from "./storage/HistoryChart.js";
+export { EventList, type EventListProps } from "./storage/EventList.js";
+export { Sparkline, type SparklineProps } from "./storage/Sparkline.js";
+export {
+  projectionReasonText,
+  type HistoryEvidenceReason,
+  type HistoryMarker,
+  type HistoryPoint,
+  type HistoryScenario,
+  type HistoryScenarioWindow,
+  type HistoryThresholds,
+} from "./storage/history-geometry.js";
