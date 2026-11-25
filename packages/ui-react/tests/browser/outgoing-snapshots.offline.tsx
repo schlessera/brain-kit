@@ -223,6 +223,11 @@ test("text pasted while a Send's snapshot is unacknowledged is shown in the fiel
   expect(s.draft()!.snapshots?.length, "SECOND_SEND_WAITS_BESIDE_REPLACEMENT").toBe(2);
   expect(s.field().value).toBe("Bring the wine for Polyphemus.");
   s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: d2 } }));
+  // Nor while the draft's delete is out.
+  s.root.stores.drafts.getState().deleting(d2.draftId, true);
+  s.sendButton().click();
+  expect(s.draft()!.snapshots?.length, "SEND_WAITS_DURING_DELETE").toBe(1);
+  s.root.stores.drafts.getState().deleting(d2.draftId, false);
   // An edit clears the refusal for the acknowledgement below.
   s.root.stores.drafts.getState().saveFailed(d1.draftId, { kind: "unsaved" });
   expect(s.field().value).toBe("Bring the wine for Polyphemus.");

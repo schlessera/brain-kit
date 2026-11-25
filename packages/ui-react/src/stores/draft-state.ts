@@ -222,6 +222,8 @@ export interface ComposerDraft {
   uncertain: boolean;
   /** The accepted request that started this draft's session, to bind it on the host. */
   bind: { sessionId: string; requestId: string } | null;
+  /** Local: a delete of this draft is out (#4567). Send waits until it answers. */
+  deleting?: true;
 }
 
 type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
@@ -429,6 +431,8 @@ export interface DraftStoreState {
    * revision and snapshot list come back, so the message is shown with its own actions again.
    */
   adoptHostSnapshots(draftId: string, draft: Draft): void;
+  /** @internal A delete of this draft went out (true) or was answered (false). */
+  deleting(draftId: string, on: boolean): void;
   /** The host no longer stores these originals for this draft (#4566): they read as needing to be chosen again. */
   filesGone(draftId: string, fileIds: readonly string[]): void;
   /** The host deleted the draft (DELETE acknowledged): it is gone here too. */
@@ -1125,6 +1129,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       forgetUploads(draftId) {
         const d = get().drafts[draftId];
         if (d && d.uploads.size > 0) put({ ...d, uploads: new Map() });
+      },
+
+      deleting(draftId, on) {
+        const d = get().drafts[draftId];
+        if (!d || !!d.deleting === on) return;
+        const { deleting: _was, ...rest } = d;
+        put(on ? { ...rest, deleting: true } : rest);
       },
 
       adoptHostSnapshots(draftId, draft) {
