@@ -1,5 +1,7 @@
 import type {
   StorageCapacityView,
+  StorageEvent,
+  StorageEventsResponse,
   StorageGuidanceResponse,
   StorageHistoryObservation,
   StorageHistoryResponse,
@@ -18,6 +20,8 @@ const HOUR = 3_600_000,
 
 export type PaneState = "healthy" | "low" | "very-low";
 export type ChartState = "full" | "gap" | "no-projection" | "one-window" | "two-windows" | "scope-change";
+/** The events timeline (#4548): an older host's 404, recorded events, the same with warnings paused, or a failure. */
+export type TimelineState = "missing" | "events" | "paused" | "error";
 
 const AVAILABLE: Record<PaneState, number> = { healthy: 48.2 * GB, low: 16.4 * GB, "very-low": 7.2 * GB };
 const SEVERITY: Record<PaneState, StoragePressureView["severity"]> = { healthy: "observed", low: "low", "very-low": "critical" };
@@ -34,11 +38,13 @@ export function storagePaneFixture({
   chart = "two-windows",
   scene = "dense",
   alerts = "on",
+  timeline = "missing",
 }: {
   state?: PaneState;
   chart?: ChartState;
   scene?: StorageScene;
   alerts?: "on" | "quiet" | "unknown-zone" | "none";
+  timeline?: TimelineState;
 } = {}) {
   const inventory = storageViewFixture(scene);
   const at = paneTime;
@@ -258,10 +264,49 @@ export function storagePaneFixture({
       latest: null,
     },
   ] as StorageMaintenanceRow[];
+  // The Brain disk's warning, low → critical → low → observed, and the Pack run
+  // its latest receipt also reports, matched by receipt id and phase.
+  const pack = operations[0]!.latest!;
+  const warning = (seq: number, ago: number, phase: "start" | "step" | "end", severity: StoragePressureView["severity"]): StorageEvent => ({
+    seq,
+    at: at - ago,
+    kind: "pressure",
+    identity: data.id,
+    phase,
+    severity,
+    episode: 1,
+  });
+  const events: StorageEvent[] = [
+    warning(1, 5 * DAY - 13 * 60_000, "start", "low"),
+    warning(2, 3 * DAY - 2 * HOUR, "step", "critical"),
+    warning(3, 2 * DAY - 5 * HOUR, "step", "low"),
+    warning(4, DAY - 3 * HOUR, "end", "observed"),
+    { seq: 5, at: pack.requestedAt, kind: "maintenance", receipt: pack.id, operation: pack.operation, phase: "requested" },
+    ...(pack.completedAt === null || pack.state === "waiting" || pack.state === "running"
+      ? []
+      : [{ seq: 6, at: pack.completedAt, kind: "maintenance" as const, receipt: pack.id, operation: pack.operation, phase: "finished" as const, state: pack.state, reason: pack.reason }]),
+  ];
+  const eventReads: number[] = [];
   const reads: string[] = [];
   const request = async (url: string, init?: RequestInit) => {
-    const path = new URL(url, "http://fixture.invalid").pathname;
+    const parsed = new URL(url, "http://fixture.invalid"),
+      path = parsed.pathname;
     const method = init?.method ?? "GET";
+    if (path === "/api/storage/events" && method === "GET" && timeline !== "missing") {
+      const since = Number(parsed.searchParams.get("since") ?? 0);
+      eventReads.push(since);
+      if (timeline === "error") return Response.json({ error: "Synthetic failure" }, { status: 500 });
+      const page = events.filter((event) => event.seq > since);
+      const body: StorageEventsResponse = {
+        version: 1,
+        since,
+        next: page.at(-1)?.seq ?? since,
+        limits: { pressure: 256, refusal: 128, scope: 64, maintenance: 512, payloadBytes: 262144 },
+        paused: { pressure: timeline === "paused", refusal: false, scope: false, maintenance: false },
+        events: structuredClone(page),
+      };
+      return Response.json(body);
+    }
     if (path.endsWith("/guidance") || path.endsWith("/history")) {
       reads.push(path);
       return Response.json(structuredClone(path.endsWith("/guidance") ? guidance : history));
@@ -269,5 +314,5 @@ export function storagePaneFixture({
     if (path === "/api/storage/maintenance" && method === "GET") return Response.json({ operations: structuredClone(operations) });
     return inventory.request(url, init);
   };
-  return { inventory, guidance, history, operations, request, reads };
+  return { inventory, guidance, history, operations, events, eventReads, request, reads };
 }
