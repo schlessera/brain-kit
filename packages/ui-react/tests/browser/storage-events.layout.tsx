@@ -85,7 +85,11 @@ for (const width of [320, 1280])
       const time = storageFormat().time;
       const [start, step, back, end, , finished] = f.events;
       const prune = f.operations[1]!.latest!;
-      await expect.poll(() => legend().length, { message: "STORAGE_TIMELINE_MARKERS" }).toBe(6);
+      await expect
+        .poll(() => rows().some((row) => row.endsWith("Warning ended · back to OK")), { message: "STORAGE_TIMELINE_MARKERS" })
+        .toBe(true);
+      // The Pack run is in the latest receipt and the timeline; it is drawn once.
+      expect(legend().filter((row) => row.textContent!.includes("Pack Git history")), "STORAGE_DUAL_REPORTED_RUN_ONCE").toHaveLength(1);
       // Four warning markers at the server's times, then the two runs, numbered in time order.
       expect(rows(), "STORAGE_TIMELINE_AT_SERVER_TIMES").toEqual([
         `1 ${time(start!.at)} · Low warning started`,
@@ -95,8 +99,6 @@ for (const width of [320, 1280])
         `5 ${time(prune.completedAt!)} · Prune scratch answers · done`,
         `6 ${time(finished!.at)} · Pack Git history · done`,
       ]);
-      // The Pack run is in the latest receipt and the timeline; it is drawn once.
-      expect(legend().filter((row) => row.textContent!.includes("Pack Git history")), "STORAGE_DUAL_REPORTED_RUN_ONCE").toHaveLength(1);
       // The legend's numbers are the chart's, and the chart numbers them left to right.
       const chart = boxes();
       expect(chart.numbers, "STORAGE_LEGEND_MATCHES_CHART").toEqual([1, 2, 3, 4, 5, 6]);
@@ -139,5 +141,5 @@ for (const timeline of ["missing", "error"] as const)
     ]);
     if (timeline === "error") expect(f.eventReads.length).toBeGreaterThan(0);
     expect(host.querySelector('[role="alert"]'), "STORAGE_TIMELINE_NO_ERROR_BANNER").toBeNull();
-    expect(section()!.textContent).not.toMatch(/could not|unavailable|timeline/i);
+    expect(section()!.textContent, "STORAGE_TIMELINE_NO_ERROR_NOTE").not.toMatch(/could not|unavailable|timeline/i);
   });
