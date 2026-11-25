@@ -3,14 +3,22 @@ import { createStore } from "zustand/vanilla";
 import type {
   StorageGuidanceResponse,
   StorageHistoryResponse,
+  StorageSnapshot,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiRoot } from "../../../root.js";
 import { ApiRequestError } from "../../../lib/api-client.js";
 import { storageApi } from "../../../lib/storage-api.js";
+import { latestInventory } from "./storage-volumes.js";
 interface EvidenceState {
   epoch: number;
   guidance: StorageGuidanceResponse | null;
   history: StorageHistoryResponse | null;
+  /**
+   * The newest inventory snapshot, read with the guidance so a volume's name
+   * (#4537 D7) joins the same roots everywhere. `null` when unread or refused;
+   * names then fall back to "Unidentified volume", never a guess.
+   */
+  inventory: StorageSnapshot | null;
   error: "unavailable" | "forbidden" | null;
   loading: boolean;
 }
@@ -18,6 +26,7 @@ const empty = (epoch: number): EvidenceState => ({
   epoch,
   guidance: null,
   history: null,
+  inventory: null,
   error: null,
   loading: false,
 });
@@ -52,11 +61,19 @@ function createEvidence(root: BrainUiRoot) {
     controller = request;
     const deadline = setTimeout(() => request.abort(), 10_000);
     state.setState({ loading: true, epoch });
+    const guidanceRead = api.guidance(request.signal);
+    // Inventory names the volumes; it is read only when there is pressure to name.
+    const inventoryRead = guidanceRead.then((value) =>
+      Array.isArray(value?.capacities) && value.capacities.length
+        ? api.status(request.signal)
+        : null
+    );
     active = Promise.allSettled([
-      api.guidance(request.signal),
+      guidanceRead,
       withHistory ? api.history(request.signal) : Promise.resolve(null),
+      inventoryRead,
     ])
-      .then(([guidance, history]) => {
+      .then(([guidance, history, status]) => {
         if (
           owner !== generation ||
           account !== root.stores.connection.getState().accountKey ||
@@ -79,7 +96,14 @@ function createEvidence(root: BrainUiRoot) {
           guidance.value.version === 1 &&
           Array.isArray(guidance.value.capacities)
         )
-          state.setState({ guidance: guidance.value, error: null });
+          state.setState({
+            guidance: guidance.value,
+            inventory:
+              status.status === "fulfilled" && status.value?.version === 1
+                ? latestInventory(status.value)
+                : null,
+            error: null,
+          });
         else state.setState({ error: "unavailable" });
         if (withHistory)
           state.setState({
