@@ -152,9 +152,13 @@ export interface CliResult {
   code: number;
 }
 
-/** Run the real bin keyless; overrides (e.g. PATH or HOME) must be test-owned. */
-export async function runCli(root: string, args: string[], env: Record<string, string> = {}): Promise<CliResult> {
-  const proc = Bun.spawn(["bun", BRAIN_BIN, ...args], {
+/**
+ * Run the real bin keyless; overrides (e.g. PATH or HOME) must be test-owned.
+ * `preload` is a test module the child loads first, such as the fake gog's
+ * (`helpers/google-fake-gog-preload.ts`).
+ */
+export async function runCli(root: string, args: string[], env: Record<string, string> = {}, options: { preload?: string } = {}): Promise<CliResult> {
+  const proc = Bun.spawn(["bun", ...(options.preload ? ["--preload", options.preload] : []), BRAIN_BIN, ...args], {
     env: { ...keylessEnv(root), ...env },
     stdout: "pipe",
     stderr: "pipe",

@@ -155,6 +155,14 @@ async function main(): Promise<number> {
     return (await apifyCommand.run(argv.slice(1), { brain, json })) ?? 0;
   }
 
+  // Google reads the same host-parsed policy; it never evaluates repository config either (#4208).
+  if (command === "google") {
+    const brain = degradedContext();
+    const { googleCommand } = await import("./commands/google.js");
+    if (wantsHelp) { console.log(googleCommand.helpBlock); return 0; }
+    return (await googleCommand.run(argv.slice(1), { brain, json })) ?? 0;
+  }
+
   // Load the brain context, tolerating a missing/invalid config.
   let brain: BrainContext;
   let configError: string | undefined;

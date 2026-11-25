@@ -51,6 +51,18 @@ autonomous roster lists the tools. See
 and [the HTTP API](http-api.md#gmail-message-body-internal-0460-4207).
 This ships in a minor.
 
+## Google commands (additive, 0.46.0, #4208)
+
+`brain google status`, `connect` and `gmail search|read|labels` print the
+envelope `{ ok, operation, data }` or `{ ok: false, operation, error: { code,
+reason, message } }` and exit `0` or `1`. The reads return the Google
+operations' structured or content results in the standalone posture, with no
+taint and no card; `status` reports the home, the pin, the policy, the alias
+and its scopes, warns on a grant broader than the policy can use, and says
+that a local agent with shell access is inside the standalone boundary. `brain doctor` gains the `google-home` check. See
+[the CLI component](integration-contract/cli.md#google-commands-additive-0460-4208).
+This ships in a minor; no breaking ruling is required.
+
 ## Per-review line-comment counts (additive, 0.45.0, #4147)
 
 Each review in a `brain_github_issue_read` pull request result gains
