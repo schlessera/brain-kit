@@ -39,6 +39,7 @@ test("host Docker driver environments omit inherited provider credentials", asyn
 test("guarded Bun children do not autoload provider credentials from a fixture dotenv", () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-child-env-"));
   try {
+    writeFileSync(join(scratch, "package.json"), JSON.stringify({ name: "odysseus-child-env", private: true }));
     writeFileSync(join(scratch, ".env"), "ANTHROPIC_API_KEY=odysseus-fixture-key\n");
     const child = Bun.spawnSync([process.execPath, "-e", "if(process.env.ANTHROPIC_API_KEY)throw Error('BUN_CHILD_DOTENV_MUST_NOT_LOAD_CREDENTIALS')"], {
       cwd: scratch, env: { PATH: process.env.PATH }, stdout: "pipe", stderr: "pipe",
