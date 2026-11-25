@@ -218,20 +218,40 @@ export function appUsage(input: {
 }
 
 /**
- * The Free up space tools for the volumes in question: the selected volume
- * and every Low or Very low one.
+ * The Free up space tools for the volumes in question (#4549 brief, item 6):
+ * the selected volume and every Low or Very low one. A tool is relevant when
+ * its scope's store categories meet the stores inventory places on one of
+ * those volumes. An unknown mapping (no inventory, or a volume inventory
+ * cannot join to its stores) is never "not relevant": every tool stays.
  */
 export function relevantTools<T extends Pick<StorageMaintenanceRow, "id" | "scope">>(
   operations: readonly T[],
-  _input: {
+  input: {
     inventory: StorageSnapshot | null;
     volumes: readonly StorageVolume[];
     selected: string | null;
-    /** A tool whose run this pane holds: it stays listed wherever it applies. */
+    /** A tool whose run this pane holds: it stays listed on any volume. */
     keep?: string | null;
   }
 ): { tools: T[]; empty: string | null } {
-  return { tools: [...operations], empty: null };
+  const { inventory, volumes, selected, keep } = input;
+  const asked = volumes.filter(
+    (volume) => volume.id === selected || volume.severity === "low" || volume.severity === "critical"
+  );
+  const categories = asked.map((volume) => {
+    const capacity = inventory?.capacities.find((value) => value.id === volume.id);
+    return capacity
+      ? new Set(inventory!.roots.filter((root) => capacity.rootIds.includes(root.id)).map((root) => root.category))
+      : null;
+  });
+  if (!asked.length || categories.some((value) => value === null)) return { tools: [...operations], empty: null };
+  const tools = operations.filter(
+    (tool) => tool.id === keep || tool.scope.some((category) => categories.some((value) => value!.has(category)))
+  );
+  return {
+    tools,
+    empty: tools.length ? null : `No owner-supported tool frees space on ${asked.map((volume) => volume.name).join(" or ")}.`,
+  };
 }
 
 /** The Larger than presets (#4549 brief); 5 MB is D11's bound default. */
