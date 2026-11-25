@@ -528,29 +528,32 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
         const search = call.call.input as GmailSearchInput;
         const cursors = googleCursorStore(prepared.home, now);
         const alias = policy.account!;
+        // Taken once, before the cursor is resolved and Google is asked: a connect at any point after it voids this page.
+        let generation: string;
+        try { generation = cursors.begin(); }
+        catch { return refused(operation, error("unavailable", "cursor_unwritable", MESSAGES.cursor_unwritable!)); }
+        const changed = () => refused(operation, error("unavailable", "connection_changed", MESSAGES.connection_changed!));
         let pageToken: string | undefined;
         if (search.cursor !== undefined) {
-          const resolved = cursors.resolve(alias, search.query, search.cursor);
+          const resolved = cursors.resolve(alias, search.query, search.cursor, generation);
           if (resolved === null) return refused(operation, error("invalid_input", "cursor", MESSAGES.cursor!));
           pageToken = resolved;
         }
         const limit = search.limit ?? GMAIL_LIMITS.searchDefault;
-        // Taken before Google is asked: a connect while this runs voids the next page's cursor.
-        const generation = cursors.generation();
         const [page, labels] = await Promise.all([
           transport.execute("gmail.search", { query: search.query, limit, ...(pageToken ? { page_token: pageToken } : {}) }),
           labelDirectory(),
         ]);
         if (!page.ok) return refused(operation, page.error);
+        // The alias may name another account now: nothing this search was answered is returned.
+        if (cursors.generation() !== generation) return changed();
         // A thread with a hidden label on any of its messages is not a hit (plan §5); the hit's labels are its messages' union.
         const hits = page.value.hits.filter(hit => !hit.label_ids.some(label => hidden.includes(label)));
         let cursor: string | null = null;
         if (page.value.next_page_token) {
           try { cursor = cursors.mint(alias, search.query, page.value.next_page_token, generation); }
           catch (failure) {
-            return refused(operation, failure instanceof GoogleCursorStale
-              ? error("unavailable", "connection_changed", MESSAGES.connection_changed!)
-              : error("unavailable", "cursor_unwritable", MESSAGES.cursor_unwritable!));
+            return failure instanceof GoogleCursorStale ? changed() : refused(operation, error("unavailable", "cursor_unwritable", MESSAGES.cursor_unwritable!));
           }
         }
         const filtered = { ...page.value, hits };

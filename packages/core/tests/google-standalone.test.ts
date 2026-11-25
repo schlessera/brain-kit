@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GoogleCursorStale, googleCursorStore, GOOGLE_CURSOR_FILE, GOOGLE_CURSOR_LIMIT, GOOGLE_CURSOR_TTL_MS } from "../src/lib/google/cursors.ts";
+import { GoogleCursorStale, googleCursorStore, GOOGLE_CURSOR_FILE, GOOGLE_CURSOR_LIMIT, GOOGLE_CURSOR_TTL_MS, GOOGLE_GENERATION_FILE } from "../src/lib/google/cursors.ts";
 import { gogAuthArgv, GogAuthArgvError } from "../src/lib/google/gog-auth.ts";
 import { checkGoogleHome, selectGoogleHome, standaloneGoogleHome } from "../src/lib/google/home.ts";
 import { createStandaloneGoogle, GOOGLE_SCOPE_PATTERN, standaloneGoogleRouting } from "../src/lib/google/standalone.ts";
@@ -121,57 +121,75 @@ describe("google search cursors", () => {
     const home = dir();
     let clock = 1_783_850_000_000;
     const store = googleCursorStore(home, () => clock);
-    const cursor = store.mint("ithaca", "from:penelope", "09876543210987654321", store.generation());
+    const cursor = store.mint("ithaca", "from:penelope", "09876543210987654321", store.begin());
     expect(cursor).toMatch(/^gc_[A-Za-z0-9_-]{16,64}$/);
-    expect(store.resolve("ithaca", "from:penelope", cursor)).toBe("09876543210987654321");
+    expect(store.resolve("ithaca", "from:penelope", cursor, store.begin())).toBe("09876543210987654321");
     // Usable again, so a failed page can be retried.
-    expect(store.resolve("ithaca", "from:penelope", cursor)).toBe("09876543210987654321");
-    expect(store.resolve("sparta", "from:penelope", cursor)).toBeNull();
-    expect(store.resolve("ithaca", "from:eumaeus", cursor)).toBeNull();
-    expect(store.resolve("ithaca", "from:penelope", "gc_AAAAAAAAAAAAAAAAAAAAAAAA")).toBeNull();
+    expect(store.resolve("ithaca", "from:penelope", cursor, store.begin())).toBe("09876543210987654321");
+    expect(store.resolve("sparta", "from:penelope", cursor, store.begin())).toBeNull();
+    expect(store.resolve("ithaca", "from:eumaeus", cursor, store.begin())).toBeNull();
+    expect(store.resolve("ithaca", "from:penelope", "gc_AAAAAAAAAAAAAAAAAAAAAAAA", store.begin())).toBeNull();
     const file = join(home, GOOGLE_CURSOR_FILE);
     expect(statSync(file).mode & 0o777).toBe(0o600);
     // The query is kept as its digest, never its text.
     expect(readFileSync(file, "utf8")).not.toContain("penelope");
     clock += GOOGLE_CURSOR_TTL_MS;
-    expect(store.resolve("ithaca", "from:penelope", cursor)).toBeNull();
+    expect(store.resolve("ithaca", "from:penelope", cursor, store.begin())).toBeNull();
   });
 
   test("google cursor store keeps the newest cursors and reads a damaged file as empty", () => {
     const home = dir();
     let clock = 1_783_850_000_000;
     const store = googleCursorStore(home, () => clock++);
-    const minted = Array.from({ length: GOOGLE_CURSOR_LIMIT + 1 }, (_, index) => store.mint("ithaca", "in:inbox", `token${index}`, store.generation()));
-    expect(store.resolve("ithaca", "in:inbox", minted[0]!)).toBeNull();
-    expect(store.resolve("ithaca", "in:inbox", minted.at(-1)!)).toBe(`token${GOOGLE_CURSOR_LIMIT}`);
+    const minted = Array.from({ length: GOOGLE_CURSOR_LIMIT + 1 }, (_, index) => store.mint("ithaca", "in:inbox", `token${index}`, store.begin()));
+    expect(store.resolve("ithaca", "in:inbox", minted[0]!, store.begin())).toBeNull();
+    expect(store.resolve("ithaca", "in:inbox", minted.at(-1)!, store.begin())).toBe(`token${GOOGLE_CURSOR_LIMIT}`);
     writeFileSync(join(home, GOOGLE_CURSOR_FILE), "{ not json");
-    expect(store.resolve("ithaca", "in:inbox", minted.at(-1)!)).toBeNull();
-    expect(() => store.mint("ithaca", "in:inbox", "a token\nwith a line", store.generation())).toThrow();
+    expect(store.resolve("ithaca", "in:inbox", minted.at(-1)!, store.begin())).toBeNull();
+    expect(() => store.mint("ithaca", "in:inbox", "a token\nwith a line", store.begin())).toThrow();
   });
 
   test("google cursors die with their connection generation: a connect during a search keeps none of its pages", () => {
     const home = dir();
     const store = googleCursorStore(home, () => 1_783_850_000_000);
-    const kept = store.mint("ithaca", "in:inbox", "first", store.generation());
-    const during = store.generation();
+    const kept = store.mint("ithaca", "in:inbox", "first", store.begin());
+    const during = store.begin();
     store.clear();
     expect(() => store.mint("ithaca", "in:inbox", "second", during)).toThrow(GoogleCursorStale);
-    expect(store.resolve("ithaca", "in:inbox", kept)).toBeNull();
-    expect(store.generation()).not.toBe(during);
-    const fresh = store.mint("ithaca", "in:inbox", "third", store.generation());
-    expect(store.resolve("ithaca", "in:inbox", fresh)).toBe("third");
+    expect(store.resolve("ithaca", "in:inbox", kept, store.begin())).toBeNull();
+    expect(store.begin()).not.toBe(during);
+    const fresh = store.mint("ithaca", "in:inbox", "third", store.begin());
+    expect(store.resolve("ithaca", "in:inbox", fresh, store.begin())).toBe("third");
+  });
+
+  test("google cursors: a generation that cannot be read is replaced by a fresh one, never a value an earlier one had", () => {
+    const home = dir();
+    const store = googleCursorStore(home, () => 1_783_850_000_000);
+    expect(store.generation()).toBeNull();
+    const first = store.begin();
+    expect(store.generation()).toBe(first);
+    const cursor = store.mint("ithaca", "in:inbox", "old-account", first);
+    store.clear();
+    const generation = join(home, GOOGLE_GENERATION_FILE);
+    for (const damage of [() => chmodSync(generation, 0o644), () => writeFileSync(generation, "not a generation!\n", { mode: 0o600 }), () => rmSync(generation)]) {
+      damage();
+      expect(store.generation()).toBeNull();
+      const next = store.begin();
+      expect(next).not.toBe(first);
+      expect(store.resolve("ithaca", "in:inbox", cursor, next)).toBeNull();
+    }
   });
 
   test("google cursors: a cursor file written back by a search that began before a connect brings no old cursor back", () => {
     const home = dir();
     const store = googleCursorStore(home, () => 1_783_850_000_000);
-    const old = store.mint("ithaca", "in:inbox", "old-account", store.generation());
+    const old = store.mint("ithaca", "in:inbox", "old-account", store.begin());
     // A search that read the cursor file before the connect renames its snapshot over it afterwards.
     const snapshot = readFileSync(join(home, GOOGLE_CURSOR_FILE));
     store.clear();
     rmSync(join(home, GOOGLE_CURSOR_FILE));
     writeFileSync(join(home, GOOGLE_CURSOR_FILE), snapshot, { mode: 0o600 });
-    expect(store.resolve("ithaca", "in:inbox", old)).toBeNull();
+    expect(store.resolve("ithaca", "in:inbox", old, store.begin())).toBeNull();
   });
 });
 
@@ -179,28 +197,28 @@ describe("google cursor file", () => {
   test("google cursors are read only from a small private regular file: a link, a FIFO, a shared or a large file reads as none", () => {
     const home = dir();
     const store = googleCursorStore(home, () => 1_783_850_000_000);
-    const cursor = store.mint("ithaca", "in:inbox", "09876543210987654321", store.generation());
+    const cursor = store.mint("ithaca", "in:inbox", "09876543210987654321", store.begin());
     const file = join(home, GOOGLE_CURSOR_FILE);
     const saved = readFileSync(file);
     chmodSync(file, 0o644);
-    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
+    expect(store.resolve("ithaca", "in:inbox", cursor, store.begin())).toBeNull();
     rmSync(file);
     const elsewhere = join(dir(), "cursors.json");
     writeFileSync(elsewhere, saved, { mode: 0o600 });
     symlinkSync(elsewhere, file);
-    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
+    expect(store.resolve("ithaca", "in:inbox", cursor, store.begin())).toBeNull();
     rmSync(file);
     expect(Bun.spawnSync(["mkfifo", file]).exitCode).toBe(0);
     // Opened without waiting for a writer, so this returns at once.
-    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
+    expect(store.resolve("ithaca", "in:inbox", cursor, store.begin())).toBeNull();
     rmSync(file);
     writeFileSync(file, Buffer.concat([saved, Buffer.alloc(300 * 1024, 0x20)]), { mode: 0o600 });
-    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
+    expect(store.resolve("ithaca", "in:inbox", cursor, store.begin())).toBeNull();
     rmSync(file);
     writeFileSync(file, saved, { mode: 0o600 });
-    expect(store.resolve("ithaca", "in:inbox", cursor)).toBe("09876543210987654321");
+    expect(store.resolve("ithaca", "in:inbox", cursor, store.begin())).toBe("09876543210987654321");
     store.clear();
-    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
+    expect(store.resolve("ithaca", "in:inbox", cursor, store.begin())).toBeNull();
   });
 });
 

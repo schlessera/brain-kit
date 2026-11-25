@@ -1339,6 +1339,21 @@ describe("google", () => {
     expect(out).toMatchObject({ ok: false, operation: "gmail.search", error: { code: "unavailable", reason: "connection_changed" } });
   });
 
+  test("google search paging across a reconnect returns nothing it was answered, even on a last page", async () => {
+    const gate = fake.path("page-may-answer");
+    const last = { ...fixture("search-ids.json"), nextPageToken: "", has_more: false };
+    fake.setScenario({ ...SEARCH, "gmail.search": [{ stdout: fixture("search-ids.json") }, { stdout: last, wait_for: gate }],
+      "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: {} } });
+    const cursor = JSON.parse((await google(["gmail", "search", "from:penelope"])).stdout).data.next_cursor;
+    const next = google(["gmail", "search", "from:penelope", "--cursor", cursor]);
+    const deadline = Date.now() + watchdogMs(20_000);
+    while (fake.callsOf("gmail.search").length < 2 && Date.now() < deadline) await Bun.sleep(20);
+    expect(fake.callsOf("gmail.search")[1]!.argv).toContain("--page=09876543210987654321");
+    expect((await google(["connect", ADDRESS])).code).toBe(0);
+    writeFileSync(gate, "");
+    expect(JSON.parse((await next).stdout)).toMatchObject({ ok: false, error: { code: "unavailable", reason: "connection_changed" } });
+  });
+
   test("google connect warns when it cannot forget earlier search cursors", async () => {
     mkdirSync(join(home, "brain-search-generation", "occupied"), { recursive: true });
     fake.setScenario({ "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: {} } });

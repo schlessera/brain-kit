@@ -13,7 +13,9 @@
  *
  * Each is read only as a regular 0600 file of this user's, opened without
  * following a link or waiting on a FIFO, and only up to its bound; anything
- * else reads as no cursors, or as the generation `none`.
+ * else reads as no cursors, or as no generation. A search that finds no
+ * generation writes a fresh one before it starts, so a generation is never a
+ * value an earlier one could have had.
  *
  * A cursor names one account alias, one query (by its SHA-256, never its
  * text) and the generation its search began under, and lives for an hour, or
@@ -21,10 +23,11 @@
  * again until then, so a failed page can be retried. A cursor that is
  * unknown, expired, for another alias or query, or from another generation
  * refuses as `invalid_input`. A connect starts a new generation, so an alias
- * pointed at another account inherits no cursor, a search already running
- * keeps no page (`connection_changed`), and no write of the cursor file can
- * bring an old generation's cursor back: the generation is checked on every
- * use, against a file only connect writes. The files hold no message data;
+ * pointed at another account inherits no cursor, a search running across it
+ * returns no page (`connection_changed`: the search takes the generation
+ * before it resolves its cursor and checks it again when Google has
+ * answered), and no write of the cursor file can bring an old generation's
+ * cursor back: every use checks the generation the cursor was minted under. The files hold no message data;
  * losing them only ends paging. Two searches writing the cursor file at once
  * can lose each other's newest cursor, which also only ends paging.
  */
@@ -41,8 +44,6 @@ export const GOOGLE_CURSOR_TTL_MS = 60 * 60 * 1000;
 const MAX_BYTES = 256 * 1024;
 const PAGE_TOKEN = /^[A-Za-z0-9_+/=.-]{1,512}$/;
 const GENERATION = /^[A-Za-z0-9_-]{1,64}$/;
-/** The generation a missing or unreadable generation file stands for. */
-const NONE = "none";
 
 interface CursorEntry {
   account: string;
@@ -61,12 +62,14 @@ export class GoogleCursorStale extends Error {
 }
 
 export interface GoogleCursorStore {
-  /** The current connection generation: take it before the search reaches Google. */
-  generation(): string;
+  /** The current connection generation, or null when there is none or it cannot be read. */
+  generation(): string | null;
+  /** The generation a search runs under: the current one, else a fresh one written now. Throws when it cannot be written. */
+  begin(): string;
   /** Mints a cursor for the next page of `query`. Throws {@link GoogleCursorStale} when `generation` no longer stands, or when the file cannot be written. */
   mint(account: string, query: string, pageToken: string, generation: string): string;
-  /** The page token a cursor stands for, or null when it stands for none for this alias, query and generation. */
-  resolve(account: string, query: string, cursor: string): string | null;
+  /** The page token a cursor minted under `generation` stands for, or null when it stands for none for this alias and query. */
+  resolve(account: string, query: string, cursor: string, generation: string): string | null;
   /** Starts a new generation, voiding every cursor: a connect may have pointed an alias at another account. Throws when the file cannot be written. */
   clear(): void;
 }
@@ -119,10 +122,16 @@ export function googleCursorStore(home: string, now: () => number = Date.now): G
   const path = join(home, GOOGLE_CURSOR_FILE);
   const generationPath = join(home, GOOGLE_GENERATION_FILE);
 
-  function generation(): string {
+  function generation(): string | null {
     const text = privateText(generationPath, 64)?.trim();
-    return text && GENERATION.test(text) ? text : NONE;
+    return text && GENERATION.test(text) ? text : null;
   }
+
+  const fresh = () => {
+    const value = randomBytes(18).toString("base64url");
+    replace(generationPath, `${value}\n`);
+    return value;
+  };
 
   /** The live cursors of `current`, oldest first. */
   function read(current: string): Map<string, CursorEntry> {
@@ -141,6 +150,7 @@ export function googleCursorStore(home: string, now: () => number = Date.now): G
 
   return {
     generation,
+    begin: () => generation() ?? fresh(),
     mint(account, query, pageToken, began) {
       if (!PAGE_TOKEN.test(pageToken)) throw new TypeError("not a page token");
       if (generation() !== began) throw new GoogleCursorStale();
@@ -150,15 +160,15 @@ export function googleCursorStore(home: string, now: () => number = Date.now): G
       replace(path, JSON.stringify({ version: 1, cursors: Object.fromEntries([...entries].slice(-GOOGLE_CURSOR_LIMIT)) }));
       return cursor;
     },
-    resolve(account, query, cursor) {
-      if (!isGoogleHostCursor(cursor)) return null;
+    resolve(account, query, cursor, began) {
+      if (!isGoogleHostCursor(cursor) || generation() !== began) return null;
       // Checked on every use: a cursor file written by a search that began before a connect brings nothing back.
-      const entry = read(generation()).get(cursor);
+      const entry = read(began).get(cursor);
       if (!entry || entry.account !== account || entry.query !== queryKey(query)) return null;
       return entry.page_token;
     },
     clear() {
-      replace(generationPath, `${randomBytes(18).toString("base64url")}\n`);
+      fresh();
     },
   };
 }
