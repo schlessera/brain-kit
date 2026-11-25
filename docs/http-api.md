@@ -2148,7 +2148,10 @@ Before/after observations separately retain affected stores and capacities,
 coverage and basis. They explicitly permit concurrent writers. File counts and
 packed-object counts are never converted into reclaimed bytes. Unknown headroom
 is null; old/new Git packs may coexist and required temporary bytes are workload
-dependent. Existing worker admission controls its temporary space. A known zero
+dependent. `headroom.requiredBytes` is always null. A `pack-git` receipt adds
+core's conservative preflight need as `headroom.packingRequiredBytes`, reported
+by that run; every other case, including a row's own headroom, carries null
+([pack headroom](integration-contract/http.md#storage-maintenance-pack-headroom-additive-4540)). Existing worker admission controls its temporary space. A known zero
 capacity refuses packing, and receipt admission failure starts no owner action.
 No other recovery store is purged to make room.
 
