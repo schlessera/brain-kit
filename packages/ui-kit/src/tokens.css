@@ -1533,6 +1533,9 @@
   /* A spoken turn's Details pill appears without fading (#3728). Its shown
    * rules carry two classes or a class and a pseudo-class, so this carries three. */
   .bk-spoken-turn[data-details] .bk-transcript-reveal { transition: none; }
+  /* A storage tool's running stripe holds still (#4545); "Working…" beside it
+   * carries the state. Two classes, because the stripe is declared below. */
+  .bk-tool-row .bk-tool-stripe { animation: none; }
 }
 
 /* ── Interaction states ────────────────────────────────────────────────────
@@ -1660,6 +1663,108 @@
   .bk-filter-row { overflow-x: clip; overflow-y: visible; }
   .bk-filter-row > .bk-hit { min-width: 44px; }
 }
+
+/* ── Storage tool rows (#4545) ────────────────────────────────────────────
+ * `ToolRow` lays itself out from its OWN width, so a Settings pane of any
+ * width gets the right shape: stacked below 720px (name with the chip, then
+ * the description, the evidence and a full-width button last), three columns
+ * from 720px. The query container is the row's outer element, because a
+ * container cannot restyle itself. Rows are divided by a rule, not cards. */
+.bk-tool-row { container: bk-tool-row / inline-size; min-width: 0; }
+.bk-tool-row-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name chip" "desc desc" "result result" "action action";
+  column-gap: 12px;
+  row-gap: 6px;
+  align-items: start;
+  padding: 12px 0;
+  color: var(--bk-color-ink);
+  font: 400 12px/1.45 "Plus Jakarta Sans", sans-serif;
+}
+.bk-tool-name { grid-area: name; min-width: 0; font-weight: 600; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.bk-tool-chip { grid-area: chip; display: inline-flex; }
+.bk-tool-desc {
+  grid-area: desc;
+  min-width: 0;
+  color: var(--bk-color-ink-mute);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.bk-tool-result { grid-area: result; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bk-tool-state { font: 500 11px/1.4 "JetBrains Mono", ui-monospace, monospace; overflow-wrap: anywhere; }
+.bk-tool-glyph { display: inline-block; min-width: 1.1em; font-size: 13px; line-height: 1; }
+.bk-tool-detail { color: var(--bk-color-ink-dim); }
+.bk-tool-line { color: var(--bk-color-ink-dim); overflow-wrap: anywhere; }
+.bk-tool-wide-only { display: none; }
+.bk-tool-headroom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--bk-color-ink-dim);
+  overflow-wrap: anywhere;
+}
+.bk-tool-label { font: 500 10px/1.4 "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-mute); text-transform: uppercase; letter-spacing: .07em; }
+.bk-tool-meter {
+  position: relative;
+  flex: 1 1 120px;
+  min-width: 96px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--bk-color-line);
+}
+.bk-tool-meter-fill { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: var(--bk-teal-fill); }
+.bk-tool-meter[data-short] .bk-tool-meter-fill { background: var(--bk-gold-fill); }
+/* What is missing to reach the estimate: a hatch, so short reads without hue. */
+.bk-tool-meter-short {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--bk-gold-mark) 3px 4px);
+  box-shadow: inset 0 0 0 1px var(--bk-gold-mark);
+  border-radius: 0 99px 99px 0;
+}
+/* The required figure: a 2px ink bar standing proud of the track. */
+.bk-tool-meter-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--bk-color-ink); }
+.bk-tool-caption { flex: 1 1 100%; }
+.bk-tool-caveat { flex: 1 1 100%; font: 400 10px/1.4 "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-mute); }
+.bk-tool-working { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--bk-color-ink-dim); }
+/* Indeterminate: motion only reinforces the words beside it. Reduced motion
+ * parks it in the shared override above. */
+@keyframes bk-tool-stripe { to { background-position: 16px 0; } }
+.bk-tool-stripe {
+  flex: 1 1 120px;
+  min-width: 96px;
+  height: 6px;
+  border-radius: 99px;
+  background: repeating-linear-gradient(90deg, var(--bk-color-line) 0 8px, var(--bk-amber-mark) 8px 16px);
+  animation: bk-tool-stripe 1s linear infinite;
+}
+.bk-tool-action { grid-area: action; display: flex; min-width: 0; }
+@container bk-tool-row (min-width: 720px) {
+  .bk-tool-row-grid {
+    /* The action column has a floor so every row's columns line up whatever
+     * its button reads; the second row takes the slack, so the description
+     * stays under the name when the result block is taller. */
+    grid-template-columns: minmax(200px, 1fr) minmax(240px, 1.2fr) auto minmax(7rem, max-content);
+    grid-template-rows: auto 1fr;
+    /* Chip and action span both rows, so the 44px button never sets the
+     * first row's height and the description sits right under the name. */
+    grid-template-areas: "name result chip action" "desc result chip action";
+  }
+  .bk-tool-chip { padding-top: 2px; }
+  .bk-tool-wide-only { display: block; }
+}
+.bk-tool-list { min-width: 0; }
+.bk-tool-list-heading { margin: 0 0 4px; font: 600 14px/1.35 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); }
+.bk-tool-list-rows { margin: 0; padding: 0; list-style: none; }
+.bk-tool-list-rows > li + li { border-top: 1px solid var(--bk-color-line); }
+.bk-tool-footnote { margin: 4px 0 0; font: 400 11px/1.5 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-mute); overflow-wrap: anywhere; }
 
 /* ── Rows ─────────────────────────────────────────────────────────────────
  *
@@ -3242,3 +3347,250 @@ ol.bk-ut-list { list-style: decimal outside; }
 @container (min-width: 520px) {
   .bk-gh-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ── Storage volumes (#4542) ──────────────────────────────────────────────
+ * `VolumeGroup`'s grid: `auto-fit, minmax(260px, 1fr)` (#4549), with each
+ * track capped at the container so a container under 260px (a phone at 200%
+ * zoom) still never scrolls sideways. The wrapper is the query container,
+ * because a grid cannot query its own width. It sets its own width, because
+ * size containment zeroes its intrinsic one. One column has the phone's 8px
+ * gap, and side-by-side cards the desktop's 12px.
+ *
+ * The selected card's notch points down at the chart, which only makes sense
+ * while the cards sit side by side in one strip above it. Stacked, it would
+ * point at the next card, so it is drawn from two columns up (2 × 260 + 12). */
+.bk-volume-group { container: bk-volumes / inline-size; width: 100%; }
+.bk-volume-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 8px;
+}
+.bk-volume-notch { display: none; }
+@container bk-volumes (min-width: 532px) {
+  .bk-volume-grid { gap: 12px; }
+  .bk-volume-notch {
+    display: block;
+    position: absolute;
+    left: 50%;
+    bottom: -7px;
+    width: 10px;
+    height: 10px;
+    box-sizing: border-box;
+    transform: translateX(-50%) rotate(45deg);
+    background: var(--bk-color-surface);
+    border-right: 2px solid var(--bk-color-ink);
+    border-bottom: 2px solid var(--bk-color-ink);
+    pointer-events: none;
+  }
+}
+/* ── Storage map, legend and breakdown rows (#4544) ──────────────────────
+ * Tiles: the 2px ring is drawn inside (-2px), like a row's, because tiles
+ * butt against each other and against the map's edge. The same ring marks the
+ * tile whose list row has the pointer or focus (`data-highlighted`). */
+.bk-storage-tile { cursor: default; }
+button.bk-storage-tile { cursor: pointer; }
+button.bk-storage-tile:hover,
+.bk-storage-tile:focus-visible,
+.bk-storage-tile[data-highlighted="true"] {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: -2px;
+}
+/* A tile under 6px rings at 1px, so the ring stays on the tile, not the gutter. */
+.bk-storage-tile[data-thin="true"] { outline-width: 1px; outline-offset: -1px; }
+
+/* The legend's unknown chip: a 44px-tall transparent target around the chip. */
+.bk-storage-legend-jump {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  min-height: 44px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.bk-storage-legend-jump:hover > span { background: var(--bk-color-raised); }
+.bk-storage-legend-jump:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; }
+
+/* The list is its own query container, so rows reflow at the list's width
+ * beside the map or stacked under it. `width: 100%` because size containment
+ * zeroes an element's intrinsic width in a shrink-to-fit parent. */
+.bk-storage-list {
+  container: bk-storage-list / inline-size;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--bk-color-line);
+  border-radius: 10px;
+  background: var(--bk-color-surface);
+}
+.bk-storage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--bk-color-edge);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.bk-storage-head-name { flex: 1 1 auto; min-width: 0; }
+/* Over the size column: the glyph (16) and the tail's gap (10) sit to its right. */
+.bk-storage-head-size { flex: none; padding-right: 26px; }
+.bk-storage-head-select { flex: none; width: 44px; margin-left: -12px; text-align: center; }
+.bk-storage-sort {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  padding: 0 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  min-height: 44px;
+  min-width: 44px;
+  justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+button.bk-storage-sort { cursor: pointer; border-radius: 4px; }
+button.bk-storage-sort:hover { color: var(--bk-color-ink-dim); }
+button.bk-storage-sort:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: -2px; }
+
+.bk-storage-row {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border-bottom: 1px solid var(--bk-color-line);
+}
+.bk-storage-body > .bk-storage-row:last-child { border-bottom: 0; }
+.bk-storage-row[data-unknown="true"] {
+  border: 1px dashed var(--bk-neutral-ink);
+  border-radius: 6px;
+  margin: 2px 4px;
+}
+.bk-storage-cell { display: flex; flex: 1 1 auto; min-width: 0; }
+.bk-storage-check-cell { flex: none; }
+.bk-storage-empty { padding: 14px 12px; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
+.bk-storage-row-main {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.bk-storage-row-main:hover,
+.bk-storage-row[data-highlighted="true"] .bk-storage-row-main { background: var(--bk-color-raised); }
+.bk-storage-row-main:active { filter: brightness(0.97); }
+.bk-storage-row-main:focus-visible,
+.bk-storage-row[data-highlighted="true"] .bk-storage-row-main {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: -2px;
+}
+.bk-storage-lead { display: flex; align-items: flex-start; gap: 8px; flex: 1 1 140px; min-width: 0; }
+.bk-storage-lead > [data-owner-swatch] { margin-top: 1px; }
+.bk-storage-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* A long name takes two lines, then an ellipsis. */
+.bk-storage-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.bk-storage-meta { overflow-wrap: anywhere; }
+/* The tail wraps under the name when the row is narrow, and may itself wrap,
+ * so a 160px list (320px at 200% zoom) never scrolls sideways. */
+.bk-storage-tail { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 10px; flex: 0 1 auto; min-width: 0; max-width: 100%; margin-left: auto; }
+.bk-storage-bar { display: block; width: 56px; height: 6px; border-radius: 2px; overflow: hidden; flex: none; }
+@container bk-storage-list (min-width: 480px) { .bk-storage-bar { width: 112px; } }
+/* The bar is decorative (the size is in the row's name): under 240px it gives its room to the size. */
+@container bk-storage-list (max-width: 239.98px) { .bk-storage-bar { display: none; } }
+.bk-storage-size { min-width: 56px; text-align: right; white-space: nowrap; }
+.bk-storage-glyph { display: inline-flex; flex: none; width: 16px; }
+
+/* Filter mode. The checkbox cell is a 44px-wide label, so the whole cell
+ * toggles and the input keeps its native size. */
+.bk-storage-check {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  padding-top: 13px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.bk-storage-check > input { margin: 0; width: 16px; height: 16px; cursor: inherit; }
+.bk-storage-check:has(> input[aria-disabled="true"]) { cursor: not-allowed; }
+.bk-storage-check:has(> input:focus-visible) { outline: 2px solid var(--bk-focus-ring); outline-offset: -2px; }
+.bk-storage-filter-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name size" "facts facts" "elig elig";
+  gap: 2px 10px;
+  padding-left: 0;
+}
+.bk-storage-f-name { grid-area: name; }
+.bk-storage-f-size { grid-area: size; min-width: 0; }
+.bk-storage-facts { grid-area: facts; overflow-wrap: anywhere; }
+.bk-storage-f-elig { grid-area: elig; overflow-wrap: anywhere; }
+@container bk-storage-list (min-width: 640px) {
+  .bk-storage-filter-main {
+    grid-template-columns: minmax(0, 1.4fr) 96px 96px minmax(0, 1fr) 72px;
+    grid-template-areas: "name git links elig size" "folder git links elig size";
+    align-items: center;
+  }
+  .bk-storage-facts { display: contents; }
+  .bk-storage-sep { display: none; }
+  .bk-storage-f-folder { grid-area: folder; }
+  .bk-storage-f-git { grid-area: git; }
+  .bk-storage-f-links { grid-area: links; }
+}
+
+/* The selection bar sticks to the bottom of the list region, not the
+ * viewport, and is in flow, so it never covers the last row. */
+.bk-storage-selection[data-open="false"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.bk-storage-selection[data-open="true"] {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border-top: 2px solid var(--bk-color-edge);
+  border-radius: 0 0 10px 10px;
+  background: var(--bk-color-raised);
+}
+.bk-storage-selection-status { min-width: 0; overflow-wrap: anywhere; }
+.bk-storage-selection-actions { display: flex; flex-wrap: wrap; gap: 16px; margin-left: auto; }
