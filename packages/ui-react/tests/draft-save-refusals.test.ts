@@ -47,6 +47,7 @@ type Refusal = { status: 400 | 507; body: { error: string; message: string; limi
 function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; snapshots?: boolean; remove?: () => Promise<DraftCallResult<null>> } = {}) {
   const saves: { draftId: string; body: DraftSaveRequest }[] = [];
   let uploads = 0;
+  let removes = 0;
   const rows = new Map<string, Draft>();
   const rowsSnapshots = new Map<string, NonNullable<DraftSaveRequest["snapshots"]>>();
   const swept = new Set<string>();
@@ -89,7 +90,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
       return { ok: true, value: { revision, updatedAt: 1_000 + revision } };
     },
     upload: async () => ({ ok: true, value: { attachmentId: `att-${++uploads}` } }),
-    remove: options.remove ?? (async () => ({ ok: true, value: null })),
+    remove: options.remove ?? (async () => { removes++; return { ok: true, value: null }; }),
     bind: async () => ({ ok: false, status: 404, body: {} }),
   };
   // The root's own draft client shares this store; its requests never answer,
@@ -107,7 +108,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const id = drafts.getState().idFor(SESSION);
   const indicator = (draftId: string) => draftIndicatorView({ draft: drafts.getState().drafts[draftId], store: drafts.getState(), queued: [], online: true });
   return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), withoutDrafts: () => client.hello({ ...hello, capabilities: { ...hello.capabilities, sessionDrafts: false } }), silenceGets: (n: number) => { silentGets = n; getStatus = 503; },
-    failGets: (status: number, n: number) => { silentGets = n; getStatus = status; }, gets: () => getCount,
+    failGets: (status: number, n: number) => { silentGets = n; getStatus = status; }, gets: () => getCount, removes: () => removes,
     holdSaves: () => { let open!: () => void; saveGate = new Promise<void>((resolve) => { open = resolve; }); return () => { saveGate = null; open(); }; },
     holdGets: () => { let open!: () => void; getGate = new Promise<void>((resolve) => { open = resolve; }); return () => { getGate = null; open(); }; } };
 }
@@ -587,4 +588,56 @@ test("a two-tab fork ends the source's pending file recovery", async () => {
   await run(LONG);
   expect(s.gets() - gets, "FORK_ENDS_RECOVERY").toBe(0);
   expect(s.drafts.getState().drafts[s.id]?.failure ?? null).toBeNull();
+});
+
+test("a recovery read that lands after the draft changed leaves the newer edit's files alone", async () => {
+  const s = scene();
+  s.swept.add(CREW.fileId);
+  const release = s.holdGets();
+  s.drafts.getState().edit(s.id, SESSION, { text: "Permit and crew", files: [{ file: PERMIT, lineage: s.id }, { file: CREW, lineage: s.id }] });
+  await run(SAVE_DELAY + 100);
+  // The reader removes the stale original while the recovery read is out.
+  s.drafts.getState().edit(s.id, SESSION, { files: [{ file: PERMIT, lineage: s.id }] });
+  release();
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.files, "STALE_READ_SPARES_NEWER_EDIT").toEqual([{ file: PERMIT, lineage: s.id }]);
+  expect(s.saves.at(-1)!.body.fileIds).toEqual([PERMIT.fileId]);
+  expect(d.failure).toBeNull();
+});
+
+test("a never-saved draft cleared and typed into again is new work, not the old recovery", async () => {
+  const s = scene();
+  const id = s.drafts.getState().fresh;
+  s.swept.add(CREW.fileId);
+  s.silenceGets(1_000);
+  s.drafts.getState().edit(id, null, { text: "Crew list", files: [{ file: CREW, lineage: id }] });
+  await run(10_000);
+  s.drafts.getState().edit(id, null, { text: "", files: [] });
+  expect(s.drafts.getState().drafts[id], "forgotten when emptied").toBeUndefined();
+  s.drafts.getState().edit(id, null, { text: "Ask Penelope" });
+  expect(s.drafts.getState().drafts[id]?.edit).toBe(1);
+  await run(LONG);
+  expect(s.rows.get(id)?.text, "RETYPED_DRAFT_SAVED").toBe("Ask Penelope");
+});
+
+test("a draft left with only carried originals and deleted snapshots deletes the host's copy instead of saving it empty", async () => {
+  const s = scene({ snapshots: true });
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [{ file: CREW, lineage: "a-rotated-away-draft" }], snapshots: [], editedAt: 1, edit: 3,
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ snapshotId: "snap-old", requestId: "req-old", text: "Lash the raft", fileIds: [], state: "returned" }], updatedAt: 1 },
+    uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  await run(LONG);
+  expect(s.saves, "NO_EMPTY_SAVE_AFTER_SNAPSHOT_DELETE").toEqual([]);
+  expect(s.removes()).toBe(1);
+});
+
+test("a fork's branch does not inherit the original's refusal, and the retained version is saved", async () => {
+  const s = scene({ refuse: (body) => (body.text === "Crew list" ? { status: 400, body: { error: "DRAFT_INVALID", message: "Refused for this chat." } } : null) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Crew list" });
+  await run(LONG);
+  expect(s.drafts.getState().drafts[s.id]?.failure?.kind).toBe("refused");
+  s.drafts.getState().keepDeviceBranch(s.id, "voyage-branch", { draftId: s.id, sessionId: SESSION, text: "Penelope keeps the loom", attachments: [], editedAt: 1, host: null }, SESSION);
+  expect(s.drafts.getState().drafts["voyage-branch"]?.failure, "BRANCH_NOT_REFUSED").toBeNull();
+  await run(SAVE_DELAY + 100);
+  expect(s.rows.get(s.id)?.text, "RETAINED_VERSION_SAVED").toBe("Penelope keeps the loom");
 });
