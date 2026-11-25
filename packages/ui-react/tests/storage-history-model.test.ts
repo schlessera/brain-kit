@@ -46,7 +46,7 @@ describe("series per identity and tier", () => {
   test("points follow the identity and the tier, oldest first", () => {
     const series = storageSeries(history, ITHACA, "six-hour", worldTime);
     expect(series.map((value) => value.at)).toEqual([sixHour(18), sixHour(12), sixHour(6), sixHour(0)]);
-    expect(series[0]).toEqual({ at: sixHour(18), available: 20 * GB, appAllocated: 30 * GB, gap: false, provisional: false, otherScope: false, rootScope: `${ITHACA.slice(0, 8)}${"e".repeat(24)}` });
+    expect(series[0]).toEqual({ at: sixHour(18), available: 20 * GB, appAllocated: 30 * GB, gap: false, provisional: false, otherScope: false, rootScope: `${ITHACA.slice(0, 8)}${"e".repeat(24)}`, scopeKey: JSON.stringify(["d".repeat(32), `${ITHACA.slice(0, 8)}${"e".repeat(24)}`]) });
     expect(storageSeries(history, ITHACA, "daily", worldTime).map((value) => value.available)).toEqual([25 * GB]);
     expect(storageSeries(history, SCHERIA, "six-hour", worldTime).map((value) => value.available)).toEqual([50 * GB, null, 49 * GB, 48 * GB]);
   });
@@ -116,6 +116,15 @@ describe("scenario lines (D9)", () => {
     ]);
   });
 
+  test("a finite forecast beyond any date still derives, without an unformattable date", () => {
+    // 1 TB declining by 8192 bytes a day: about 122 million days to empty.
+    const value = pressure(ITHACA, "observed", evidence(ITHACA, 2_000_000_000_000, 1_000_000_000_000, { short: finite(122_070_312, 7) }));
+    const [short] = storageScenarios(value, format);
+    expect(short!.detail, "STORAGE_FAR_FORECAST_NO_DATE").toBe("empty in over 100 years");
+    expect(Number.isFinite(new Date(short!.to!.at).getTime())).toBe(true);
+    expect(short!.to!.value).toBeGreaterThan(0);
+  });
+
   test("a non-depleting window runs flat across its own span", () => {
     const value = pressure(ITHACA, "observed", evidence(ITHACA, 161 * GB, 48 * GB, { short: flat(7), long: unavailable("insufficient-span") }));
     expect(storageScenarios(value, format)[0]).toEqual({
@@ -182,6 +191,24 @@ describe("client-side markers", () => {
       { at: sixHour(18), n: 2, tone: "neutral", time: "11 Jul 15:41", label: "Collection gap" },
       { at: sixHour(3), n: 3, tone: "red", time: "12 Jul 06:41", label: "Owner refused a write: no space" },
       { at: sixHour(2), n: 4, tone: "teal", time: "12 Jul 07:41", label: "Pack Git objects · done" },
+    ]);
+  });
+
+  // A collection-scope change (owner or category) can leave the root scope
+  // unchanged; the series must still break there.
+  test("a collection-scope change with the same root scope still breaks the series", () => {
+    const before = observation("six-hour", sixHour(18), [{ identity: ITHACA, available: 30 * GB, app: 1 }]);
+    before.scope = "a".repeat(32);
+    const changed = observation("six-hour", sixHour(12), [{ identity: ITHACA, available: 20 * GB, app: 1 }], true);
+    changed.reason = "changed";
+    changed.scope = "b".repeat(32);
+    const after = observation("six-hour", sixHour(6), [{ identity: ITHACA, available: 18 * GB, app: 1 }]);
+    after.scope = "b".repeat(32);
+    const series = storageSeries(historyOf([before, changed, after]), ITHACA, "six-hour", worldTime);
+    expect(series.map((value) => value.otherScope), "STORAGE_COLLECTION_SCOPE_BREAKS").toEqual([true, false, false]);
+    expect(storageMarkers({ series, identity: ITHACA, now: worldTime, format }).map((marker) => marker.label)).toEqual([
+      "Collection gap",
+      "Scope changed",
     ]);
   });
 

@@ -10,6 +10,8 @@
  */
 import type {
   StorageEvidenceReason,
+  StorageHistoryCapacity,
+  StorageHistoryObservation,
   StorageHistoryResponse,
   StorageHistoryTier,
   StorageMaintenanceReceipt,
@@ -60,6 +62,11 @@ interface StorageSeriesPoint {
    * `null` when the observation holds no capacity for the volume.
    */
   rootScope: string | null;
+  /**
+   * The collection scope and the root scope together: either changing is a
+   * different volume history. `null` when the observation holds no capacity.
+   */
+  scopeKey: string | null;
 }
 
 /**
@@ -78,7 +85,10 @@ export function storageSeries(
     capacity: row.capacities.find((value) => value.identity === identity) ?? null,
   }));
   // A scope is known from any observation holding the volume, measured or not.
-  const latestScope = held.filter((value) => value.capacity).at(-1)?.capacity?.rootScope ?? null;
+  const keyOf = (row: StorageHistoryObservation, capacity: StorageHistoryCapacity | null) =>
+    capacity ? JSON.stringify([row.scope, capacity.rootScope]) : null;
+  const latest = held.filter((value) => value.capacity).at(-1);
+  const latestScope = latest ? keyOf(latest.row, latest.capacity) : null;
   return held.map(({ row, capacity }, index) => {
     const measured = !row.gap && capacity ? capacity : null;
     return {
@@ -87,8 +97,9 @@ export function storageSeries(
       appAllocated: measured ? measured.owners.app.allocated : null,
       gap: !measured,
       provisional: index === held.length - 1 && bucketOf(tier, row.at) === bucketOf(tier, now),
-      otherScope: !!measured && latestScope !== null && measured.rootScope !== latestScope,
+      otherScope: !!measured && latestScope !== null && keyOf(row, measured) !== latestScope,
       rootScope: capacity?.rootScope ?? null,
+      scopeKey: keyOf(row, capacity),
     };
   });
 }
@@ -119,6 +130,8 @@ export function historyThresholds(total: number | null): HistoryThresholds {
  * Only an unavailable window, which has no real span, is named by these.
  */
 const NOMINAL_DAYS = { short: 7, long: 30 } as const;
+/** A forecast beyond this many days is named, not dated (100 years). */
+const FAR_DAYS = 36_500;
 function reasonText(reason: StorageEvidenceReason | null, window: "short" | "long"): string {
   if (!reason) return "no projection";
   return projectionReasonText(
@@ -153,6 +166,13 @@ export function storageScenarios(
     const name = `${span}-day`;
     if (scenario.state === "finite") {
       if (scenario.days === null) return { window, name, reason: reasonText("arithmetic", window) };
+      // A finite but far rate can project past the Date range; past a
+      // century, draw the line across the window's own span at its rate.
+      if (scenario.days > FAR_DAYS) {
+        const spanMs = scenario.end - scenario.start;
+        const value = evidence.available * (1 - spanMs / DAY_MS / scenario.days);
+        return { window, name, detail: "empty in over 100 years", to: { at: evidence.at + spanMs, value } };
+      }
       const at = evidence.at + scenario.days * DAY_MS;
       return { window, name, detail: `empty ~${format.day(at)}`, to: { at, value: 0 } };
     }
@@ -223,10 +243,10 @@ export function storageMarkers(input: {
     const previous = series[index - 1];
     if (value.gap && !previous?.gap)
       found.push({ at: value.at, tone: "neutral", time: format.time(value.at), label: "Collection gap" });
-    if (value.rootScope === null) return;
-    if (scope !== null && value.rootScope !== scope)
+    if (value.scopeKey === null) return;
+    if (scope !== null && value.scopeKey !== scope)
       found.push({ at: value.at, tone: "purple", time: format.time(value.at), label: "Scope changed" });
-    scope = value.rootScope;
+    scope = value.scopeKey;
   });
   for (const refusal of input.pressure?.causes.refusals ?? [])
     found.push({
