@@ -16,7 +16,7 @@ import singleFileRuns from "./fixtures/determinism-single-file-runs.json";
 
 const ROOT = join(import.meta.dir, "..");
 // The wrapper, its preload and what they import, as tests/experiment-tier.test.ts copies them.
-const SCRIPTS = ["test.ts", "offline-command.ts", "offline-command.py", "docker-test-files.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts",
+const SCRIPTS = ["test.ts", "offline-command.ts", "offline-command.py", "test-credential-names.json", "docker-test-files.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts",
   "test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs",
   "test-determinism.ts", "determinism-plan.ts", "proof-shards.ts", "test-deadlines.ts", "test-deadline-preload.ts"];
 

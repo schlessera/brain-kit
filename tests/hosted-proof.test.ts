@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { BROWSER_DETERMINISM_REPORT, browserDeterminismPairs, categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
+import { BROWSER_DETERMINISM_REPORT, browserDeterminismPairs, categoryCommands, completeUnitReport, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
 import { browserDeterminismShards, determinismShards, planChecks, proofSelections, unitShards, workspaces, type ProofCadence, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
 import { BROWSER_DETERMINISM_PARTITIONS, DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
@@ -421,4 +421,22 @@ test("an oversized browser selection runs as planned partitions: every pair in e
   // Unselected, and on main where repetition never runs, the matrix expression still has one value.
   expect(browserDeterminismShards({ ...selected, browserDeterminism: undefined, cadence: "confirmation" })).toEqual([1]);
   expect(browserDeterminismShards({ ...armada, cadence: "integrated" }), "MAIN_NEVER_REPEATS").toEqual([1]);
+});
+
+
+test("the completed unit inventory merges the ordinary and current-head Docker reports", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-unit-report-"));
+  directories.push(root); mkdirSync(join(root, "tmp"));
+  const files = ["tests/ordinary.test.ts", "tests/workspace-lease.test.ts"];
+  const checkout = { sha: "a".repeat(40), tree: "b".repeat(40), parents: ["c".repeat(40)] };
+  const report = (file: string) => {
+    writeFileSync(join(root, "tmp/unit-report.xml"), `<testsuites tests="1" failures="0" skipped="0" assertions="1" time="0.1"><testsuite name="${file}" file="${file}"><testcase name="real case"/></testsuite></testsuites>`);
+    writeFileSync(join(root, "tmp/unit-timings.json"), JSON.stringify({ version: 1, files: { [file]: 100 } }));
+  };
+  writeFileSync(join(root, "tmp/proof-checkout.json"), JSON.stringify({ category: "unit", checkout, shard: "1/1", files }));
+  report(files[1]!); await completeUnitReport(root, files, checkout, "1/1", true);
+  report(files[0]!);
+  const merged = await completeUnitReport(root, files, checkout, "1/1", false);
+  expect(merged.files, "MERGED_UNIT_INVENTORY_INCLUDES_DOCKER").toEqual(files);
+  expect(merged.tests).toBe(2);
 });

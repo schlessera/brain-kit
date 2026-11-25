@@ -19,6 +19,8 @@ test("Docker driver selection names only the two real container test files", () 
   expect(isDockerTest("tests/workspace-lease.test.ts")).toBe(true);
   expect(isDockerTest(join(import.meta.dir, "browser-determinism-container.test.ts"))).toBe(true);
   expect(isDockerTest("tests/offline-command.test.ts")).toBe(false);
+  expect(isDockerTest("/tmp/other-checkout/tests/workspace-lease.test.ts"), "FOREIGN_DRIVER_IS_NOT_EXEMPT").toBe(false);
+  expect(isDockerTest("tests/fixtures/tests/workspace-lease.test.ts"), "NESTED_DRIVER_IS_NOT_EXEMPT").toBe(false);
 });
 
 test("mixed test selections keep each file in one command with the original flags", async () => {
@@ -31,9 +33,9 @@ test("mixed test selections keep each file in one command with the original flag
 
 test("host Docker driver environments omit inherited provider credentials", async () => {
   const { cleanTestEnvironment } = await import("../scripts/offline-command");
-  const inherited = { PATH: "/usr/bin:/bin", ANTHROPIC_API_KEY: "odysseus-fixture-key", OPENAI_API_KEY: "odysseus-fixture-key", CLAUDE_CODE_OAUTH_TOKEN: "odysseus-fixture-token", ANTHROPIC_CUSTOM_HEADERS: "odysseus-fixture-header", AWS_BEARER_TOKEN_BEDROCK: "odysseus-fixture-token", AWS_PROFILE: "odysseus", GOOGLE_APPLICATION_CREDENTIALS: "/fixture", VERTEX_PROJECT: "ithaca", OPENAI_ORG_ID: "ithaca" };
+  const inherited = { PATH: "/usr/bin:/bin", ANTHROPIC_API_KEY: "odysseus-fixture-key", OPENAI_API_KEY: "odysseus-fixture-key", CLAUDE_CODE_OAUTH_TOKEN: "odysseus-fixture-token", ANTHROPIC_CUSTOM_HEADERS: "odysseus-fixture-header", AWS_BEARER_TOKEN_BEDROCK: "odysseus-fixture-token", AWS_PROFILE: "odysseus", AZURE_CLIENT_SECRET: "odysseus-fixture-secret", AZURE_TENANT_ID: "ithaca", AZURE_CLIENT_ID: "odysseus", GOOGLE_APPLICATION_CREDENTIALS: "/fixture", VERTEX_PROJECT: "ithaca", OPENAI_ORG_ID: "ithaca" };
   const env = cleanTestEnvironment(inherited);
-  expect(env).toEqual({ PATH: "/usr/bin:/bin" });
+  expect(env, "PROVIDER_CREDENTIAL_PREFIXES_MUST_BE_SCRUBBED").toEqual({ PATH: "/usr/bin:/bin" });
   const python = Bun.spawnSync(["/usr/bin/python3", "-B", "-I", "-S", "-c",
     "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('launcher',sys.argv[1]); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); print(json.dumps(module.clean_env(json.loads(sys.argv[2]))))",
     join(import.meta.dir, "../scripts/offline-command.py"), JSON.stringify(inherited)], { stdout: "pipe", stderr: "pipe" });
@@ -85,10 +87,11 @@ test("mixed batches use distinct JUnit paths for both outfile flag forms", async
 
 
 test("mixed command reports retain every executed file in the requested aggregate", async () => {
-  const { testCommandBatches, mergeBatchReports } = await import("../scripts/test");
-  const scratch = mkdtempSync(join(tmpdir(), "odysseus-batch-reports-"));
+  const { invocationFixture } = await import("./helpers/test-invocation-fixture");
+  const { root: scratch } = invocationFixture();
+  const { testCommandBatches, mergeBatchReports } = await import(join(scratch, "scripts/test.ts")) as typeof import("../scripts/test");
   try {
-    mkdirSync(join(scratch, "tests"));
+    mkdirSync(join(scratch, "tests"), { recursive: true });
     const files = ["tests/ordinary.test.ts", "tests/workspace-lease.test.ts"];
     for (const [index, file] of files.entries()) writeFileSync(join(scratch, file), `import {test,expect} from "bun:test";test("receipt ${index}",()=>expect(true).toBe(true));`);
     const argv = ["--reporter=junit", "--reporter-outfile=" + join(scratch, "report.xml"), "--timings=" + join(scratch, "timings.json"), "--update-timings", ...files];
@@ -112,4 +115,35 @@ test("a pure loopback boundary still needs the browser online indicator", () => 
   expect(pure.exitCode, "ORDINARY_BOUNDARY_IS_REUSABLE").toBe(0);
   const browser = Bun.spawnSync(offlineCommand(["--check"], true), { stdout: "pipe", stderr: "pipe" });
   expect(browser.exitCode, "BROWSER_BOUNDARY_REQUIRES_ITS_INDICATOR").toBe(1);
+});
+
+
+test("an absolute tests directory splits its exact Docker drivers", async () => {
+  const { testCommandBatches } = await import("../scripts/test");
+  const batches = await testCommandBatches([join(import.meta.dir)], join(import.meta.dir, ".."));
+  expect(batches.filter(batch => batch.docker).flatMap(batch => batch.argv).sort(), "ABSOLUTE_DIRECTORY_RETAINS_DRIVER_BATCH").toEqual([
+    join(import.meta.dir, "browser-determinism-container.test.ts"), join(import.meta.dir, "workspace-lease.test.ts"),
+  ]);
+});
+
+
+test("mixed substring selections run each match once and keep ordinary files out of Docker", async () => {
+  const { invocationFixture } = await import("./helpers/test-invocation-fixture");
+  const { root, write } = invocationFixture();
+  try {
+    const { testCommandBatches } = await import(join(root, "scripts/test.ts")) as typeof import("../scripts/test");
+    const files = ["tests/ordinary.test.ts", "tests/workspace-lease.test.ts", "tests/chat-focus-extra.test.ts", "packages/ui-react/tests/chat-focus-runtime.test.ts"];
+    for (const file of files) write(file, `import {test} from "bun:test";test("${file}",()=>console.log("MATCHED_FILE ${file}"));`);
+    const batches = await testCommandBatches(["chat-focus", files[0]!, files[1]!], root);
+    expect(batches).toHaveLength(3);
+    expect(batches.find(batch => batch.docker)!.argv, "DOCKER_BATCH_HAS_ONLY_ITS_EXACT_DRIVER").toEqual([join(root, files[1]!)]);
+    const executed: string[] = [];
+    for (const batch of batches) {
+      const child = Bun.spawnSync([process.execPath, "test", "--no-env-file", "--timeout", "30000", ...batch.argv], { cwd: root, stdout: "pipe", stderr: "pipe" });
+      expect(child.exitCode, child.stderr.toString()).toBe(0);
+      executed.push(...[...child.stdout.toString().matchAll(/^MATCHED_FILE (.+)$/gm)].map(match => match[1]!));
+    }
+    expect(executed.sort(), "SUBSTRING_MATCHES_RUN_EXACTLY_ONCE").toEqual([...files].sort());
+    expect((await testCommandBatches(["chat-focus-runtime"], root))[0]!.argv).toEqual(["chat-focus-runtime"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

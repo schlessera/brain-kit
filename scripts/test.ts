@@ -136,12 +136,17 @@ export async function testCommandBatches(argv: string[], cwd: string): Promise<{
   const paths = testPaths(argv);
   const { discoverTests } = await import("./test-shards");
   const files = paths.flatMap(path => {
-    try { if (statSync(resolve(cwd, path)).isDirectory()) return discoverTests(cwd, [path]); } catch { /* Bun owns unknown/filter paths. */ }
-    return [path];
+    const absolute = resolve(cwd, path);
+    const stat = statSync(absolute, { throwIfNoEntry: false });
+    if (stat?.isDirectory()) return discoverTests(absolute, ["."]).map(file => resolve(absolute, file));
+    if (stat) return [absolute];
+    // Bun path substrings are OR selections, not filenames. Discover their
+    // matches before splitting, without forwarding a filter to another batch.
+    return discoverTests(cwd, ["."]).filter(file => file.includes(path)).map(file => resolve(cwd, file));
   });
   const browser = (file: string) => runtimeBuildSelection(resolve(import.meta.dir, ".."), cwd, [file]).length > 0;
-  const kind = (file: string) => isDockerTest(file) ? "docker" : browser(file) ? "browser" : "ordinary";
-  if (new Set(files.map(kind)).size < 2) return [{ argv, docker: files.some(isDockerTest), browser: files.some(browser) }];
+  const kind = (file: string) => isDockerTest(file, resolve(import.meta.dir, "..")) ? "docker" : browser(file) ? "browser" : "ordinary";
+  if (new Set(files.map(kind)).size < 2) return [{ argv, docker: files.some(file => isDockerTest(file)), browser: files.some(browser) }];
   const positions = new Set(testPathIndexes(argv));
   const flags = argv.filter((_, index) => !positions.has(index));
   const batches = ["ordinary", "browser", "docker"].flatMap(group => {

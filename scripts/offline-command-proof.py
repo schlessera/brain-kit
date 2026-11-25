@@ -46,6 +46,7 @@ def main():
             root = Path(directory)
             root.chmod(0o755)
             launcher = root / 'launcher.py'
+            shutil.copyfile(Path(__file__).with_name('test-credential-names.json'), root / 'test-credential-names.json')
             def run(source, code, env=None):
                 launcher.write_text(source)
                 launcher.chmod(0o644)

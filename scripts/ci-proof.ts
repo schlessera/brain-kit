@@ -1,4 +1,6 @@
 /** Complete affected hosted proof. Reuses the opt-in local command inventory. */
+import { mergeBatchReports } from "./test";
+import { validateUnitReports } from "./unit-proof-report";
 import { offlineCommand } from "./offline-command";
 import { DOCKER_TEST_FILES, isDockerTest } from "./docker-test-files";
 import { requireCandidate, validateSelections } from "./candidate-proof";
@@ -83,7 +85,7 @@ export function unitFiles(plan: CheckPlan, root: string, shard = "1/1"): string[
 export function categoryCommands(category: ProofCategory, plan: CheckPlan, root: string, shard?: string, unitWorkers = 2, dockerDrivers = false): Command[] {
   if (![1, 2].includes(unitWorkers)) throw new Error("Unit worker measurement supports 1 or 2 workers");
   const inventory = localChecks(plan, true);
-  const selected = (files: readonly string[]) => files.filter(file => isDockerTest(file) === dockerDrivers);
+  const selected = (files: readonly string[]) => files.filter(file => isDockerTest(file, root) === dockerDrivers);
   if ((category === "unit" || category === "determinism") && !selected(category === "unit" ? unitFiles(plan, root, shard) : determinismFiles(plan, shard)).length) return [];
   if (category === "unit") return [{ name: "complete affected unit and integration suite", argv: unitWorkers === 2 && !dockerDrivers
     ? [process.execPath, join(root, "scripts/unit-workers.ts"), ...selected(unitFiles(plan, root, shard)).map(file => join(root, file))]
@@ -128,6 +130,27 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
   }
   if (shard && (category === "browser" || category === "layout")) checks.at(-1)!.argv.push(`--shard=${shard}`);
   return checks;
+}
+
+/** The dedicated driver step runs first; the ordinary step publishes the union. */
+export async function completeUnitReport(root: string, files: string[], checkout: { sha: string; tree: string; parents: string[] }, shard: string | undefined, dockerDrivers: boolean) {
+  const drivers = files.filter(file => isDockerTest(file, root));
+  const reportArgv = (prefix = "") => ["--reporter-outfile", join(root, "tmp", prefix + "unit-report.xml"), "--timings", join(root, "tmp", prefix + "unit-timings.json")];
+  if (dockerDrivers) {
+    const report = validateUnitReports(drivers, await Bun.file(reportArgv()[1]!).text(), await Bun.file(reportArgv()[3]!).json());
+    for (const name of ["unit-report.xml", "unit-timings.json"]) copyFileSync(join(root, "tmp", name), join(root, "tmp", `docker-driver-${name}`));
+    copyFileSync(join(root, "tmp/proof-checkout.json"), join(root, "tmp/docker-driver-proof-checkout.json"));
+    return report;
+  }
+  if (drivers.length) {
+    const receipt = await Bun.file(join(root, "tmp/docker-driver-proof-checkout.json")).json();
+    if (receipt.category !== "unit" || JSON.stringify(receipt.checkout) !== JSON.stringify(checkout) || receipt.shard !== shard ||
+        JSON.stringify([...receipt.files].sort()) !== JSON.stringify([...files].sort())) throw new Error("Docker driver proof identity differs");
+    await mergeBatchReports(reportArgv(), [
+      ...(files.length > drivers.length ? [{ argv: reportArgv() }] : []), { argv: reportArgv("docker-driver-") },
+    ]);
+  }
+  return validateUnitReports(files, await Bun.file(reportArgv()[1]!).text(), await Bun.file(reportArgv()[3]!).json());
 }
 
 if (import.meta.main) {
@@ -233,15 +256,13 @@ if (import.meta.main) {
         }
         await unitMemory?.stop();
       }
-      if (dockerDrivers && commands.length) {
-        for (const name of category === "unit" ? ["unit-report.xml", "unit-timings.json"] : ["determinism-report.json", "determinism-junit.xml"]) {
+      if (dockerDrivers && commands.length && category === "determinism") {
+        for (const name of ["determinism-report.json", "determinism-junit.xml"]) {
           copyFileSync(join(root, "tmp", name), join(root, "tmp", `docker-driver-${name}`));
         }
       }
-      if (category === "unit" && commands.length) {
-        const { validateUnitReports } = await import("./unit-proof-report");
-        const report = validateUnitReports(unitFiles(plan, root, shard).filter(file => isDockerTest(file) === dockerDrivers),
-          await Bun.file(join(root, "tmp/unit-report.xml")).text(), await Bun.file(join(root, "tmp/unit-timings.json")).json());
+      if (category === "unit" && (commands.length || (!dockerDrivers && unitFiles(plan, root, shard).length))) {
+        const report = await completeUnitReport(root, unitFiles(plan, root, shard), { sha, tree, parents }, shard, dockerDrivers);
         await Bun.write(join(root, "tmp/unit-report-summary.json"), JSON.stringify({ checkout: { sha, tree, parents }, shard, unitWorkers, ...report }, null, 2));
       }
     }

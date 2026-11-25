@@ -4,7 +4,6 @@ import ctypes
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
@@ -19,9 +18,9 @@ def refuse(error):
 
 
 def clean_env(env):
+    names = json.loads(Path(__file__).with_name('test-credential-names.json').read_text())
     return {key: value for key, value in env.items() if not (
-        re.search(r'(API_KEY|AUTH_TOKEN|ACCESS_TOKEN|SECRET_ACCESS_KEY|ACCESS_KEY_ID|SESSION_TOKEN)$', key)
-        or key.startswith(('ANTHROPIC_', 'CLAUDE_CODE_OAUTH', 'AWS_', 'GOOGLE_', 'VERTEX_', 'GCLOUD_', 'OPENAI', 'AZURE_OPENAI_', 'GEMINI_')))}
+        key.startswith(tuple(names['prefixes'])) or key.endswith(tuple(names['suffixes'])))}
 
 
 def already_inside(browser=False):
