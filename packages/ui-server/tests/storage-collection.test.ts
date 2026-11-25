@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectStorage } from "../src/storage/collect";
 import { createStorageCoordinator } from "../src/storage/coordinator";
+import { aggregateCollection } from "../src/storage/history-model";
+import { createStorageHistory } from "../src/storage/history-store";
+import { createUiDb } from "../src/db/client";
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "storage-odysseus-")), brain = join(root, "brain"), app = join(root, "app");
   mkdirSync(brain); mkdirSync(app);
@@ -169,4 +172,62 @@ test("directory metadata does not erase known regular-file logical totals", asyn
     expect(result.summary.roots.find(value => value.category === "content")?.logical).toBe(0);
     expect(result.summary.totals.all.coverage).toBe("complete");
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// #3251: history row layout is [capacity, total, used, free, available, coverage,
+// brain logical, brain allocated, app logical, app allocated, operator logical,
+// operator allocated, union logical, union allocated]; coverage 0/1/2 is complete/partial/unknown.
+async function recorded(result: Awaited<ReturnType<typeof collectStorage>>, root: string) {
+  const db = createUiDb(join(root, "operations.sqlite")), history = createStorageHistory(db, root);
+  try {
+    history.offer(aggregateCollection(result, 1, "0.44.0")); await history.settled();
+    const stored = history.read()!, sample = stored.samples.find(row => row[1] === 0)!;
+    return sample[9].map(row => ({ identity: stored.metadata.capacities[row[0]]![0], row }));
+  } finally { history.close(); db.close(); }
+}
+
+test("history records an unmapped brain as unknown on every disk, never a complete zero", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-storage-unmapped-")), journal = join(root, "journal"), database = join(root, "database");
+  mkdirSync(journal); mkdirSync(database);
+  writeFileSync(join(journal, "voyage.txt"), "Ithaca"); writeFileSync(join(database, "crew.txt"), "Penelope");
+  try {
+    const result = await collectStorage({ brainPath: join(root, "missing-brain"), salt: "odysseus", stores: [
+      { path: journal, label: "Retained file history", category: "journal", owner: "app", recursive: true },
+      { path: database, label: "Operational database", category: "database", owner: "app", recursive: true },
+    ] }, "unmapped-brain", new AbortController().signal);
+    const brain = result.summary.roots.find(value => value.owner === "brain")!;
+    expect(brain.coverage).toBe("unknown");
+    expect(brain.reason).toBe("storage-reader-unavailable-or-incompatible");
+    expect(result.summary.capacities).toHaveLength(1);
+    expect(result.summary.capacities[0]!.rootIds).not.toContain(brain.id);
+    const [capacity] = await recorded(result, root), row = capacity!.row;
+    expect(row[6], "UNMAPPED_BRAIN_LOGICAL_IS_UNKNOWN").toBeNull();
+    expect(row[7], "UNMAPPED_BRAIN_ALLOCATED_IS_UNKNOWN").toBeNull();
+    expect(row[5], "UNMAPPED_BRAIN_CAPACITY_NOT_COMPLETE").toBe(1);
+    expect(row[8], "MAPPED_APP_STILL_MEASURED").toBe(14);
+    expect(row[10], "OPERATOR_WITHOUT_ROOTS_STAYS_ZERO").toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("history keeps a known per-disk brain zero when every brain root is mapped to another disk", async () => {
+  const f = fixture(), other = mkdtempSync("/dev/shm/storage-odysseus-");
+  try {
+    writeFileSync(join(other, "voyage.txt"), "Ithaca");
+    const result = await collectStorage({ brainPath: f.brain, salt: "odysseus", stores: [
+      { path: other, label: "Retained file history", category: "journal", owner: "app", recursive: true },
+      // An absent optional store holds nothing, so it cannot make App unknown elsewhere.
+      { path: join(other, "state.sqlite-wal"), label: "Operational database-wal", category: "database", owner: "app", recursive: false, optional: true },
+    ] }, "mapped-brain", new AbortController().signal);
+    expect(result.summary.errors).toEqual([]);
+    expect(result.summary.capacities).toHaveLength(2);
+    const brain = result.summary.roots.find(value => value.owner === "brain")!;
+    const rows = await recorded(result, f.root);
+    const brainDisk = result.summary.capacities.find(value => value.rootIds.includes(brain.id))!;
+    const disk = (capacity: typeof brainDisk) => rows.find(value => value.identity === capacity.id)!.row;
+    const b = disk(brainDisk), a = disk(result.summary.capacities.find(value => value !== brainDisk)!);
+    expect([a[6], a[7], a[5]], "MAPPED_ELSEWHERE_BRAIN_IS_KNOWN_ZERO").toEqual([0, 0, 0]);
+    expect([b[6], b[7]], "MAPPED_BRAIN_MEASURED_ON_ITS_DISK").toEqual([result.summary.totals.brain.logical, result.summary.totals.brain.allocated]);
+    expect(b[6], "MAPPED_BRAIN_BYTES_KNOWN").toBe(10_000_044);
+    expect([b[8], b[9], b[5]], "MAPPED_ELSEWHERE_APP_IS_KNOWN_ZERO").toEqual([0, 0, 0]);
+  } finally { rmSync(other, { recursive: true, force: true }); f.close(); }
 });

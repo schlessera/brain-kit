@@ -86,7 +86,18 @@ export interface StorageMaintenanceReceipt {
   requestedAt: number; startedAt: number | null; completedAt: number | null;
   state: "waiting" | "running" | "complete" | "partial" | "refused" | "cancelled" | "unknown";
   reason: string | null;
-  headroom: { requiredBytes: null; reservation: false; note: string };
+  headroom: {
+    /** Historical; always null. */
+    requiredBytes: null;
+    /**
+     * `pack-git` only: core's conservative preflight need, in bytes, as reported by
+     * this receipt's own run. Null for other kinds, before core reports, and when
+     * core reported no figure. An operation row's own headroom always carries null;
+     * the latest figure is on its `latest` receipt.
+     */
+    packingRequiredBytes: number | null;
+    reservation: false; note: string;
+  };
   before: StorageMaintenanceObservation | null; after: StorageMaintenanceObservation | null;
   outcome: { items: StorageMaintenanceItem[]; truncated: boolean; removed: number | null; failed: number | null; deferred: number | null; packed: number | null; pinnedFiles: number | null; pinnedBytes: number | null; overageBytes: number | null; suspended: boolean } | null;
 }

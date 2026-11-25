@@ -597,6 +597,7 @@ export function storageViewFixture(scene: StorageScene = "dense") {
         reason: null,
         headroom: {
           requiredBytes: null,
+          packingRequiredBytes: null,
           reservation: false,
           note: "Can grow before it shrinks; needs headroom.",
         },
@@ -629,6 +630,7 @@ export function storageViewFixture(scene: StorageScene = "dense") {
             reason: scene === "maintenance" ? null : "headroom-unavailable",
             headroom: {
               requiredBytes: null,
+              packingRequiredBytes: null,
               reservation: false,
               note: "Can grow before it shrinks; needs headroom.",
             },
