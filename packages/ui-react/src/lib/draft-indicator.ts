@@ -126,6 +126,13 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
       facts: [{ key: "This device", value: `edited ${clock(d.editedAt)}` }, { key: "Other device", value: `edited ${clock(d.conflict.other.updatedAt)}` }],
       action: "compare" };
   }
+  // Shown even over an emptied composer: a Send's refused snapshot list is this draft's too (#4566).
+  if (d?.failure?.kind === "refused" && d.failure.edit === d.edit) {
+    return { key: "refused", state: "refused", stateLabel: "Draft not saved: the brain refused it",
+      summary: `Draft not saved: the brain refused it.${kept}`,
+      explanation: "This tab stopped sending it. Change the draft to try again.",
+      facts: [{ key: "Brain said", value: d.failure.reason }] };
+  }
   const content = !!d && (d.text.length > 0 || d.attachments.length > 0 || files.length > 0);
   if (!content && own.length === 0) return { key: "none" };
 
@@ -161,12 +168,6 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
     const held = d.failure.bound === "drafts" ? `${d.failure.limit} drafts` : `${bytesLabel(d.failure.limit)} of drafts`;
     return { key: "full", state: "refused", stateLabel: "Draft not saved: the host is full",
       summary: `Draft not saved: ${held} saved. Delete one to save this.`, facts: [{ key: "Saved", value: held }] };
-  }
-  if (d?.failure?.kind === "refused" && d.failure.edit === d.edit) {
-    return { key: "refused", state: "refused", stateLabel: "Draft not saved: the brain refused it",
-      summary: `Draft not saved: the brain refused it.${kept}`,
-      explanation: "This tab stopped sending it. Change the draft to try again.",
-      facts: [{ key: "Brain said", value: d.failure.reason }] };
   }
   const unconfirmedUploads = own.filter((item) => item.state === "unknown");
   if (unconfirmedUploads.length > 0 && online) {

@@ -148,6 +148,12 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     return false;
   }
 
+  /** A recovery that could not run (its read got no answer) does not use up the edit's attempt. */
+  function uncount(draftId: string) {
+    const last = refusals.get(draftId);
+    if (last && last.count > 0) refusals.set(draftId, { ...last, count: last.count - 1 });
+  }
+
   function refuse(draftId: string, edit: number, body: { message?: string }) {
     refusals.set(draftId, { edit, count: MAX_REFUSED_CALLS });
     failures.delete(draftId);
@@ -197,10 +203,12 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
     if (result.status === 400) {
       const at = edit ?? store.drafts[draftId]?.edit ?? 0;
-      if (store.snapshotsOn && holdsSnapshots(store.drafts[draftId] ?? { snapshots: [], host: null })) {
+      const d = store.drafts[draftId];
+      if (store.snapshotsOn && d?.host && holdsSnapshots(d)) {
         // The host refused the list: its own may have moved (an acceptance
         // released a snapshot). Read it, and save again from what it holds,
-        // once: the same list refused again is not sent again (#4566).
+        // once: the same list refused again is not sent again (#4566). A
+        // draft the host never stored has no list of its own to read.
         if (mayRecover(draftId, at, body)) void reconcileSnapshots(draftId);
         return;
       }
@@ -273,8 +281,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (read.ok) {
         const result = await api.remove(d.draftId, read.value.revision);
         if (!current()) return;
-        if (!result.ok && result.status !== 404 && result.status !== 410) { failed(d.draftId, result); return; }
-      } else if (read.status !== 404 && read.status !== 410) { failed(d.draftId, read); return; }
+        if (!result.ok && result.status !== 404 && result.status !== 410) { failed(d.draftId, result, d.edit); return; }
+      } else if (read.status !== 404 && read.status !== 410) { failed(d.draftId, read, d.edit); return; }
       bumpHost(d.draftId);
       drafts.getState().removed(d.draftId);
       return;
@@ -285,7 +293,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!current()) return;
       if (result.ok) { bumpHost(d.draftId); failures.delete(d.draftId); drafts.getState().removed(d.draftId); retryFull(); return; }
       if (result.status === 410 || result.status === 404) { bumpHost(d.draftId); drafts.getState().removed(d.draftId); return; }
-      failed(d.draftId, result);
+      // The edit this delete was for: one typed since is not refused by its answer.
+      failed(d.draftId, result, d.edit);
       return;
     }
     store.saving(d.draftId, Date.now());
@@ -350,7 +359,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!mayRecover(d.draftId, d.edit, result.body)) return;
       const gone = await goneFiles(d, fileIds);
       if (!current()) return;
-      if (gone === null) { backoff(d.draftId); return; }
+      // The read got no answer: nothing was learned, so the recovery is still owed.
+      if (gone === null) { uncount(d.draftId); backoff(d.draftId); return; }
       if (gone.length === 0) { refuse(d.draftId, d.edit, result.body); return; }
       drafts.getState().filesGone(d.draftId, gone);
       backoff(d.draftId);

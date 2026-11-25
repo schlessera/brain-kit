@@ -42,10 +42,12 @@ type Refusal = { status: 400; body: { error: string; message: string } };
  * or null to store it; by default it is the server's empty-draft rule
  * (`packages/ui-server/src/drafts/store.ts`).
  */
-function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; snapshots?: boolean } = {}) {
+function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; snapshots?: boolean; remove?: () => Promise<DraftCallResult<null>> } = {}) {
   const saves: { draftId: string; body: DraftSaveRequest }[] = [];
   const rows = new Map<string, Draft>();
   const swept = new Set<string>();
+  /** Reads that get no answer before the host answers again. */
+  let silentGets = 0;
   const empty = (body: DraftSaveRequest): Refusal | null =>
     body.text.length === 0 && body.attachmentIds.length === 0 && (body.fileIds?.length ?? 0) === 0 && (body.snapshots?.length ?? 0) === 0
       ? { status: 400, body: { error: "DRAFT_INVALID", message: "An empty draft is deleted, not saved." } } : null;
@@ -55,6 +57,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const api: DraftApi = {
     list: async () => ({ ok: true, value: { drafts: [...rows.values()].map((r) => ({ draftId: r.draftId, sessionId: r.sessionId, revision: r.revision, updatedAt: r.updatedAt, preview: r.text, attachmentCount: 0 })) } }),
     get: async (draftId) => {
+      if (silentGets > 0) { silentGets--; return { ok: false, status: 503, body: {} }; }
       const row = rows.get(draftId);
       if (!row) return { ok: false, status: 404, body: { error: "DRAFT_NOT_FOUND" } };
       // The host's draft lists only the originals it still stores.
@@ -72,7 +75,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
       return { ok: true, value: { revision, updatedAt: 1_000 + revision } };
     },
     upload: async () => ({ ok: true, value: { attachmentId: "att-1" } }),
-    remove: async () => ({ ok: true, value: null }),
+    remove: options.remove ?? (async () => ({ ok: true, value: null })),
     bind: async () => ({ ok: false, status: 404, body: {} }),
   };
   const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({}) });
@@ -87,7 +90,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const drafts = ui.stores.drafts;
   const id = drafts.getState().idFor(SESSION);
   const indicator = (draftId: string) => draftIndicatorView({ draft: drafts.getState().drafts[draftId], store: drafts.getState(), queued: [], online: true });
-  return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello) };
+  return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), silenceGets: (n: number) => { silentGets = n; } };
 }
 
 test("a draft holding only originals of another draft id is never saved as empty, and says to choose them again", async () => {
@@ -156,6 +159,8 @@ test("a refused snapshot list is read and saved again once, then not sent again"
   const listed = s.saves.filter((x) => x.body.snapshots?.length);
   expect(listed.length, "REFUSED_LIST_BOUNDED").toBe(2);
   expect(s.drafts.getState().drafts[s.id]?.failure).toMatchObject({ kind: "refused" });
+  // The composer is empty after Send: the refusal still shows (#4566).
+  expect(s.indicator(s.id), "REFUSED_SHOWN_OVER_EMPTY_COMPOSER").toMatchObject({ key: "refused", facts: [{ key: "Brain said", value: "A dispatched snapshot cannot become held." }] });
 });
 
 test("an original the host no longer stores is left out, reads as choose again, and the next save succeeds", async () => {
@@ -185,4 +190,42 @@ test("an original never bound and not stored for this draft is left out too", as
   expect(s.saves.at(-1)!.body).toEqual({ sessionId: SESSION, text: "Crew list", attachmentIds: [] });
   expect(s.drafts.getState().drafts[s.id]?.host?.revision).toBe(1);
   expect(s.saves.length).toBe(2);
+});
+
+test("a Send whose first save is refused keeps its message: a draft the host never stored is not read as deleted", async () => {
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length ? { status: 400, body: { error: "DRAFT_INVALID", message: "A new snapshot is held or dispatched." } } : null) });
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-first" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-first", requestId: "req-first", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "");
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id];
+  expect(d?.snapshots?.map((x) => x.text), "FIRST_SAVE_SNAPSHOT_KEPT").toEqual(["Muster the crew"]);
+  expect(d?.failure).toMatchObject({ kind: "refused" });
+  expect(s.saves.length, "bounded").toBeLessThanOrEqual(2);
+});
+
+test("a delete's late 400 refuses only the emptied edit: text typed while it was out is still saved", async () => {
+  let answer!: (result: DraftCallResult<null>) => void;
+  const s = scene({ remove: () => new Promise((resolve) => { answer = resolve; }) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Ask Penelope" });
+  await run(SAVE_DELAY + 100);
+  expect(s.saves).toHaveLength(1);
+  s.drafts.getState().edit(s.id, SESSION, { text: "" });
+  await run(SAVE_DELAY + 100);
+  // Typed again while the delete is out; then the host refuses the delete.
+  s.drafts.getState().edit(s.id, SESSION, { text: "Ask Telemachus instead" });
+  answer({ ok: false, status: 400, body: { error: "DRAFT_INVALID", message: "Not this revision." } });
+  await run(LONG);
+  expect(s.saves.map((x) => x.body.text), "DELETE_400_SPARES_NEW_EDIT").toContain("Ask Telemachus instead");
+});
+
+test("a read that gets no answer does not use up the file recovery", async () => {
+  const s = scene();
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees", files: [{ file: PERMIT, lineage: s.id }] });
+  await run(SAVE_DELAY + 100);
+  s.swept.add(PERMIT.fileId);
+  s.silenceGets(1);
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees for the permit" });
+  await run(LONG);
+  expect(s.saves.at(-1)!.body, "TRANSIENT_READ_KEEPS_RECOVERY").toEqual({ sessionId: SESSION, text: "Harbour fees for the permit", attachmentIds: [], fileIds: [] });
+  expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
 });
