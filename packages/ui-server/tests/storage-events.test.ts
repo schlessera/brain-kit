@@ -122,6 +122,36 @@ test("buffered repeated refusals keep the first refusal's time for the refusal a
   ]);
 });
 
+test("buffered refusals across targets start the warning at the earliest refusal of any of them", () => {
+  const f = fixture(); f.observe(start, 500_000_000);
+  const a = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: start + 10_000 };
+  const b = { ...a, target: hashScope("Penelope attachment"), at: start + 15_000 };
+  f.advance(start + 10_000); f.history.ownerWrite(a);
+  f.advance(start + 15_000); f.history.ownerWrite(b);
+  f.advance(start + 20_000); f.history.ownerWrite({ ...a, at: start + 20_000 });
+  f.advance(start + 70_000); expect(f.history.flush()).toBe(true);
+  expect(f.events().events.map(event => [event.kind, event.phase, event.at, event.kind === "refusal" ? event.target : null]), "STORAGE_EVENTS_CROSS_TARGET_START").toEqual([
+    ["refusal", "refused", start + 10_000, a.target], ["pressure", "start", start + 10_000, null], ["refusal", "refused", start + 15_000, b.target],
+  ]);
+  expect(f.history.read()!.metadata.state.pressures[0], "STORAGE_EVENTS_ORDER_KEEPS_SEVERITY").toMatchObject({ severity: "critical",
+    refusals: [{ target: a.target, at: start + 20_000, successAt: null }, { target: b.target, at: start + 15_000, successAt: null }] });
+  // Applied in first-refusal order, so the refusals list A before B.
+});
+
+test("a late refusal report coalesced with newer ones still supplies the first refusal time", () => {
+  const f = fixture(); f.observe(start, 500_000_000);
+  const report = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: start + 20_000 };
+  f.advance(start + 30_000);
+  f.history.ownerWrite(report);
+  f.history.ownerWrite({ ...report, at: start + 10_000 });
+  f.history.ownerWrite({ ...report, at: start + 30_000 });
+  f.advance(start + 70_000); expect(f.history.flush()).toBe(true);
+  expect(f.history.read()!.metadata.state.pressures[0]!.refusals).toEqual([{ target: report.target, resource: "bytes", at: start + 30_000, successAt: null }]);
+  expect(f.events().events.map(event => [event.kind, event.phase, event.at]), "STORAGE_EVENTS_LATE_REPORT_FIRST_TIME").toEqual([
+    ["refusal", "refused", start + 10_000], ["pressure", "start", start + 10_000],
+  ]);
+});
+
 test("a buffered success ends the coalesced refusal run but not the warning the first refusal started", () => {
   const f = fixture(); f.observe(start, 500_000_000);
   const report = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: start + 10_000 };

@@ -93,13 +93,15 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
       const buffered: BufferedWrite = { identity: report.identity, rootScope: report.rootScope, target: report.target, resource: report.resource, at: report.at, outcome: report.outcome };
       if (report.outcome === "no-space") {
         // Coalescing keeps the newest refusal for its support time; the event
-        // timeline still needs the first one (#4541). A pending success can
-        // only follow the pending refusal it resolves, and ends that run.
-        const dropped = pendingWrites.filter(value => !kept(value)), refusal = dropped.find(value => value.outcome === "no-space");
-        if (refusal) {
-          const first = refusal.firstAt ?? refusal.at, earliest = refusal.earliestAt ?? first;
-          if (!dropped.some(value => value.outcome === "success")) buffered.firstAt = first;
-          buffered.earliestAt = earliest;
+        // timeline still needs the first one (#4541). Reports can arrive out
+        // of order, so take minimums, never the first match. A dropped success
+        // ends the run of refusals before it.
+        const dropped = pendingWrites.filter(value => !kept(value)), refusals = dropped.filter(value => value.outcome === "no-space");
+        if (refusals.length) {
+          const resolved = Math.max(-1, ...dropped.filter(value => value.outcome === "success").map(value => value.at));
+          const run = refusals.filter(value => value.at > resolved);
+          if (run.length) buffered.firstAt = Math.min(...run.map(value => value.firstAt ?? value.at));
+          buffered.earliestAt = Math.min(...refusals.map(value => value.earliestAt ?? value.firstAt ?? value.at));
         }
       }
       const next = [...pendingWrites.filter(kept), buffered];
