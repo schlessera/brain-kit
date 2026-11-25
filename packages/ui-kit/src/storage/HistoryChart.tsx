@@ -5,8 +5,10 @@ import { accent, color, font, token } from "../tokens.js";
 import { EventList } from "./EventList.js";
 import {
   HISTORY_COPY,
+  SCENARIO_LABEL_BOX,
   LABEL_SIZE,
   historyLayout,
+  projectionReasonText,
   isMeasured,
   placeable,
   textWidth,
@@ -140,6 +142,9 @@ function projection(layout: HistoryLayout, scenarios: readonly HistoryScenario[]
   const drawn = new Set(layout.scenarioLines.map((l) => l.scenario));
   const inGutter = new Set(layout.scenarioLabels.map((l) => l.line.scenario));
   const unavailable = scenarios.filter((s) => !drawn.has(s));
+  // A qualified window with no line: now was not measured, so there is no
+  // current point to draw it from.
+  const why = (s: HistoryScenario) => s.reason ?? (s.to && !layout.nowMeasured ? projectionReasonText("stale") : undefined);
   const lines: Array<{ glyph?: string; text: string; window?: HistoryScenarioWindow }> = [];
   const spokenParts: string[] = [];
   if (drawn.size) {
@@ -151,12 +156,13 @@ function projection(layout: HistoryLayout, scenarios: readonly HistoryScenario[]
       spokenParts.push(`${s.name} rate${s.detail ? `: ${spoken(s.detail)}` : ""}`);
     }
     for (const s of unavailable) {
-      lines.push({ text: `${s.name}: no projection${s.reason ? ` ${DOT} ${s.reason}` : ""}` });
+      const reason = why(s);
+      lines.push({ text: `${s.name}: no projection${reason ? ` ${DOT} ${reason}` : ""}` });
       spokenParts.push(`${s.name}: no projection`);
     }
   } else {
     const first = unavailable.find((s) => s.window === "short") ?? unavailable[0];
-    const reason = layout.measuredCount === 1 ? "one measurement so far" : first?.reason;
+    const reason = layout.measuredCount === 1 && layout.nowMeasured ? "one measurement so far" : first ? why(first) : undefined;
     lines.push({ text: `No projection${reason ? ` ${DOT} ${reason}` : ""}` });
     spokenParts.push(`No projection${reason ? `, ${reason}` : ""}`);
   }
@@ -186,12 +192,18 @@ export function HistoryChart(p: HistoryChartProps) {
   if (!layout) return <div ref={ref} style={wrap} data-part="history-chart" />;
 
   const proj = projection(layout, scenarios);
+  // `latest` is the last measurement; it speaks for now only when now was measured.
   const latest = layout.latest && layout.latest.kind === "current" ? layout.latest : null;
+  const nowValue = layout.nowMeasured ? latest : null;
 
   const nameParts = [p.label];
   if (layout.allUnknown) nameParts.push("No measurements in this range");
   else {
-    if (latest) nameParts.push(`Now ${p.formatValue(latest.value)}${p.nowState ? `, ${p.nowState}` : ""}`);
+    if (nowValue) nameParts.push(`Now ${p.formatValue(nowValue.value)}${p.nowState ? `, ${p.nowState}` : ""}`);
+    else {
+      nameParts.push(`Now not measured${p.nowState ? `, ${p.nowState}` : ""}`);
+      if (layout.latest) nameParts.push(`Last measured ${p.formatValue(layout.latest.value)} at ${formatTime(layout.latest.at)}`);
+    }
     nameParts.push(proj.spoken);
   }
   if (layout.gaps.length) nameParts.push(plural(layout.gaps.length, "gap"));
@@ -279,8 +291,14 @@ export function HistoryChart(p: HistoryChartProps) {
   // The now value: right of the point if it fits, else above it, reading
   // into the future zone, where only the scenario lines (heading down and
   // right) and the latest point's own edge can be.
-  const nowLabel = latest
-    ? (() => {
+  // When now was not measured, the now rule carries "?" and the last
+  // measured value keeps no label of its own: it is not now's value.
+  const nowLabel = !nowValue
+    ? layout.allUnknown
+      ? null
+      : { text: "?", x: layout.nowX + 4, y: (frame.top + frame.bottom) / 2, anchor: "start" as const }
+    : (() => {
+        const latest = nowValue;
         const text = p.formatValue(latest.value);
         const w = textWidth(text, 10);
         const high = latest.y - 10 >= frame.top + 18;
@@ -288,8 +306,7 @@ export function HistoryChart(p: HistoryChartProps) {
         if (latest.x + 7 + w <= frame.right) return { text, x: latest.x + 7, y: high ? latest.y - 6 : y, anchor: "start" as const };
         if (latest.x - 2 + w <= frame.width) return { text, x: latest.x - 2, y, anchor: "start" as const };
         return { text, x: latest.x + 2, y, anchor: "end" as const };
-      })()
-    : null;
+      })();
 
   const svg = (
     <svg
@@ -504,11 +521,11 @@ export function HistoryChart(p: HistoryChartProps) {
               <polyline data-part="leader" points={`${line.x2},${line.y2} ${x0 - 2},${y}`} fill="none" stroke={color.inkMute} strokeWidth={0.75} />
             ) : null}
             <line x1={x0} x2={x0 + 12} y1={y} y2={y} stroke={color.ink} strokeWidth={1.5} strokeDasharray={SCENARIO_DASH[s.window].dash} />
-            <text x={x0 + 16} y={y + 3} fill={color.ink} style={mono(10, 600)}>
+            <text x={x0 + 16} y={y + SCENARIO_LABEL_BOX.line1} fill={color.ink} style={mono(10, 600)}>
               {`${s.name} rate`}
             </text>
             {s.detail ? (
-              <text x={x0 + 16} y={y + 15} fill={color.inkDim} style={mono(10)}>
+              <text x={x0 + 16} y={y + SCENARIO_LABEL_BOX.line2} fill={color.inkDim} style={mono(10)}>
                 {s.detail}
               </text>
             ) : null}

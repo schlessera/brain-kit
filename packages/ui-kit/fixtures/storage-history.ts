@@ -172,3 +172,10 @@ export const scopeChangedAtNow: HistoryPoint[] = sixHourFull.map((p) =>
 
 /** A collector that reported a non-number for 2 Jul 06:00: it is a gap, never a value. */
 export const sixHourNotANumber: HistoryPoint[] = sixHourFull.map((p) => (p.at === GAP_FIRST ? { at: p.at, value: Number.NaN } : p));
+
+/** Nothing observed for the current bucket: the last measurement is 12 Jul 00:00, and now is unknown. */
+export const sixHourTrailingGap: HistoryPoint[] = sixHourFull.map((p) => (p.at === HISTORY_NOW ? { at: p.at, value: null } : p));
+
+/** Both windows run the volume out inside the future zone, so both lines end on the zero baseline. */
+export const SHORT_SOON: HistoryScenario = { window: "short", name: "7-day", detail: "empty ~13 Jul", to: { at: HISTORY_NOW + DAY, value: 0 } };
+export const LONG_SOON: HistoryScenario = { window: "long", name: "30-day", detail: "empty ~14 Jul", to: { at: HISTORY_NOW + 2 * DAY, value: 0 } };

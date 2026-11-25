@@ -616,3 +616,51 @@ describe("a scenario keeps the rate it was given (F3)", () => {
     expect(line!.y2).toBeCloseTo(200, 9);
   });
 });
+
+/* ── Second review of #4559 ─────────────────────────────────────────────────── */
+
+describe("a gutter label's whole box stays inside the chart (F6)", () => {
+  test("two scenarios that reach zero, no events: both two-line labels fit the 880px chart, top and bottom", () => {
+    const pts = series([34, 30, 26, 22, 18, 16.4].map((v) => v * GB));
+    const now = pts[5]!.at;
+    const layout = historyLayout({
+      width: 880,
+      points: pts,
+      now,
+      scenarios: [
+        { window: "short", name: "7-day", detail: "empty ~13 Jul", to: { at: now + 0.2 * DAY, value: 0 } },
+        { window: "long", name: "30-day", detail: "empty ~14 Jul", to: { at: now + 0.3 * DAY, value: 0 } },
+      ],
+    });
+    expect(layout.scenarioLabels).toHaveLength(2);
+    for (const l of layout.scenarioLabels) {
+      // Two 10px lines, baselines at y+3 and y+15: 0.8em ascent above the
+      // first, 0.25em descent below the second.
+      expect(l.y + 3 - 8, "first line's top").toBeGreaterThanOrEqual(0);
+      expect(l.y + 15 + 2.5, "second line's bottom").toBeLessThanOrEqual(layout.frame.height);
+    }
+  });
+});
+
+describe("the last measurement is not now's value (F5)", () => {
+  test("a trailing missing observation: now is not measured, and no scenario starts from the older value", () => {
+    const pts = series([30, 20, null].map((v) => (v === null ? null : v * GB)));
+    const scenarios: HistoryScenario[] = [{ window: "short", name: "7-day", detail: "empty ~20 Jul", to: { at: pts[2]!.at + 8 * DAY, value: 0 } }];
+    const layout = historyLayout({ width: 880, points: pts, now: pts[2]!.at, intervalMs: DAY, scenarios });
+    expect(layout.latest!.value).toBe(20 * GB);
+    expect(layout.nowMeasured).toBe(false);
+    expect(layout.scenarioLines).toEqual([]);
+  });
+
+  test("a last measurement more than one interval before now is not now either", () => {
+    const pts = series([30, 20]);
+    expect(historyLayout({ width: 880, points: pts, now: pts[1]!.at + 2 * DAY, intervalMs: DAY }).nowMeasured).toBe(false);
+    expect(historyLayout({ width: 880, points: pts, now: pts[1]!.at + 2 * H, intervalMs: DAY }).nowMeasured).toBe(true);
+  });
+
+  test("a measured current bucket is now, and another volume's last value never is", () => {
+    const pts = series([30, 20, 16]);
+    expect(historyLayout({ width: 880, points: pts, now: pts[2]!.at }).nowMeasured).toBe(true);
+    expect(historyLayout({ width: 880, points: series([30, 20, 16], { otherBefore: 3 }), now: pts[2]!.at }).nowMeasured).toBe(false);
+  });
+});
