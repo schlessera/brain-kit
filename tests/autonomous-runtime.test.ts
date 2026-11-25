@@ -13,7 +13,7 @@ async function probe(backend: string, scenario: string): Promise<any> {
     const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
       process.execPath, "--preload", join(ROOT, "scripts/test-network-child-preload.ts"),
       join(import.meta.dir, "fixtures/autonomous-runtime-probe.ts"), backend, scenario, root], {
-      cwd: ROOT, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", HOME: join(root, "home") }, stdout: "pipe", stderr: "pipe" });
+      cwd: ROOT, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", BRAIN_TEST_DEADLINE_FACTOR: process.env.BRAIN_TEST_DEADLINE_FACTOR ?? "1", HOME: join(root, "home") }, stdout: "pipe", stderr: "pipe" });
     const [out, err, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(exit, err || out).toBe(0);
     const receipt = JSON.parse(out.trim().split("\n").at(-1)!);
