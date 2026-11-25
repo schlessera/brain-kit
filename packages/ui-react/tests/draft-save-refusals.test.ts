@@ -533,18 +533,21 @@ test("a refusal of an edit already superseded does not hold the newer one behind
 
 test("another version taking the draft's place ends a pending file recovery: its own text is saved", async () => {
   const s = scene();
-  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees", files: [{ file: PERMIT, lineage: s.id }] });
-  await run(SAVE_DELAY + 100);
-  s.swept.add(PERMIT.fileId);
+  // The first edit's save lists an original the host does not store; its recovery read gets no answer.
+  s.swept.add(CREW.fileId);
   s.silenceGets(1_000);
-  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees for the permit" });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Crew list", files: [{ file: CREW, lineage: s.id }] });
   await run(10_000);
-  // The device's other version of this draft is adopted: same id, its own content and edit count.
+  expect(s.drafts.getState().drafts[s.id]?.edit).toBe(1);
+  // The device's other version of this draft is adopted: same id, and edit 1 too.
   s.silenceGets(0);
-  s.drafts.getState().adoptDeviceRecord({ draftId: s.id, sessionId: SESSION, text: "Penelope keeps the loom", attachments: [], editedAt: 5, host: { revision: 1, sessionId: SESSION, updatedAt: 1, clean: false } });
+  const gets = s.gets();
+  s.drafts.getState().adoptDeviceRecord({ draftId: s.id, sessionId: SESSION, text: "Penelope keeps the loom", attachments: [], editedAt: 5, host: null });
+  expect(s.drafts.getState().drafts[s.id]?.edit).toBe(1);
   await run(LONG);
-  expect(s.drafts.getState().drafts[s.id]?.failure, "ADOPTION_ENDS_RECOVERY").toBeNull();
+  expect(s.gets() - gets, "ADOPTION_ENDS_RECOVERY").toBe(0);
   expect(s.rows.get(s.id)?.text).toBe("Penelope keeps the loom");
+  expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
 });
 
 test("a draft holding only originals to choose again is listed in Drafts", () => {
