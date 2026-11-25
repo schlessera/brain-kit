@@ -268,7 +268,7 @@ export type DraftConflictChoice = "mine" | "other" | "both";
  * is open on its own in the new-chat view.
  */
 type VersionSwitchNote =
-  | { draftId: string; outcome: "cancelled" | "failed" | "missing" }
+  | { draftId: string; outcome: "cancelled" | "failed" | "missing" | "chat_gone" }
   | { draftId: string; outcome: "unattached" };
 
 /**

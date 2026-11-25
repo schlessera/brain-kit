@@ -59,6 +59,7 @@ export const VERSION_SWITCH_COPY = {
   cancelled: "Other version not opened: you moved away first",
   failed: "Couldn't open the other version",
   missing: "The other version isn't on this device any more",
+  chat_gone: "The other version's chat is gone; its unsent messages stay there",
 } as const;
 
 export interface DraftIndicatorInput {

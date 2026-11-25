@@ -776,9 +776,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (current?.conflict) { setEffortNotice("Your draft is kept. Choose which version to keep before sending."); return; }
     // One snapshot is created at a time (#4567): text typed while the last
     // one's save is out stays here until the host has it, then sends.
-    // A refusal of an older edit has not stopped this one's saves.
-    const stopped = !!current?.failure && current.failure.kind !== "unsaved" && !(current.failure.kind === "refused" && current.failure.edit !== current.edit);
-    if (current && !stopped && draftSnapshots(current).some((x) => !x.replaces && !current.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId))) {
+    // Whatever the last save's answer, a second snapshot never goes out beside it (#4567).
+    if (current && draftSnapshots(current).some((x) => !x.replaces && !current.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId))) {
       setEffortNotice("Your draft is kept. Send waits until your last message is saved."); return;
     }
     // A refused save does not hold Send: the send is the next edit, saved again (#4566).

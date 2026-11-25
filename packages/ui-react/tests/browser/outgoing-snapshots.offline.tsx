@@ -204,6 +204,14 @@ test("text pasted while a Send's snapshot is unacknowledged is shown in the fiel
   s.sendButton().click();
   await expect.poll(() => s.host.textContent ?? "", { message: "SECOND_SEND_WAITS" }).toContain("Send waits until your last message is saved.");
   expect(s.draft()!.snapshots?.length, "no second snapshot while the first is unacknowledged").toBe(1);
+  // Nor after a refusal of this very edit: the pasted text stays in the composer, where the device keeps it.
+  const d1 = s.draft()!;
+  s.root.stores.drafts.getState().saveFailed(d1.draftId, { kind: "refused", edit: d1.edit, reason: "Refused." });
+  s.sendButton().click();
+  expect(s.draft()!.snapshots?.length, "SECOND_SEND_WAITS_AFTER_REFUSAL").toBe(1);
+  expect(s.field().value).toBe("Bring the wine for Polyphemus.");
+  // An edit clears the refusal for the acknowledgement below.
+  s.root.stores.drafts.getState().saveFailed(d1.draftId, { kind: "unsaved" });
   expect(s.field().value).toBe("Bring the wine for Polyphemus.");
   release();
   await acknowledged(fixture, s, "Muster the crew at dawn.");

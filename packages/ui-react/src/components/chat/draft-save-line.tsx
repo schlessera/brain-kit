@@ -244,6 +244,8 @@ function detachIfGone(root: BrainUiRoot, draftId: string, sessionId: string, fro
     if (d.sessionId === null) { openUnattached(root, home); return; }
     if (d.sessionId !== sessionId) return;
     const detached = root.stores.drafts.getState().detachVersion(home);
+    // Only outgoing messages, and they stay with the gone chat: back to the branch, saying so.
+    if (!detached) { backToBranch(root, fromId); root.stores.drafts.getState().noteVersionSwitch({ draftId: fromId, outcome: "chat_gone" }); return; }
     if (detached) openUnattached(root, detached);
   };
   stops.push(chat.subscribe(check), watchNavigation(root, stop));

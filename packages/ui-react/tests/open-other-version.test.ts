@@ -363,3 +363,15 @@ test("a device-only transcript copied off a gone chat stays device-only", () => 
   const copy = s.drafts.getState().detachVersion(s.original)!;
   expect(s.drafts.getState().drafts[copy]?.deviceOnly, "DEVICE_ONLY_KEPT").toBe(true);
 });
+
+test("a version holding only outgoing messages whose chat is gone returns the reader to their branch, saying why", async () => {
+  const s = scene({ sessionId: RAFT, text: "", host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  const message = { type: "chat_message" as const, text: "Lash the raft", sessionId: RAFT, requestId: "req-raft" };
+  s.drafts.getState().createSnapshot(s.original, RAFT, { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", files: [], state: "returned", createdAt: 1, message }, "");
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(s.shown(), "SNAPSHOT_ONLY_BACK_TO_BRANCH").toEqual({ sessionId: ITHACA, text: "Telemachus keeps the voyage" });
+  expect(s.drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "chat_gone" });
+  expect(s.drafts.getState().drafts[s.original]?.snapshots?.map((x) => x.text)).toEqual(["Lash the raft"]);
+});
