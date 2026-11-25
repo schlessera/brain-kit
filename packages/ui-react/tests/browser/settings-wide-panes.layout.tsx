@@ -46,33 +46,47 @@ const modules = [
   ["correspondence", "Letters between Ithaca, Sparta and Pylos, filed by sender."],
   ["herds", "Eumaeus's count of the swine and the goats on the hills."],
 ].map(([name, description], i) => ({ name, key: name, description, state: i === 4 ? "dormant" : "active", settings: i !== 3 }));
+const standard = { id: "standard", name: "Standard", voices: {}, instructionBytes: 0, revision: "1", builtIn: true as const };
+const personas = [standard, { id: "herald", name: "Herald of Ithaca", voices: {}, instructionBytes: 412, revision: "3" }];
+const voiceSettings = { defaultProvider: null, revision: 1, persona: { value: "standard", revision: 1 }, livePersona: { selected: "standard", selectedMissing: false, selectedInvalid: false, persona: standard, personaRef: { id: "standard", revision: "1" }, providers: {} } };
 
 function fixtures(path: string): Response {
   if (path === "/api/models") return Response.json({ models, customModels: ["openrouter/aeolus-winds", "openrouter/circe-isle"], defaultModelId: null, resolvedDefaultId: models[0]!.id, refreshedAt: null, stale: false, discovery: { enabled: false, error: "Ithaca harbour did not answer" } });
   if (path === "/api/skills") return Response.json({ skills });
   if (path === "/api/modules") return Response.json({ enabled: modules, available: [] });
   if (path === "/api/trust-settings") return Response.json(trustRead);
+  if (path === "/api/voice/personas") return Response.json({ personas });
+  if (path === "/api/settings/voice") return Response.json(voiceSettings);
   if (path.startsWith("/api/storage")) return Response.json({ error: "Not configured" }, { status: 503 });
   if (path === "/api/agent-policy") return Response.json({ error: "Not configured" }, { status: 404 });
   return Response.json({ providers: [], configured: false, tools: [], principals: [], credentials: [], enabled: [], available: [] });
 }
 
-const PANES: Array<{ tab: SettingsTab; name: string; module?: () => Promise<unknown>; wide: boolean; prose?: true; grids: number; ready: string; content?: true; header?: true }> = [
-  { tab: "appearance", name: "appearance", wide: false, grids: 0, ready: "Turning single-key shortcuts off" },
-  { tab: "models", name: "models", module: () => import("../../src/components/settings/models-tab.js"), wide: true, prose: true, grids: 2, ready: "openrouter/circe-isle", content: true },
-  { tab: "voice", name: "voice", module: () => import("../../src/components/settings/voice-tab.js"), wide: false, grids: 0, ready: "" },
-  { tab: "accounts", name: "accounts", module: () => import("../../src/components/settings/accounts-tab.js"), wide: false, grids: 0, ready: "No other provider accounts" },
-  { tab: "skills", name: "skills", module: () => import("../../src/components/settings/skills-tab.js"), wide: true, prose: true, grids: 2, ready: "weekly-review", content: true },
-  { tab: "modules", name: "modules", module: () => import("../../src/components/settings/modules-tab.js"), wide: true, grids: 1, ready: "Herds", content: true, header: true },
-  { tab: "storage", name: "storage", module: () => import("../../src/components/settings/storage-tab.js"), wide: true, grids: 0, ready: "Storage" },
-  { tab: "security", name: "security", module: () => import("../../src/components/settings/passkey-tab.js"), wide: false, grids: 0, ready: "No rules configured." },
-  { tab: "devices", name: "devices", module: () => import("../../src/components/settings/devices-agents-tab.js"), wide: false, grids: 0, ready: "" },
+/**
+ * `ready` names text that appears only once each group in the pane has
+ * settled on its fixture answers: the measurements and the capture wait for
+ * all of it. A pane title or an intro is drawn before the requests return,
+ * so it never counts. The harness never opens the socket, so the live-service
+ * group's settled state is its loading line.
+ */
+const PANES: Array<{ tab: SettingsTab; name: string; module?: () => Promise<unknown>; wide: boolean; prose?: true; grids: number; ready: string[]; content?: true; header?: true }> = [
+  { tab: "appearance", name: "appearance", wide: false, grids: 0, ready: ["Turning single-key shortcuts off"] },
+  { tab: "models", name: "models", module: () => import("../../src/components/settings/models-tab.js"), wide: true, prose: true, grids: 2, ready: ["openrouter/circe-isle"], content: true },
+  { tab: "voice", name: "voice", module: () => import("../../src/components/settings/voice-tab.js"), wide: false, grids: 0, ready: ["Couldn't load the dictation services.", "Loading the live services", "Herald of Ithaca"] },
+  { tab: "accounts", name: "accounts", module: () => import("../../src/components/settings/accounts-tab.js"), wide: false, grids: 0, ready: ["No other provider accounts"] },
+  { tab: "skills", name: "skills", module: () => import("../../src/components/settings/skills-tab.js"), wide: true, prose: true, grids: 2, ready: ["weekly-review"], content: true },
+  { tab: "modules", name: "modules", module: () => import("../../src/components/settings/modules-tab.js"), wide: true, grids: 1, ready: ["Herds"], content: true, header: true },
+  { tab: "storage", name: "storage", module: () => import("../../src/components/settings/storage-tab.js"), wide: true, grids: 0, ready: ["Storage inspection is unavailable", "History and guidance are unavailable"] },
+  { tab: "security", name: "security", module: () => import("../../src/components/settings/passkey-tab.js"), wide: false, grids: 0, ready: ["No rules configured."] },
+  { tab: "devices", name: "devices", module: () => import("../../src/components/settings/devices-agents-tab.js"), wide: false, grids: 0, ready: ["No active devices or agents.", "Could not read this brain's enforcing policy"] },
 ];
 
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
 /** Mount the shell at a CSS viewport and wait until the pane's requests are answered. */
-async function mount(ctx: { onTestFinished: (fn: () => Promise<void>) => void }, pane: (typeof PANES)[number], width: number, height: number, theme: "dark" | "light", respond: (path: string) => Response = fixtures, ready = pane.ready) {
+async function mount(ctx: { onTestFinished: (fn: () => Promise<void>) => void }, pane: (typeof PANES)[number], width: number, height: number, theme: "dark" | "light", respond: (path: string) => Response = fixtures, ready: string[] = pane.ready) {
+  expect(ready.length, `SETTINGS_PANE_READY_MARKER ${pane.name}`).toBeGreaterThan(0);
+  for (const marker of ready) expect(marker.trim(), `SETTINGS_PANE_READY_MARKER ${pane.name}`).not.toBe("");
   const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };
   const outer = await commands.formViewport(width, height);
   await page.viewport(width, height);
@@ -97,10 +111,13 @@ async function mount(ctx: { onTestFinished: (fn: () => Promise<void>) => void },
   await pane.module?.();
   flushSync(() => react.render(<BrainUiProvider root={ui}><SettingsPanel open onClose={() => {}} /></BrainUiProvider>));
   const panel = () => page.getByRole("tabpanel").element() as HTMLElement;
-  await expect.poll(() => panel().textContent ?? "", { timeout: watchdogMs(5000) }).toContain(ready);
+  for (const marker of ready) await expect.poll(() => panel().textContent ?? "", { timeout: watchdogMs(5000) }).toContain(marker);
   await expect.poll(() => pending, { timeout: watchdogMs(5000) }).toBe(0);
   await document.fonts.ready;
   await frame(); await frame();
+  // Measure and capture only the settled pane: every marker is still there.
+  const settled = panel().textContent ?? "";
+  for (const marker of ready) expect(settled, `SETTINGS_PANE_READY ${pane.name}: ${marker}`).toContain(marker);
   return { host, panel: panel() };
 }
 
@@ -210,7 +227,7 @@ const longLabelFixtures = (path: string) => path === "/api/models"
   : fixtures(path);
 for (const width of [320, 900, 1100, 1280, 1440, 1920]) test(`Settings models pane with a long model label at ${width} keeps the field cap`, async ctx => {
   const pane = PANES.find(p => p.tab === "models")!;
-  const { panel } = await mount(ctx, pane, width, 800, "dark", longLabelFixtures, LONG_LABEL);
+  const { panel } = await mount(ctx, pane, width, 800, "dark", longLabelFixtures, [LONG_LABEL]);
   const select = panel.querySelector<HTMLSelectElement>('select[aria-label="Default model"]')!;
   expect([...select.options].some(option => option.text === LONG_LABEL), "SETTINGS_LONG_LABEL_OFFERED").toBe(true);
   assertLayout({ ...pane, grids: 1 }, panel, width);
@@ -222,7 +239,7 @@ for (const width of [320, 900, 1100, 1280, 1440, 1920]) test(`Settings models pa
 const MODULES_ERROR = "The module registry on Ithaca could not be read: the council's ledger of workflows is locked while Penelope's weaving is undone each night, so no module can be listed until Telemachus restores the household configuration and the next council convenes.";
 for (const width of [1440, 1920]) test(`Settings modules pane error at ${width} keeps the prose measure`, async ctx => {
   const pane = PANES.find(p => p.tab === "modules")!;
-  const { panel } = await mount(ctx, pane, width, 800, "dark", path => path === "/api/modules" ? Response.json({ error: MODULES_ERROR }, { status: 500 }) : fixtures(path), MODULES_ERROR);
+  const { panel } = await mount(ctx, pane, width, 800, "dark", path => path === "/api/modules" ? Response.json({ error: MODULES_ERROR }, { status: 500 }) : fixtures(path), [MODULES_ERROR]);
   const alert = panel.querySelector<HTMLElement>('[role="alert"]')!;
   const copy = [...alert.querySelectorAll<HTMLElement>("p")].filter(p => p.textContent === MODULES_ERROR);
   expect(copy.length, "SETTINGS_MODULES_ERROR_SHOWN").toBe(1);
