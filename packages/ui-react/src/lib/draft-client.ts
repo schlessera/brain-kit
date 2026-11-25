@@ -326,9 +326,17 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
     if ((!hasContent(d) && !holdsSnapshots(d)) || !saveable(d)) {
       if (!d.host) return;
-      const result = await api.remove(d.draftId, d.host.revision);
+      // Send waits while this is out: a message made now would be one of a draft the host is deleting (#4567).
+      drafts.getState().deleting(d.draftId, true);
+      const result = await api.remove(d.draftId, d.host.revision).finally(() => drafts.getState().deleting(d.draftId, false));
       if (!current()) return;
-      if (result.ok) { bumpHost(d.draftId); failures.delete(d.draftId); drafts.getState().removed(d.draftId); retryFull(); return; }
+      if (result.ok) {
+        bumpHost(d.draftId); failures.delete(d.draftId);
+        // Its snapshots were the chat's: a slot is free now.
+        const full = drafts.getState().outgoingFull;
+        if ((d.host.snapshots?.length ?? 0) > 0 && full && (full.draftId === d.draftId || (full.sessionId !== null && full.sessionId === d.sessionId))) drafts.getState().clearOutgoingFull();
+        drafts.getState().removed(d.draftId); retryFull(); return;
+      }
       if (result.status === 410 || result.status === 404) { bumpHost(d.draftId); drafts.getState().removed(d.draftId); return; }
       if (pendingOnHost(d, result)) return;
       // The edit this delete was for: one typed since is not refused by its answer.
@@ -534,10 +542,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
     const now = drafts.getState().drafts[draftId];
     if (!now?.host) { backoff(draftId); return false; }
-    // Saved again over the host's revision, with the host's list as acknowledged.
+    // Saved again over the host's revision, with the host's list as acknowledged, and a snapshot only
+    // the host holds (one a reload did not keep here) shown again with its own actions (#4566).
     bumpHost(draftId);
-    drafts.setState((st) => st.drafts[draftId] ? { drafts: { ...st.drafts, [draftId]: { ...st.drafts[draftId]!, host: { ...st.drafts[draftId]!.host!, revision: read.value.revision, edit: -1,
-      snapshots: (read.value.snapshots ?? []).map(({ createdAt: _at, ...w }) => w) } } } } : st);
+    drafts.getState().adoptHostSnapshots(draftId, read.value);
     backoff(draftId);
     return false;
   }

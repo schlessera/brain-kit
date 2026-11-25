@@ -44,7 +44,7 @@ type Refusal = { status: 400 | 507; body: { error: string; message: string; limi
  * or null to store it; by default it is the server's empty-draft rule
  * (`packages/ui-server/src/drafts/store.ts`).
  */
-function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; snapshots?: boolean; remove?: () => Promise<DraftCallResult<null>> } = {}) {
+function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; snapshots?: boolean; remove?: (draftId: string, ifMatch: number) => Promise<DraftCallResult<null>> } = {}) {
   const saves: { draftId: string; body: DraftSaveRequest }[] = [];
   let uploads = 0;
   let removes = 0;
@@ -706,23 +706,25 @@ test("a Send with originals made while the emptied draft's delete is out comes b
   expect(s.saves.some((x) => (x.body.snapshots ?? []).some((w) => w.fileIds.includes(PERMIT.fileId)))).toBe(false);
 });
 
-test("a delete refused for a message still waiting there brings that message back with the host's revision", async () => {
+test("a delete refused for a message still waiting there brings that message back with the host's copy", async () => {
   let deletes = 0;
   const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const, createdAt: 5 };
-  const current = { draftId: "", sessionId: SESSION, revision: 4, updatedAt: 9, text: "", attachments: [], snapshots: [held] };
-  const s = scene({ snapshots: true, remove: async () => { deletes++; return { ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "A message of this draft is still waiting.", current: { ...current, draftId: s.id } } }; } });
-  // The host moved on to revision 4: only a save over the revision it answers with can succeed.
-  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 4, updatedAt: 9, text: "", attachments: [] });
+  // As the host does: a stale If-Match is a conflict; at the current revision, a waiting message refuses the delete.
+  const s = scene({ snapshots: true, remove: async (draftId, ifMatch) => {
+    deletes++;
+    const row = s.rows.get(draftId)!;
+    if (ifMatch !== row.revision) return { ok: false, status: 409, body: { error: "DRAFT_CONFLICT", message: "changed" } };
+    return { ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "A message of this draft is still waiting.", current: { draftId, sessionId: SESSION, revision: row.revision, updatedAt: 9, text: "", attachments: [], snapshots: [held] } } };
+  } });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [] });
+  // This tab's copy of revision 3 does not know the waiting message (a reload kept none here).
   s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [], editedAt: 1, edit: 3,
-    host: { revision: 3, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ ...held }], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+    host: { revision: 3, edit: 2, sessionId: SESSION, attachmentIds: [], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
   await run(LONG);
   const d = s.drafts.getState().drafts[s.id]!;
   expect(deletes, "WAITING_MESSAGE_NOT_DELETED_AGAIN").toBe(1);
   expect(d.snapshots?.map((x) => x.snapshotId), "WAITING_MESSAGE_BACK").toEqual(["snap-held"]);
-  // Saved over the host's revision, with the waiting message listed.
-  expect(s.rows.get(s.id)?.revision, "SAVED_OVER_HOST_REVISION").toBe(5);
-  expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.snapshotId)).toEqual(["snap-held"]);
-  expect(d.host?.edit).toBe(d.edit);
+  expect(d.host?.snapshots?.map((x) => x.snapshotId), "HOST_COPY_ADOPTED").toEqual(["snap-held"]);
 });
 
 test("after a lost save, a delete refused for a waiting message brings it back instead of repeating", async () => {
@@ -746,7 +748,7 @@ test("a draft restored clean from the device, holding only a carried original, i
   expect(s.saves).toEqual([]);
 });
 
-test("a Send made while a delete is out survives the host refusing that delete over a waiting message", async () => {
+test("a Send made while a delete is out survives the host refusing that delete over a waiting message (store level)", async () => {
   let answer!: (r: DraftCallResult<null>) => void;
   const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const, createdAt: 5 };
   const s = scene({ snapshots: true, remove: () => new Promise((resolve) => { answer = resolve; }) });
@@ -776,4 +778,46 @@ test("a Send still uploading while the emptied draft's delete is out comes back 
   const all = Object.values(s.drafts.getState().drafts);
   expect(all.some((d) => d.snapshots?.some((x) => x.snapshotId === "snap-chart")), "UPLOADING_SNAPSHOT_NOT_CARRIED").toBe(false);
   expect(all.some((d) => d.text === "Read the chart")).toBe(true);
+});
+
+test("a draft's delete marks it deleting until answered, so Send waits", async () => {
+  let answer!: (r: DraftCallResult<null>) => void;
+  const s = scene({ snapshots: true, remove: () => new Promise((resolve) => { answer = resolve; }) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  s.drafts.getState().edit(s.id, SESSION, { text: "" });
+  await run(SAVE_DELAY + 100);
+  expect(s.drafts.getState().drafts[s.id]?.deleting, "DELETING_WHILE_OUT").toBe(true);
+  answer({ ok: false, status: 503, body: {} });
+  await run(100);
+  expect(s.drafts.getState().drafts[s.id]?.deleting).toBeUndefined();
+});
+
+test("a reconciliation read shows a held snapshot only the host holds, and saves list it", async () => {
+  let refusals = 1;
+  const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const, createdAt: 5 };
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length && !body.snapshots.some((x) => x.snapshotId === "snap-held") && refusals-- > 0 ? { status: 400, body: { error: "DRAFT_INVALID", message: "A held snapshot is not deleted; return it first." } } : null) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  const r = s.rows.get(s.id)!;
+  // The host holds a held message this tab no longer knows (a reload kept none here).
+  (r as Draft).snapshots = [held];
+  const message = { type: "chat_message" as const, text: "Sail at dawn", sessionId: SESSION, requestId: "req-new" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-new", requestId: "req-new", text: "Sail at dawn", files: [], state: "held", createdAt: null, message }, "Muster the crew");
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.snapshots?.map((x) => x.snapshotId).sort(), "HOST_ONLY_SNAPSHOT_SHOWN").toEqual(["snap-held", "snap-new"]);
+  expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.snapshotId).sort()).toEqual(["snap-held", "snap-new"]);
+  expect(d.failure).toBeNull();
+});
+
+test("deleting a draft whose snapshots filled the chat clears the queue-full notice", async () => {
+  const s = scene({ snapshots: true });
+  const old = { snapshotId: "snap-old", requestId: "req-old", text: "Lash the raft", fileIds: [], state: "returned" as const };
+  s.drafts.setState((st) => ({ outgoingFull: { draftId: s.id, sessionId: SESSION, limit: 10 }, drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [{ ...old, files: [], createdAt: 1 }], editedAt: 1, edit: 2,
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [old], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  s.drafts.getState().deleteSnapshot(s.id, "snap-old");
+  await run(LONG);
+  expect(s.removes()).toBe(1);
+  expect(s.drafts.getState().outgoingFull, "FULL_CLEARED_ON_DELETE").toBeNull();
 });
