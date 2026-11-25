@@ -190,13 +190,23 @@ test("a version holding outgoing messages keeps them with its gone chat, and its
   s.drafts.getState().createSnapshot(s.original, RAFT, { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", files: [], state: "returned", createdAt: 1, message }, "");
   openOtherVersion(s.root, s.original, BRANCH);
   await turn();
+  const editBefore = s.drafts.getState().drafts[s.original]!.edit;
   s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
   const d = s.drafts.getState().drafts[s.original];
   expect(d?.snapshots?.map((x) => x.text), "SNAPSHOTS_NOT_DROPPED").toEqual(["Lash the raft"]);
   expect(d?.sessionId).toBe(RAFT);
-  expect(d?.text, "the composer text moved, not copied").toBe("");
+  expect(d?.text, "the gone chat's draft is left untouched, so nothing is saved to a chat that is gone").toBe(OTHER_TEXT);
+  expect(d?.edit, "NO_EDIT_IN_GONE_CHAT").toBe(editBefore);
   expect(s.shown(), "SNAPSHOT_VERSION_TEXT_UNATTACHED").toEqual({ sessionId: null, text: OTHER_TEXT });
-  expect(s.drafts.getState().versionSwitch).toMatchObject({ outcome: "unattached", draftId: s.drafts.getState().fresh });
+  const copy = s.drafts.getState().fresh;
+  expect(s.drafts.getState().versionSwitch).toMatchObject({ outcome: "unattached", draftId: copy });
+  // The branch's other version is the copy now: opening it again lands there, not in the gone chat.
+  expect(s.drafts.getState().drafts[BRANCH]?.deviceConflict?.otherId, "BRANCH_LINKED_TO_COPY").toBe(copy);
+  s.chat.getState().setActiveSession(ITHACA);
+  s.drafts.getState().showDeviceBranch(ITHACA, BRANCH);
+  openOtherVersion(s.root, copy, BRANCH);
+  await turn();
+  expect(s.shown()).toEqual({ sessionId: null, text: OTHER_TEXT });
 });
 
 test("a second Open other version still finds a version a rotation moved, and one moved during the device read", async () => {
@@ -343,4 +353,13 @@ test("a version deleted elsewhere while its chat restore is pending returns the 
   s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
   expect(s.shown(), "BACK_TO_BRANCH").toEqual({ sessionId: ITHACA, text: "Telemachus keeps the voyage" });
   expect(s.drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "missing" });
+});
+
+test("a device-only transcript copied off a gone chat stays device-only", () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true }, deviceOnly: true });
+  const message = { type: "chat_message" as const, text: "Lash the raft", sessionId: RAFT, requestId: "req-raft" };
+  s.drafts.getState().createSnapshot(s.original, RAFT, { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", files: [], state: "returned", createdAt: 1, message }, "");
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.original]: { ...st.drafts[s.original]!, deviceOnly: true } } }));
+  const copy = s.drafts.getState().detachVersion(s.original)!;
+  expect(s.drafts.getState().drafts[copy]?.deviceOnly, "DEVICE_ONLY_KEPT").toBe(true);
 });

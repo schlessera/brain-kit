@@ -864,16 +864,21 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const d = get().drafts[draftId];
         if (!d) return undefined;
         if (d.sessionId === null) return draftId;
-        // Outgoing messages belong to that chat and stay with it: only the
-        // composer's content moves, to a new draft of no chat (#4567).
+        // Outgoing messages belong to that chat and stay with it, untouched:
+        // a change there would be saved to a chat that is gone, and its
+        // refusal would drop them. The composer's content is copied to a new
+        // draft of no chat (#4567), and the branch's other version is that copy.
         if (holdsSnapshots(d)) {
           if (!hasContent(d)) return undefined;
           // The copy gets its own previews of the same bytes: releasing either side cannot break the other's.
           const attachments = d.attachments.map((a) => ({ ...a, previewUrl: `data:${a.attachment.mediaType};base64,${a.attachment.data}` }));
-          const moved: ComposerDraft = { ...blank(mintDraftId(), null, now()), text: d.text, attachments, files: d.files, editedAt: d.editedAt, edit: 1 };
-          release(d.attachments, []);
-          set((st) => ({ drafts: { ...st.drafts, [moved.draftId]: moved, [d.draftId]: { ...d, text: "", attachments: [], files: [], edit: d.edit + 1, editedAt: now() } } }));
-          return moved.draftId;
+          const copy: ComposerDraft = { ...blank(mintDraftId(), null, now()), text: d.text, attachments, files: d.files, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly };
+          set((st) => {
+            const drafts = { ...st.drafts, [copy.draftId]: copy };
+            for (const [id, x] of Object.entries(drafts)) if (x.deviceConflict?.otherId === d.draftId) drafts[id] = { ...x, deviceConflict: { ...x.deviceConflict, otherId: copy.draftId } };
+            return { drafts };
+          });
+          return copy.draftId;
         }
         // The host's copy is bound to that chat: the content moves to a new id, and the old one is deleted there.
         return rotate(d, null);
