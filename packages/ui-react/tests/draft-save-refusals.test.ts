@@ -423,6 +423,9 @@ test("a reconciliation read that gets no answer is read again, and the refused l
   s.silenceGets(3);
   const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-muster" };
   s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-muster", requestId: "req-muster", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "Muster the crew");
+  // Past the first backoff, while the re-reads still get no answer: the refused list waits.
+  await run(10_000);
+  expect(s.saves.filter((x) => x.body.snapshots?.length).length, "REFUSED_LIST_NOT_RESENT_WHILE_READING").toBe(1);
   await run(LONG);
   expect(s.saves.filter((x) => x.body.snapshots?.length).length, "RECONCILE_READ_RETRIED").toBe(2);
   expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
