@@ -1812,7 +1812,9 @@ A read needs no approval, so a voice turn reads as a typed one does.
 
 **Views.** `structured` carries only host-validated typed values: Gmail-minted
 thread, message and draft ids, label ids from the closed system list or
-`Label_<n>`, the owner's label names (escaped, ruling 5), RFC 3339
+`Label_<n>`, the owner's label names (escaped, ruling 5; only where the
+policy admits `gmail.labels.list`, since they come from that list, else
+`null`), RFC 3339
 timestamps, counts, size buckets (`under_10kb`, `under_100kb`, `under_1mb`,
 `1mb_or_more`), unread, starred and attachment flags, and host cursors. A
 value that fails its validator is dropped. `content` adds, under one
@@ -1842,8 +1844,14 @@ on the query. A search drops every hit whose thread has a message carrying a
 hidden label; a thread, message or draft read of such a thread answers
 `not_found` as above (a message or draft read under a non-empty list also
 reads its thread to see every message's labels); and the label list leaves the
-hidden labels out. A message or draft whose thread goes away between those
-two reads reads as a miss too. Pagination is Google's: a page is filtered
+hidden labels out. While any label is hidden, a thread, message or draft
+whose labels could not be established reads as a miss too: a fetch that
+failed in a way that may be the target's own (a timeout, a refusal from
+Google, an answer too large or in a shape the codec refuses), an answer for
+another id, a draft with no message, or a thread that could not be read
+(`isTargetIndependentGogFailure` in common, the rule `brain google` uses).
+Only a failure that says nothing about the target (the account unavailable or
+rate limited, the input or the binary refused) keeps its code. Pagination is Google's: a page is filtered
 after it is read, so a page can come back shorter than `limit`, or empty, with
 a `next_cursor`.
 

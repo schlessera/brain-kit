@@ -130,6 +130,72 @@ test("a hidden label keeps its threads out of every search and every get, as a m
   expect(await h.call("brain_google_gmail_read", { target: "message", id: HALL_REPLY, view: "structured" }), "GOOGLE_UNHIDDEN_READS").toMatchObject({ ok: true });
 });
 
+test("while a label is hidden, a target whose labels cannot be established reads as a miss, and a failure that says nothing about it keeps its code", async () => {
+  // Ids no fixture message carries, so only the failure decides the answer: Label_99 hides nothing here.
+  const [ELSEWHERE, REFUSED, FAILED, THROTTLED] = ["19a0c3d2e4f50a01", "19a0c3d2e4f50a02", "19a0c3d2e4f50a03", "19a0c3d2e4f50a04"];
+  const mail = ithacaMail();
+  const h = harness({ scenario: {
+    // A refusal from Google may be the thread's own.
+    [`gmail.thread.get ${HALL}`]: { exit: 6 },
+    // An answer for another id.
+    [`gmail.get ${ELSEWHERE}`]: mail[`gmail.get ${HALL_REPLY}`],
+    [`gmail.get ${REFUSED}`]: { exit: 6 },
+    [`gmail.get ${FAILED}`]: { exit: 1 },
+    [`gmail.get ${THROTTLED}`]: { exit: 7 },
+    [`gmail.drafts.get ${DRAFT}`]: { stdout: { draft: { id: DRAFT } } },
+  } });
+  const hidden = h.turn({ policy: POLICY(["Label_99"]) });
+  const miss = await h.call("brain_google_gmail_read", { target: "thread", id: MISSING }, hidden);
+  expect(miss, "GOOGLE_UNKNOWN_REAL_MISS").toMatchObject({ ok: false, error: { code: "not_found", reason: null } });
+  const cases = [
+    ["thread refused by Google", { target: "thread", id: HALL }, { code: "forbidden" }],
+    ["message whose thread cannot be read", { target: "message", id: HALL_REPLY }, { ok: true }],
+    ["message answered for another id", { target: "message", id: ELSEWHERE }, { code: "transport_incompatible", reason: "unexpected_shape" }],
+    ["message refused by Google", { target: "message", id: REFUSED }, { code: "forbidden" }],
+    ["message whose read failed", { target: "message", id: FAILED }, { code: "upstream_error" }],
+    ["draft with no message", { target: "draft", id: DRAFT }, { ok: true }],
+  ] as const;
+  for (const [name, input, open] of cases) {
+    expect(await h.call("brain_google_gmail_read", { ...input, view: "structured" }, hidden), `GOOGLE_UNKNOWN_VISIBILITY_IS_A_MISS ${name}`).toEqual(miss);
+    // With nothing hidden, the same failure keeps its own answer.
+    const shown = await h.call("brain_google_gmail_read", { ...input, view: "structured" });
+    expect(shown, `GOOGLE_NOTHING_HIDDEN_KEEPS_ANSWER ${name}`).toMatchObject("ok" in open ? open : { ok: false, error: open });
+  }
+  // A failure that says nothing about the target keeps its code while a label is hidden.
+  expect(await h.call("brain_google_gmail_read", { target: "message", id: THROTTLED }, hidden), "GOOGLE_TARGET_INDEPENDENT_KEEPS_CODE")
+    .toMatchObject({ ok: false, error: { code: "rate_limited" } });
+  // The owner's full-body route follows the same rule.
+  expect(await h.host.messageBody("odysseus", POLICY(["Label_99"]), REFUSED), "GOOGLE_BODY_UNKNOWN_IS_A_MISS")
+    .toEqual({ ok: false, error: { code: "not_found", reason: null, message: (miss as { error: { message: string } }).error.message } });
+  expect(await h.host.messageBody("odysseus", POLICY(), REFUSED), "GOOGLE_BODY_NOTHING_HIDDEN_KEEPS_CODE").toMatchObject({ ok: false, error: { code: "forbidden" } });
+  expect(await h.host.messageBody("odysseus", POLICY(["Label_99"]), HALL_REPLY), "GOOGLE_BODY_UNREADABLE_THREAD_IS_A_MISS")
+    .toMatchObject({ ok: false, error: { code: "not_found", reason: null } });
+  expect(h.taints, "GOOGLE_UNKNOWN_NOTHING_TAINTED").toEqual([]);
+});
+
+test("label names come from the label list, so a result names labels only where the policy admits reading it", async () => {
+  const h = harness();
+  const denied = h.turn({ policy: resolveGooglePolicy({ enabled: true, account: "ithaca", services: ["gmail"], operations: { "gmail.labels.list": "deny" } }) });
+  const reads = [
+    ["search", "brain_google_gmail_search", { query: "in:inbox", view: "structured" }],
+    ["thread", "brain_google_gmail_read", { target: "thread", id: HALL, view: "structured" }],
+    ["message", "brain_google_gmail_read", { target: "message", id: HALL_REPLY, view: "structured" }],
+  ] as const;
+  for (const [name, tool, input] of reads) {
+    const result = await h.call(tool, input, denied);
+    expect(result, `GOOGLE_NAMES_DENIED_STILL_READS ${name}`).toMatchObject({ ok: true });
+    const text = JSON.stringify(result);
+    expect(text, `GOOGLE_NAMES_DENIED_KEEPS_IDS ${name}`).toContain("Label_12");
+    expect(text, `GOOGLE_NAMES_DENIED_NAMES_NOTHING ${name}`).not.toContain("Ithaca/Household");
+  }
+  expect(h.fake.callsOf("gmail.labels.list"), "GOOGLE_NAMES_DENIED_LIST_NEVER_READ").toHaveLength(0);
+  expect(await h.call("brain_google_gmail_read", { target: "labels" }, denied), "GOOGLE_LABEL_LIST_DENIED")
+    .toMatchObject({ ok: false, error: { code: "policy_denied", reason: "operation_denied" } });
+  // Admitted, the same read names them.
+  expect(JSON.stringify(await h.call("brain_google_gmail_read", { target: "thread", id: HALL, view: "structured" })), "GOOGLE_NAMES_ADMITTED")
+    .toContain("Ithaca/Household");
+});
+
 test("a search cursor is the host's, bound to its conversation and query, and maps to Google's token", async () => {
   const h = harness();
   const first = await h.call("brain_google_gmail_search", { query: "in:inbox", view: "structured" });

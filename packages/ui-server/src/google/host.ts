@@ -25,8 +25,13 @@
  *    target's thread, so the decision sees the labels of every message in it.
  * 5. The final decision, with those labels: a target in a thread any of
  *    whose messages carries a hidden label answers exactly as a missing one
- *    does (`not_found`, no reason). A search drops every hit whose thread
- *    carries one, and the label list drops the hidden labels themselves.
+ *    does (`not_found`, no reason). While any label is hidden, so does a
+ *    target whose labels could not be established: a fetch that failed in a
+ *    way that may be the target's own, an answer for another id, a draft
+ *    with no message, or a thread that could not be read. A search drops
+ *    every hit whose thread carries one, and the label list drops the
+ *    hidden labels themselves. Label names come from the label list, so a
+ *    result carries them only where the policy admits `gmail.labels.list`.
  * 6. Provenance: a `content` result records `google_result` through the
  *    `untrusted` callback before it returns, and a failure to record it
  *    withholds the result. A `structured` result records nothing: the
@@ -42,7 +47,7 @@
  * the model searches again.
  */
 import { randomBytes } from "node:crypto";
-import type { GogResult, GogTransport } from "@schlessera/brain-common/internal/google-gog";
+import { isTargetIndependentGogFailure, type GogResult, type GogTransport } from "@schlessera/brain-common/internal/google-gog";
 import {
   contentGmailDraft, contentGmailMessageResult, contentGmailSearch, contentGmailThread, decideGoogleCall, gmailLabelDirectory, isGmailThreadId,
   parseGoogleToolCall, structuredGmailDraft, structuredGmailLabels, structuredGmailMessageResult, structuredGmailSearch, structuredGmailThread,
@@ -198,6 +203,18 @@ function deferringHiddenLabels(policy: GooglePolicy | null | undefined): GoogleP
 
 const hiddenOf = (policy: GooglePolicy): readonly string[] => Array.isArray(policy.gmail?.hidden_labels) ? policy.gmail.hidden_labels : [];
 
+/**
+ * A target's fetch that failed before its labels were seen. While anything is
+ * hidden it reads as a miss unless the failure says nothing about the target,
+ * so no answer tells a hidden target from a missing one.
+ */
+function fetchFailure(policy: GooglePolicy, failure: GoogleError): GoogleError {
+  return failure.code === "not_found" || (hiddenOf(policy).length > 0 && !isTargetIndependentGogFailure(failure)) ? NOT_FOUND : failure;
+}
+
+/** An answer for another id: a miss while anything is hidden, else a shape the host does not read. */
+const mismatch = (policy: GooglePolicy): GoogleError => hiddenOf(policy).length > 0 ? NOT_FOUND : SHAPE;
+
 /** A safe slice: never a lone surrogate at the cut. */
 function cut(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -227,8 +244,13 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
     return cursor;
   }
 
-  /** The account's label list, reused for a while; null when it cannot be read, and then every name is null. */
-  async function labelsOf(transport: GogTransport): Promise<GmailLabelRecord[] | null> {
+  /**
+   * The account's label list, reused for a while; null when the policy does
+   * not admit reading it (`names`) or it cannot be read, and then every name
+   * is null.
+   */
+  async function labelsOf(transport: GogTransport, names: boolean): Promise<GmailLabelRecord[] | null> {
+    if (!names) return null;
     const cached = labelCache.get(transport);
     if (cached && now() - cached.at < labelTtl) return cached.labels;
     let read: GogResult<GmailLabelRecord[]>;
@@ -253,25 +275,24 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
 
   /**
    * Every label id in the thread of a read target: its own labels and, when
-   * `hidden_labels` is not empty, those of every message of its thread.
-   * Null when they cannot be established, which the decision refuses.
+   * `hidden_labels` is not empty, those of every message of its thread. A
+   * thread whose labels cannot be established is never clean: it reads as a
+   * miss, as a hidden one does.
    */
-  async function targetLabels(transport: GogTransport, policy: GooglePolicy, own: readonly string[], threadId: string | null): Promise<string[] | null | GoogleError> {
+  async function targetLabels(transport: GogTransport, policy: GooglePolicy, own: readonly string[], threadId: string | null): Promise<string[] | GoogleError> {
     if (hiddenOf(policy).length === 0) return [...own];
-    if (!isGmailThreadId(threadId)) return null;
+    if (!isGmailThreadId(threadId)) return NOT_FOUND;
     const thread = await transport.execute("gmail.thread.get", { thread_id: threadId });
-    // The target's thread went away between the two reads: the target reads as a miss, as a hidden one does.
-    if (!thread.ok) return thread.error.code === "not_found" ? NOT_FOUND : thread.error;
-    if (thread.value.id !== threadId) return null;
+    if (!thread.ok || thread.value.id !== threadId) return NOT_FOUND;
     return [...new Set([...own, ...thread.value.messages.flatMap(message => message.label_ids)])];
   }
 
   /** The final decision, once the read gave the targets' labels: anything but admitted refuses. */
-  function finalDecision(policy: GooglePolicy, operation: GoogleOperation, input: unknown, facts: GoogleDecisionFacts, labels: string[] | null): GoogleDecision {
-    return decideGoogleCall(policy, { operation, input }, labels === null ? facts : { ...facts, target_label_ids: labels });
+  function finalDecision(policy: GooglePolicy, operation: GoogleOperation, input: unknown, facts: GoogleDecisionFacts, labels: string[]): GoogleDecision {
+    return decideGoogleCall(policy, { operation, input }, { ...facts, target_label_ids: labels });
   }
 
-  async function search(turn: GoogleToolsTurn, transport: GogTransport, policy: GooglePolicy, input: GmailSearchInput): Promise<GmailSearchPayload | GoogleError> {
+  async function search(turn: GoogleToolsTurn, transport: GogTransport, policy: GooglePolicy, input: GmailSearchInput, names: boolean): Promise<GmailSearchPayload | GoogleError> {
     const scope = turn.sessionId() ?? `turn:${turn.turnId}`;
     let token: string | undefined;
     if (input.cursor !== undefined) {
@@ -281,7 +302,7 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
     }
     const [page, labels] = await Promise.all([
       transport.execute("gmail.search", { query: input.query, ...(input.limit !== undefined ? { limit: input.limit } : {}), ...(token !== undefined ? { page_token: token } : {}) }),
-      labelsOf(transport),
+      labelsOf(transport, names),
     ]);
     if (!page.ok) return page.error;
     const hidden = hiddenOf(policy);
@@ -293,7 +314,7 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
     return input.view === "structured" ? { kind: "search", ...structuredGmailSearch(filtered, context) } : { kind: "search", ...contentGmailSearch(filtered, context) };
   }
 
-  async function read(transport: GogTransport, policy: GooglePolicy, input: GmailReadInput, facts: GoogleDecisionFacts, operation: GoogleOperation): Promise<GmailReadPayload | GoogleError> {
+  async function read(transport: GogTransport, policy: GooglePolicy, input: GmailReadInput, facts: GoogleDecisionFacts, operation: GoogleOperation, names: boolean): Promise<GmailReadPayload | GoogleError> {
     const hidden = hiddenOf(policy);
     if (input.target === "labels") {
       const list = await transport.execute("gmail.labels.list", {});
@@ -302,16 +323,16 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
       // The label list is the owner's configuration (ruling 5): structured, whatever the view; hidden labels are not in it.
       return { kind: "labels", ...structuredGmailLabels(list.value.filter(label => !hidden.includes(label.id))) };
     }
-    const decide = (labels: string[] | null) => {
+    const decide = (labels: string[]) => {
       const decision = finalDecision(policy, operation, input, facts, labels);
       return decision.outcome === "admitted" ? null : decision.outcome === "refused" ? decision.error : { code: "policy_denied" as const, reason: "needs_card", message: "This read needs an approval the host cannot ask for." };
     };
     const id = input.id!;
     const structured = input.view === "structured";
     if (input.target === "thread") {
-      const [thread, labels] = await Promise.all([transport.execute("gmail.thread.get", { thread_id: id }), labelsOf(transport)]);
-      if (!thread.ok) return thread.error;
-      if (thread.value.id !== id) return SHAPE;
+      const [thread, labels] = await Promise.all([transport.execute("gmail.thread.get", { thread_id: id }), labelsOf(transport, names)]);
+      if (!thread.ok) return fetchFailure(policy, thread.error);
+      if (thread.value.id !== id) return mismatch(policy);
       const refused = decide([...new Set(thread.value.messages.flatMap(message => message.label_ids))]);
       if (refused) return refused;
       const context = named(labels, hidden);
@@ -319,23 +340,25 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
       return projected ? { kind: "thread", ...projected } as GmailReadPayload : SHAPE;
     }
     if (input.target === "message") {
-      const [message, labels] = await Promise.all([transport.execute("gmail.message.get", { message_id: id }), labelsOf(transport)]);
-      if (!message.ok) return message.error;
-      if (message.value.id !== id) return SHAPE;
+      const [message, labels] = await Promise.all([transport.execute("gmail.message.get", { message_id: id }), labelsOf(transport, names)]);
+      if (!message.ok) return fetchFailure(policy, message.error);
+      if (message.value.id !== id) return mismatch(policy);
       const targets = await targetLabels(transport, policy, message.value.label_ids, message.value.thread_id);
-      if (targets !== null && !Array.isArray(targets)) return targets;
+      if (!Array.isArray(targets)) return targets;
       const refused = decide(targets);
       if (refused) return refused;
       const context = named(labels, hidden);
       const projected = structured ? structuredGmailMessageResult(message.value, context) : contentGmailMessageResult(message.value, context);
       return projected ? { kind: "message", ...projected } as GmailReadPayload : SHAPE;
     }
-    const [draft, labels] = await Promise.all([transport.execute("gmail.draft.get", { draft_id: id }), labelsOf(transport)]);
-    if (!draft.ok) return draft.error;
+    const [draft, labels] = await Promise.all([transport.execute("gmail.draft.get", { draft_id: id }), labelsOf(transport, names)]);
+    if (!draft.ok) return fetchFailure(policy, draft.error);
     const record = draft.value.draft;
-    if (record.id !== id) return SHAPE;
+    if (record.id !== id) return mismatch(policy);
+    // A draft with no message has no labels to establish: with anything hidden, it is not shown.
+    if (!record.message && hidden.length > 0) return NOT_FOUND;
     const targets = record.message ? await targetLabels(transport, policy, record.message.label_ids, record.message.thread_id) : [];
-    if (targets !== null && !Array.isArray(targets)) return targets;
+    if (!Array.isArray(targets)) return targets;
     const refused = decide(targets);
     if (refused) return refused;
     const context = named(labels, hidden);
@@ -361,9 +384,11 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
         const admitted = policy!;
         const opened = transportFor(admitted.account!);
         if (!opened.ok) return refusal(tool, opened.error);
+        // Label names come from reading the label list, so only where the policy admits that read itself.
+        const names = decideGoogleCall(admitted, { operation: "gmail.labels.list", input: { target: "labels" } }, facts).outcome === "admitted";
         const result = tool === GMAIL_TOOL_NAMES.search
-          ? await search(turn, opened.transport, admitted, input as GmailSearchInput)
-          : await read(opened.transport, admitted, input as GmailReadInput, facts, operation);
+          ? await search(turn, opened.transport, admitted, input as GmailSearchInput, names)
+          : await read(opened.transport, admitted, input as GmailReadInput, facts, operation, names);
         if (!("kind" in result)) return refusal(tool, result);
         // Provenance before return: a content view taints first, and an unrecorded taint withholds it.
         if (result.view === "content") {
@@ -436,10 +461,10 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
         const opened = transportFor(policy!.account!);
         if (!opened.ok) return { ok: false, error: opened.error };
         const message = await opened.transport.execute("gmail.message.get", { message_id: messageId });
-        if (!message.ok) return { ok: false, error: message.error.code === "not_found" ? NOT_FOUND : message.error };
-        if (message.value.id !== messageId) return { ok: false, error: SHAPE };
+        if (!message.ok) return { ok: false, error: fetchFailure(policy!, message.error) };
+        if (message.value.id !== messageId) return { ok: false, error: mismatch(policy!) };
         const targets = await targetLabels(opened.transport, policy!, message.value.label_ids, message.value.thread_id);
-        if (targets !== null && !Array.isArray(targets)) return { ok: false, error: targets.code === "not_found" ? NOT_FOUND : targets };
+        if (!Array.isArray(targets)) return { ok: false, error: targets };
         const decision = finalDecision(policy!, "gmail.message.get", input, facts, targets);
         if (decision.outcome !== "admitted") return { ok: false, error: decision.outcome === "refused" ? (decision.error.code === "not_found" ? NOT_FOUND : decision.error) : SHAPE };
         return { ok: true, body: messageBodyOf(message.value) };
