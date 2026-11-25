@@ -14,7 +14,7 @@ import {
   guidanceTime,
 } from "../fixtures/storage-guidance.js";
 import { paneTime, storagePaneFixture, type ChartState } from "../fixtures/storage-pane.js";
-let ui: BrainUiRoot, renderer: Root, host: HTMLElement, style: HTMLElement;
+let ui: BrainUiRoot, renderer: Root, host: HTMLElement, style: HTMLElement, outer: { width: number; height: number } | undefined;
 const original = {
   width: innerWidth,
   height: innerHeight,
@@ -40,6 +40,8 @@ afterEach(async () => {
     `${location.pathname}${location.search}${original.hash}`
   );
   await page.viewport(original.width, original.height);
+  if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
+  outer = undefined;
 });
 function Routes() {
   useHashRoutes();
@@ -552,5 +554,10 @@ for (const chart of CHART_STATES)
         host.style.height = "auto";
         const pane = host.querySelector<HTMLElement>("[data-storage-pane]");
         if (pane) pane.style.overflow = "visible";
+        // Grow the runner's frame and the viewport to the content: no scaling, no clipping.
+        const tall = Math.ceil(host.getBoundingClientRect().height) + 16;
+        outer = await commands.formViewport(width, tall);
+        await page.viewport(width, tall);
+        await document.fonts.ready;
         await expect(page.elementLocator(section())).toMatchScreenshot(`storage-chart-${chart}-${width}-${theme}`);
       });

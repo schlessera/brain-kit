@@ -14,7 +14,8 @@ import { paneTime, storagePaneFixture } from "../fixtures/storage-pane.js";
 let ui: BrainUiRoot,
   renderer: Root,
   host: HTMLDivElement,
-  style: HTMLStyleElement;
+  style: HTMLStyleElement,
+  outer: { width: number; height: number } | undefined;
 const original = {
   width: innerWidth,
   height: innerHeight,
@@ -33,6 +34,8 @@ afterEach(async () => {
     delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = original.theme;
   await page.viewport(original.width, original.height);
+  if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
+  outer = undefined;
 });
 type Fixture = ReturnType<typeof storageViewFixture>;
 async function scene(
@@ -42,6 +45,9 @@ async function scene(
   zoom = 1,
   options: { request?: Fixture["request"]; now?: number } = {}
 ) {
+  // The runner's outer frame grows with the viewport, so a wide layout is
+  // drawn at its own size rather than scaled down to fit the runner.
+  outer ??= await commands.formViewport(width * zoom, 800 * zoom);
   await page.viewport(width * zoom, 800 * zoom);
   document.documentElement.style.zoom = String(zoom);
   document.documentElement.dataset.theme = theme;
@@ -789,11 +795,15 @@ async function matrixScene(s: MatrixScenario, width: number, theme: string, zoom
   await s.act?.(pane?.inventory ?? fixture);
   return fixture;
 }
-/** Grow the host to its content so the baseline holds the whole pane. */
-function unroll() {
+/** Grow the host, and the viewport, to the content so the baseline holds the whole pane. */
+async function unroll(width: number) {
   host.style.height = "auto";
   const pane = host.querySelector<HTMLElement>("[data-storage-pane]");
   if (pane) pane.style.overflow = "visible";
+  const tall = Math.ceil(host.getBoundingClientRect().height) + 16;
+  await commands.formViewport(width, tall);
+  await page.viewport(width, tall);
+  await document.fonts.ready;
 }
 for (const s of MATRIX) {
   for (const cell of s.cells) {
@@ -802,7 +812,7 @@ for (const s of MATRIX) {
       await matrixScene(s, Number(width), theme);
       await accessible(host);
       named(host);
-      if (!s.dialog) unroll();
+      if (!s.dialog) await unroll(Number(width));
       const subject = s.dialog ? page.getByRole("dialog") : page.elementLocator(host);
       await expect(subject).toMatchScreenshot(`storage-${s.name}-${cell}`);
     });
