@@ -166,15 +166,8 @@ export function openOtherVersion(root: BrainUiRoot, otherId: string, fromId: str
     const found = (id: string | undefined) => { const d = id ? drafts.getState().drafts[id] : undefined; return d && (hasContent(d) || holdsSnapshots(d)) ? id : undefined; };
     // A version a rotation had moved before the read is where it was moved to,
     // whatever record the device kept under the old id.
-    const target = (before !== otherId ? found(before) : undefined) ?? found(otherId) ?? found(drafts.getState().versionHome(otherId));
-    if (!target) {
-      // Opening the missing version released this branch's place in its chat: it gets it back.
-      const from = drafts.getState().drafts[fromId];
-      if (from?.sessionId === null && from.deviceConflict?.sessionId) drafts.getState().showDeviceBranch(from.deviceConflict.sessionId, fromId);
-      else if (from?.sessionId === null) drafts.getState().openUnbound(fromId);
-      note("missing");
-      return;
-    }
+    const target = found(drafts.getState().versionHome(otherId)) ?? (before !== otherId ? found(before) : undefined) ?? found(otherId);
+    if (!target) { backToBranch(root, fromId); note("missing"); return; }
     if (target !== otherId) drafts.getState().openDeviceVersion(target);
     const sessionId = drafts.getState().drafts[target]!.sessionId;
     if (sessionId === null) openUnattached(root, target);
@@ -182,7 +175,7 @@ export function openOtherVersion(root: BrainUiRoot, otherId: string, fromId: str
       const changedSession = root.stores.chat.getState().activeSessionId !== sessionId;
       root.stores.chat.getState().setActiveSession(sessionId);
       if (changedSession) root.connection.send({ type: "session_resume", sessionId });
-      detachIfGone(root, target, sessionId);
+      detachIfGone(root, target, sessionId, fromId);
     }
     root.stores.ui.getState().setActiveView("chat");
   };
@@ -197,6 +190,18 @@ function watchNavigation(root: BrainUiRoot, moved: () => void): () => void {
     root.stores.connection.subscribe((s, prev) => { if (s.accountKey !== prev.accountKey) moved(); }),
   ];
   return () => stops.forEach(stop => stop());
+}
+
+/** The reader's own branch back in view, where Open other version left it. */
+function backToBranch(root: BrainUiRoot, fromId: string): void {
+  const drafts = root.stores.drafts.getState();
+  const from = drafts.drafts[fromId];
+  if (from?.sessionId !== null || !from) return;
+  const sessionId = from.deviceConflict?.sessionId ?? null;
+  if (sessionId !== null) {
+    drafts.showDeviceBranch(sessionId, fromId);
+    if (root.stores.chat.getState().activeSessionId !== sessionId) root.stores.chat.getState().setActiveSession(sessionId);
+  } else drafts.openUnbound(fromId);
 }
 
 /**
@@ -220,7 +225,7 @@ function openUnattached(root: BrainUiRoot, draftId: string): void {
  * outgoing messages stays: they belong to that chat, and a draft of no chat
  * would lose them.
  */
-function detachIfGone(root: BrainUiRoot, draftId: string, sessionId: string): void {
+function detachIfGone(root: BrainUiRoot, draftId: string, sessionId: string, fromId: string): void {
   const chat = root.stores.chat;
   let stopped = false;
   const stops: Array<() => void> = [];
@@ -234,9 +239,10 @@ function detachIfGone(root: BrainUiRoot, draftId: string, sessionId: string): vo
     // A refresh may have moved the version since the switch: follow it.
     const home = root.stores.drafts.getState().versionHome(draftId) ?? draftId;
     const d = root.stores.drafts.getState().drafts[home];
-    if (!d) return;
+    // Gone with its chat (deleted elsewhere, nothing newer here): back where the reader was, saying so.
+    if (!d) { backToBranch(root, fromId); root.stores.drafts.getState().noteVersionSwitch({ draftId: fromId, outcome: "missing" }); return; }
     if (d.sessionId === null) { openUnattached(root, home); return; }
-    if (d.sessionId !== sessionId || holdsSnapshots(d)) return;
+    if (d.sessionId !== sessionId) return;
     const detached = root.stores.drafts.getState().detachVersion(home);
     if (detached) openUnattached(root, detached);
   };

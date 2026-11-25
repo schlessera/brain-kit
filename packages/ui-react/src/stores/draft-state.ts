@@ -837,7 +837,10 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // Opening the original bypasses its continuation. One that was not
         // here (a rotation moved it, and the device only kept its emptied
         // record) keeps it, so a later open still finds the content (#4567).
-        const present = !!get().drafts[draftId];
+        // A record with no text, images or outgoing messages (a device
+        // tombstone, files and all) is not a version to open over the link.
+        const here = get().drafts[draftId];
+        const present = !!here && (here.text.length > 0 || here.attachments.length > 0 || holdsSnapshots(here));
         if (kept) get().adoptDeviceRecord(kept);
         if (present) successors.delete(draftId);
         for (const [source, target] of deviceRedirects) if (source === draftId || target === draftId) deviceRedirects.delete(source);
@@ -861,8 +864,17 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const d = get().drafts[draftId];
         if (!d) return undefined;
         if (d.sessionId === null) return draftId;
-        // Outgoing messages belong to that chat: a draft of no chat would lose them, so it stays.
-        if (holdsSnapshots(d)) return undefined;
+        // Outgoing messages belong to that chat and stay with it: only the
+        // composer's content moves, to a new draft of no chat (#4567).
+        if (holdsSnapshots(d)) {
+          if (!hasContent(d)) return undefined;
+          // The copy gets its own previews of the same bytes: releasing either side cannot break the other's.
+          const attachments = d.attachments.map((a) => ({ ...a, previewUrl: `data:${a.attachment.mediaType};base64,${a.attachment.data}` }));
+          const moved: ComposerDraft = { ...blank(mintDraftId(), null, now()), text: d.text, attachments, files: d.files, editedAt: d.editedAt, edit: 1 };
+          release(d.attachments, []);
+          set((st) => ({ drafts: { ...st.drafts, [moved.draftId]: moved, [d.draftId]: { ...d, text: "", attachments: [], files: [], edit: d.edit + 1, editedAt: now() } } }));
+          return moved.draftId;
+        }
         // The host's copy is bound to that chat: the content moves to a new id, and the old one is deleted there.
         return rotate(d, null);
       },

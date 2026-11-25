@@ -184,7 +184,7 @@ test("a reader who moved to another view before the chat answered is left alone"
   expect(s.drafts.getState().versionSwitch).toBeNull();
 });
 
-test("a version holding outgoing messages is not moved off its gone chat: they would be lost", async () => {
+test("a version holding outgoing messages keeps them with its gone chat, and its composer text opens on its own, labelled", async () => {
   const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
   const message = { type: "chat_message" as const, text: "Lash the raft", sessionId: RAFT, requestId: "req-raft" };
   s.drafts.getState().createSnapshot(s.original, RAFT, { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", files: [], state: "returned", createdAt: 1, message }, "");
@@ -194,6 +194,9 @@ test("a version holding outgoing messages is not moved off its gone chat: they w
   const d = s.drafts.getState().drafts[s.original];
   expect(d?.snapshots?.map((x) => x.text), "SNAPSHOTS_NOT_DROPPED").toEqual(["Lash the raft"]);
   expect(d?.sessionId).toBe(RAFT);
+  expect(d?.text, "the composer text moved, not copied").toBe("");
+  expect(s.shown(), "SNAPSHOT_VERSION_TEXT_UNATTACHED").toEqual({ sessionId: null, text: OTHER_TEXT });
+  expect(s.drafts.getState().versionSwitch).toMatchObject({ outcome: "unattached", draftId: s.drafts.getState().fresh });
 });
 
 test("a second Open other version still finds a version a rotation moved, and one moved during the device read", async () => {
@@ -303,4 +306,41 @@ test("the gone-chat watcher follows a version a refresh moved off its chat meanw
   s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
   expect(s.shown(), "WATCHER_FOLLOWS_MOVED_VERSION").toEqual({ sessionId: null, text: OTHER_TEXT });
   expect(s.drafts.getState().versionSwitch?.outcome).toBe("unattached");
+});
+
+test("a tombstone adopted on the first open keeps the rotation for every later open", async () => {
+  const s = scene();
+  s.drafts.getState().hostGone(s.original);
+  deviceKeeps(s.root, (id) => ({ draftId: id, sessionId: ITHACA, text: "", attachments: [], files: [{ file: PERMIT_FILE, lineage: id }], editedAt: 2, host: null }));
+  for (let n = 1; n <= 3; n++) {
+    s.chat.getState().setActiveSession(ITHACA);
+    s.drafts.getState().showDeviceBranch(ITHACA, BRANCH);
+    openOtherVersion(s.root, s.original, BRANCH);
+    await turn();
+    expect(s.shown(), `OPEN_${n}_AFTER_TOMBSTONE`).toEqual({ sessionId: null, text: OTHER_TEXT });
+  }
+  s.root.localWork = null;
+});
+
+test("a version that rotates during the device read is found where it moved, past a tombstone with files", async () => {
+  const s = scene();
+  s.root.localWork = { openDeviceVersion: async (id: string) => {
+    s.drafts.getState().hostGone(id);
+    s.drafts.getState().openDeviceVersion(id, { draftId: id, sessionId: ITHACA, text: "", attachments: [], files: [{ file: PERMIT_FILE, lineage: id }], editedAt: 2, host: null });
+  }, dispose() {} } as unknown as NonNullable<BrainUiRoot["localWork"]>;
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.root.localWork = null;
+  expect(s.shown(), "ROTATED_DURING_READ_PAST_TOMBSTONE").toEqual({ sessionId: null, text: OTHER_TEXT });
+});
+
+test("a version deleted elsewhere while its chat restore is pending returns the reader to their branch, saying so", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  // Clean, and gone from the host: it goes here too.
+  s.drafts.getState().hostGone(s.original);
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(s.shown(), "BACK_TO_BRANCH").toEqual({ sessionId: ITHACA, text: "Telemachus keeps the voyage" });
+  expect(s.drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "missing" });
 });
