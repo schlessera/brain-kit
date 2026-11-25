@@ -101,7 +101,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
   );
   const volume = volumes.find((value) => value.id === chosenVolume) ?? volumes[0] ?? null;
   const banner = storageBanner(volumes, guidance.guidance, format);
-  const status = storageStatusLine({ status: view.status, snapshot, now, format });
+  const status = storageStatusLine({ status: view.status, snapshot, now, format, unavailable: !!view.error });
   const pressure = volume ? guidance.guidance?.capacities.find((value) => value.identity === volume.id) ?? null : null;
   const appRate = view.metric === "allocated" ? pressure?.evidence?.appAllocated : pressure?.evidence?.appLogical;
   const added = appAddedSummary(pressure?.scopeChanged ? null : appRate, format);
@@ -230,7 +230,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
             onDevices={() => root.stores.ui.getState().setSettingsTab("devices")}
           />
           {view.error && (
-            <div role="alert" className="grid gap-2">
+            <div role="alert" className="grid justify-items-start gap-2">
               <p>{view.error}</p>
               <Button
                 label="Check measurement status"

@@ -22,7 +22,7 @@ const count = (value: number) => new Intl.NumberFormat("en").format(value);
 
 /** The header's single mono line and the one action beside it. */
 export interface StorageStatusLine {
-  state: "loading" | "never" | "measuring" | "failed" | "out-of-date" | "partial" | "complete";
+  state: "loading" | "unavailable" | "never" | "measuring" | "failed" | "out-of-date" | "partial" | "complete";
   /** Its shape carries the state, so it survives greyscale. */
   glyph: string;
   text: string;
@@ -47,10 +47,15 @@ export function storageStatusLine(input: {
   snapshot: StorageSnapshot | null;
   now: number;
   format?: StorageFormat;
+  /** Storage could not be read: the alert under the header says why. */
+  unavailable?: boolean;
 }): StorageStatusLine {
   const format = input.format ?? storageFormat();
   const { status, snapshot, now } = input;
-  if (!status) return { state: "loading", glyph: "○", text: "Loading Storage…", action: null };
+  if (!status)
+    return input.unavailable
+      ? { state: "unavailable", glyph: "?", text: "Not measured · Storage could not be read", action: null }
+      : { state: "loading", glyph: "○", text: "Loading Storage…", action: null };
   const showing = snapshot ? `showing ${format.time(snapshot.observedAt)}` : "nothing measured yet";
   if (status.state === "scanning") return { state: "measuring", glyph: "◐", text: `Measuring… · ${showing}`, action: "cancel" };
   const failure = status.lastFailure;

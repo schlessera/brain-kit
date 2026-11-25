@@ -73,7 +73,9 @@ export function StorageHistorySection({
         <h3 id={`${id}-heading`} className="font-semibold">
           {heading}
         </h3>
-        <StorageSegmented label="History tier" options={STORAGE_TIERS} value={tier} onChange={setTier} />
+        {volume && history ? (
+          <StorageSegmented label="History tier" options={STORAGE_TIERS} value={tier} onChange={setTier} />
+        ) : null}
       </div>
       {!volume || !history ? (
         <p className="text-xs text-muted-foreground">

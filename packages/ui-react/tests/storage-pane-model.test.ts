@@ -81,6 +81,12 @@ describe("header status line (#4549 brief, item 4)", () => {
       action: "measure-again",
     });
     expect(storageStatusLine({ status: null, snapshot: null, now: worldTime, format }).action).toBeNull();
+    expect(storageStatusLine({ status: null, snapshot: null, now: worldTime, format, unavailable: true })).toEqual({
+      state: "unavailable",
+      glyph: "?",
+      text: "Not measured · Storage could not be read",
+      action: null,
+    });
   });
 
   test("only never measured asks for the primary Measure", () => {
