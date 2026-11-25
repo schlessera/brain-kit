@@ -204,6 +204,7 @@ export "./internal/google-gog" (./src/google/gog/index.ts)
   gogEnvironment
   gogPlatform
   isGogAccountAlias
+  isTargetIndependentGogFailure
   verifyGogBinary
 
 export "./internal/google-operations" (./src/google/index.ts)

@@ -206,10 +206,14 @@ function labelsIn(value: unknown): { id: string; name: string | null }[] {
 }
 
 test("label names come from the label list, so a result names labels only where the policy admits reading it", async () => {
-  const h = harness();
+  // The draft carries the owner's label too, so its name could only come from the cached list.
+  const draft = ithacaMail()[`gmail.drafts.get ${DRAFT}`] as { stdout: { draft: { message: Record<string, unknown> } } };
+  const h = harness({ scenario: { [`gmail.drafts.get ${DRAFT}`]: { stdout: { draft: { ...draft.stdout.draft, message: { ...draft.stdout.draft.message, labelIds: ["DRAFT", "Label_12"] } } } } } });
   // Admitted first, so the account's list is cached when the denied reads run.
   const admitted = await h.call("brain_google_gmail_read", { target: "thread", id: HALL, view: "structured" });
   expect(labelsIn(admitted), "GOOGLE_NAMES_ADMITTED").toContainEqual({ id: "Label_12", name: "Ithaca/Household" });
+  const admittedDraft = await h.call("brain_google_gmail_read", { target: "draft", id: DRAFT, view: "structured" });
+  expect(labelsIn(admittedDraft), "GOOGLE_NAMES_ADMITTED_DRAFT").toContainEqual({ id: "Label_12", name: "Ithaca/Household" });
   const listed = h.fake.callsOf("gmail.labels.list").length;
   expect(listed, "GOOGLE_NAMES_ADMITTED_READ_THE_LIST").toBe(1);
   const denied = h.turn({ policy: resolveGooglePolicy({ enabled: true, account: "ithaca", services: ["gmail"], operations: { "gmail.labels.list": "deny" } }) });
@@ -226,7 +230,7 @@ test("label names come from the label list, so a result names labels only where 
       const labels = labelsIn(result);
       expect(labels.length, `GOOGLE_NAMES_DENIED_KEEPS_LABELS ${name} ${view}`).toBeGreaterThan(0);
       expect(labels.filter(label => label.name !== null), `GOOGLE_NAMES_DENIED_NAMES_NOTHING ${name} ${view}`).toEqual([]);
-      if (name !== "draft") expect(labels.map(label => label.id), `GOOGLE_NAMES_DENIED_KEEPS_IDS ${name} ${view}`).toContain("Label_12");
+      expect(labels.map(label => label.id), `GOOGLE_NAMES_DENIED_KEEPS_IDS ${name} ${view}`).toContain("Label_12");
     }
   }
   expect(h.fake.callsOf("gmail.labels.list").length, "GOOGLE_NAMES_DENIED_LIST_NEVER_READ").toBe(listed);

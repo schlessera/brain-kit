@@ -374,8 +374,11 @@ test("a failure says nothing about its target only when the account, the input o
   // Each of these may be the target's own: a reader that hides labels answers them as a miss.
   const dependent = [
     gogError("not_found", null), gogError("forbidden", null), gogError("upstream_error", "timeout"), gogError("upstream_error", "error"),
-    gogError("upstream_error", "signal"), gogError("transport_incompatible", "output_too_large"), gogError("transport_incompatible", "unexpected_shape"),
-    gogError("transport_incompatible", "unknown_exit"), gogError("transport_incompatible", "empty_results"), gogError("transport_incompatible", null),
+    gogError("upstream_error", "signal"), gogError("upstream_error", "retryable"), gogError("upstream_error", "cancelled"),
+    gogError("transport_incompatible", "output_too_large"), gogError("transport_incompatible", "unexpected_shape"),
+    gogError("transport_incompatible", "unexpected_output"), gogError("transport_incompatible", "page_too_large"),
+    gogError("transport_incompatible", "orphaned"), gogError("transport_incompatible", "unknown_exit"),
+    gogError("transport_incompatible", "empty_results"), gogError("transport_incompatible", null),
   ];
   for (const failure of dependent) {
     expect(isTargetIndependentGogFailure(failure), `GOG_TARGET_DEPENDENT ${failure.code} ${failure.reason}`).toBe(false);

@@ -86,7 +86,7 @@ overrides (`allow` refused on an irreversible operation), `gmail.send_to`,
 `limits`. Absent, Google is disabled. Every object is strict, so a malformed
 block makes the policy invalid like any other key, and `brain policy check
 --json` reports `effective.google` and each error with its path. The host
-Gmail tools read it (#4207). See [the supported input](supported-inputs.md#governance-policy),
+Gmail tools (#4207) and `brain google` (#4208) read it. See [the supported input](supported-inputs.md#governance-policy),
 [the CLI component](integration-contract/cli.md#governance-policy-check-additive-1650)
 and [the package API](integration-contract/package-api.md#google-policy-block-additive-0450-4204).
 This ships in a minor; no breaking ruling is required.
