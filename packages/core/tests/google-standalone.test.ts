@@ -156,6 +156,8 @@ describe("google search cursors", () => {
     const during = store.begin();
     store.clear();
     expect(() => store.mint("ithaca", "in:inbox", "second", during)).toThrow(GoogleCursorStale);
+    // Nor does a search that took the old generation resolve the old cursor.
+    expect(store.resolve("ithaca", "in:inbox", kept, during)).toBeNull();
     expect(store.resolve("ithaca", "in:inbox", kept, store.begin())).toBeNull();
     expect(store.begin()).not.toBe(during);
     const fresh = store.mint("ithaca", "in:inbox", "third", store.begin());
