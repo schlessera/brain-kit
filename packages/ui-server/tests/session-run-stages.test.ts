@@ -456,6 +456,20 @@ describe("host admission", () => {
     expect(drained).toEqual(["Turn timed out"]);
   });
 
+  test("a deadline that passes while a host-stopped turn unwinds is not a timeout", async () => {
+    const { host } = setupHost(undefined, { turnTimeoutMs: 5 });
+    const slot = await openSlot(host);
+    const drained: string[] = [];
+    spyOn(host.coordinator, "drainPendingForTurn", ((_turn: unknown, reason: string) => { drained.push(reason); }) as never);
+    const controller = new AbortController();
+    stopTurnForHost(host, slot.turn, slot.turn.turnId, controller, "change_journal", new Error("journal failed"));
+    armTurnTimeout(host, slot.turn, controller);
+    await Bun.sleep(30);
+    expect(slot.turn.timedOutTurnId, "HOST_STOP_NOT_RELABELLED_BY_DEADLINE").toBeUndefined();
+    expect(drained).toEqual([HOST_STOP_REASONS.change_journal]);
+    clearTimeout(slot.turn.timeoutHandle);
+  });
+
   test("announcing a start dispatches the revision and moves the hand-over to started", async () => {
     const dispatched: unknown[] = [];
     const { host } = setupHost(undefined, { catalog: { ...catalog(), dispatchWork: (...args: unknown[]) => { dispatched.push(args); } } as SessionCatalog });

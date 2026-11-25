@@ -149,8 +149,12 @@ test("a failed inbox share binding records the inbox share", async () => {
   const inboxTools = { forTurn: () => undefined, shares: {
     start: () => Promise.resolve(), end: () => Promise.resolve(), bind: () => Promise.reject(new Error("fixture share failure")),
   } };
-  const turn = await stoppedTurn(interruptedTurn(() => {}), () => ({ inboxTools: inboxTools as never }));
+  // The Actor runs the turn started stop for the host's reason, not a timeout.
+  const apifyStops: string[] = [];
+  const apify = { stop: async (_turn: unknown, reason: string) => { apifyStops.push(reason); return []; } };
+  const turn = await stoppedTurn(interruptedTurn(() => {}), () => ({ inboxTools: inboxTools as never, apify: apify as never }));
   expectHostStop(turn, "inbox_share", "SHARE_BINDING");
+  expect(apifyStops, "APIFY_RUNS_STOP_FOR_HOST_STOP").toEqual(["host_stop"]);
 });
 
 test("a host stop closes the question its backend was waiting on, with its own cause", async () => {

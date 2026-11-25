@@ -8,6 +8,8 @@ import { act } from "react";
 const ACT_ENVIRONMENT = "IS_REACT_ACT_ENVIRONMENT";
 let actEnvironment: PropertyDescriptor | undefined;
 let registered = false;
+/** Whether this fixture created the DOM, and so may remove it. */
+let ownsDom = false;
 
 /**
  * Register the DOM and React's act environment. The module body does it
@@ -16,7 +18,7 @@ let registered = false;
  * file registers again before its tests through this.
  */
 export function registerHostStopDom(): void {
-  if (!GlobalRegistrator.isRegistered) GlobalRegistrator.register();
+  if (!GlobalRegistrator.isRegistered) { GlobalRegistrator.register(); ownsDom = true; }
   if (!registered) {
     actEnvironment = Object.getOwnPropertyDescriptor(globalThis, ACT_ENVIRONMENT);
     registered = true;
@@ -25,12 +27,13 @@ export function registerHostStopDom(): void {
 }
 registerHostStopDom();
 
-/** Remove the DOM and restore the act environment's exact descriptor. */
+/** Remove the DOM this fixture created and restore the act environment's exact descriptor. */
 export async function unregisterHostStopDom(): Promise<void> {
-  if (GlobalRegistrator.isRegistered) {
+  if (ownsDom && GlobalRegistrator.isRegistered) {
     // Drain React callbacks before removing the globals they still read.
     await act(async () => {});
     await GlobalRegistrator.unregister();
+    ownsDom = false;
   }
   if (registered) {
     if (actEnvironment) Object.defineProperty(globalThis, ACT_ENVIRONMENT, actEnvironment);

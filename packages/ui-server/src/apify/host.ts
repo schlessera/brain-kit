@@ -95,7 +95,7 @@ export interface ApifyHost {
   /** One bridge call, on the turn the host authenticated. */
   call(turn: ApifyHostTurn, call: { tool: ApifyToolName; input: unknown }): Promise<ApifyEnvelope>;
   /** A turn was cancelled, timed out or exhausted its budget: abort the runs it started. */
-  stop(turn: { turnId: string; sessionId: string | null }, reason: "cancelled" | "timeout" | "budget_exhausted"): Promise<ApifyAbortView[]>;
+  stop(turn: { turnId: string; sessionId: string | null }, reason: "cancelled" | "timeout" | "budget_exhausted" | "host_stop"): Promise<ApifyAbortView[]>;
   /** Settle, time out and clean up this brain's open runs; a no-op before any run was ever recorded. */
   reconcile(): Promise<void>;
   /** Reconcile now and then every `intervalMs`; returns the stop function. */

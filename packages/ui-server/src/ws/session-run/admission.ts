@@ -12,7 +12,7 @@ import type { HostWork, QueuedFollowUp, RunningTurn } from "../turns.js";
 import type { RunBilling } from "./billing.js";
 import { budgetAttribution, budgetEvent } from "./budget.js";
 import type { SessionSlot, TurnLifecycle, TurnRun } from "./types.js";
-import { stopTurnForHost } from "../host-stop.js";
+import { hostStopOf, stopTurnForHost } from "../host-stop.js";
 
 type WorkerHostAdmission =
   | { readonly kind: "admitted"; readonly identity: WorkerNoteFacts["identity"] | undefined }
@@ -47,6 +47,9 @@ export async function admitWorkerHost(host: WsHost, backend: AgentBackend, work:
  */
 export function armTurnTimeout(host: WsHost, turn: RunningTurn, abortController: AbortController): ReturnType<typeof setTimeout> {
   const timeoutHandle = setTimeout(() => {
+    // A host stop already ended this turn and drained it (#4565); the
+    // deadline passing while it unwinds is not a timeout.
+    if (hostStopOf(turn)) return;
     host.log.emit({
       severityText: "WARN",
       body: "turn timed out",

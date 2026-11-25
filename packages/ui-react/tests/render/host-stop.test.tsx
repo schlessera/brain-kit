@@ -114,3 +114,18 @@ test("a tool the runtime never answered before the host stopped the turn shows t
   expect(tool, "UNANSWERED_TOOL_SHOWS_HOST_STOP").toMatchObject({ hostStop: "safety_recording", isError: true,
     output: "The host stopped this turn before this tool finished, because it couldn't record the turn's safety checks. You didn't refuse it." });
 });
+
+test("a composer-opened reply's unanswered tool shows the host's stop, before any turn id reached it", () => {
+  const send = (frame: ServerMessage) => act(() => { root.connection.handleServerMessage(frame); });
+  root.stores.chat.getState().setActiveSession("s1");
+  send({ type: "session_history", sessionId: "s1", messages: [{ role: "user", content: "Weave the shroud", toolCalls: [] }] } as ServerMessage);
+  // The composer opens the reply before the host names its turn.
+  const chat = root.stores.chat.getState(), buffer = chat.buffers.s1!;
+  root.stores.chat.setState({ buffers: { ...chat.buffers, s1: { ...buffer, isStreaming: true, messages: [...buffer.messages,
+    { id: "reply", role: "assistant", content: "", toolCalls: [], parts: [], isStreaming: true, timestamp: Date.now() }] } } });
+  send({ type: "tool_use_start", toolUseId: "loom", toolName: "Bash", ...scoped } as ServerMessage);
+  send({ type: "tool_use_complete", toolUseId: "loom", toolName: "Bash", input: { command: "unweave --shroud" }, ...scoped } as ServerMessage);
+  send({ type: "result", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("inbox_share"), durationMs: 1, numTurns: 1, isError: false, ...scoped } as ServerMessage);
+  const tool = root.stores.chat.getState().buffers.s1!.messages.find((m) => m.id === "reply")!.toolCalls.find((t) => t.id === "loom");
+  expect(tool, "COMPOSER_REPLY_TOOL_SHOWS_HOST_STOP").toMatchObject({ hostStop: "inbox_share", isError: true });
+});

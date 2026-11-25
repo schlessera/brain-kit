@@ -1521,6 +1521,8 @@ hostStopOutcomeDetail(cause), hostStopFromOutcomeDetail(detail)   // exported fr
   text. A host stop no longer records `timeout`; the host's elapsed-time
   limit and a runtime's own `max_turns` or `max_budget` stop still do, and
   `timeout` keeps its meaning.
+- **Apify.** Actor runs that a host-stopped turn started are stopped with the
+  ledger note `stopped:host_stop`, not `stopped:timeout`.
 - **Tolerance.** A client that does not read these shows a cancelled turn and
   the runtime's tool text, as before. A cause it does not know is still a host
   stop: `hostStopFromOutcomeDetail` returns `null` for it. A client that
