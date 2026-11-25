@@ -2,6 +2,7 @@ import { Button, IconButton, Toggle, Placeholder } from "@schlessera/brain-ui-ki
 import { Loader2, Pencil, Trash2, Upload } from "lucide-react";
 import type { SkillEntry, SkillInstallOutcome } from "../../lib/api-client.js";
 import { cn } from "../../lib/utils.js";
+import { PANE_GRID, Prose } from "./prose.js";
 
 /**
  * Settings → Skills, rendered from props (S6). `SkillsTab` is the container:
@@ -52,14 +53,16 @@ export function SkillsList(p: SkillsListProps) {
       <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Your skills
       </h3>
-      <p className="mt-1 text-xs text-muted-foreground">
+      <Prose className="mt-1 text-xs text-muted-foreground">
         Custom skills live in your brain repo (<code>.agents/skills/</code>) — they
         survive redeployments, ride the repo's backups, and apply to every
         backend. For guided authoring, ask the agent in chat to{" "}
         <span className="font-medium text-foreground">add a skill</span> — the
         built-in <code>add-skill</code> skill walks through design and setup.
-      </p>
+      </Prose>
 
+      {/* Create and Install are two field groups: two-up from 840px of pane. */}
+      <div className="grid items-start gap-x-3 @[840px]/settings-pane:grid-cols-2">
       <div className="mt-4 flex items-center gap-2">
         <input
           value={p.newName}
@@ -73,7 +76,7 @@ export function SkillsList(p: SkillsListProps) {
         <Button label="Create" icon="add" tone="primary" size="sm" block={false} disabled={!p.newName.trim()} onClick={p.onCreate} />
       </div>
 
-      <div className="mt-3 rounded-lg border border-border-subtle bg-surface p-3">
+      <div className="mt-3 rounded-lg border border-border-subtle bg-surface p-3 @[840px]/settings-pane:mt-4">
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Install
         </p>
@@ -115,10 +118,10 @@ export function SkillsList(p: SkillsListProps) {
           {p.installing ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden /> : null}
           <Button label="Install" icon="install" tone="ghost" size="sm" block={false} disabled={!canInstall} onClick={p.onInstallGitHub} />
         </div>
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
+        <Prose className="mt-1.5 text-[11px] text-muted-foreground">
           A skill is any folder with a SKILL.md; one source may carry several.
           Private repos use the server's GITHUB_TOKEN.
-        </p>
+        </Prose>
         {p.outcomes && (
           <ul className="mt-2 flex flex-col gap-1">
             {p.outcomes.map((o, i) => (
@@ -138,11 +141,12 @@ export function SkillsList(p: SkillsListProps) {
           </ul>
         )}
       </div>
+      </div>
 
-      {p.error && <p className="mt-2 text-xs text-destructive">{p.error}</p>}
-      {p.warning && <p className="mt-2 text-xs text-muted-foreground">{p.warning}</p>}
+      {p.error && <Prose className="mt-2 text-xs text-destructive">{p.error}</Prose>}
+      {p.warning && <Prose className="mt-2 text-xs text-muted-foreground">{p.warning}</Prose>}
 
-      <ul className="mt-4 flex flex-col gap-2">
+      <ul data-settings-grid="" className={cn("mt-4 gap-2", PANE_GRID)}>
         {custom.length === 0 && (
           <li>
             <Placeholder variant="empty" message="No custom skills yet." icon="steps" pad={10} />
@@ -178,11 +182,11 @@ export function SkillsList(p: SkillsListProps) {
       <h3 className="mt-6 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Built-in skills
       </h3>
-      <p className="mt-1 text-xs text-muted-foreground">
+      <Prose className="mt-1 text-xs text-muted-foreground">
         Shipped by brain-kit and its modules; managed by <code>brain skills sync</code>.
         A custom skill with the same name overrides a built-in.
-      </p>
-      <ul className="mt-3 flex flex-col gap-1.5">
+      </Prose>
+      <ul data-settings-grid="" className={cn("mt-3 gap-1.5", PANE_GRID)}>
         {builtin.map((skill) => (
           <li
             key={skill.name}

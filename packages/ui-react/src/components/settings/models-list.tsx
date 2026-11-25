@@ -7,6 +7,8 @@ import {
   type ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { useState, type ReactNode } from "react";
+import { cn } from "../../lib/utils.js";
+import { PANE_GRID, Prose } from "./prose.js";
 
 /**
  * The Models tab's surface, rendered from props (S7, the `settings`
@@ -43,14 +45,14 @@ export function ModelsCatalogView(p: ModelsCatalogViewProps) {
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Models
         </h3>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <Prose className="mt-1 text-xs text-muted-foreground">
           The list is read from the provider and refreshes on its own. Hide the
           ones you never pick — running sessions are unaffected.
-        </p>
+        </Prose>
 
-        <p className="mt-2 text-xs text-muted-foreground">
+        <Prose className="mt-2 text-xs text-muted-foreground">
           Effort set here is the default for every new message; the model picker can change it for one message.
-        </p>
+        </Prose>
 
         {catalog && <DefaultModelSelect catalog={catalog} onChange={p.onDefault} />}
 
@@ -59,7 +61,7 @@ export function ModelsCatalogView(p: ModelsCatalogViewProps) {
             <Placeholder variant="loading" lines={4} />
           </div>
         ) : (
-          <ul className="mt-4 flex flex-col gap-2">
+          <ul data-settings-grid="" className={cn("mt-4 gap-2", PANE_GRID)}>
             {catalog?.models.map((entry) => (
               <ModelRow
                 key={entry.id}
@@ -79,20 +81,20 @@ export function ModelsCatalogView(p: ModelsCatalogViewProps) {
 
         {p.error && (
           <div role="alert" className="mt-3">
-            <Callout tone="red" variant="banner" icon="failed" mono text={p.error} />
+            <Callout tone="red" variant="banner" icon="failed" mono><Prose as="span">{p.error}</Prose></Callout>
           </div>
         )}
 
         {catalog?.discovery.error && (
           <div className="mt-3">
-            <Callout tone="gold" variant="banner" icon="unverified" mono text={`Last refresh failed (${catalog.discovery.error}). Showing the last known list.`} />
+            <Callout tone="gold" variant="banner" icon="unverified" mono><Prose as="span">{`Last refresh failed (${catalog.discovery.error}). Showing the last known list.`}</Prose></Callout>
           </div>
         )}
         {catalog && !catalog.discovery.enabled && (
-          <p className="mt-3 text-xs text-muted-foreground">
+          <Prose className="mt-3 text-xs text-muted-foreground">
             Discovery is disabled (BRAIN_UI_MODEL_DISCOVERY). Only configured
             profiles are listed.
-          </p>
+          </Prose>
         )}
 
         {catalog && <OpenRouterSection models={catalog.customModels ?? []} onChange={p.onCustomModels} />}
@@ -168,12 +170,12 @@ function OpenRouterSection({ models, onChange }: { models: string[]; onChange: (
       <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         OpenRouter models
       </h3>
-      <p className="mt-1 text-xs text-muted-foreground">
+      <Prose className="mt-1 text-xs text-muted-foreground">
         Add any OpenRouter model by its id (needs OPENROUTER_API_KEY on the
         server). Added models join the list above.
-      </p>
+      </Prose>
       {models.length > 0 && (
-        <ul className="mt-3 flex flex-col gap-1.5">
+        <ul data-settings-grid="" className={cn("mt-3 gap-1.5", PANE_GRID)}>
           {models.map((model) => (
             <li key={model} className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface px-3 py-2">
               <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-xs text-foreground">{model}</span>
@@ -182,7 +184,7 @@ function OpenRouterSection({ models, onChange }: { models: string[]; onChange: (
           ))}
         </ul>
       )}
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3 flex max-w-[480px] items-center gap-2">
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -215,56 +217,62 @@ function ModelRow({
   onThinking: (next: ThinkingLevel | "auto") => void;
 }) {
   return (
-    <li className="flex flex-wrap items-center gap-3 rounded-lg border border-border-subtle bg-surface p-3">
-      <div className="min-w-[min(100%,12rem)] flex-1">
-        <div className="flex items-center gap-2">
-          <p className={entry.hidden ? "truncate text-sm text-muted-foreground" : "truncate text-sm text-foreground"}>{entry.label}</p>
-          {entry.hidden && <Chip label="hidden" variant="kv" tone="neutral" />}
+    // The name and its picker switch share a line; the overrides wrap below,
+    // so a card in the wide grid keeps one shape however narrow (#4538).
+    <li className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface p-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className={entry.hidden ? "truncate text-sm text-muted-foreground" : "truncate text-sm text-foreground"}>{entry.label}</p>
+            {entry.hidden && <Chip label="hidden" variant="kv" tone="neutral" />}
+          </div>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {entry.id}
+            {entry.contextWindow ? ` · ${formatTokens(entry.contextWindow)}` : ""}
+            {entry.source === "declared" ? " · configured" : ""}
+          </p>
         </div>
-        <p className="truncate text-[11px] text-muted-foreground">
-          {entry.id}
-          {entry.contextWindow ? ` · ${formatTokens(entry.contextWindow)}` : ""}
-          {entry.source === "declared" ? " · configured" : ""}
-        </p>
+        <span className="flex shrink-0 items-center px-1 py-3"><Toggle on={!entry.hidden} label={`Show ${entry.label} in picker`} onClick={onToggle} /></span>
       </div>
-      {/* Reasoning effort — only for profiles that take one.
-          Same tri-state pattern as billing: Default shows what it resolves
-          to, an explicit pick is stored as an override. */}
-      {(entry.thinkingLevel !== undefined || entry.thinkingOverride !== undefined) && (
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Reasoning effort — only for profiles that take one.
+            Same tri-state pattern as billing: Default shows what it resolves
+            to, an explicit pick is stored as an override. */}
+        {(entry.thinkingLevel !== undefined || entry.thinkingOverride !== undefined) && (
+          <select
+            value={entry.thinkingOverride ?? "auto"}
+            onChange={(e) => onThinking(e.target.value as ThinkingLevel | "auto")}
+            aria-label={`Reasoning effort for ${entry.label}`}
+            className="h-11 sm:h-8 max-w-full shrink-0 rounded-lg border border-border-subtle bg-surface px-2 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+          >
+            <option value="auto">{!entry.thinkingOverride && entry.thinkingLevel ? `Default (${entry.thinkingLevel})` : "Default"}</option>
+            {entry.thinkingOverride && !entry.supportedThinkingLevels?.includes(entry.thinkingOverride) && (
+              <option value={entry.thinkingOverride}>{entry.thinkingOverride}{entry.thinkingLevel === entry.thinkingOverride ? "" : entry.thinkingLevel ? ` (runs as ${entry.thinkingLevel})` : " (uses model default)"}</option>
+            )}
+            {(entry.supportedThinkingLevels ?? []).map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        )}
+        {/* Tri-state billing: the collapsed control always reads as the
+            RESOLVED mode — the Auto option carries what auto resolves to, so
+            "Auto (subscription)" and a forced "Subscription" are both legible
+            at a glance. */}
         <select
-          value={entry.thinkingOverride ?? "auto"}
-          onChange={(e) => onThinking(e.target.value as ThinkingLevel | "auto")}
-          aria-label={`Reasoning effort for ${entry.label}`}
-          className="h-11 sm:h-8 max-w-full shrink-0 rounded-lg border border-border-subtle bg-surface px-2 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+          value={entry.billingOverride ?? "auto"}
+          onChange={(e) => onBilling(e.target.value as BillingMode | "auto")}
+          aria-label={`Billing for ${entry.label}`}
+          className="h-11 sm:h-8 shrink-0 rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
         >
-          <option value="auto">{!entry.thinkingOverride && entry.thinkingLevel ? `Default (${entry.thinkingLevel})` : "Default"}</option>
-          {entry.thinkingOverride && !entry.supportedThinkingLevels?.includes(entry.thinkingOverride) && (
-            <option value={entry.thinkingOverride}>{entry.thinkingOverride}{entry.thinkingLevel === entry.thinkingOverride ? "" : entry.thinkingLevel ? ` (runs as ${entry.thinkingLevel})` : " (uses model default)"}</option>
-          )}
-          {(entry.supportedThinkingLevels ?? []).map((level) => (
-            <option key={level} value={level}>
-              {level}
-            </option>
-          ))}
+          <option value="auto">
+            {!entry.billingOverride && entry.billingMode ? `Auto (${billingLabel(entry.billingMode).toLowerCase()})` : "Auto"}
+          </option>
+          <option value="subscription">Subscription</option>
+          <option value="api">API</option>
         </select>
-      )}
-      {/* Tri-state billing: the collapsed control always reads as the
-          RESOLVED mode — the Auto option carries what auto resolves to, so
-          "Auto (subscription)" and a forced "Subscription" are both legible
-          at a glance. */}
-      <select
-        value={entry.billingOverride ?? "auto"}
-        onChange={(e) => onBilling(e.target.value as BillingMode | "auto")}
-        aria-label={`Billing for ${entry.label}`}
-        className="h-11 sm:h-8 shrink-0 rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
-      >
-        <option value="auto">
-          {!entry.billingOverride && entry.billingMode ? `Auto (${billingLabel(entry.billingMode).toLowerCase()})` : "Auto"}
-        </option>
-        <option value="subscription">Subscription</option>
-        <option value="api">API</option>
-      </select>
-      <span className="flex shrink-0 items-center px-1 py-3"><Toggle on={!entry.hidden} label={`Show ${entry.label} in picker`} onClick={onToggle} /></span>
+      </div>
     </li>
   );
 }

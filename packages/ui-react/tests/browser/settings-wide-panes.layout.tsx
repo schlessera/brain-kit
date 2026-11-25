@@ -55,12 +55,12 @@ function fixtures(path: string): Response {
   return Response.json({ providers: [], configured: false, tools: [], principals: [], credentials: [], enabled: [], available: [] });
 }
 
-const PANES: Array<{ tab: SettingsTab; name: string; module?: () => Promise<unknown>; wide: boolean; grids: number; ready: string }> = [
+const PANES: Array<{ tab: SettingsTab; name: string; module?: () => Promise<unknown>; wide: boolean; prose?: true; grids: number; ready: string }> = [
   { tab: "appearance", name: "appearance", wide: false, grids: 0, ready: "Turning single-key shortcuts off" },
-  { tab: "models", name: "models", module: () => import("../../src/components/settings/models-tab.js"), wide: true, grids: 2, ready: "openrouter/circe-isle" },
+  { tab: "models", name: "models", module: () => import("../../src/components/settings/models-tab.js"), wide: true, prose: true, grids: 2, ready: "openrouter/circe-isle" },
   { tab: "voice", name: "voice", module: () => import("../../src/components/settings/voice-tab.js"), wide: false, grids: 0, ready: "" },
   { tab: "accounts", name: "accounts", module: () => import("../../src/components/settings/accounts-tab.js"), wide: false, grids: 0, ready: "No other provider accounts" },
-  { tab: "skills", name: "skills", module: () => import("../../src/components/settings/skills-tab.js"), wide: true, grids: 2, ready: "weekly-review" },
+  { tab: "skills", name: "skills", module: () => import("../../src/components/settings/skills-tab.js"), wide: true, prose: true, grids: 2, ready: "weekly-review" },
   { tab: "modules", name: "modules", module: () => import("../../src/components/settings/modules-tab.js"), wide: true, grids: 1, ready: "Herds" },
   { tab: "storage", name: "storage", module: () => import("../../src/components/settings/storage-tab.js"), wide: true, grids: 0, ready: "Storage" },
   { tab: "security", name: "security", module: () => import("../../src/components/settings/passkey-tab.js"), wide: false, grids: 0, ready: "No rules configured." },
@@ -112,11 +112,10 @@ function measure(element: HTMLElement): number {
   return width;
 }
 
-/** Columns in a grid: distinct left edges of its items' first row. */
+/** Column tracks the browser resolved for a grid; a list that is not a grid has one. */
 function columns(grid: HTMLElement): number {
-  const items = [...grid.children].map(item => item.getBoundingClientRect()).filter(rect => rect.width > 0);
-  const top = Math.min(...items.map(rect => rect.top));
-  return items.filter(rect => Math.abs(rect.top - top) < 1).length;
+  const tracks = getComputedStyle(grid).gridTemplateColumns;
+  return tracks === "none" ? 1 : tracks.split(" ").length;
 }
 
 function overflowing(panel: HTMLElement): string[] {
@@ -134,7 +133,7 @@ function assertLayout(pane: (typeof PANES)[number], panel: HTMLElement, width: n
     else expect.soft(container, `SETTINGS_STANDARD_PANE_KEEPS_720 ${pane.name}`).toBe(720);
   }
   const prose = [...panel.querySelectorAll<HTMLElement>("[data-prose]")];
-  if (pane.wide && pane.tab !== "storage") expect.soft(prose.length, `SETTINGS_WIDE_PANE_HAS_PROSE ${pane.name}`).toBeGreaterThan(0);
+  if (pane.prose) expect.soft(prose.length, `SETTINGS_WIDE_PANE_HAS_PROSE ${pane.name}`).toBeGreaterThan(0);
   for (const block of prose) expect.soft(block.getBoundingClientRect().width, `SETTINGS_PROSE_MEASURE ${pane.name}: ${block.textContent?.slice(0, 40)}`).toBeLessThanOrEqual(measure(block) + 0.5);
   const grids = [...panel.querySelectorAll<HTMLElement>("[data-settings-grid]")];
   expect.soft(grids.length, `SETTINGS_PANE_GRIDS ${pane.name}`).toBe(pane.grids);
