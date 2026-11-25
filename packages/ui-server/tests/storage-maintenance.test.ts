@@ -14,12 +14,13 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "odysseus-maintenance-")), brain = join(root, "brain"), dbPath = join(root, "ui.sqlite");
   mkdirSync(brain); mkdirSync(join(brain, ".brain", "scratch"), { recursive: true }); writeFileSync(join(brain, ".brain", "scratch", "chart.txt"), "Ithaca map");
   const db = createUiDb(dbPath); let allowed = true, calls = 0;
+  let packReport: Record<string, unknown> = { schema_version: 1, action: "pack", state: "complete", packed: 2, reason: null };
   const storage = createStorageCoordinator({ brainPath: brain, stores: [], authorized: () => allowed });
   const cleanup = createInboxCleanup(db, brain);
   const options: Parameters<typeof createStorageMaintenance>[1] & { writer?: undefined } = {
     brainPath: brain, storage, authorized: () => allowed,
     boundary: { status: () => ({ hostExecution: "worker", available: true, profile: "strict", protectedPaths: [], identity: "shared_uid", configurationView: "startup" }) },
-    brain: { async storagePack(request) { request?.assertAuthorized?.(); calls++; return { schema_version: 1, action: "pack", state: "complete", packed: 2, reason: null }; } },
+    brain: { async storagePack(request) { request?.assertAuthorized?.(); calls++; return packReport; } },
     scratch: { async tick() {}, async close() {}, async run(request) {
       request.assertAuthorized?.(); calls++; unlinkSync(join(brain, ".brain", "scratch", "chart.txt"));
       return JSON.stringify({ action: "prune", removed: [{ path: ".brain/scratch/chart.txt", bytes: 10, reason: "age" }], failed: [], bytes: 0, files: 0, pinned: { files: 0, bytes: 0 }, overageBytes: 0 });
@@ -27,7 +28,7 @@ function fixture() {
     inbox: { cleanup: request => cleanup.run(request) },
   };
   const operations = createStorageMaintenance(db, options);
-  return { root, brain, dbPath, db, storage, options, operations, get calls() { return calls; }, revoke() { allowed = false; }, allow() { allowed = true; },
+  return { root, brain, dbPath, db, storage, options, operations, get calls() { return calls; }, reportPack(value: Record<string, unknown>) { packReport = value; }, revoke() { allowed = false; }, allow() { allowed = true; },
     async close() { await operations.close(); await cleanup.close(); await storage.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
@@ -50,6 +51,57 @@ test("durable request identity serializes effects and exposes independent fresh 
     const reopened = createUiDb(f.dbPath), second = createStorageMaintenance(reopened, f.options);
     try { expect(second.start("odysseus", request), "STORAGE_MAINTENANCE_REOPEN_RECEIPT").toEqual(result); expect(f.calls).toBe(1); }
     finally { await second.close(); reopened.close(); }
+  } finally { await f.close(); }
+});
+
+test("each maintenance kind discloses its own headroom note; only pack-git mentions packs", async () => {
+  const f = fixture();
+  try {
+    const { operations } = await f.operations.list("odysseus");
+    expect(Object.fromEntries(operations.map(row => [row.id, row.headroom.note])), "STORAGE_MAINTENANCE_NOTE_PER_KIND").toEqual({
+      "pack-git": "Temporary worker/output space is admitted by its existing owner. Packing may hold old and new packs together; required bytes depend on the workload and are not reserved.",
+      "prune-scratch": "Removes scratch files older than seven days, then the oldest until scratch is under 1,073,741,824 bytes; pinned answers are kept. Refreshing pins and the worker's temporary output need a little writable space, admitted by their existing owners; nothing is reserved.",
+      "cleanup-staging": "Cleanup receipts and the operational database need writable capacity. Recovery is never discarded to make room.",
+    });
+    for (const row of operations) expect(/pack/i.test(row.headroom.note), `STORAGE_MAINTENANCE_PACK_NOTE_ONLY_FOR_PACKING ${row.id}`).toBe(row.id === "pack-git");
+    f.operations.start("odysseus", { id: "odysseus-prune-note-1", operation: "prune-scratch" }); await f.operations.idle();
+    const prune = f.operations.receipt("odysseus", "odysseus-prune-note-1");
+    expect(prune.headroom.note, "STORAGE_MAINTENANCE_RECEIPT_NOTE_PER_KIND").toBe(operations.find(row => row.id === "prune-scratch")!.headroom.note);
+    expect(prune.headroom.packingRequiredBytes, "STORAGE_MAINTENANCE_NO_FIGURE_FOR_PRUNE").toBeNull();
+  } finally { await f.close(); }
+});
+
+test("pack-git passes core's preflight need through as packingRequiredBytes; requiredBytes stays null and no figure is never 0", async () => {
+  const f = fixture(), figure = 16_789_504;
+  try {
+    const before = await f.operations.list("odysseus");
+    for (const row of before.operations) {
+      expect(row.latest).toBeNull();
+      expect(row.headroom.packingRequiredBytes, `STORAGE_MAINTENANCE_ROW_FIGURE_BEFORE_RUN ${row.id}`).toBeNull();
+    }
+    f.reportPack({ schema_version: 1, action: "pack", state: "complete", packed: 3, reason: null, garbage: null,
+      headroom: { availableBytes: 4_000_000_000, requiredBytes: null, packingRequiredBytes: figure, reason: "Three times raw object bytes." } });
+    f.operations.start("odysseus", { id: "odysseus-pack-figure-1", operation: "pack-git" }); await f.operations.idle();
+    const packed = f.operations.receipt("odysseus", "odysseus-pack-figure-1");
+    expect(packed.state, JSON.stringify(packed)).toBe("complete");
+    expect(packed.headroom.packingRequiredBytes, "STORAGE_PACK_REQUIRED_BYTES_PASSTHROUGH").toBe(figure);
+    expect(packed.headroom.requiredBytes, "STORAGE_PACK_REQUIRED_BYTES_STAYS_NULL").toBeNull();
+    const listed = (await f.operations.list("odysseus")).operations.find(row => row.id === "pack-git")!;
+    expect(listed.latest?.headroom.packingRequiredBytes, "STORAGE_PACK_ROW_LATEST_FIGURE").toBe(figure);
+    expect(listed.headroom.packingRequiredBytes, "STORAGE_PACK_ROW_HEADROOM_IS_STATIC").toBeNull();
+
+    f.reportPack({ schema_version: 1, action: "pack", state: "refused", packed: null, reason: "not_a_git_worktree", headroom: null, garbage: null });
+    f.operations.start("odysseus", { id: "odysseus-pack-figure-2", operation: "pack-git" }); await f.operations.idle();
+    const unknown = f.operations.receipt("odysseus", "odysseus-pack-figure-2");
+    expect(unknown.state).toBe("refused");
+    expect(unknown.headroom.packingRequiredBytes, "STORAGE_PACK_NO_FIGURE_IS_NULL").toBeNull();
+    f.reportPack({ schema_version: 1, action: "pack", state: "complete", packed: 0, reason: null, headroom: { availableBytes: null, requiredBytes: null, packingRequiredBytes: "16 MiB" } });
+    f.operations.start("odysseus", { id: "odysseus-pack-figure-3", operation: "pack-git" }); await f.operations.idle();
+    expect(f.operations.receipt("odysseus", "odysseus-pack-figure-3").headroom.packingRequiredBytes, "STORAGE_PACK_MALFORMED_FIGURE_IS_NULL").toBeNull();
+
+    // A receipt recorded before the field existed reads back as unknown.
+    f.db.query("UPDATE storage_maintenance_operations SET receipt=json_remove(receipt,'$.headroom.packingRequiredBytes') WHERE id=?").run("odysseus-pack-figure-1");
+    expect(f.operations.receipt("odysseus", "odysseus-pack-figure-1").headroom.packingRequiredBytes, "STORAGE_PACK_HISTORICAL_RECEIPT_IS_NULL").toBeNull();
   } finally { await f.close(); }
 });
 

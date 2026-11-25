@@ -1369,6 +1369,26 @@ identities to charged retained originals. Unknown outcomes never authorize
 replay. Undo is separately reviewed, cannot overwrite a replacement, and expires
 with actual journal detail. Existing Markdown application semantics are unchanged.
 
+### Storage maintenance pack headroom (additive, #4540)
+
+On `GET /api/storage/maintenance` rows and on every SDK `StorageMaintenanceReceipt`
+of the [maintenance operations](../http-api.md#storage-maintenance-additive-2011),
+`headroom` gains `packingRequiredBytes: number | null`. `headroom.requiredBytes`
+keeps its historical `null` on every kind; nothing in this contract makes it
+non-null, and nothing is reserved.
+
+`packingRequiredBytes` mirrors the CLI pack result's
+[`headroom.packingRequiredBytes`](cli.md#storage-packing-additive-0440-2011) (#4287/#4288): core's conservative
+preflight need for packing, in bytes, measured by core against the brain's
+current Git objects. It is non-null only on a `pack-git` receipt whose own core
+run reported a figure, which it carries unchanged. It is `null`, never `0`, for
+`prune-scratch` and `cleanup-staging`, before core reports, when core reported no
+headroom or a malformed one, and on a receipt recorded before this field existed.
+A row's own `headroom` is the operation's static disclosure and always carries
+`null`; the figure from the most recent run is on the row's `latest` receipt, so
+before any run there is none. The figure describes that run, not a current
+preflight. Each kind has its own `note`; only `pack-git`'s describes packs.
+
 ### Storage history and pressure guidance (additive, #2058)
 
 The two [history/guidance operations](../http-api.md#storage-history-and-pressure-guidance)

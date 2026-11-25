@@ -18,6 +18,11 @@ const descriptors = [
   { id: "prune-scratch", label: "Prune eligible scratch", owner: "core", scope: ["scratch"], effect: "Apply existing age/size policy; retained answer pins remain." },
   { id: "cleanup-staging", label: "Settled share staging cleanup", owner: "inbox", scope: ["staging"], effect: "Clean only owner-approved settled staging; live work and recovery remain protected." },
 ] as const;
+const NOTES: Record<StorageMaintenanceKind, string> = {
+  "pack-git": "Temporary worker/output space is admitted by its existing owner. Packing may hold old and new packs together; required bytes depend on the workload and are not reserved.",
+  "prune-scratch": "Removes scratch files older than seven days, then the oldest until scratch is under 1,073,741,824 bytes; pinned answers are kept. Refreshing pins and the worker's temporary output need a little writable space, admitted by their existing owners; nothing is reserved.",
+  "cleanup-staging": "Cleanup receipts and the operational database need writable capacity. Recovery is never discarded to make room.",
+};
 type Row = { id: string; principal_id: string; operation: StorageMaintenanceKind; state: StorageMaintenanceReceipt["state"]; pid: number; pid_start: string; receipt: string };
 const emptyOutcome = (): NonNullable<StorageMaintenanceReceipt["outcome"]> => ({ items: [], truncated: false, removed: null, failed: null, deferred: null, packed: null, pinnedFiles: null, pinnedBytes: null, overageBytes: null, suspended: false });
 const count = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
@@ -55,8 +60,9 @@ function storageMaintenance(db: Database, options: {
   }
   const authorize = (principal: string) => { if (!options.authorized(principal)) throw new StorageUnavailable(403, "Storage maintenance requires current human-owner access."); };
   const available = (kind: StorageMaintenanceKind) => kind === "cleanup-staging" ? !!options.inbox.cleanup : options.boundary.status().hostExecution === "worker" && options.boundary.status().available && (kind !== "pack-git" || !!options.brain.storagePack);
-  const headroom = (kind: StorageMaintenanceKind): StorageMaintenanceReceipt["headroom"] => ({ requiredBytes: null, reservation: false,
-    note: kind === "cleanup-staging" ? "Cleanup receipts and the operational database need writable capacity. Recovery is never discarded to make room." : "Temporary worker/output space is admitted by its existing owner. Packing may hold old and new packs together; required bytes depend on the workload and are not reserved." });
+  // A row's headroom is its static disclosure. Only a pack-git receipt carries
+  // a figure: core's conservative preflight need, reported by that run.
+  const headroom = (kind: StorageMaintenanceKind): StorageMaintenanceReceipt["headroom"] => ({ requiredBytes: null, packingRequiredBytes: null, reservation: false, note: NOTES[kind] });
   const select = (id: string) => db.query("SELECT * FROM storage_maintenance_operations WHERE id=? AND brain=?").get(id, brain) as Row | null;
   const procedures = maintenanceWrites.setup(db, { brain, self: SELF }, options.authorized);
   const call = options.writer ? procedureCaller(db, maintenanceWrites, { brain, self: SELF }, options.writer,
@@ -76,6 +82,8 @@ function storageMaintenance(db: Database, options: {
   }
   function reconciled(row: Row): StorageMaintenanceReceipt | Promise<StorageMaintenanceReceipt> {
     const receipt = JSON.parse(row.receipt) as StorageMaintenanceReceipt;
+    // Receipts recorded before #4540 carry no figure; an absent one is unknown.
+    receipt.headroom = { ...receipt.headroom, packingRequiredBytes: count(receipt.headroom?.packingRequiredBytes) ? receipt.headroom.packingRequiredBytes : null };
     if (["waiting", "running"].includes(row.state) && (!processAlive(row.pid, row.pid_start) || row.pid === SELF.pid && row.pid_start === SELF.start && !runningHere.has(`${brain}:${row.id}`))) {
       receipt.state = row.state === "waiting" ? "refused" : "unknown";
       receipt.reason = row.state === "waiting" ? "interrupted_before_owner" : "interrupted_owner_outcome_unknown"; receipt.completedAt = Date.now();
@@ -113,9 +121,12 @@ function storageMaintenance(db: Database, options: {
       if (intent instanceof Promise) { await intent; assertAuthorized(); }
       ownerStarted = true;
       if (result.operation === "pack-git") {
-        const value = await options.brain.storagePack!({ signal: controller.signal, assertAuthorized, bounded: true }) as { schema_version?: number; action?: string; state?: string; packed?: unknown; reason?: string };
+        const value = await options.brain.storagePack!({ signal: controller.signal, assertAuthorized, bounded: true }) as { schema_version?: number; action?: string; state?: string; packed?: unknown; reason?: string; headroom?: { packingRequiredBytes?: unknown } | null };
         if (value.schema_version !== 1 || value.action !== "pack" || !["complete", "partial", "refused"].includes(value.state ?? "") || value.packed !== null && !count(value.packed)) throw Error("packing_report_unavailable");
         result.outcome.packed = value.packed as number | null;
+        // Core's figure passes through unchanged; a missing or malformed one stays unknown, never 0.
+        const required = value.headroom?.packingRequiredBytes;
+        result.headroom = { ...result.headroom, packingRequiredBytes: count(required) ? required : null };
         result.state = value.state as "complete" | "partial" | "refused"; result.reason = value.reason === "no_space" ? "no_space" : result.state === "complete" ? null : "git_maintenance_incomplete";
         // The existing core owner reports its worker result. It does not identify
         // a host mount or distinguish byte/inode exhaustion, so neither do we.

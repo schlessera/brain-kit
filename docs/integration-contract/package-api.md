@@ -5052,6 +5052,9 @@ independent store/capacity measurements in the
 [maintenance HTTP contract](../http-api.md#storage-maintenance-additive-2011).
 They do not add an agent tool or generic executor. Existing automatic retention
 and owner APIs retain their previous defaults.
+Additive in #4540: the receipt and row `headroom` adds nullable
+`packingRequiredBytes`, core's pack preflight need on a `pack-git` receipt
+([pack headroom](http.md#storage-maintenance-pack-headroom-additive-4540)).
 
 ### Selected attachment application (additive, 0.44.0, #2012)
 

@@ -14628,6 +14628,7 @@ signatures (every public export and the types it is made of)
         reason: string | null;
         headroom: {
             requiredBytes: null;
+            packingRequiredBytes: number | null;
             reservation: false;
             note: string;
         };
