@@ -847,12 +847,15 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       versionHome(draftId) {
-        // An emptied record left under the old id (a device tombstone) is not where the content went.
+        // A rotation's link outlives only an original that was not here to
+        // open: whatever record sits under the old id then (a device
+        // tombstone, files and all) is not where the content went.
         const holds = (id: string) => { const d = get().drafts[id]; return !!d && (hasContent(d) || holdsSnapshots(d)); };
         let id = draftId;
         const visited = new Set<string>();
-        while (!holds(id) && successors.has(id) && !visited.has(id)) { visited.add(id); id = successors.get(id)!; }
-        return holds(id) ? id : undefined;
+        while (successors.has(id) && !visited.has(id)) { visited.add(id); id = successors.get(id)!; }
+        if (id !== draftId && holds(id)) return id;
+        return holds(draftId) ? draftId : undefined;
       },
       detachVersion(draftId) {
         const d = get().drafts[draftId];

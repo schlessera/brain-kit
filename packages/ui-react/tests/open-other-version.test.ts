@@ -255,3 +255,52 @@ test("a device tombstone left under the old id does not hide where a rotation mo
   s.root.localWork = null;
   expect(s.shown(), "TOMBSTONE_SKIPPED").toEqual({ sessionId: null, text: OTHER_TEXT });
 });
+
+/** A device read that adopts `record` for the id it is asked about. */
+function deviceKeeps(root: BrainUiRoot, record: (id: string) => LocalDraft | undefined) {
+  root.localWork = { openDeviceVersion: async (id: string) => { root.stores.drafts.getState().openDeviceVersion(id, record(id)); }, dispose() {} } as unknown as NonNullable<BrainUiRoot["localWork"]>;
+}
+const PERMIT_FILE = { fileId: "2c7e1a90-5d3f-4b8e-a1c6-9f0d2e4b7a31", name: "ithaca-permit.pdf", path: ".brain-ui/attachments/2c7e1a90-5d3f-4b8e-a1c6-9f0d2e4b7a31/ithaca-permit.pdf", mediaType: "application/pdf", bytes: 2_400_000, sha256: "b".repeat(64), kind: "pdf", reader: "pdf" } as const;
+
+test("a device tombstone that kept its files does not hide where the rotation moved the version, on a first or a second open", async () => {
+  const s = scene();
+  s.drafts.getState().hostGone(s.original);
+  deviceKeeps(s.root, (id) => ({ draftId: id, sessionId: ITHACA, text: "", attachments: [], files: [{ file: PERMIT_FILE, lineage: id }], editedAt: 2, host: null }));
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  expect(s.shown(), "TOMBSTONE_WITH_FILES_SKIPPED").toEqual({ sessionId: null, text: OTHER_TEXT });
+  s.chat.getState().setActiveSession(ITHACA);
+  s.drafts.getState().showDeviceBranch(ITHACA, BRANCH);
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.root.localWork = null;
+  expect(s.shown(), "SECOND_OPEN_AFTER_TOMBSTONE").toEqual({ sessionId: null, text: OTHER_TEXT });
+});
+
+test("a missing version opened from a branch of no chat leaves the reader on that branch", async () => {
+  const root = createBrainUiRoot({ storage: null, request: async () => Response.json({}) });
+  roots.push(root);
+  const drafts = root.stores.drafts;
+  const original = drafts.getState().fresh;
+  drafts.getState().edit(original, null, { text: "Telemachus checks the harbour" });
+  drafts.getState().keepDeviceBranch(original, BRANCH, { draftId: original, sessionId: null, text: OTHER_TEXT, attachments: [], editedAt: 1, host: null }, null);
+  drafts.setState((st) => { const d = { ...st.drafts }; delete d[original]; return { drafts: d }; });
+  deviceKeeps(root, (id) => ({ draftId: id, sessionId: null, text: "", attachments: [], editedAt: 2, host: null }));
+  openOtherVersion(root, original, BRANCH);
+  await turn();
+  root.localWork = null;
+  expect(drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "missing" });
+  expect(drafts.getState().fresh, "UNBOUND_BRANCH_KEPT_IN_VIEW").toBe(BRANCH);
+  expect(drafts.getState().drafts[BRANCH]?.text).toBe("Telemachus checks the harbour");
+});
+
+test("the gone-chat watcher follows a version a refresh moved off its chat meanwhile", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: false } });
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  // A host refresh finds it deleted: dirty, it moves to a draft of no chat.
+  s.drafts.getState().hostGone(s.original);
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(s.shown(), "WATCHER_FOLLOWS_MOVED_VERSION").toEqual({ sessionId: null, text: OTHER_TEXT });
+  expect(s.drafts.getState().versionSwitch?.outcome).toBe("unattached");
+});
