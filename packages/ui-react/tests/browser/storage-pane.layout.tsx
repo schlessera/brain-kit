@@ -661,6 +661,81 @@ test("Back to overview with a selection asks before discarding it", async () => 
   await expect.poll(() => matches().elements().length).toBe(1);
   expect(host.textContent, "STORAGE_DISCARD_CLEARS_SELECTION").not.toContain("1 selected");
 });
+// #4549 review F1: the mode lists files by file size, its own basis, in its
+// own order; the overview's sort, direction and basis never leak into it.
+test("Find large files asks for its own file-size order, not the overview's", async () => {
+  const fixture = await scene("dense", 1280);
+  const contents = page.getByRole("table", { name: /^Contents of / });
+  await contents.getByRole("button", { name: "Name", exact: true }).click();
+  await expect
+    .poll(() => contents.getByRole("columnheader", { name: /^Name/ }).element().getAttribute("aria-sort"))
+    .toBe("ascending");
+  await files();
+  const asked = () => fixture.requests.filter((value) => value.path.endsWith("/entries")).at(-1)?.query;
+  expect(asked(), "STORAGE_FIND_OWN_ORDER").toMatchObject({ sort: "size", direction: "desc", metric: "logical" });
+  const size = () => matches().getByRole("columnheader", { name: /^Size/ }).element().getAttribute("aria-sort");
+  expect(size()).toBe("descending");
+  // The header stays a sortable control, and what it shows is what was asked.
+  await matches().getByRole("button", { name: "Size", exact: true }).click();
+  await expect.poll(() => asked()?.direction, { message: "STORAGE_FIND_SORTABLE" }).toBe("asc");
+  expect(asked()).toMatchObject({ sort: "size", metric: "logical" });
+  await expect.poll(size).toBe("ascending");
+  await expect
+    .poll(() => matches().element().querySelector('.bk-storage-body > [role="row"]')?.textContent ?? "")
+    .toContain("Sirens-score.pdf");
+});
+// #4549 review F4: an inspection asked for while another action is pending
+// opens nothing, and a late response never reopens or replaces a sheet.
+test("Inspecting while an inspection is pending opens no sheet, and a closed sheet stays closed", async () => {
+  const fixture = await scene();
+  await files();
+  const release = fixture.deferInspection();
+  await inspect("Ithaca-harbor.pdf").click();
+  await expect.poll(() => page.getByRole("dialog").elements().length).toBe(1);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => page.getByRole("dialog").elements().length).toBe(0);
+  await inspect("Troy-charts.PDF").click();
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(page.getByRole("dialog").elements(), "STORAGE_BUSY_INSPECTION_OPENS_NOTHING").toHaveLength(0);
+  const verified = () => page.getByRole("checkbox", { name: /^Select Ithaca-harbor\.pdf, / }).element().getAttribute("aria-label");
+  const before = verified();
+  release();
+  await expect.poll(verified).not.toBe(before);
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(page.getByRole("dialog").elements(), "STORAGE_LATE_INSPECTION_STAYS_CLOSED").toHaveLength(0);
+  // Once nothing is pending, inspection opens and settles as before.
+  await inspect("Troy-charts.PDF").click();
+  await expect.poll(() => disabled(button("Select file").element())).toBe(false);
+});
+// #4549 review F5: an action that removes its own focused control moves
+// focus to a surviving one, never to the document body.
+test("Clear, Show new measurement and paging keep focus on the pane", async () => {
+  const fixture = await scene("paged", 1280);
+  await button("Find large files").click();
+  await expect.poll(() => matches().elements()[0]?.textContent ?? "").toContain("Ithaca-chart-");
+  (button("Next 200 items").element() as HTMLElement).focus();
+  await button("Next 200 items").click();
+  await expect
+    .poll(() => document.activeElement, { message: "STORAGE_NEXT_KEEPS_FOCUS" })
+    .toBe(button("First 200 items").element());
+  await button("First 200 items").click();
+  await expect
+    .poll(() => document.activeElement, { message: "STORAGE_FIRST_KEEPS_FOCUS" })
+    .toBe(button("Next 200 items").element());
+  await select("Ithaca-chart-204.pdf");
+  await button("Clear").click();
+  await expect.poll(() => host.textContent).not.toContain("1 selected");
+  await expect
+    .poll(() => document.activeElement, { message: "STORAGE_CLEAR_KEEPS_FOCUS" })
+    .toBe(page.getByRole("heading", { name: "Find large files", exact: true }).element());
+  await button("Measure again").click();
+  await expect.poll(() => button("Show new measurement").elements().length, { timeout: 4000 }).toBe(1);
+  await button("Show new measurement").click();
+  await expect
+    .poll(() => document.activeElement, { message: "STORAGE_SHOW_KEEPS_FOCUS" })
+    .toBe(page.getByRole("heading", { name: "Storage", exact: true, level: 2 }).element());
+  expect(fixture.requests.some((value) => value.path === "/api/storage/scans")).toBe(true);
+});
 test("The default state has exactly one primary-tone button", async () => {
   const fixture = storagePaneFixture({ state: "low" });
   await scene("dense", 1280, "dark", 1, { request: fixture.request, now: paneTime });

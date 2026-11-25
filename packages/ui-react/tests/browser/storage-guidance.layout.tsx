@@ -596,6 +596,43 @@ for (const state of ["low", "very-low"] as const)
     expect(host.querySelector("[data-storage-banner]")?.textContent).toContain(`${name} is ${state === "low" ? "Low" : "Very low"}`);
   });
 
+// #4549 review F2: the chart's now moves with the evidence. A measurement
+// recorded after the pane opened is the current point, not a future one, so
+// its qualified windows still draw their scenario lines.
+test("History recorded after opening moves now with it, so its projections still draw", async () => {
+  const f = storagePaneFixture({ state: "low", chart: "two-windows" });
+  await scene({ width: 1280, fixture: f as never, now: paneTime });
+  const section = () => host.querySelector<HTMLElement>("[data-storage-history-section]")!;
+  const lines = () => section()?.querySelectorAll('[data-part="scenario"]').length;
+  await expect.poll(lines).toBe(2);
+  const drawn = () =>
+    Array.from(section().querySelectorAll('[data-part="line"],[data-part="tail"]'), (path) => path.getAttribute("d")).join(" ");
+  const before = drawn();
+  const later = paneTime + 6 * 3_600_000;
+  const latest = f.history.observations.filter((row) => row.tier === "six-hour").at(-1)!;
+  f.history.observations.push({ ...structuredClone(latest), at: later, startedAt: later - 1000 });
+  f.history.lastObservedAt = later;
+  vi.setSystemTime(later + 60_000);
+  refresh();
+  await expect.poll(drawn, reread).not.toBe(before);
+  expect(lines(), "STORAGE_NOW_FOLLOWS_NEW_HISTORY").toBe(2);
+});
+// #4549 review F3: a failed history read is a settled state of its own.
+test("A failed history read beside current guidance says history is unavailable, not loading", async () => {
+  const f = storagePaneFixture({ state: "low" });
+  const request = async (url: string, init?: RequestInit) => {
+    if (new URL(url, "http://fixture.invalid").pathname.endsWith("/history")) {
+      f.reads.push("/history");
+      return Response.json({ error: "unavailable" }, { status: 503 });
+    }
+    return f.request(url, init);
+  };
+  await scene({ width: 320, fixture: { ...f, request } as never, now: paneTime });
+  const section = () => host.querySelector<HTMLElement>("[data-storage-history-section]")?.textContent ?? "";
+  await expect.poll(() => host.querySelector("[data-storage-volumes]")).not.toBeNull();
+  await expect.poll(section, { ...reread, message: "STORAGE_HISTORY_FAILURE_SETTLES" }).toContain("Observation history is unavailable");
+  expect(section()).not.toContain("Loading history");
+});
 // The chart states (#4549): real-browser baselines of the history section.
 const CHART_STATES: ChartState[] = ["full", "gap", "no-projection", "one-window", "two-windows", "scope-change"];
 for (const chart of CHART_STATES)
