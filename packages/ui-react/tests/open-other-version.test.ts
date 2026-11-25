@@ -328,6 +328,7 @@ test("a tombstone adopted on the first open keeps the rotation for every later o
     openOtherVersion(s.root, s.original, BRANCH);
     await turn();
     expect(s.shown(), `OPEN_${n}_AFTER_TOMBSTONE`).toEqual({ sessionId: null, text: OTHER_TEXT });
+    expect(s.drafts.getState().drafts[s.original], "TOMBSTONE_NOT_ADOPTED").toBeUndefined();
   }
   s.root.localWork = null;
 });
