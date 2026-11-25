@@ -51,6 +51,8 @@ interface StorageConsumer extends Omit<StorageConsumerRowProps, "onActivate" | "
   bytes: number | null;
   /** The database and its folded sidecars; one entry for any other row. */
   members: StorageConsumerMember[];
+  /** A hard-linked alias: its size is real, its area already counted in another row. */
+  shared?: boolean;
 }
 
 interface StorageConsumerRows {
@@ -126,7 +128,13 @@ export function storageConsumerRows(
       .map((node) => ({ id: node.id, name: node.name, bytes: node.area[metric], coverage: node.area.coverage }));
     const { value, complete } = sizeOf(members);
     const sidecars = members.slice(1).map((member) => member.name.slice(head.name.length));
-    const meta = [category(head), sidecars.length ? `with ${sidecars.join(", ")}` : undefined].filter(Boolean).join(" · ");
+    // A hard-linked alias: its object is already counted in another row's
+    // area, so it adds no area here, but its own size is real (storage.md).
+    const own = head.totals[metric];
+    const shared = members.length === 1 && value === 0 && own !== null && own > 0;
+    const meta = [category(head), sidecars.length ? `with ${sidecars.join(", ")}` : undefined, shared ? "Shared · counted once" : undefined]
+      .filter(Boolean)
+      .join(" · ");
     const row: StorageConsumer = {
       id,
       nodeId: head.id,
@@ -134,11 +142,12 @@ export function storageConsumerRows(
       owner: head.owner,
       action: head.kind === "root" || head.kind === "directory" ? "drill" : "inspect",
       kind: KIND[head.kind],
-      size: value === null ? null : format(value),
+      size: value === null ? null : format(shared ? own! : value),
       bytes: value,
       members,
     };
     if (meta) row.meta = meta;
+    if (shared) row.shared = true;
     if (value !== null && !complete) row.atLeast = true;
     const reason = reasonFor(head, options.inventory, complete, value !== null);
     if (reason) row.reason = reason;
@@ -159,6 +168,6 @@ export function storageConsumerRows(
     const byName = a.name.localeCompare(b.name);
     return (sort.key === "name" ? direction : 1) * byName || a.id.localeCompare(b.id);
   });
-  const isEmpty = (row: StorageConsumer) => row.bytes === 0 && !row.atLeast && !row.reason;
+  const isEmpty = (row: StorageConsumer) => row.bytes === 0 && !row.atLeast && !row.reason && !row.shared;
   return { rows: ranked.filter((row) => !isEmpty(row)), empty: ranked.filter(isEmpty) };
 }

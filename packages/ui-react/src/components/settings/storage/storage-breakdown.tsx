@@ -228,7 +228,7 @@ export function StorageBreakdown({
             </span>
           }
         >
-          {rows.map(({ id: key, nodeId, members: _members, bytes: _bytes, ...row }) => (
+          {rows.map(({ id: key, nodeId, members: _members, bytes: _bytes, shared: _shared, ...row }) => (
             <StorageConsumerRow
               key={key}
               {...row}
