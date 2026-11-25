@@ -81,7 +81,9 @@ function createEvidence(root: BrainUiRoot) {
           root.authLock.state.getState().phase !== "active"
         )
           return;
-        const denied = [guidance, history].some(
+        // Every read in the batch is owner-scoped: a refusal of any of them,
+        // including the inventory read after accepted guidance, clears it all.
+        const denied = [guidance, history, status].some(
           (value) =>
             value.status === "rejected" &&
             value.reason instanceof ApiRequestError &&

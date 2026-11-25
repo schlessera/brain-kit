@@ -277,6 +277,34 @@ test("Unavailable evidence retains an explicitly stale warning; forbidden remove
     .toBeNull();
   expect(host.textContent).not.toContain("App journal: 4");
 });
+// Owner access revoked between the guidance read and the inventory read: the
+// refused inventory clears the guidance exactly as a refused guidance read does.
+for (const refused of [401, 403])
+  test(`A refused inventory read clears accepted guidance (${refused})`, async () => {
+    const f = storageGuidanceFixture();
+    let refuse = false;
+    const fixture = {
+      ...f,
+      request: (url: string, init?: RequestInit) =>
+        refuse &&
+        new URL(url, "http://fixture.invalid").pathname === "/api/storage"
+          ? Promise.resolve(
+              Response.json(
+                { error: "Synthetic authority response" },
+                { status: refused }
+              )
+            )
+          : f.request(url, init),
+    };
+    await scene({ fixture });
+    await settled();
+    refuse = true;
+    refresh();
+    await expect
+      .poll(warning, { message: "STORAGE_INVENTORY_FORBIDDEN_HIDES_INDICATOR" })
+      .toBeNull();
+    expect(host.textContent).not.toContain("App journal: 4");
+  });
 test("A late response from the prior account cannot replace current evidence", async () => {
   const f = await scene({ route: true });
   await settled();
