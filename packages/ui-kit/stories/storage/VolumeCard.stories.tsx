@@ -226,9 +226,12 @@ export const Group = meta.story({
     await expect(app).toHaveAttribute("aria-checked", "true");
     await expect(canvasElement.querySelectorAll('[role="radio"][aria-checked="true"]')).toHaveLength(1);
 
-    // Tab leaves through the selected card's stores button, not every card's.
+    // Tab leaves through the selected card's stores button, skipping the
+    // buttons of the cards after it.
+    await userEvent.keyboard("{Home}");
+    await expect(data).toHaveAttribute("aria-checked", "true");
     await userEvent.tab();
-    await expect(document.activeElement).toBe(canvas.getByRole("button", { name: /^2 stores · Voyage transcripts/ }));
+    await expect(document.activeElement).toBe(canvas.getByRole("button", { name: /^3 stores · Notes/ }));
     await expect(group.contains(document.activeElement)).toBe(true);
     await userEvent.tab();
     await expect(group.contains(document.activeElement)).toBe(false);
