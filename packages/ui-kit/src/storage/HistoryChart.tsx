@@ -11,7 +11,6 @@ import {
   projectionReasonText,
   isMeasured,
   placeable,
-  textWidth,
   type HistoryLayout,
   type HistoryMarker,
   type HistoryPoint,
@@ -98,8 +97,6 @@ export const SCENARIO_DASH: Record<HistoryScenarioWindow, { dash: string; glyph:
   long: { dash: "2 3", glyph: "┄" },
 };
 
-const LOW_GLYPH = "△";
-const VERY_LOW_GLYPH = "▲";
 const GAP_GLYPH = "▨";
 const DOT = "·";
 
@@ -183,9 +180,9 @@ export function HistoryChart(p: HistoryChartProps) {
     () =>
       width === null
         ? null
-        : historyLayout({ width, points: p.points, now: p.now, intervalMs: p.intervalMs, thresholds: p.thresholds, scenarios, markers, formatValue: p.formatValue }),
+        : historyLayout({ width, points: p.points, now: p.now, intervalMs: p.intervalMs, thresholds: p.thresholds, scenarios, markers, formatValue: p.formatValue, formatTick: p.formatTick }),
     // `scenarios` and `markers` default to fresh arrays; the props themselves are the inputs.
-    [width, p.points, p.now, p.intervalMs, p.thresholds, p.scenarios, p.markers, p.formatValue],
+    [width, p.points, p.now, p.intervalMs, p.thresholds, p.scenarios, p.markers, p.formatValue, p.formatTick],
   );
 
   const wrap: CSSProperties = { width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: 8 };
@@ -266,16 +263,20 @@ export function HistoryChart(p: HistoryChartProps) {
   }
 
   const { frame } = layout;
-  // Threshold labels sit inside their bands. Where the plot is too narrow to
-  // hold them (200% zoom on a phone), they move to the caption whole rather
-  // than being clipped at the plot's edge.
-  const bandText = (kind: "low" | "veryLow", level: number) =>
-    `${kind === "low" ? LOW_GLYPH : VERY_LOW_GLYPH} ${kind === "low" ? "Low" : "Very low"} < ${p.formatValue(level)}`;
-  const bandsInPlot = layout.bands.every((b) => textWidth(bandText(b.kind, b.level)) + 8 <= frame.right - frame.left);
-  if (!bandsInPlot && layout.bands.length) {
+  // Threshold labels the plot could not hold (too narrow, or bands too thin
+  // to keep the two apart) move to the caption together, whole.
+  if (layout.bandsCaptioned) {
     notes.unshift(
       <p key="bands" style={caption} data-part="band-caption">
-        {[...layout.bands].reverse().map((b) => bandText(b.kind, b.level)).join(` ${DOT} `)}
+        {[...layout.bandTexts].reverse().map((b) => b.text).join(` ${DOT} `)}
+      </p>,
+    );
+  }
+  // A now value the plot had no room for is said in the caption.
+  if (layout.nowCaptioned) {
+    notes.unshift(
+      <p key="now" style={caption} data-part="now-caption">
+        {nowValue ? `Now ${p.formatValue(nowValue.value)}` : "Now ? not measured"}
       </p>,
     );
   }
@@ -287,26 +288,6 @@ export function HistoryChart(p: HistoryChartProps) {
   // The table lists what the chart can place, by the chart's own rules.
   const sorted = placeable(p.points);
   const placedMarkers = placeable(markers);
-
-  // The now value: right of the point if it fits, else above it, reading
-  // into the future zone, where only the scenario lines (heading down and
-  // right) and the latest point's own edge can be.
-  // When now was not measured, the now rule carries "?" and the last
-  // measured value keeps no label of its own: it is not now's value.
-  const nowLabel = !nowValue
-    ? layout.allUnknown
-      ? null
-      : { text: "?", x: layout.nowX + 4, y: (frame.top + frame.bottom) / 2, anchor: "start" as const }
-    : (() => {
-        const latest = nowValue;
-        const text = p.formatValue(latest.value);
-        const w = textWidth(text, 10);
-        const high = latest.y - 10 >= frame.top + 18;
-        const y = high ? latest.y - 10 : latest.y + 18;
-        if (latest.x + 7 + w <= frame.right) return { text, x: latest.x + 7, y: high ? latest.y - 6 : y, anchor: "start" as const };
-        if (latest.x - 2 + w <= frame.width) return { text, x: latest.x - 2, y, anchor: "start" as const };
-        return { text, x: latest.x + 2, y, anchor: "end" as const };
-      })();
 
   const svg = (
     <svg
@@ -448,22 +429,13 @@ export function HistoryChart(p: HistoryChartProps) {
       ) : null}
 
       {/* Labels: bands, then the top row, then the now value. */}
-      {(bandsInPlot ? layout.bands : []).map((b) => {
-        const isLow = b.kind === "low";
-        const below = b.height >= 14;
-        return (
-          <text
-            key={`bl${b.kind}`}
-            data-part="band-label"
-            x={frame.left + 6}
-            y={below ? b.edgeY + 11 : b.edgeY - 4}
-            fill={isLow ? accent.amber.ink : accent.red.ink}
-            style={mono()}
-          >
-            {bandText(b.kind, b.level)}
+      {layout.labels
+        .filter((l) => l.role === "band-low" || l.role === "band-veryLow")
+        .map((l) => (
+          <text key={l.role} data-part="band-label" x={l.x} y={l.y} fill={l.role === "band-low" ? accent.amber.ink : accent.red.ink} style={mono()}>
+            {l.text}
           </text>
-        );
-      })}
+        ))}
       {layout.gaps
         .filter((g) => g.label)
         .map((g) => (
@@ -486,9 +458,9 @@ export function HistoryChart(p: HistoryChartProps) {
             {t.text}
           </text>
         ))}
-      {nowLabel ? (
-        <text data-part="now-value" x={nowLabel.x} y={nowLabel.y} textAnchor={nowLabel.anchor} fill={color.ink} style={mono(10, 600)}>
-          {nowLabel.text}
+      {layout.nowLabel ? (
+        <text data-part="now-value" x={layout.nowLabel.x} y={layout.nowLabel.y} textAnchor={layout.nowLabel.anchor} fill={color.ink} style={mono(10, 600)}>
+          {layout.nowLabel.text}
         </text>
       ) : null}
 
@@ -500,7 +472,7 @@ export function HistoryChart(p: HistoryChartProps) {
           data-now={t.now ? "" : undefined}
           x={t.x}
           y={frame.bottom + 13}
-          textAnchor={t.now ? "middle" : t.x - frame.left < 24 ? "start" : "middle"}
+          textAnchor={t.anchor ?? "middle"}
           fill={t.now ? color.ink : color.inkMute}
           style={mono(LABEL_SIZE, t.now ? 700 : 400)}
         >

@@ -188,3 +188,10 @@ export const CROWDED_EVENTS: HistoryMarker[] = Array.from({ length: 18 }, (_, i)
   label: i % 2 ? "Clean up retained history" : "Backups store grew",
 }));
 if (CROWDED_EVENTS.some((e) => e.at > HISTORY_NOW)) throw new Error("crowded events must all be in range");
+
+/** A nearly empty 161 GB volume: 150 GB available, so the 16.1 GB and 8.05 GB bands are a few pixels tall. */
+export const nearlyEmpty: HistoryPoint[] = sixHourFull.map((p, i) => ({ ...p, value: p.value === null ? null : Math.round(150 - (i % 7) * 0.4) * GB }));
+
+/** A 2 TB volume with 1.7 TB available: Low under 200 GB, Very low under 100 GB. */
+export const TB_THRESHOLDS: HistoryThresholds = { low: 200 * GB, veryLow: 100 * GB };
+export const twoTerabytes: HistoryPoint[] = sixHourFull.map((p, i) => ({ ...p, value: p.value === null ? null : (1700 - i * 2) * GB }));

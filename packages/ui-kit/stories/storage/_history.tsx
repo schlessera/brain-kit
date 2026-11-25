@@ -116,6 +116,7 @@ export async function chartHolds(root: HTMLElement) {
   await expect(document.documentElement.scrollWidth, "no horizontal page scroll").toBeLessThanOrEqual(document.documentElement.clientWidth);
 
   await everyMarkInside(svg);
+  await noTextOverlaps(svg);
 
   const now = svg.querySelector('[data-part="now-rule"]')!.getBoundingClientRect().left;
   for (const shape of svg.querySelectorAll<SVGGraphicsElement>("path, polygon, rect, circle, ellipse")) {
@@ -182,13 +183,36 @@ export async function everyMarkInside(svg: SVGSVGElement, what = "") {
   const box = svg.getBoundingClientRect();
   const marks = [...svg.querySelectorAll<SVGGraphicsElement>("text, rect, line, polyline, path, circle")].filter((el) => !el.closest("defs, clipPath, pattern"));
   await expect(marks.filter((m) => m.tagName === "text").length, `${what} the chart's labels are SVG text`).toBeGreaterThan(2);
+  // Collected, then asserted once: the list names every offender, and a
+  // hundred charts do not cost thousands of awaited assertions.
+  const out: string[] = [];
   for (const el of marks) {
     const name = el.tagName === "text" ? `"${el.textContent}"` : `<${el.tagName}> ${el.getAttribute("data-part") ?? el.parentElement?.getAttribute("data-part") ?? ""}`;
-    if (el.tagName === "text") await expect((el.textContent ?? "").trim(), `${what} no empty label`).not.toBe("");
+    if (el.tagName === "text" && !(el.textContent ?? "").trim()) out.push(`${what} an empty label`);
     const r = el.getBoundingClientRect();
-    await expect(
-      r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1,
-      `${what} ${name} sits inside the drawing (${Math.round(r.left - box.left)}..${Math.round(r.right - box.left)} x ${Math.round(r.top - box.top)}..${Math.round(r.bottom - box.top)} in ${Math.round(box.width)} x ${Math.round(box.height)})`,
-    ).toBe(true);
+    if (!(r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1)) {
+      out.push(`${what} ${name} leaves the drawing (${Math.round(r.left - box.left)}..${Math.round(r.right - box.left)} x ${Math.round(r.top - box.top)}..${Math.round(r.bottom - box.top)} in ${Math.round(box.width)} x ${Math.round(box.height)})`);
+    }
   }
+  await expect(out, "every text and shape sits inside the drawing").toEqual([]);
+}
+
+/**
+ * No two rendered labels intersect: every pair of `<text>` boxes in the SVG,
+ * measured as the browser laid them out. Run beside {@link everyMarkInside}
+ * in every chart story and at every width in `EveryWidth`.
+ */
+export async function noTextOverlaps(svg: SVGSVGElement, what = "") {
+  const texts = [...svg.querySelectorAll<SVGTextElement>("text")].map((t) => ({ t, r: t.getBoundingClientRect() }));
+  const out: string[] = [];
+  for (let i = 0; i < texts.length; i += 1) {
+    for (let j = i + 1; j < texts.length; j += 1) {
+      const a = texts[i]!.r;
+      const b = texts[j]!.r;
+      if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) {
+        out.push(`${what} "${texts[i]!.t.textContent}" and "${texts[j]!.t.textContent}" overlap`);
+      }
+    }
+  }
+  await expect(out, "no two labels overlap").toEqual([]);
 }
