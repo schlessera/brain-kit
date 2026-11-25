@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GoogleCursorStale, googleCursorStore, GOOGLE_CURSOR_FILE, GOOGLE_CURSOR_LIMIT, GOOGLE_CURSOR_TTL_MS, GOOGLE_GENERATION_FILE } from "../src/lib/google/cursors.ts";
 import { gogAuthArgv, GogAuthArgvError } from "../src/lib/google/gog-auth.ts";
-import { checkGoogleHome, selectGoogleHome, standaloneGoogleHome } from "../src/lib/google/home.ts";
+import { checkGoogleHome, selectGoogleHome, standaloneGoogleHome, type GoogleHomeOwners } from "../src/lib/google/home.ts";
 import { createStandaloneGoogle, GOOGLE_SCOPE_PATTERN, standaloneGoogleRouting } from "../src/lib/google/standalone.ts";
 import { createFakeGog } from "../../common/tests/support/fake-gog.ts";
 import { watchdogMs } from "../../../scripts/test-deadlines";
@@ -25,12 +25,17 @@ afterEach(() => {
   for (const made of dirs.splice(0)) rmSync(made, { recursive: true, force: true });
 });
 
+// Root's directories show as uid 0, or as the overflow uid inside the user namespace CI's unit
+// workers run in. The tests know which, and declare it as an owner would with BRAIN_GOOGLE_ROOT_UID.
+const ROOT_UID = statSync("/").uid;
+const check = (home: string, brainRoot: string, owners: GoogleHomeOwners = {}) => checkGoogleHome(home, brainRoot, { rootUid: ROOT_UID, ...owners });
+
 const env = (over: Partial<ReturnType<typeof base>> = {}) => ({ ...base(), ...over });
 function base() {
   return {
     hostHome: undefined as string | undefined, hostKeyringPassword: undefined as string | undefined, hostGogPath: undefined as string | undefined,
     home: undefined as string | undefined, keyringPassword: "standalone-pass" as string | undefined, gogPath: "/opt/gog/gog" as string | undefined,
-    dataHome: "/odysseus/data" as string | undefined, userHome: "/odysseus",
+    dataHome: "/odysseus/data" as string | undefined, userHome: "/odysseus", rootUid: undefined as number | undefined,
   };
 }
 
@@ -57,45 +62,45 @@ describe("google home placement", () => {
 
   test("google home inside or holding a brain repository is refused, through a symlink too", () => {
     const root = brain();
-    expect(checkGoogleHome(join(root, "state/google"), root)).toMatchObject({ ok: false, reason: "home_inside_brain" });
-    expect(checkGoogleHome(root, root)).toMatchObject({ ok: false, reason: "home_inside_brain" });
+    expect(check(join(root, "state/google"), root)).toMatchObject({ ok: false, reason: "home_inside_brain" });
+    expect(check(root, root)).toMatchObject({ ok: false, reason: "home_inside_brain" });
     // Another brain repository than the current one.
     const other = brain();
-    expect(checkGoogleHome(join(other, "google"), root)).toMatchObject({ ok: false, reason: "home_inside_brain" });
+    expect(check(join(other, "google"), root)).toMatchObject({ ok: false, reason: "home_inside_brain" });
     const outside = dir();
-    expect(checkGoogleHome(join(outside, "google"), join(outside, "google", "brain"))).toMatchObject({ ok: true });
+    expect(check(join(outside, "google"), join(outside, "google", "brain"))).toMatchObject({ ok: true });
     const holder = dir();
     const held = join(holder, "brain");
     mkdirSync(held);
     writeFileSync(join(held, "brain.config.json"), "{}\n");
-    expect(checkGoogleHome(holder, held)).toMatchObject({ ok: false, reason: "home_holds_brain" });
+    expect(check(holder, held)).toMatchObject({ ok: false, reason: "home_holds_brain" });
     const link = join(dir(), "link");
     symlinkSync(root, link);
-    expect(checkGoogleHome(join(link, "google"), root)).toMatchObject({ ok: false, reason: "home_inside_brain" });
+    expect(check(join(link, "google"), root)).toMatchObject({ ok: false, reason: "home_inside_brain" });
   });
 
   test("google home: a working directory that is not a brain does not count as one", () => {
     const cwd = dir();
-    expect(checkGoogleHome(join(cwd, ".local/share/brain/google"), cwd)).toEqual({ ok: true, exists: false, path: join(cwd, ".local/share/brain/google") });
+    expect(check(join(cwd, ".local/share/brain/google"), cwd)).toEqual({ ok: true, exists: false, path: join(cwd, ".local/share/brain/google") });
   });
 
   test("google home must be absolute, a directory, this user's and private", () => {
     const root = brain();
-    expect(checkGoogleHome("relative/google", root)).toMatchObject({ ok: false, reason: "home_invalid" });
-    expect(checkGoogleHome("/odysseus/\ngoogle", root)).toMatchObject({ ok: false, reason: "home_invalid" });
+    expect(check("relative/google", root)).toMatchObject({ ok: false, reason: "home_invalid" });
+    expect(check("/odysseus/\ngoogle", root)).toMatchObject({ ok: false, reason: "home_invalid" });
     const parent = dir();
     const file = join(parent, "file");
     writeFileSync(file, "");
-    expect(checkGoogleHome(file, root)).toMatchObject({ ok: false, reason: "home_not_directory" });
+    expect(check(file, root)).toMatchObject({ ok: false, reason: "home_not_directory" });
     const open = join(parent, "open");
     mkdirSync(open);
     chmodSync(open, 0o750);
-    expect(checkGoogleHome(open, root)).toMatchObject({ ok: false, reason: "home_permissions" });
+    expect(check(open, root)).toMatchObject({ ok: false, reason: "home_permissions" });
     const own = join(parent, "own");
     mkdirSync(own, { mode: 0o700 });
     // A directory root owns, below directories root owns: only the home itself is another user's.
-    expect(checkGoogleHome("/usr", root)).toMatchObject({ ok: false, reason: process.getuid?.() === 0 ? "home_permissions" : "home_owner" });
-    expect(checkGoogleHome(own, root)).toMatchObject({ ok: true, exists: true });
+    expect(check("/usr", root)).toMatchObject({ ok: false, reason: statSync("/usr").uid === process.getuid?.() ? "home_permissions" : "home_owner" });
+    expect(check(own, root)).toMatchObject({ ok: true, exists: true });
   });
 });
 
@@ -105,15 +110,54 @@ describe("google home ancestry", () => {
     writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
     const shared = dir();
     chmodSync(shared, 0o777);
-    expect(checkGoogleHome(join(shared, "google"), root)).toMatchObject({ ok: false, reason: "home_ancestor_unsafe" });
-    expect(checkGoogleHome(join(shared, "deeper", "google"), root)).toMatchObject({ ok: false, reason: "home_ancestor_unsafe" });
+    expect(check(join(shared, "google"), root)).toMatchObject({ ok: false, reason: "home_ancestor_unsafe" });
+    expect(check(join(shared, "deeper", "google"), root)).toMatchObject({ ok: false, reason: "home_ancestor_unsafe" });
     chmodSync(shared, 0o1777);
-    expect(checkGoogleHome(join(shared, "google"), root)).toMatchObject({ ok: true, exists: false });
+    expect(check(join(shared, "google"), root)).toMatchObject({ ok: true, exists: false });
     chmodSync(shared, 0o700);
-    // Owned by someone else: told apart by the uid the check is given.
+    // Owned by someone else: told apart by the uid the check is given. A directory uid 0 owns is root's
+    // whoever asks, so this needs a caller that is not uid 0 (it is under `--map-root-user`).
     const own = dir();
-    expect(checkGoogleHome(join(own, "google"), root, statSync(own).uid + 1)).toMatchObject({ ok: false, reason: "home_ancestor_unsafe" });
+    if (statSync(own).uid !== 0) {
+      const another = check(join(own, "google"), root, { uid: statSync(own).uid + 1 });
+      expect(another).toMatchObject({ ok: false, reason: "home_ancestor_unsafe", detail: expect.stringContaining(`owned by uid ${statSync(own).uid}`) });
+      // A user's uid is not the overflow uid, so the refusal points at no variable.
+      expect(JSON.stringify(another).includes("BRAIN_GOOGLE_ROOT_UID")).toBe(false);
+    }
+    chmodSync(own, 0o777);
+    expect(check(join(own, "google"), root)).toMatchObject({ ok: false, reason: "home_ancestor_unsafe", detail: expect.stringContaining("writable by another user") });
+    chmodSync(own, 0o700);
   });
+
+  // Where `/` is the caller's own (real root), `--map-current-user` maps its owner and nothing shows the overflow uid.
+  test.skipIf(ROOT_UID === process.getuid?.())("google home in a user namespace: root's directories show the overflow uid, which refuses until BRAIN_GOOGLE_ROOT_UID declares it root's", async () => {
+    const root = dir("brain-google-brain-");
+    writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+    const home = join(dir(), "google");
+    const script = `
+      const { checkGoogleHome } = await import(${JSON.stringify(join(import.meta.dir, "../src/lib/google/home.ts"))});
+      const { resolveEnv } = await import(${JSON.stringify(join(import.meta.dir, "../src/config/env.ts"))});
+      const { readFileSync, statSync } = await import("node:fs");
+      const home = ${JSON.stringify(home)}, root = ${JSON.stringify(root)};
+      const overflow = Number(readFileSync("/proc/sys/kernel/overflowuid", "utf8").trim());
+      console.log(JSON.stringify({
+        overflow, slash: statSync("/").uid,
+        strict: checkGoogleHome(home, root),
+        declared: checkGoogleHome(home, root, { rootUid: resolveEnv({ BRAIN_GOOGLE_ROOT_UID: String(overflow) }).google.rootUid }),
+        declaredHome: checkGoogleHome("/usr", root, { rootUid: overflow }),
+      }));`;
+    // Unprivileged, as CI's unit workers run: root is not mapped, so `/` and `/tmp` show the overflow uid.
+    const child = Bun.spawn(["unshare", "--user", "--map-current-user", process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect({ code, err: code === 0 ? "" : err }).toEqual({ code: 0, err: "" });
+    const seen = JSON.parse(out);
+    expect(seen.slash).toBe(seen.overflow);
+    // The overflow uid also stands for every other unmapped user: unknown, so it refuses, and says how to declare it.
+    expect(seen.strict).toMatchObject({ ok: false, reason: "home_ancestor_unsafe", detail: expect.stringContaining(`BRAIN_GOOGLE_ROOT_UID=${seen.overflow}`) });
+    expect(seen.declared).toEqual({ ok: true, exists: false, path: home });
+    // A declared root counts above the home only: a home it owns is another user's.
+    expect(seen.declaredHome).toMatchObject({ ok: false, reason: "home_owner" });
+  }, watchdogMs(30_000));
 });
 
 describe("google search cursors", () => {
@@ -258,7 +302,7 @@ describe("google connect timeout", () => {
     try {
       const google = createStandaloneGoogle({
         root, binary: fake.binary, connectTimeoutMs: 300,
-        env: { BRAIN_GOOGLE_HOME: join(dir(), "home"), BRAIN_GOOGLE_KEYRING_PASSWORD: "penelope-weaves-by-day", XDG_DATA_HOME: dir() },
+        env: { BRAIN_GOOGLE_HOME: join(dir(), "home"), BRAIN_GOOGLE_KEYRING_PASSWORD: "penelope-weaves-by-day", XDG_DATA_HOME: dir(), BRAIN_GOOGLE_ROOT_UID: String(ROOT_UID) },
       });
       const started = Date.now();
       const result = await google.connect({ address: "odysseus@example.com", write: false, remote: false });

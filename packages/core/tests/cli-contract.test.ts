@@ -974,6 +974,8 @@ describe("google", () => {
   const fixture = (name: string) => JSON.parse(readFileSync(join(FIXTURES, name), "utf8"));
   const ADDRESS = "odysseus@example.com";
   const PASSWORD = "penelope-weaves-by-day";
+  // Root's directories show as uid 0, or as the overflow uid in CI's unit worker namespace; declared as an owner would.
+  const ROOT_UID = String(statSync("/").uid);
   const HALL = "19a0c3d2e4f50601";
   const SWINE = "19a0c3d2e4f50700";
   const READONLY = "https://www.googleapis.com/auth/gmail.readonly";
@@ -1018,7 +1020,7 @@ describe("google", () => {
   };
 
   const google = (args: string[], env: Record<string, string> = {}) => runCli(brain, ["google", ...args, "--json"], {
-    BRAIN_TEST_FAKE_GOG: fake.executable, BRAIN_GOOGLE_HOME: home, BRAIN_GOOGLE_KEYRING_PASSWORD: PASSWORD, ...env,
+    BRAIN_TEST_FAKE_GOG: fake.executable, BRAIN_GOOGLE_HOME: home, BRAIN_GOOGLE_KEYRING_PASSWORD: PASSWORD, BRAIN_GOOGLE_ROOT_UID: ROOT_UID, ...env,
   }, { preload: PRELOAD });
 
   beforeAll(() => {
@@ -1434,7 +1436,7 @@ describe("google", () => {
 
   test("google: brain doctor fails when the standalone home is inside a brain repository", async () => {
     const doctor = async (env: Record<string, string>) => {
-      const res = await runCli(brain, ["doctor", "--json"], env);
+      const res = await runCli(brain, ["doctor", "--json"], { BRAIN_GOOGLE_ROOT_UID: ROOT_UID, ...env });
       // A diagnostic report: it exits 0 and says what failed in its checks.
       expect(res.code).toBe(0);
       return JSON.parse(res.stdout).checks.find((check: { id: string }) => check.id === "google-home");

@@ -178,6 +178,13 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     required: false,
   },
   {
+    name: "BRAIN_GOOGLE_ROOT_UID",
+    description:
+      "The uid root's directories show as to a `brain google` process when it is not 0 (#4208): inside a user namespace that does not map root, the kernel's overflow uid, usually 65534. Directories above the Google home that it owns then count as root's. That uid also stands for every other unmapped user, so set it only where you know it is root; a home refuses and names this variable when it is needed.",
+    default: "unset: only uid 0 counts as root",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_GOOGLE_HOME",
     description:
       "The chat server's gog home. Set in an operator's shell on the host, `brain google` uses it, BRAIN_UI_GOOGLE_KEYRING_PASSWORD and BRAIN_UI_GOG_PATH " +
@@ -272,6 +279,8 @@ export interface CoreEnv {
     dataHome: string | undefined;
     /** The user's home directory, for the default when XDG_DATA_HOME is unusable. */
     userHome: string;
+    /** BRAIN_GOOGLE_ROOT_UID, undefined when unset or not a uid ({@link parseUid}). */
+    rootUid: number | undefined;
   };
   /** BRAIN_MEDIA_PINNED_PATH_LIMIT, unvalidated (`pinnedPathLimit` validates it). */
   mediaPinnedPathLimit: string | undefined;
@@ -291,6 +300,14 @@ export function inheritedEnv(
 }
 
 /** Resolve the statically-named variables. Reads happen here and only here. */
+/** A uid as the kernel prints one: decimal, no sign or leading zero, at most 2^32 - 2; else undefined. */
+export function parseUid(text: string | undefined): number | undefined {
+  const trimmed = text?.trim() ?? "";
+  if (!/^(0|[1-9][0-9]{0,9})$/.test(trimmed)) return undefined;
+  const uid = Number(trimmed);
+  return uid <= 4294967294 ? uid : undefined;
+}
+
 export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
   return {
     brainRoot: env.BRAIN_ROOT || undefined,
@@ -318,6 +335,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
       gogPath: env.BRAIN_GOOGLE_GOG_PATH?.trim() || undefined,
       dataHome: env.XDG_DATA_HOME?.trim() || undefined,
       userHome: homedir(),
+      rootUid: parseUid(env.BRAIN_GOOGLE_ROOT_UID),
     },
     mediaPinnedPathLimit: env.BRAIN_MEDIA_PINNED_PATH_LIMIT,
     mediaReferenceLimits: env.BRAIN_MEDIA_REFERENCE_LIMITS,

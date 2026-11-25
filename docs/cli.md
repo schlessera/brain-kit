@@ -445,7 +445,12 @@ with its file keyring's password in `BRAIN_GOOGLE_KEYRING_PASSWORD` and the
 pinned binary in `BRAIN_GOOGLE_GOG_PATH`. It must lie outside every brain
 repository (`brain doctor` fails otherwise), be private to you, and sit below
 directories only you or root can change (a sticky directory such as `/tmp`
-counts). In an
+counts). Inside a user namespace that does not map root, such as an
+unprivileged sandbox, root's directories show the kernel's overflow uid
+(usually 65534), which also stands for every other user the namespace does not
+map, so brain google refuses them and says which uid it saw. Set
+`BRAIN_GOOGLE_ROOT_UID` to that uid only where you know it is root: directories
+it owns above the home then count as root's. In an
 operator's shell on a host that sets `BRAIN_UI_GOOGLE_HOME`, brain google uses
 the server's home, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD` and `BRAIN_UI_GOG_PATH`
 instead, which is how `brain google connect --remote` connects a hosted

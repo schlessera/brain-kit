@@ -18,14 +18,18 @@
  * `brain.config.*`. Every directory above it that exists must be owned by
  * root or this user and writable by no one else unless sticky (as `/tmp`
  * is), so no other user can put another directory in its place between this
- * check and gog's use of the path. An existing home must be a directory owned
+ * check and gog's use of the path. Inside a user namespace that does not map
+ * root, root's directories show the kernel's overflow uid, which this process
+ * cannot tell apart from any other unmapped user's, so they refuse; whoever
+ * knows the namespace names the uid root shows as in `BRAIN_GOOGLE_ROOT_UID`,
+ * and the refusal says so. An existing home must be a directory owned
  * by this user that no one else can read or enter. A home that fails refuses Google for
  * the command with its reason and nothing else; `brain doctor` reports the
  * standalone home's placement.
  */
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { resolveEnv, type CoreEnv } from "../../config/env.js";
+import { parseUid, resolveEnv, type CoreEnv } from "../../config/env.js";
 import { CONFIG_FILENAMES } from "../config.js";
 
 export type GoogleHomeKind = "host" | "standalone";
@@ -109,11 +113,26 @@ function brainRepositoryAbove(path: string): string | null {
   }
 }
 
+/** The kernel's overflow uid, which every uid a user namespace does not map shows as; undefined off Linux. */
+function overflowUid(): number | undefined {
+  try { return parseUid(readFileSync("/proc/sys/kernel/overflowuid", "utf8")); } catch { return undefined; }
+}
+
+/** Whom {@link checkGoogleHome} judges: this user, and the uid root's directories show as when it is not 0. */
+export interface GoogleHomeOwners {
+  /** Default `process.getuid()`. */
+  uid?: number;
+  /** `BRAIN_GOOGLE_ROOT_UID`: trusted as root is, on the directories above the home only. */
+  rootUid?: number | undefined;
+}
+
 /**
  * Whether `home` may hold Google's credential for the brain at `brainRoot`:
  * its placement always, its owner and mode when it exists. Never throws.
  */
-export function checkGoogleHome(home: string, brainRoot: string, uid: number = process.getuid?.() ?? -1): GoogleHomeCheck {
+export function checkGoogleHome(home: string, brainRoot: string, owners: GoogleHomeOwners = {}): GoogleHomeCheck {
+  const uid = owners.uid ?? process.getuid?.() ?? -1;
+  const { rootUid } = owners;
   const refuse = (reason: GoogleHomeReason, detail: string): GoogleHomeCheck => ({ ok: false, reason, detail });
   if (typeof home !== "string" || !isAbsolute(home) || NOT_A_PATH.test(home)) {
     return refuse("home_invalid", "The Google home must be an absolute path without control characters.");
@@ -144,9 +163,17 @@ export function checkGoogleHome(home: string, brainRoot: string, uid: number = p
     try { above = statSync(dir, { throwIfNoEntry: false }); }
     catch { return refuse("home_unreadable", "A directory on the way to the Google home cannot be read."); }
     if (above) {
-      const owned = above.uid === 0 || uid < 0 || above.uid === uid;
-      const shared = (above.mode & 0o022) !== 0 && (above.mode & 0o1000) === 0;
-      if (!owned || shared) return refuse("home_ancestor_unsafe", "A directory above the Google home is owned or writable by another user, who could replace the home.");
+      const owned = above.uid === 0 || uid < 0 || above.uid === uid || (rootUid !== undefined && above.uid === rootUid);
+      if (!owned) {
+        // An unmapped owner is unknown, never clean: only someone who knows the namespace can say it is root.
+        const unmapped = above.uid === overflowUid()
+          ? ` Inside a user namespace that does not map root, root's directories show as uid ${above.uid}; set BRAIN_GOOGLE_ROOT_UID=${above.uid} if that is root here.`
+          : "";
+        return refuse("home_ancestor_unsafe", `A directory above the Google home is owned by uid ${above.uid}, another user who could replace the home.${unmapped}`);
+      }
+      if ((above.mode & 0o022) !== 0 && (above.mode & 0o1000) === 0) {
+        return refuse("home_ancestor_unsafe", "A directory above the Google home is writable by another user, who could replace the home.");
+      }
     }
     if (dirname(dir) === dir) break;
   }

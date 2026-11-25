@@ -878,8 +878,9 @@ function checkCacheMerge(root: string): Check {
  * owner and mode are `brain google status`'s to report.
  */
 export function checkGoogleStandaloneHome(root: string): Check {
-  const home = standaloneGoogleHome();
-  const placed = checkGoogleHome(home.path, root);
+  const env = resolveEnv().google;
+  const home = standaloneGoogleHome(env);
+  const placed = checkGoogleHome(home.path, root, { rootUid: env.rootUid });
   const fix = "set BRAIN_GOOGLE_HOME to an absolute directory outside every brain repository, and move the gog home there";
   if (!placed.ok && ["home_invalid", "home_inside_brain", "home_holds_brain"].includes(placed.reason)) {
     return { id: "google-home", status: "fail", detail: `${home.path} (${home.source}): ${placed.detail}`, fix };

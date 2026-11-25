@@ -72,7 +72,12 @@ else `BRAIN_GOOGLE_HOME` (default `$XDG_DATA_HOME/brain/google`),
 holding a brain repository, or below a directory another user owns or may
 write without the sticky bit, refuses `connect` and every read, and `status`
 reports it; `brain doctor` fails its `google-home` check for the first two and
-warns for the last.
+warns for the last. A directory above the home owned by any uid but 0 or the
+caller's is another user's, including the kernel's overflow uid that root's
+directories show inside a user namespace that does not map root; its refusal
+names the uid and, for the overflow uid, `BRAIN_GOOGLE_ROOT_UID`, which
+declares the uid root's directories show as. A declared uid counts as root's
+above the home only.
 
 ## External compute (additive, 0.45.0, #3107)
 

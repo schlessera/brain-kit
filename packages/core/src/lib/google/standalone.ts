@@ -227,7 +227,7 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
     const { check, policy } = loadPolicy();
     if (!check.ok) return { ok: false, error: error("unavailable", "policy_invalid", MESSAGES.policy_invalid!) };
     const selection = selectGoogleHome(coreEnv.google);
-    let home = checkGoogleHome(selection.path, options.root);
+    let home = checkGoogleHome(selection.path, options.root, { rootUid: coreEnv.google.rootUid });
     if (home.ok && !home.exists && create) {
       try {
         mkdirSync(home.path, { recursive: true, mode: 0o700 });
@@ -235,7 +235,7 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
       } catch {
         return { ok: false, error: error("unavailable", "home_unwritable", `The Google home (${selection.names.home}) could not be created.`) };
       }
-      home = checkGoogleHome(selection.path, options.root);
+      home = checkGoogleHome(selection.path, options.root, { rootUid: coreEnv.google.rootUid });
     }
     if (!home.ok) return { ok: false, error: error("unavailable", home.reason, `${home.detail} (${selection.names.home})`) };
     if (!selection.keyringPassword) {
@@ -295,7 +295,7 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
   async function status(): Promise<GoogleEnvelope> {
     const { check, policy } = loadPolicy();
     const selection = selectGoogleHome(coreEnv.google);
-    const home = checkGoogleHome(selection.path, options.root);
+    const home = checkGoogleHome(selection.path, options.root, { rootUid: coreEnv.google.rootUid });
     const needed = policy.services.includes("gmail") ? [GMAIL_READONLY_SCOPE] : [];
     const data: GoogleStatus = {
       state: "unavailable", reason: null,

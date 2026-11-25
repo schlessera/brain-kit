@@ -563,7 +563,7 @@ promote ambient SDK variables to supported inputs.
 
 | Owner reference | Declared literal names |
 | --- | --- |
-| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_STORAGE_GIT_ROOTS`, `BRAIN_RERANK_MODE`, `BRAIN_COMPUTE_STATE_DIR`, `XDG_STATE_HOME`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `BRAIN_APIFY_LEDGER`, `BRAIN_GOOGLE_HOME`, `BRAIN_GOOGLE_KEYRING_PASSWORD`, `BRAIN_GOOGLE_GOG_PATH`, `BRAIN_UI_GOOGLE_HOME`, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`, `BRAIN_UI_GOG_PATH`, `XDG_DATA_HOME` |
+| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_STORAGE_GIT_ROOTS`, `BRAIN_RERANK_MODE`, `BRAIN_COMPUTE_STATE_DIR`, `XDG_STATE_HOME`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `BRAIN_APIFY_LEDGER`, `BRAIN_GOOGLE_HOME`, `BRAIN_GOOGLE_KEYRING_PASSWORD`, `BRAIN_GOOGLE_GOG_PATH`, `BRAIN_GOOGLE_ROOT_UID`, `BRAIN_UI_GOOGLE_HOME`, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`, `BRAIN_UI_GOG_PATH`, `XDG_DATA_HOME` |
 | [module-images](../packages/module-images/README.md#environment) | `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
 | [module-jobs](../packages/module-jobs/README.md#environment) | `CHROME_CDP_URL` |
 | [scrape](../packages/scrape/README.md#configuration) | `SCRAPE_USER_AGENT`, `SCRAPE_CHROME_URL`, `SCRAPE_CHROME_PATH`, `SCRAPE_CHROME_NO_SANDBOX`, `SCRAPE_RESPECT_ROBOTS` |
@@ -615,7 +615,9 @@ Important precedence boundaries:
   reaches any worker, so a shell `brain apify` inside a chat turn refuses.
 - `brain google` (#4208) reads `BRAIN_GOOGLE_HOME` (default
   `$XDG_DATA_HOME/brain/google`, never inside a brain repository),
-  `BRAIN_GOOGLE_KEYRING_PASSWORD` and `BRAIN_GOOGLE_GOG_PATH`, or, while
+  `BRAIN_GOOGLE_KEYRING_PASSWORD` and `BRAIN_GOOGLE_GOG_PATH`, with
+  `BRAIN_GOOGLE_ROOT_UID` naming the uid root's directories show as inside a
+  user namespace that does not map root, or, while
   `BRAIN_UI_GOOGLE_HOME` is set in an operator's shell on a host, that home with
   `BRAIN_UI_GOOGLE_KEYRING_PASSWORD` and `BRAIN_UI_GOG_PATH`. Every
   `BRAIN_GOOGLE_*` and `BRAIN_UI_GOOGLE_*` name is host-only, so a shell
