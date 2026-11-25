@@ -1182,14 +1182,19 @@ describe("google", () => {
     expect(JSON.parse((await google(["gmail", "labels"])).stdout).error).toMatchObject({ code: "transport_incompatible", reason: "unexpected_output" });
     fake.setScenario({ "gmail.labels.list": { exit: 2 } });
     expect(JSON.parse((await google(["gmail", "labels"])).stdout).error).toMatchObject({ code: "transport_incompatible", reason: "usage" });
+    // An answer about another thread than the one asked for.
+    fake.setScenario({ ...SEARCH, [`gmail.thread.get ${HALL}`]: { stdout: fixture("thread-swine.json") } });
+    expect(JSON.parse((await google(["gmail", "read", "thread", HALL])).stdout).error).toMatchObject({ code: "transport_incompatible", reason: "unexpected_shape" });
   });
 
   const authAdd = (flags: string[]) => ["--no-input", "--json", "--color=never", "--enable-commands-exact=auth.add", ...flags];
 
   test("google connect argv: read-only and --write shapes, the alias set after the grant is verified", async () => {
-    fake.setScenario({ "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: { alias: "ithaca" } } });
+    fake.setScenario({ "auth.add": { stdout: { stored: true }, stderr: "Open this URL to authorize\n" }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: { alias: "ithaca" } } });
     const readOnly = await google(["connect", ADDRESS]);
     expect(readOnly.code).toBe(0);
+    // The browser flow shows gog's own stderr: the URL to open when no browser starts.
+    expect(readOnly.stderr).toContain("Open this URL to authorize");
     expect(JSON.parse(readOnly.stdout)).toMatchObject({ ok: true, operation: "connect", data: { state: "connected", alias: "ithaca", write: false, scopes: GRANT_READONLY } });
     expect(readOnly.stdout).not.toContain(ADDRESS);
     expect(fake.calls().map(call => call.command)).toEqual(["auth.add", "auth.list", "auth.alias.set"]);
@@ -1207,17 +1212,22 @@ describe("google", () => {
 
   test("google connect --remote: step 1 prints the URL, step 2 exchanges the redirect", async () => {
     const url = "https://accounts.google.com/o/oauth2/auth?client_id=ithaca&state=telemachus";
-    fake.setScenario({ "auth.add": { stdout: { auth_url: url, state_reused: false } } });
-    const first = JSON.parse((await google(["connect", ADDRESS, "--remote"])).stdout);
+    fake.setScenario({ "auth.add": { stdout: { auth_url: url, state_reused: false }, stderr: "gog hint: run gog auth add again\n" } });
+    const run = await google(["connect", ADDRESS, "--remote"]);
+    // A remote step prompts for nothing, so gog's own stderr is not shown.
+    expect(run.stderr).not.toContain("gog hint");
+    const first = JSON.parse(run.stdout);
     expect(first).toMatchObject({ ok: true, operation: "connect", data: { state: "authorize", alias: "ithaca", auth_url: url } });
     expect(fake.calls().map(call => call.command)).toEqual(["auth.add"]);
     expect(fake.callsOf("auth.add")[0]!.argv).toEqual(authAdd(["--readonly", "--gmail-no-send", "auth", "add",
       "--services=gmail", "--gmail-scope=readonly", "--force-consent", "--remote", "--step=1", "--", ADDRESS]));
 
     fake.dispose();
-    fake = createFakeGog({ "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: {} } });
+    fake = createFakeGog({ "auth.add": { stdout: { stored: true }, stderr: "gog hint: exchanged\n" }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: {} } });
     const redirect = "http://127.0.0.1:8765/oauth2/callback?state=telemachus&code=ithaca-code";
-    const second = JSON.parse((await google(["connect", ADDRESS, "--remote", "--auth-url", redirect])).stdout);
+    const exchanged = await google(["connect", ADDRESS, "--remote", "--auth-url", redirect]);
+    expect(exchanged.stderr).not.toContain("gog hint");
+    const second = JSON.parse(exchanged.stdout);
     expect(second).toMatchObject({ ok: true, data: { state: "connected" } });
     expect(fake.callsOf("auth.add")[0]!.argv).toEqual(authAdd(["--readonly", "--gmail-no-send", "auth", "add",
       "--services=gmail", "--gmail-scope=readonly", "--force-consent", "--remote", "--step=2", `--auth-url=${redirect}`, "--", ADDRESS]));
@@ -1328,5 +1338,13 @@ describe("google", () => {
     };
     expect(await doctor({ BRAIN_GOOGLE_HOME: join(brain, "state/google") })).toMatchObject({ status: "fail", fix: expect.stringContaining("BRAIN_GOOGLE_HOME") });
     expect(await doctor({ BRAIN_GOOGLE_HOME: home })).toMatchObject({ status: "pass" });
+    // Where it lies cannot be established below a directory anyone may change: a warning, never a pass.
+    const shared = freshHome();
+    chmodSync(shared, 0o777);
+    try {
+      expect(await doctor({ BRAIN_GOOGLE_HOME: join(shared, "google") })).toMatchObject({ status: "warn" });
+    } finally {
+      chmodSync(shared, 0o700);
+    }
   });
 });
