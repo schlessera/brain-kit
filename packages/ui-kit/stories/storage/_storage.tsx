@@ -8,6 +8,8 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { formatBytes, type StorageEntry, type StorageLargeFile } from "../../fixtures/storage.js";
+import { appAddedRising } from "../../fixtures/storage-history.js";
+import { Sparkline } from "../../src/storage/Sparkline.js";
 import { StorageBreadcrumb, type StorageCrumb } from "../../src/storage/StorageBreadcrumb.js";
 import { StorageConsumerList, type StorageSortDirection, type StorageSortKey } from "../../src/storage/StorageConsumerList.js";
 import { StorageConsumerRow, StorageFilterRow } from "../../src/storage/StorageConsumerRow.js";
@@ -122,13 +124,9 @@ export function sortEntries(entries: readonly StorageEntry[], key: StorageSortKe
   });
 }
 
-/** The stand-in sparkline: the real one is #4543's `Sparkline`, passed to the row as a node. */
-export function SparklineStub() {
-  return (
-    <svg width={48} height={14} viewBox="0 0 48 14" aria-hidden="true" data-sparkline-stub="">
-      <polyline points="0,12 8,11 16,11 24,8 32,7 40,4 48,2" fill="none" stroke="currentColor" strokeWidth={1.5} />
-    </svg>
-  );
+/** The real usage sparkline (#4543); the row prints the value and window, so the line carries none. */
+export function SummarySparkline() {
+  return <Sparkline points={appAddedRising} label="App added 3.4 GB on Data volume in 7 days" showValue={false} />;
 }
 
 export interface BreakdownProps {
@@ -237,7 +235,7 @@ export function Breakdown({ entries, trail = [{ id: "root", label: "Storage" }],
   );
   const list = (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
-      {summary ? <StorageSummaryRow chart={<SparklineStub />} value="+3.4 GB" window="7 d" /> : null}
+      {summary ? <StorageSummaryRow chart={<SummarySparkline />} value="+3.4 GB" window="7 d" /> : null}
       <StorageConsumerList
         label={`Contents of ${here}`}
         sort={sort}

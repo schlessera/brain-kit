@@ -25,6 +25,11 @@ export interface SparklineProps {
   label: string;
   /** Shown after the line: "+3.4 GB · 7 d". Absent reads as "?". */
   valueLabel?: string;
+  /**
+   * False drops the value text after the line, for a host row that prints the
+   * value itself (`StorageSummaryRow`). The accessible name is unchanged.
+   */
+  showValue?: boolean;
   tone?: Tone;
   width?: number;
   height?: number;
@@ -40,7 +45,7 @@ const INKS: Record<Tone, string> = {
   neutral: accent.neutral.ink,
 };
 
-export function Sparkline({ points, label, valueLabel, tone = "blue", width = 120, height = 24 }: SparklineProps) {
+export function Sparkline({ points, label, valueLabel, showValue = true, tone = "blue", width = 120, height = 24 }: SparklineProps) {
   const g = sparklineGeometry(points, width, height);
   const known = g.measured > 0 && Boolean(valueLabel);
   const ink = INKS[tone] ?? INKS.blue;
@@ -57,6 +62,7 @@ export function Sparkline({ points, label, valueLabel, tone = "blue", width = 12
           <circle key={`d${i}`} data-part="dot" cx={d.x} cy={d.y} r={1.75} fill={ink} />
         ))}
       </svg>
+      {showValue ? (
       <span
         aria-hidden="true"
         data-part="value"
@@ -64,6 +70,7 @@ export function Sparkline({ points, label, valueLabel, tone = "blue", width = 12
       >
         {known ? valueLabel : "?"}
       </span>
+      ) : null}
     </span>
   );
 }

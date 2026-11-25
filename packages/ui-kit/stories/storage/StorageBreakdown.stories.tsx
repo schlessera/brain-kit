@@ -93,7 +93,8 @@ export const All = meta.story({
     await targets(canvasElement);
     await equivalent(canvasElement, storageAll, userEvent);
     await expect(canvasElement.querySelector("[data-storage-summary]")?.textContent).toBe("What this app added··+3.4 GB·7 d");
-    await expect(canvasElement.querySelector("[data-sparkline-stub]"), "the sparkline arrives as a node").not.toBeNull();
+    await expect(canvasElement.querySelector('[data-storage-summary] [data-part="sparkline"] [data-part="line"]'), "the real sparkline arrives as a node").not.toBeNull();
+    await expect(canvasElement.querySelector('[data-storage-summary] [data-part="value"]'), "the row prints the value once").toBeNull();
     await expect(canvasElement.querySelector("[data-storage-breakdown]")?.getAttribute("data-layout")).toBe("strip");
   },
 });
