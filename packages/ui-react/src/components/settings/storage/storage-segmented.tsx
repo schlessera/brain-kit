@@ -56,10 +56,13 @@ export function StorageSegmented<T extends string>({
             aria-checked={on}
             tabIndex={on ? 0 : -1}
             onClick={() => onChange(option.value)}
-            style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties}
-            className={`bk-row bk-hit min-h-8 px-3 text-xs font-medium first:rounded-l-md last:rounded-r-md ${
-              on ? "bg-foreground text-background" : "text-muted-foreground"
-            }`}
+            // The checked option holds its fill on hover, so its text keeps contrast.
+            style={
+              (on
+                ? { background: "var(--bk-color-ink)", color: "var(--bk-color-canvas)", "--hv-bg": "var(--bk-color-ink)", "--hv-fg": "var(--bk-color-canvas)" }
+                : { "--hv-bg": "var(--bk-hover-veil-strong)" }) as unknown as CSSProperties
+            }
+            className={`bk-row bk-hit min-h-8 px-3 text-xs font-medium first:rounded-l-md last:rounded-r-md ${on ? "" : "text-muted-foreground"}`}
           >
             {option.label}
           </button>

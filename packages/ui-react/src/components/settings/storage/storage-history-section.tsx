@@ -77,7 +77,9 @@ export function StorageHistorySection({
       </div>
       {!volume || !history ? (
         <p className="text-xs text-muted-foreground">
-          {unavailable
+          {unavailable && guidance
+            ? "? Current guidance could not be checked · the retained warning is out of date; refresh before relying on it"
+            : unavailable
             ? "? History and guidance are unavailable on this host · inventory and recovery actions remain separate"
             : !volume
             ? "? No volume measured yet · Measure to see available space over time"

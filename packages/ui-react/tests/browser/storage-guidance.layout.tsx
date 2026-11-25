@@ -13,6 +13,7 @@ import {
   storageGuidanceFixture,
   guidanceTime,
 } from "../fixtures/storage-guidance.js";
+import { paneTime, storagePaneFixture, type ChartState } from "../fixtures/storage-pane.js";
 let ui: BrainUiRoot, renderer: Root, host: HTMLElement, style: HTMLElement;
 const original = {
   width: innerWidth,
@@ -50,13 +51,14 @@ async function scene({
   zoom = 1,
   route = false,
   fixture = storageGuidanceFixture(),
+  now = guidanceTime,
 } = {}) {
   await page.viewport(width * zoom, 900 * zoom);
   document.documentElement.style.zoom = String(zoom);
   document.documentElement.dataset.theme = theme;
   document.body.dataset.buttonGallery = "";
   vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(guidanceTime);
+  vi.setSystemTime(now);
   style = document.createElement("style");
   style.textContent = await commands.formConsumerStyles();
   document.head.append(style);
@@ -89,13 +91,19 @@ const warning = () => host.querySelector("[data-storage-indicator]");
 async function settled() {
   await expect.poll(() => warning()?.textContent).toContain("Disk very low");
 }
-// A Settings section never collapses (#3253): the history is a visible,
-// headed section, so there is nothing to open, only something to find.
+/** The exact endpoints sit behind "Measurements behind this chart" (#4537 D3). */
 async function historyOpen() {
   await expect
-    .element(page.getByRole("heading", { name: "Observations · Recent, Daily and Weekly", exact: true }))
+    .element(page.getByRole("heading", { name: /^Available space · /, level: 3 }))
     .toBeVisible();
-  expect(host.querySelector("[data-storage-history] summary, [data-storage-notices] summary")).toBeNull();
+  await expect.poll(() => host.querySelector("[data-storage-history-section] svg")).not.toBeNull();
+  if (!page.getByRole("table", { name: "Storage observation history" }).elements().length)
+    await page.getByRole("button", { name: /Measurements behind this chart/ }).click();
+}
+const tier = (name: "Recent" | "Daily" | "Weekly") =>
+  page.getByRole("radiogroup", { name: "History tier" }).getByRole("radio", { name, exact: true });
+async function alerts() {
+  await button("Change storage alerts").click();
 }
 for (const width of [320, 1280])
   for (const theme of ["dark", "light"])
@@ -121,23 +129,24 @@ for (const width of [320, 1280])
         expect(table.element().textContent).toContain(
           "Collection partial; capacity partial"
         );
-        expect(host.textContent, "STORAGE_DIVERGENT_SCENARIOS").toContain(
-          "4–80 days if observed rates continue"
-        );
-        expect(host.textContent).toContain("Measured App stores: 0 bytes/day");
-        expect(host.textContent).toContain(
-          "Capacity available change: -10 MB/day"
-        );
-        await page
-          .getByRole("combobox", { name: "History tier" })
-          .selectOptions("daily");
-        expect(table.element().textContent).toContain(
+        // D9: one dashed line per qualified window, each labelled; no range, no cone.
+        const section = host.querySelector("[data-storage-history-section]")!;
+        // The current six-hour bucket is a gap: no projection starts from an unmeasured now.
+        expect(section.querySelectorAll('[data-part="scenario"]'), "STORAGE_NO_PROJECTION_FROM_A_GAP").toHaveLength(0);
+        expect(host.querySelector("[data-storage-scenario-range]"), "STORAGE_NO_UNQUALIFIED_RANGE").toBeNull();
+        // The trend and App usage read from the same evidence the old growth prose did.
+        expect(host.querySelector("[data-volume-id]")?.textContent).toContain("−10 MB/day");
+        expect(host.querySelector("[data-storage-summary]")?.textContent).toContain("0 bytes");
+        await tier("Daily").click();
+        await expect.poll(() => table.element().textContent).toContain(
           "3 days since previous endpoint"
         );
-        await page
-          .getByRole("combobox", { name: "History tier" })
-          .selectOptions("weekly");
-        expect(table.element().textContent).toContain(
+        // Measured now: one line per qualified window, each labelled.
+        await expect.poll(() => section.querySelectorAll('[data-part="scenario"]').length, { message: "STORAGE_ONE_LINE_PER_WINDOW" }).toBe(2);
+        expect(section.textContent, "STORAGE_DIVERGENT_SCENARIOS").toContain("empty ~16 Jul");
+        expect(section.textContent).toContain("empty ~30 Sep");
+        await tier("Weekly").click();
+        await expect.poll(() => table.element().textContent).toContain(
           "14 days since previous endpoint"
         );
         if (width === 320)
@@ -151,7 +160,7 @@ for (const width of [320, 1280])
           "STORAGE_HISTORY_NO_OVERFLOW"
         ).toBeLessThanOrEqual(host.clientWidth + 1);
         for (const target of host.querySelectorAll<HTMLElement>(
-          'summary,select,[data-storage-indicator] [role="button"]'
+          'select,[data-storage-indicator] [role="button"]'
         ))
           expect(
             target.getBoundingClientRect().height / zoom,
@@ -167,14 +176,11 @@ for (const width of [320, 1280])
           })),
           "STORAGE_GUIDANCE_ACCESSIBLE"
         ).toEqual([]);
-        const tier = page
-          .getByRole("combobox", { name: "History tier" })
-          .element() as HTMLElement;
-        tier.focus();
-        await userEvent.keyboard("{Tab}");
-        expect(document.activeElement).toBe(
-          page.getByRole("combobox", { name: "Capacity scope" }).element()
-        );
+        // The tier switch is one tab stop; arrows move it.
+        (tier("Weekly").element() as HTMLElement).focus();
+        await userEvent.keyboard("{ArrowRight}");
+        expect(document.activeElement).toBe(tier("Recent").element());
+        expect(tier("Recent").element().getAttribute("aria-checked")).toBe("true");
         await commands.buttonCapture(`guidance-${width}-${theme}-${zoom}`);
         if (zoom === 1) {
           host.style.filter = "grayscale(1)";
@@ -208,23 +214,27 @@ test("Missing scenarios never hide refusal pressure or invent a range", async ()
   };
   await scene({ fixture: f });
   await settled();
+  const section = () => host.querySelector("[data-storage-history-section]")!;
+  await expect.poll(() => section().querySelector("svg")).not.toBeNull();
+  await tier("Daily").click();
+  await expect.poll(() => section().textContent, { message: "STORAGE_UNQUALIFIED_WINDOW_SAYS_WHY" }).toContain(
+    "No projection · latest measurement is incomplete"
+  );
+  // A window with no start or end cannot be drawn: no line, never a stand-in.
+  expect(section().querySelectorAll('[data-part="scenario"]')).toHaveLength(0);
   expect(
     host.querySelector("[data-storage-scenario-range]"),
     "STORAGE_NO_UNQUALIFIED_RANGE"
   ).toBeNull();
-  expect(host.textContent).toContain("Owner refused a write · quota");
-  expect(host.textContent).toContain("Short window: Unavailable");
-  expect(host.textContent).toContain("No depletion observed");
+  expect(section().textContent).toContain("Owner refused a write: quota reached");
+  expect(host.querySelector("[data-volume-id]")?.textContent).toContain("not running out");
   expect(host.textContent).not.toMatch(/Infinity|NaN/);
   f.guidance.state = "unknown";
   capacity.scopeChanged = true;
   capacity.state = "unknown";
   refresh();
-  await expect.poll(() => host.textContent).toContain("Earlier capacity scope");
-  expect(host.textContent).toContain(
-    "measurements do not describe the new scope"
-  );
-  expect(host.textContent).not.toContain("4–80");
+  await expect.poll(() => host.querySelector("[data-volume-id]")?.textContent).toContain("scope changed");
+  expect(section().querySelectorAll('[data-part="scenario"]'), "STORAGE_CHANGED_SCOPE_NO_PROJECTION").toHaveLength(0);
   expect(warning()?.textContent).toContain("Disk very low");
 });
 test("History clocks, changed scopes and nullable quantities stay explicit", async () => {
@@ -246,19 +256,23 @@ test("Permission is never requested on opening; receipts distinguish acceptance 
   const permission = vi.spyOn(Notification, "requestPermission");
   await scene();
   await settled();
-  await expect.element(page.getByRole("heading", { name: "Critical notifications", exact: true })).toBeVisible();
+  // One device has an unknown timezone, the other is in quiet hours: alerts stay on.
+  await expect.poll(() => host.querySelector("[data-storage-alerts]")?.textContent).toContain("Alerts");
   expect(
     permission,
     "STORAGE_NO_AUTO_PERMISSION_PROMPT"
   ).not.toHaveBeenCalled();
+  await alerts();
   expect(host.textContent).toContain("timezone unknown · delivery pending");
   expect(host.textContent).toContain("quiet hours · delivery deferred");
+  await page.getByRole("button", { name: /Delivery receipts/ }).click();
   expect(host.textContent).toContain(
     "Accepted by push service; device display unconfirmed"
   );
   expect(host.textContent).toContain(
     "Unknown delivery outcome; no automatic retry"
   );
+  expect(permission).not.toHaveBeenCalled();
   expect(host.querySelectorAll('[aria-live="assertive"]')).toHaveLength(0);
 });
 test("Unavailable evidence retains an explicitly stale warning; forbidden removes it", async () => {
@@ -269,7 +283,7 @@ test("Unavailable evidence retains an explicitly stale warning; forbidden remove
   await expect
     .poll(() => warning()?.textContent)
     .toContain("Disk very low · evidence unknown");
-  expect(host.textContent).toContain("out of date; refresh");
+  await expect.poll(() => host.textContent).toContain("out of date; refresh");
   f.setStatus(403);
   refresh();
   await expect
@@ -351,12 +365,12 @@ test("Refreshing guidance and measurement preserves selection, review and focus 
   const f = await scene({ width: 1280 });
   await settled();
   await button("Find large files").click();
-  await button("Inspect Ithaca-harbor.pdf").click();
+  await button(/^Ithaca-harbor\.pdf, .*inspect$/).click();
   await expect
     .poll(() => button("Select file").element().getAttribute("aria-disabled"))
     .not.toBe("true");
   await button("Select file").click();
-  const measure = button("Refresh");
+  const measure = button("Measure again");
   await measure.click();
   const changes: string[] = [];
   const live = host.querySelector('[aria-live="polite"]')!;
@@ -379,7 +393,7 @@ test("Refreshing guidance and measurement preserves selection, review and focus 
   } finally {
     observer.disconnect();
   }
-  await button("Review selected files").click();
+  await button("Review removal").click();
   await expect.poll(() => button("Remove 1 file").elements().length).toBe(1);
   f.guidance.pending = true;
   refresh();
@@ -395,7 +409,7 @@ test("Browser-blocked push is labelled and the existing opt-in switch keeps its 
     .mockReturnValue("default");
   await scene();
   await settled();
-  await expect.element(page.getByRole("heading", { name: "Critical notifications", exact: true })).toBeVisible();
+  await alerts();
   const toggle = page.getByRole("switch", { name: "Push notifications" });
   await expect.poll(() => toggle.elements().length).toBe(1);
   const r = toggle.element().getBoundingClientRect(),
@@ -408,7 +422,7 @@ test("Browser-blocked push is labelled and the existing opt-in switch keeps its 
   ).toBeGreaterThanOrEqual(44);
   expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
   for (const node of host.querySelectorAll(
-    "[data-storage-history], [data-storage-pressure], [data-storage-map-index]"
+    "[data-storage-history-section] *, [data-volume-id], [data-storage-map-index]"
   )) {
     expect(
       getComputedStyle(node).animationName,
@@ -429,7 +443,8 @@ test("Browser-blocked push is labelled and the existing opt-in switch keeps its 
     )
   );
   old.dispose();
-  await expect.element(page.getByRole("heading", { name: "Critical notifications", exact: true })).toBeVisible();
+  await expect.poll(() => host.querySelector("[data-storage-alerts]")).not.toBeNull();
+  await alerts();
   await expect
     .poll(() => host.textContent)
     .toContain("Blocked in browser settings");
@@ -492,3 +507,50 @@ for (const variant of ["named", "stale", "unidentified"] as const)
     expect(element.scrollWidth).toBeLessThanOrEqual(element.clientWidth + 1);
     expect(warning()?.textContent).toContain(expected.replace("Open Storage: ", "").replace(", out of date", " · out of date"));
   });
+
+/** The name a rendered volume card's radio carries, read from the DOM. */
+function cardName(volume: Element) {
+  const radio = volume.querySelector('[role="radio"]')!;
+  const label = radio.getAttribute("aria-labelledby")!.split(" ")[0]!;
+  return document.getElementById(label)!.textContent!.trim();
+}
+// Deferred from #4547: the indicator's name equals the rendered VolumeCard
+// name for the same fixture, read from the DOM rather than the model.
+for (const state of ["low", "very-low"] as const)
+  test(`Indicator and rendered volume card name the same volume (${state})`, async () => {
+    const f = storagePaneFixture({ state });
+    await scene({ width: 1280, fixture: f as never, now: paneTime });
+    await expect.poll(() => host.querySelectorAll("[data-volume-id]").length).toBe(2);
+    const worst = host.querySelector("[data-volume-id]")!;
+    const name = cardName(worst);
+    expect(name, "STORAGE_CARD_NAMED_BY_CONTENTS").toBe("Brain disk");
+    const level = state === "low" ? "low" : "very low";
+    await expect
+      .poll(() => warning()?.querySelector('[role="button"]')?.getAttribute("aria-label"), { message: "STORAGE_INDICATOR_MATCHES_CARD" })
+      .toBe(`Open Storage: ${name} ${level}`);
+    expect(host.querySelector("[data-storage-banner]")?.textContent).toContain(`${name} is ${state === "low" ? "Low" : "Very low"}`);
+  });
+
+// The chart states (#4549): real-browser baselines of the history section.
+const CHART_STATES: ChartState[] = ["full", "gap", "no-projection", "one-window", "two-windows", "scope-change"];
+for (const chart of CHART_STATES)
+  for (const width of [320, 1280])
+    for (const theme of ["dark", "light"])
+      test(`Chart state ${chart} ${width} ${theme}`, async () => {
+        const f = storagePaneFixture({ state: "low", chart });
+        await scene({ width, theme, fixture: f as never, now: paneTime });
+        const section = () => host.querySelector<HTMLElement>("[data-storage-history-section]")!;
+        await expect.poll(() => section()?.querySelector("svg")).not.toBeNull();
+        const lines = section().querySelectorAll('[data-part="scenario"]').length;
+        expect(lines, "STORAGE_ONE_LINE_PER_QUALIFIED_WINDOW").toBe(
+          chart === "two-windows" || chart === "full" || chart === "gap" ? 2 : chart === "one-window" ? 1 : 0
+        );
+        expect(section().querySelectorAll('[data-part="gap"]').length > 0, "STORAGE_GAP_IS_DRAWN_AS_GAP").toBe(chart !== "full");
+        if (chart === "scope-change") expect(section().textContent).toContain("scope changed");
+        if (chart === "no-projection") expect(section().textContent).toContain("gap inside the 7-day window");
+        if (chart === "one-window") expect(section().textContent).toContain("under 30 days of history");
+        host.style.height = "auto";
+        const pane = host.querySelector<HTMLElement>("[data-storage-pane]");
+        if (pane) pane.style.overflow = "visible";
+        await expect(page.elementLocator(section())).toMatchScreenshot(`storage-chart-${chart}-${width}-${theme}`);
+      });
