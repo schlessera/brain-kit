@@ -834,9 +834,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         set(s => ({ drafts: { ...s.drafts } }));
       },
       openDeviceVersion(draftId, kept) {
+        // Opening the original bypasses its continuation. One that was not
+        // here (a rotation moved it, and the device only kept its emptied
+        // record) keeps it, so a later open still finds the content (#4567).
+        const present = !!get().drafts[draftId];
         if (kept) get().adoptDeviceRecord(kept);
-        // Opening the original bypasses its continuation; one no longer here keeps it, so it is still found (#4567).
-        if (get().drafts[draftId]) successors.delete(draftId);
+        if (present) successors.delete(draftId);
         for (const [source, target] of deviceRedirects) if (source === draftId || target === draftId) deviceRedirects.delete(source);
         for (const [session, branch] of deviceViews) if (branch === draftId || get().drafts[resolve(branch)]?.deviceConflict?.otherId === draftId) deviceViews.delete(session);
         const d = get().drafts[draftId];

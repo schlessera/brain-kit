@@ -164,11 +164,14 @@ export function openOtherVersion(root: BrainUiRoot, otherId: string, fromId: str
     unwatch.forEach(stop => stop());
     // Where its content is: an emptied record the device kept under the old id is not it.
     const found = (id: string | undefined) => { const d = id ? drafts.getState().drafts[id] : undefined; return d && (hasContent(d) || holdsSnapshots(d)) ? id : undefined; };
-    const target = found(otherId) ?? found(drafts.getState().versionHome(otherId)) ?? found(before);
+    // A version a rotation had moved before the read is where it was moved to,
+    // whatever record the device kept under the old id.
+    const target = (before !== otherId ? found(before) : undefined) ?? found(otherId) ?? found(drafts.getState().versionHome(otherId));
     if (!target) {
       // Opening the missing version released this branch's place in its chat: it gets it back.
       const from = drafts.getState().drafts[fromId];
       if (from?.sessionId === null && from.deviceConflict?.sessionId) drafts.getState().showDeviceBranch(from.deviceConflict.sessionId, fromId);
+      else if (from?.sessionId === null) drafts.getState().openUnbound(fromId);
       note("missing");
       return;
     }
@@ -228,9 +231,13 @@ function detachIfGone(root: BrainUiRoot, draftId: string, sessionId: string): vo
     if (c.activeSessionId !== sessionId) { stop(); return; }
     if (c.restoreFailures[sessionId]?.reason !== "missing") return;
     stop();
-    const d = root.stores.drafts.getState().drafts[draftId];
-    if (!d || d.sessionId !== sessionId || holdsSnapshots(d)) return;
-    const detached = root.stores.drafts.getState().detachVersion(draftId);
+    // A refresh may have moved the version since the switch: follow it.
+    const home = root.stores.drafts.getState().versionHome(draftId) ?? draftId;
+    const d = root.stores.drafts.getState().drafts[home];
+    if (!d) return;
+    if (d.sessionId === null) { openUnattached(root, home); return; }
+    if (d.sessionId !== sessionId || holdsSnapshots(d)) return;
+    const detached = root.stores.drafts.getState().detachVersion(home);
     if (detached) openUnattached(root, detached);
   };
   stops.push(chat.subscribe(check), watchNavigation(root, stop));
