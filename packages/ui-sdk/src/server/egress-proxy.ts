@@ -409,7 +409,14 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
-    const readSafety=()=>options.admissionSafety?.read(options.pendingReservations?.(connectionId));
+    const readSafety = () => {
+      try { return options.admissionSafety?.read(options.pendingReservations?.(connectionId)); }
+      catch (error) {
+        // Record the cause before the surrounding admission or transport unwinds.
+        finish("denied", "egress_unavailable");
+        throw error;
+      }
+    };
     function* pendingRecording() {
       try {
         yield* options.admissionSafety?.pendingRecording?.(snapshot, controller.signal,
@@ -484,8 +491,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     const admitDestination = () => lifecycle.admit(async () => {
       if (!lifecycle.active()) return false;
-      try { snapshot = readSafety(); }
-      catch { finish("denied","egress_unavailable");return false; }
+      snapshot = readSafety();
       for (const pending of pendingRecording()) await pending;
       if (!lifecycle.active() || refuseSafety(snapshot?.recordingAvailable === false ? readSafety() : snapshot, snapshot)) return false;
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
