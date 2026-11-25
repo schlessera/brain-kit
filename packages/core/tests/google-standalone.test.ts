@@ -10,7 +10,9 @@ import { join } from "node:path";
 import { GoogleCursorStale, googleCursorStore, GOOGLE_CURSOR_FILE, GOOGLE_CURSOR_LIMIT, GOOGLE_CURSOR_TTL_MS } from "../src/lib/google/cursors.ts";
 import { gogAuthArgv, GogAuthArgvError } from "../src/lib/google/gog-auth.ts";
 import { checkGoogleHome, selectGoogleHome, standaloneGoogleHome } from "../src/lib/google/home.ts";
-import { GOOGLE_SCOPE_PATTERN, standaloneGoogleRouting } from "../src/lib/google/standalone.ts";
+import { createStandaloneGoogle, GOOGLE_SCOPE_PATTERN, standaloneGoogleRouting } from "../src/lib/google/standalone.ts";
+import { createFakeGog } from "../../common/tests/support/fake-gog.ts";
+import { watchdogMs } from "../../../scripts/test-deadlines";
 
 const dirs: string[] = [];
 function dir(prefix = "brain-google-unit-"): string {
@@ -212,4 +214,34 @@ describe("google standalone routing and account argv", () => {
     expect(() => gogAuthArgv({ command: "auth.add", flags: [["auth-url", "http://127.0.0.1/cb?code=x\n--services=all"]] })).toThrow(GogAuthArgvError);
     expect(() => gogAuthArgv({ command: "auth.add", positionals: ["odysseus@example.com\u2028"] })).toThrow(GogAuthArgvError);
   });
+});
+
+describe("google connect timeout", () => {
+  test("google connect: an authorization that outlives its limit is killed with everything it started, and says the step may have taken effect", async () => {
+    const root = dir("brain-google-brain-");
+    writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+    mkdirSync(join(root, "context/policies"), { recursive: true });
+    writeFileSync(join(root, "context/policies/governance.md"), "---\nschema_version: 1\ngoogle: {\"enabled\":true,\"account\":\"ithaca\",\"services\":[\"gmail\"]}\n---\n");
+    const fake = createFakeGog({ "auth.add": { grandchild: true, delay_ms: watchdogMs(30_000) } });
+    try {
+      const google = createStandaloneGoogle({
+        root, binary: fake.binary, connectTimeoutMs: 300,
+        env: { BRAIN_GOOGLE_HOME: join(dir(), "home"), BRAIN_GOOGLE_KEYRING_PASSWORD: "penelope-weaves-by-day", XDG_DATA_HOME: dir() },
+      });
+      const started = Date.now();
+      const result = await google.connect({ address: "odysseus@example.com", write: false, remote: false });
+      expect(Date.now() - started).toBeLessThan(watchdogMs(20_000));
+      expect(result).toMatchObject({ ok: false, operation: "connect", error: { code: "unavailable", reason: "authorization_timeout" } });
+      expect(result.ok ? "" : result.error.message).toMatch(/may or may not have taken effect/);
+      const [call] = fake.callsOf("auth.add");
+      const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+      const deadline = Date.now() + watchdogMs(10_000);
+      while ((alive(call!.pid) || alive(call!.grandchild_pid!)) && Date.now() < deadline) await Bun.sleep(20);
+      expect(call!.grandchild_pid).toBeGreaterThan(0);
+      expect(alive(call!.pid)).toBe(false);
+      expect(alive(call!.grandchild_pid!)).toBe(false);
+    } finally {
+      fake.dispose();
+    }
+  }, watchdogMs(60_000));
 });

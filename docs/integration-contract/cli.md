@@ -57,8 +57,10 @@ a policy whose provider rules keep anything from recipient `google` refuses as
 `recipient_unproven`, since no conversation can be inspected. A thread with a
 `google.gmail.hidden_labels` label on any message is left out of a search and
 answers a read with the same `not_found` error, without a reason, as a real
-miss; so does a message or draft whose thread's labels cannot be established
-while any label is hidden, whatever kept them from being read. The process uses `BRAIN_UI_GOOGLE_HOME`, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`
+miss; while any label is hidden, so does a thread, message or draft whose
+labels could not be established: one too large to read, in a shape the codec
+refuses, answered for another id, a draft with no message, or one whose
+thread's labels could not be read, whatever kept them from being read. The process uses `BRAIN_UI_GOOGLE_HOME`, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`
 and `BRAIN_UI_GOG_PATH` when the first is set (an operator's shell on a host),
 else `BRAIN_GOOGLE_HOME` (default `$XDG_DATA_HOME/brain/google`),
 `BRAIN_GOOGLE_KEYRING_PASSWORD` and `BRAIN_GOOGLE_GOG_PATH`. A home inside or

@@ -14,6 +14,7 @@ import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 import { withoutSigning } from "./git-fixture";
 import { packageVersion } from "../src/package-version";
 import { createFakeGog, type FakeGog } from "../../common/tests/support/fake-gog.ts";
+import { watchdogMs } from "../../../scripts/test-deadlines";
 
 let root: string;
 
@@ -1162,6 +1163,11 @@ describe("google", () => {
     // A draft with no message has no labels to establish.
     fake.setScenario({ "gmail.drafts.get": { stdout: { draft: { id: "r-1234567890123456789" } } } });
     expect(JSON.parse((await google(["gmail", "read", "draft", "r-1234567890123456789"])).stdout).error).toEqual(miss.error);
+    // A target too large to read, or in a shape the codec refuses, was never seen: it reads as a miss while anything is hidden.
+    fake.setScenario({ "gmail.thread.get": { stdout_bytes: 9 * 1024 * 1024 }, "gmail.get": { stdout: "not json" }, "gmail.drafts.get": { stdout: { draft: { id: "r-1" } } } });
+    expect(JSON.parse((await google(["gmail", "read", "thread", HALL])).stdout).error).toEqual(miss.error);
+    expect(JSON.parse((await google(["gmail", "read", "message", "19a0c3d2e4f50601"])).stdout).error).toEqual(miss.error);
+    expect(JSON.parse((await google(["gmail", "read", "draft", "r-1234567890123456789"])).stdout).error).toEqual(miss.error);
     // A hidden label on the message itself decides without reading its thread.
     fake.dispose();
     fake = createFakeGog({ "gmail.get": { stdout: fixture("message-get.json") } });
@@ -1308,6 +1314,28 @@ describe("google", () => {
     expect(inside.error).toMatchObject({ code: "unavailable", reason: "home_inside_brain" });
     expect(existsSync(join(brain, "google"))).toBe(false);
     expect(fake.callsOf("auth.add")).toHaveLength(1);
+  });
+
+  test("google search running across a reconnect keeps no page of the old connection", async () => {
+    const gate = fake.path("search-may-answer");
+    fake.setScenario({ ...SEARCH, "gmail.search": { stdout: fixture("search-ids.json"), wait_for: gate },
+      "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: {} } });
+    const search = google(["gmail", "search", "from:penelope"]);
+    const deadline = Date.now() + watchdogMs(20_000);
+    while (fake.callsOf("gmail.search").length === 0 && Date.now() < deadline) await Bun.sleep(20);
+    expect(fake.callsOf("gmail.search")).toHaveLength(1);
+    expect((await google(["connect", ADDRESS])).code).toBe(0);
+    writeFileSync(gate, "");
+    const out = JSON.parse((await search).stdout);
+    expect(out).toMatchObject({ ok: false, operation: "gmail.search", error: { code: "unavailable", reason: "connection_changed" } });
+  });
+
+  test("google connect warns when it cannot forget earlier search cursors", async () => {
+    mkdirSync(join(home, "brain-search-cursors.json", "occupied"), { recursive: true });
+    fake.setScenario({ "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: {} } });
+    const out = JSON.parse((await google(["connect", ADDRESS])).stdout);
+    expect(out).toMatchObject({ ok: true, data: { state: "connected" } });
+    expect(out.data.warnings).toEqual([expect.stringMatching(/cursors could not be forgotten/)]);
   });
 
   test("google connect --credentials stores the OAuth client from stdin first, and refuses a file it will not read", async () => {

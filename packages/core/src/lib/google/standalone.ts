@@ -507,6 +507,15 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
       return after.outcome === "admitted" ? null : after.outcome === "refused" ? after.error : error("policy_denied", "needs_card", "This needs an approval brain google cannot ask for.");
     };
     const shape = () => refused(operation, shapeError);
+    /**
+     * A failure that depends on what the target holds (too large, or a shape
+     * the codec refuses), before its labels were seen. While anything is
+     * hidden it reads as a miss too, so no answer tells a hidden target from
+     * a missing one; a failure that does not depend on the target keeps its code.
+     */
+    const fetchFailure = (failure: GoogleError) => hidden.length > 0 && failure.code === "transport_incompatible"
+      && ["output_too_large", "unexpected_shape", "unexpected_output"].includes(failure.reason ?? "") ? NOT_FOUND : asMiss(failure);
+    const mismatch = () => refused(operation, hidden.length > 0 ? NOT_FOUND : shapeError);
     const ok = (data: unknown): GoogleEnvelope => ({ ok: true, operation, data });
 
     switch (operation) {
@@ -550,8 +559,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
       case "gmail.thread.get": {
         const id = (call.call.input as GmailReadInput).id!;
         const [thread, labels] = await Promise.all([transport.execute("gmail.thread.get", { thread_id: id }), labelDirectory()]);
-        if (!thread.ok) return refused(operation, asMiss(thread.error));
-        if (thread.value.id !== id) return shape();
+        if (!thread.ok) return refused(operation, fetchFailure(thread.error));
+        if (thread.value.id !== id) return mismatch();
         const refusal = admitted(thread.value.messages.flatMap(message => message.label_ids));
         if (refusal) return refused(operation, asMiss(refusal));
         const result = view === "structured" ? structuredGmailThread(thread.value, { labels }) : contentGmailThread(thread.value, { labels });
@@ -560,8 +569,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
       case "gmail.message.get": {
         const id = (call.call.input as GmailReadInput).id!;
         const [message, labels] = await Promise.all([transport.execute("gmail.message.get", { message_id: id }), labelDirectory()]);
-        if (!message.ok) return refused(operation, asMiss(message.error));
-        if (message.value.id !== id) return shape();
+        if (!message.ok) return refused(operation, fetchFailure(message.error));
+        if (message.value.id !== id) return mismatch();
         const targets = await threadLabels(message.value.thread_id, message.value.label_ids);
         if (!targets.ok) return refused(operation, asMiss(targets.error));
         const refusal = admitted(targets.value);
@@ -572,8 +581,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
       case "gmail.draft.get": {
         const id = (call.call.input as GmailReadInput).id!;
         const [draft, labels] = await Promise.all([transport.execute("gmail.draft.get", { draft_id: id }), labelDirectory()]);
-        if (!draft.ok) return refused(operation, asMiss(draft.error));
-        if (draft.value.draft.id !== id) return shape();
+        if (!draft.ok) return refused(operation, fetchFailure(draft.error));
+        if (draft.value.draft.id !== id) return mismatch();
         const message = draft.value.draft.message;
         // A draft with no message has no labels to establish: with anything hidden, it is not shown.
         if (!message && hidden.length > 0) return refused(operation, NOT_FOUND);
