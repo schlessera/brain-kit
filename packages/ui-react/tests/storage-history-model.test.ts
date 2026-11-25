@@ -46,7 +46,7 @@ describe("series per identity and tier", () => {
   test("points follow the identity and the tier, oldest first", () => {
     const series = storageSeries(history, ITHACA, "six-hour", worldTime);
     expect(series.map((value) => value.at)).toEqual([sixHour(18), sixHour(12), sixHour(6), sixHour(0)]);
-    expect(series[0]).toEqual({ at: sixHour(18), available: 20 * GB, appAllocated: 30 * GB, gap: false, provisional: false, otherScope: false });
+    expect(series[0]).toEqual({ at: sixHour(18), available: 20 * GB, appAllocated: 30 * GB, gap: false, provisional: false, otherScope: false, rootScope: `${ITHACA.slice(0, 8)}${"e".repeat(24)}` });
     expect(storageSeries(history, ITHACA, "daily", worldTime).map((value) => value.available)).toEqual([25 * GB]);
     expect(storageSeries(history, SCHERIA, "six-hour", worldTime).map((value) => value.available)).toEqual([50 * GB, null, 49 * GB, 48 * GB]);
   });
@@ -182,6 +182,57 @@ describe("client-side markers", () => {
       { at: sixHour(18), n: 2, tone: "neutral", time: "11 Jul 15:41", label: "Collection gap" },
       { at: sixHour(3), n: 3, tone: "red", time: "12 Jul 06:41", label: "Owner refused a write: no space" },
       { at: sixHour(2), n: 4, tone: "teal", time: "12 Jul 07:41", label: "Pack Git objects · done" },
+    ]);
+  });
+
+  // The server records the observation that sees a new root scope as a gap
+  // (reason "changed"), carrying the new scope: the transition still marks.
+  test("a scope change recorded as a gap still marks the change", () => {
+    const changed = observation("six-hour", sixHour(12), [{ identity: ITHACA, available: 20 * GB, app: 1 }], true);
+    changed.reason = "changed";
+    const crossing = storageSeries(
+      historyOf([
+        observation("six-hour", sixHour(18), [{ identity: ITHACA, rootScope: "1".repeat(32), available: 30 * GB, app: 1 }]),
+        changed,
+        observation("six-hour", sixHour(6), [{ identity: ITHACA, available: 18 * GB, app: 1 }]),
+      ]),
+      ITHACA,
+      "six-hour",
+      worldTime
+    );
+    expect(crossing.map((value) => value.otherScope)).toEqual([true, false, false]);
+    expect(storageMarkers({ series: crossing, identity: ITHACA, now: worldTime, format })).toEqual([
+      { at: sixHour(12), n: 1, tone: "neutral", time: "11 Jul 21:41", label: "Collection gap" },
+      { at: sixHour(12), n: 2, tone: "purple", time: "11 Jul 21:41", label: "Scope changed" },
+    ]);
+    // The changed observation is the newest: the older scope is still the other one.
+    const latest = storageSeries(
+      historyOf([
+        observation("six-hour", sixHour(18), [{ identity: ITHACA, rootScope: "1".repeat(32), available: 30 * GB, app: 1 }]),
+        changed,
+      ]),
+      ITHACA,
+      "six-hour",
+      worldTime
+    );
+    expect(latest.map((value) => value.otherScope)).toEqual([true, false]);
+    expect(storageMarkers({ series: latest, identity: ITHACA, now: worldTime, format }).map((marker) => marker.label)).toEqual([
+      "Collection gap",
+      "Scope changed",
+    ]);
+    // A gap that holds no capacity for the volume says nothing about its scope.
+    const silent = storageSeries(
+      historyOf([
+        observation("six-hour", sixHour(18), [{ identity: ITHACA, available: 30 * GB, app: 1 }]),
+        observation("six-hour", sixHour(12), [], true),
+        observation("six-hour", sixHour(6), [{ identity: ITHACA, available: 18 * GB, app: 1 }]),
+      ]),
+      ITHACA,
+      "six-hour",
+      worldTime
+    );
+    expect(storageMarkers({ series: silent, identity: ITHACA, now: worldTime, format }).map((marker) => marker.label)).toEqual([
+      "Collection gap",
     ]);
   });
 

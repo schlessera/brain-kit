@@ -54,6 +54,12 @@ interface StorageSeriesPoint {
   provisional: boolean;
   /** Measured under another root scope than the latest point. */
   otherScope: boolean;
+  /**
+   * The root scope the observation records for this volume, also on a gap:
+   * the server records the observation that sees a new scope as a gap.
+   * `null` when the observation holds no capacity for the volume.
+   */
+  rootScope: string | null;
 }
 
 /**
@@ -71,8 +77,8 @@ export function storageSeries(
     row,
     capacity: row.capacities.find((value) => value.identity === identity) ?? null,
   }));
-  const latestScope =
-    held.filter((value) => value.capacity && !value.row.gap).at(-1)?.capacity?.rootScope ?? null;
+  // A scope is known from any observation holding the volume, measured or not.
+  const latestScope = held.filter((value) => value.capacity).at(-1)?.capacity?.rootScope ?? null;
   return held.map(({ row, capacity }, index) => {
     const measured = !row.gap && capacity ? capacity : null;
     return {
@@ -82,6 +88,7 @@ export function storageSeries(
       gap: !measured,
       provisional: index === held.length - 1 && bucketOf(tier, row.at) === bucketOf(tier, now),
       otherScope: !!measured && latestScope !== null && measured.rootScope !== latestScope,
+      rootScope: capacity?.rootScope ?? null,
     };
   });
 }
@@ -209,12 +216,17 @@ export function storageMarkers(input: {
   const from = series[0]!.at,
     to = Math.max(series.at(-1)!.at, input.now);
   const found: Array<Omit<HistoryMarker, "n">> = [];
+  // Scope transitions are tracked apart from measured points: the observation
+  // that sees a new scope is itself a gap.
+  let scope: string | null = null;
   series.forEach((value, index) => {
     const previous = series[index - 1];
     if (value.gap && !previous?.gap)
       found.push({ at: value.at, tone: "neutral", time: format.time(value.at), label: "Collection gap" });
-    if (previous && !value.gap && previous.otherScope && !value.otherScope)
+    if (value.rootScope === null) return;
+    if (scope !== null && value.rootScope !== scope)
       found.push({ at: value.at, tone: "purple", time: format.time(value.at), label: "Scope changed" });
+    scope = value.rootScope;
   });
   for (const refusal of input.pressure?.causes.refusals ?? [])
     found.push({
