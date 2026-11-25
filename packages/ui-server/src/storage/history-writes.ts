@@ -1,21 +1,23 @@
 /** Storage history transactions, shared by the write worker and inline callers. */
 import type { Database } from "bun:sqlite";
 import { capacityEvidence } from "./history-evidence.js";
-import { newPressure, observePressure, ownerWrite, type Pressure } from "./pressure.js";
+import { newPressure, observePressure, ownerWrite } from "./pressure.js";
 import { HISTORY_LIMITS, bucket, retainAggregate, validateHistory } from "./history-model.js";
-import { readStoredHistory, stateSchema, type BufferedWrite, type StoredHistory, type Pending } from "./history-data.js";
-import { recordPressureChange, recordRefusalChange, recordScopeChange } from "./events.js";
+import { readStoredHistory, stateSchema, type OwnerEvidence, type StoredHistory, type Pending, type StorageWriteReport } from "./history-data.js";
+import { pauseStorageEvents, recordOwnerEvidence, recordPressureChange, recordScopeChange } from "./events.js";
 
 export const url = import.meta.url;
 export interface HistoryFlush {
-  candidate: Pending | null; writes: BufferedWrite[]; time: number; at: number;
+  candidate: Pending | null; writes: StorageWriteReport[]; time: number; at: number;
   interrupted: boolean; ownerOverflow: boolean;
+  /** Event-only: every accepted owner report since the last write, and whether any was dropped. */
+  evidence: OwnerEvidence[]; evidenceDropped: boolean;
 }
 export function setup(db: Database, { brain, initial }: { brain: string; initial: StoredHistory }) {
   const initialize = () => db.query("INSERT OR IGNORE INTO storage_history (brain, payload_json) VALUES (?, ?)").run(brain, JSON.stringify(initial));
   return {
     initialize,
-    flush({ candidate, writes, time, at, interrupted, ownerOverflow }: HistoryFlush) {
+    flush({ candidate, writes, time, at, interrupted, ownerOverflow, evidence = [], evidenceDropped = false }: HistoryFlush) {
       return db.transaction(() => {
         initialize();
         const previous = readStoredHistory(db, brain);
@@ -39,13 +41,13 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
             .map(value => value.severity === "observed" ? newPressure(value.identity, incoming.find(([identity]) => identity === value.identity)![1]) : value);
           for (const [identity, rootScope] of incoming) if (!pressures.some(value => value.identity === identity) && pressures.length < 4) pressures.push(newPressure(identity, rootScope));
           next.metadata.state.pressures = pressures.map(value => {
-            const evidence = capacityEvidence(evaluation, value.identity, time);
-            const observed = observePressure(value, evidence, time);
+            const observation = capacityEvidence(evaluation, value.identity, time);
+            const observed = observePressure(value, observation, time);
             // Fresh direct observations can escalate pressure, but cannot prove
             // recovery of an owner refusal whose identity was not retained.
             if (ownerEvidenceLost) observed.recoveryAt = null;
             // The transition happened at the observation, not at this flush.
-            if (evidence) recordPressureChange(db, brain, value, observed, evidence.at);
+            if (observation) recordPressureChange(db, brain, value, observed, observation.at);
             return observed;
           });
           next.metadata.state.scopeLimit = candidate.value.reason === 3 || incoming.some(([identity]) => !pressures.some(value => value.identity === identity));
@@ -56,29 +58,9 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           next.metadata.state.pressures = state.pressures.map(value => observePressure(value, null, time));
           next.metadata.state.paused = "collection-unavailable";
         } else next = structuredClone(previous);
-        // Pressure state applies the reports in buffer order, exactly as before
-        // #4541: supportAt, the refusal list and notice eligibility depend on it.
-        // The event timeline instead takes each refusal's first time and, for
-        // the warning a refusal starts, the earliest refusal on its capacity.
-        const evidence = new Map<string, { "no-space": number[]; success: number[] }>(), warningSince = new Map<string, number>();
-        const target = (report: BufferedWrite) => `${report.identity}:${report.target}:${report.resource}`;
-        for (const report of writes) {
-          const times = evidence.get(target(report)) ?? { "no-space": [], success: [] };
-          times[report.outcome].push(report.at, ...(report.firstAt === undefined ? [] : [report.firstAt]));
-          evidence.set(target(report), times);
-          if (report.outcome === "no-space") {
-            const earliest = report.earliestAt ?? report.firstAt ?? report.at;
-            warningSince.set(report.identity, Math.min(warningSince.get(report.identity) ?? earliest, earliest));
-          }
-        }
-        // The first buffered evidence of this outcome after the state it changes:
-        // a refusal after the resolution it reopens, a success after its refusal.
-        const firstEvidence = (report: BufferedWrite, before: Pressure) => {
-          const refusal = before.refusals.find(value => value.target === report.target && value.resource === report.resource);
-          const bound = report.outcome === "success" ? refusal?.at ?? -1 : refusal?.successAt ?? -1;
-          const times = evidence.get(target(report))![report.outcome].filter(at => at > bound);
-          return times.length ? Math.min(...times) : report.at;
-        };
+        // Owner reports change pressure exactly as before #4541. The timeline
+        // replays the uncoalesced evidence instead, after the state they start from.
+        const beforeWrites = structuredClone(next.metadata.state.pressures);
         for (const report of writes) {
           let pressure = next.metadata.state.pressures.find(value => value.identity === report.identity);
           if (!pressure && report.outcome === "success") continue;
@@ -92,12 +74,10 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           if (pressure.refusals.some(value => value.target === report.target && value.resource === report.resource && value.at > report.at)) continue;
           const changed = ownerWrite({ ...pressure, at: Math.min(pressure.at, report.at) }, report, time);
           changed.at = Math.max(changed.at, pressure.at);
-          // The refusal precedes the warning it starts. Each keeps the time of the
-          // first refusal behind it, not the newest one the buffer kept.
-          recordRefusalChange(db, brain, pressure, changed, report, firstEvidence(report, pressure));
-          recordPressureChange(db, brain, pressure, changed, report.outcome === "no-space" ? warningSince.get(report.identity)! : report.at);
           next.metadata.state.pressures[index] = changed;
         }
+        if (evidenceDropped) pauseStorageEvents(db, brain, ["refusal", "pressure"], time, "owner-evidence-overflow");
+        else recordOwnerEvidence(db, brain, beforeWrites, next.metadata.state.pressures, evidence);
         if (ownerEvidenceLost) next.metadata.state.paused = "history-owner-evidence-budget";
         next.metadata.state.lastPersistedAt = time;
         if (candidate) {

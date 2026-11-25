@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import * as historyWrites from "./history-writes.js";
-import { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type BufferedWrite, type Pending, type StorageWriteReport } from "./history-data.js";
+import { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type OwnerEvidence, type Pending, type StorageWriteReport } from "./history-data.js";
+import { STORAGE_EVENT_EVIDENCE_LIMIT } from "./events.js";
 import { HISTORY_LIMITS, jsonBytes, validateHistory, type Aggregate } from "./history-model.js";
 export { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type HistoryState, type StoredHistory, type StorageWriteReport } from "./history-data.js";
 
@@ -9,8 +10,12 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
   const brain = storageBrainKey(brainPath), now = options.now ?? Date.now;
   const initial = emptyHistory();
   let pending: Pending | null = null, unavailable: string | null = null, closed = false;
-  let pendingWrites: BufferedWrite[] = [], interrupted = false, ownerOverflow = false;
+  let pendingWrites: StorageWriteReport[] = [], interrupted = false, ownerOverflow = false;
   let inFlight: Promise<boolean> | null = null, flushAgain = false;
+  // Every accepted owner report since the last committed write, uncoalesced and
+  // bounded, for the event timeline only (#4541). Overflow drops evidence and
+  // pauses the kinds it times; pressure state uses the coalesced reports.
+  let evidence: OwnerEvidence[] = [], evidenceDropped = false, droppedVersion = 0;
   // New failures arriving during a commit must survive that commit's result.
   let interruptionVersion = 0, overflowVersion = 0;
   const procedures = options.writer ? null : historyWrites.setup(db, { brain, initial });
@@ -44,10 +49,14 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
     const candidate = pending, writes = pendingWrites, time = now();
     const at = Math.max(candidate ? candidate.kind === "aggregate" ? candidate.value.at : candidate.at : 0, ...writes.map(row => row.at));
     const interruption = interruptionVersion, overflow = overflowVersion;
-    const input = { candidate, writes, time, at, interrupted, ownerOverflow };
+    const raw = evidence, dropped = droppedVersion;
+    const input = { candidate, writes, time, at, interrupted, ownerOverflow, evidence: raw, evidenceDropped };
     const apply = (changed: boolean) => {
       if (changed) {
         if (pending === candidate) pending = null;
+        // The committed evidence is a prefix; reports appended meanwhile wait.
+        evidence = evidence.slice(raw.length);
+        if (droppedVersion === dropped) evidenceDropped = false;
         // Overflow raised during this commit still needs these buffered reports
         // to carry its evidence-loss marker into the next bounded write.
         if (pendingWrites === writes && overflowVersion === overflow) pendingWrites = [];
@@ -89,37 +98,15 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
       if (report.outcome === "success" && !pendingWrites.some(value => same(value) && value.outcome === "no-space")
         && !stored?.metadata.state.pressures.some(value => value.identity === report.identity && value.rootScope === report.rootScope
           && value.refusals.some(refusal => refusal.target === report.target && refusal.resource === report.resource))) return;
-      const kept = (value: BufferedWrite) => !same(value) || value.at > report.at || report.outcome === "success" && value.outcome === "no-space";
-      const buffered: BufferedWrite = { identity: report.identity, rootScope: report.rootScope, target: report.target, resource: report.resource, at: report.at, outcome: report.outcome };
-      // Coalescing keeps the newest report for pressure state; the event
-      // timeline still needs the first evidence of each transition (#4541).
-      // These fields are never applied to pressure. Reports can arrive out of
-      // order, so take minimums, never the first match.
-      const dropped = pendingWrites.filter(value => !kept(value));
-      if (report.outcome === "success") {
-        // Only successes after the newest refusal known now can resolve it.
-        const refused = Math.max(-1, ...pendingWrites.filter(value => same(value) && value.outcome === "no-space").map(value => value.at),
-          ...(stored?.metadata.state.pressures.find(value => value.identity === report.identity)?.refusals ?? [])
-            .filter(refusal => refusal.target === report.target && refusal.resource === report.resource).map(refusal => refusal.at));
-        const first = Math.min(...dropped.map(value => value.firstAt ?? value.at).filter(at => at > refused));
-        if (first < report.at) buffered.firstAt = first;
-      } else {
-        // A dropped success ends the run of refusals before it.
-        const refusals = dropped.filter(value => value.outcome === "no-space");
-        if (refusals.length) {
-          const resolved = Math.max(-1, ...dropped.filter(value => value.outcome === "success").map(value => value.at));
-          const run = refusals.filter(value => value.at > resolved);
-          if (run.length) buffered.firstAt = Math.min(...run.map(value => value.firstAt ?? value.at));
-          buffered.earliestAt = Math.min(...refusals.map(value => value.earliestAt ?? value.firstAt ?? value.at));
-        }
-      }
-      const next = [...pendingWrites.filter(kept), buffered];
-      // The evidence budget charges the reports alone, as before #4541; the
-      // event-only times never bring the overflow pause forward.
-      if (jsonBytes(next.map(({ firstAt: _first, earliestAt: _earliest, ...value }) => value)) > HISTORY_LIMITS.metadataBytes) {
+      const next = [...pendingWrites.filter(value => !same(value) || value.at > report.at
+        || report.outcome === "success" && value.outcome === "no-space"), report];
+      if (jsonBytes(next) > HISTORY_LIMITS.metadataBytes) {
         ownerOverflow = true; overflowVersion++; interrupted = true; interruptionVersion++; unavailable = "history-owner-evidence-budget"; return;
       }
-      pendingWrites = next; flush();
+      pendingWrites = next;
+      if (evidence.length >= STORAGE_EVENT_EVIDENCE_LIMIT) { evidenceDropped = true; droppedVersion++; }
+      else evidence = [...evidence, { identity: report.identity, target: report.target, resource: report.resource, at: report.at, outcome: report.outcome }];
+      flush();
     },
     status() {
       const history = read();
@@ -129,7 +116,7 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
     },
     /** Settles once no flush is committing: a read of the history then sees every one submitted before it. */
     async settled() { while (inFlight) await inFlight; },
-    close() { closed = true; pending = null; pendingWrites = []; },
+    close() { closed = true; pending = null; pendingWrites = []; evidence = []; },
   };
 }
 export type StorageHistory = ReturnType<typeof createStorageHistory>;

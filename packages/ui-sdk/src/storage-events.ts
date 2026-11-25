@@ -44,7 +44,11 @@ export interface StorageEventsResponse {
   next: number;
   /** Retained events per kind. A full kind stops recording and keeps every earlier event. */
   limits: { pressure: 256; refusal: 128; scope: 64; maintenance: 512; payloadBytes: 262144 };
-  /** True when a kind has reached its limit: later events of that kind were not recorded. */
+  /**
+   * True when a kind has reached its limit, or when more owner reports reached one
+   * history write than the timeline keeps (refusal and pressure): later events of
+   * that kind were not recorded.
+   */
   paused: Record<StorageEventKind, boolean>;
   /** In `seq` order. Maintenance events carry no identity and are returned for every `identity`. */
   events: StorageEvent[];

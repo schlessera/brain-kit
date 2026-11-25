@@ -34,3 +34,13 @@ CREATE TABLE storage_event_scopes (
   at INTEGER NOT NULL CHECK (at >= 0),
   PRIMARY KEY (brain, identity)
 );
+-- A kind paused before its limit because the evidence that times it was dropped
+-- (more owner reports in one history write than the timeline keeps). Permanent,
+-- like a full kind: no later event of the kind could be timed reliably.
+CREATE TABLE storage_event_pauses (
+  brain TEXT NOT NULL CHECK (length(brain) = 32),
+  kind TEXT NOT NULL CHECK (kind IN ('pressure', 'refusal', 'scope', 'maintenance')),
+  at INTEGER NOT NULL CHECK (at >= 0),
+  reason TEXT NOT NULL CHECK (reason IN ('owner-evidence-overflow')),
+  PRIMARY KEY (brain, kind)
+);

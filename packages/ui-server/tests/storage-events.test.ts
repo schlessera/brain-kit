@@ -6,10 +6,12 @@ import type { StorageEvent, StorageEventKind, StorageEventsResponse, StorageMain
 import { createUiDb } from "../src/db/client.js";
 import { createStorageHistory, storageBrainKey } from "../src/storage/history-store.js";
 import { hashScope, type Aggregate } from "../src/storage/history-model.js";
-import { STORAGE_EVENT_LIMITS, readStorageEvents, recordStorageEvent } from "../src/storage/events.js";
+import { newPressure, ownerWrite, type Pressure } from "../src/storage/pressure.js";
+import { STORAGE_EVENT_EVIDENCE_LIMIT, STORAGE_EVENT_LIMITS, readStorageEvents, recordStorageEvent } from "../src/storage/events.js";
 import { createStorageCoordinator } from "../src/storage/coordinator.js";
 import { createStorageMaintenance } from "../src/storage/maintenance.js";
 import { httpContractApp } from "./helpers/http-contract-app.js";
+import { watchdogMs } from "../../../scripts/test-deadlines.ts";
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -161,9 +163,9 @@ test("buffered refusals across targets start the warning at the earliest refusal
   // B before the coalesced A, and the newest refusal supports a Critical notice.
   expect(f.history.read()!.metadata.state.pressures[0], "STORAGE_EVENTS_BUFFER_ORDER_STATE").toMatchObject({ severity: "critical", supportAt: start + 20_000,
     refusals: [{ target: b.target, at: start + 15_000, successAt: null }, { target: a.target, at: start + 20_000, successAt: null }] });
-  // The timeline records in that order, but with each refusal's and the warning's first times.
+  // The timeline replays the uncoalesced reports in time order instead.
   expect(f.events().events.map(event => [event.kind, event.phase, event.at, event.kind === "refusal" ? event.target : null]), "STORAGE_EVENTS_CROSS_TARGET_START").toEqual([
-    ["refusal", "refused", start + 15_000, b.target], ["pressure", "start", start + 10_000, null], ["refusal", "refused", start + 10_000, a.target],
+    ["refusal", "refused", start + 10_000, a.target], ["pressure", "start", start + 10_000, null], ["refusal", "refused", start + 15_000, b.target],
   ]);
 });
 
@@ -231,16 +233,16 @@ test("buffered repeated successes keep the first success's time for the resoluti
   expect(f.events().events.filter(event => event.kind === "refusal").map(event => [event.phase, event.at]), "STORAGE_EVENTS_BUFFERED_SUCCESS_FIRST_TIME").toEqual([["refused", s(10)], ["succeeded", s(80)]]);
 });
 
-test("a buffered success ends the coalesced refusal run but not the warning the first refusal started", () => {
+test("a refusal, its resolution and a new refusal buffered for one write are all recorded in time order", () => {
   const f = fixture(); f.observe(start, 500_000_000);
   const report = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: start + 10_000 };
   f.advance(start + 10_000); f.history.ownerWrite(report);
   f.advance(start + 15_000); f.history.ownerWrite({ ...report, at: start + 15_000, outcome: "success" });
   f.advance(start + 20_000); f.history.ownerWrite({ ...report, at: start + 20_000 });
   f.advance(start + 70_000); expect(f.history.flush()).toBe(true);
-  // The resolved refusal and its success were coalesced away; neither is invented.
+  // Coalescing leaves pressure only the last refusal; the timeline keeps all three reports.
   expect(f.events().events.map(event => [event.kind, event.phase, event.at]), "STORAGE_EVENTS_BUFFERED_RUN_RESTARTS").toEqual([
-    ["refusal", "refused", start + 20_000], ["pressure", "start", start + 10_000],
+    ["refusal", "refused", start + 10_000], ["pressure", "start", start + 10_000], ["refusal", "succeeded", start + 15_000], ["refusal", "refused", start + 20_000],
   ]);
 });
 
@@ -407,10 +409,11 @@ test("mounted storage events keep human-owner scope, per-principal receipts, ide
  *
  * | Event                                 | Time source                    | How the input can be buffered, coalesced or replayed               | Emitted time                                                     |
  * | ------------------------------------- | ------------------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
- * | refusal `refused`                     | owner no-space report `at`     | waits for the next history write; repeats per target coalesce to   | the first refusal after the resolution it reopens                |
- * |                                       |                                | the newest; reports can arrive late; one write can hold many       | (run start carried as `firstAt`)                                 |
- * | refusal `succeeded`                   | owner success report `at`      | same buffer; repeated successes coalesce to the newest             | the first success after the refusal it resolves (`firstAt`)      |
- * | pressure `start` / `step` by refusal  | owner no-space report `at`     | same buffer, across targets of one capacity                        | the earliest buffered refusal on the capacity (`earliestAt`)     |
+ * | refusal `refused`                     | owner no-space report `at`     | waits for the next history write, where pressure coalesces repeats | replay of every accepted report of the write, uncoalesced, in time |
+ * |                                       |                                | per target to the newest; reports can arrive late; one write can   | order: a refusal opens the target's refusal. Over 512 reports in   |
+ * |                                       |                                | hold many                                                          | one write pauses the kind instead of guessing                      |
+ * | refusal `succeeded`                   | owner success report `at`      | the same buffer                                                    | the same replay: a later success resolves the open refusal         |
+ * | pressure `start` / `step` by refusal  | owner no-space report `at`     | the same buffer, across targets of one capacity                    | the same replay: the first refusal on the capacity                 |
  * | pressure `start` / `step` /           | observation `at`               | a pending observation is replaced by a newer one before the write; | the observation pressure policy evaluated. A superseded one is   |
  * | `recovery-started` / `end`            |                                | the replaced one is never evaluated or retained by history         | never evaluated, so no transition exists for it to time. Order   |
  * |                                       |                                |                                                                    | against owner reports in one write is #4560                      |
@@ -420,8 +423,9 @@ test("mounted storage events keep human-owner scope, per-principal receipts, ide
  * |                                       |                                | it establishes the interrupted outcome                             |                                                                  |
  *
  * The table-driven test below covers each buffered row with repeats, late
- * arrivals, cross-target and mixed outcomes, within one write and across two.
- * Maintenance times are covered by the per-receipt and reconciliation tests.
+ * arrivals, cross-target and mixed outcomes, within one write and across two;
+ * the property test compares random sequences against a one-report-at-a-time
+ * oracle. Maintenance times are covered by the per-receipt and reconciliation tests.
  */
 type Interleaved = { do: "observe"; at: number; available: number; scope?: string } | { do: "write"; target: string; at: number; outcome?: "success"; now?: number } | { do: "flush"; now: number };
 const no = (target: string, at: number, now?: number): Interleaved => ({ do: "write", target, at, ...(now === undefined ? {} : { now }) });
@@ -433,25 +437,25 @@ const INTERLEAVINGS: Array<{ name: string; kinds: StorageEventKind[]; steps: Int
   { name: "refused: repeats in one write", kinds: ["refusal"], steps: [calm, no("A", 10), no("A", 20), write70(70)], expected: [["refusal", "refused", 10, "A"]] },
   { name: "refused: late arrival coalesced", kinds: ["refusal"], steps: [calm, no("A", 20, 30), no("A", 10, 30), no("A", 30), write70(70)], expected: [["refusal", "refused", 10, "A"]] },
   { name: "refused: late arrival not coalesced", kinds: ["refusal"], steps: [calm, no("A", 20, 25), no("A", 10, 25), write70(70)], expected: [["refusal", "refused", 10, "A"]] },
-  { name: "refused: cross-target", kinds: ["refusal"], steps: [calm, no("A", 10), no("B", 15), no("A", 20), write70(70)], expected: [["refusal", "refused", 15, "B"], ["refusal", "refused", 10, "A"]] },
-  { name: "refused: a resolved pair inside one write is omitted", kinds: ["refusal"], steps: [calm, no("A", 10), ok("A", 15), no("A", 20), write70(70)], expected: [["refusal", "refused", 20, "A"]] },
+  { name: "refused: cross-target", kinds: ["refusal"], steps: [calm, no("A", 10), no("B", 15), no("A", 20), write70(70)], expected: [["refusal", "refused", 10, "A"], ["refusal", "refused", 15, "B"]] },
+  { name: "refused: a resolved pair inside one write is kept", kinds: ["refusal"], steps: [calm, no("A", 10), ok("A", 15), no("A", 20), write70(70)], expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 15, "A"], ["refusal", "refused", 20, "A"]] },
   { name: "refused: an open run continues across writes", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), no("A", 80), no("A", 90), write70(140)], expected: [["refusal", "refused", 10, "A"]] },
   { name: "refused: reopened after a resolution across writes", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80), write70(140), no("A", 150), no("A", 160), write70(210)],
     expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"], ["refusal", "refused", 150, "A"]] },
   { name: "succeeded: repeats across writes", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80), ok("A", 90), write70(140)], expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"]] },
   { name: "succeeded: late arrival", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 90, 95), ok("A", 80, 95), write70(140)], expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"]] },
   { name: "succeeded: cross-target", kinds: ["refusal"], steps: [calm, no("A", 10), no("B", 12), write70(70), ok("B", 80), ok("A", 85), ok("B", 90), write70(140)],
-    expected: [["refusal", "refused", 10, "A"], ["refusal", "refused", 12, "B"], ["refusal", "succeeded", 85, "A"], ["refusal", "succeeded", 80, "B"]] },
-  { name: "succeeded: mixed outcomes resolve the newest refusal", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80), no("A", 85), ok("A", 90), write70(140)],
-    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 90, "A"]] },
-  { name: "succeeded: a success before the refusal it follows is not its resolution", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80, 95), no("A", 85, 95), ok("A", 95), write70(140)],
-    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 95, "A"]] },
-  { name: "succeeded: a late success before the newest refusal is not its resolution", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), no("A", 85, 100), ok("A", 90, 100), ok("A", 82, 100), write70(140)],
-    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 90, "A"]] },
-  { name: "succeeded: coalescing keeps the first success after the newest refusal", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), no("A", 85, 100), ok("A", 88, 100), ok("A", 82, 100), ok("A", 95, 100), write70(140)],
-    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 88, "A"]] },
-  { name: "refused: a late refusal before the resolution it reopens keeps the adopted time", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80, 100), no("A", 75, 100), no("A", 78, 100), write70(140)],
-    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"], ["refusal", "refused", 78, "A"]] },
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "refused", 12, "B"], ["refusal", "succeeded", 80, "B"], ["refusal", "succeeded", 85, "A"]] },
+  { name: "succeeded: mixed outcomes keep every resolution", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80), no("A", 85), ok("A", 90), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"], ["refusal", "refused", 85, "A"], ["refusal", "succeeded", 90, "A"]] },
+  { name: "succeeded: a success before a later refusal resolves the earlier one", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80, 95), no("A", 85, 95), ok("A", 95), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"], ["refusal", "refused", 85, "A"], ["refusal", "succeeded", 95, "A"]] },
+  { name: "succeeded: a late success before the newest refusal resolves the earlier one", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), no("A", 85, 100), ok("A", 90, 100), ok("A", 82, 100), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 82, "A"], ["refusal", "refused", 85, "A"], ["refusal", "succeeded", 90, "A"]] },
+  { name: "succeeded: the first success after each refusal, whatever coalesced", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), no("A", 85, 100), ok("A", 88, 100), ok("A", 82, 100), ok("A", 95, 100), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 82, "A"], ["refusal", "refused", 85, "A"], ["refusal", "succeeded", 88, "A"]] },
+  { name: "refused: late refusals before a resolution do not reopen it", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80, 100), no("A", 75, 100), no("A", 78, 100), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"]] },
   { name: "warning start: cross-target coalesced", kinds: ["pressure"], steps: [calm, no("A", 10), no("B", 15), no("A", 20), write70(70)], expected: [["pressure", "start", 10]] },
   { name: "warning step: cross-target coalesced", kinds: ["pressure"], steps: [{ do: "observe", at: 0, available: 80_000_000 }, no("A", 10), no("B", 15), no("A", 20), write70(70)],
     expected: [["pressure", "start", 0], ["pressure", "step", 10]] },
@@ -478,4 +482,114 @@ test("every buffered event time is its first real evidence across interleaved in
     const events = f.events().events.filter(event => row.kinds.includes(event.kind));
     expect(events.map(event => [event.kind, event.phase, (event.at - start) / 1000, ...(event.kind === "refusal" ? [names.get(event.target)] : [])]), `STORAGE_EVENTS_FIRST_EVIDENCE ${row.name}`).toEqual(row.expected);
   }
+});
+
+test("a late refusal between buffered successes is resolved by the first success after it", () => {
+  const f = fixture(); f.observe(start, 500_000_000);
+  const report = { identity, rootScope: scope, target: hashScope("A"), resource: "bytes" as const, outcome: "no-space" as const, at: s(70) };
+  f.advance(s(70)); f.history.ownerWrite(report);
+  expect(f.history.read()!.metadata.state.pressures[0]!.refusals[0]!.at).toBe(s(70));
+  f.advance(s(100));
+  for (const [seconds, outcome] of [[80, "success"], [90, "success"], [85, "no-space"], [100, "success"]] as const) f.history.ownerWrite({ ...report, at: s(seconds), outcome });
+  f.advance(s(140)); expect(f.history.flush()).toBe(true);
+  expect(f.events().events.filter(event => event.kind === "refusal").map(event => [event.phase, (event.at - start) / 1000]), "STORAGE_EVENTS_LATE_REFUSAL_BETWEEN_SUCCESSES").toEqual([
+    ["refused", 70], ["succeeded", 80], ["refused", 85], ["succeeded", 90],
+  ]);
+});
+
+/** A seeded generator, so a failure names a reproducible sequence. */
+function random(seed: number) { return () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+type Report = { target: string; outcome: "no-space" | "success"; at: number };
+/**
+ * The oracle: every accepted report, one at a time in time order (arrival order
+ * breaking ties), each applied by the pressure policy as if flushed at once,
+ * with events read off each single step.
+ */
+function oracle(reports: Report[]) {
+  let pressure: Pressure = newPressure(identity, scope); const events: Array<[string, string, number, string?]> = [];
+  for (const report of reports.map((value, index) => ({ value, index })).sort((a, b) => a.value.at - b.value.at || a.index - b.index).map(item => item.value)) {
+    const target = hashScope(report.target), before = pressure.refusals.find(value => value.target === target);
+    const after = ownerWrite({ ...pressure, at: Math.min(pressure.at, report.at) }, { target, resource: "bytes", at: report.at, outcome: report.outcome }, report.at);
+    const now = after.refusals.find(value => value.target === target);
+    if (report.outcome === "no-space" && (!before || before.successAt !== null)) events.push(["refusal", "refused", report.at, report.target]);
+    if (report.outcome === "success" && before?.successAt === null && now?.successAt === report.at) events.push(["refusal", "succeeded", report.at, report.target]);
+    if (pressure.severity !== "critical" && after.severity === "critical") events.push(["pressure", "start", report.at]);
+    pressure = after;
+  }
+  return events;
+}
+
+test("the timeline from buffered writes equals the one-report-at-a-time oracle over 600 random sequences", () => {
+  const next = random(4541);
+  // One database for every sequence; each gets its own brain, so its own history and timeline.
+  const root = mkdtempSync(join(tmpdir(), "odysseus-storage-oracle-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  const db = createUiDb(join(root, "operations.sqlite")); cleanup.push(() => db.close());
+  const coverage = { refused: 0, succeeded: 0, start: 0, late: 0, tied: 0, twoWrites: 0, persisted: 0 };
+  for (let sequence = 0; sequence < 600; sequence++) {
+    const brain = join(root, `brain-${sequence}`); mkdirSync(brain);
+    let now = s(5);
+    const history = createStorageHistory(db, brain, { now: () => now });
+    const f = { history, advance(value: number) { now = value; }, events: () => readStorageEvents(db, history.brain, "odysseus") };
+    history.offer(aggregate(start, 500_000_000));
+    const names = ["A", "B", "C"].slice(0, 1 + Math.floor(next() * 3)), accepted: Report[] = [], known = new Set<string>();
+    // Each write starts where the last committed one left the clock, so every
+    // report is accepted and all of one write's reports wait for one flush.
+    const committed = () => f.history.read()!.metadata.state.lastPersistedAt;
+    const deliver = (report: Report) => {
+      // As before #4541, a success is accepted only once its target has a refusal.
+      if (report.outcome === "success" && !known.has(report.target)) return;
+      if (report.outcome === "no-space") known.add(report.target);
+      accepted.push(report);
+    };
+    if (next() < 0.5) { const persisted = { target: names[0]!, outcome: "no-space" as const, at: s(70) }; f.advance(s(70)); f.history.ownerWrite({ identity, rootScope: scope, target: hashScope(persisted.target), resource: "bytes", outcome: "no-space", at: persisted.at }); deliver(persisted); coverage.persisted++; }
+    for (let write = 0, writes = 1 + Math.floor(next() * 2); write < writes; write++) {
+      const base = committed();
+      const reports: Report[] = Array.from({ length: 1 + Math.floor(next() * 8) }, () => ({ target: names[Math.floor(next() * names.length)]!, outcome: next() < 0.55 ? "no-space" as const : "success" as const, at: base + Math.floor(next() * 51) * 1000 }));
+      // Late arrivals: deliver in a shuffled order, all inside one write interval.
+      for (let index = reports.length - 1; index > 0; index--) { const other = Math.floor(next() * (index + 1)); [reports[index], reports[other]] = [reports[other]!, reports[index]!]; }
+      if (reports.some((report, index) => index > 0 && report.at < reports[index - 1]!.at)) coverage.late++;
+      if (new Set(reports.map(report => report.at)).size < reports.length) coverage.tied++;
+      if (write === 1) coverage.twoWrites++;
+      f.advance(base + 55_000);
+      for (const report of reports) { f.history.ownerWrite({ identity, rootScope: scope, target: hashScope(report.target), resource: "bytes", outcome: report.outcome, at: report.at }); deliver(report); }
+      f.advance(base + 120_000); f.history.flush();
+    }
+    const names2 = new Map(names.map(name => [hashScope(name), name]));
+    const timeline = f.events().events.filter(event => event.kind === "refusal" || event.kind === "pressure")
+      .map(event => [event.kind, event.phase, event.at, ...(event.kind === "refusal" ? [names2.get(event.target)] : [])]);
+    expect(timeline, `STORAGE_EVENTS_ORACLE sequence ${sequence}: ${JSON.stringify(accepted)}`).toEqual(oracle(accepted));
+    for (const event of timeline) coverage[event[1] as "refused" | "succeeded" | "start"]++;
+    history.close();
+  }
+  console.log("STORAGE_EVENTS_ORACLE_COVERAGE", JSON.stringify(coverage));
+  expect(Math.min(...Object.values(coverage))).toBeGreaterThan(50);
+}, watchdogMs(120_000));
+
+test("more owner reports in one write than the evidence cap pause refusal and pressure events instead of guessing", () => {
+  const fill = (count: number) => {
+    const f = fixture(); f.observe(start, 500_000_000); f.advance(s(55));
+    for (let index = 0; index < count; index++) f.history.ownerWrite({ identity, rootScope: scope, target: hashScope("A"), resource: "bytes", outcome: "no-space", at: s(10) + index });
+    f.advance(s(120)); expect(f.history.flush()).toBe(true);
+    return f;
+  };
+  const full = fill(STORAGE_EVENT_EVIDENCE_LIMIT);
+  expect(full.events().events.map(event => [event.kind, event.phase, event.at]), "STORAGE_EVENTS_EVIDENCE_AT_CAP").toEqual([["refusal", "refused", s(10)], ["pressure", "start", s(10)]]);
+  expect(full.events().paused).toEqual({ pressure: false, refusal: false, scope: false, maintenance: false });
+  const over = fill(STORAGE_EVENT_EVIDENCE_LIMIT + 1);
+  expect(over.history.read()!.metadata.state.pressures[0], "STORAGE_EVENTS_OVERFLOW_KEEPS_STATE").toMatchObject({ severity: "critical", refusals: [{ at: s(10) + STORAGE_EVENT_EVIDENCE_LIMIT }] });
+  expect(over.history.status().paused).toBeNull();
+  expect(over.events(), "STORAGE_EVENTS_EVIDENCE_OVERFLOW_PAUSES").toMatchObject({ paused: { pressure: true, refusal: true, scope: false, maintenance: false }, events: [] });
+  // The cap is per write: two writes of 300 reports each pause nothing.
+  const twice = fixture(); twice.observe(start, 500_000_000);
+  for (const base of [s(5), s(125)]) {
+    twice.advance(base + 50_000);
+    for (let index = 0; index < 300; index++) twice.history.ownerWrite({ identity, rootScope: scope, target: hashScope("A"), resource: "bytes", outcome: "no-space", at: base + 10_000 + index });
+    twice.advance(base + 120_000); expect(twice.history.flush()).toBe(true);
+  }
+  expect(twice.events().paused, "STORAGE_EVENTS_EVIDENCE_CAP_PER_WRITE").toEqual({ pressure: false, refusal: false, scope: false, maintenance: false });
+  // The pause is durable, and later writes still change pressure without events.
+  over.advance(s(130)); over.history.ownerWrite({ identity, rootScope: scope, target: hashScope("B"), resource: "bytes", outcome: "no-space", at: s(130) });
+  over.advance(s(200)); over.history.flush(); over.reopen();
+  expect(over.events()).toMatchObject({ paused: { pressure: true, refusal: true }, events: [] });
+  expect(over.history.read()!.metadata.state.pressures[0]!.refusals).toHaveLength(2);
 });

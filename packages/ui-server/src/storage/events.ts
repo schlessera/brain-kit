@@ -7,6 +7,7 @@
 import type { Database } from "bun:sqlite";
 import type { StorageEvent, StorageEventKind, StorageEventsResponse } from "@schlessera/brain-ui-sdk/protocol";
 import type { Pressure, Refusal } from "./pressure.js";
+import type { OwnerEvidence } from "./history-data.js";
 
 /**
  * Worst-case encoded bytes per event (16-digit `seq`, `at` and `episode`,
@@ -17,6 +18,12 @@ import type { Pressure, Refusal } from "./pressure.js";
  * records two events, so 512 cover 256 runs.
  */
 export const STORAGE_EVENT_LIMITS = Object.freeze({ pressure: 256, refusal: 128, scope: 64, maintenance: 512, payloadBytes: 262_144 } as const);
+/**
+ * Accepted owner reports kept uncoalesced per history write for the timeline.
+ * A write that receives more pauses the refusal and pressure kinds instead of
+ * guessing their times.
+ */
+export const STORAGE_EVENT_EVIDENCE_LIMIT = 512;
 const KINDS = ["pressure", "refusal", "scope", "maintenance"] as const satisfies readonly StorageEventKind[];
 const REASON_CHARACTERS = 64;
 
@@ -33,7 +40,7 @@ type Row = { seq: number; kind: StorageEventKind; phase: string; at: number; ide
 /** Returns the new `seq`, or null when the kind is full and recording is paused. */
 export function recordStorageEvent(db: Database, brain: string, event: Recorded): number | null {
   const { total } = db.query("SELECT count(*) AS total FROM storage_events WHERE brain = ? AND kind = ?").get(brain, event.kind) as { total: number };
-  if (total >= STORAGE_EVENT_LIMITS[event.kind]) return null;
+  if (total >= STORAGE_EVENT_LIMITS[event.kind] || db.query("SELECT 1 FROM storage_event_pauses WHERE brain = ? AND kind = ?").get(brain, event.kind)) return null;
   const result = db.query(`INSERT INTO storage_events (brain, kind, phase, at, identity, severity, episode, target, resource, root_scope, previous_root_scope, receipt, operation, state, reason, principal_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(brain, event.kind, event.phase, event.at, event.identity ?? null, event.severity ?? null, event.episode ?? null,
     event.target ?? null, event.resource ?? null, event.rootScope ?? null, event.previousRootScope ?? null, event.receipt ?? null, event.operation ?? null,
@@ -67,19 +74,50 @@ export function recordPressureChange(db: Database, brain: string, before: Pressu
   }
 }
 
+/** Pauses kinds whose evidence was dropped. Every earlier event remains. */
+export function pauseStorageEvents(db: Database, brain: string, kinds: StorageEventKind[], at: number, reason: "owner-evidence-overflow"): void {
+  for (const kind of kinds) db.query("INSERT OR IGNORE INTO storage_event_pauses (brain, kind, at, reason) VALUES (?, ?, ?, ?)").run(brain, kind, at, reason);
+}
+
 /**
- * Records a refusal entering the refused state, or the success that resolves it.
- * Repeats are one event. `at` is the first refusal of a coalesced run.
+ * Times refusal and refusal-started warning events by replaying every accepted
+ * owner report of one history write in time order, arrival order breaking
+ * ties, with plain sequential semantics: a refusal opens a target's refusal and
+ * a later success resolves it (#4541). It starts from the refusal state before
+ * these reports, as the timeline last recorded it; a refusal with no recorded
+ * opening resolves silently. Pressure state is not touched: `before` and
+ * `after` only say which capacities these reports escalated.
  */
-export function recordRefusalChange(db: Database, brain: string, before: Pressure, after: Pressure, report: { target: string; resource: Refusal["resource"]; at: number; outcome: "no-space" | "success" }, at = report.at): void {
-  const find = (pressure: Pressure) => pressure.refusals.find(value => value.target === report.target && value.resource === report.resource);
-  const previous = find(before), next = find(after);
-  const base = { kind: "refusal" as const, identity: after.identity, target: report.target, resource: report.resource, at };
-  if (report.outcome === "no-space" && next?.at === report.at && next.successAt === null && (!previous || previous.successAt !== null)) recordStorageEvent(db, brain, { ...base, phase: "refused" });
-  // A resolution needs its recorded refusal; one open before the timeline is omitted.
-  else if (report.outcome === "success" && previous && previous.successAt === null && next?.successAt === report.at
-    && (db.query("SELECT phase FROM storage_events WHERE brain = ? AND kind = 'refusal' AND identity = ? AND target = ? AND resource = ? ORDER BY seq DESC LIMIT 1")
-      .get(brain, after.identity, report.target, report.resource) as { phase: string } | null)?.phase === "refused") recordStorageEvent(db, brain, { ...base, phase: "succeeded" });
+export function recordOwnerEvidence(db: Database, brain: string, before: Pressure[], after: Pressure[], evidence: OwnerEvidence[]): void {
+  const escalated = new Map<string, { from: Pressure; to: Pressure }>();
+  for (const to of after) {
+    const from = before.find(value => value.identity === to.identity);
+    if ((from?.severity ?? "observed") !== to.severity) escalated.set(to.identity, { from: from ?? { ...to, severity: "observed", recoveryAt: null }, to });
+  }
+  const targets = new Map<string, { open: boolean; openAt: number; recorded: boolean }>();
+  const ordered = evidence.map((report, index) => ({ report, index })).sort((a, b) => a.report.at - b.report.at || a.index - b.index);
+  for (const { report } of ordered) {
+    const key = `${report.identity}:${report.target}:${report.resource}`;
+    let state = targets.get(key);
+    if (!state) {
+      const refusal = before.find(value => value.identity === report.identity)?.refusals.find(value => value.target === report.target && value.resource === report.resource);
+      const last = (db.query("SELECT phase FROM storage_events WHERE brain = ? AND kind = 'refusal' AND identity = ? AND target = ? AND resource = ? ORDER BY seq DESC LIMIT 1")
+        .get(brain, report.identity, report.target, report.resource) as { phase: string } | null)?.phase;
+      // A refusal the pressure no longer holds ended with its warning.
+      state = { open: !!refusal && (last === undefined ? refusal.successAt === null : last === "refused"), openAt: refusal?.at ?? -1, recorded: last !== undefined };
+      targets.set(key, state);
+    }
+    const base = { kind: "refusal" as const, identity: report.identity, target: report.target, resource: report.resource, at: report.at };
+    if (report.outcome === "no-space") {
+      if (!state.open) { recordStorageEvent(db, brain, { ...base, phase: "refused" }); state.open = true; state.recorded = true; }
+      state.openAt = report.at;
+      const warning = escalated.get(report.identity);
+      if (warning) { recordPressureChange(db, brain, warning.from, warning.to, report.at); escalated.delete(report.identity); }
+    } else if (state.open && report.at > state.openAt) {
+      if (state.recorded) recordStorageEvent(db, brain, { ...base, phase: "succeeded" });
+      state.open = false;
+    }
+  }
 }
 
 const TRACKED_SCOPES = 16;
@@ -118,7 +156,8 @@ export function readStorageEvents(db: Database, brain: string, principal: string
     FROM storage_events WHERE brain = ? AND seq > ? AND (principal_id IS NULL OR principal_id = ?) AND (? IS NULL OR identity IS NULL OR identity = ?) ORDER BY seq`)
     .all(brain, since, principal, identity, identity) as Row[];
   const totals = new Map((db.query("SELECT kind, count(*) AS total FROM storage_events WHERE brain = ? GROUP BY kind").all(brain) as Array<{ kind: StorageEventKind; total: number }>).map(row => [row.kind, row.total]));
+  const pauses = new Set((db.query("SELECT kind FROM storage_event_pauses WHERE brain = ?").all(brain) as Array<{ kind: StorageEventKind }>).map(row => row.kind));
   const events = rows.map(project);
   return { version: 1, since, next: events.at(-1)?.seq ?? since, limits: { ...STORAGE_EVENT_LIMITS },
-    paused: Object.fromEntries(KINDS.map(kind => [kind, (totals.get(kind) ?? 0) >= STORAGE_EVENT_LIMITS[kind]])) as Record<StorageEventKind, boolean>, events };
+    paused: Object.fromEntries(KINDS.map(kind => [kind, (totals.get(kind) ?? 0) >= STORAGE_EVENT_LIMITS[kind] || pauses.has(kind)])) as Record<StorageEventKind, boolean>, events };
 }

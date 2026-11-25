@@ -104,12 +104,13 @@ Each event is written in the same transaction that changes the state it
 describes: warning starts, severity steps, recovery attempts and ends, and
 owner refusals and scope changes in the history flush; maintenance requests and
 finishes in the receipt write. Its time is that of the observation, owner report
-or receipt, so a slow flush never moves a start. Owner reports buffered for one
-write keep the time of their first refusal, and successes of their first
-success, through coalescing. Pressure
-state applies them in buffer order, exactly as before the timeline, so support
-times and notice eligibility are unchanged; only the events use the first
-refusal times. Scope events
+or receipt, so a slow flush never moves a start. Pressure state applies the
+coalesced owner reports of a write exactly as before the timeline, so support
+times and notice eligibility are unchanged. Alongside them the history store
+keeps every accepted report uncoalesced, up to 512 per write, and the flush
+replays that list in time order for refusal and refusal-started warning
+events. A write that receives more pauses those two kinds durably, in
+`storage_event_pauses`, rather than time them from partial evidence. Scope events
 chain from the last scope each capacity was observed with, tracked in
 `storage_event_scopes` for at most 16 capacities per brain, because a warning's
 pressure keeps its original scope until fresh evidence arrives.

@@ -2334,11 +2334,12 @@ Each event has `seq`, `at`, `kind` and `phase`:
 
 `at` is the time of the observation, owner report or receipt that caused the
 event, not the time it was stored, so an episode's start stays its real start.
-Repeated owner reports that wait for the same history write are coalesced:
-each refusal keeps the time of its first report after the resolution it
-reopens, each resolution the time of the first success after its refusal, and
-the warning they start the earliest refusal of any target. A refusal resolved within that wait
-can be omitted; it is never invented.
+Owner reports that wait for the same history write are replayed for the
+timeline one by one in time order: a refusal opens its target's refusal, a
+later success resolves it, and a warning they start begins at the first
+refusal on the capacity. A success that arrives before its target has any
+refusal is not evidence. When one write receives more than 512 owner reports,
+refusal and pressure events are paused instead of timed from partial evidence.
 Events are recorded when they happen. An episode already open before the host
 recorded events is not emitted, and no start time is invented for it. The
 same holds for anything else open by then: a refusal is never resolved and a
@@ -2356,9 +2357,10 @@ plot.
 Each kind keeps at most 256 pressure, 128 refusal, 64 scope and 512 maintenance
 events per brain (256 runs), chosen so the worst case, every kind full with
 16-digit numbers, a 96-character receipt identity and a 64-character reason,
-stays within the 262,144-byte payload cap. A kind at its limit stops recording:
-`paused` marks it true, every earlier event remains, and the other kinds,
-pressure policy and maintenance keep working. Nothing is deleted to make room.
+stays within the 262,144-byte payload cap. A kind at its limit, or paused for
+dropped owner evidence, stops recording: `paused` marks it true, every earlier
+event remains, and the other kinds, pressure policy and maintenance keep
+working. Nothing is deleted to make room.
 
 A maintenance run can appear in the timeline, in `GET /api/storage/maintenance`
 (the latest receipt per operation) and in `GET /api/storage/maintenance/:id`.
