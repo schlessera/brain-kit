@@ -1,7 +1,7 @@
 import { useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { color, font } from "../tokens.js";
 import { EdgeStroke, ownerPaint } from "./owner-paint.js";
-import { OWNER_WORD, ownerCue, ownerEdge, storageRectangles, storageTargets, tileLabel, type StorageOwner } from "./storage-geometry.js";
+import { OWNER_WORD, ownerCue, ownerEdge, storageTargets, storageTiles, tileLabel, type StorageOwner } from "./storage-geometry.js";
 
 export interface StorageMapItem {
   id: string;
@@ -44,7 +44,9 @@ const LINE: CSSProperties = { display: "block", whiteSpace: "nowrap", overflow: 
  * Ownership is tint, edge and label (#4537 D8, #4544): Brain solid, App inner
  * dotted, Operator dashed, the smaller aggregate a neutral outline. The edge
  * is drawn on every tile at any size; a tile of at least 62 × 40 also carries
- * the owner's letter (`A · Packs`) whatever its width. No hatching.
+ * the owner's letter (`A · Packs`) whatever its width. No hatching. A 2px
+ * gutter of map background separates neighbouring tiles; the outer edge is
+ * flush, and the size rules are measured on the drawn boxes.
  * Unknown and nonpositive sizes have no tile. Geometry lives in
  * `storage-geometry.ts`.
  */
@@ -52,7 +54,7 @@ export function StorageMap({ items, width, height, label, descriptionId, onOpen,
   const prefix = useId(),
     group = useRef<HTMLDivElement>(null),
     [active, setActive] = useState<string | null>(null);
-  const rectangles = storageRectangles(items, width, height),
+  const rectangles = storageTiles(items, width, height),
     targets = storageTargets(rectangles);
   const selected = targets.some((rect) => rect.item.id === active) ? active : targets[0]?.item.id;
   function key(event: KeyboardEvent) {

@@ -119,6 +119,43 @@ export function storageRectangles<T extends StorageArea>(items: readonly T[], wi
   return result;
 }
 
+/** The space between neighbouring tiles, in CSS px, painted as the map background. */
+export const TILE_GUTTER = 2;
+
+/**
+ * One axis of a tile's drawn box. A shared edge moves in by half the gutter,
+ * so neighbours end up a full gutter apart; an edge on the map's outer
+ * boundary stays flush. A span too thin to keep 1px after that is drawn as
+ * 1px about its own centre, kept inside the map: a sliver never vanishes,
+ * and it still never touches its neighbour, though its gap may be under the
+ * full gutter.
+ */
+function insetSpan(start: number, size: number, extent: number, gutter: number): [number, number] {
+  const EDGE = 1e-6,
+    half = gutter / 2;
+  const from = start + (start > EDGE ? half : 0);
+  const to = start + size - (start + size < extent - EDGE ? half : 0);
+  if (to - from >= 1) return [from, to - from];
+  const centred = Math.min(Math.max(start + size / 2 - 0.5, 0), Math.max(0, extent - 1));
+  return [centred, Math.min(1, extent)];
+}
+
+/**
+ * What the map draws: each tile of {@link storageRectangles} trimmed by half
+ * the gutter on every shared edge, so a 2px line of map background separates
+ * neighbours (#4544 design feedback). Areas are proportional to bytes BEFORE
+ * the trim; the trim is the same on every shared edge of every tile, so it
+ * takes the same strip off each and no tile gains on another. The 62 × 40
+ * label and 44 × 44 target rules are measured on these drawn boxes.
+ */
+export function storageTiles<T extends StorageArea>(items: readonly T[], width: number, height: number, gutter = TILE_GUTTER): StorageRect<T>[] {
+  return storageRectangles(items, width, height).map((rect) => {
+    const [x, w] = insetSpan(rect.x, rect.width, width, gutter);
+    const [y, h] = insetSpan(rect.y, rect.height, height, gutter);
+    return { item: rect.item, x, y, width: w, height: h };
+  });
+}
+
 /** The targets in reading order (top to bottom, then left to right): the arrow-key order. */
 export function storageTargets<T extends StorageArea & { interactive?: boolean }>(rects: readonly StorageRect<T>[]): StorageRect<T>[] {
   return rects

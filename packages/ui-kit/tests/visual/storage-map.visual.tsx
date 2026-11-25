@@ -16,7 +16,7 @@
  */
 /// <reference types="@vitest/browser/matchers" />
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { page } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 
 import * as breakdown from "../../stories/storage/StorageBreakdown.stories.js";
 import * as storageMap from "../../stories/storage/StorageMap.stories.js";
@@ -29,20 +29,31 @@ interface ComposedStory {
 const TOLERANCE = { comparatorOptions: { threshold: 0.01, allowedMismatchedPixelRatio: 0.001 } } as const;
 
 let viewport: { width: number; height: number };
+let outer: { width: number; height: number } | undefined;
 beforeAll(async () => {
   viewport = { width: innerWidth, height: innerHeight };
   await document.fonts.ready;
 });
 afterAll(async () => {
   await page.viewport(viewport.width, viewport.height);
+  if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
 });
 
 async function capture(story: unknown, name: string, width: 320 | 1280, theme: "dark" | "light", map = true) {
+  // The outer page is sized too, so Vitest never scales the iframe: a scale
+  // left over from an earlier file moves the dotted and dashed edges by a
+  // fraction of a pixel and the capture would depend on file order.
+  const before = await commands.formViewport(width, 800);
+  outer ??= before;
   await page.viewport(width, 800);
+  scrollTo(0, 0);
   await (story as ComposedStory).run({ globals: { theme } });
   expect(getComputedStyle(document.documentElement).colorScheme, "painted in the intended theme").toBe(theme);
   const frame = document.querySelector<HTMLElement>("[data-storage-frame]");
   expect(frame, "the story rendered its frame").not.toBeNull();
+  // Park the real pointer on the frame's padding: an earlier file can leave it
+  // over what is now a row, and a hovered row would be captured.
+  await userEvent.hover(page.elementLocator(frame!), { position: { x: 2, y: 2 } });
   if (map) expect(document.querySelectorAll(".bk-storage-tile").length, "the map drew tiles").toBeGreaterThan(0);
   await expect(document.body).toMatchScreenshot(`storage-${name}-${width}${theme === "light" ? "-light" : ""}`, TOLERANCE);
 }
