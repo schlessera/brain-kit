@@ -473,8 +473,10 @@ test("case 28: Delete… on a returned snapshot drops its references; the host k
     "Delete this unsent message and its 1 file? It stays on this brain for 7 days, then is removed.");
   action(document.querySelector("[data-snapshot-delete]")!, "Delete")!.click();
   await expect.poll(() => fixture.snapshotsOf("draft-ithaca").length, { timeout: 5_000 }).toBe(0);
-  const removing = fixture.saves.filter((x) => x.status === 200).at(-1)!;
-  expect(removing.body.snapshots, "the save leaves it out").toEqual([]);
+  // Nothing else is in this draft: it is deleted, never saved empty, which the
+  // host would refuse (#4566). Deleting it deletes the returned snapshot.
+  expect(fixture.calls.filter((c) => c === "DELETE /api/drafts/draft-ithaca"), "the draft is deleted").toHaveLength(1);
+  expect(fixture.saves.filter((x) => x.body.snapshots && x.body.snapshots.length === 0 && !x.body.text), "never saved empty").toEqual([]);
   expect(fixture.refs.get(fileId)?.size ?? 0, "its references are gone").toBe(0);
   expect(fixture.unreferencedSince.has(fileId), "the grace clock starts").toBe(true);
   expect(fixture.unlinked.size, "nothing is unlinked").toBe(0);
