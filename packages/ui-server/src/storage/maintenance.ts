@@ -83,7 +83,10 @@ function storageMaintenance(db: Database, options: {
   function reconciled(row: Row): StorageMaintenanceReceipt | Promise<StorageMaintenanceReceipt> {
     const receipt = JSON.parse(row.receipt) as StorageMaintenanceReceipt;
     // Receipts recorded before #4540 carry no figure; an absent one is unknown.
-    receipt.headroom = { ...receipt.headroom, packingRequiredBytes: count(receipt.headroom?.packingRequiredBytes) ? receipt.headroom.packingRequiredBytes : null };
+    // A note describes the kind, not the run, so other kinds read their own
+    // (earlier receipts stored the packing note on every non-staging kind).
+    receipt.headroom = { ...receipt.headroom, packingRequiredBytes: count(receipt.headroom?.packingRequiredBytes) ? receipt.headroom.packingRequiredBytes : null,
+      ...(receipt.operation !== "pack-git" && receipt.operation in NOTES ? { note: NOTES[receipt.operation] } : {}) };
     if (["waiting", "running"].includes(row.state) && (!processAlive(row.pid, row.pid_start) || row.pid === SELF.pid && row.pid_start === SELF.start && !runningHere.has(`${brain}:${row.id}`))) {
       receipt.state = row.state === "waiting" ? "refused" : "unknown";
       receipt.reason = row.state === "waiting" ? "interrupted_before_owner" : "interrupted_owner_outcome_unknown"; receipt.completedAt = Date.now();

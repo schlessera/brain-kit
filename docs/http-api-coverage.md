@@ -48,6 +48,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `DELETE /api/storage/maintenance/:id` | `mounted supported handler: DELETE /api/storage/maintenance/:id` | SM |
 | `GET /api/storage/history` | `mounted supported handler: GET /api/storage/history` | SG |
 | `GET /api/storage/guidance` | `mounted supported handler: GET /api/storage/guidance` | SG |
+| `GET /api/storage/events` | `mounted supported handler: GET /api/storage/events` | SE |
 | `GET /api/storage` | `mounted supported handler: GET /api/storage` | ST |
 | `POST /api/storage/scans` | `mounted supported handler: POST /api/storage/scans` | ST |
 | `DELETE /api/storage/scans/:id` | `mounted supported handler: DELETE /api/storage/scans/:id` | ST |
@@ -570,6 +571,12 @@ exercise two processes, cancellation, cache failure and parent SIGKILL.
 [Delivery tests](../packages/ui-server/tests/storage-notify.test.ts) use the
 existing injected transport, including concurrent native senders and SIGKILL
 after dispatch entry; they never contact a push provider.
+
+SE: [Storage events](../packages/ui-server/tests/storage-events.test.ts) checks
+the mounted absent, delegated and revoked callers, invalid queries, per-principal
+maintenance receipts, identity filtering and `since` paging, and drives real
+history flushes and maintenance runs for episode times, restart durability,
+per-kind limits and the worst-case response size.
 
 CD: [Chat deletion on a real file-backed writer](../packages/ui-server/tests/chat-deletion.test.ts)
 covers per-store removal against a whole-database marker scan, unrelated chat and

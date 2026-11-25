@@ -1,5 +1,5 @@
 import { accent, color, token } from "../tokens.js";
-import { ownerEdge, type StorageOwner } from "./storage-geometry.js";
+import { ownerEdgeAt, type StorageOwner } from "./storage-geometry.js";
 
 /**
  * The owner tints and edge inks, from existing tokens only (#4537 D8).
@@ -27,33 +27,34 @@ export function ownerPaint(owner: StorageOwner | null) {
 
 /**
  * An edge drawn inside a box of the given size: the stroke sits half its width
- * in from the box, so a 2px edge occupies exactly the outer 2px. `data-edge`
+ * in from the box, so a 2px edge occupies exactly the outer 2px. Every box
+ * gets one, at any size; `ownerEdgeAt` thins it to 1px, or to a 1px line down
+ * the long axis, when the box is too small for the full edge. `data-edge`
  * names the pattern for tests and greyscale review.
  */
 export function EdgeStroke({ owner, width, height, radius = 2 }: { owner: StorageOwner | null; width: number; height: number; radius?: number }) {
-  const spec = ownerEdge(owner);
+  const spec = ownerEdgeAt(owner, width, height);
   const inset = spec.width / 2;
-  if (width <= spec.width * 2 || height <= spec.width * 2) return null;
+  if (!(width > 0 && height > 0)) return null;
+  const paint = { fill: "none", stroke: ownerPaint(owner).edge, strokeWidth: spec.width, strokeDasharray: spec.dash ?? undefined };
+  const tall = height >= width;
   return (
     <svg
       aria-hidden="true"
       focusable="false"
       data-edge={spec.edge}
+      data-edge-width={spec.width}
       width={width}
       height={height}
       style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", overflow: "visible" }}
     >
-      <rect
-        x={inset}
-        y={inset}
-        width={width - spec.width}
-        height={height - spec.width}
-        rx={radius}
-        fill="none"
-        stroke={ownerPaint(owner).edge}
-        strokeWidth={spec.width}
-        strokeDasharray={spec.dash ?? undefined}
-      />
+      {spec.shape === "frame" ? (
+        <rect x={inset} y={inset} width={width - spec.width} height={height - spec.width} rx={spec.width < 2 ? 0 : radius} {...paint} />
+      ) : tall ? (
+        <line x1={width / 2} y1={0} x2={width / 2} y2={height} {...paint} />
+      ) : (
+        <line x1={0} y1={height / 2} x2={width} y2={height / 2} {...paint} />
+      )}
     </svg>
   );
 }

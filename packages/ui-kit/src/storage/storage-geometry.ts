@@ -51,6 +51,22 @@ export function ownerEdge(owner: StorageOwner | null): StorageEdgeSpec {
   return { edge: "solid", width: 2, dash: null };
 }
 
+/**
+ * The edge a tile of this drawn size can actually carry. The edge is the
+ * primary ownership cue and every tile draws one (#4559 review F2): a tile
+ * too small for the 2px inner edge, at most 4px on a side, gets the same
+ * pattern at 1px (solid, dotted 1-1, dashed 3-2), and a tile under 2px on a
+ * side, which has no inside to draw a frame in, gets that 1px pattern as a
+ * line down its long axis. The aggregate's outline is already 1px.
+ */
+export function ownerEdgeAt(owner: StorageOwner | null, width: number, height: number): StorageEdgeSpec & { shape: "frame" | "line" } {
+  const full = ownerEdge(owner);
+  const short = Math.min(width, height);
+  if (short >= full.width * 2 + 1) return { ...full, shape: "frame" };
+  const thin = { ...full, width: 1, dash: full.edge === "dotted" ? "1 1" : full.edge === "dashed" ? "3 2" : null };
+  return { ...thin, shape: short >= 2 ? "frame" : "line" };
+}
+
 type TileLabel = "none" | "letter";
 
 /** Which owner cue a tile of this size carries, if any. */

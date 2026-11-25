@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client";
@@ -103,6 +103,27 @@ test("pack-git passes core's preflight need through as packingRequiredBytes; req
     f.db.query("UPDATE storage_maintenance_operations SET receipt=json_remove(receipt,'$.headroom.packingRequiredBytes') WHERE id=?").run("odysseus-pack-figure-1");
     expect(f.operations.receipt("odysseus", "odysseus-pack-figure-1").headroom.packingRequiredBytes, "STORAGE_PACK_HISTORICAL_RECEIPT_IS_NULL").toBeNull();
   } finally { await f.close(); }
+});
+
+test("a receipt recorded before per-kind notes reads back with its kind's note and no packing figure", async () => {
+  const f = fixture(), db = createUiDb(":memory:"), legacyNote = "Temporary worker/output space is admitted by its existing owner. Packing may hold old and new packs together; required bytes depend on the workload and are not reserved.";
+  const operations = createStorageMaintenance(db, f.options), at = Date.UTC(2026, 6, 12, 9, 41);
+  try {
+    // The exact shape 0.44.0 stored: no packingRequiredBytes, and the shared packing note on prune-scratch.
+    const legacy = (id: string, operation: string, scope: string[]) => ({ id, operation, owner: "core", scope, requestedAt: at, startedAt: at, completedAt: at + 1000, state: "complete", reason: null,
+      headroom: { requiredBytes: null, reservation: false, note: legacyNote }, before: null, after: null,
+      outcome: { items: [], truncated: false, removed: 0, failed: 0, deferred: null, packed: null, pinnedFiles: 0, pinnedBytes: 0, overageBytes: 0, suspended: false } });
+    const insert = db.query("INSERT INTO storage_maintenance_operations (id,brain,principal_id,operation,state,pid,pid_start,requested_at,receipt) VALUES (?,?,?,?,?,?,?,?,?)");
+    insert.run("odysseus-legacy-prune", realpathSync(f.brain), "odysseus", "prune-scratch", "complete", 1, "legacy", at, JSON.stringify(legacy("odysseus-legacy-prune", "prune-scratch", ["scratch"])));
+    insert.run("odysseus-legacy-pack", realpathSync(f.brain), "odysseus", "pack-git", "complete", 1, "legacy", at, JSON.stringify(legacy("odysseus-legacy-pack", "pack-git", ["git"])));
+    const rows = (await operations.list("odysseus")).operations, current = (id: string) => rows.find(row => row.id === id)!.headroom.note;
+    const prune = operations.receipt("odysseus", "odysseus-legacy-prune");
+    expect(prune.headroom.note, "STORAGE_LEGACY_PRUNE_RECEIPT_NOTE_FROM_KIND").toBe(current("prune-scratch"));
+    expect(rows.find(row => row.id === "prune-scratch")!.latest?.headroom.note, "STORAGE_LEGACY_PRUNE_LATEST_NOTE_FROM_KIND").toBe(current("prune-scratch"));
+    expect(/pack/i.test(prune.headroom.note)).toBe(false);
+    expect(prune.headroom.packingRequiredBytes).toBeNull();
+    expect(operations.receipt("odysseus", "odysseus-legacy-pack").headroom.note, "STORAGE_LEGACY_PACK_RECEIPT_KEEPS_PACK_NOTE").toBe(legacyNote);
+  } finally { await operations.close(); db.close(); await f.close(); }
 });
 
 test("revocation and full receipt storage refuse maintenance before its owner runs", async () => {

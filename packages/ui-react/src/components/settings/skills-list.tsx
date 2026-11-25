@@ -2,6 +2,7 @@ import { Button, IconButton, Toggle, Placeholder } from "@schlessera/brain-ui-ki
 import { Loader2, Pencil, Trash2, Upload } from "lucide-react";
 import type { SkillEntry, SkillInstallOutcome } from "../../lib/api-client.js";
 import { cn } from "../../lib/utils.js";
+import { PANE_GRID, Prose, WIDE_CONTENT } from "./prose.js";
 
 /**
  * Settings → Skills, rendered from props (S6). `SkillsTab` is the container:
@@ -48,156 +49,162 @@ export function SkillsList(p: SkillsListProps) {
   const canInstall = !p.installing && p.githubSource.trim().length > 0;
 
   return (
-    <div className="h-full overflow-y-auto p-4">
-      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Your skills
-      </h3>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Custom skills live in your brain repo (<code>.agents/skills/</code>) — they
-        survive redeployments, ride the repo's backups, and apply to every
-        backend. For guided authoring, ask the agent in chat to{" "}
-        <span className="font-medium text-foreground">add a skill</span> — the
-        built-in <code>add-skill</code> skill walks through design and setup.
-      </p>
+    <div className="h-full overflow-y-auto">
+      <div data-settings-content="" className={cn("p-4", WIDE_CONTENT)}>
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Your skills
+        </h3>
+        <Prose className="mt-1 text-xs text-muted-foreground">
+          Custom skills live in your brain repo (<code>.agents/skills/</code>) — they
+          survive redeployments, ride the repo's backups, and apply to every
+          backend. For guided authoring, ask the agent in chat to{" "}
+          <span className="font-medium text-foreground">add a skill</span> — the
+          built-in <code>add-skill</code> skill walks through design and setup.
+        </Prose>
 
-      <div className="mt-4 flex items-center gap-2">
-        <input
-          value={p.newName}
-          onChange={(e) => p.onNewName(e.target.value.toLowerCase())}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && p.newName.trim()) p.onCreate();
-          }}
-          placeholder="new-skill-name (kebab-case)"
-          className="min-w-0 flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
-        />
-        <Button label="Create" icon="add" tone="primary" size="sm" block={false} disabled={!p.newName.trim()} onClick={p.onCreate} />
-      </div>
-
-      <div className="mt-3 rounded-lg border border-border-subtle bg-surface p-3">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Install
-        </p>
-        <div className="mt-2 flex items-center gap-2">
-          <label
-            className={cn(
-              "flex cursor-pointer items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary",
-              p.installing && "pointer-events-none opacity-50",
-            )}
-          >
-            <Upload className="h-3 w-3" />
-            Upload .zip
+        {/* Create and Install are two field groups: two-up from 840px of pane.
+            Each text field keeps the 480px field cap at every width. */}
+        <div className="grid items-start gap-x-3 @[840px]/settings-pane:grid-cols-2">
+          <div className="mt-4 flex items-center gap-2">
             <input
-              type="file"
-              accept=".zip,application/zip"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) p.onInstallZip(file);
+              value={p.newName}
+              onChange={(e) => p.onNewName(e.target.value.toLowerCase())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && p.newName.trim()) p.onCreate();
               }}
+              placeholder="new-skill-name (kebab-case)"
+              className="min-w-0 max-w-[480px] flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
             />
-          </label>
-          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <input type="checkbox" checked={p.overwrite} onChange={(e) => p.onOverwrite(e.target.checked)} />
-            overwrite existing
-          </label>
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          <input
-            value={p.githubSource}
-            onChange={(e) => p.onGithubSource(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && canInstall) p.onInstallGitHub();
-            }}
-            placeholder="GitHub: owner/repo or https://github.com/…/tree/main/skills"
-            className="min-w-0 flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
-          />
-          {p.installing ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden /> : null}
-          <Button label="Install" icon="install" tone="ghost" size="sm" block={false} disabled={!canInstall} onClick={p.onInstallGitHub} />
-        </div>
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
-          A skill is any folder with a SKILL.md; one source may carry several.
-          Private repos use the server's GITHUB_TOKEN.
-        </p>
-        {p.outcomes && (
-          <ul className="mt-2 flex flex-col gap-1">
-            {p.outcomes.map((o, i) => (
-              <li key={`${o.name}-${i}`} className="text-[11px]">
-                {o.status === "skipped" ? (
-                  <span className="text-muted-foreground">
-                    ✗ {o.name} — {o.reason}
-                  </span>
-                ) : (
-                  <span className="text-primary">
-                    ✓ {o.name} {o.status === "replaced" ? "replaced" : "installed"}
-                    {typeof o.files === "number" ? ` (${o.files} file${o.files === 1 ? "" : "s"})` : ""}
-                  </span>
+            <Button label="Create" icon="add" tone="primary" size="sm" block={false} disabled={!p.newName.trim()} onClick={p.onCreate} />
+          </div>
+
+          <div className="mt-3 rounded-lg border border-border-subtle bg-surface p-3 @[840px]/settings-pane:mt-4">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Install
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <label
+                className={cn(
+                  "flex cursor-pointer items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary",
+                  p.installing && "pointer-events-none opacity-50",
                 )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              >
+                <Upload className="h-3 w-3" />
+                Upload .zip
+                <input
+                  type="file"
+                  accept=".zip,application/zip"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) p.onInstallZip(file);
+                  }}
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <input type="checkbox" checked={p.overwrite} onChange={(e) => p.onOverwrite(e.target.checked)} />
+                overwrite existing
+              </label>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                value={p.githubSource}
+                onChange={(e) => p.onGithubSource(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && canInstall) p.onInstallGitHub();
+                }}
+                placeholder="GitHub: owner/repo or https://github.com/…/tree/main/skills"
+                className="min-w-0 max-w-[480px] flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+              />
+              {p.installing ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden /> : null}
+              <Button label="Install" icon="install" tone="ghost" size="sm" block={false} disabled={!canInstall} onClick={p.onInstallGitHub} />
+            </div>
+            <Prose className="mt-1.5 text-[11px] text-muted-foreground">
+              A skill is any folder with a SKILL.md; one source may carry several.
+              Private repos use the server's GITHUB_TOKEN.
+            </Prose>
+            {p.outcomes && (
+              <ul className="mt-2 flex flex-col gap-1">
+                {p.outcomes.map((o, i) => (
+                  <li key={`${o.name}-${i}`} className="text-[11px]">
+                    {o.status === "skipped" ? (
+                      <span className="text-muted-foreground">
+                        ✗ {o.name} — {o.reason}
+                      </span>
+                    ) : (
+                      <span className="text-primary">
+                        ✓ {o.name} {o.status === "replaced" ? "replaced" : "installed"}
+                        {typeof o.files === "number" ? ` (${o.files} file${o.files === 1 ? "" : "s"})` : ""}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
 
-      {p.error && <p className="mt-2 text-xs text-destructive">{p.error}</p>}
-      {p.warning && <p className="mt-2 text-xs text-muted-foreground">{p.warning}</p>}
+        {p.error && <Prose className="mt-2 text-xs text-destructive">{p.error}</Prose>}
+        {p.warning && <Prose className="mt-2 text-xs text-muted-foreground">{p.warning}</Prose>}
 
-      <ul className="mt-4 flex flex-col gap-2">
-        {custom.length === 0 && (
-          <li>
-            <Placeholder variant="empty" message="No custom skills yet." icon="steps" pad={10} />
-          </li>
-        )}
-        {custom.map((skill) => (
-          <li key={skill.name} className="rounded-lg border border-border-subtle bg-surface p-3">
-            {/* A disabled skill is not faded (design-feedback §4): its state
-                word says so, at full contrast. */}
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-foreground">
-                  {skill.name}
-                  {!skill.enabled && (
-                    <span className="ml-2 text-[11px] text-muted-foreground">disabled</span>
-                  )}
-                </p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {skill.warning ? `⚠ ${skill.warning}` : skill.description}
-                </p>
+        <ul data-settings-grid="" className={cn("mt-4 gap-2", PANE_GRID)}>
+          {custom.length === 0 && (
+            <li className="col-span-full">
+              <Placeholder variant="empty" message="No custom skills yet." icon="steps" pad={10} />
+            </li>
+          )}
+          {custom.map((skill) => (
+            <li key={skill.name} className="rounded-lg border border-border-subtle bg-surface p-3">
+              {/* A disabled skill is not faded (design-feedback §4): its state
+                  word says so, at full contrast. */}
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-foreground">
+                    {skill.name}
+                    {!skill.enabled && (
+                      <span className="ml-2 text-[11px] text-muted-foreground">disabled</span>
+                    )}
+                  </p>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {skill.warning ? `⚠ ${skill.warning}` : skill.description}
+                  </p>
+                </div>
+                <IconButton size="sm" name={`Edit ${skill.name} SKILL.md`} glyph={<Pencil />} disabled={locked} onClick={() => p.onOpen(skill)} />
+                <span className="relative flex shrink-0 items-center px-1 py-3">
+                  <Toggle on={skill.enabled} label={`Enable ${skill.name} on all backends`} disabled={locked || p.busy === skill.name} onClick={() => p.onToggle(skill)} />
+                  {p.busy === skill.name && <Loader2 aria-hidden className="absolute -top-1 left-1/2 h-3.5 w-3.5 -translate-x-1/2 animate-spin text-muted-foreground" />}
+                </span>
+                <IconButton size="sm" tone="danger" name={`Delete ${skill.name} permanently`} glyph={<Trash2 />} disabled={locked} onClick={() => p.onRemove(skill)} />
               </div>
-              <IconButton size="sm" name={`Edit ${skill.name} SKILL.md`} glyph={<Pencil />} disabled={locked} onClick={() => p.onOpen(skill)} />
-              <span className="relative flex shrink-0 items-center px-1 py-3">
-                <Toggle on={skill.enabled} label={`Enable ${skill.name} on all backends`} disabled={locked || p.busy === skill.name} onClick={() => p.onToggle(skill)} />
-                {p.busy === skill.name && <Loader2 aria-hidden className="absolute -top-1 left-1/2 h-3.5 w-3.5 -translate-x-1/2 animate-spin text-muted-foreground" />}
-              </span>
-              <IconButton size="sm" tone="danger" name={`Delete ${skill.name} permanently`} glyph={<Trash2 />} disabled={locked} onClick={() => p.onRemove(skill)} />
-            </div>
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
 
-      <h3 className="mt-6 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Built-in skills
-      </h3>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Shipped by brain-kit and its modules; managed by <code>brain skills sync</code>.
-        A custom skill with the same name overrides a built-in.
-      </p>
-      <ul className="mt-3 flex flex-col gap-1.5">
-        {builtin.map((skill) => (
-          <li
-            key={skill.name}
-            className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface px-3 py-2"
-          >
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs text-foreground">{skill.name}</p>
-              <p className="truncate text-[11px] text-muted-foreground">{skill.description}</p>
-            </div>
-            <span title="View SKILL.md" className="flex shrink-0">
-              <Button label="View" tone="quiet" size="sm" block={false} disabled={locked} onClick={() => p.onOpen(skill)} />
-            </span>
-          </li>
-        ))}
-      </ul>
+        <h3 className="mt-6 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Built-in skills
+        </h3>
+        <Prose className="mt-1 text-xs text-muted-foreground">
+          Shipped by brain-kit and its modules; managed by <code>brain skills sync</code>.
+          A custom skill with the same name overrides a built-in.
+        </Prose>
+        <ul data-settings-grid="" className={cn("mt-3 gap-1.5", PANE_GRID)}>
+          {builtin.map((skill) => (
+            <li
+              key={skill.name}
+              className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface px-3 py-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs text-foreground">{skill.name}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{skill.description}</p>
+              </div>
+              <span title="View SKILL.md" className="flex shrink-0">
+                <Button label="View" tone="quiet" size="sm" block={false} disabled={locked} onClick={() => p.onOpen(skill)} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -232,14 +239,14 @@ export function SkillEditor(p: SkillEditorProps) {
           <Button label="Close" icon="dismiss" tone="quiet" size="sm" block={false} onClick={p.onClose} />
         </div>
       </div>
-      {p.error && <p className="mt-2 text-xs text-destructive">{p.error}</p>}
+      {p.error && <Prose className="mt-2 text-xs text-destructive">{p.error}</Prose>}
       <textarea
         value={p.content}
         readOnly={p.readOnly}
         aria-label="SKILL.md"
         onChange={(e) => p.onChange(e.target.value)}
         spellCheck={false}
-        className="mt-3 min-h-0 flex-1 resize-none rounded-lg border border-border-subtle bg-background p-3 font-mono text-xs text-foreground focus:border-primary focus:outline-none"
+        className={cn("mt-3 min-h-0 flex-1 resize-none rounded-lg border border-border-subtle bg-background p-3 font-mono text-xs text-foreground focus:border-primary focus:outline-none", WIDE_CONTENT)}
       />
     </div>
   );
