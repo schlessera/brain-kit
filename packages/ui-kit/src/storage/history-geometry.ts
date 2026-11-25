@@ -88,6 +88,12 @@ export const MARKER_CLUSTER_GAP = 20;
 export const FUTURE_SHARE = 0.2;
 /** A gutter label's text starts this far right of the plot: a 6px gap and its 16px dash sample. */
 const GUTTER_TEXT_OFFSET = 22;
+/**
+ * A gutter label's two 10px lines, relative to its centre `y`: baselines at
+ * y+3 and y+15, and the box they paint (0.8em ascent above the first, 0.25em
+ * descent below the second).
+ */
+export const SCENARIO_LABEL_BOX = { line1: 3, line2: 15, above: 5, below: 17.5 } as const;
 /** Height of the event lane under the x axis. */
 const EVENT_LANE = 28;
 
@@ -692,7 +698,15 @@ export interface HistoryLayout {
   segments: DrawnSegment[];
   /** Points drawn as dots: all of them when sparse, plus any point that stands alone. */
   dots: PlottedPoint[];
+  /** The last MEASURED point. It is not "now" unless `nowMeasured` says so. */
   latest: PlottedPoint | null;
+  /**
+   * Whether the current observation was measured: the last bucket at or
+   * before now holds a value, on the current volume, and (given an interval)
+   * is no more than one interval old. When false, nothing may present the
+   * last measured value as now's.
+   */
+  nowMeasured: boolean;
   gaps: DrawnGap[];
   /** `captioned` when neither side of the rule had room for its label. */
   scopeBreaks: Array<{ at: number; x: number; captioned: boolean }>;
@@ -764,9 +778,20 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
   const future = { x: nowX, width: frame.right - nowX };
   const box = { left: frame.left, right: frame.right, top: frame.top, bottom: frame.bottom };
 
-  // Scenario lines start at the latest CURRENT-volume measurement only: a
-  // projection never starts from another volume's number.
-  const origin = latest && latest.kind === "current" ? { x: latest.x, y: latest.y } : null;
+  const past = sorted.filter((p) => p.at <= domain.now);
+  const lastBucket = past[past.length - 1] ?? null;
+  const nowMeasured = Boolean(
+    latest &&
+      lastBucket &&
+      latest.at === lastBucket.at &&
+      latest.kind === "current" &&
+      (input.intervalMs === undefined || domain.now - lastBucket.at <= input.intervalMs),
+  );
+
+  // Scenario lines start at the current measurement only: a projection never
+  // starts from another volume's number, nor from an older value standing in
+  // for an unmeasured now.
+  const origin = latest && nowMeasured ? { x: latest.x, y: latest.y } : null;
   const lines = scenarioLines(input.scenarios ?? [], origin, x, y, box);
 
   // Gutter labels: centred where each line exits, pushed 28px apart, in the
@@ -776,7 +801,14 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
   const room = frame.width - frame.right;
   const inGutter = lines.filter((l) => [`${l.scenario.name} rate`, l.scenario.detail ?? ""].every((t) => GUTTER_TEXT_OFFSET + textWidth(t, 10) <= room));
   if (frame.wide && inGutter.length) {
-    const spread = spreadLabels(inGutter.map((l) => l.y2), SCENARIO_LABEL_GAP, frame.top + 6, frame.height - 14 - (markersIn.length ? EVENT_LANE : 0));
+    // Bounded by the label's whole box, both lines: its top is the first
+    // line's ascent above its baseline, its bottom the second line's descent.
+    const spread = spreadLabels(
+      inGutter.map((l) => l.y2),
+      SCENARIO_LABEL_GAP,
+      Math.max(frame.top + 6, SCENARIO_LABEL_BOX.above),
+      frame.height - SCENARIO_LABEL_BOX.below - (markersIn.length ? EVENT_LANE : 0),
+    );
     scenarioLabels = inGutter.map((line, i) => ({ line, y: spread[i]! }));
   }
 
@@ -850,6 +882,7 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
     segments,
     dots,
     latest,
+    nowMeasured,
     gaps,
     scopeBreaks: breaks,
     bands: thresholdBands(input.thresholds, y, frame.left, frame.right),

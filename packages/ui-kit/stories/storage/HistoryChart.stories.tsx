@@ -20,6 +20,9 @@ import {
   sixHourGap,
   scopeChanged,
   scopeChangedAtNow,
+  sixHourTrailingGap,
+  SHORT_SOON,
+  LONG_SOON,
   sixHourNotANumber,
   veryLowNow,
   weeklyThree,
@@ -327,6 +330,45 @@ export const NotANumberIsAGap = meta.story({
     toggle.blur();
   },
 });
+
+/**
+ * Nothing observed for the current bucket (#4559 review, F5). The last
+ * measurement is not "now": the chart marks now `?`, the name says now is
+ * not measured and names the last measurement with its time, and the table's
+ * current row reads `?`.
+ */
+export const NowNotMeasured = meta.story({
+  ...phone,
+  args: { points: sixHourTrailingGap, nowState: undefined },
+  play: async (ctx) => {
+    const { svg } = await open(ctx);
+    const name = svg.getAttribute("aria-label") ?? "";
+    await expect(name).toContain("Now not measured. Last measured ");
+    await expect(name).toContain(" at 12 Jul 00:00");
+    await expect(name).not.toMatch(/Now \d/);
+    await expect(svg.querySelector('[data-part="now-value"]')!.textContent).toBe("?");
+    await expect(svg.querySelector('[data-part="latest"]')!.getAttribute("data-provisional")).toBe("false");
+    await tableMatchesPoints(ctx.canvasElement, ctx.userEvent);
+  },
+});
+export const NowNotMeasuredDesktop = NowNotMeasured.extend({ ...desktop });
+
+/**
+ * Both windows reach zero inside the future zone and there are no events
+ * (#4559 review, F6): both two-line gutter labels sit at the baseline and
+ * must stay whole inside the drawing, second line included.
+ */
+export const BothWindowsReachZero = meta.story({
+  ...phone,
+  args: { markers: [], scenarios: [SHORT_SOON, LONG_SOON] },
+  play: async (ctx) => {
+    const { svg, wide } = await open(ctx);
+    const baseline = Number(svg.querySelector('[data-part="y-tick"] line')!.getAttribute("y1"));
+    for (const l of parts(svg, "scenario")) await expect(Number(l.getAttribute("y2"))).toBeCloseTo(baseline, 3);
+    await expect(parts(svg, "scenario-label")).toHaveLength(wide ? 2 : 0);
+  },
+});
+export const BothWindowsReachZeroDesktop = BothWindowsReachZero.extend({ ...desktop });
 
 /* ── Unknown, crowded, very low ─────────────────────────────────────────────── */
 
