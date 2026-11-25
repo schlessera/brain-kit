@@ -117,6 +117,15 @@ describe("timeline markers (#4548)", () => {
       "Owner refused a write: no space",
       "Very low warning started",
     ]);
+    // Recording order, not the words: the warning ended before the write succeeded.
+    const later: StorageEvent[] = [
+      warning(9, at, "end", "observed"),
+      { seq: 10, at, kind: "refusal", identity: ITHACA, phase: "succeeded", target: "c".repeat(32), resource: "bytes" },
+    ];
+    expect(storageMarkers({ series: steady, identity: ITHACA, timeline: timeline(later), now: worldTime, format }).map((m) => m.n + " " + m.label)).toEqual([
+      "1 Warning ended · back to OK",
+      "2 Owner write succeeded after a refusal: no space",
+    ]);
   });
 
   test("a run reported by the latest receipt and the timeline appears once, at the timeline's time", () => {
