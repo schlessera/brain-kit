@@ -33,8 +33,8 @@
  */
 import { mkdirSync, chmodSync } from "node:fs";
 import {
-  contentGmailDraft, contentGmailMessageResult, contentGmailSearch, contentGmailThread, decideGoogleCall, GMAIL_LIMITS, GMAIL_TOOL_NAMES,
-  gmailLabelDirectory, GOOGLE_NOT_FOUND_MESSAGE, GOOGLE_SERVICES, isGmailThreadId, parseGoogleMailbox, parseGoogleToolCall,
+  contentGmailDraft, contentGmailMessageResult, contentGmailSearch, contentGmailThread, decideGoogleCall, effectiveGoogleMode, GMAIL_LIMITS, GMAIL_TOOL_NAMES,
+  gmailLabelDirectory, GOOGLE_NOT_FOUND_MESSAGE, GOOGLE_OPERATION_SPECS, GOOGLE_OPERATIONS, GOOGLE_SERVICES, isGmailThreadId, parseGoogleMailbox, parseGoogleToolCall,
   structuredGmailDraft, structuredGmailLabels, structuredGmailMessageResult, structuredGmailSearch, structuredGmailThread,
   type GmailLabelDirectory, type GmailLabelRecord, type GmailReadInput, type GmailSearchInput, type GoogleDecisionFacts, type GoogleError,
   type GoogleErrorCode, type GooglePolicy, type GoogleRoutingVerdict,
@@ -169,6 +169,18 @@ function aliasesOf(value: unknown): Map<string, string> | null {
   return new Map(entries.map(([alias, address]) => [alias, (address as string).toLowerCase()]));
 }
 
+/** An OAuth scope as Google names one; anything else in gog's answer is not a scope this module repeats. */
+const SCOPE = /^(?:openid|email|profile|https:\/\/www\.googleapis\.com\/auth\/[A-Za-z0-9._-]{1,128}|https:\/\/mail\.google\.com\/)$/;
+
+/** Whether the policy can admit any Gmail write at all, so a grant may carry `gmail.modify`. */
+function policyMayWrite(policy: GooglePolicy): boolean {
+  if (!policy.services.includes("gmail")) return false;
+  return GOOGLE_OPERATIONS.some(operation => {
+    const base = GOOGLE_OPERATION_SPECS[operation].base;
+    return base !== "read" && effectiveGoogleMode(policy, operation, base).mode !== "deny";
+  });
+}
+
 /** `auth list --json`: the scopes gog recorded for one address, sorted; null when none is stored, undefined when the answer is unreadable. */
 function recordedScopes(value: unknown, address: string): string[] | null | undefined {
   if (!isRecord(value) || !Array.isArray(value.accounts)) return undefined;
@@ -176,7 +188,7 @@ function recordedScopes(value: unknown, address: string): string[] | null | unde
     if (!isRecord(account) || typeof account.email !== "string") return undefined;
     if (account.email.toLowerCase() !== address.toLowerCase()) continue;
     if (account.scopes === undefined) return [];
-    if (!isStrings(account.scopes)) return undefined;
+    if (!isStrings(account.scopes) || !account.scopes.every(scope => SCOPE.test(scope))) return undefined;
     return [...new Set(account.scopes)].sort();
   }
   return null;
@@ -319,7 +331,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
           else if (grant.scopes === null) reasons.push("not_connected");
           else {
             const granted = grant.scopes;
-            const allowed = new Set([...GOG_IDENTITY_SCOPES, GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE]);
+            // What the policy can use: reads, and gmail.modify only while it can admit a write.
+            const allowed = new Set([...GOG_IDENTITY_SCOPES, GMAIL_READONLY_SCOPE, ...(policyMayWrite(policy) ? [GMAIL_MODIFY_SCOPE] : [])]);
             data.account.connected = true;
             data.scopes = {
               granted, needed,
@@ -328,7 +341,7 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
               write: granted.includes(GMAIL_MODIFY_SCOPE),
             };
             if (data.scopes.broader.length > 0) {
-              data.warnings.push("The connected grant is broader than brain google asks for; reconnect with brain google connect to narrow it.");
+              data.warnings.push(`The connected grant holds scopes the policy cannot use (${data.scopes.broader.join(", ")}); reconnect with brain google connect, without --write unless the policy allows writes, to narrow it.`);
             }
             if (data.scopes.missing.length > 0) reasons.push("scopes_missing");
           }
@@ -391,8 +404,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
       ...(step === 2 ? [["auth-url", input.authUrl!] as [string, string]] : []),
     ];
     const added = await account(prepared, { command: "auth.add", flags, positionals: [address], readonly: !input.write },
-      // Step 1 prints only a URL, which brain google prints itself; otherwise the operator needs gog's prompts and hints.
-      { stderr: step === 1 ? "drop" : "inherit", timeoutMs: options.connectTimeoutMs ?? 10 * 60_000 });
+      // Only the browser flow needs gog's stderr: it shows the URL to open when no browser starts. A remote step prompts for nothing.
+      { stderr: step === null ? "inherit" : "drop", timeoutMs: options.connectTimeoutMs ?? 10 * 60_000 });
     if (!added.ok) return refused(op, added.error);
     if (added.run.end.kind !== "exit" || added.run.end.exitCode !== 0) return refused(op, authFailure(added.run, "authorization"));
     if (step === 1) {
@@ -430,6 +443,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
     const named = await account(prepared, { command: "auth.alias.set", positionals: [alias, address] });
     if (!named.ok) return refused(op, named.error);
     if (named.run.end.kind !== "exit" || named.run.end.exitCode !== 0) return refused(op, authFailure(named.run, "alias"));
+    // The alias may now name another account: no earlier search's page token carries over. Cursors expire within the hour regardless.
+    try { googleCursorStore(prepared.home, now).clear(); } catch { /* best effort */ }
     return { ok: true, operation: op, data: {
       state: "connected", alias, write: input.write, boundary: prepared.selection.kind, home: prepared.home, scopes: granted,
     } };
@@ -459,23 +474,34 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
     const { transport } = prepared;
     const hidden = policy.gmail.hidden_labels;
     const view = (call.call.input as { view?: "structured" | "content" }).view ?? "content";
+    // Label names come from reading the label list, so only where the policy admits that read itself.
+    const namesAdmitted = decideGoogleCall(policy, { operation: "gmail.labels.list", input: { target: "labels" } }, facts).outcome === "admitted";
     const labelDirectory = async (): Promise<GmailLabelDirectory> => {
       // Names only: without them a result carries ids and null names.
+      if (!namesAdmitted) return new Map();
       const labels = await transport.execute("gmail.labels.list", {});
       return labels.ok ? gmailLabelDirectory(labels.value) : new Map();
     };
-    /** The thread's labels too when anything is hidden: a thread with a hidden label on any message is hidden whole. */
+    const shapeError = error("transport_incompatible", "unexpected_shape", "The Google transport answered in a shape brain-kit does not read.");
+    /**
+     * The thread's labels too when anything is hidden: a thread with a hidden
+     * label on any message is hidden whole (plan §5). This read is the host's
+     * own pre-read for the call already decided, and returns nothing but label
+     * ids. A thread whose labels cannot be established is never clean.
+     */
     const threadLabels = async (threadId: string, own: readonly string[]): Promise<GogResult<string[]>> => {
-      if (hidden.length === 0 || !isGmailThreadId(threadId)) return { ok: true, value: [...own] };
+      if (hidden.length === 0 || own.some(label => hidden.includes(label))) return { ok: true, value: [...own] };
+      if (!isGmailThreadId(threadId)) return { ok: false, error: NOT_FOUND };
       const thread = await transport.execute("gmail.thread.get", { thread_id: threadId });
-      if (!thread.ok) return thread.error.code === "not_found" ? { ok: true, value: [...own] } : thread;
+      if (!thread.ok) return { ok: false, error: asMiss(thread.error) };
+      if (thread.value.id !== threadId) return { ok: false, error: shapeError };
       return { ok: true, value: [...new Set([...own, ...thread.value.messages.flatMap(message => message.label_ids)])] };
     };
     const admitted = (targets: readonly string[]): GoogleError | null => {
       const after = decide(targets);
       return after.outcome === "admitted" ? null : after.outcome === "refused" ? after.error : error("policy_denied", "needs_card", "This needs an approval brain google cannot ask for.");
     };
-    const shape = () => refused(operation, error("transport_incompatible", "unexpected_shape", "The Google transport answered in a shape brain-kit does not read."));
+    const shape = () => refused(operation, shapeError);
     const ok = (data: unknown): GoogleEnvelope => ({ ok: true, operation, data });
 
     switch (operation) {
@@ -514,6 +540,7 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
         const id = (call.call.input as GmailReadInput).id!;
         const [thread, labels] = await Promise.all([transport.execute("gmail.thread.get", { thread_id: id }), labelDirectory()]);
         if (!thread.ok) return refused(operation, asMiss(thread.error));
+        if (thread.value.id !== id) return shape();
         const refusal = admitted(thread.value.messages.flatMap(message => message.label_ids));
         if (refusal) return refused(operation, asMiss(refusal));
         const result = view === "structured" ? structuredGmailThread(thread.value, { labels }) : contentGmailThread(thread.value, { labels });
@@ -523,6 +550,7 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
         const id = (call.call.input as GmailReadInput).id!;
         const [message, labels] = await Promise.all([transport.execute("gmail.message.get", { message_id: id }), labelDirectory()]);
         if (!message.ok) return refused(operation, asMiss(message.error));
+        if (message.value.id !== id) return shape();
         const targets = await threadLabels(message.value.thread_id, message.value.label_ids);
         if (!targets.ok) return refused(operation, asMiss(targets.error));
         const refusal = admitted(targets.value);
@@ -534,6 +562,7 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
         const id = (call.call.input as GmailReadInput).id!;
         const [draft, labels] = await Promise.all([transport.execute("gmail.draft.get", { draft_id: id }), labelDirectory()]);
         if (!draft.ok) return refused(operation, asMiss(draft.error));
+        if (draft.value.draft.id !== id) return shape();
         const message = draft.value.draft.message;
         const targets = message ? await threadLabels(message.thread_id, message.label_ids) : { ok: true as const, value: [] as string[] };
         if (!targets.ok) return refused(operation, asMiss(targets.error));

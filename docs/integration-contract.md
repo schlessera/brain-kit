@@ -40,8 +40,8 @@ envelope `{ ok, operation, data }` or `{ ok: false, operation, error: { code,
 reason, message } }` and exit `0` or `1`. The reads return the Google
 operations' structured or content results in the standalone posture, with no
 taint and no card; `status` reports the home, the pin, the policy, the alias
-and its scopes and says that a local agent with shell access is inside the
-standalone boundary. `brain doctor` gains the `google-home` check. See
+and its scopes, warns on a grant broader than the policy can use, and says
+that a local agent with shell access is inside the standalone boundary. `brain doctor` gains the `google-home` check. See
 [the CLI component](integration-contract/cli.md#google-commands-additive-0460-4208).
 This ships in a minor; no breaking ruling is required.
 

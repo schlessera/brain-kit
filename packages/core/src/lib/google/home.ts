@@ -15,8 +15,11 @@
  *
  * Either home must be absolute, and must neither lie inside nor hold a brain
  * repository: the current brain root or any directory holding a
- * `brain.config.*`. An existing home must be a directory owned by this user
- * that no one else can read or enter. A home that fails refuses Google for
+ * `brain.config.*`. Every directory above it that exists must be owned by
+ * root or this user and writable by no one else unless sticky (as `/tmp`
+ * is), so no other user can put another directory in its place between this
+ * check and gog's use of the path. An existing home must be a directory owned
+ * by this user that no one else can read or enter. A home that fails refuses Google for
  * the command with its reason and nothing else; `brain doctor` reports the
  * standalone home's placement.
  */
@@ -42,7 +45,7 @@ export interface GoogleHomeSelection {
 
 /** Why a home cannot be used. */
 export const GOOGLE_HOME_REASONS = [
-  "home_invalid", "home_inside_brain", "home_holds_brain", "home_not_directory", "home_owner", "home_permissions", "home_unreadable",
+  "home_invalid", "home_inside_brain", "home_holds_brain", "home_ancestor_unsafe", "home_not_directory", "home_owner", "home_permissions", "home_unreadable",
 ] as const;
 export type GoogleHomeReason = typeof GOOGLE_HOME_REASONS[number];
 
@@ -135,6 +138,18 @@ export function checkGoogleHome(home: string, brainRoot: string, uid: number = p
   // A home inside this brain is found by the walk up, since this brain's root holds its config.
   if (repository !== null) return refuse("home_inside_brain", "The Google home is inside a brain repository, where its credential would be part of that brain.");
   if (rootIsBrain && within(root, path)) return refuse("home_holds_brain", "The Google home holds this brain repository; use a directory of its own outside every brain.");
+  // Another user who can rename an entry above the home could swap the path gog is given.
+  for (let dir = dirname(path); ; dir = dirname(dir)) {
+    let above: ReturnType<typeof statSync> | undefined;
+    try { above = statSync(dir, { throwIfNoEntry: false }); }
+    catch { return refuse("home_unreadable", "A directory on the way to the Google home cannot be read."); }
+    if (above) {
+      const owned = above.uid === 0 || uid < 0 || above.uid === uid;
+      const shared = (above.mode & 0o022) !== 0 && (above.mode & 0o1000) === 0;
+      if (!owned || shared) return refuse("home_ancestor_unsafe", "A directory above the Google home is owned or writable by another user, who could replace the home.");
+    }
+    if (dirname(dir) === dir) break;
+  }
   let stats: ReturnType<typeof statSync>;
   try {
     // `path` is resolved, so this is the directory itself, not a link to it.

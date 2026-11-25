@@ -873,8 +873,9 @@ function checkCacheMerge(root: string): Check {
  * The standalone Google home (#4208, plan §10): `BRAIN_GOOGLE_HOME` or its
  * default must not lie inside, or hold, a brain repository, where gog's
  * credential would become part of the brain. Only its placement fails the
- * check; a home that does not exist yet passes, and its owner and mode are
- * `brain google status`'s to report.
+ * check; a placement it cannot establish (an unreadable or unsafe directory
+ * above the home) warns; a home that does not exist yet passes, and its
+ * owner and mode are `brain google status`'s to report.
  */
 export function checkGoogleStandaloneHome(root: string): Check {
   const home = standaloneGoogleHome();
@@ -882,6 +883,10 @@ export function checkGoogleStandaloneHome(root: string): Check {
   const fix = "set BRAIN_GOOGLE_HOME to an absolute directory outside every brain repository, and move the gog home there";
   if (!placed.ok && ["home_invalid", "home_inside_brain", "home_holds_brain"].includes(placed.reason)) {
     return { id: "google-home", status: "fail", detail: `${home.path} (${home.source}): ${placed.detail}`, fix };
+  }
+  // Where it lies could not be established: never a pass.
+  if (!placed.ok && ["home_unreadable", "home_ancestor_unsafe"].includes(placed.reason)) {
+    return { id: "google-home", status: "warn", detail: `${home.path} (${home.source}): ${placed.detail}`, fix };
   }
   return { id: "google-home", status: "pass", detail: `standalone Google home ${home.path} is outside every brain repository` };
 }

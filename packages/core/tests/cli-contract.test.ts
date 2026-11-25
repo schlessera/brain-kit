@@ -981,6 +981,13 @@ describe("google", () => {
   const GRANT_READONLY = [...IDENTITY, READONLY].sort();
   const GRANT_WRITE = [...IDENTITY, READONLY, MODIFY].sort();
   const POLICY = { enabled: true, account: "ithaca", services: ["gmail"] };
+  /** The hall thread's first message, as `gog gmail get` returns it: its own labels carry nothing hidden. */
+  const CLEAN_MESSAGE = (() => {
+    const message = fixture("message-get.json");
+    message.message.id = HALL;
+    message.message.labelIds = ["INBOX", "CATEGORY_PERSONAL"];
+    return message;
+  })();
 
   let brain: string;
   let home: string;
@@ -1051,12 +1058,12 @@ describe("google", () => {
     expect(fake.calls().map(call => call.command)).toEqual(["auth.alias.list", "auth.list"]);
   });
 
-  test("google status warns on a grant broader than brain google asks for", async () => {
+  test("google status warns on a grant broader than the policy can use", async () => {
     fake.setScenario({ ...CONNECTED, "auth.list": accounts([...GRANT_WRITE, "https://www.googleapis.com/auth/gmail.settings.sharing"]) });
     const out = JSON.parse((await google(["status"])).stdout);
     expect(out.data.state).toBe("available");
     expect(out.data.scopes).toMatchObject({ broader: ["https://www.googleapis.com/auth/gmail.settings.sharing"], write: true });
-    expect(out.data.warnings).toEqual([expect.stringMatching(/broader than brain google asks for/)]);
+    expect(out.data.warnings).toEqual([expect.stringMatching(/scopes the policy cannot use \(https:\/\/www.googleapis.com\/auth\/gmail.settings.sharing\)/)]);
   });
 
   test("google status on an unconnected alias, an absent policy block and an unset password", async () => {
@@ -1089,6 +1096,8 @@ describe("google", () => {
     const structured = JSON.parse(next.stdout).data;
     expect(structured.view).toBe("structured");
     for (const thread of structured.threads) expect(thread.untrusted).toBeUndefined();
+    // No address, name, subject or snippet anywhere in a structured page.
+    expect(JSON.stringify(structured)).not.toMatch(/@example\.com|Penelope|Telemachus|Suitors|weav/i);
     expect(fake.callsOf("gmail.search")[1]!.argv).toContain("--page=09876543210987654321");
     expect(fake.callsOf("gmail.search")[1]!.argv).toContain("--max=5");
 
@@ -1113,6 +1122,7 @@ describe("google", () => {
     const structured = JSON.parse((await google(["gmail", "read", "thread", HALL, "--view", "structured"])).stdout).data;
     expect(structured.view).toBe("structured");
     expect(JSON.stringify(structured)).not.toContain("untrusted");
+    expect(JSON.stringify(structured)).not.toMatch(/@example\.com|Penelope|Telemachus|Suitors|Pylos/i);
     const message = JSON.parse((await google(["gmail", "read", "message", "19a0c3d2e4f50602"])).stdout);
     expect(message).toMatchObject({ ok: true, operation: "gmail.message.get", data: { view: "content", message: { message_id: "19a0c3d2e4f50602", thread_id: HALL } } });
     const draft = JSON.parse((await google(["gmail", "read", "draft", "r-1234567890123456789", "--view", "structured"])).stdout);
@@ -1131,7 +1141,7 @@ describe("google", () => {
     policy({ ...POLICY, gmail: { hidden_labels: ["Label_12"] } });
     fake.setScenario({
       ...SEARCH,
-      "gmail.get": { stdout: fixture("message-get.json") },
+      "gmail.get": { stdout: CLEAN_MESSAGE },
       "gmail.drafts.get": { stdout: fixture("draft-raw.json") },
       [`gmail.thread.get ${SWINE}`]: { exit: 5 },
     });
@@ -1140,9 +1150,13 @@ describe("google", () => {
     const hiddenThread = await google(["gmail", "read", "thread", HALL]);
     expect(hiddenThread.code).toBe(1);
     expect(JSON.parse(hiddenThread.stdout).error).toEqual(miss.error);
-    // Hidden by a label on another message of its thread, and on the draft's thread.
+    // A message whose own labels are clean, hidden by Label_12 on the other message of its thread; and the draft in that thread.
     expect(JSON.parse((await google(["gmail", "read", "message", "19a0c3d2e4f50601"])).stdout).error).toEqual(miss.error);
+    expect(fake.callsOf("gmail.thread.get").map(call => call.argv.at(-1))).toContain(HALL);
     expect(JSON.parse((await google(["gmail", "read", "draft", "r-1234567890123456789"])).stdout).error).toEqual(miss.error);
+    // A thread whose labels cannot be read is never clean: its message reads as a miss.
+    fake.setScenario({ ...SEARCH, "gmail.get": { stdout: CLEAN_MESSAGE }, [`gmail.thread.get ${HALL}`]: { exit: 5 } });
+    expect(JSON.parse((await google(["gmail", "read", "message", "19a0c3d2e4f50601"])).stdout).error).toEqual(miss.error);
   });
 
   test("google refusals: unavailable, policy_denied and transport_incompatible, each before or instead of any text", async () => {
@@ -1237,15 +1251,24 @@ describe("google", () => {
     const standalone = join(freshHome(), "standalone");
     const named = JSON.parse((await google(["connect", ADDRESS], { BRAIN_GOOGLE_HOME: standalone })).stdout);
     expect(named.data).toMatchObject({ boundary: "standalone", home: realpathSync(standalone) });
+    // What gog itself was given, for every command of the connect.
+    const homes = () => [...new Set(fake.calls().map(call => call.gog_home))];
+    expect(homes()).toEqual([realpathSync(standalone)]);
     expect(statSync(standalone).mode & 0o777).toBe(0o700);
 
     const data = freshHome();
+    fake.dispose();
+    fake = createFakeGog(scenario);
     const fallback = JSON.parse((await google(["connect", ADDRESS], { BRAIN_GOOGLE_HOME: "", XDG_DATA_HOME: data })).stdout);
     expect(fallback.data).toMatchObject({ boundary: "standalone", home: join(realpathSync(data), "brain/google") });
+    expect(homes()).toEqual([join(realpathSync(data), "brain/google")]);
 
     const host = join(freshHome(), "host");
+    fake.dispose();
+    fake = createFakeGog(scenario);
     const hosted = JSON.parse((await google(["connect", ADDRESS], { BRAIN_UI_GOOGLE_HOME: host, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: PASSWORD })).stdout);
     expect(hosted.data).toMatchObject({ boundary: "host", home: realpathSync(host) });
+    expect(homes()).toEqual([realpathSync(host)]);
     // On a host the host's password is the one that counts.
     const unset = JSON.parse((await google(["connect", ADDRESS], { BRAIN_UI_GOOGLE_HOME: host })).stdout);
     expect(unset.error).toMatchObject({ code: "unavailable", reason: "keyring_password_unset", message: expect.stringContaining("BRAIN_UI_GOOGLE_KEYRING_PASSWORD") });
@@ -1254,7 +1277,7 @@ describe("google", () => {
     const inside = JSON.parse((await google(["connect", ADDRESS], { BRAIN_GOOGLE_HOME: join(brain, "google") })).stdout);
     expect(inside.error).toMatchObject({ code: "unavailable", reason: "home_inside_brain" });
     expect(existsSync(join(brain, "google"))).toBe(false);
-    expect(fake.callsOf("auth.add")).toHaveLength(3);
+    expect(fake.callsOf("auth.add")).toHaveLength(1);
   });
 
   test("google connect refuses a malformed address or redirect before running gog", async () => {
@@ -1266,9 +1289,41 @@ describe("google", () => {
     expect(fake.calls()).toEqual([]);
   });
 
+  test("google status flags gmail.modify while the policy admits no write, and refuses a scope it cannot read", async () => {
+    policy({ ...POLICY, modes: { reversible: "deny", irreversible: "deny" } });
+    fake.setScenario({ ...CONNECTED, "auth.list": accounts(GRANT_WRITE) });
+    const denied = JSON.parse((await google(["status"])).stdout).data;
+    expect(denied.scopes).toMatchObject({ broader: [MODIFY], write: true });
+    expect(denied.warnings).toEqual([expect.stringContaining(MODIFY)]);
+    fake.setScenario({ ...CONNECTED, "auth.list": accounts([...GRANT_READONLY, `${ADDRESS}\u001b[2J`]) });
+    const odd = await google(["status"]);
+    expect(JSON.parse(odd.stdout).data).toMatchObject({ state: "unavailable", reason: "unexpected_shape", scopes: { granted: null } });
+    expect(odd.stdout).not.toContain(ADDRESS);
+  });
+
+  test("google gmail reads carry no label names where the policy denies reading the label list", async () => {
+    policy({ ...POLICY, operations: { "gmail.labels.list": "deny" } });
+    fake.setScenario(SEARCH);
+    const thread = JSON.parse((await google(["gmail", "read", "thread", HALL, "--view", "structured"])).stdout);
+    expect(thread.ok).toBe(true);
+    expect(thread.data.messages[1].labels).toContainEqual({ id: "Label_12", name: null });
+    expect(fake.callsOf("gmail.labels.list")).toEqual([]);
+  });
+
+  test("google connect forgets every search cursor, so an alias pointed elsewhere inherits none", async () => {
+    fake.setScenario({ ...SEARCH, "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: {} } });
+    const cursor = JSON.parse((await google(["gmail", "search", "from:penelope"])).stdout).data.next_cursor;
+    expect(cursor).toMatch(/^gc_/);
+    expect((await google(["connect", ADDRESS])).code).toBe(0);
+    const stale = JSON.parse((await google(["gmail", "search", "from:penelope", "--cursor", cursor])).stdout);
+    expect(stale.error).toMatchObject({ code: "invalid_input", reason: "cursor" });
+  });
+
   test("google: brain doctor fails when the standalone home is inside a brain repository", async () => {
     const doctor = async (env: Record<string, string>) => {
       const res = await runCli(brain, ["doctor", "--json"], env);
+      // A diagnostic report: it exits 0 and says what failed in its checks.
+      expect(res.code).toBe(0);
       return JSON.parse(res.stdout).checks.find((check: { id: string }) => check.id === "google-home");
     };
     expect(await doctor({ BRAIN_GOOGLE_HOME: join(brain, "state/google") })).toMatchObject({ status: "fail", fix: expect.stringContaining("BRAIN_GOOGLE_HOME") });

@@ -161,7 +161,7 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     name: "BRAIN_GOOGLE_HOME",
     description:
       "Absolute gog home (config and file keyring) of a standalone `brain google` process (#4208). Never inside a brain " +
-      "repository: `brain doctor` fails and every `brain google` command refuses when it is. A chat worker never receives it.",
+      "repository: `brain doctor` fails, and `connect` and every read refuse, when it is. A chat worker never receives it.",
     default: "$XDG_DATA_HOME/brain/google, else ~/.local/share/brain/google",
     required: false,
   },

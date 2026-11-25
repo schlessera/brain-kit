@@ -412,8 +412,8 @@ same transport as the server.
 
 | Command | Does | Notes |
 |---|---|---|
-| `google status` | The home, the pinned gog, the policy, the connected alias and its scopes | warns on a grant broader than brain google asks for; never prints the address |
-| `google connect <address> [--write]` | Connects the policy's alias through gog's OAuth flow | read-only scopes, or with `--write` exactly `gmail.readonly` and `gmail.modify`; a broader grant is removed and refused |
+| `google status` | The home, the pinned gog, the policy, the connected alias and its scopes | warns on a grant broader than the policy can use; never prints the address |
+| `google connect <address> [--write]` | Connects the policy's alias through gog's OAuth flow | read-only scopes, or with `--write` exactly `gmail.readonly` and `gmail.modify`; a broader grant is removed and refused; forgets every search cursor |
 | `google connect <address> --remote [--auth-url URL]` | The same, for a machine without a browser | prints a URL to open elsewhere; run it again with `--auth-url` and the URL the browser landed on |
 | `google gmail search <query…>` | One page of threads (Gmail search syntax) | `--limit N` (1–25, default 10), `--cursor C` from the previous page's `next_cursor` |
 | `google gmail read thread\|message\|draft <id>` | One thread, message or draft | |
@@ -424,8 +424,10 @@ and bodies, each under an `untrusted` key; `--view structured` returns only ids,
 label ids and names, dates, counts, size buckets and flags. Threads carrying a
 label in `google.gmail.hidden_labels` are left out of every search and read as
 a miss. `connect --credentials FILE` stores your Google Cloud **Desktop** OAuth
-client in the home first. Each command prints one `{ ok, operation, data }` or
-`{ ok: false, operation, error }` envelope and exits `0` or `1`
+client in the home first. With `--json` each command prints one
+`{ ok, operation, data }` or `{ ok: false, operation, error }` envelope;
+without it a success prints `data` and a refusal its message on stderr. Every
+command exits `0` or `1`
 ([the contract](integration-contract/cli.md#google-commands-additive-0460-4208)).
 
 **What standalone means.** The process has no chat session, so nothing it reads
@@ -441,7 +443,9 @@ for them unless you pass `--write`.
 The home is `BRAIN_GOOGLE_HOME`, by default `$XDG_DATA_HOME/brain/google`,
 with its file keyring's password in `BRAIN_GOOGLE_KEYRING_PASSWORD` and the
 pinned binary in `BRAIN_GOOGLE_GOG_PATH`. It must lie outside every brain
-repository (`brain doctor` fails otherwise) and be private to you. In an
+repository (`brain doctor` fails otherwise), be private to you, and sit below
+directories only you or root can change (a sticky directory such as `/tmp`
+counts). In an
 operator's shell on a host that sets `BRAIN_UI_GOOGLE_HOME`, brain google uses
 the server's home, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD` and `BRAIN_UI_GOG_PATH`
 instead, which is how `brain google connect --remote` connects a hosted

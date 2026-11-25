@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { GOOGLE_VIEWS, type GoogleView } from "@schlessera/brain-common/internal/google-operations";
 import type { GogBinary } from "@schlessera/brain-common/internal/google-gog";
 import { createStandaloneGoogle, type GoogleEnvelope, type GoogleReadCommand, type StandaloneGoogle } from "../../lib/google/standalone.js";
@@ -67,16 +67,27 @@ function limitOf(flags: Record<string, string | boolean>): number | undefined {
   return Number(value);
 }
 
-/** The OAuth client file, read here so gog gets it on stdin and never a path. */
+const CREDENTIALS_MAX = 64 * 1024;
+
+/** The OAuth client file, read here (one descriptor, bounded, never a FIFO) so gog gets it on stdin and never a path. */
 function credentialsOf(flags: Record<string, string | boolean>): Uint8Array | undefined {
   const path = text(flags, "credentials");
   if (path === undefined) return undefined;
+  let fd: number;
+  try { fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK); }
+  catch { throw new UsageError("--credentials names a file that cannot be read."); }
   try {
-    if (!statSync(path).isFile() || statSync(path).size > 64 * 1024) throw new UsageError("--credentials names a file of at most 64 KiB.");
-    return readFileSync(path);
+    if (!fstatSync(fd).isFile()) throw new UsageError("--credentials names a file of at most 64 KiB.");
+    const bytes = Buffer.alloc(CREDENTIALS_MAX + 1);
+    let length = 0;
+    for (let read; length <= CREDENTIALS_MAX && (read = readSync(fd, bytes, length, CREDENTIALS_MAX + 1 - length, null)) > 0;) length += read;
+    if (length > CREDENTIALS_MAX) throw new UsageError("--credentials names a file of at most 64 KiB.");
+    return bytes.subarray(0, length);
   } catch (error) {
     if (error instanceof UsageError) throw error;
     throw new UsageError("--credentials names a file that cannot be read.");
+  } finally {
+    closeSync(fd);
   }
 }
 

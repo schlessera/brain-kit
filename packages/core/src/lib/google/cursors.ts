@@ -6,7 +6,9 @@
  * has no session to keep it in, so the standalone CLI keeps its cursors in
  * one small file in the Google home it already checked (owner-only, outside
  * every brain): `brain-search-cursors.json`, mode 0600, written whole and
- * renamed into place.
+ * renamed into place. It is read only as a regular 0600 file of this user's,
+ * opened without following a link or waiting on a FIFO, and only up to its
+ * bound; anything else reads as no cursors.
  *
  * A cursor names one account and one query (by its SHA-256, never its text),
  * and lives for an hour, or until more than {@link GOOGLE_CURSOR_LIMIT} newer
@@ -15,10 +17,11 @@
  * expired, for another account or for another query refuses as
  * `invalid_input`. The file holds no message data; losing it only ends
  * paging. Two processes writing at once can lose each other's newest cursor,
- * which also only ends paging.
+ * which also only ends paging. A successful `brain google connect` forgets
+ * every cursor, so an alias pointed at another account inherits none.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, fstatSync, openSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isGoogleHostCursor } from "@schlessera/brain-common/internal/google-operations";
 
@@ -41,6 +44,8 @@ export interface GoogleCursorStore {
   mint(account: string, query: string, pageToken: string): string;
   /** The page token a cursor stands for, or null when it stands for none for this account and query. */
   resolve(account: string, query: string, cursor: string): string | null;
+  /** Forgets every cursor: a connect may have pointed an alias at another account. Throws when the file cannot be removed. */
+  clear(): void;
 }
 
 const queryKey = (query: string) => createHash("sha256").update(query, "utf8").digest("hex");
@@ -56,15 +61,29 @@ function isEntry(value: unknown): value is CursorEntry {
 export function googleCursorStore(home: string, now: () => number = Date.now): GoogleCursorStore {
   const path = join(home, GOOGLE_CURSOR_FILE);
 
-  function read(): Map<string, CursorEntry> {
-    let text: string;
+  /** The file's text, or null unless it is a small regular 0600 file of this user's. */
+  function contents(): string | null {
+    let fd: number;
+    try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+    catch { return null; }
     try {
-      const bytes = readFileSync(path);
-      if (bytes.length > MAX_BYTES) return new Map();
-      text = bytes.toString("utf8");
+      const stats = fstatSync(fd);
+      const uid = process.getuid?.();
+      if (!stats.isFile() || (stats.mode & 0o777) !== 0o600 || (uid !== undefined && stats.uid !== uid) || stats.size > MAX_BYTES) return null;
+      const bytes = Buffer.alloc(MAX_BYTES + 1);
+      let length = 0;
+      for (let read; length <= MAX_BYTES && (read = readSync(fd, bytes, length, MAX_BYTES + 1 - length, null)) > 0;) length += read;
+      return length > MAX_BYTES ? null : bytes.subarray(0, length).toString("utf8");
     } catch {
-      return new Map();
+      return null;
+    } finally {
+      closeSync(fd);
     }
+  }
+
+  function read(): Map<string, CursorEntry> {
+    const text = contents();
+    if (text === null) return new Map();
     let parsed: unknown;
     try { parsed = JSON.parse(text); } catch { return new Map(); }
     const cursors = typeof parsed === "object" && parsed !== null ? (parsed as { cursors?: unknown }).cursors : undefined;
@@ -102,6 +121,9 @@ export function googleCursorStore(home: string, now: () => number = Date.now): G
       const entry = read().get(cursor);
       if (!entry || entry.account !== account || entry.query !== queryKey(query)) return null;
       return entry.page_token;
+    },
+    clear() {
+      rmSync(path, { force: true });
     },
   };
 }

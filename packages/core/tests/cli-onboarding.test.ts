@@ -641,6 +641,7 @@ test("doctor without git on PATH still prints every check, with git-hooks naming
     "reranker", "mcp", "deps", "version", "privacy",
     "eval-baseline", "git-storage", "tracked-leftovers", "tracked-media", "scratch",
     "search-language", "cache-merge", "sqlite-vec-macos",
+    "google-home",
   ]);
 });
 
@@ -678,7 +679,7 @@ test("a check that throws becomes a warn, and every later check still reports", 
   const scratch = checks.find((c) => c.id === "scratch");
   expect(scratch?.status).toBe("warn");
   expect(scratch?.detail).toStartWith("the check itself failed: ENOTDIR");
-  expect(checks.map((c) => c.id).slice(-2)).toEqual(["cache-merge", "sqlite-vec-macos"]);
+  expect(checks.map((c) => c.id).slice(-3)).toEqual(["cache-merge", "sqlite-vec-macos", "google-home"]);
 
   const fix = await runCli(root, ["doctor", "--fix", "--json"], env);
   expect(fix.code, fix.stderr).toBe(0);

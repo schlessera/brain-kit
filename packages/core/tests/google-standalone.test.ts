@@ -91,8 +91,26 @@ describe("google home placement", () => {
     expect(checkGoogleHome(open, root)).toMatchObject({ ok: false, reason: "home_permissions" });
     const own = join(parent, "own");
     mkdirSync(own, { mode: 0o700 });
-    expect(checkGoogleHome(own, root, statSync(own).uid + 1)).toMatchObject({ ok: false, reason: "home_owner" });
+    // A directory root owns, below directories root owns: only the home itself is another user's.
+    expect(checkGoogleHome("/usr", root)).toMatchObject({ ok: false, reason: process.getuid?.() === 0 ? "home_permissions" : "home_owner" });
     expect(checkGoogleHome(own, root)).toMatchObject({ ok: true, exists: true });
+  });
+});
+
+describe("google home ancestry", () => {
+  test("google home below a directory another user could rename an entry in is refused; a sticky one is not", () => {
+    const root = dir("brain-google-brain-");
+    writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+    const shared = dir();
+    chmodSync(shared, 0o777);
+    expect(checkGoogleHome(join(shared, "google"), root)).toMatchObject({ ok: false, reason: "home_ancestor_unsafe" });
+    expect(checkGoogleHome(join(shared, "deeper", "google"), root)).toMatchObject({ ok: false, reason: "home_ancestor_unsafe" });
+    chmodSync(shared, 0o1777);
+    expect(checkGoogleHome(join(shared, "google"), root)).toMatchObject({ ok: true, exists: false });
+    chmodSync(shared, 0o700);
+    // Owned by someone else: told apart by the uid the check is given.
+    const own = dir();
+    expect(checkGoogleHome(join(own, "google"), root, statSync(own).uid + 1)).toMatchObject({ ok: false, reason: "home_ancestor_unsafe" });
   });
 });
 
@@ -127,6 +145,35 @@ describe("google search cursors", () => {
     writeFileSync(join(home, GOOGLE_CURSOR_FILE), "{ not json");
     expect(store.resolve("ithaca", "in:inbox", minted.at(-1)!)).toBeNull();
     expect(() => store.mint("ithaca", "in:inbox", "a token\nwith a line")).toThrow();
+  });
+});
+
+describe("google cursor file", () => {
+  test("google cursors are read only from a small private regular file: a link, a FIFO, a shared or a large file reads as none", () => {
+    const home = dir();
+    const store = googleCursorStore(home, () => 1_783_850_000_000);
+    const cursor = store.mint("ithaca", "in:inbox", "09876543210987654321");
+    const file = join(home, GOOGLE_CURSOR_FILE);
+    const saved = readFileSync(file);
+    chmodSync(file, 0o644);
+    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
+    rmSync(file);
+    const elsewhere = join(dir(), "cursors.json");
+    writeFileSync(elsewhere, saved, { mode: 0o600 });
+    symlinkSync(elsewhere, file);
+    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
+    rmSync(file);
+    expect(Bun.spawnSync(["mkfifo", file]).exitCode).toBe(0);
+    // Opened without waiting for a writer, so this returns at once.
+    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
+    rmSync(file);
+    writeFileSync(file, Buffer.concat([saved, Buffer.alloc(300 * 1024, 0x20)]), { mode: 0o600 });
+    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
+    rmSync(file);
+    writeFileSync(file, saved, { mode: 0o600 });
+    expect(store.resolve("ithaca", "in:inbox", cursor)).toBe("09876543210987654321");
+    store.clear();
+    expect(store.resolve("ithaca", "in:inbox", cursor)).toBeNull();
   });
 });
 
