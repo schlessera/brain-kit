@@ -130,8 +130,9 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
   // Shown even over an emptied composer: the other version still waits.
   if (d?.conflict) {
     return { key: "conflict", state: "attention", stateLabel: "Draft changed on another device",
-      summary: "Draft changed on another device. Compare to choose which to keep.",
-      facts: [{ key: "This device", value: `edited ${clock(d.editedAt)}` }, { key: "Other device", value: `edited ${clock(d.conflict.other.updatedAt)}` }],
+      summary: `Draft changed on another device. Compare to choose which to keep.${note ? ` ${note}.` : ""}`,
+      facts: [{ key: "This device", value: `edited ${clock(d.editedAt)}` }, { key: "Other device", value: `edited ${clock(d.conflict.other.updatedAt)}` },
+        ...(note ? [{ key: "Other version", value: note }] : [])],
       action: "compare" };
   }
   // Shown even over an emptied composer: a Send's refused snapshot list is this draft's too (#4566).

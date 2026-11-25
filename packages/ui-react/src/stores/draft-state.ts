@@ -1130,7 +1130,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       adoptHostSnapshots(draftId, draft) {
         const d = get().drafts[draftId];
         if (!d) return;
-        put({ ...d, host: hostCopy(draft, -1), snapshots: mergeSnapshots(d.snapshots, draft.snapshots), uncertain: false, edit: d.edit + 1, editedAt: now() });
+        // A Send made meanwhile, which the host never saw, stays after the host's own.
+        const fresh = draftSnapshots(d).filter((x) => !(draft.snapshots ?? []).some((h) => h.snapshotId === x.snapshotId) && !d.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId));
+        put({ ...d, host: hostCopy(draft, -1), snapshots: [...mergeSnapshots(d.snapshots, draft.snapshots), ...fresh], uncertain: false, edit: d.edit + 1, editedAt: now() });
       },
 
       filesGone(draftId, fileIds) {
@@ -1145,13 +1147,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // A Send made while the delete was out holds a snapshot the host never saw (#4567): it goes with the
         // content. One with originals cannot: they were minted for the deleted id, so it comes back to the
         // composer unsent, its files to be chosen again.
-        const unsent = draftSnapshots(d).filter((x) => x.files.length > 0);
+        const unsent = draftSnapshots(d).filter((x) => x.files.length > 0 || (x.uploads?.length ?? 0) > 0);
         if (unsent.length > 0) {
           let text = d.text;
           for (const r of [...unsent].reverse()) text = text ? (r.text ? `${r.text}\n${text}` : text) : r.text;
           const back = unsent.flatMap((r) => r.files.flatMap((f) => f.file ? [{ file: f.file, lineage: draftId }] : []));
           put({ ...d, text, files: [...back, ...draftFiles(d).filter((f) => !back.some((b) => b.file.fileId === f.file.fileId))],
-            snapshots: draftSnapshots(d).filter((x) => x.files.length === 0), edit: d.edit + 1, editedAt: now() });
+            snapshots: draftSnapshots(d).filter((x) => !unsent.includes(x)), edit: d.edit + 1, editedAt: now() });
           return get().removed(draftId);
         }
         const carried = draftSnapshots(d).length > 0;
