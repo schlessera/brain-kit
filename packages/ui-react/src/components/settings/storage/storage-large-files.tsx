@@ -12,6 +12,7 @@ import type { StorageFileEntry } from "@schlessera/brain-ui-sdk/protocol";
 import { bytes, humanReason } from "./storage-model.js";
 import { LARGER_PRESETS } from "./storage-pane-model.js";
 import { running, type useStorage } from "./use-storage.js";
+import { usePageFocus } from "./storage-page-focus.js";
 
 type StorageView = ReturnType<typeof useStorage>;
 type Facts = NonNullable<StorageView["evidence"][string]["facts"]>;
@@ -50,6 +51,7 @@ export function StorageLargeFiles({
   onReceipt: () => void;
 }) {
   const id = useId();
+  const { pager, paging } = usePageFocus(view.loading, view.files);
   const [custom, setCustom] = useState(() => !LARGER_PRESETS.some((preset) => preset.value === view.larger));
   const unavailable = !view.capability?.available;
   const operationPending = running(view.receipt?.state) || view.receipt?.state === "unknown";
@@ -254,20 +256,36 @@ export function StorageLargeFiles({
           disabled={view.loading || !entries.length}
           onClick={() => void view.copyList()}
         />
-        {view.cursor && (
-          <Button label="First 200 items" tone="quiet" size="sm" reach block={false} disabled={view.loading} onClick={() => view.setCursor(undefined)} />
-        )}
-        {view.files?.nextCursor && (
-          <Button
-            label="Next 200 items"
-            tone="quiet"
-            size="sm"
-            reach
-            block={false}
-            disabled={view.loading}
-            onClick={() => view.setCursor(view.files?.nextCursor ?? undefined)}
-          />
-        )}
+        <div ref={pager} className="contents">
+          {view.cursor && (
+            <Button
+              label="First 200 items"
+              tone="quiet"
+              size="sm"
+              reach
+              block={false}
+              disabled={view.loading}
+              onClick={() => {
+                paging();
+                view.setCursor(undefined);
+              }}
+            />
+          )}
+          {view.files?.nextCursor && (
+            <Button
+              label="Next 200 items"
+              tone="quiet"
+              size="sm"
+              reach
+              block={false}
+              disabled={view.loading}
+              onClick={() => {
+                paging();
+                view.setCursor(view.files?.nextCursor ?? undefined);
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

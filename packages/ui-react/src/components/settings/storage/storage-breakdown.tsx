@@ -15,6 +15,7 @@ import { bytes, mapItems } from "./storage-model.js";
 import { storageConsumerRows } from "./storage-consumers.js";
 import { StorageSegmented } from "./storage-segmented.js";
 import type { useStorage } from "./use-storage.js";
+import { usePageFocus } from "./storage-page-focus.js";
 
 type StorageView = ReturnType<typeof useStorage>;
 
@@ -88,6 +89,7 @@ export function StorageBreakdown({
     [showEmpty, setShowEmpty] = useState(false);
   const pendingFocus = useRef<string | null>(null);
   const tree = view.tree;
+  const { pager, paging } = usePageFocus(view.loading, tree);
   const side = width >= SIDE_BY_SIDE,
     strip = width > 0 && width < STRIP;
   const mapWidth = side ? Math.floor((width - 24) / 2) : width;
@@ -248,20 +250,36 @@ export function StorageBreakdown({
             onClick={() => setShowEmpty((value) => !value)}
           />
         )}
-        {view.cursor && (
-          <Button label="First 200 items" tone="quiet" size="sm" reach block={false} disabled={view.loading} onClick={() => view.setCursor(undefined)} />
-        )}
-        {tree?.nextCursor && (
-          <Button
-            label="Next 200 items"
-            tone="quiet"
-            size="sm"
-            reach
-            block={false}
-            disabled={view.loading}
-            onClick={() => view.setCursor(tree.nextCursor ?? undefined)}
-          />
-        )}
+        <div ref={pager} className="contents">
+          {view.cursor && (
+            <Button
+              label="First 200 items"
+              tone="quiet"
+              size="sm"
+              reach
+              block={false}
+              disabled={view.loading}
+              onClick={() => {
+                paging();
+                view.setCursor(undefined);
+              }}
+            />
+          )}
+          {tree?.nextCursor && (
+            <Button
+              label="Next 200 items"
+              tone="quiet"
+              size="sm"
+              reach
+              block={false}
+              disabled={view.loading}
+              onClick={() => {
+                paging();
+                view.setCursor(tree.nextCursor ?? undefined);
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
