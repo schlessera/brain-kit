@@ -412,3 +412,12 @@ export {
   type HistoryScenarioWindow,
   type HistoryThresholds,
 } from "./storage/history-geometry.js";
+/* Storage breakdown: ownership by tint, edge and label, legend and rows (#4544). */
+export { type StorageOwner } from "./storage/storage-geometry.js";
+export { StorageMapLegend, type StorageMapLegendOwner, type StorageMapLegendProps } from "./storage/StorageMapLegend.js";
+export { StorageConsumerList, type StorageConsumerListProps, type StorageSortDirection, type StorageSortKey } from "./storage/StorageConsumerList.js";
+export { StorageConsumerRow, StorageFilterRow, type StorageConsumerRowProps, type StorageFilterRowProps } from "./storage/StorageConsumerRow.js";
+export { StorageSelectionBar, type StorageSelectionBarProps } from "./storage/StorageSelectionBar.js";
+export { StorageBreadcrumb, type StorageBreadcrumbProps, type StorageCrumb } from "./storage/StorageBreadcrumb.js";
+export { StorageSummaryRow, type StorageSummaryRowProps } from "./storage/StorageSummaryRow.js";
+export { STORAGE_PARTIAL_REASON, storageUnknownReason, type StorageEligibility, type StorageGitFacet } from "./storage/storage-copy.js";

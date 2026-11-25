@@ -5095,6 +5095,29 @@ The component performs no I/O; callers own the bounded, deduplicated inventory
 and equivalent complete list. Unknown and nonpositive sizes have no tile area;
 small tiles have no activation target. It preserves one roving tab stop.
 
+### Storage breakdown ownership and rows (additive, #4544)
+
+`StorageMap` keeps its props and `StorageMapItem` shape. Its skin changes:
+ownership is tint, edge and label with no hatching (#4537 D8). Brain tiles
+draw a solid edge, App an inner dotted edge, Operator a dashed edge, and the
+`smaller` aggregate a neutral outline whatever its `owner`. Tiles of at least
+62 × 40 prefix their name with the owner's letter (`B ·`, `A ·`, `O ·`) at
+any width, and the legend decodes the letters. It adds optional
+`highlightedId`, `onHighlight(id | null)` and `muted`. A tile's accessible
+name uses the owner word, and the aggregate's ends in "Open list.".
+
+`@schlessera/brain-ui-kit` also exports `StorageMapLegend`, `StorageConsumerList`,
+`StorageConsumerRow`, `StorageFilterRow`, `StorageSelectionBar`,
+`StorageBreadcrumb` and `StorageSummaryRow` with their props types, the types
+`StorageOwner`, `StorageMapLegendOwner`, `StorageSortKey`,
+`StorageSortDirection`, `StorageCrumb`, `StorageGitFacet` and
+`StorageEligibility`, `storageUnknownReason(reason)` and
+`STORAGE_PARTIAL_REASON`. They take pre-formatted strings, numbers and
+callbacks and perform no I/O. A row with a `null` size is the unknown row: a
+`?` mark, `? not measured` and its reason, never a bar or a zero. Rows have no
+Open action; the caller places Open in its inspect panel and the breadcrumb's
+`actions` slot.
+
 The ui-react Settings selection accepts `storage`. `openSettings("storage")`
 and the existing palette open the same lazy pane after Modules; Models remains
 the default. This adds no main destination or keyboard shortcut. Requests and
