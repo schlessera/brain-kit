@@ -26,7 +26,14 @@ import {
   type HistoryScenario,
   type HistoryThresholds,
 } from "@schlessera/brain-ui-kit";
-import { DAY_MS, storageFormat, thresholdBytes, type StorageFormat } from "./storage-volumes.js";
+import {
+  DAY_MS,
+  NOMINAL_WINDOW_DAYS as NOMINAL_DAYS,
+  scenarioWindowName,
+  storageFormat,
+  thresholdBytes,
+  type StorageFormat,
+} from "./storage-volumes.js";
 
 const HOUR_MS = 3_600_000;
 /**
@@ -129,7 +136,6 @@ export function historyThresholds(total: number | null): HistoryThresholds {
  * (`capacityEvidence`, `packages/ui-server/src/storage/history-evidence.ts:79-91`).
  * Only an unavailable window, which has no real span, is named by these.
  */
-const NOMINAL_DAYS = { short: 7, long: 30 } as const;
 /** A forecast beyond this many days is named, not dated (100 years). */
 const FAR_DAYS = 36_500;
 function reasonText(reason: StorageEvidenceReason | null, window: "short" | "long"): string {
@@ -162,8 +168,7 @@ export function storageScenarios(
       return { window, name: nominal, reason: reasonText(scenario.reason, window) };
     if (evidence.available === null)
       return { window, name: nominal, reason: reasonText("incomplete", window) };
-    const span = Math.max(1, Math.round((scenario.end - scenario.start) / DAY_MS));
-    const name = `${span}-day`;
+    const name = scenarioWindowName(window, scenario);
     if (scenario.state === "finite") {
       if (scenario.days === null) return { window, name, reason: reasonText("arithmetic", window) };
       // A finite but far rate can project past the Date range; past a
