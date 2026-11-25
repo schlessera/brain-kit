@@ -709,9 +709,10 @@ test("a Send with originals made while the emptied draft's delete is out comes b
 test("a delete refused for a message still waiting there brings that message back with the host's revision", async () => {
   let deletes = 0;
   const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const, createdAt: 5 };
-  const current = { draftId: "", sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [], snapshots: [held] };
+  const current = { draftId: "", sessionId: SESSION, revision: 4, updatedAt: 9, text: "", attachments: [], snapshots: [held] };
   const s = scene({ snapshots: true, remove: async () => { deletes++; return { ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "A message of this draft is still waiting.", current: { ...current, draftId: s.id } } }; } });
-  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [] });
+  // The host moved on to revision 4: only a save over the revision it answers with can succeed.
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 4, updatedAt: 9, text: "", attachments: [] });
   s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [], editedAt: 1, edit: 3,
     host: { revision: 3, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ ...held }], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
   await run(LONG);
@@ -719,7 +720,7 @@ test("a delete refused for a message still waiting there brings that message bac
   expect(deletes, "WAITING_MESSAGE_NOT_DELETED_AGAIN").toBe(1);
   expect(d.snapshots?.map((x) => x.snapshotId), "WAITING_MESSAGE_BACK").toEqual(["snap-held"]);
   // Saved over the host's revision, with the waiting message listed.
-  expect(s.rows.get(s.id)?.revision, "SAVED_OVER_HOST_REVISION").toBe(4);
+  expect(s.rows.get(s.id)?.revision, "SAVED_OVER_HOST_REVISION").toBe(5);
   expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.snapshotId)).toEqual(["snap-held"]);
   expect(d.host?.edit).toBe(d.edit);
 });
