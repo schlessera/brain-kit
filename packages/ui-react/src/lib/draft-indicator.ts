@@ -31,6 +31,8 @@ type DraftIndicatorKey =
   | "detached"
   | "too_large"
   | "full"
+  /** The brain refused this edit and would again (#4566): not sent again until it changes. */
+  | "refused"
   | "unavailable"
   | "conflict"
   | "device_conflict";
@@ -148,6 +150,12 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
     const held = d.failure.bound === "drafts" ? `${d.failure.limit} drafts` : `${bytesLabel(d.failure.limit)} of drafts`;
     return { key: "full", state: "refused", stateLabel: "Draft not saved: the host is full",
       summary: `Draft not saved: ${held} saved. Delete one to save this.`, facts: [{ key: "Saved", value: held }] };
+  }
+  if (d?.failure?.kind === "refused" && d.failure.edit === d.edit) {
+    return { key: "refused", state: "refused", stateLabel: "Draft not saved: the brain refused it",
+      summary: `Draft not saved: the brain refused it.${kept}`,
+      explanation: "This tab stopped sending it. Change the draft to try again.",
+      facts: [{ key: "Brain said", value: d.failure.reason }] };
   }
   const unconfirmedUploads = own.filter((item) => item.state === "unknown");
   if (unconfirmedUploads.length > 0 && online) {

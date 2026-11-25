@@ -36,7 +36,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
 
   const view = draftSaveView(draft, { supported, limits, localFailed }, Date.now());
   const tone = view.state === "saved" ? "text-accent"
-    : view.state === "conflict" || view.state === "too_large" || view.state === "full" || view.state === "unsaved" ? "text-primary"
+    : view.state === "conflict" || view.state === "too_large" || view.state === "full" || view.state === "refused" || view.state === "unsaved" ? "text-primary"
     : "text-muted-foreground";
   if (draft?.deviceConflict && !draft.conflict && !localFailed) return (
     <div className="mx-auto mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 px-1 font-mono text-[10.5px] leading-4 text-foreground" data-device-conflict="">

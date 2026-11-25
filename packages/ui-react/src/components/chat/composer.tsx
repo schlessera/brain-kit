@@ -771,7 +771,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const current = store.drafts[draftId];
     if (current && draftFilesOf(current).some((f) => f.lineage !== current.draftId)) { setEffortNotice("Your draft is kept. Remove the files marked not attached, or choose them again, before sending."); return; }
     if (current?.conflict) { setEffortNotice("Your draft is kept. Choose which version to keep before sending."); return; }
-    if (current?.failure && current.failure.kind !== "unsaved") { setEffortNotice("Your draft is kept. Its files couldn't be saved with it; remove one and try again."); return; }
+    // A refused save does not hold Send: the send is the next edit, saved again (#4566).
+    if (current?.failure && current.failure.kind !== "unsaved" && current.failure.kind !== "refused") { setEffortNotice("Your draft is kept. Its files couldn't be saved with it; remove one and try again."); return; }
     // A typed answer to a pending question is still an answer, never a message (D38 §1).
     if (text && !hasAttachments && takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) =>
       void root.answers.submit(answer).then((result) => { if (result === "refused") root.stores.chat.getState().requestComposerInsert(text); }))) {
@@ -819,7 +820,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (d && draftFilesOf(d).some((f) => f.lineage !== d.draftId)) return { blocked: "Your draft is kept. Remove the files marked not attached, or choose them again, before sending." };
     if (queued.some(queuedPending)) return { pending: true };
     if (!d || draftFilesOf(d).length === 0) return {};
-    if (d.failure && d.failure.kind !== "unsaved") return { blocked: "Your draft is kept. Its files couldn't be saved with it; remove one and try again." };
+    if (d.failure?.kind === "refused" && d.failure.edit === d.edit) return { blocked: "Your draft is kept. The brain refused to save it; change it and try again." };
+    if (d.failure && d.failure.kind !== "unsaved" && d.failure.kind !== "refused") return { blocked: "Your draft is kept. Its files couldn't be saved with it; remove one and try again." };
     if (d.conflict) return { blocked: "Your draft is kept. Choose which version to keep before sending its files." };
     // Sent only from an acknowledged revision: the message names it.
     if (!(d.host !== null && d.host.edit === d.edit)) return { pending: true };

@@ -43,7 +43,13 @@ type DraftSaveFailure =
   /** 413: `limit` bytes (or images), named by `bound`. */
   | { kind: "too_large"; limit: number; bound: string }
   /** 507: the host keeps `limit` drafts, or bytes, already. */
-  | { kind: "full"; limit: number; bound: string };
+  | { kind: "full"; limit: number; bound: string }
+  /**
+   * 400 (#4566): the host refused this edit as it is and would refuse it
+   * again. Not sent again until the content changes: `edit` is the
+   * generation refused, and `reason` the host's message.
+   */
+  | { kind: "refused"; edit: number; reason: string };
 
 /**
  * A composer original the host stored for a draft (#3155). `lineage` is the
@@ -55,6 +61,13 @@ export interface DraftFile {
   file: AttachmentFile;
   lineage: string;
 }
+
+/**
+ * The lineage of an original the host said it no longer stores (#4566): no
+ * draft id is this, so it reads as needing to be chosen again, like one
+ * carried from another id, and no save lists it.
+ */
+export const GONE_LINEAGE = "gone";
 
 const NO_FILES: readonly DraftFile[] = [];
 /** A draft's originals; none when it was built without the field. */
@@ -386,6 +399,8 @@ export interface DraftStoreState {
   uploaded(draftId: string, attachment: PendingAttachment, attachmentId: string): void;
   /** The host's uploads for this draft are gone; upload again on the next save. */
   forgetUploads(draftId: string): void;
+  /** The host no longer stores these originals for this draft (#4566): they read as needing to be chosen again. */
+  filesGone(draftId: string, fileIds: readonly string[]): void;
   /** The host deleted the draft (DELETE acknowledged): it is gone here too. */
   removed(draftId: string): void;
   /**
@@ -1016,6 +1031,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       forgetUploads(draftId) {
         const d = get().drafts[draftId];
         if (d && d.uploads.size > 0) put({ ...d, uploads: new Map() });
+      },
+
+      filesGone(draftId, fileIds) {
+        const d = get().drafts[draftId];
+        if (!d || !draftFiles(d).some((f) => fileIds.includes(f.file.fileId))) return;
+        put({ ...d, files: draftFiles(d).map((f) => (fileIds.includes(f.file.fileId) ? { ...f, lineage: GONE_LINEAGE } : f)) });
       },
 
       removed(draftId) {
