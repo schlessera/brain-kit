@@ -1,4 +1,4 @@
-import { HOST_TIMEOUT_OUTCOME_DETAIL, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
+import { HOST_TIMEOUT_OUTCOME_DETAIL, hostStopOutcomeDetail, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { TurnTextCollector } from "../../classification/classify-turn.js";
 import type { ClaudeUsageEvidence } from "../claude-usage-accounting.js";
@@ -6,9 +6,12 @@ import { acceptDraft } from "../drafts.js";
 import { withTurnScope } from "../frames.js";
 import { emitTurnError } from "./turn-error.js";
 import type { BridgeContext, BridgeSlice, MakeBridgeOptions } from "./context.js";
+import { hostStopOf, stopTurnForHost } from "../host-stop.js";
 
 /** The words a timed-out turn's `status: cancelled` carries in `detail`. */
 const TURN_TIMED_OUT = "Turn timed out";
+/** The words a host-stopped turn's `status: cancelled` carries in `detail` (#4565). */
+const TURN_STOPPED_BY_HOST = "Stopped by the host";
 
 type Frame = Parameters<BackendBridge["emit"]>[0];
 type SessionInfoFrame = Extract<Frame, { type: "session_info" }>;
@@ -84,6 +87,15 @@ function normalizeFrame(ctx: BridgeContext, thinkingLevel: ReturnType<typeof cap
   if (turn.timedOutTurnId === turnId && turn.turnId === turnId && !turn.cancelled) {
     if (msg.type === "status" && msg.status === "cancelled") msg = { ...msg, detail: TURN_TIMED_OUT };
     else if (msg.type === "result" && msg.outcome === "cancelled") msg = { ...msg, outcomeDetail: HOST_TIMEOUT_OUTCOME_DETAIL };
+  }
+  // The host itself stopped this turn (#4565): its terminal says why, and a
+  // tool it cut short is shown as stopped, not as the user's refusal. Only
+  // labels are added: `output` stays what the model already received.
+  const stopped = turn.turnId === turnId && !turn.cancelled ? hostStopOf(turn, turnId) : undefined;
+  if (stopped) {
+    if (msg.type === "status" && msg.status === "cancelled") msg = { ...msg, detail: TURN_STOPPED_BY_HOST };
+    else if (msg.type === "result" && msg.outcome === "cancelled") msg = { ...msg, outcomeDetail: hostStopOutcomeDetail(stopped) };
+    else if (msg.type === "tool_result" && msg.isError) msg = { ...msg, hostStop: stopped };
   }
   if (msg.type === "error" && requestId) msg = { ...msg, requestId };
   if (msg.type === "session_info" || (msg.type === "status" && msg.effectiveThinkingLevel !== undefined)) {
@@ -167,7 +179,7 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
     }
     // Submitted after the catalog row; every share read/effect joins this queue.
     void host.inboxTools?.shares?.bind(turnId, msg.sessionId).catch(error => {
-      turn.abortController.abort(error); emitTurnError(host, turn, error);
+      stopTurnForHost(turn, turnId, turn.abortController, "inbox_share", error); emitTurnError(host, turn, error);
     });
     if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
       // Both commit after the row above (#2850); the frame reads them as submitted.
@@ -275,7 +287,7 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
       }
       // Never awaited here: an observation's hold freezes the turn's workers,
       // which is what delays a worker's next provider request (#2834).
-      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.toolEnded(turnId, msg.toolUseId).catch(error => { turn.abortController.abort(error); emitTurnError(host, turn, error); });
+      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.toolEnded(turnId, msg.toolUseId).catch(error => { stopTurnForHost(turn, turnId, turn.abortController, "change_journal", error); emitTurnError(host, turn, error); });
       if (transcript.collector && turn.turnId === turnId) transcript.collector.observe(msg);
       if (msg.type === "session_info") msg = onSessionInfo(msg);
       if (msg.type === "result") msg = onResult(msg);

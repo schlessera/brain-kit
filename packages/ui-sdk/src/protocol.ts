@@ -1290,6 +1290,14 @@ export interface ServerToolResult extends SessionScoped {
   toolUseId: string;
   output: string;
   isError: boolean;
+  /**
+   * Set when the host itself stopped this tool's turn before the tool
+   * finished (additive; #4565). `output` is still the runtime's own text,
+   * which the model received as written; for a Claude turn it reads as the
+   * user refusing the tool. A client shows the host's stop instead. Absent
+   * means the host did not stop the turn while the tool ran.
+   */
+  hostStop?: HostStopCause;
 }
 
 export interface ServerToolApprovalRequest extends SessionScoped {
@@ -1399,6 +1407,42 @@ export interface ServerResultMessage {
  * hard elapsed-time turn limit ended (additive; #3356).
  */
 export const HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout";
+
+/**
+ * Why the host itself stopped a turn, when neither the user nor the turn's
+ * time limit did (additive; #4565):
+ *
+ * - `safety_recording`: the host could not record the turn's safety checks.
+ * - `change_journal`: the host could not record the turn's changes.
+ * - `approval_record`: the host could not keep an approval's outcome.
+ * - `inbox_share`: the host could not bind the chat's inbox shares.
+ *
+ * A new cause is additive; a client that does not know one shows a generic
+ * host stop.
+ */
+export const HOST_STOP_CAUSES = ["safety_recording", "change_journal", "approval_record", "inbox_share"] as const;
+export type HostStopCause = (typeof HOST_STOP_CAUSES)[number];
+
+/** The prefix of every host-stop `result.outcomeDetail`. */
+export const HOST_STOP_OUTCOME_DETAIL_PREFIX = "host_stop:";
+
+/**
+ * `result.outcomeDetail` on an `outcome: "cancelled"` turn that the host
+ * stopped for `cause` (additive; #4565): `host_stop:<cause>`.
+ */
+export function hostStopOutcomeDetail(cause: HostStopCause): string {
+  return `${HOST_STOP_OUTCOME_DETAIL_PREFIX}${cause}`;
+}
+
+/**
+ * Read a host stop from `result.outcomeDetail`. `null` is a host stop whose
+ * cause this client does not know; `undefined` is no host stop.
+ */
+export function hostStopFromOutcomeDetail(detail: string | undefined): HostStopCause | null | undefined {
+  if (!detail?.startsWith(HOST_STOP_OUTCOME_DETAIL_PREFIX)) return undefined;
+  const cause = detail.slice(HOST_STOP_OUTCOME_DETAIL_PREFIX.length);
+  return (HOST_STOP_CAUSES as readonly string[]).includes(cause) ? cause as HostStopCause : null;
+}
 
 /**
  * A provider or API failure that ended a turn (additive; #575), normalised

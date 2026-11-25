@@ -12,6 +12,7 @@ import type { HostWork, QueuedFollowUp, RunningTurn } from "../turns.js";
 import type { RunBilling } from "./billing.js";
 import { budgetAttribution, budgetEvent } from "./budget.js";
 import type { SessionSlot, TurnLifecycle, TurnRun } from "./types.js";
+import { stopTurnForHost } from "../host-stop.js";
 
 type WorkerHostAdmission =
   | { readonly kind: "admitted"; readonly identity: WorkerNoteFacts["identity"] | undefined }
@@ -76,6 +77,7 @@ export function createRunRecorder(
   abortController: AbortController,
   work: HostWork | undefined
 ): TurnRecorder | undefined {
+  const turnId = turn.turnId;
   return host.activity
     ? createTurnRecorder(
         {
@@ -87,7 +89,8 @@ export function createRunRecorder(
           ...(host.activity.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
           ...(host.activity.governanceWrites ? { governanceWrites: host.activity.governanceWrites } : {}),
           ...(host.brainPath ? { brainPath: host.brainPath } : {}),
-          abort: error => abortController.abort(error),
+          // Every recorder stop is a safety-recording failure.
+          abort: error => stopTurnForHost(turn, turnId, abortController, "safety_recording", error),
         },
         {
           turnId: turn.turnId,
@@ -190,7 +193,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
       // A real timeout/cancel already won; never relabel that terminal.
       if (abortController.signal.aborted || turn.cancelled) return;
       stops.journal = error;
-      abortController.abort(error);
+      stopTurnForHost(turn, run.turnId, abortController, "change_journal", error);
       host.coordinator.drainPendingForTurn(turn, error.message);
     }, abortController.signal, journalTimer);
     restrictFailedCheckouts(governedHold.sandbox, host.journal.restrictedCheckouts(turn.turnId));

@@ -1491,6 +1491,39 @@ HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout"          // exported from @schlesse
   client that validates with `@schlessera/brain-ui-sdk/schemas` drops an
   unreadable `runtimeNotice` and keeps the message.
 
+<a id="host-stops-additive-in-0450"></a>
+
+### Host stops (additive in 0.45.0, #4565)
+
+```
+result.outcomeDetail?: "host_stop:<cause>"            // on outcome: "cancelled"
+status.detail?: "Stopped by the host"                 // on the same turn's status: "cancelled"
+tool_result.hostStop?: HostStopCause                  // on a tool the host cut short
+HostStopCause = "safety_recording" | "change_journal" | "approval_record" | "inbox_share"
+HOST_STOP_CAUSES, HOST_STOP_OUTCOME_DETAIL_PREFIX = "host_stop:",
+hostStopOutcomeDetail(cause), hostStopFromOutcomeDetail(detail)   // exported from @schlessera/brain-ui-sdk/protocol
+```
+
+- **A host stop** is the host itself ending a turn because something it must
+  keep for that turn failed: its safety checks, its change journal, an
+  approval's outcome or the chat's inbox shares could not be recorded. Like a
+  timeout it is set by the owner that stopped the turn, never inferred from an
+  aborted signal, and never over a cancel or a timeout that ended the turn
+  first. The turn stays `outcome: "cancelled"` and `isError: false`.
+- **`tool_result.hostStop`** marks the result of a tool that was still
+  running when the host stopped its turn. Display only: `output` is still the
+  runtime's own text, which the model received as written. For a Claude turn
+  that text reads as the user refusing the tool; a client shows the host's
+  stop instead.
+- **Activity.** The turn's run ends `outcome: "error"` with a reason naming
+  the cause (`Stopped by the host: …`) where it used to end `timeout`. Only the
+  host's elapsed-time limit records `timeout`; its meaning is unchanged.
+- **Tolerance.** A client that does not read these shows a cancelled turn and
+  the runtime's tool text, as before. A cause it does not know is still a host
+  stop: `hostStopFromOutcomeDetail` returns `null` for it. A client that
+  validates with `@schlessera/brain-ui-sdk/schemas` drops an unreadable
+  `hostStop` and keeps the result.
+
 <a id="manual-retry-receipts-additive-in-0400"></a>
 
 ### Manual retry receipts (additive in 0.40.0)

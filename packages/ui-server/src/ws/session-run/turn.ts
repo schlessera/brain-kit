@@ -1,4 +1,5 @@
 import { emitTurnError } from "../bridge.js";
+import { hostStopOf } from "../host-stop.js";
 import type { QueuedFollowUp } from "../turns.js";
 import { recordPendingCancellations } from "./cancellations.js";
 import { admitGovernedTurn, admitWorkerHost, announceTurnStart, armTurnTimeout, confirmAdmission, createRunRecorder } from "./admission.js";
@@ -86,9 +87,15 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
   return { kind: "ran", outcome: await executeTurn(run), ...(run.clientReceiptEligible ? { clientReceiptEligible: true } : {}) };
 }
 
+/** Who ended an aborted turn, sampled once it has stopped. */
+function abortFacts({ turn, turnId, abortController }: TurnRun) {
+  return { cancelled: turn.cancelled, aborted: abortController.signal.aborted,
+    timedOut: turn.timedOutTurnId === turnId, hostStop: hostStopOf(turn, turnId) };
+}
+
 /** Admit, enter the backend, classify the outcome and tear the turn down. */
 async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
-  const { host, turn, backend, lifecycle, abortController, recorder, held, stops } = run;
+  const { host, turn, backend, lifecycle, recorder, held, stops } = run;
   let outcome: TurnOutcome = UNCLASSIFIED_OUTCOME;
   turn.backendStarted = false;
   try {
@@ -123,11 +130,12 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     await settleBudgetWrites(run);
     if (stops.budget) throw stops.budget;
     if (stops.journal) throw stops.journal;
-    const completed = classifyCompletedTurn({ cancelled: turn.cancelled, aborted: abortController.signal.aborted, lastResult: turn.lastResult, stops });
+    const completed = classifyCompletedTurn({ ...abortFacts(run), lastResult: turn.lastResult, stops });
     if (completed.resultFailed) host.reportTurnFailed("BACKEND_RESULT_ERROR", turn);
     else host.reportTurnCompleted(turn, Date.now() - run.startedAt);
     outcome = completed;
-    recorder?.finish(completed.recorder);
+    // A host stop's reason outranks the runtime's own cancelled result.
+    recorder?.finish(completed.recorder, completed.hostStopped ? completed.reason : undefined);
   } catch (err) {
     lifecycle?.mark("failureObservedAt");
     await held.settleIndex?.();
@@ -136,7 +144,7 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     try { if (!held.turnEgress?.recordingFailure()) egressEnd?.(); } catch { /* A missing timing mark cannot fail cleanup. */ }
     await settleBudgetWrites(run);
     const failed = classifyFailedTurn({
-      cancelled: turn.cancelled, aborted: abortController.signal.aborted, lastResult: turn.lastResult, stops,
+      ...abortFacts(run), lastResult: turn.lastResult, stops,
       error: err, egressFailure: held.turnEgress?.recordingFailure(), enteredBackend: held.enteredBackend,
     });
     if (failed.admissionBlock) {
@@ -147,7 +155,7 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     turn.backendStarted = false;
     if (failed.delivery === "reported") emitTurnError(host, turn, failed.terminal);
     outcome = failed;
-    recorder?.finish(failed.recorder);
+    recorder?.finish(failed.recorder, failed.hostStopped ? failed.reason : undefined);
   } finally {
     await teardownTurn(run, outcome);
   }

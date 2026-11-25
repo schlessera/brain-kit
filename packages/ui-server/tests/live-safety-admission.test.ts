@@ -31,6 +31,7 @@ import { createActivityStore } from "../src/activity/store";
 import { createActivityStream } from "../src/activity/stream";
 import { WsHost } from "../src/ws/host";
 import { runSession } from "../src/ws/run-session";
+import { HOST_STOP_REASONS } from "../src/ws/host-stop";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
@@ -616,6 +617,10 @@ test("withdrawal receipt storage failure explicitly terminates and stops the bac
     expect(host.coordinator.resolvedApprovals.get("failed-terminal")).toMatchObject({ outcome: "expired", reason: "Safety withdrawal could not be retained; the turn was stopped." });
     expect(frames.filter(frame => frame.type === "tool_resolution")).toHaveLength(1);
     expect(queryGovernanceEvents(f.db, { sessionId: "ithaca", kinds: ["safety_admission_expired"], limit: 100 })).toHaveLength(0);
+    // The host stopped the turn, and its run says why (#4565): not a timeout.
+    const turnId = (frames.find(frame => frame.type === "tool_approval_request") as { turnId?: string } | undefined)?.turnId;
+    expect(store.getSpan(`${turnId}:turn`), "FAILED_WITHDRAWAL_RECORDS_HOST_STOP")
+      .toMatchObject({ outcome: "error", outcomeReason: HOST_STOP_REASONS.approval_record });
   } finally {
     host.close(); await run; origin.stop(true); await f.close();
   }

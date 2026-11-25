@@ -1,4 +1,5 @@
-import { FIRST_PARTY_FAILURE_CLASSES, HOST_TIMEOUT_OUTCOME_DETAIL } from "@schlessera/brain-ui-sdk/protocol";
+import { FIRST_PARTY_FAILURE_CLASSES, HOST_TIMEOUT_OUTCOME_DETAIL, hostStopFromOutcomeDetail } from "@schlessera/brain-ui-sdk/protocol";
+import { hostStopToolOutput } from "../../lib/host-stop.js";
 import { ASK_USER_FORM_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { askUserFormSpec, askUserFormPayload } from "@schlessera/brain-ui-sdk/internal/client";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
@@ -353,7 +354,10 @@ export const chatFrameHandlers = {
     );
   },
   tool_result: (msg, context) => {
-    context.state.setToolResult(context.key, msg.toolUseId, msg.output, msg.isError, msg.policyChange);
+    // A tool the host cut short shows the host's stop, not the runtime's
+    // refusal text (#4565); the model already received that text as written.
+    context.state.setToolResult(context.key, msg.toolUseId, msg.hostStop ? hostStopToolOutput(msg.hostStop) : msg.output,
+      msg.isError, msg.policyChange, msg.hostStop);
     // Once the agent receives the ask_user tool result, the exchange is
     // complete — drop any leftover ask_user UI state.
     const chat = context.buffer();
@@ -390,6 +394,9 @@ export const chatFrameHandlers = {
     const timedOut = msg.outcome === "cancelled" && msg.outcomeDetail === HOST_TIMEOUT_OUTCOME_DETAIL;
     context.state.endTurnQuestions(context.key, context.frameTurnId, timedOut ? "timeout" : undefined);
     if (timedOut) context.state.setTurnNotice(context.key, { cause: "timeout" }, context.frameTurnId);
+    // The host itself stopped it (#4565): the conversation names why.
+    const hostStop = msg.outcome === "cancelled" ? hostStopFromOutcomeDetail(msg.outcomeDetail) : undefined;
+    if (hostStop !== undefined) context.state.setTurnNotice(context.key, { cause: "host_stop", hostStop }, context.frameTurnId);
     context.state.finishAssistantMessage(context.key);
     // An absent outcome is the legacy wire, where `isError` alone decides.
     const failed = msg.outcome === "error" || (msg.outcome === undefined && msg.isError);

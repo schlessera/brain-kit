@@ -709,6 +709,22 @@ Activity. A skipped module cron is an `error` whose reason starts
 bytes do not change. See [wire semantics](integration-contract/wire.md#module-discovery-outcome-additive-0450-3381).
 This ships in a minor; no breaking ruling is required.
 
+## Host stops (additive, 0.45.0, #4565)
+
+A turn the host itself stopped, because its safety checks, change journal, an
+approval's outcome or the chat's inbox shares could not be recorded, now says
+so instead of reading as a timeout: `result.outcomeDetail: "host_stop:<cause>"`
+on its cancelled result, `detail: "Stopped by the host"` on its
+`status: cancelled`, and `tool_result.hostStop` on the result of a tool it cut
+short, whose `output` the model already received is unchanged. Its Activity
+run ends `error` with a reason naming the cause; only the host's elapsed-time
+limit records `timeout`, whose meaning is unchanged. The SDK exports
+`HostStopCause`, `HOST_STOP_CAUSES`, `HOST_STOP_OUTCOME_DETAIL_PREFIX`,
+`hostStopOutcomeDetail` and `hostStopFromOutcomeDetail`;
+`@schlessera/brain-ui-react` adds `TurnNotice` cause `host_stop` with
+`hostStop`, and `ToolCall.hostStop`. See [wire](integration-contract/wire.md#host-stops-additive-in-0450).
+This ships in a minor; no breaking ruling is required.
+
 ## Turn timeouts and runtime stop notices (additive, 0.45.0, #3356)
 
 A turn the host's hard elapsed-time limit ended stays `outcome: "cancelled"`,

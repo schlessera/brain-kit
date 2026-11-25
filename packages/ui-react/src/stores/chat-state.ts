@@ -21,6 +21,7 @@ import type {
   StateRoomObservation,
   TurnJournalSummary,
   ApprovalDisplay,
+  HostStopCause,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../lib/stats/compose-stats.js";
@@ -170,6 +171,11 @@ export interface ToolCall {
   inputJson: string;
   output?: string;
   isError?: boolean;
+  /**
+   * The host stopped the turn before this tool finished (#4565); `output`
+   * then holds the host's account, not the runtime's refusal text.
+   */
+  hostStop?: HostStopCause;
   status: "streaming" | "pending_approval" | "approved" | "denied" | "complete";
   /**
    * What the pending approval is for: "tool" may be remembered via "Always
@@ -225,9 +231,14 @@ export interface ToolCall {
   endedAt?: number;
 }
 
-/** Why a turn stopped, as `ChatMessage.runtimeNotice` records it (#3356). */
+/**
+ * Why a turn stopped, as `ChatMessage.runtimeNotice` records it (#3356).
+ * `host_stop` is the host itself stopping the turn (#4565), with `hostStop`
+ * its cause, `null` when this client does not know that cause.
+ */
 export interface TurnNotice {
-  cause: "timeout" | "aborted" | "unspecified";
+  cause: "timeout" | "aborted" | "unspecified" | "host_stop";
+  hostStop?: HostStopCause | null;
 }
 
 export interface AskUserExchange {
@@ -499,7 +510,7 @@ export interface ChatState {
   revokeRestoredApprovals: () => void;
   /** An envelope that counts lists these again: an `unlisted` card takes a decision again. */
   reopenRestoredApprovals: (key: ChatKey, toolUseIds: readonly string[]) => void;
-  setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean, policyChange?: PolicyChangeReview) => void;
+  setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean, policyChange?: PolicyChangeReview, hostStop?: HostStopCause) => void;
   setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[], turnId?: string) => void;
   /** An `ask_user_list` request: the same exchange slot, holding a list. */
   setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec, turnId?: string) => void;
