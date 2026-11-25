@@ -1,0 +1,248 @@
+/**
+ * Wide Settings panes (#4538, #4537 D6). Storage, Models, Modules and Skills
+ * opt in with `width="wide"`: the pane and its header row span the window
+ * beside the section column, and only the content below the header caps at
+ * 1200px. Every other pane keeps its 720px column. Inside a wide pane, prose
+ * keeps the 68ch reading measure, and grids stack by the pane container's
+ * width (one column below 560px, `auto-fill minmax(260px, 1fr)` from 560px),
+ * never by the viewport's.
+ *
+ * Every pane is captured at 320, 900, 1280 and 1440 in dark and paper. The
+ * standard panes' baselines were recorded before the wide opt-in existed, so
+ * they prove that the change left those panes pixel-identical.
+ */
+import { expect, test } from "vitest";
+import { commands, page } from "vitest/browser";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { BrainUiProvider } from "../../src/root-context.js";
+import { createBrainUiRoot } from "../../src/root.js";
+import type { SettingsTab } from "../../src/stores/ui-state.js";
+import type { TrustSettingsRead } from "../../src/lib/trust-settings.js";
+import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
+
+const trustRead = {
+  revision: "0", policyHash: null, error: null, rules: [], origins: [], repositories: [], mutationAllowed: false,
+  capabilities: { originRules: true, recipientRules: true, repositoryRules: false, repositoryIdentity: false, readOnlyReason: null },
+} satisfies TrustSettingsRead;
+
+const crew = ["Penelope", "Telemachus", "Eurycleia", "Eumaeus", "Mentor", "Argos", "Philoetius", "Laertes", "Nausicaa", "Arete", "Alcinous", "Athena"];
+const models = crew.map((name, i) => ({
+  id: `ithaca/${name.toLowerCase()}`, label: `${name} ${i % 3 === 0 ? "large" : "swift"}`, provider: "ithaca", hidden: i % 5 === 4,
+  contextWindow: (i % 4 + 1) * 64_000, source: i % 2 ? "declared" : "discovered", billingMode: i % 2 ? "subscription" : "api",
+  ...(i % 3 === 0 ? { thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high"] } : {}),
+}));
+const skills = [
+  { name: "voyage-log", description: "Keep the daily log of the voyage home, one entry per landfall.", source: "custom", enabled: true },
+  { name: "suitor-ledger", description: "Track every suitor's claims on the household stores.", source: "custom", enabled: false },
+  { name: "loom-plan", description: "Plan the shroud weaving that is undone each night.", source: "custom", enabled: true, warning: "SKILL.md has no description line" },
+  ...["add-skill", "brain-search", "daily-note", "file-intake", "meeting-notes", "people", "projects", "weekly-review"].map(name => ({ name, description: `The built-in ${name} workflow for the household archive.`, source: "builtin", enabled: true })),
+];
+const modules = [
+  ["council", "Prepare each council on Ithaca with its agenda, attendees and open questions."],
+  ["household", "Stores, provisions and the accounts of the palace at Ithaca."],
+  ["voyages", "Routes, landfalls and the crews of each ship."],
+  ["correspondence", "Letters between Ithaca, Sparta and Pylos, filed by sender."],
+  ["herds", "Eumaeus's count of the swine and the goats on the hills."],
+].map(([name, description], i) => ({ name, key: name, description, state: i === 4 ? "dormant" : "active", settings: i !== 3 }));
+const standard = { id: "standard", name: "Standard", voices: {}, instructionBytes: 0, revision: "1", builtIn: true as const };
+const personas = [standard, { id: "herald", name: "Herald of Ithaca", voices: {}, instructionBytes: 412, revision: "3" }];
+const voiceSettings = { defaultProvider: null, revision: 1, persona: { value: "standard", revision: 1 }, livePersona: { selected: "standard", selectedMissing: false, selectedInvalid: false, persona: standard, personaRef: { id: "standard", revision: "1" }, providers: {} } };
+
+function fixtures(path: string): Response {
+  if (path === "/api/models") return Response.json({ models, customModels: ["openrouter/aeolus-winds", "openrouter/circe-isle"], defaultModelId: null, resolvedDefaultId: models[0]!.id, refreshedAt: null, stale: false, discovery: { enabled: false, error: "Ithaca harbour did not answer" } });
+  if (path === "/api/skills") return Response.json({ skills });
+  if (path === "/api/modules") return Response.json({ enabled: modules, available: [] });
+  if (path === "/api/trust-settings") return Response.json(trustRead);
+  if (path === "/api/voice/personas") return Response.json({ personas });
+  if (path === "/api/settings/voice") return Response.json(voiceSettings);
+  if (path.startsWith("/api/storage")) return Response.json({ error: "Not configured" }, { status: 503 });
+  if (path === "/api/agent-policy") return Response.json({ error: "Not configured" }, { status: 404 });
+  return Response.json({ providers: [], configured: false, tools: [], principals: [], credentials: [], enabled: [], available: [] });
+}
+
+/**
+ * `ready` names text that appears only once each group in the pane has
+ * settled on its fixture answers: the measurements and the capture wait for
+ * all of it. A pane title or an intro is drawn before the requests return,
+ * so it never counts. The harness never opens the socket, so the live-service
+ * group's settled state is its loading line.
+ */
+const PANES: Array<{ tab: SettingsTab; name: string; module?: () => Promise<unknown>; wide: boolean; prose?: true; grids: number; ready: string[]; content?: true; header?: true }> = [
+  { tab: "appearance", name: "appearance", wide: false, grids: 0, ready: ["Turning single-key shortcuts off"] },
+  { tab: "models", name: "models", module: () => import("../../src/components/settings/models-tab.js"), wide: true, prose: true, grids: 2, ready: ["openrouter/circe-isle"], content: true },
+  { tab: "voice", name: "voice", module: () => import("../../src/components/settings/voice-tab.js"), wide: false, grids: 0, ready: ["Couldn't load the dictation services.", "Loading the live services", "Herald of Ithaca"] },
+  { tab: "accounts", name: "accounts", module: () => import("../../src/components/settings/accounts-tab.js"), wide: false, grids: 0, ready: ["No other provider accounts"] },
+  { tab: "skills", name: "skills", module: () => import("../../src/components/settings/skills-tab.js"), wide: true, prose: true, grids: 2, ready: ["weekly-review"], content: true },
+  { tab: "modules", name: "modules", module: () => import("../../src/components/settings/modules-tab.js"), wide: true, grids: 1, ready: ["Herds"], content: true, header: true },
+  { tab: "storage", name: "storage", module: () => import("../../src/components/settings/storage-tab.js"), wide: true, grids: 0, ready: ["Storage inspection is unavailable", "History and guidance are unavailable"] },
+  { tab: "security", name: "security", module: () => import("../../src/components/settings/passkey-tab.js"), wide: false, grids: 0, ready: ["No rules configured."] },
+  { tab: "devices", name: "devices", module: () => import("../../src/components/settings/devices-agents-tab.js"), wide: false, grids: 0, ready: ["No active devices or agents.", "Could not read this brain's enforcing policy"] },
+];
+
+const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+
+/** Mount the shell at a CSS viewport and wait until the pane's requests are answered. */
+async function mount(ctx: { onTestFinished: (fn: () => Promise<void>) => void }, pane: (typeof PANES)[number], width: number, height: number, theme: "dark" | "light", respond: (path: string) => Response = fixtures, ready: string[] = pane.ready) {
+  expect(ready.length, `SETTINGS_PANE_READY_MARKER ${pane.name}`).toBeGreaterThan(0);
+  for (const marker of ready) expect(marker.trim(), `SETTINGS_PANE_READY_MARKER ${pane.name}`).not.toBe("");
+  const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };
+  const outer = await commands.formViewport(width, height);
+  await page.viewport(width, height);
+  document.documentElement.dataset.theme = theme;
+  const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
+  const host = document.createElement("div"); host.dataset.buttonGallery = ""; host.style.cssText = `width:${width}px;height:${height}px;overflow:hidden;background:var(--bk-color-canvas)`;
+  document.body.append(host);
+  let pending = 0;
+  const ui = createBrainUiRoot({ storage: null, request: async url => {
+    pending++;
+    try { return respond(new URL(String(url), "http://fixture.invalid").pathname); } finally { pending--; }
+  } });
+  ui.stores.ui.setState({ theme });
+  ui.stores.ui.getState().openSettings(pane.tab);
+  const react = createRoot(host);
+  ctx.onTestFinished(async () => {
+    flushSync(() => react.unmount()); ui.dispose(); host.remove(); style.remove();
+    if (before.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = before.theme;
+    await page.viewport(before.width, before.height); await commands.formViewport(outer.width - 100, outer.height - 120);
+  });
+  // Explicit imports isolate cold transforms from the bounded DOM polls.
+  await pane.module?.();
+  flushSync(() => react.render(<BrainUiProvider root={ui}><SettingsPanel open onClose={() => {}} /></BrainUiProvider>));
+  const panel = () => page.getByRole("tabpanel").element() as HTMLElement;
+  for (const marker of ready) await expect.poll(() => panel().textContent ?? "", { timeout: watchdogMs(5000) }).toContain(marker);
+  await expect.poll(() => pending, { timeout: watchdogMs(5000) }).toBe(0);
+  await document.fonts.ready;
+  await frame(); await frame();
+  // Measure and capture only the settled pane: every marker is still there.
+  const settled = panel().textContent ?? "";
+  for (const marker of ready) expect(settled, `SETTINGS_PANE_READY ${pane.name}: ${marker}`).toContain(marker);
+  return { host, panel: panel() };
+}
+
+/** Width of `68ch` in the element's own font, measured by the browser. */
+function measure(element: HTMLElement): number {
+  const probe = document.createElement("span");
+  probe.style.cssText = "position:absolute;visibility:hidden;width:68ch;display:block";
+  element.append(probe);
+  const width = probe.getBoundingClientRect().width;
+  probe.remove();
+  return width;
+}
+
+/** Column tracks the browser resolved for a grid; a list that is not a grid has one. */
+function columns(grid: HTMLElement): number {
+  const tracks = getComputedStyle(grid).gridTemplateColumns;
+  return tracks === "none" ? 1 : tracks.split(" ").length;
+}
+
+/** Text fields and selects; checkboxes, radios and file pickers have no measure. */
+const FIELDS = 'input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select';
+
+function overflowing(panel: HTMLElement): string[] {
+  const scrollers = [document.documentElement, panel, ...panel.querySelectorAll<HTMLElement>("*")]
+    .filter(element => element === document.documentElement || element === panel || ["auto", "scroll"].includes(getComputedStyle(element).overflowY));
+  return scrollers.filter(element => element.scrollWidth !== element.clientWidth).map(element => `${element.tagName.toLowerCase()}.${element.className} ${element.scrollWidth}/${element.clientWidth}`);
+}
+
+function assertLayout(pane: (typeof PANES)[number], panel: HTMLElement, width: number) {
+  const container = panel.getBoundingClientRect().width;
+  // Below 900 there is no section column: the tab panel is the whole pane.
+  const available = panel.closest<HTMLElement>("[data-settings-pane]")?.getBoundingClientRect().width ?? container;
+  if (pane.wide) {
+    // The pane and its header row span the window; only the content caps.
+    expect.soft(container, `SETTINGS_WIDE_PANE_SPANS ${pane.name}`).toBe(available);
+    const headers = [...panel.querySelectorAll<HTMLElement>("[data-settings-header]")];
+    if (pane.header) expect.soft(headers.length, `SETTINGS_WIDE_PANE_HAS_HEADER ${pane.name}`).toBeGreaterThan(0);
+    for (const header of headers) expect.soft(header.getBoundingClientRect().width, `SETTINGS_HEADER_SPANS_PANE ${pane.name}`).toBe(available);
+    const content = [...panel.querySelectorAll<HTMLElement>("[data-settings-content]")];
+    if (pane.content) expect.soft(content.length, `SETTINGS_WIDE_PANE_HAS_CONTENT ${pane.name}`).toBeGreaterThan(0);
+    for (const block of content) expect.soft(block.getBoundingClientRect().width, `SETTINGS_CONTENT_CAP ${pane.name}`).toBe(Math.min(1200, container));
+  } else expect.soft(container, `SETTINGS_PANE_CAP ${pane.name}`).toBeLessThanOrEqual(720);
+  if (width >= 1440) {
+    if (pane.wide) expect.soft(container, `SETTINGS_WIDE_PANE_GROWS ${pane.name}`).toBeGreaterThan(720);
+    else expect.soft(container, `SETTINGS_STANDARD_PANE_KEEPS_720 ${pane.name}`).toBe(720);
+  }
+  // A wide pane's form fields keep the 480px field cap at every width (Q2).
+  if (pane.wide) for (const field of panel.querySelectorAll<HTMLElement>(FIELDS)) {
+    expect.soft(field.getBoundingClientRect().width, `SETTINGS_FIELD_CAP ${pane.name} at ${container}: ${field.getAttribute("aria-label") ?? field.getAttribute("placeholder")}`).toBeLessThanOrEqual(480);
+  }
+  const prose = [...panel.querySelectorAll<HTMLElement>("[data-prose]")];
+  if (pane.prose) expect.soft(prose.length, `SETTINGS_WIDE_PANE_HAS_PROSE ${pane.name}`).toBeGreaterThan(0);
+  for (const block of prose) expect.soft(block.getBoundingClientRect().width, `SETTINGS_PROSE_MEASURE ${pane.name}: ${block.textContent?.slice(0, 40)}`).toBeLessThanOrEqual(measure(block) + 0.5);
+  const grids = [...panel.querySelectorAll<HTMLElement>("[data-settings-grid]")];
+  expect.soft(grids.length, `SETTINGS_PANE_GRIDS ${pane.name}`).toBe(pane.grids);
+  for (const grid of grids) {
+    const count = columns(grid);
+    if (container < 560) expect.soft(count, `SETTINGS_GRID_STACKS ${pane.name} at ${container}`).toBe(1);
+    else expect.soft(count, `SETTINGS_GRID_COLUMNS ${pane.name} at ${container}`).toBeGreaterThanOrEqual(container >= 840 ? 3 : 2);
+  }
+}
+
+for (const width of [320, 900, 1280, 1440]) for (const theme of ["dark", "light"] as const) for (const pane of PANES) {
+  test(`Settings ${pane.name} pane at ${width} ${theme} is ${pane.wide ? "wide" : "standard"}`, async ctx => {
+    const { host, panel } = await mount(ctx, pane, width, 800, theme);
+    assertLayout(pane, panel, width);
+    if (width === 320) expect.soft(overflowing(panel), `SETTINGS_NO_HORIZONTAL_SCROLL ${pane.name}`).toEqual([]);
+    await expect(page.elementLocator(host)).toMatchScreenshot(`settings-${pane.name}-${theme}-${width}`);
+  });
+}
+
+// Browser zoom halves the layout viewport, media queries included: a 1280px
+// window at 200% lays out as 640 CSS px and shows the compact strip.
+for (const pane of PANES) test(`Settings ${pane.name} pane reflows at 200% zoom on 1280`, async ctx => {
+  const { panel } = await mount(ctx, pane, 640, 400, "dark");
+  expect(page.getByRole("tablist").element().getAttribute("aria-orientation")).toBe("horizontal");
+  assertLayout(pane, panel, 640);
+  expect(overflowing(panel), `SETTINGS_ZOOM_NO_HORIZONTAL_SCROLL ${pane.name}`).toEqual([]);
+});
+
+// Past 1624px the 1200px content cap binds; the header row keeps spanning the
+// pane (#4538 Q5). Layout only: the reviewed baselines stop at 1440.
+for (const pane of PANES) test(`Settings ${pane.name} pane at 1920 caps content, not the header`, async ctx => {
+  const { panel } = await mount(ctx, pane, 1920, 800, "dark");
+  expect(panel.closest<HTMLElement>("[data-settings-pane]")!.getBoundingClientRect().width, "SETTINGS_PANE_PAST_CAP").toBeGreaterThan(1200);
+  assertLayout(pane, panel, 1920);
+});
+
+// Between the 560 and 840 breakpoints grids are two-up but field groups are
+// not, so a full-width field there would outgrow its 480px cap.
+for (const pane of PANES.filter(p => p.wide)) test(`Settings ${pane.name} pane at a 676px container keeps two-up grids and capped fields`, async ctx => {
+  const { panel } = await mount(ctx, pane, 1100, 800, "dark");
+  const container = panel.getBoundingClientRect().width;
+  expect(container, "SETTINGS_INTERMEDIATE_BAND").toBeGreaterThanOrEqual(560);
+  expect(container, "SETTINGS_INTERMEDIATE_BAND").toBeLessThan(840);
+  if (pane.name === "skills") expect(panel.querySelectorAll(FIELDS).length, "SETTINGS_SKILLS_HAS_FIELDS").toBe(2);
+  assertLayout(pane, panel, 1100);
+});
+
+// A model label is the provider's own words and can run long. The default-model
+// select sizes to its longest option, so only a long label shows whether the
+// select keeps the 480px field cap once the pane is wide (#4538 Q2). The
+// shared fixture's labels are short, which is why the cap went untested.
+const LONG_LABEL = "Odysseus long-voyage reasoning model with the twenty-year context window for the council of Ithaca (preview)";
+const longLabelFixtures = (path: string) => path === "/api/models"
+  ? Response.json({ models: [...models, { ...models[1]!, id: "ithaca/odysseus", label: LONG_LABEL, hidden: false }], customModels: [], defaultModelId: null, resolvedDefaultId: models[0]!.id, refreshedAt: null, stale: false, discovery: { enabled: false, error: null } })
+  : fixtures(path);
+for (const width of [320, 900, 1100, 1280, 1440, 1920]) test(`Settings models pane with a long model label at ${width} keeps the field cap`, async ctx => {
+  const pane = PANES.find(p => p.tab === "models")!;
+  const { panel } = await mount(ctx, pane, width, 800, "dark", longLabelFixtures, [LONG_LABEL]);
+  const select = panel.querySelector<HTMLSelectElement>('select[aria-label="Default model"]')!;
+  expect([...select.options].some(option => option.text === LONG_LABEL), "SETTINGS_LONG_LABEL_OFFERED").toBe(true);
+  assertLayout({ ...pane, grids: 1 }, panel, width);
+  if (width === 320) expect(overflowing(panel), "SETTINGS_NO_HORIZONTAL_SCROLL models long label").toEqual([]);
+});
+
+// A failed module list shows the server's own words, which can run long: the
+// error copy keeps the 68ch measure while the pane around it is wide.
+const MODULES_ERROR = "The module registry on Ithaca could not be read: the council's ledger of workflows is locked while Penelope's weaving is undone each night, so no module can be listed until Telemachus restores the household configuration and the next council convenes.";
+for (const width of [1440, 1920]) test(`Settings modules pane error at ${width} keeps the prose measure`, async ctx => {
+  const pane = PANES.find(p => p.tab === "modules")!;
+  const { panel } = await mount(ctx, pane, width, 800, "dark", path => path === "/api/modules" ? Response.json({ error: MODULES_ERROR }, { status: 500 }) : fixtures(path), [MODULES_ERROR]);
+  const alert = panel.querySelector<HTMLElement>('[role="alert"]')!;
+  const copy = [...alert.querySelectorAll<HTMLElement>("p")].filter(p => p.textContent === MODULES_ERROR);
+  expect(copy.length, "SETTINGS_MODULES_ERROR_SHOWN").toBe(1);
+  expect(copy[0]!.getBoundingClientRect().width, "SETTINGS_ERROR_PROSE_MEASURE modules").toBeLessThanOrEqual(measure(copy[0]!) + 0.5);
+  assertLayout({ ...pane, grids: 0 }, panel, width);
+});
