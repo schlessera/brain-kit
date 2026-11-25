@@ -224,7 +224,9 @@ export const HiddenCharsInSubject = meta.story({
     const subject = canvasElement.querySelector<HTMLElement>(".bk-gm-subject [data-untrusted-field]")!;
     const marker = subject.querySelector("[data-hidden-char]")!.getBoundingClientRect();
     const tail = [...subject.querySelectorAll("bdi")].find((b) => b.textContent === "txt.exe")!.getBoundingClientRect();
-    await expect(tail.left, "txt.exe follows its marker, left to right").toBeGreaterThanOrEqual(marker.right - 1);
+    // In reading order: later on the same line, or on a later line when a narrow column wraps it.
+    const sameLine = tail.top < marker.bottom && tail.bottom > marker.top;
+    await expect(sameLine ? tail.left >= marker.right - 1 : tail.top >= marker.bottom - 1, "txt.exe follows its marker in reading order").toBe(true);
   },
 });
 export const HiddenCharsInSubjectNarrow = HiddenCharsInSubject.extend({ ...narrow });
