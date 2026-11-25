@@ -79,6 +79,21 @@ describe("sidecar folding", () => {
     ];
     expect(storageConsumerRows(page(nodes, appRoots[1]!.id), "allocated").rows).toHaveLength(2);
   });
+
+  test("only a file folds beside a file: a sidecar-named folder keeps its own row and drill", () => {
+    const nodes = [
+      node({ id: 32, rootId: 6, name: "ledger", kind: "file", owner: "app", bytes: GB }),
+      node({ id: 33, rootId: 6, name: "ledger-journal", kind: "directory", owner: "app", bytes: 3 * GB }),
+      node({ id: 34, rootId: 6, name: "ledger-wal", kind: "symlink", owner: "app", bytes: 100 }),
+    ];
+    expect(
+      storageConsumerRows(page(nodes, appRoots[1]!.id), "allocated").rows.map((row) => [row.name, row.bytes, row.action, row.members.length])
+    ).toEqual([
+      ["ledger-journal", 3 * GB, "drill", 1],
+      ["ledger", GB, "inspect", 1],
+      ["ledger-wal", 100, "inspect", 1],
+    ]);
+  });
 });
 
 describe("rows", () => {

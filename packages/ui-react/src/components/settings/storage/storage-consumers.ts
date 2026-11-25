@@ -101,15 +101,15 @@ export function storageConsumerRows(
   const format = options.format ?? ((value: number) => bytes(value));
   const sort = options.sort ?? { key: "size", direction: "descending" };
   const folded = new Map<string, StorageTreeNode[]>();
-  // A store's sidecar is its own root with the same owner; a file's sits
-  // beside it in the same root.
+  // A store's sidecar is its own root with the same owner; a file's is a file
+  // beside it in the same root. A folder or link with a sidecar name is not one.
   const database = (node: StorageTreeNode, base: string) =>
     page.nodes.find(
       (value) =>
         value.name === base &&
         (node.kind === "root"
           ? value.kind === "root" && value.owner === node.owner
-          : value.kind === "file" && value.rootId === node.rootId)
+          : node.kind === "file" && value.kind === "file" && value.rootId === node.rootId)
     );
   for (const node of page.nodes) {
     const base = sidecarBase(node.name);
