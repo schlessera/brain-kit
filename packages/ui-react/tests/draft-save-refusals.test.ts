@@ -38,7 +38,7 @@ async function run(ms: number) {
   for (let left = ms; left > 0; left -= 1_000) { vi.advanceTimersByTime(Math.min(1_000, left)); await turn(); await turn(); }
 }
 
-type Refusal = { status: 400; body: { error: string; message: string } };
+type Refusal = { status: 400 | 507; body: { error: string; message: string; limit?: number; bound?: string } };
 /**
  * An in-memory host. `refuse` answers a save body with the host's own 400,
  * or null to store it; by default it is the server's empty-draft rule
@@ -333,4 +333,13 @@ test("a device branch's refusal is shown beside the other version", () => {
   expect(s.indicator("voyage-branch"), "BRANCH_REFUSAL_SHOWN").toMatchObject({ key: "device_conflict", state: "refused", action: "other_version",
     summary: "Another tab changed this draft. Both versions are kept. This one isn't saved: the brain refused it.",
     facts: [{ key: "Brain said", value: "The draft names an unknown field." }] });
+});
+
+test("a Send's snapshot a full host never stored holds updates on its own", async () => {
+  const s = scene({ snapshots: true, refuse: () => ({ status: 507, body: { error: "DRAFT_CAPACITY", message: "full", limit: 100, bound: "drafts" } }) });
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-full" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-full", requestId: "req-full", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "");
+  await run(LONG);
+  expect(s.drafts.getState().drafts[s.id]?.failure?.kind).toBe("full");
+  expect(holdsUnsaved(s.drafts.getState()), "UNACKED_SNAPSHOT_ALONE_HOLDS_UPDATE").toBe(true);
 });
