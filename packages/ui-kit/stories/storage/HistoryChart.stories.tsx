@@ -18,6 +18,8 @@ import {
   singlePoint,
   sixHourGap,
   scopeChanged,
+  scopeChangedAtNow,
+  sixHourNotANumber,
   veryLowNow,
   weeklyThree,
 } from "../../fixtures/storage-history.js";
@@ -285,6 +287,44 @@ export const ScopeChange = meta.story({
   },
 });
 export const ScopeChangeDesktop = ScopeChange.extend({ ...desktop });
+
+/**
+ * The volume changed just before now (#4559 review, F2): the change sits a
+ * few pixels from the plot's right edge, so `↺ scope changed` cannot sit to
+ * the rule's right. It moves left of the rule, or to the caption, and never
+ * past the drawing's edge.
+ */
+export const ScopeChangeAtNow = meta.story({
+  ...phone,
+  args: { points: scopeChangedAtNow, markers: [], scenarios: [SHORT_NONE, LONG_SCOPE] },
+  play: async (ctx) => {
+    const { svg } = await open(ctx);
+    await expect(parts(svg, "scope-break")).toHaveLength(1);
+    const said = (svg.textContent ?? "") + caption(ctx.canvasElement).join(" ");
+    await expect(said).toContain("\u21ba scope changed");
+  },
+});
+export const ScopeChangeAtNowDesktop = ScopeChangeAtNow.extend({ ...desktop });
+
+/**
+ * A non-number from the collector (#4559 review, F4) is a gap exactly as
+ * `null` is: the line breaks, and the table says `?` and "no observation",
+ * never "NaN GB" or "measured".
+ */
+export const NotANumberIsAGap = meta.story({
+  ...phone,
+  args: { points: sixHourNotANumber },
+  play: async (ctx) => {
+    const { svg } = await open(ctx);
+    await expect(parts(svg, "line")).toHaveLength(2);
+    await tableMatchesPoints(ctx.canvasElement, ctx.userEvent);
+    const toggle = [...ctx.canvasElement.querySelectorAll("button")].find((b) => b.textContent?.includes("View as table"))!;
+    await ctx.userEvent.click(toggle);
+    await expect(ctx.canvasElement.querySelector("table")!.textContent).not.toContain("NaN");
+    await ctx.userEvent.click(toggle);
+    toggle.blur();
+  },
+});
 
 /* ── Unknown, crowded, very low ─────────────────────────────────────────────── */
 

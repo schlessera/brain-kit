@@ -478,12 +478,15 @@ describe("layout", () => {
     expect(narrow.gaps[0]).toMatchObject({ label: HISTORY_COPY.gapShort, captioned: true });
   });
 
-  test("the scope labels always stay; a colliding future label goes first", () => {
+  test("the scope label is placed before the future label, which yields to it", () => {
+    // The change sits right at now: the scope label takes the room by the rule,
+    // and "future" (placed last) gets whatever is left without overlapping it.
     const pts = series([36, 35, 34, 33, 32, 31, 22, 21], { otherBefore: 7 });
     const layout = historyLayout({ width: 296, points: pts });
-    const roles = layout.topLabels.map((l) => l.role);
-    expect(roles).toContain("scope");
-    expect(roles).not.toContain("future");
+    expect(layout.topLabels[0]!.role).toBe("scope");
+    expect(layout.scopeBreaks[0]!.captioned).toBe(false);
+    const boxes = layout.topLabels.map(labelBox);
+    for (let i = 1; i < boxes.length; i += 1) expect(boxes[i]!.left >= boxes[0]!.right || boxes[i]!.right <= boxes[0]!.left).toBe(true);
   });
 
   test("the same input lays out identically", () => {
@@ -536,5 +539,80 @@ describe("sparkline", () => {
 
   test("a lone point between gaps is a dot", () => {
     expect(sparklineGeometry(pts([1, 2, null, 3, null, 4, 5]), 120, 24).dots).toHaveLength(1);
+  });
+});
+
+/* ── Review findings on the combined PR (#4559) ─────────────────────────────── */
+
+/** The box a top-row label occupies, from its anchor. */
+function labelBox(l: { text: string; x: number; anchor: "start" | "middle" | "end" }) {
+  const w = [...l.text].length * 9.5 * 0.6;
+  const left = l.anchor === "start" ? l.x : l.anchor === "end" ? l.x - w : l.x - w / 2;
+  return { left, right: left + w };
+}
+
+describe("every in-plot label stays inside the plot (F2)", () => {
+  test("a scope change just before now keeps its labels inside a 296px chart", () => {
+    const pts = Array.from({ length: 64 }, (_, i) => ({ at: T0 + i * 6 * H, value: 20 * GB, otherScope: i < 63 ? true : undefined }));
+    const layout = historyLayout({ width: 296, points: pts, now: pts[63]!.at });
+    expect(layout.scopeBreaks).toHaveLength(1);
+    for (const l of layout.topLabels) {
+      const box = labelBox(l);
+      expect(box.left, `"${l.text}" left edge`).toBeGreaterThanOrEqual(layout.frame.left - 0.5);
+      expect(box.right, `"${l.text}" right edge`).toBeLessThanOrEqual(layout.frame.right + 0.5);
+    }
+  });
+
+  test("at every scope position and width, top labels sit inside the plot and never overlap", () => {
+    for (const width of [240, 296, 600, 880]) {
+      for (let cut = 1; cut < 64; cut += 1) {
+        const pts = Array.from({ length: 64 }, (_, i) => ({ at: T0 + i * 6 * H, value: (i === 20 ? null : 20 * GB), otherScope: i < cut ? true : undefined }));
+        const layout = historyLayout({ width, points: pts, now: pts[63]!.at });
+        const boxes = layout.topLabels.map(labelBox);
+        for (const [i, b] of boxes.entries()) {
+          expect(b.left, `${width}px, cut ${cut}: "${layout.topLabels[i]!.text}"`).toBeGreaterThanOrEqual(layout.frame.left - 0.5);
+          expect(b.right, `${width}px, cut ${cut}: "${layout.topLabels[i]!.text}"`).toBeLessThanOrEqual(layout.frame.right + 0.5);
+          for (const c of boxes.slice(i + 1)) expect(b.right <= c.left || c.right <= b.left, `${width}px, cut ${cut}: labels overlap`).toBe(true);
+        }
+      }
+    }
+  });
+
+  test("with no room either side of the rule, the scope change is captioned rather than clipped", () => {
+    const pts = Array.from({ length: 64 }, (_, i) => ({ at: T0 + i * 6 * H, value: 20 * GB, otherScope: i < 32 ? true : undefined }));
+    const layout = historyLayout({ width: 120, points: pts, now: pts[63]!.at });
+    expect(layout.scopeBreaks[0]!.captioned).toBe(true);
+    expect(layout.topLabels.map((l) => l.role)).not.toContain("scope");
+  });
+
+  test("a scenario label that does not fit the gutter is not drawn there", () => {
+    const pts = series([34, 30, 26, 22, 18, 16.4].map((v) => v * GB));
+    const now = pts[5]!.at;
+    const layout = historyLayout({
+      width: 880,
+      points: pts,
+      now,
+      scenarios: [{ window: "short", name: "7-day", detail: "empty around 20 July 2026 if this rate holds", to: { at: now + 8 * DAY, value: 0 } }],
+    });
+    const room = layout.frame.width - layout.frame.right;
+    for (const l of layout.scenarioLabels) {
+      expect(22 + [...(l.line.scenario.detail ?? "")].length * 10 * 0.6).toBeLessThanOrEqual(room);
+    }
+  });
+});
+
+describe("a scenario keeps the rate it was given (F3)", () => {
+  test("a line from (80, 20) toward (100, -20) reaches zero at 90, not 100", () => {
+    const x = linearScale([0, 100], [0, 100]);
+    const y = linearScale([0, 40], [200, 0]);
+    const [line] = scenarioLines(
+      [{ window: "short", name: "7-day", detail: "empty ~90", to: { at: 100, value: -20 } }],
+      { x: x(80), y: y(20) },
+      x,
+      y,
+      { left: 0, right: 100, top: 0, bottom: 200 },
+    );
+    expect(line!.x2).toBeCloseTo(90, 9);
+    expect(line!.y2).toBeCloseTo(200, 9);
   });
 });

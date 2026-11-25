@@ -86,6 +86,8 @@ export const SCENARIO_LABEL_GAP = 28;
 export const MARKER_CLUSTER_GAP = 20;
 /** The future zone's share of the plot width. */
 export const FUTURE_SHARE = 0.2;
+/** A gutter label's text starts this far right of the plot: a 6px gap and its 16px dash sample. */
+export const GUTTER_TEXT_OFFSET = 22;
 /** Height of the event lane under the x axis. */
 const EVENT_LANE = 28;
 
@@ -201,6 +203,20 @@ export function timeDomain(points: readonly HistoryPoint[], now: number | undefi
 
 /* ── Segmentation ─────────────────────────────────────────────────────────── */
 
+/**
+ * Whether a value was measured. `null`, `NaN` and the infinities are all
+ * unobserved: one rule, used by the geometry and by the table, so the chart
+ * and its table never disagree about what is a gap.
+ */
+export function isMeasured(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Points the chart can place in time, in order; one with no valid instant is dropped everywhere. */
+export function placeable<T extends { at: number }>(points: readonly T[]): T[] {
+  return points.filter((p) => Number.isFinite(p.at)).sort((a, b) => a.at - b.at);
+}
+
 type SegmentKind = "current" | "other";
 
 interface Segment {
@@ -216,8 +232,8 @@ interface Segment {
 export function segmentSeries(points: readonly HistoryPoint[]): Segment[] {
   const out: Segment[] = [];
   let run: Segment | null = null;
-  for (const p of [...points].sort((a, b) => a.at - b.at)) {
-    if (p.value === null || !Number.isFinite(p.value)) {
+  for (const p of placeable(points)) {
+    if (!isMeasured(p.value)) {
       run = null;
       continue;
     }
@@ -244,16 +260,16 @@ interface GapSpan {
 
 /** Every run of unobserved buckets, with the span to hatch between its measured neighbours. */
 export function gapSpans(points: readonly HistoryPoint[]): GapSpan[] {
-  const sorted = [...points].sort((a, b) => a.at - b.at);
+  const sorted = placeable(points);
   const out: GapSpan[] = [];
   let i = 0;
   while (i < sorted.length) {
-    if (sorted[i]!.value !== null && Number.isFinite(sorted[i]!.value)) {
+    if (isMeasured(sorted[i]!.value)) {
       i += 1;
       continue;
     }
     const startIndex = i;
-    while (i < sorted.length && (sorted[i]!.value === null || !Number.isFinite(sorted[i]!.value))) i += 1;
+    while (i < sorted.length && !isMeasured(sorted[i]!.value)) i += 1;
     const first = sorted[startIndex]!.at;
     const last = sorted[i - 1]!.at;
     const before = startIndex > 0 ? sorted[startIndex - 1]!.at : first;
@@ -265,7 +281,7 @@ export function gapSpans(points: readonly HistoryPoint[]): GapSpan[] {
 
 /** Where the scope changes: halfway between the last other-volume point and the next current one. */
 export function scopeBreaks(points: readonly HistoryPoint[]): number[] {
-  const measured = [...points].filter((p) => p.value !== null).sort((a, b) => a.at - b.at);
+  const measured = placeable(points).filter((p) => isMeasured(p.value));
   const out: number[] = [];
   for (let i = 1; i < measured.length; i += 1) {
     const a = measured[i - 1]!;
@@ -379,7 +395,9 @@ export function scenarioLines(
   const out: ScenarioLine[] = [];
   for (const scenario of scenarios) {
     if (!scenario.to || !Number.isFinite(scenario.to.at) || !Number.isFinite(scenario.to.value)) continue;
-    const end = clipSegment(from.x, from.y, x(scenario.to.at), y(Math.max(0, scenario.to.value)), box);
+    // The endpoint as given, even below zero: clamping it first would bend the
+    // line and change the rate it stands for. Clipping stops it at zero.
+    const end = clipSegment(from.x, from.y, x(scenario.to.at), y(scenario.to.value), box);
     out.push({ scenario, x1: from.x, y1: from.y, x2: end.x, y2: end.y });
   }
   return out;
@@ -676,7 +694,8 @@ export interface HistoryLayout {
   dots: PlottedPoint[];
   latest: PlottedPoint | null;
   gaps: DrawnGap[];
-  scopeBreaks: Array<{ at: number; x: number }>;
+  /** `captioned` when neither side of the rule had room for its label. */
+  scopeBreaks: Array<{ at: number; x: number; captioned: boolean }>;
   bands: Band[];
   future: { x: number; width: number };
   nowX: number;
@@ -694,8 +713,8 @@ const SPARSE_SPACING = 24;
 export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
   const markersIn = input.markers ?? [];
   const frame = chartFrame(input.width, markersIn.length > 0);
-  const sorted = [...input.points].filter((p) => Number.isFinite(p.at)).sort((a, b) => a.at - b.at);
-  const measured = sorted.filter((p): p is HistoryPoint & { value: number } => p.value !== null && Number.isFinite(p.value));
+  const sorted = placeable(input.points);
+  const measured = sorted.filter((p): p is HistoryPoint & { value: number } => isMeasured(p.value));
   const plotWidth = frame.right - frame.left;
 
   // Sparse when the measurements would sit far enough apart to count (a few
@@ -752,24 +771,30 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
 
   // Gutter labels: centred where each line exits, pushed 28px apart, in the
   // order of their end values.
+  // A label that does not fit the gutter whole goes to the caption instead.
   let scenarioLabels: ScenarioLabel[] = [];
-  if (frame.wide && lines.length) {
-    const spread = spreadLabels(lines.map((l) => l.y2), SCENARIO_LABEL_GAP, frame.top + 6, frame.height - 14 - (markersIn.length ? EVENT_LANE : 0));
-    scenarioLabels = lines.map((line, i) => ({ line, y: spread[i]! }));
+  const room = frame.width - frame.right;
+  const inGutter = lines.filter((l) => [`${l.scenario.name} rate`, l.scenario.detail ?? ""].every((t) => GUTTER_TEXT_OFFSET + textWidth(t, 10) <= room));
+  if (frame.wide && inGutter.length) {
+    const spread = spreadLabels(inGutter.map((l) => l.y2), SCENARIO_LABEL_GAP, frame.top + 6, frame.height - 14 - (markersIn.length ? EVENT_LANE : 0));
+    scenarioLabels = inGutter.map((line, i) => ({ line, y: spread[i]! }));
   }
 
-  const breaks = scopeBreaks(sorted).map((at) => ({ at, x: x(at) }));
+  const breakTimes = scopeBreaks(sorted).map((at) => ({ at, x: x(at) }));
 
-  // Top-row labels, by priority: scope labels always stay; a gap's full copy
-  // falls back to "?" and then to nothing (the caption keeps its copy); the
-  // future label goes first of all.
-  const placed: Array<Rect & TopLabel> = [];
+  // Top-row labels, by priority, every one inside the plot and clear of the
+  // others: scope labels first (falling back to the caption only when neither
+  // side of the rule has room); a gap's full copy falls back to "?" and then
+  // to nothing (the caption keeps its copy); the future label goes first of all.
+  // The occupied boxes, kept apart from the labels: a label's `x` is its
+  // anchor, which is not its box's left edge for a middle or end anchor.
+  const placed: Array<{ box: Rect; label: TopLabel }> = [];
   const rectFor = (text: string, at: number, anchor: TopLabel["anchor"]): Rect => {
     const w = textWidth(text);
     const left = anchor === "start" ? at : anchor === "end" ? at - w : at - w / 2;
     return { x: left, y: 0, width: w, height: 10 };
   };
-  const fits = (rect: Rect) => rect.x >= frame.left - 0.5 && rect.x + rect.width <= frame.right + 0.5 && placed.every((p) => !overlaps(p, rect, 4));
+  const fits = (rect: Rect) => rect.x >= frame.left - 0.5 && rect.x + rect.width <= frame.right + 0.5 && placed.every((p) => !overlaps(p.box, rect, 4));
   /** Place a label, sliding a centred one along x to stay inside the plot. Returns its x, or null. */
   const place = (text: string, at: number, anchor: TopLabel["anchor"], role: TopLabel["role"]) => {
     const rect = rectFor(text, at, anchor);
@@ -780,16 +805,19 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
       rect.x = slid;
     }
     if (!fits(rect)) return null;
-    placed.push({ ...rect, text, x, anchor, role });
+    placed.push({ box: rect, label: { text, x, anchor, role } });
     return x;
   };
-  for (const b of breaks) {
-    // Unconditional: the scope change is never only in a caption.
-    const right = rectFor(HISTORY_COPY.scopeChanged, b.x + 4, "start");
-    placed.push({ ...right, text: HISTORY_COPY.scopeChanged, x: b.x + 4, anchor: "start", role: "scope" });
-    const leftRect = rectFor(HISTORY_COPY.otherVolume, b.x - 4, "end");
-    if (leftRect.x >= frame.left) placed.push({ ...leftRect, text: HISTORY_COPY.otherVolume, x: b.x - 4, anchor: "end", role: "other" });
-  }
+  // Scope labels go first, through the same bounds and overlap check as every
+  // other label: right of the rule, else left of it, else the caption says it.
+  // "other volume" sits left of the rule only when that side is free.
+  const breaks = breakTimes.map((b) => {
+    if (place(HISTORY_COPY.scopeChanged, b.x + 4, "start", "scope") !== null) {
+      place(HISTORY_COPY.otherVolume, b.x - 4, "end", "other");
+      return { ...b, captioned: false };
+    }
+    return { ...b, captioned: place(HISTORY_COPY.scopeChanged, b.x - 4, "end", "scope") === null };
+  });
   // An all-unknown range is one statement ("not measured"), not one long gap:
   // it draws the bands alone, with no hatch to read as a span between values.
   const gaps: DrawnGap[] = (measured.length ? gapSpans(sorted) : []).map((g) => {
@@ -830,7 +858,7 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
     scenarioLines: lines,
     scenarioLabels,
     markers: clusterMarkers(markersIn, x, frame.left, frame.right),
-    topLabels: placed.map(({ text, x, anchor, role }) => ({ text, x, anchor, role })),
+    topLabels: placed.map((p) => p.label),
   };
 }
 
@@ -850,7 +878,7 @@ interface SparklineGeometry {
  * they break the history chart; a flat series sits on the middle line.
  */
 export function sparklineGeometry(points: readonly HistoryPoint[], width: number, height: number, pad = 2): SparklineGeometry {
-  const sorted = [...points].filter((p) => Number.isFinite(p.at)).sort((a, b) => a.at - b.at);
+  const sorted = placeable(points);
   const segments = segmentSeries(sorted.map((p) => ({ ...p, otherScope: false })));
   const values = segments.flatMap((s) => s.points.map((p) => p.value));
   const times = sorted.map((p) => p.at);
