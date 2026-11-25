@@ -3242,3 +3242,39 @@ ol.bk-ut-list { list-style: decimal outside; }
 @container (min-width: 520px) {
   .bk-gh-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ── Storage volumes (#4542) ──────────────────────────────────────────────
+ * `VolumeGroup`'s grid: `auto-fit, minmax(260px, 1fr)` (#4549), with each
+ * track capped at the container so a container under 260px (a phone at 200%
+ * zoom) still never scrolls sideways. The wrapper is the query container,
+ * because a grid cannot query its own width. It sets its own width, because
+ * size containment zeroes its intrinsic one. One column has the phone's 8px
+ * gap, and side-by-side cards the desktop's 12px.
+ *
+ * The selected card's notch points down at the chart, which only makes sense
+ * while the cards sit side by side in one strip above it. Stacked, it would
+ * point at the next card, so it is drawn from two columns up (2 × 260 + 12). */
+.bk-volume-group { container: bk-volumes / inline-size; width: 100%; }
+.bk-volume-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 8px;
+}
+.bk-volume-notch { display: none; }
+@container bk-volumes (min-width: 532px) {
+  .bk-volume-grid { gap: 12px; }
+  .bk-volume-notch {
+    display: block;
+    position: absolute;
+    left: 50%;
+    bottom: -7px;
+    width: 10px;
+    height: 10px;
+    box-sizing: border-box;
+    transform: translateX(-50%) rotate(45deg);
+    background: var(--bk-color-surface);
+    border-right: 2px solid var(--bk-color-ink);
+    border-bottom: 2px solid var(--bk-color-ink);
+    pointer-events: none;
+  }
+}

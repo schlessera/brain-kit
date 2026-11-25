@@ -376,3 +376,26 @@ export { GitHubMergeEvent, type GitHubMergeEventProps } from "./github/GitHubMer
 export { GitHubResultList, type GitHubResult, type GitHubResultListProps } from "./github/GitHubResultList.js";
 export { GitHubDetailSection, type GitHubDetailSectionProps, type GitHubDetailState } from "./github/GitHubDetailSection.js";
 export { githubHref, type GitHubPerson, type GitHubState } from "./github/shared.js";
+
+/* Storage volumes: one gauge per capacity scope, and the cards that select one (#4542). */
+export { CapacityGauge, type CapacityGaugeProps, type CapacityLevel } from "./storage/CapacityGauge.js";
+export {
+  VolumeCard,
+  VolumeGroup,
+  type VolumeCardProps,
+  type VolumeGroupItem,
+  type VolumeGroupProps,
+  type VolumeStatus,
+} from "./storage/VolumeCard.js";
+export {
+  capacityDrawable,
+  capacitySegments,
+  percentLabel,
+  thresholdsValid,
+  tickLayout,
+  type CapacityFigures,
+  type CapacitySegment,
+  type CapacitySegmentKind,
+  type CapacityThresholds,
+  type TickLayout,
+} from "./storage/capacity-geometry.js";
