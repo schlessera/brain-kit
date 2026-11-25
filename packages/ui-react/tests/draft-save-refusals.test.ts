@@ -6,6 +6,7 @@ import type { DraftApi, DraftCallResult } from "../src/lib/draft-api.ts";
 import { draftIndicatorView } from "../src/lib/draft-indicator.ts";
 import { GONE_LINEAGE, holdsUnsaved, type ComposerDraft } from "../src/stores/draft-state.ts";
 import { parseDraft, storeDraft } from "../src/lib/local-work.ts";
+import { unboundDrafts } from "../src/lib/drafts.ts";
 import type { PendingAttachment } from "../src/lib/image-attachments.ts";
 
 // A save the host refuses with a 400 it will give again (#4566): the client
@@ -106,7 +107,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const drafts = ui.stores.drafts;
   const id = drafts.getState().idFor(SESSION);
   const indicator = (draftId: string) => draftIndicatorView({ draft: drafts.getState().drafts[draftId], store: drafts.getState(), queued: [], online: true });
-  return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), silenceGets: (n: number) => { silentGets = n; getStatus = 503; },
+  return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), withoutDrafts: () => client.hello({ ...hello, capabilities: { ...hello.capabilities, sessionDrafts: false } }), silenceGets: (n: number) => { silentGets = n; getStatus = 503; },
     failGets: (status: number, n: number) => { silentGets = n; getStatus = status; }, gets: () => getCount,
     holdSaves: () => { let open!: () => void; saveGate = new Promise<void>((resolve) => { open = resolve; }); return () => { saveGate = null; open(); }; },
     holdGets: () => { let open!: () => void; getGate = new Promise<void>((resolve) => { open = resolve; }); return () => { getGate = null; open(); }; } };
@@ -528,4 +529,41 @@ test("a refusal of an edit already superseded does not hold the newer one behind
   release();
   await run(LONG);
   expect(s.rows.get(s.id)?.text, "SUPERSEDED_REFUSAL_DOES_NOT_BLOCK").toBe("Then sail");
+});
+
+test("another version taking the draft's place ends a pending file recovery: its own text is saved", async () => {
+  const s = scene();
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees", files: [{ file: PERMIT, lineage: s.id }] });
+  await run(SAVE_DELAY + 100);
+  s.swept.add(PERMIT.fileId);
+  s.silenceGets(1_000);
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees for the permit" });
+  await run(10_000);
+  // The device's other version of this draft is adopted: same id, its own content and edit count.
+  s.silenceGets(0);
+  s.drafts.getState().adoptDeviceRecord({ draftId: s.id, sessionId: SESSION, text: "Penelope keeps the loom", attachments: [], editedAt: 5, host: { revision: 1, sessionId: SESSION, updatedAt: 1, clean: false } });
+  await run(LONG);
+  expect(s.drafts.getState().drafts[s.id]?.failure, "ADOPTION_ENDS_RECOVERY").toBeNull();
+  expect(s.rows.get(s.id)?.text).toBe("Penelope keeps the loom");
+});
+
+test("a draft holding only originals to choose again is listed in Drafts", () => {
+  const s = scene();
+  const id = "4e2a6c8d-0f1b-4d3e-9a5c-7b9d1f3e5a70";
+  s.drafts.getState().edit(id, null, { files: [{ file: CREW, lineage: "a-rotated-away-draft" }] });
+  expect(unboundDrafts(s.drafts.getState().drafts).map((d) => d.draftId), "FILES_ONLY_DRAFT_LISTED").toContain(id);
+});
+
+test("a re-read waiting to retry stops asking a host that no longer keeps drafts", async () => {
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } } : null) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  s.silenceGets(1_000);
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-muster" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-muster", requestId: "req-muster", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "Muster the crew");
+  await run(3_000);
+  s.withoutDrafts();
+  const gets = s.gets();
+  await run(LONG);
+  expect(s.gets() - gets, "NO_REREAD_WITHOUT_DRAFTS").toBe(0);
 });

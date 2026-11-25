@@ -453,6 +453,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    */
   /** `edit`: the edit the refused save carried; a newer one is saved as itself. */
   function reconcile(draftId: string, edit: number, tries = 0) {
+    // A host that stopped keeping drafts is not asked again.
+    if (!live()) { endReconcile(draftId); return; }
     // Refused for an edit already superseded: the newer one is saved instead.
     if (drafts.getState().drafts[draftId]?.edit !== edit) { schedule(draftId, 0); return; }
     reconciling.set(draftId, edit);
@@ -746,6 +748,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     for (const [id, d] of Object.entries(state.drafts)) if (d.deviceEpoch !== undefined && d.deviceEpoch !== prev.drafts[id]?.deviceEpoch) {
       deviceSeq.set(id, (deviceSeq.get(id) ?? 0) + 1);
       bumpHost(id);
+      // Another version took this id's place: what was refused or being recovered was the old one's.
+      refusals.delete(id);
+      recoveries.delete(id);
+      endReconcile(id);
     }
     for (const [id, d] of Object.entries(state.drafts)) if (!prev.drafts[id] && d.deviceConflict) {
       // The other identity can be a predecessor retired by a send while
