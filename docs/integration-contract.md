@@ -20,6 +20,15 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Storage events timeline (additive, 0.45.0, #4541)
+
+`GET /api/storage/events` returns a bounded, per-kind timeline of warning
+episodes, owner refusals, scope changes and the caller's own maintenance runs,
+paged by recording order with `since`. The SDK gains `StorageEventsResponse`
+and its event types. Existing storage shapes are unchanged. See
+[the HTTP component](integration-contract/http.md#storage-events-timeline-additive-0450-4541).
+This ships in a minor.
+
 ## Per-review line-comment counts (additive, 0.45.0, #4147)
 
 Each review in a `brain_github_issue_read` pull request result gains

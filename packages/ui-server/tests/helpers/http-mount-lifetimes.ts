@@ -8,6 +8,7 @@
 export const mountLifetimes: Record<string, { shared: boolean; effects: string }> = {
   "GET /api/storage/history": { shared: false, effects: "Storage history and warning state share the app collector lifetime; preserve independently empty initial state." },
   "GET /api/storage/guidance": { shared: false, effects: "Storage history and warning state share the app collector lifetime; preserve independently empty initial state." },
+  "GET /api/storage/events": { shared: false, effects: "Storage events share the app collector and maintenance lifetime; preserve independently empty initial state." },
   "GET /api/storage/removals": { shared: false, effects: "Removal inspection, retained review/receipt state or effects; preserve a fresh owner, ledger and cleanup lifetime." },
   "POST /api/storage/removals/inspection": { shared: false, effects: "Removal inspection, retained review/receipt state or effects; preserve a fresh owner, ledger and cleanup lifetime." },
   "POST /api/storage/removals/reviews": { shared: false, effects: "Removal inspection, retained review/receipt state or effects; preserve a fresh owner, ledger and cleanup lifetime." },
