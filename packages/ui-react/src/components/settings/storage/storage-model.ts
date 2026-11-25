@@ -20,15 +20,13 @@ export const exactBytes = (value: number | null) =>
   value === null
     ? "Unknown"
     : `${new Intl.NumberFormat("en").format(value)} bytes`;
-export const percent = (value: number | null, total: number | null) =>
+const percent = (value: number | null, total: number | null) =>
   value === null || total === null || total <= 0
     ? "Unknown share"
     : `${new Intl.NumberFormat("en", { maximumSignificantDigits: 3 }).format(
         (value / total) * 100
       )}% of measured parent`;
 export const time = (value: number) => new Date(value).toLocaleString();
-export const ownerName = (owner: string) =>
-  owner === "brain" ? "Brain" : owner === "app" ? "App" : "Operator";
 export const humanReason = (reason: string | null) =>
   reason ? reason.replaceAll("_", " ").replaceAll("-", " ") : "Unavailable";
 export const canonicalPath = (

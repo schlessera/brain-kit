@@ -19,11 +19,11 @@ import type { useStorage } from "./use-storage.js";
 type StorageView = ReturnType<typeof useStorage>;
 
 /** Side by side from 840px of section, stacked below, the 120px strip below 560px (#4549 brief). */
-export const SIDE_BY_SIDE = 840;
-export const STRIP = 560;
+const SIDE_BY_SIDE = 840;
+const STRIP = 560;
 const ROOT = "all";
 
-export const OWNERS: ReadonlyArray<{ value: "all" | StorageOwner; label: string }> = [
+const OWNERS: ReadonlyArray<{ value: "all" | StorageOwner; label: string }> = [
   { value: "all", label: "All" },
   { value: "brain", label: "Brain" },
   { value: "app", label: "App" },
@@ -31,7 +31,7 @@ export const OWNERS: ReadonlyArray<{ value: "all" | StorageOwner; label: string 
 ];
 
 /** A section's own width, so the layout follows the pane and not the window. */
-export function useWidth<T extends HTMLElement>() {
+function useWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
@@ -46,7 +46,7 @@ export function useWidth<T extends HTMLElement>() {
 }
 
 /** The basis select, shared by the overview controls. */
-export function SizeBasis({ view }: { view: StorageView }) {
+function SizeBasis({ view }: { view: StorageView }) {
   return (
     <label className="grid min-w-0 gap-1 text-xs text-muted-foreground">
       Size basis

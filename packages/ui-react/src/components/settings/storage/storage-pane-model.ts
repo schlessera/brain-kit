@@ -21,7 +21,7 @@ import { DAY_MS, signedBytes, storageFormat, type StorageFormat, type StorageVol
 const count = (value: number) => new Intl.NumberFormat("en").format(value);
 
 /** The header's single mono line and the one action beside it. */
-export interface StorageStatusLine {
+interface StorageStatusLine {
   state: "loading" | "unavailable" | "never" | "measuring" | "failed" | "out-of-date" | "partial" | "complete";
   /** Its shape carries the state, so it survives greyscale. */
   glyph: string;
@@ -99,7 +99,7 @@ export function storageStatusLine(input: {
 }
 
 /** The Alerts row (#4549 maintainer decision, 2026-11-25). */
-export interface StorageAlertsLine {
+interface StorageAlertsLine {
   state: "on" | "off" | "quiet" | "unknown-zone" | "no-device" | "unavailable";
   /** The phrase after "Alerts ·". */
   text: string;
@@ -137,7 +137,7 @@ export function storageAlertsLine(
 }
 
 /** The attention banner (D4): one sentence, only when a volume is Low or Very low. */
-export interface StorageBanner {
+interface StorageBanner {
   severity: "low" | "critical";
   volumeId: string;
   title: string;

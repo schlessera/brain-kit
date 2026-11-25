@@ -19,7 +19,7 @@ import { StorageSegmented } from "./storage-segmented.js";
 import { humanReason } from "./storage-model.js";
 import type { StorageFormat, StorageVolume } from "./storage-volumes.js";
 
-export const STORAGE_TIERS: ReadonlyArray<{ value: StorageHistoryTier; label: string }> = [
+const STORAGE_TIERS: ReadonlyArray<{ value: StorageHistoryTier; label: string }> = [
   { value: "six-hour", label: "Recent" },
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
