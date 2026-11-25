@@ -56,24 +56,18 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           next.metadata.state.pressures = state.pressures.map(value => observePressure(value, null, time));
           next.metadata.state.paused = "collection-unavailable";
         } else next = structuredClone(previous);
-        // Apply each target's buffered reports together, targets in the order
-        // of their earliest refusal (#4541), so a warning starts at the first
-        // refusal whatever target coalesced last. A target's own reports keep
-        // their arrival order and targets touch separate refusals, so every
-        // target's state and the resulting severity are unchanged.
-        const groups = new Map<string, BufferedWrite[]>();
-        for (const report of writes) {
-          const key = `${report.identity}:${report.target}:${report.resource}`;
-          const group = groups.get(key);
-          if (group) group.push(report); else groups.set(key, [report]);
+        // Pressure state applies the reports in buffer order, exactly as before
+        // #4541: supportAt, the refusal list and notice eligibility depend on it.
+        // The event timeline instead takes each refusal's first time and, for
+        // the warning a refusal starts, the earliest refusal on its capacity.
+        const refusalSince = new Map<string, number>(), warningSince = new Map<string, number>();
+        const target = (report: BufferedWrite) => `${report.identity}:${report.target}:${report.resource}`;
+        for (const report of writes) if (report.outcome === "no-space") {
+          const since = report.firstAt ?? report.at, earliest = report.earliestAt ?? since;
+          refusalSince.set(target(report), Math.min(refusalSince.get(target(report)) ?? since, since));
+          warningSince.set(report.identity, Math.min(warningSince.get(report.identity) ?? earliest, earliest));
         }
-        const refusalTimes = (group: BufferedWrite[]) => {
-          const refusals = group.filter(value => value.outcome === "no-space");
-          return refusals.length ? { since: Math.min(...refusals.map(value => value.firstAt ?? value.at)), earliest: Math.min(...refusals.map(value => value.earliestAt ?? value.firstAt ?? value.at)) } : null;
-        };
-        const ordered = [...groups.values()].map(group => ({ group, times: refusalTimes(group) }))
-          .sort((a, b) => (a.times?.earliest ?? Math.min(...a.group.map(value => value.at))) - (b.times?.earliest ?? Math.min(...b.group.map(value => value.at))));
-        for (const { group, times } of ordered) for (const report of group) {
+        for (const report of writes) {
           let pressure = next.metadata.state.pressures.find(value => value.identity === report.identity);
           if (!pressure && report.outcome === "success") continue;
           if (!pressure) {
@@ -88,10 +82,9 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           changed.at = Math.max(changed.at, pressure.at);
           // The refusal precedes the warning it starts. Each keeps the time of the
           // first refusal behind it, not the newest one the buffer kept.
-          const { firstAt: _first, earliestAt: _earliest, ...applied } = report;
-          const refused = report.outcome === "no-space" && times;
-          recordRefusalChange(db, brain, pressure, changed, applied, refused ? times.since : report.at);
-          recordPressureChange(db, brain, pressure, changed, refused ? times.earliest : report.at);
+          const refused = report.outcome === "no-space";
+          recordRefusalChange(db, brain, pressure, changed, report, refused ? refusalSince.get(target(report))! : report.at);
+          recordPressureChange(db, brain, pressure, changed, refused ? warningSince.get(report.identity)! : report.at);
           next.metadata.state.pressures[index] = changed;
         }
         if (ownerEvidenceLost) next.metadata.state.paused = "history-owner-evidence-budget";

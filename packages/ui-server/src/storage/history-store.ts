@@ -92,8 +92,9 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
       const kept = (value: BufferedWrite) => !same(value) || value.at > report.at || report.outcome === "success" && value.outcome === "no-space";
       const buffered: BufferedWrite = { identity: report.identity, rootScope: report.rootScope, target: report.target, resource: report.resource, at: report.at, outcome: report.outcome };
       if (report.outcome === "no-space") {
-        // Coalescing keeps the newest refusal for its support time; the event
-        // timeline still needs the first one (#4541). Reports can arrive out
+        // Coalescing keeps the newest refusal for pressure state; the event
+        // timeline still needs the first one (#4541). These fields are never
+        // applied to pressure. Reports can arrive out
         // of order, so take minimums, never the first match. A dropped success
         // ends the run of refusals before it.
         const dropped = pendingWrites.filter(value => !kept(value)), refusals = dropped.filter(value => value.outcome === "no-space");
@@ -105,7 +106,9 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
         }
       }
       const next = [...pendingWrites.filter(kept), buffered];
-      if (jsonBytes(next) > HISTORY_LIMITS.metadataBytes) {
+      // The evidence budget charges the reports alone, as before #4541; the
+      // event-only times never bring the overflow pause forward.
+      if (jsonBytes(next.map(({ firstAt: _first, earliestAt: _earliest, ...value }) => value)) > HISTORY_LIMITS.metadataBytes) {
         ownerOverflow = true; overflowVersion++; interrupted = true; interruptionVersion++; unavailable = "history-owner-evidence-budget"; return;
       }
       pendingWrites = next; flush();

@@ -130,12 +130,14 @@ test("buffered refusals across targets start the warning at the earliest refusal
   f.advance(start + 15_000); f.history.ownerWrite(b);
   f.advance(start + 20_000); f.history.ownerWrite({ ...a, at: start + 20_000 });
   f.advance(start + 70_000); expect(f.history.flush()).toBe(true);
+  // Pressure state is exactly what it was before the timeline: buffer order puts
+  // B before the coalesced A, and the newest refusal supports a Critical notice.
+  expect(f.history.read()!.metadata.state.pressures[0], "STORAGE_EVENTS_BUFFER_ORDER_STATE").toMatchObject({ severity: "critical", supportAt: start + 20_000,
+    refusals: [{ target: b.target, at: start + 15_000, successAt: null }, { target: a.target, at: start + 20_000, successAt: null }] });
+  // The timeline records in that order, but with each refusal's and the warning's first times.
   expect(f.events().events.map(event => [event.kind, event.phase, event.at, event.kind === "refusal" ? event.target : null]), "STORAGE_EVENTS_CROSS_TARGET_START").toEqual([
-    ["refusal", "refused", start + 10_000, a.target], ["pressure", "start", start + 10_000, null], ["refusal", "refused", start + 15_000, b.target],
+    ["refusal", "refused", start + 15_000, b.target], ["pressure", "start", start + 10_000, null], ["refusal", "refused", start + 10_000, a.target],
   ]);
-  expect(f.history.read()!.metadata.state.pressures[0], "STORAGE_EVENTS_ORDER_KEEPS_SEVERITY").toMatchObject({ severity: "critical",
-    refusals: [{ target: a.target, at: start + 20_000, successAt: null }, { target: b.target, at: start + 15_000, successAt: null }] });
-  // Applied in first-refusal order, so the refusals list A before B.
 });
 
 test("a late refusal report coalesced with newer ones still supplies the first refusal time", () => {
@@ -150,6 +152,45 @@ test("a late refusal report coalesced with newer ones still supplies the first r
   expect(f.events().events.map(event => [event.kind, event.phase, event.at]), "STORAGE_EVENTS_LATE_REPORT_FIRST_TIME").toEqual([
     ["refusal", "refused", start + 10_000], ["pressure", "start", start + 10_000],
   ]);
+});
+
+const s = (seconds: number) => start + seconds * 1000;
+type Step = { kind: "observe" } | { kind: "flush"; now: number } | { kind: "write"; target: string; seconds: number; outcome: "no-space" | "success"; now: number; identity: string };
+const write = (target: string, seconds: number, outcome: "no-space" | "success" = "no-space", now = seconds, volume = "Odysseus volume"): Step => ({ kind: "write", target, seconds, outcome, now, identity: volume });
+const flush = (now: number): Step => ({ kind: "flush", now });
+const observed: Step = { kind: "observe" };
+/** The same sequences, run once on origin/main before #4541; its pressure state is the fixture. */
+const SEQUENCES: Record<string, Step[]> = {
+  "cross-target A10 B15 A20": [observed, write("A", 10), write("B", 15), write("A", 20), flush(70)],
+  "late A20 A10 A30": [observed, write("A", 20, "no-space", 30), write("A", 10, "no-space", 30), write("A", 30), flush(70)],
+  "broken run A10 sA15 A20": [observed, write("A", 10), write("A", 15, "success"), write("A", 20), flush(70)],
+  "mixed A10 B15 A20 sB25": [observed, write("A", 10), write("B", 15), write("A", 20), write("B", 25, "success"), flush(70)],
+  "stored A then sA B A": [observed, write("A", 10), flush(70), write("A", 75, "success"), write("B", 80), write("A", 85), flush(140)],
+  "two capacities": [observed, write("A", 10), write("C", 12, "no-space", 12, "Ithaca volume"), write("A", 20), flush(70)],
+  "late success after refusal": [observed, write("A", 10), flush(70), write("A", 90, "no-space", 95), write("A", 80, "success", 95), write("B", 95), flush(140)],
+};
+
+test("buffered owner reports leave pressure state byte-identical to the pre-timeline history", async () => {
+  const recorded = (await Bun.file(new URL("./fixtures/storage-events-main-pressure.json", import.meta.url)).json()) as { pressures: Record<string, unknown> };
+  expect(Object.keys(recorded.pressures).sort()).toEqual(Object.keys(SEQUENCES).sort());
+  for (const [name, steps] of Object.entries(SEQUENCES)) {
+    const f = fixture();
+    for (const step of steps) {
+      if (step.kind === "observe") { f.advance(s(5)); f.history.offer(aggregate(start, 500_000_000)); }
+      else if (step.kind === "flush") { f.advance(s(step.now)); f.history.flush(); }
+      else { f.advance(s(step.now)); f.history.ownerWrite({ identity: hashScope(step.identity), rootScope: scope, target: hashScope(step.target), resource: "bytes", outcome: step.outcome, at: s(step.seconds) }); }
+    }
+    const pressures = f.history.read()!.metadata.state.pressures.map(value => ({ ...value, episode: value.episode ? "uuid" : null, resolvedEpisode: value.resolvedEpisode ? "uuid" : null }));
+    expect(JSON.stringify(pressures), `STORAGE_EVENTS_PRESSURE_MATCHES_MAIN ${name}`).toBe(JSON.stringify(recorded.pressures[name]));
+  }
+});
+
+test("event-only times never bring the owner-evidence overflow pause forward", () => {
+  const f = fixture(); f.observe(start, 500_000_000); f.advance(s(20));
+  // 200 coalesced pairs fit the 40,960-byte report budget as before #4541,
+  // but would not if the timeline's extra times were charged to it.
+  for (let index = 0; index < 200; index++) for (const seconds of [10, 20]) f.history.ownerWrite({ identity, rootScope: scope, target: hashScope(`Ithaca store ${index}`), resource: "bytes", outcome: "no-space", at: s(seconds) });
+  expect(f.history.status().paused, "STORAGE_EVENTS_BUDGET_CHARGES_REPORTS_ONLY").toBeNull();
 });
 
 test("a buffered success ends the coalesced refusal run but not the warning the first refusal started", () => {
