@@ -1130,6 +1130,10 @@ describe("google", () => {
     expect(draft).toMatchObject({ ok: true, operation: "gmail.draft.get", data: { view: "structured", draft_id: "r-1234567890123456789" } });
     const labels = JSON.parse((await google(["gmail", "labels"])).stdout);
     expect(labels).toMatchObject({ ok: true, operation: "gmail.labels.list", data: { view: "structured" } });
+    // A real miss answers the one not-found error whether or not anything is hidden.
+    fake.setScenario({ [`gmail.thread.get ${SWINE}`]: { exit: 5 } });
+    expect(JSON.parse((await google(["gmail", "read", "thread", SWINE])).stdout).error)
+      .toEqual({ code: "not_found", reason: null, message: "No such Gmail thread, message or draft was found." });
     expect(labels.data.labels).toContainEqual(expect.objectContaining({ id: "Label_12", name: "Ithaca/Household", type: "user" }));
     for (const call of fake.calls()) {
       expect(call.argv).toContain("--readonly");
