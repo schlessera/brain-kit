@@ -553,6 +553,7 @@ Nothing is sent and no host session is created.
 | unavailable | `draft · this host doesn't keep drafts · kept on this device` | capability absent |
 | too large | `draft · too large to save (8 MB max) · kept on this device` | 413 |
 | full | `draft · 100 drafts saved · delete one to save this` | 507 |
+| refused | `draft · not saved · refused by the brain · kept on this device` | a 400 the host gives again for the same edit: one recovery is tried (re-upload images, re-read a refused snapshot list, leave out originals it no longer stores), then nothing is sent until the content changes (#4566) |
 
 Content is always kept locally and is never dropped to fit a limit. Nothing
 claims host durability for an unacknowledged save.
