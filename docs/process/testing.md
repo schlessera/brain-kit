@@ -56,6 +56,25 @@ inspecting CI on a PR live in the `work-issue` skill's
   commands and explicitly preloaded child probes. Production invocations keep
   their own policy. The startup-view copier still refuses concurrent changes.
 
+`bun run test` enters a command-scoped Linux network/mount namespace before
+starting tests. Only loopback and an address-only, route-free browser indicator
+are present. `/etc/claude-code` is covered, inherited provider credentials are
+removed, and HOME/config storage is private. Setup uses unprivileged namespaces
+when they preserve the caller identity, otherwise passwordless sudo for setup
+followed by restoration of UID/GID/groups and capability removal. A failed setup
+refuses only that command with exit 125 and `OFFLINE_SETUP_REFUSAL` on stderr;
+the next command retries setup. Descendants inherit the namespaces. This is a
+small test harness, not a filesystem sandbox: the checkout remains available.
+See the [minimal-boundary ruling](https://github.com/schlessera/brain-kit/issues/4313#issuecomment-7164849270).
+
+Docker-driving Bun files run in their own CI step with their original assertions;
+their real containers keep `--network=none`. Browser/layout/endurance commands
+also use network-disabled containers. `runtime_host` keeps its existing native
+container path. No child qualification service or copied source closure is used.
+The runtime proof is `scripts/offline-command-proof.py`: network, managed-settings
+and credential negatives, one mutation each, plus setup refusal and cause logging.
+Run it as root on a disposable runner, naming its test UID/GID/groups.
+
 The shared test preload assigns a fresh disposable `HOME` and
 `CLAUDE_CONFIG_DIR`, including when a caller inherited a real Claude config
 path. Tests that supply their own profile paths must keep them in owned

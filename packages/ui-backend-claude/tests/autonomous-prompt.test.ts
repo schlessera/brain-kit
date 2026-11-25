@@ -10,7 +10,7 @@ test("restricted turns keep the marked trusted prefix identical across item and 
   try {
     const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev", process.execPath,
       "--preload", join(root, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "fixtures/autonomous-prompt-probe.ts"), scratch],
-      { cwd: root, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", TMPDIR: tmpdir() }, stdout: "pipe", stderr: "pipe" });
+      { cwd: root, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", TMPDIR: tmpdir(), HOME: join(scratch, "home") }, stdout: "pipe", stderr: "pipe" });
     const [out, err, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(exit, err || out).toBe(0);
     const requests = JSON.parse(readFileSync(join(scratch, "requests.json"), "utf8"));

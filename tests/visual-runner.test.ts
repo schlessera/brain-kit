@@ -67,9 +67,9 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
       import { dirname, resolve } from "node:path";
       const argv = process.argv.slice(2);
       const image = argv.findIndex((arg) => arg.startsWith("mcr.microsoft.com/playwright@sha256:"));
-      if (image < 0 || argv[image + 1] !== "node" || argv[image + 2] !== "scripts/visual.mjs") process.exit(91);
+      if (image < 0 || argv[image + 1] !== "python3" || argv[image + 2] !== "scripts/browser-offline-entry.py" || argv[image + 5] !== "node" || argv[image + 6] !== "scripts/visual.mjs") process.exit(91);
       const child = spawnSync(process.execPath,
-        [resolve(process.env.RUNNER_ROOT, "scripts/visual.mjs"), ...argv.slice(image + 3)],
+        [resolve(process.env.RUNNER_ROOT, "scripts/visual.mjs"), ...argv.slice(image + 7)],
         {env: process.env, stdio: "inherit"});
       process.exit(child.status ?? 92);` : "";
     const nativeRouting = command === "docker" ? `
@@ -194,7 +194,7 @@ test("a repeat plan enters the same container and runs the repetition runner the
   expect(docker.slice(docker.indexOf("--inside"))).toEqual(["--inside", "--project=ui-react-layout", "--project=visual", plan]);
   // The selected projects decide the network exactly as for an ordinary run of them.
   expect(docker, "LAYOUT_STAYS_OFFLINE").toContain("--network=none");
-  expect((await invoke(["--project=visual", plan])).calls[1]!.args).not.toContain("--network=none");
+  expect((await invoke(["--project=visual", plan])).calls[1]!.args, "VISUAL_STAYS_OFFLINE").toContain("--network=none");
 });
 
 test("a repeat plan names its projects and a file under tmp/, and nothing else that chooses files", async () => {

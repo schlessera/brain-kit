@@ -41,7 +41,7 @@
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { accessSync, constants, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -100,6 +100,11 @@ function run(command, args, options = {}) {
 }
 
 if (inside) {
+  const privateHome = mkdtempSync(resolve(tmpdir(), "brain-visual-home-"));
+  process.env.HOME = privateHome;
+  process.env.CLAUDE_CONFIG_DIR = resolve(privateHome, ".claude");
+  mkdirSync(process.env.CLAUDE_CONFIG_DIR);
+  process.on("exit", () => rmSync(privateHome, { recursive: true, force: true }));
   // Lock inside the container: its mount shares the host lock inode, while a
   // Docker process cannot inherit a host descriptor. Separate worktrees keep
   // separate locks. Exclusive access also preserves project scheduling/captures.
@@ -190,9 +195,11 @@ const status = run("docker", [
   "--rm",
   "--ipc=host",
   // The consumer layout project needs only the in-container Vite server.
-  ...(projects.some(project => ["ui-react-layout", "ui-react-endurance"].includes(project)) ? ["--network=none"] : []),
+  "--network=none",
   "--user",
-  `${uid}:${gid}`,
+  "0:0",
+  "--cap-drop=ALL",
+  "--cap-add=NET_ADMIN", "--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=SETPCAP",
   "-v",
   `${REPO}:/repo`,
   "-v",
@@ -211,6 +218,7 @@ const status = run("docker", [
     "-e", "GITHUB_RUN_ID", "-e", "GITHUB_RUN_ATTEMPT", "-e", "GITHUB_JOB"] : []),
   ...(nativePrepared ? ["-e", `BRAIN_NATIVE_DIAGRAM_PREPARED=${nativePrepared}`] : []),
   IMAGE,
+  "python3", "scripts/browser-offline-entry.py", String(uid), String(gid),
   "node",
   "scripts/visual.mjs",
   "--inside",

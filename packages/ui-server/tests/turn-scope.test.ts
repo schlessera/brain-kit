@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { expect, test } from "bun:test";
 import { writeFileSync, truncateSync, chmodSync, readdirSync, mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
@@ -10,7 +11,7 @@ import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { createTurnScope, SCOPE_DISCONNECTED_MS } from "../src/brain/turn-scope.js";
 import { scopeFixture } from "./helpers/scope-fixture.js";
 import { registeredInterval } from "./helpers/registered-interval.js";
-async function wait(check: () => boolean, timeout = 5000) { const end = Date.now() + timeout; while (!check()) { if (Date.now() > end) throw Error("Scope fixture timed out"); await Bun.sleep(10); } }
+async function wait(check: () => boolean, timeout = 5000) { const end = Date.now() + watchdogMs(timeout); while (!check()) { if (Date.now() > end) throw Error("Scope fixture timed out"); await Bun.sleep(10); } }
 /** Process names below `pid`, read from the host's /proc, which sees into the worker's PID namespace. */
 function descendantNames(pid: number): string[] {
   const parents = new Map<number, number[]>(), names = new Map<number, string>();
@@ -425,7 +426,7 @@ test.each(["running", "pausedFloor"])("small tmpfs brain: %s crosses the real st
   try {
     const child = Bun.spawn([Bun.which("bwrap")!, "--unshare-user", "--unshare-net", "--bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
       "--size", String(2 * 1024 ** 3 + 32 * 1024 ** 2), "--tmpfs", brain,
-      process.execPath, "--no-env-file", join(import.meta.dir, "fixtures/scope-tmpfs-probe.ts"), brain, mode], { cwd: "/", env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });
+      process.execPath, "--no-env-file", join(import.meta.dir, "fixtures/scope-tmpfs-probe.ts"), brain, mode], { cwd: "/", env: { PATH: "/usr/bin:/bin", BRAIN_TEST_DEADLINE_FACTOR: process.env.BRAIN_TEST_DEADLINE_FACTOR ?? "1" }, stdout: "pipe", stderr: "pipe" });
     const [code, output, errors] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, `SCOPE_TMPFS_SUPPORTED_LIFECYCLE: ${errors}${output}`).toBe(0);
     expect(JSON.parse(output.trim())).toMatchObject({ proof: "supported tmpfs worker freeze/Stop", receipt: { dimension: "free_space_floor", cap: 2 * 1024 ** 3, frozen: true, state: "stopped" } });
@@ -487,7 +488,7 @@ while True:
     const ownBytes = Bun.file(join(f.brain, "own-heartbeat")).size, neighborBytes = Bun.file(join(neighborBrain, "neighbor-heartbeat")).size;
     // A runnable neighbor may not be scheduled within 100ms on a shared host.
     // Its deliberately slower heartbeat must advance while our namespace stays frozen.
-    const neighborDeadline = Date.now() + 5000;
+    const neighborDeadline = Date.now() + watchdogMs(5000);
     do {
       await Bun.sleep(10);
       expect(Bun.file(join(f.brain, "own-heartbeat")).size, "SCOPE_OWN_NAMESPACE_STAYS_FROZEN").toBe(ownBytes);
@@ -577,7 +578,7 @@ while True:
       // failure budget. Await actual observation completion after dispatch.
       try {
         await Promise.race([f.journal.idle(), new Promise<never>((_, reject) => {
-          completionTimeout = setTimeout(() => reject(Error("Scope periodic observation timed out")), 16_000);
+          completionTimeout = setTimeout(() => reject(Error("Scope periodic observation timed out")), watchdogMs(16_000));
         })]);
       } finally { clearTimeout(completionTimeout); }
       expect(f.journal.isHeld(), "SCOPE_PERIODIC_CAPTURE_COMPLETED").toBe(false);

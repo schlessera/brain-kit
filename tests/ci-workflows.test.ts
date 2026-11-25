@@ -172,7 +172,7 @@ describe("runtime environment setup and proof budgets", () => {
     const job = ci.jobs[name]!;
     // Repeated changed tests share the unit job's prerequisites, not the native ones (#4109).
     const setup = job.steps.find(s => s.run === `bash scripts/ci-runtime-setup.sh${name === "unit" || name === "determinism" ? "" : " --native"}`)!;
-    const proof = job.steps.find(s => s.run === `bun scripts/ci-proof.ts ${name}` || s.run?.startsWith(`bun scripts/ci-proof.ts ${name} `))!;
+    const proof = job.steps.find(s => s.id === "runtime_proof")!;
     test(`${name} retains a full proof budget after bounded environment setup`, () => {
       expect(setup["timeout-minutes"]).toBe(12);
       expect(proof["timeout-minutes"]).toBe(proofMinutes);

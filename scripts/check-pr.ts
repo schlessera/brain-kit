@@ -7,7 +7,7 @@ import { checkPackages } from "./check-packages";
 import { checkCategories, PREEMPTED_EXIT, RECEIPT_KIND, receiptBlock, UNPROVEN, type CheckReceipt, type Outcome, type ReceiptCheck } from "./check-receipt";
 import { ensureHostAdmission } from "./host-admission.mjs";
 import { discoverTests } from "./test-shards";
-import { DEFAULT_ROOTS } from "./test";
+import { DEFAULT_ROOTS, offlineCommand } from "./test";
 import { localUnitWorkerCount } from "./unit-workers";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -65,7 +65,8 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
       "packages/ui-react/tests/chat-focus-runtime.test.ts", "packages/ui-react/tests/external-speech-runtime.test.ts"],
       env: { BRAIN_REQUIRE_CHROME: "1" } });
   }
-  return checks;
+  return checks.map(check => ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation"].includes(check.name)
+    ? { ...check, argv: offlineCommand(check.argv) } : check);
 }
 
 /**

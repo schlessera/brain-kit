@@ -16,9 +16,12 @@
  * in tests/release-manifest.test.ts still sees it on the root script.
  */
 
+import { isDockerTest } from "./docker-test-files";
+import { cleanTestEnvironment, offlineCommand } from "./offline-command";
+export { offlineCommand } from "./offline-command";
 import { constants } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { invocationChild } from "./test-invocation-child";
 import { createInvokingTestHome } from "./test-home";
 import { runtimeBuildSelection } from "./runtime-test-builds";
@@ -102,12 +105,12 @@ function shortTakesNext(token: string): boolean {
 }
 
 /** The `bun test` argv for the arguments `bun run test` received. */
-export function testPaths(args: readonly string[]): string[] {
-  const paths: string[] = [];
+function testPathIndexes(args: readonly string[]): number[] {
+  const paths: number[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--") {
-      paths.push(...args.slice(i + 1));
+      paths.push(...args.slice(i + 1).map((_, offset) => i + 1 + offset));
       break;
     }
     // A bare `-` is a positional to Bun, like any other path.
@@ -119,9 +122,30 @@ export function testPaths(args: readonly string[]): string[] {
       }
       continue;
     }
-    paths.push(arg);
+    paths.push(i);
   }
   return paths;
+}
+
+export function testPaths(args: readonly string[]): string[] {
+  return testPathIndexes(args).map(index => args[index]!);
+}
+
+/** Keep host Docker drivers in a separate command, including a local full-suite run. */
+export async function testCommandBatches(argv: string[], cwd: string): Promise<{ argv: string[]; docker: boolean }[]> {
+  const paths = testPaths(argv);
+  const { discoverTests } = await import("./test-shards");
+  const files = paths.flatMap(path => {
+    try { if (statSync(resolve(cwd, path)).isDirectory()) return discoverTests(cwd, [path]); } catch { /* Bun owns unknown/filter paths. */ }
+    return [path];
+  });
+  if (!files.some(isDockerTest)) return [{ argv, docker: false }];
+  const positions = new Set(testPathIndexes(argv));
+  const flags = argv.filter((_, index) => !positions.has(index));
+  return [false, true].flatMap(docker => {
+    const selected = [...new Set(files.filter(file => isDockerTest(file) === docker))];
+    return selected.length ? [{ argv: [...flags, ...selected.map(file => resolve(cwd, file))], docker }] : [];
+  });
 }
 
 export function testArgv(args: readonly string[]): string[] {
@@ -238,17 +262,22 @@ if (import.meta.main) {
     if (!cancelled) {
       const beforeTests = performance.now();
       console.error(JSON.stringify({ kind: "test-invocation", event: "tests-start", pid: process.pid, at: Date.now() }));
-      invokingHome = createInvokingTestHome();
-      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit", env: { ...process.env, HOME: invokingHome.home, CLAUDE_CONFIG_DIR: invokingHome.config, BRAIN_TEST_RESOURCE_ROOT: invokingHome.resources } });
-      started(tests);
-      await tests.ready;
-      const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };
-      const joined = await Promise.allSettled([tests.exited, relay(tests.stdout, "stdout"), relay(tests.stderr, "stderr")]);
-      await tests.finish();
-      invokingHome.assertUnchanged();
-      result = joined[0].status === "fulfilled" ? joined[0].value : 1;
-      if (joined.some(item => item.status === "rejected")) result = result || 1;
-      if (tests.signalCode) result = 128 + (constants.signals[tests.signalCode] ?? 0);
+      for (const batch of await testCommandBatches(argv, process.cwd())) {
+        invokingHome = createInvokingTestHome();
+        const testCommand = [process.execPath, "--no-env-file", "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...batch.argv];
+        const tests = invocationChild(batch.docker ? testCommand : offlineCommand(testCommand), { stdin: "inherit", env: { ...cleanTestEnvironment(process.env), HOME: invokingHome.home, CLAUDE_CONFIG_DIR: invokingHome.config, BRAIN_TEST_RESOURCE_ROOT: invokingHome.resources } });
+        started(tests);
+        await tests.ready;
+        const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };
+        const joined = await Promise.allSettled([tests.exited, relay(tests.stdout, "stdout"), relay(tests.stderr, "stderr")]);
+        await tests.finish();
+        invokingHome.assertUnchanged();
+        result = joined[0].status === "fulfilled" ? joined[0].value : 1;
+        if (joined.some(item => item.status === "rejected")) result = result || 1;
+        if (tests.signalCode) result = 128 + (constants.signals[tests.signalCode] ?? 0);
+        invokingHome.dispose(); invokingHome = undefined;
+        if (result || cancelled) break;
+      }
       console.error(JSON.stringify({ kind: "test-invocation", event: "tests-complete", pid: process.pid, at: Date.now(), code: result,
         elapsedMs: performance.now() - beforeTests }));
     }
