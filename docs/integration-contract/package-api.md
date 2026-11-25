@@ -5118,6 +5118,40 @@ callbacks and perform no I/O. A row with a `null` size is the unknown row: a
 Open action; the caller places Open in its inspect panel and the breadcrumb's
 `actions` slot.
 
+### Storage volumes, history and tools (additive, #4542, #4543, #4545)
+
+`@schlessera/brain-ui-kit` exports `CapacityGauge`, `VolumeCard` and
+`VolumeGroup` with their props types and the types `CapacityLevel`,
+`VolumeGroupItem` and `VolumeStatus`. It also exports the gauge geometry:
+`capacityDrawable`, `capacitySegments`, `percentLabel`, `thresholdsValid`,
+`tickLayout`, `CapacityFigures`, `CapacitySegment`, `CapacitySegmentKind`,
+`CapacityThresholds` and `TickLayout`.
+- The gauge draws used → reserved → available against total, with Low and Very
+  low ticks at the fractions its caller passes.
+- An unknown total, or figures that do not add up, draws no bar and shows a
+  text mark.
+- `VolumeGroup` is a radio group with one tab stop.
+
+It exports `HistoryChart`, `EventList` and `Sparkline` with their props types,
+`SCENARIO_DASH`, `projectionReasonText`, and the types
+`HistoryEvidenceReason`, `HistoryMarker`, `HistoryPoint`, `HistoryScenario`,
+`HistoryScenarioWindow` and `HistoryThresholds`.
+- The chart is hand-rolled SVG with an equivalent data table.
+- A `null` point is a gap, never a zero.
+- Each qualified window is one dashed line (#4537 D9), and the chart never
+  forecasts: scenario endpoints and labels arrive as props.
+- `Sparkline` takes `showValue={false}` when its host row prints the value.
+
+It exports `ToolRow` and `ToolList` with their props types and the types
+`ToolRunState`, `ToolChange`, `ToolNotMeasuredReason`, `ToolOutcomeCounts`,
+`ToolHeadroom` and `ToolHeadroomFigure`.
+- A `ToolChange` is either a delta or a not-measured reason, never
+  "unknown → unknown".
+- A missing headroom estimate shows a `?` mark, never a bar.
+- Short headroom never disables Run, because the server decides admission.
+
+All of these take pre-formatted strings, numbers and callbacks, and perform no I/O.
+
 The ui-react Settings selection accepts `storage`. `openSettings("storage")`
 and the existing palette open the same lazy pane after Modules; Models remains
 the default. This adds no main destination or keyboard shortcut. Requests and
