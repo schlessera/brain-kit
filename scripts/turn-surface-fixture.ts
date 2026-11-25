@@ -32,6 +32,8 @@ export const STABLE_BRIDGE_ROSTER = [
   "brain_compute_cancel", "brain_compute_collect", "brain_compute_health", "brain_compute_plan",
   "brain_compute_run", "brain_compute_status", "brain_github_issue_comment", "brain_github_issue_create",
   "brain_github_issue_read", "brain_github_issue_search",
+  "brain_google_gmail_draft", "brain_google_gmail_modify", "brain_google_gmail_read",
+  "brain_google_gmail_search", "brain_google_gmail_send", "brain_google_gmail_trash",
   "brain_read_base", "brain_update", "complete_share",
   "edit_file", "get_current_location", "inbox_add", "inbox_get", "inbox_list",
   "propose_policy_change", "query_activity", "read_attachment", "reference_read", "reference_source", "reference_worktree",
