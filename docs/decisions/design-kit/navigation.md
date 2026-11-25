@@ -239,10 +239,11 @@ the #1773 behaviour above are unchanged.
 
 - **Two widths.** Each Settings pane is `standard` or `wide`; the default is
   `standard`. A standard pane keeps the 720px content column. A wide pane
-  grows to a fixed **1200px** cap and stays left-aligned beside the section
-  column, never centred. A fraction of the window was rejected: wide monitors
-  would produce 1600px rows, split the Storage map and list, stretch charts,
-  and make baselines depend on the screen.
+  fills the space beside the section column, and its content grows to a
+  fixed **1200px** cap, left-aligned beside the section column, never
+  centred. A fraction of the window was rejected: wide monitors would produce
+  1600px rows, split the Storage map and list, stretch charts, and make
+  baselines depend on the screen.
 - **Which panes.** Storage, Models, Modules and Skills are wide. Appearance &
   input, Voice, Accounts, Security and Devices & agents are standard, and
   their pixels are unchanged. Security is prose-heavy, so the measure would
@@ -256,13 +257,15 @@ the #1773 behaviour above are unchanged.
   560, grids and cards are one column. From 560, they are
   `auto-fill minmax(260px, 1fr)`, so two columns up to 840 and three or four
   past it. From 840, field groups may sit two-up.
-- **The header** is part of the pane content, so it spans the pane up to the
-  same cap.
+- **The header row spans the pane.** In a wide pane the header row (title
+  left, the pane's single primary action right) spans the pane's full width,
+  not the cap; only the content below it caps at 1200px. A standard pane's
+  header stays inside its 720px column, as before.
 
 With the 208px side rail and the 216px section column, the content is 476px
-at 900, 856px at 1280 and 1016px at 1440, so the cap first binds past 1624.
-At 200% zoom a 1280px window lays out as 640 CSS px: the compact strip shows
-and every grid fits a column count its container holds, with no horizontal
-scroll. Real-browser layout tests and baselines cover every pane at 320, 900,
-1280 and 1440 in dark and paper
+at 900, 856px at 1280 and 1016px at 1440, so the content cap first binds
+past 1624, where the header row keeps spanning the pane. At 200% zoom a
+1280px window lays out as 640 CSS px: the compact strip shows and every grid
+fits a column count its container holds, with no horizontal scroll. Real-browser layout tests and baselines cover every pane at 320, 900,
+1280 and 1440 in dark and paper, and layout tests cover 1920
 (`packages/ui-react/tests/browser/settings-wide-panes.layout.tsx`).

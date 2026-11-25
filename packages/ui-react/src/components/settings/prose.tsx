@@ -12,6 +12,12 @@ export function Prose({ as: Tag = "p", className, children }: { as?: "p" | "span
 }
 
 /**
+ * The content of a wide pane, below its header row: the 1200px cap (#4538 Q1).
+ * The header row and the scroll container span the pane; only this caps.
+ */
+export const WIDE_CONTENT = "max-w-[1200px]";
+
+/**
  * Cards and rows of a wide pane: one column below 560px of pane, then as many
  * 260px-minimum columns as fit (two to 840, three or four past it).
  */

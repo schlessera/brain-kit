@@ -1,9 +1,11 @@
 /**
  * Wide Settings panes (#4538, #4537 D6). Storage, Models, Modules and Skills
- * opt in with `width="wide"` and grow to a 1200px pane cap; every other pane
- * keeps its 720px column. Inside a wide pane, prose keeps the 68ch reading
- * measure, and grids stack by the pane container's width (one column below
- * 560px, `auto-fill minmax(260px, 1fr)` from 560px), never by the viewport's.
+ * opt in with `width="wide"`: the pane and its header row span the window
+ * beside the section column, and only the content below the header caps at
+ * 1200px. Every other pane keeps its 720px column. Inside a wide pane, prose
+ * keeps the 68ch reading measure, and grids stack by the pane container's
+ * width (one column below 560px, `auto-fill minmax(260px, 1fr)` from 560px),
+ * never by the viewport's.
  *
  * Every pane is captured at 320, 900, 1280 and 1440 in dark and paper. The
  * standard panes' baselines were recorded before the wide opt-in existed, so
@@ -55,13 +57,13 @@ function fixtures(path: string): Response {
   return Response.json({ providers: [], configured: false, tools: [], principals: [], credentials: [], enabled: [], available: [] });
 }
 
-const PANES: Array<{ tab: SettingsTab; name: string; module?: () => Promise<unknown>; wide: boolean; prose?: true; grids: number; ready: string }> = [
+const PANES: Array<{ tab: SettingsTab; name: string; module?: () => Promise<unknown>; wide: boolean; prose?: true; grids: number; ready: string; content?: true; header?: true }> = [
   { tab: "appearance", name: "appearance", wide: false, grids: 0, ready: "Turning single-key shortcuts off" },
-  { tab: "models", name: "models", module: () => import("../../src/components/settings/models-tab.js"), wide: true, prose: true, grids: 2, ready: "openrouter/circe-isle" },
+  { tab: "models", name: "models", module: () => import("../../src/components/settings/models-tab.js"), wide: true, prose: true, grids: 2, ready: "openrouter/circe-isle", content: true },
   { tab: "voice", name: "voice", module: () => import("../../src/components/settings/voice-tab.js"), wide: false, grids: 0, ready: "" },
   { tab: "accounts", name: "accounts", module: () => import("../../src/components/settings/accounts-tab.js"), wide: false, grids: 0, ready: "No other provider accounts" },
-  { tab: "skills", name: "skills", module: () => import("../../src/components/settings/skills-tab.js"), wide: true, prose: true, grids: 2, ready: "weekly-review" },
-  { tab: "modules", name: "modules", module: () => import("../../src/components/settings/modules-tab.js"), wide: true, grids: 1, ready: "Herds" },
+  { tab: "skills", name: "skills", module: () => import("../../src/components/settings/skills-tab.js"), wide: true, prose: true, grids: 2, ready: "weekly-review", content: true },
+  { tab: "modules", name: "modules", module: () => import("../../src/components/settings/modules-tab.js"), wide: true, grids: 1, ready: "Herds", content: true, header: true },
   { tab: "storage", name: "storage", module: () => import("../../src/components/settings/storage-tab.js"), wide: true, grids: 0, ready: "Storage" },
   { tab: "security", name: "security", module: () => import("../../src/components/settings/passkey-tab.js"), wide: false, grids: 0, ready: "No rules configured." },
   { tab: "devices", name: "devices", module: () => import("../../src/components/settings/devices-agents-tab.js"), wide: false, grids: 0, ready: "" },
@@ -126,9 +128,19 @@ function overflowing(panel: HTMLElement): string[] {
 
 function assertLayout(pane: (typeof PANES)[number], panel: HTMLElement, width: number) {
   const container = panel.getBoundingClientRect().width;
-  const cap = pane.wide ? 1200 : 720;
-  expect.soft(container, `SETTINGS_PANE_CAP ${pane.name}`).toBeLessThanOrEqual(cap);
-  if (width === 1440) {
+  // Below 900 there is no section column: the tab panel is the whole pane.
+  const available = panel.closest<HTMLElement>("[data-settings-pane]")?.getBoundingClientRect().width ?? container;
+  if (pane.wide) {
+    // The pane and its header row span the window; only the content caps.
+    expect.soft(container, `SETTINGS_WIDE_PANE_SPANS ${pane.name}`).toBe(available);
+    const headers = [...panel.querySelectorAll<HTMLElement>("[data-settings-header]")];
+    if (pane.header) expect.soft(headers.length, `SETTINGS_WIDE_PANE_HAS_HEADER ${pane.name}`).toBeGreaterThan(0);
+    for (const header of headers) expect.soft(header.getBoundingClientRect().width, `SETTINGS_HEADER_SPANS_PANE ${pane.name}`).toBe(available);
+    const content = [...panel.querySelectorAll<HTMLElement>("[data-settings-content]")];
+    if (pane.content) expect.soft(content.length, `SETTINGS_WIDE_PANE_HAS_CONTENT ${pane.name}`).toBeGreaterThan(0);
+    for (const block of content) expect.soft(block.getBoundingClientRect().width, `SETTINGS_CONTENT_CAP ${pane.name}`).toBe(Math.min(1200, container));
+  } else expect.soft(container, `SETTINGS_PANE_CAP ${pane.name}`).toBeLessThanOrEqual(720);
+  if (width >= 1440) {
     if (pane.wide) expect.soft(container, `SETTINGS_WIDE_PANE_GROWS ${pane.name}`).toBeGreaterThan(720);
     else expect.soft(container, `SETTINGS_STANDARD_PANE_KEEPS_720 ${pane.name}`).toBe(720);
   }
@@ -160,4 +172,12 @@ for (const pane of PANES) test(`Settings ${pane.name} pane reflows at 200% zoom 
   expect(page.getByRole("tablist").element().getAttribute("aria-orientation")).toBe("horizontal");
   assertLayout(pane, panel, 640);
   expect(overflowing(panel), `SETTINGS_ZOOM_NO_HORIZONTAL_SCROLL ${pane.name}`).toEqual([]);
+});
+
+// Past 1624px the 1200px content cap binds; the header row keeps spanning the
+// pane (#4538 Q5). Layout only: the reviewed baselines stop at 1440.
+for (const pane of PANES) test(`Settings ${pane.name} pane at 1920 caps content, not the header`, async ctx => {
+  const { panel } = await mount(ctx, pane, 1920, 800, "dark");
+  expect(panel.closest<HTMLElement>("[data-settings-pane]")!.getBoundingClientRect().width, "SETTINGS_PANE_PAST_CAP").toBeGreaterThan(1200);
+  assertLayout(pane, panel, 1920);
 });

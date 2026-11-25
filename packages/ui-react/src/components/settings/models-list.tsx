@@ -8,7 +8,7 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 import { useState, type ReactNode } from "react";
 import { cn } from "../../lib/utils.js";
-import { PANE_GRID, Prose } from "./prose.js";
+import { PANE_GRID, Prose, WIDE_CONTENT } from "./prose.js";
 
 /**
  * The Models tab's surface, rendered from props (S7, the `settings`
@@ -41,65 +41,67 @@ export function ModelsCatalogView(p: ModelsCatalogViewProps) {
   const visibleCount = catalog?.models.filter((m) => !m.hidden).length ?? 0;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex-1 overflow-y-auto p-4">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Models
-        </h3>
-        <Prose className="mt-1 text-xs text-muted-foreground">
-          The list is read from the provider and refreshes on its own. Hide the
-          ones you never pick — running sessions are unaffected.
-        </Prose>
-
-        <Prose className="mt-2 text-xs text-muted-foreground">
-          Effort set here is the default for every new message; the model picker can change it for one message.
-        </Prose>
-
-        {catalog && <DefaultModelSelect catalog={catalog} onChange={p.onDefault} />}
-
-        {p.loading ? (
-          <div className="mt-4">
-            <Placeholder variant="loading" lines={4} />
-          </div>
-        ) : (
-          <ul data-settings-grid="" className={cn("mt-4 gap-2", PANE_GRID)}>
-            {catalog?.models.map((entry) => (
-              <ModelRow
-                key={entry.id}
-                entry={entry}
-                onToggle={() => p.onToggleHidden(entry)}
-                onBilling={(next) => p.onBilling(entry, next)}
-                onThinking={(next) => p.onThinking(entry, next)}
-              />
-            ))}
-            {catalog?.models.length === 0 && (
-              <li>
-                <Placeholder variant="empty" message="No models available." icon="model" />
-              </li>
-            )}
-          </ul>
-        )}
-
-        {p.error && (
-          <div role="alert" className="mt-3">
-            <Callout tone="red" variant="banner" icon="failed" mono><Prose as="span">{p.error}</Prose></Callout>
-          </div>
-        )}
-
-        {catalog?.discovery.error && (
-          <div className="mt-3">
-            <Callout tone="gold" variant="banner" icon="unverified" mono><Prose as="span">{`Last refresh failed (${catalog.discovery.error}). Showing the last known list.`}</Prose></Callout>
-          </div>
-        )}
-        {catalog && !catalog.discovery.enabled && (
-          <Prose className="mt-3 text-xs text-muted-foreground">
-            Discovery is disabled (BRAIN_UI_MODEL_DISCOVERY). Only configured
-            profiles are listed.
+      <div className="flex-1 overflow-y-auto">
+        <div data-settings-content="" className={cn("p-4", WIDE_CONTENT)}>
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Models
+          </h3>
+          <Prose className="mt-1 text-xs text-muted-foreground">
+            The list is read from the provider and refreshes on its own. Hide the
+            ones you never pick — running sessions are unaffected.
           </Prose>
-        )}
 
-        {catalog && <OpenRouterSection models={catalog.customModels ?? []} onChange={p.onCustomModels} />}
+          <Prose className="mt-2 text-xs text-muted-foreground">
+            Effort set here is the default for every new message; the model picker can change it for one message.
+          </Prose>
 
-        {p.sections}
+          {catalog && <DefaultModelSelect catalog={catalog} onChange={p.onDefault} />}
+
+          {p.loading ? (
+            <div className="mt-4">
+              <Placeholder variant="loading" lines={4} />
+            </div>
+          ) : (
+            <ul data-settings-grid="" className={cn("mt-4 gap-2", PANE_GRID)}>
+              {catalog?.models.map((entry) => (
+                <ModelRow
+                  key={entry.id}
+                  entry={entry}
+                  onToggle={() => p.onToggleHidden(entry)}
+                  onBilling={(next) => p.onBilling(entry, next)}
+                  onThinking={(next) => p.onThinking(entry, next)}
+                />
+              ))}
+              {catalog?.models.length === 0 && (
+                <li>
+                  <Placeholder variant="empty" message="No models available." icon="model" />
+                </li>
+              )}
+            </ul>
+          )}
+
+          {p.error && (
+            <div role="alert" className="mt-3">
+              <Callout tone="red" variant="banner" icon="failed" mono><Prose as="span">{p.error}</Prose></Callout>
+            </div>
+          )}
+
+          {catalog?.discovery.error && (
+            <div className="mt-3">
+              <Callout tone="gold" variant="banner" icon="unverified" mono><Prose as="span">{`Last refresh failed (${catalog.discovery.error}). Showing the last known list.`}</Prose></Callout>
+            </div>
+          )}
+          {catalog && !catalog.discovery.enabled && (
+            <Prose className="mt-3 text-xs text-muted-foreground">
+              Discovery is disabled (BRAIN_UI_MODEL_DISCOVERY). Only configured
+              profiles are listed.
+            </Prose>
+          )}
+
+          {catalog && <OpenRouterSection models={catalog.customModels ?? []} onChange={p.onCustomModels} />}
+
+          {p.sections}
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-border p-4">

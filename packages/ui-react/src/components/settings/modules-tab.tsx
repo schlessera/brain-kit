@@ -5,7 +5,7 @@ import type { ModuleSettingsSnapshot } from "@schlessera/brain-ui-sdk";
 import { useBrainUiRoot } from "../../root-context.js";
 import { ApiRequestError } from "../../lib/api-client.js";
 import { SettingsFields } from "./module-settings-fields.js";
-import { PANE_GRID, Prose } from "./prose.js";
+import { PANE_GRID, Prose, WIDE_CONTENT } from "./prose.js";
 import { changedSettingsPaths, replaceAt, revealInvalidItems, savedDraft, settingsDirty, valueAt, type ModuleSettingsSessionStore } from "./module-settings-state.js";
 
 const title = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
@@ -201,12 +201,13 @@ export function ModulesTab({ active, session: store }: { active: boolean; sessio
   const removalNotes = Object.entries(session.variants).filter(([, v]) => v.selected !== v.original).map(([path, v]) => `${v.keys.filter((k) => k !== v.selected).join(" and ")} will be removed from ${String(valueAt(snapshot?.values, [...path.split("."), "name"]) ?? path)}`);
 
   return <div ref={editorRef} data-module-settings-editor className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-    <div className="flex min-w-0 shrink-0 items-center border-b border-border px-3">
+    <div data-settings-header="" className="flex min-w-0 shrink-0 items-center border-b border-border px-3">
       {session.name && <Button label="Back to modules" tone="quiet" size="sm" block={false} reach onClick={back} />}
       <div className="min-w-0 flex-1"><ScreenHeader variant="nav" title={session.name ? title(session.name) : "Modules"} subtitle={snapshot ? `${snapshot.state} · saved values apply on the next run` : session.name && session.error ? "Unavailable · repair configuration to edit" : "Configure the workflows in your brain"} back={false} divider={false} /></div>
     </div>
-    {/* One module's settings are a form: it keeps the standard column. */}
-    <div className={`min-w-0 flex-1 space-y-5 p-4${session.name ? " max-w-[720px]" : ""}`}>
+    {/* The header row spans the pane; the list caps at the wide content
+        width, and one module's settings, a form, keep the standard column. */}
+    <div data-settings-content="" className={`min-w-0 flex-1 space-y-5 p-4 ${session.name ? "max-w-[720px]" : WIDE_CONTENT}`}>
       {session.loading && <div role="status" aria-label="Loading modules" className="space-y-3"><div className="h-11 rounded-lg bg-surface-raised" /><div className="h-11 rounded-lg bg-surface-raised" /><span className="text-xs text-muted-foreground">Loading settings…</span></div>}
       {session.error && <div role="alert" className="space-y-3"><p className="break-words text-sm text-destructive">{session.error}</p>{session.name && <p className="text-xs text-muted-foreground">This detail is read-only. Repair the module configuration in brain config, then Retry. Other modules remain available from Modules.</p>}<Button label="Retry" icon="retry" tone="quiet" reach onClick={() => void retry()} /></div>}
       {!session.name && !session.loading && !session.error && (session.modules.length ? <ul data-settings-grid="" className={`gap-2 ${PANE_GRID}`}>{session.modules.map((module) => <li key={module.key} className="[&>*]:h-full"><Surface pad={3}><div className="flex min-w-0 flex-col gap-2"><span className="break-words text-sm font-semibold">{title(module.name)}</span><p className="break-words text-xs text-muted-foreground">{module.description ?? "Module workflow"}</p><span className="font-[family-name:var(--font-mono)] text-[11px] text-muted-foreground">{module.state === "unavailable" ? "unavailable" : !module.settings ? "no settings" : module.state ?? "active"}</span>{module.error && <p className="break-words text-xs text-destructive">{module.error}</p>}<Button label={`${module.state === "unavailable" ? "View" : "Configure"} ${title(module.name)}`} tone="quiet" reach onClick={() => void open(module.name)} /></div></Surface></li>)}</ul> : <Callout variant="banner" tone="neutral" icon="capability"><Prose as="span">No modules are configured. Add a module in your brain configuration to tune its workflow here.</Prose></Callout>)}

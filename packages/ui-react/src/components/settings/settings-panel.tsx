@@ -25,8 +25,10 @@ const ModulesTab = lazyChunk(() => import("./modules-tab.js").then((m) => ({ def
 const StorageTab = lazyChunk(() => import("./storage-tab.js").then((m) => ({ default: m.StorageTab })));
 
 /**
- * A standard pane keeps the 720px column; a wide one grows to 1200px, for its
- * grids, tables and charts (#4538). Its prose keeps the 68ch measure.
+ * A standard pane keeps the 720px column, header included. A wide pane spans
+ * the window beside the section column; its header row spans with it and only
+ * its content caps at 1200px (`WIDE_CONTENT`), for grids, tables and charts
+ * (#4538). Its prose keeps the 68ch measure.
  */
 type SettingsPaneWidth = "standard" | "wide";
 
@@ -164,7 +166,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
           <div ref={stripRef} role="tablist" aria-label="Settings sections" aria-orientation="horizontal" className="flex gap-1 overflow-x-auto pl-2 pt-2">{tabs}<span aria-hidden className="w-6 shrink-0" /></div>
           {overflow && <span aria-hidden className="pointer-events-none absolute bottom-0 right-0 top-0 flex w-6 items-center justify-center bg-surface"><ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /></span>}
         </div>}
-        {pane ? <div className="flex min-h-0 min-w-0 flex-1 flex-col"><div className={cn("flex min-h-0 w-full flex-1 flex-col", width === "wide" ? "max-w-[1200px]" : "max-w-[720px]")}>{body}</div></div> : body}
+        {pane ? <div data-settings-pane="" className="flex min-h-0 min-w-0 flex-1 flex-col"><div className={cn("flex min-h-0 w-full flex-1 flex-col", width === "standard" && "max-w-[720px]")}>{body}</div></div> : body}
       </div>
     </div>
   </SlidePanel></>;
