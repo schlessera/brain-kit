@@ -18,9 +18,11 @@ export type Pending = { kind: "aggregate"; value: Aggregate } | { kind: "failure
 export interface StorageWriteReport { identity: string; rootScope: string; target: string; resource: Refusal["resource"]; at: number; outcome: "no-space" | "success" }
 /**
  * A report waiting for the next history flush. Coalescing keeps only the newest
- * report per target and resource, so it carries the times the dropped ones held:
- * `firstAt` starts its unresolved run of refusals and `earliestAt` is the
- * earliest refusal coalesced into it, which is when a warning it causes began.
+ * report per target and resource, so it carries the times the dropped ones held,
+ * for the event timeline only: for a refusal, `firstAt` starts its unresolved
+ * run and `earliestAt` is the earliest refusal coalesced into it, which is when
+ * a warning it causes began; for a success, `firstAt` is the first success
+ * after the newest refusal known when it was coalesced.
  */
 export interface BufferedWrite extends StorageWriteReport { firstAt?: number; earliestAt?: number }
 export const storageBrainKey = (brainPath: string) => hashScope(realpathSync(brainPath));

@@ -105,7 +105,8 @@ describes: warning starts, severity steps, recovery attempts and ends, and
 owner refusals and scope changes in the history flush; maintenance requests and
 finishes in the receipt write. Its time is that of the observation, owner report
 or receipt, so a slow flush never moves a start. Owner reports buffered for one
-write keep the time of their first refusal through coalescing. Pressure
+write keep the time of their first refusal, and successes of their first
+success, through coalescing. Pressure
 state applies them in buffer order, exactly as before the timeline, so support
 times and notice eligibility are unchanged; only the events use the first
 refusal times. Scope events

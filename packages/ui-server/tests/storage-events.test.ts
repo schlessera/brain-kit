@@ -220,6 +220,17 @@ test("event-only times never bring the owner-evidence overflow pause forward", (
   expect(f.history.status().paused, "STORAGE_EVENTS_BUDGET_CHARGES_REPORTS_ONLY").toBeNull();
 });
 
+test("buffered repeated successes keep the first success's time for the resolution", () => {
+  const f = fixture(); f.observe(start, 500_000_000);
+  const report = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: s(10) };
+  f.advance(s(10)); f.history.ownerWrite(report); f.advance(s(70)); expect(f.history.flush()).toBe(true);
+  f.advance(s(80)); f.history.ownerWrite({ ...report, at: s(80), outcome: "success" });
+  f.advance(s(90)); f.history.ownerWrite({ ...report, at: s(90), outcome: "success" });
+  f.advance(s(140)); expect(f.history.flush()).toBe(true);
+  expect(f.history.read()!.metadata.state.pressures[0]!.refusals[0]!.successAt, "STORAGE_EVENTS_SUCCESS_STATE_UNCHANGED").toBe(s(90));
+  expect(f.events().events.filter(event => event.kind === "refusal").map(event => [event.phase, event.at]), "STORAGE_EVENTS_BUFFERED_SUCCESS_FIRST_TIME").toEqual([["refused", s(10)], ["succeeded", s(80)]]);
+});
+
 test("a buffered success ends the coalesced refusal run but not the warning the first refusal started", () => {
   const f = fixture(); f.observe(start, 500_000_000);
   const report = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: start + 10_000 };
@@ -389,4 +400,82 @@ test("mounted storage events keep human-owner scope, per-principal receipts, ide
   expect(caught).toMatchObject({ since: later.next, next: later.next, events: [] });
   revokePrincipal(f.app.db, odysseus.id, Date.now());
   expect((await f.fetch("/api/storage/events", { headers: as.odysseus })).status, "STORAGE_EVENTS_REVOKED").toBe(401);
+});
+
+/*
+ * Every event time that can come from buffered, coalesced or replayed input (#4541).
+ *
+ * | Event                                 | Time source                    | How the input can be buffered, coalesced or replayed               | Emitted time                                                     |
+ * | ------------------------------------- | ------------------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
+ * | refusal `refused`                     | owner no-space report `at`     | waits for the next history write; repeats per target coalesce to   | the first refusal after the resolution it reopens                |
+ * |                                       |                                | the newest; reports can arrive late; one write can hold many       | (run start carried as `firstAt`)                                 |
+ * | refusal `succeeded`                   | owner success report `at`      | same buffer; repeated successes coalesce to the newest             | the first success after the refusal it resolves (`firstAt`)      |
+ * | pressure `start` / `step` by refusal  | owner no-space report `at`     | same buffer, across targets of one capacity                        | the earliest buffered refusal on the capacity (`earliestAt`)     |
+ * | pressure `start` / `step` /           | observation `at`               | a pending observation is replaced by a newer one before the write; | the observation pressure policy evaluated. A superseded one is   |
+ * | `recovery-started` / `end`            |                                | the replaced one is never evaluated or retained by history         | never evaluated, so no transition exists for it to time. Order   |
+ * |                                       |                                |                                                                    | against owner reports in one write is #4560                      |
+ * | scope `changed`                       | observation `at`               | the same pending replacement                                       | the evaluated observation that first carried the new scope       |
+ * | maintenance `requested`               | receipt `requestedAt`          | not buffered: written in the transaction that admits the receipt   | the receipt's own time                                           |
+ * | maintenance `finished`                | receipt `completedAt`          | not buffered; a restart's reconciliation sets `completedAt` when   | the receipt's own time, only after its recorded request          |
+ * |                                       |                                | it establishes the interrupted outcome                             |                                                                  |
+ *
+ * The table-driven test below covers each buffered row with repeats, late
+ * arrivals, cross-target and mixed outcomes, within one write and across two.
+ * Maintenance times are covered by the per-receipt and reconciliation tests.
+ */
+type Interleaved = { do: "observe"; at: number; available: number; scope?: string } | { do: "write"; target: string; at: number; outcome?: "success"; now?: number } | { do: "flush"; now: number };
+const no = (target: string, at: number, now?: number): Interleaved => ({ do: "write", target, at, ...(now === undefined ? {} : { now }) });
+const ok = (target: string, at: number, now?: number): Interleaved => ({ do: "write", target, at, outcome: "success", ...(now === undefined ? {} : { now }) });
+const write70 = (now: number): Interleaved => ({ do: "flush", now });
+const calm: Interleaved = { do: "observe", at: 0, available: 500_000_000 };
+const loom = hashScope("Odysseus stores and the loom");
+const INTERLEAVINGS: Array<{ name: string; kinds: StorageEventKind[]; steps: Interleaved[]; expected: Array<[string, string, number, string?]> }> = [
+  { name: "refused: repeats in one write", kinds: ["refusal"], steps: [calm, no("A", 10), no("A", 20), write70(70)], expected: [["refusal", "refused", 10, "A"]] },
+  { name: "refused: late arrival coalesced", kinds: ["refusal"], steps: [calm, no("A", 20, 30), no("A", 10, 30), no("A", 30), write70(70)], expected: [["refusal", "refused", 10, "A"]] },
+  { name: "refused: late arrival not coalesced", kinds: ["refusal"], steps: [calm, no("A", 20, 25), no("A", 10, 25), write70(70)], expected: [["refusal", "refused", 10, "A"]] },
+  { name: "refused: cross-target", kinds: ["refusal"], steps: [calm, no("A", 10), no("B", 15), no("A", 20), write70(70)], expected: [["refusal", "refused", 15, "B"], ["refusal", "refused", 10, "A"]] },
+  { name: "refused: a resolved pair inside one write is omitted", kinds: ["refusal"], steps: [calm, no("A", 10), ok("A", 15), no("A", 20), write70(70)], expected: [["refusal", "refused", 20, "A"]] },
+  { name: "refused: an open run continues across writes", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), no("A", 80), no("A", 90), write70(140)], expected: [["refusal", "refused", 10, "A"]] },
+  { name: "refused: reopened after a resolution across writes", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80), write70(140), no("A", 150), no("A", 160), write70(210)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"], ["refusal", "refused", 150, "A"]] },
+  { name: "succeeded: repeats across writes", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80), ok("A", 90), write70(140)], expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"]] },
+  { name: "succeeded: late arrival", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 90, 95), ok("A", 80, 95), write70(140)], expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"]] },
+  { name: "succeeded: cross-target", kinds: ["refusal"], steps: [calm, no("A", 10), no("B", 12), write70(70), ok("B", 80), ok("A", 85), ok("B", 90), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "refused", 12, "B"], ["refusal", "succeeded", 85, "A"], ["refusal", "succeeded", 80, "B"]] },
+  { name: "succeeded: mixed outcomes resolve the newest refusal", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80), no("A", 85), ok("A", 90), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 90, "A"]] },
+  { name: "succeeded: a success before the refusal it follows is not its resolution", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80, 95), no("A", 85, 95), ok("A", 95), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 95, "A"]] },
+  { name: "succeeded: a late success before the newest refusal is not its resolution", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), no("A", 85, 100), ok("A", 90, 100), ok("A", 82, 100), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 90, "A"]] },
+  { name: "succeeded: coalescing keeps the first success after the newest refusal", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), no("A", 85, 100), ok("A", 88, 100), ok("A", 82, 100), ok("A", 95, 100), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 88, "A"]] },
+  { name: "refused: a late refusal before the resolution it reopens keeps the adopted time", kinds: ["refusal"], steps: [calm, no("A", 10), write70(70), ok("A", 80, 100), no("A", 75, 100), no("A", 78, 100), write70(140)],
+    expected: [["refusal", "refused", 10, "A"], ["refusal", "succeeded", 80, "A"], ["refusal", "refused", 78, "A"]] },
+  { name: "warning start: cross-target coalesced", kinds: ["pressure"], steps: [calm, no("A", 10), no("B", 15), no("A", 20), write70(70)], expected: [["pressure", "start", 10]] },
+  { name: "warning step: cross-target coalesced", kinds: ["pressure"], steps: [{ do: "observe", at: 0, available: 80_000_000 }, no("A", 10), no("B", 15), no("A", 20), write70(70)],
+    expected: [["pressure", "start", 0], ["pressure", "step", 10]] },
+  { name: "warning start: cross-target with a late refusal", kinds: ["pressure"], steps: [calm, no("A", 20, 25), no("B", 12, 25), no("A", 25), write70(70)], expected: [["pressure", "start", 12]] },
+  { name: "warning step: low to critical by the earliest refusal", kinds: ["pressure"], steps: [{ do: "observe", at: 0, available: 80_000_000 }, no("A", 20, 25), no("B", 12, 25), no("A", 25), write70(70)],
+    expected: [["pressure", "start", 0], ["pressure", "step", 12]] },
+  { name: "warning start: not repeated across writes", kinds: ["pressure"], steps: [calm, no("A", 10), write70(70), no("B", 80), no("A", 90), write70(140)], expected: [["pressure", "start", 10]] },
+  { name: "observation start: the evaluated observation, not a superseded one", kinds: ["pressure"], steps: [{ do: "observe", at: 70, available: 500_000_000 }, { do: "observe", at: 80, available: 80_000_000 }, { do: "observe", at: 90, available: 80_000_000 }, write70(140)],
+    expected: [["pressure", "start", 90]] },
+  { name: "scope: the evaluated observation that first carried it", kinds: ["scope"], steps: [{ do: "observe", at: 70, available: 500_000_000 }, { do: "observe", at: 80, available: 500_000_000, scope: loom }, { do: "observe", at: 90, available: 500_000_000, scope: loom }, write70(140), { do: "observe", at: 150, available: 500_000_000, scope: loom }],
+    expected: [["scope", "changed", 90]] },
+];
+
+test("every buffered event time is its first real evidence across interleaved inputs", () => {
+  const names = new Map(["A", "B"].map(name => [hashScope(name), name]));
+  for (const row of INTERLEAVINGS) {
+    const f = fixture();
+    for (const step of row.steps) {
+      if (step.do === "observe") f.observe(s(step.at), step.available, step.scope ?? scope);
+      else if (step.do === "flush") { f.advance(s(step.now)); f.history.flush(); }
+      else { f.advance(s(step.now ?? step.at)); f.history.ownerWrite({ identity, rootScope: scope, target: hashScope(step.target), resource: "bytes", outcome: step.outcome ?? "no-space", at: s(step.at) }); }
+    }
+    expect(f.history.status().paused, `${row.name}: no pause`).toBeNull();
+    const events = f.events().events.filter(event => row.kinds.includes(event.kind));
+    expect(events.map(event => [event.kind, event.phase, (event.at - start) / 1000, ...(event.kind === "refusal" ? [names.get(event.target)] : [])]), `STORAGE_EVENTS_FIRST_EVIDENCE ${row.name}`).toEqual(row.expected);
+  }
 });

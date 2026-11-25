@@ -91,13 +91,21 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
           && value.refusals.some(refusal => refusal.target === report.target && refusal.resource === report.resource))) return;
       const kept = (value: BufferedWrite) => !same(value) || value.at > report.at || report.outcome === "success" && value.outcome === "no-space";
       const buffered: BufferedWrite = { identity: report.identity, rootScope: report.rootScope, target: report.target, resource: report.resource, at: report.at, outcome: report.outcome };
-      if (report.outcome === "no-space") {
-        // Coalescing keeps the newest refusal for pressure state; the event
-        // timeline still needs the first one (#4541). These fields are never
-        // applied to pressure. Reports can arrive out
-        // of order, so take minimums, never the first match. A dropped success
-        // ends the run of refusals before it.
-        const dropped = pendingWrites.filter(value => !kept(value)), refusals = dropped.filter(value => value.outcome === "no-space");
+      // Coalescing keeps the newest report for pressure state; the event
+      // timeline still needs the first evidence of each transition (#4541).
+      // These fields are never applied to pressure. Reports can arrive out of
+      // order, so take minimums, never the first match.
+      const dropped = pendingWrites.filter(value => !kept(value));
+      if (report.outcome === "success") {
+        // Only successes after the newest refusal known now can resolve it.
+        const refused = Math.max(-1, ...pendingWrites.filter(value => same(value) && value.outcome === "no-space").map(value => value.at),
+          ...(stored?.metadata.state.pressures.find(value => value.identity === report.identity)?.refusals ?? [])
+            .filter(refusal => refusal.target === report.target && refusal.resource === report.resource).map(refusal => refusal.at));
+        const first = Math.min(...dropped.map(value => value.firstAt ?? value.at).filter(at => at > refused));
+        if (first < report.at) buffered.firstAt = first;
+      } else {
+        // A dropped success ends the run of refusals before it.
+        const refusals = dropped.filter(value => value.outcome === "no-space");
         if (refusals.length) {
           const resolved = Math.max(-1, ...dropped.filter(value => value.outcome === "success").map(value => value.at));
           const run = refusals.filter(value => value.at > resolved);

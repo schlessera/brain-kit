@@ -1,7 +1,7 @@
 /** Storage history transactions, shared by the write worker and inline callers. */
 import type { Database } from "bun:sqlite";
 import { capacityEvidence } from "./history-evidence.js";
-import { newPressure, observePressure, ownerWrite } from "./pressure.js";
+import { newPressure, observePressure, ownerWrite, type Pressure } from "./pressure.js";
 import { HISTORY_LIMITS, bucket, retainAggregate, validateHistory } from "./history-model.js";
 import { readStoredHistory, stateSchema, type BufferedWrite, type StoredHistory, type Pending } from "./history-data.js";
 import { recordPressureChange, recordRefusalChange, recordScopeChange } from "./events.js";
@@ -60,13 +60,25 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
         // #4541: supportAt, the refusal list and notice eligibility depend on it.
         // The event timeline instead takes each refusal's first time and, for
         // the warning a refusal starts, the earliest refusal on its capacity.
-        const refusalSince = new Map<string, number>(), warningSince = new Map<string, number>();
+        const evidence = new Map<string, { "no-space": number[]; success: number[] }>(), warningSince = new Map<string, number>();
         const target = (report: BufferedWrite) => `${report.identity}:${report.target}:${report.resource}`;
-        for (const report of writes) if (report.outcome === "no-space") {
-          const since = report.firstAt ?? report.at, earliest = report.earliestAt ?? since;
-          refusalSince.set(target(report), Math.min(refusalSince.get(target(report)) ?? since, since));
-          warningSince.set(report.identity, Math.min(warningSince.get(report.identity) ?? earliest, earliest));
+        for (const report of writes) {
+          const times = evidence.get(target(report)) ?? { "no-space": [], success: [] };
+          times[report.outcome].push(report.at, ...(report.firstAt === undefined ? [] : [report.firstAt]));
+          evidence.set(target(report), times);
+          if (report.outcome === "no-space") {
+            const earliest = report.earliestAt ?? report.firstAt ?? report.at;
+            warningSince.set(report.identity, Math.min(warningSince.get(report.identity) ?? earliest, earliest));
+          }
         }
+        // The first buffered evidence of this outcome after the state it changes:
+        // a refusal after the resolution it reopens, a success after its refusal.
+        const firstEvidence = (report: BufferedWrite, before: Pressure) => {
+          const refusal = before.refusals.find(value => value.target === report.target && value.resource === report.resource);
+          const bound = report.outcome === "success" ? refusal?.at ?? -1 : refusal?.successAt ?? -1;
+          const times = evidence.get(target(report))![report.outcome].filter(at => at > bound);
+          return times.length ? Math.min(...times) : report.at;
+        };
         for (const report of writes) {
           let pressure = next.metadata.state.pressures.find(value => value.identity === report.identity);
           if (!pressure && report.outcome === "success") continue;
@@ -82,9 +94,8 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           changed.at = Math.max(changed.at, pressure.at);
           // The refusal precedes the warning it starts. Each keeps the time of the
           // first refusal behind it, not the newest one the buffer kept.
-          const refused = report.outcome === "no-space";
-          recordRefusalChange(db, brain, pressure, changed, report, refused ? refusalSince.get(target(report))! : report.at);
-          recordPressureChange(db, brain, pressure, changed, refused ? warningSince.get(report.identity)! : report.at);
+          recordRefusalChange(db, brain, pressure, changed, report, firstEvidence(report, pressure));
+          recordPressureChange(db, brain, pressure, changed, report.outcome === "no-space" ? warningSince.get(report.identity)! : report.at);
           next.metadata.state.pressures[index] = changed;
         }
         if (ownerEvidenceLost) next.metadata.state.paused = "history-owner-evidence-budget";

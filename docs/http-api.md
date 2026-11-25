@@ -2334,9 +2334,10 @@ Each event has `seq`, `at`, `kind` and `phase`:
 
 `at` is the time of the observation, owner report or receipt that caused the
 event, not the time it was stored, so an episode's start stays its real start.
-Repeated owner refusals that wait for the same history write are coalesced:
-each refusal keeps the time of its first report, and the warning they start
-keeps the earliest refusal of any target. A refusal resolved within that wait
+Repeated owner reports that wait for the same history write are coalesced:
+each refusal keeps the time of its first report after the resolution it
+reopens, each resolution the time of the first success after its refusal, and
+the warning they start the earliest refusal of any target. A refusal resolved within that wait
 can be omitted; it is never invented.
 Events are recorded when they happen. An episode already open before the host
 recorded events is not emitted, and no start time is invented for it. The
