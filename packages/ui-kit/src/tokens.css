@@ -3255,6 +3255,8 @@ button.bk-storage-tile:hover,
   outline: 2px solid var(--bk-focus-ring);
   outline-offset: -2px;
 }
+/* A tile under 6px rings at 1px, so the ring stays on the tile, not the gutter. */
+.bk-storage-tile[data-thin="true"] { outline-width: 1px; outline-offset: -1px; }
 
 /* The legend's unknown chip: a 44px-tall transparent target around the chip. */
 .bk-storage-legend-jump {
