@@ -314,14 +314,18 @@ export function useStorage(root: BrainUiRoot) {
       (sum, file) => sum + (file.facts?.bytes ?? 0),
       0
     );
+  // Announce a selection change, never the empty selection a pane opens with:
+  // that late "0 selected" would talk over whatever the pane just said.
+  const announcedSelection = useRef(`${selection.length}:${selectedBytes}`);
   useEffect(() => {
-    const timer = setTimeout(
-      () =>
-        setAnnouncement(
-          `${selection.length} selected; ${selectedBytes} bytes file size, not space freed.`
-        ),
-      250
-    );
+    const key = `${selection.length}:${selectedBytes}`;
+    if (announcedSelection.current === key) return;
+    const timer = setTimeout(() => {
+      announcedSelection.current = key;
+      setAnnouncement(
+        `${selection.length} selected; ${selectedBytes} bytes file size, not space freed.`
+      );
+    }, 250);
     return () => clearTimeout(timer);
   }, [selection.length, selectedBytes]);
   function applyReceipt(next: StorageRemovalReceipt) {

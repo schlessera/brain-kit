@@ -662,6 +662,16 @@ test("The default state has exactly one primary-tone button", async () => {
   await expect.poll(() => host.querySelectorAll("[data-tool-row]").length).toBe(3);
   expect(primaries().map((el) => el.textContent), "STORAGE_ONE_PRIMARY").toEqual(["Find large files"]);
 });
+test("Opening the pane announces no empty selection that could talk over the mode", async () => {
+  await scene("dense", 1280);
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  expect(live(), "STORAGE_NO_EMPTY_SELECTION_ANNOUNCEMENT").not.toContain("0 selected");
+  await files();
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  expect(live(), "STORAGE_FIND_ANNOUNCEMENT_STANDS").toBe("Find large files. 3 matching PDFs.");
+  await select("Ithaca-harbor.pdf");
+  await expect.poll(live).toMatch(/^1 selected; /);
+});
 test("List-only keyboard pass: drill, go up, find, inspect, select and review without the map", async () => {
   await scene("dense", 1280);
   row("Brain files").element().focus();
