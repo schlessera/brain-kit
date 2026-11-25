@@ -10,12 +10,16 @@
  */
 import type {
   StorageGuidanceResponse,
+  StorageHistoryResponse,
+  StorageMaintenanceRow,
   StorageObservedRate,
   StoragePressureView,
   StorageSnapshot,
   StorageStatus,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { humanReason } from "./storage-model.js";
+import type { HistoryPoint } from "@schlessera/brain-ui-kit";
+import { humanReason, type StorageMetric } from "./storage-model.js";
+import { appPoints, storageSeries } from "./storage-history.js";
 import { DAY_MS, signedBytes, storageFormat, type StorageFormat, type StorageVolume } from "./storage-volumes.js";
 
 const count = (value: number) => new Intl.NumberFormat("en").format(value);
@@ -192,6 +196,42 @@ export function appAddedSummary(
   const change = Math.round(rate.bytesPerDay * ((rate.end - rate.start) / DAY_MS));
   const value = signedBytes(change, format);
   return { value, window: `${days} d`, spoken: `App changed ${value} in ${days} ${days === 1 ? "day" : "days"}` };
+}
+
+/**
+ * The usage sparkline beside the breakdown: its points, its value and its
+ * spoken description, all from one size basis.
+ */
+export function appUsage(input: {
+  pressure: StoragePressureView | null;
+  history: StorageHistoryResponse | null;
+  identity: string;
+  metric: StorageMetric;
+  now: number;
+  format?: StorageFormat;
+}): { points: HistoryPoint[]; value: string; window: string; spoken: string } {
+  const { pressure, history, identity, metric, now } = input;
+  const rate = metric === "allocated" ? pressure?.evidence?.appAllocated : pressure?.evidence?.appLogical;
+  const summary = appAddedSummary(pressure?.scopeChanged ? null : rate, input.format);
+  const points = history ? appPoints(storageSeries(history, identity, "six-hour", now)) : [];
+  return { points, ...summary };
+}
+
+/**
+ * The Free up space tools for the volumes in question: the selected volume
+ * and every Low or Very low one.
+ */
+export function relevantTools<T extends Pick<StorageMaintenanceRow, "id" | "scope">>(
+  operations: readonly T[],
+  _input: {
+    inventory: StorageSnapshot | null;
+    volumes: readonly StorageVolume[];
+    selected: string | null;
+    /** A tool whose run this pane holds: it stays listed wherever it applies. */
+    keep?: string | null;
+  }
+): { tools: T[]; empty: string | null } {
+  return { tools: [...operations], empty: null };
 }
 
 /** The Larger than presets (#4549 brief); 5 MB is D11's bound default. */

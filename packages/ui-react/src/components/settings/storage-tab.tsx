@@ -28,9 +28,8 @@ import {
   storageFormat,
   storageVolumes,
 } from "./storage/storage-volumes.js";
-import { appPoints, storageSeries } from "./storage/storage-history.js";
 import {
-  appAddedSummary,
+  appUsage,
   storageBanner,
   storageStatusLine,
 } from "./storage/storage-pane-model.js";
@@ -103,11 +102,12 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
   const banner = storageBanner(volumes, guidance.guidance, format);
   const status = storageStatusLine({ status: view.status, snapshot, now, format, unavailable: !!view.error });
   const pressure = volume ? guidance.guidance?.capacities.find((value) => value.identity === volume.id) ?? null : null;
-  const appRate = view.metric === "allocated" ? pressure?.evidence?.appAllocated : pressure?.evidence?.appLogical;
-  const added = appAddedSummary(pressure?.scopeChanged ? null : appRate, format);
-  const appSeries = useMemo(
-    () => (volume && guidance.history ? appPoints(storageSeries(guidance.history, volume.id, "six-hour", now)) : []),
-    [volume, guidance.history, now]
+  const usage = useMemo(
+    () =>
+      volume
+        ? appUsage({ pressure, history: guidance.history, identity: volume.id, metric: view.metric, now, format })
+        : null,
+    [volume, pressure, guidance.history, view.metric, now, format]
   );
 
   // Find large files: focus the mode's heading on entry, announce its count once loaded.
@@ -339,11 +339,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                 snapshot={snapshot}
                 onInspect={open}
                 summary={
-                  volume ? (
+                  volume && usage ? (
                     <StorageSummaryRow
-                      chart={<Sparkline points={appSeries} label={`${added.spoken} on ${volume.name}`} showValue={false} />}
-                      value={added.value}
-                      window={added.window}
+                      chart={<Sparkline points={usage.points} label={`${usage.spoken} on ${volume.name}`} showValue={false} />}
+                      value={usage.value}
+                      window={usage.window}
                     />
                   ) : undefined
                 }
@@ -356,6 +356,9 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
             view={view}
             guidance={guidance.guidance}
             format={format}
+            inventory={inventory}
+            volumes={volumes}
+            selected={volume?.id ?? null}
           />
         </div>
         <StorageAbout
