@@ -1850,8 +1850,9 @@ failed in a way that may be the target's own (a timeout, a refusal from
 Google, an answer too large or in a shape the codec refuses), an answer for
 another id, a draft with no message, or a thread that could not be read
 (`isTargetIndependentGogFailure` in common, the rule `brain google` uses).
-Only a failure that says nothing about the target (the account unavailable or
-rate limited, the input or the binary refused) keeps its code. Pagination is Google's: a page is filtered
+A failed fetch of the target itself keeps its code only when the failure says
+nothing about the target (the account unavailable or rate limited, the input
+or the binary refused); a failed read of its thread is always a miss. Pagination is Google's: a page is filtered
 after it is read, so a page can come back shorter than `limit`, or empty, with
 a `next_cursor`.
 
