@@ -201,7 +201,11 @@ function backToBranch(root: BrainUiRoot, fromId: string): void {
   if (sessionId !== null) {
     drafts.showDeviceBranch(sessionId, fromId);
     if (root.stores.chat.getState().activeSessionId !== sessionId) root.stores.chat.getState().setActiveSession(sessionId);
-  } else drafts.openUnbound(fromId);
+  } else {
+    // A branch of no chat is the new-chat view's: the gone chat leaves the screen with it.
+    root.stores.chat.getState().clearMessages();
+    root.stores.drafts.getState().openUnbound(fromId);
+  }
 }
 
 /**

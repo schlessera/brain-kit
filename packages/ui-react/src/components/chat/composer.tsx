@@ -777,7 +777,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     // One snapshot is created at a time (#4567): text typed while the last
     // one's save is out stays here until the host has it, then sends.
     // Whatever the last save's answer, a second snapshot never goes out beside it (#4567).
-    if (current && draftSnapshots(current).some((x) => !x.replaces && !current.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId))) {
+    // A Send again replacement counts too.
+    if (current && draftSnapshots(current).some((x) => !current.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId))) {
       setEffortNotice("Your draft is kept. Send waits until your last message is saved."); return;
     }
     // A refused save does not hold Send: the send is the next edit, saved again (#4566).

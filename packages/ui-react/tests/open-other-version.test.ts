@@ -375,3 +375,22 @@ test("a version holding only outgoing messages whose chat is gone returns the re
   expect(s.drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "chat_gone" });
   expect(s.drafts.getState().drafts[s.original]?.snapshots?.map((x) => x.text)).toEqual(["Lash the raft"]);
 });
+
+test("returning to a branch of no chat takes the gone chat off the screen", async () => {
+  const root = createBrainUiRoot({ storage: null, request: async () => Response.json({}) });
+  roots.push(root);
+  const drafts = root.stores.drafts;
+  const chat = root.stores.chat;
+  const original = drafts.getState().fresh;
+  drafts.getState().edit(original, null, { text: "Telemachus checks the harbour" });
+  drafts.getState().keepDeviceBranch(original, BRANCH, { draftId: original, sessionId: RAFT, text: "", attachments: [], editedAt: 1, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } }, null);
+  const message = { type: "chat_message" as const, text: "Lash the raft", sessionId: RAFT, requestId: "req-raft" };
+  drafts.getState().createSnapshot(original, RAFT, { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", files: [], state: "returned", createdAt: 1, message }, "");
+  openOtherVersion(root, original, BRANCH);
+  await turn();
+  expect(chat.getState().activeSessionId).toBe(RAFT);
+  chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(chat.getState().activeSessionId, "GONE_CHAT_OFF_SCREEN").toBeNull();
+  expect(drafts.getState().fresh).toBe(BRANCH);
+  expect(drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "chat_gone" });
+});
