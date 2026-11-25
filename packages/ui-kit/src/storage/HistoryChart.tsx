@@ -7,6 +7,8 @@ import {
   HISTORY_COPY,
   LABEL_SIZE,
   historyLayout,
+  isMeasured,
+  placeable,
   textWidth,
   type HistoryLayout,
   type HistoryMarker,
@@ -136,6 +138,7 @@ function plural(n: number, word: string) {
 /** The caption's projection lines, the accessible name's projection clause, and which scenarios drew. */
 function projection(layout: HistoryLayout, scenarios: readonly HistoryScenario[]) {
   const drawn = new Set(layout.scenarioLines.map((l) => l.scenario));
+  const inGutter = new Set(layout.scenarioLabels.map((l) => l.line.scenario));
   const unavailable = scenarios.filter((s) => !drawn.has(s));
   const lines: Array<{ glyph?: string; text: string; window?: HistoryScenarioWindow }> = [];
   const spokenParts: string[] = [];
@@ -143,7 +146,8 @@ function projection(layout: HistoryLayout, scenarios: readonly HistoryScenario[]
     for (const line of layout.scenarioLines) {
       const s = line.scenario;
       const text = `${s.name} rate${s.detail ? ` ${DOT} ${s.detail}` : ""}`;
-      if (!layout.frame.wide) lines.push({ glyph: SCENARIO_DASH[s.window].glyph, text, window: s.window });
+      // Below 600px every line is captioned; above it, any label too long for the gutter is.
+      if (!inGutter.has(s)) lines.push({ glyph: SCENARIO_DASH[s.window].glyph, text, window: s.window });
       spokenParts.push(`${s.name} rate${s.detail ? `: ${spoken(s.detail)}` : ""}`);
     }
     for (const s of unavailable) {
@@ -218,6 +222,14 @@ export function HistoryChart(p: HistoryChartProps) {
     );
   }
   const notes: ReactNode[] = [];
+  for (const b of layout.scopeBreaks) {
+    if (!b.captioned) continue;
+    notes.push(
+      <p key={`scope${b.at}`} style={caption} data-part="scope-caption">
+        {HISTORY_COPY.scopeChanged} {DOT} points before the rule are {HISTORY_COPY.otherVolume}
+      </p>,
+    );
+  }
   for (const g of layout.gaps) {
     if (!g.captioned) continue;
     notes.push(
@@ -260,7 +272,9 @@ export function HistoryChart(p: HistoryChartProps) {
   const clip = `${id}-plot`;
   const plotW = frame.right - frame.left;
   const plotH = frame.bottom - frame.top;
-  const sorted = [...p.points].sort((a, b) => a.at - b.at);
+  // The table lists what the chart can place, by the chart's own rules.
+  const sorted = placeable(p.points);
+  const placedMarkers = placeable(markers);
 
   // The now value: right of the point if it fits, else above it, reading
   // into the future zone, where only the scenario lines (heading down and
@@ -363,7 +377,7 @@ export function HistoryChart(p: HistoryChartProps) {
       ))}
 
       {/* Event rules: one per event, even when their boxes merge. */}
-      {markers.map((m) => (
+      {placedMarkers.map((m) => (
         <line
           key={`rule${m.n}`}
           data-part="event-rule"
@@ -532,7 +546,7 @@ export function HistoryChart(p: HistoryChartProps) {
   const tableId = `${id}-table`;
   const cell: CSSProperties = { padding: "3px 8px 3px 0", textAlign: "start", verticalAlign: "top", overflowWrap: "anywhere" };
   const stateOf = (pt: HistoryPoint) =>
-    pt.value === null ? "? no observation" : pt.otherScope ? "↺ other volume" : pt.provisional ? "provisional" : "measured";
+    !isMeasured(pt.value) ? "? no observation" : pt.otherScope ? "↺ other volume" : pt.provisional ? "provisional" : "measured";
 
   return (
     <div ref={ref} style={wrap} data-part="history-chart">
@@ -564,7 +578,7 @@ export function HistoryChart(p: HistoryChartProps) {
               {sorted.map((pt) => (
                 <tr key={`r${pt.at}`} data-at={pt.at} data-state={stateOf(pt)}>
                   <td style={cell}>{formatTime(pt.at)}</td>
-                  <td style={cell} data-value={pt.value ?? undefined}>{pt.value === null ? "?" : p.formatValue(pt.value)}</td>
+                  <td style={cell} data-value={isMeasured(pt.value) ? pt.value : undefined}>{isMeasured(pt.value) ? p.formatValue(pt.value) : "?"}</td>
                   <td style={cell}>{stateOf(pt)}</td>
                 </tr>
               ))}

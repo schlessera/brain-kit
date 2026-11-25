@@ -41,6 +41,7 @@ const STATES: Array<[string, unknown, unknown]> = [
   ["weekly-three", chart.WeeklyThreePoints, chart.WeeklyThreePointsDesktop],
   ["single-point", chart.SinglePoint, chart.SinglePointDesktop],
   ["scope-change", chart.ScopeChange, chart.ScopeChangeDesktop],
+  ["scope-change-at-now", chart.ScopeChangeAtNow, chart.ScopeChangeAtNowDesktop],
   ["all-unknown", chart.AllUnknown, chart.AllUnknownDesktop],
   ["event-cluster", chart.EventCluster, chart.EventClusterDesktop],
   ["very-low-now", chart.VeryLowNow, chart.VeryLowNowDesktop],

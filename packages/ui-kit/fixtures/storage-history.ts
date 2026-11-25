@@ -127,6 +127,7 @@ export const scopeChanged: HistoryPoint[] = sixHourFull.map((p) =>
   p.at < SCOPE_CHANGE_AT ? { at: p.at, value: p.value === null ? null : p.value + 3.4 * GB, otherScope: true } : p,
 );
 export const LONG_SCOPE: HistoryScenario = { window: "long", name: "30-day", reason: projectionReasonText("changed-scope") };
+export const SHORT_SCOPE: HistoryScenario = { window: "short", name: "7-day", reason: projectionReasonText("changed-scope") };
 
 export const allUnknown: HistoryPoint[] = sixHourFull.map((p) => ({ at: p.at, value: null }));
 export const SHORT_NONE: HistoryScenario = { window: "short", name: "7-day", reason: projectionReasonText("no-observation") };
@@ -163,3 +164,11 @@ export const appAddedRising: HistoryPoint[] = Array.from({ length: 29 }, (_, i) 
 });
 export const appAddedGap: HistoryPoint[] = appAddedRising.map((p, i) => (i === 9 || i === 10 ? { at: p.at, value: null } : p));
 export const appAddedUnknown: HistoryPoint[] = appAddedRising.map((p) => ({ at: p.at, value: null }));
+
+/** The volume changed between the last closed bucket and now: only the provisional point is on the current volume. */
+export const scopeChangedAtNow: HistoryPoint[] = sixHourFull.map((p) =>
+  p.at < HISTORY_NOW ? { at: p.at, value: p.value === null ? null : p.value + 3.4 * GB, otherScope: true } : p,
+);
+
+/** A collector that reported a non-number for 2 Jul 06:00: it is a gap, never a value. */
+export const sixHourNotANumber: HistoryPoint[] = sixHourFull.map((p) => (p.at === GAP_FIRST ? { at: p.at, value: Number.NaN } : p));
