@@ -447,3 +447,35 @@ test("a failed switch is said on the branch the reader is on now, after a fork d
   expect(s.drafts.getState().versionSwitch, "NOTE_ON_CURRENT_BRANCH").toEqual({ draftId: s.drafts.getState().resolveId(BRANCH), outcome: "failed" });
   expect(s.drafts.getState().resolveId(BRANCH)).toBe("voyage-branch-2");
 });
+
+test("a snapshot-only version sharing the branch's chat, gone, does not return the reader to that chat", async () => {
+  const s = scene({ text: "" });
+  const message = { type: "chat_message" as const, text: "Lash the raft", sessionId: ITHACA, requestId: "req-raft" };
+  s.drafts.getState().createSnapshot(s.original, ITHACA, { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", files: [], state: "returned", createdAt: 1, message }, "");
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.chat.getState().failRestore(ITHACA, { reason: "missing", message: "No session odysseus-ithaca." });
+  expect(s.chat.getState().activeSessionId, "GONE_SHARED_CHAT_LEFT").toBeNull();
+  expect(s.drafts.getState().fresh).toBe(BRANCH);
+  expect(s.drafts.getState().versionSwitch).toEqual({ draftId: BRANCH, outcome: "chat_gone" });
+});
+
+test("a copy off a gone chat relinks a branch that names the version through a rotation", () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: false } });
+  s.drafts.getState().removed(s.original);
+  const moved = s.drafts.getState().resolveId(s.original) === s.original ? s.drafts.getState().versionHome(s.original)! : s.drafts.getState().versionHome(s.original)!;
+  const message = { type: "chat_message" as const, text: "Lash the raft", sessionId: RAFT, requestId: "req-raft" };
+  s.drafts.getState().createSnapshot(moved, RAFT, { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", files: [], state: "returned", createdAt: 1, message }, "");
+  const copy = s.drafts.getState().detachVersion(moved)!;
+  expect(s.drafts.getState().drafts[BRANCH]?.deviceConflict?.otherId, "RELINKED_THROUGH_ROTATION").toBe(copy);
+});
+
+test("returning to a branch that forked again while the chat restored follows it to its new id", async () => {
+  const s = scene({ sessionId: RAFT, host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: true } });
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.drafts.getState().keepDeviceBranch(BRANCH, "voyage-branch-2", { draftId: BRANCH, sessionId: null, text: "Eurylochus keeps watch", attachments: [], editedAt: 3, host: null }, ITHACA);
+  s.drafts.getState().hostGone(s.original);
+  s.chat.getState().failRestore(RAFT, { reason: "missing", message: "No session odysseus-raft." });
+  expect(s.drafts.getState().versionSwitch, "NOTE_FOLLOWS_FORKED_BRANCH").toEqual({ draftId: "voyage-branch-2", outcome: "missing" });
+});
