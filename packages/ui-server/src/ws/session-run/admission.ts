@@ -90,7 +90,7 @@ export function createRunRecorder(
           ...(host.activity.governanceWrites ? { governanceWrites: host.activity.governanceWrites } : {}),
           ...(host.brainPath ? { brainPath: host.brainPath } : {}),
           // Every recorder stop is a safety-recording failure.
-          abort: error => stopTurnForHost(turn, turnId, abortController, "safety_recording", error),
+          abort: error => stopTurnForHost(host, turn, turnId, abortController, "safety_recording", error),
         },
         {
           turnId: turn.turnId,
@@ -193,8 +193,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
       // A real timeout/cancel already won; never relabel that terminal.
       if (abortController.signal.aborted || turn.cancelled) return;
       stops.journal = error;
-      stopTurnForHost(turn, run.turnId, abortController, "change_journal", error);
-      host.coordinator.drainPendingForTurn(turn, error.message);
+      stopTurnForHost(host, turn, run.turnId, abortController, "change_journal", error);
     }, abortController.signal, journalTimer);
     restrictFailedCheckouts(governedHold.sandbox, host.journal.restrictedCheckouts(turn.turnId));
     lifecycle?.mark("journalBeganAt");

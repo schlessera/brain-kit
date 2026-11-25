@@ -397,6 +397,14 @@ export const chatFrameHandlers = {
     // The host itself stopped it (#4565): the conversation names why.
     const hostStop = msg.outcome === "cancelled" ? hostStopFromOutcomeDetail(msg.outcomeDetail) : undefined;
     if (hostStop !== undefined) context.state.setTurnNotice(context.key, { cause: "host_stop", hostStop }, context.frameTurnId);
+    // A tool the runtime never answered before it stopped shows the host's
+    // account, not an empty finished card.
+    if (hostStop) {
+      const message = context.buffer()?.messages.findLast((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === context.frameTurnId);
+      for (const tool of message?.toolCalls ?? []) {
+        if (tool.output === undefined && tool.status !== "denied") context.state.setToolResult(context.key, tool.id, hostStopToolOutput(hostStop), true, undefined, hostStop);
+      }
+    }
     context.state.finishAssistantMessage(context.key);
     // An absent outcome is the legacy wire, where `isError` alone decides.
     const failed = msg.outcome === "error" || (msg.outcome === undefined && msg.isError);

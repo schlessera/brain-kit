@@ -184,7 +184,7 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
     }
     // Submitted after the catalog row; every share read/effect joins this queue.
     void host.inboxTools?.shares?.bind(turnId, msg.sessionId).catch(error => {
-      stopTurnForHost(turn, turnId, controller, "inbox_share", error);
+      stopTurnForHost(host, turn, turnId, controller, "inbox_share", error);
       if (turn.turnId === turnId) emitTurnError(host, turn, error);
     });
     if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
@@ -293,7 +293,7 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
       }
       // Never awaited here: an observation's hold freezes the turn's workers,
       // which is what delays a worker's next provider request (#2834).
-      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.toolEnded(turnId, msg.toolUseId).catch(error => { stopTurnForHost(turn, turnId, controller, "change_journal", error); if (turn.turnId === turnId) emitTurnError(host, turn, error); });
+      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.toolEnded(turnId, msg.toolUseId).catch(error => { stopTurnForHost(host, turn, turnId, controller, "change_journal", error); if (turn.turnId === turnId) emitTurnError(host, turn, error); });
       if (transcript.collector && turn.turnId === turnId) transcript.collector.observe(msg);
       if (msg.type === "session_info") msg = onSessionInfo(msg);
       if (msg.type === "result") msg = onResult(msg);

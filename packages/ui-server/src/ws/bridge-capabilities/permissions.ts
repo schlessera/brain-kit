@@ -144,7 +144,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
           const failed = "Safety withdrawal could not be retained; the turn was stopped.";
           coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, expiryCause: "grant_storage_failed", reason: failed });
           recorded({ behavior: "deny", message: failed });
-          stopTurnForHost(turn, turnId, controller, "approval_record", error);
+          stopTurnForHost(host, turn, turnId, controller, "approval_record", error);
         });
       };
       if (!coordinator.openApproval(req.toolUseId, { turn, turnId, request: req, resolve: recorded, revalidate, ...(snapshot ? { expire } : {}) })) {

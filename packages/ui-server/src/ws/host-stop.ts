@@ -6,7 +6,7 @@
  * reading the bare aborted signal as a timeout.
  */
 import type { HostStopCause } from "@schlessera/brain-ui-sdk/protocol";
-import type { RunningTurn } from "./turns.js";
+import type { RunningTurn, TurnCoordinator } from "./turns.js";
 
 /** The reason a host-stopped turn records, for its Activity run and host work. */
 export const HOST_STOP_REASONS: Readonly<Record<HostStopCause, string>> = {
@@ -24,10 +24,16 @@ export const HOST_STOP_UNSPECIFIED_REASON = "Stopped by the host";
  * cause is recorded only when nothing ended the turn first: a cancel, the
  * time limit or an earlier host stop keeps its own account. The abort reason
  * stays `error` itself, so whatever unwinds the turn still classifies it.
+ * The stop that records its cause also drains the turn's pending questions
+ * and approvals with that cause, as the time limit drains them with its own:
+ * a backend awaiting one would otherwise park until the deadline.
  */
-export function stopTurnForHost(turn: RunningTurn, turnId: string, controller: AbortController, cause: HostStopCause, error: unknown): void {
-  if (turn.turnId === turnId && !controller.signal.aborted && !turn.cancelled) turn.hostStop = { turnId, cause };
+export function stopTurnForHost(host: { readonly coordinator: Pick<TurnCoordinator, "drainPendingForTurn"> }, turn: RunningTurn, turnId: string,
+  controller: AbortController, cause: HostStopCause, error: unknown): void {
+  const records = turn.turnId === turnId && !controller.signal.aborted && !turn.cancelled;
+  if (records) turn.hostStop = { turnId, cause };
   controller.abort(error);
+  if (records) host.coordinator.drainPendingForTurn(turn, HOST_STOP_REASONS[cause]);
 }
 
 /** The cause the host stopped turn `turnId` for, if it did. */

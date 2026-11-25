@@ -98,3 +98,19 @@ test("a host stop that also raised its owner's error still says the host stopped
   expect(notice, "HOST_STOP_BESIDE_FAILURE").not.toBeNull();
   expect(notice!.textContent).toContain("The host stopped this turn because it couldn't link this chat's inbox shares. Try again.");
 });
+
+test("a tool the runtime never answered before the host stopped the turn shows the host's stop", () => {
+  const send = (frame: ServerMessage) => act(() => { root.connection.handleServerMessage(frame); });
+  root.stores.chat.getState().setActiveSession("s1");
+  send({ type: "session_history", sessionId: "s1", messages: [{ role: "user", content: "Weave the shroud", toolCalls: [] }] } as ServerMessage);
+  send({ type: "status", status: "thinking", ...scoped } as ServerMessage);
+  send({ type: "text_delta", text: "Unravelling tonight's work. ", ...scoped } as ServerMessage);
+  send({ type: "tool_use_start", toolUseId: "loom", toolName: "Bash", ...scoped } as ServerMessage);
+  send({ type: "tool_use_complete", toolUseId: "loom", toolName: "Bash", input: { command: "unweave --shroud" }, ...scoped } as ServerMessage);
+  // The worker exits: no tool_result, only the host-stopped terminal.
+  send({ type: "status", status: "cancelled", detail: "Stopped by the host", ...scoped } as ServerMessage);
+  send({ type: "result", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("safety_recording"), durationMs: 1, numTurns: 1, isError: false, ...scoped } as ServerMessage);
+  const tool = root.stores.chat.getState().buffers.s1!.messages.findLast((m) => m.role === "assistant")!.toolCalls.find((t) => t.id === "loom")!;
+  expect(tool, "UNANSWERED_TOOL_SHOWS_HOST_STOP").toMatchObject({ hostStop: "safety_recording", isError: true,
+    output: "The host stopped this turn before this tool finished, because it couldn't record the turn's safety checks. You didn't refuse it." });
+});

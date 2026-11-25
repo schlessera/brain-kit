@@ -431,7 +431,8 @@ export function createTurnRecorder(
             });
             // Error output rides along too — a failed call's output is what
             // the drill-in needs most. appendEvent no-ops on unknown spans.
-            store.appendEvent(msg.toolUseId, "tool_output", msg.output, undefined, PAYLOAD_EVENT_CAP);
+            // A tool the host cut short shows the host's account here too.
+            store.appendEvent(msg.toolUseId, "tool_output", msg.hostStop ? HOST_STOP_REASONS[msg.hostStop] : msg.output, undefined, PAYLOAD_EVENT_CAP);
             onWrite?.();
             break;
           }
@@ -797,7 +798,8 @@ export function createTurnRecorder(
             : {}),
         });
         // Anything still open died with the turn.
-        store.cascadeClose(runId, "cancelled", `turn ${outcome}`);
+        // A host-owned reason names why the turn's open work ended, too.
+        store.cascadeClose(runId, "cancelled", reason !== undefined ? clip(reason, 500) : `turn ${outcome}`);
         store.rollupRun(runId);
         // Kept now, not only when the status is next read (#254).
         if (outcome === "success" && observedBilling === "subscription") {

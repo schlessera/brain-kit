@@ -37,7 +37,7 @@ afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
  * cancelled status and a cancelled result.
  */
 function interruptedTurn(trigger: (request: StartTurnRequest) => void | Promise<void>) {
-  return makeFakeBackend({ id: "claude", async startTurn(request) {
+  return makeFakeBackend({ id: "claude", capabilities: { askUser: true }, async startTurn(request) {
     const { bridge, signal } = request;
     bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
     bridge.emit({ type: "tool_use_start", toolUseId: "loom", toolName: "Bash" });
@@ -77,6 +77,7 @@ async function stoppedTurn(backend: ReturnType<typeof interruptedTurn>, options:
   return {
     run: { outcome: run?.outcome, reason: run?.outcomeReason },
     toolSpan: store.getSpan("loom"),
+    toolOutput: store.snapshotRun(turnId)?.events.find(event => event.spanId === "loom" && event.eventType === "tool_output")?.payload,
     result,
     tool: frames.find(frame => frame.type === "tool_result" && frame.toolUseId === "loom") as Extract<ServerMessage, { type: "tool_result" }>,
     status: frames.find(frame => frame.type === "status" && frame.status === "cancelled") as Extract<ServerMessage, { type: "status" }>,
@@ -92,6 +93,7 @@ function expectHostStop(turn: Awaited<ReturnType<typeof stoppedTurn>>, cause: ke
   expect(turn.tool, `${label}_TOOL_SHOWN_AS_HOST_STOP`).toMatchObject({ output: RUNTIME_REFUSAL, hostStop: cause });
   // Activity's tool span says the host stopped it, not that the user refused it.
   expect(turn.toolSpan, `${label}_TOOL_SPAN_NAMES_HOST_STOP`).toMatchObject({ outcome: "error", outcomeReason: HOST_STOP_REASONS[cause] });
+  expect(turn.toolOutput, `${label}_TOOL_OUTPUT_EVENT_NAMES_HOST_STOP`).toBe(HOST_STOP_REASONS[cause]);
 }
 
 test("the real time limit still records a timeout", async () => {
@@ -149,4 +151,20 @@ test("a failed inbox share binding records the inbox share", async () => {
   } };
   const turn = await stoppedTurn(interruptedTurn(() => {}), () => ({ inboxTools: inboxTools as never }));
   expectHostStop(turn, "inbox_share", "SHARE_BINDING");
+});
+
+test("a host stop closes the question its backend was waiting on, with its own cause", async () => {
+  const bind = Promise.withResolvers<void>();
+  let answer: unknown;
+  const backend = interruptedTurn(async ({ bridge }) => {
+    const asked = bridge.askUser!("harbour", [{ question: "Which harbour first?", header: "Harbour", multiSelect: false,
+      options: [{ label: "Ithaca", description: "Home" }, { label: "Pylos", description: "Nestor's court" }] }]);
+    // The share binding fails while the question is open.
+    bind.reject(new Error("fixture share failure"));
+    answer = await asked.then(() => null, error => error);
+  });
+  const inboxTools = { forTurn: () => undefined, shares: { start: () => Promise.resolve(), end: () => Promise.resolve(), bind: () => bind.promise } };
+  const turn = await stoppedTurn(backend, () => ({ inboxTools: inboxTools as never }));
+  expect((answer as Error | null)?.message, "PENDING_QUESTION_CLOSED_WITH_HOST_CAUSE").toBe(HOST_STOP_REASONS.inbox_share);
+  expectHostStop(turn, "inbox_share", "SHARE_DURING_QUESTION");
 });

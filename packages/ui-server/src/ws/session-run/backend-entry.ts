@@ -123,7 +123,7 @@ export async function openTurnBridge(
     await safetyWrites.safetyBegin({bindingId,turnId:turn.turnId,principalId:turn.principalId??null,sessionId:resumeId??null,
       historyOwnerId:initial.historyOwnerId,backendId:backend.id,sourceSessionId:handoffSource,policyHash:governedHold?.policy.hash??null,at:Date.now()});
     bridge.inputSafety=createSafetyCollector(safetyDb,safetyWrites,{bindingId,turnId:turn.turnId,backendId:backend.id,
-      sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>stopTurnForHost(turn,run.turnId,run.abortController,"safety_recording",error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null,
+      sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>stopTurnForHost(host,turn,run.turnId,run.abortController,"safety_recording",error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null,
       ...(governedHold?.sandbox.profile==="strict"&&governedHold.startupView ? {grepCheckpoint:{
         root:governedHold.startupView.root,masked:[...(governedHold.sandbox.providerMasks?.folders??[]),
           ...governedHold.sandbox.areas.map(area=>area.rel),

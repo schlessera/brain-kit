@@ -197,25 +197,30 @@ describe("outcome classification", () => {
   });
 
   test("a host stop is kept only when nothing ended the turn first, and keeps its error as the abort reason", () => {
+    const drained: Array<[string, string]> = [];
+    const host = { coordinator: { drainPendingForTurn: (turn: RunningTurn, reason: string) => { drained.push([turn.turnId, reason]); } } };
     const error = new Error("share binding failed");
     const turn = { turnId: "turn-1", cancelled: false } as RunningTurn;
     const first = new AbortController();
-    stopTurnForHost(turn, "turn-1", first, "inbox_share", error);
+    stopTurnForHost(host, turn, "turn-1", first, "inbox_share", error);
     expect(first.signal.reason).toBe(error);
-    stopTurnForHost(turn, "turn-1", first, "change_journal", new Error("later"));
+    stopTurnForHost(host, turn, "turn-1", first, "change_journal", new Error("later"));
     expect(turn.hostStop, "FIRST_STOP_WINS").toEqual({ turnId: "turn-1", cause: "inbox_share" });
+    // Its pending questions and approvals close with the host's reason, once.
+    expect(drained, "HOST_STOP_DRAINS_PENDING").toEqual([["turn-1", HOST_STOP_REASONS.inbox_share]]);
     // A timeout or cancel already aborted it: that account stands.
     const timedOut = { turnId: "turn-2", cancelled: false } as RunningTurn, late = new AbortController();
     late.abort();
-    stopTurnForHost(timedOut, "turn-2", late, "safety_recording", error);
+    stopTurnForHost(host, timedOut, "turn-2", late, "safety_recording", error);
     expect(timedOut.hostStop, "TIMEOUT_NOT_RELABELLED").toBeUndefined();
     const cancelled = { turnId: "turn-3", cancelled: true } as RunningTurn;
-    stopTurnForHost(cancelled, "turn-3", new AbortController(), "safety_recording", error);
+    stopTurnForHost(host, cancelled, "turn-3", new AbortController(), "safety_recording", error);
     expect(cancelled.hostStop, "CANCEL_NOT_RELABELLED").toBeUndefined();
-    // A previous turn's late owner never labels the slot's current turn.
+    // A previous turn's late owner never labels or drains the slot's current turn.
     const current = { turnId: "turn-5", cancelled: false } as RunningTurn;
-    stopTurnForHost(current, "turn-4", new AbortController(), "safety_recording", error);
+    stopTurnForHost(host, current, "turn-4", new AbortController(), "safety_recording", error);
     expect(current.hostStop, "STALE_OWNER_IGNORED").toBeUndefined();
+    expect(drained, "ONLY_THE_RECORDING_STOP_DRAINS").toHaveLength(1);
   });
 
   test("a scope stop already narrated is not reported again unless something else failed", () => {
