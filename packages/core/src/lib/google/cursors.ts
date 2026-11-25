@@ -18,7 +18,12 @@
  * `invalid_input`. The file holds no message data; losing it only ends
  * paging. Two processes writing at once can lose each other's newest cursor,
  * which also only ends paging. A successful `brain google connect` forgets
- * every cursor, so an alias pointed at another account inherits none.
+ * every cursor and starts a new connection generation, so an alias pointed at
+ * another account inherits none: a search takes the generation before it
+ * asks Google, and its next page's cursor is kept only while that generation
+ * still stands. (A connect landing in the few milliseconds between a
+ * search's read and rename of the file can still lose to it; that cursor
+ * expires within the hour.)
  */
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, closeSync, constants, fstatSync, openSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -39,12 +44,22 @@ interface CursorEntry {
   created_at: number;
 }
 
+/** A connect has started a new generation since the search began: its page token is not kept. */
+export class GoogleCursorStale extends Error {
+  constructor() {
+    super("the Google connection changed during the search");
+    this.name = "GoogleCursorStale";
+  }
+}
+
 export interface GoogleCursorStore {
-  /** Mints a cursor for the next page of `query`. Throws when the file cannot be written. */
-  mint(account: string, query: string, pageToken: string): string;
+  /** The current connection generation: take it before the search reaches Google. */
+  generation(): string;
+  /** Mints a cursor for the next page of `query`. Throws {@link GoogleCursorStale} when `generation` no longer stands, or when the file cannot be written. */
+  mint(account: string, query: string, pageToken: string, generation: string): string;
   /** The page token a cursor stands for, or null when it stands for none for this account and query. */
   resolve(account: string, query: string, cursor: string): string | null;
-  /** Forgets every cursor: a connect may have pointed an alias at another account. Throws when the file cannot be removed. */
+  /** Forgets every cursor and starts a new generation: a connect may have pointed an alias at another account. Throws when the file cannot be written. */
   clear(): void;
 }
 
@@ -81,24 +96,30 @@ export function googleCursorStore(home: string, now: () => number = Date.now): G
     }
   }
 
-  function read(): Map<string, CursorEntry> {
+  /** The generation a missing or unreadable file stands for. */
+  const NONE = "none";
+
+  function read(): { generation: string; entries: Map<string, CursorEntry> } {
+    const empty = (generation = NONE) => ({ generation, entries: new Map<string, CursorEntry>() });
     const text = contents();
-    if (text === null) return new Map();
+    if (text === null) return empty();
     let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { return new Map(); }
-    const cursors = typeof parsed === "object" && parsed !== null ? (parsed as { cursors?: unknown }).cursors : undefined;
-    if (typeof cursors !== "object" || cursors === null) return new Map();
+    try { parsed = JSON.parse(text); } catch { return empty(); }
+    if (typeof parsed !== "object" || parsed === null) return empty();
+    const { generation, cursors } = parsed as { generation?: unknown; cursors?: unknown };
+    if (typeof generation !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(generation)) return empty();
+    if (typeof cursors !== "object" || cursors === null) return empty(generation);
     const at = now();
     const live = Object.entries(cursors).filter((entry): entry is [string, CursorEntry] =>
       isGoogleHostCursor(entry[0]) && isEntry(entry[1]) && at - entry[1].created_at < GOOGLE_CURSOR_TTL_MS && entry[1].created_at <= at);
-    return new Map(live.sort((a, b) => a[1].created_at - b[1].created_at));
+    return { generation, entries: new Map(live.sort((a, b) => a[1].created_at - b[1].created_at)) };
   }
 
-  function write(entries: Map<string, CursorEntry>): void {
+  function write(generation: string, entries: Map<string, CursorEntry>): void {
     const kept = [...entries].slice(-GOOGLE_CURSOR_LIMIT);
     const temporary = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     try {
-      writeFileSync(temporary, JSON.stringify({ version: 1, cursors: Object.fromEntries(kept) }), { mode: 0o600, flag: "wx" });
+      writeFileSync(temporary, JSON.stringify({ version: 1, generation, cursors: Object.fromEntries(kept) }), { mode: 0o600, flag: "wx" });
       chmodSync(temporary, 0o600);
       renameSync(temporary, path);
     } catch (error) {
@@ -108,22 +129,24 @@ export function googleCursorStore(home: string, now: () => number = Date.now): G
   }
 
   return {
-    mint(account, query, pageToken) {
+    generation: () => read().generation,
+    mint(account, query, pageToken, generation) {
       if (!PAGE_TOKEN.test(pageToken)) throw new TypeError("not a page token");
-      const entries = read();
+      const current = read();
+      if (current.generation !== generation) throw new GoogleCursorStale();
       const cursor = `gc_${randomBytes(24).toString("base64url")}`;
-      entries.set(cursor, { account, query: queryKey(query), page_token: pageToken, created_at: now() });
-      write(entries);
+      current.entries.set(cursor, { account, query: queryKey(query), page_token: pageToken, created_at: now() });
+      write(current.generation, current.entries);
       return cursor;
     },
     resolve(account, query, cursor) {
       if (!isGoogleHostCursor(cursor)) return null;
-      const entry = read().get(cursor);
+      const entry = read().entries.get(cursor);
       if (!entry || entry.account !== account || entry.query !== queryKey(query)) return null;
       return entry.page_token;
     },
     clear() {
-      rmSync(path, { force: true });
+      write(randomBytes(18).toString("base64url"), new Map());
     },
   };
 }

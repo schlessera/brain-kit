@@ -44,7 +44,7 @@ import {
 } from "@schlessera/brain-common/internal/google-gog";
 import { resolveEnv } from "../../config/env.js";
 import { checkGovernancePolicy, type EffectiveGovernancePolicy, type GovernancePolicyCheck } from "../governance-policy.js";
-import { googleCursorStore } from "./cursors.js";
+import { GoogleCursorStale, googleCursorStore } from "./cursors.js";
 import {
   connectScopes, GMAIL_MODIFY_SCOPE, GMAIL_READONLY_SCOPE, GOG_IDENTITY_SCOPES, gogAuthArgv, runGogAuth, type GogAuthInvocation, type GogAuthRun,
 } from "./gog-auth.js";
@@ -121,6 +121,7 @@ const MESSAGES: Partial<Record<string, string>> = {
   not_connected: "No Google account is connected in this home. Connect one with brain google connect.",
   cursor: "This cursor is not a next_cursor of an earlier search of the same query on this account, or it has expired. Search again.",
   cursor_unwritable: "The next page's cursor could not be kept in the Google home, so this page was not returned.",
+  connection_changed: "The Google account was connected again while this search ran, so its page was not returned. Search again.",
 };
 
 function error(code: GoogleErrorCode, reason: string | null, message: string): GoogleError {
@@ -152,7 +153,9 @@ function json(run: GogAuthRun): unknown {
 function authFailure(run: GogAuthRun, step: string): GoogleError {
   if (run.end.kind === "spawn_failed") return error("transport_incompatible", "spawn_failed", "gog could not be started.");
   if (run.end.kind === "output_too_large") return error("transport_incompatible", "output_too_large", "gog answered more than brain google reads.");
-  if (run.end.kind !== "exit") return error("unavailable", `${step}_${run.end.kind}`, "gog did not finish; nothing was changed by brain google.");
+  if (run.end.kind !== "exit") {
+    return error("unavailable", `${step}_${run.end.kind}`, "gog did not finish, so this step may or may not have taken effect in the Google home; run brain google status to see what it holds.");
+  }
   switch (run.end.exitCode) {
     case 2: return error("transport_incompatible", "usage", "gog refused the command brain google built; this gog is not the release it expects.");
     case 4: return error("unavailable", "auth_required", MESSAGES.not_connected!);
@@ -170,7 +173,7 @@ function aliasesOf(value: unknown): Map<string, string> | null {
 }
 
 /** An OAuth scope as Google names one; anything else in gog's answer is not a scope this module repeats. */
-const SCOPE = /^(?:openid|email|profile|https:\/\/www\.googleapis\.com\/auth\/[A-Za-z0-9._-]{1,128}|https:\/\/mail\.google\.com\/)$/;
+export const GOOGLE_SCOPE_PATTERN = /^(?:openid|email|profile|https:\/\/www\.googleapis\.com\/auth\/[A-Za-z0-9._-]{1,128}|https:\/\/mail\.google\.com\/)$/;
 
 /** Whether the policy can admit any Gmail write at all, so a grant may carry `gmail.modify`. */
 function policyMayWrite(policy: GooglePolicy): boolean {
@@ -188,7 +191,7 @@ function recordedScopes(value: unknown, address: string): string[] | null | unde
     if (!isRecord(account) || typeof account.email !== "string") return undefined;
     if (account.email.toLowerCase() !== address.toLowerCase()) continue;
     if (account.scopes === undefined) return [];
-    if (!isStrings(account.scopes) || !account.scopes.every(scope => SCOPE.test(scope))) return undefined;
+    if (!isStrings(account.scopes) || !account.scopes.every(scope => GOOGLE_SCOPE_PATTERN.test(scope))) return undefined;
     return [...new Set(account.scopes)].sort();
   }
   return null;
@@ -443,10 +446,12 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
     const named = await account(prepared, { command: "auth.alias.set", positionals: [alias, address] });
     if (!named.ok) return refused(op, named.error);
     if (named.run.end.kind !== "exit" || named.run.end.exitCode !== 0) return refused(op, authFailure(named.run, "alias"));
-    // The alias may now name another account: no earlier search's page token carries over. Cursors expire within the hour regardless.
-    try { googleCursorStore(prepared.home, now).clear(); } catch { /* best effort */ }
+    // The alias may now name another account: no earlier search's page token carries over.
+    const warnings: string[] = [];
+    try { googleCursorStore(prepared.home, now).clear(); }
+    catch { warnings.push("Earlier search cursors could not be forgotten; they expire within the hour. Do not page an earlier search."); }
     return { ok: true, operation: op, data: {
-      state: "connected", alias, write: input.write, boundary: prepared.selection.kind, home: prepared.home, scopes: granted,
+      state: "connected", alias, write: input.write, boundary: prepared.selection.kind, home: prepared.home, scopes: granted, warnings,
     } };
   }
 
@@ -493,8 +498,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
       if (hidden.length === 0 || own.some(label => hidden.includes(label))) return { ok: true, value: [...own] };
       if (!isGmailThreadId(threadId)) return { ok: false, error: NOT_FOUND };
       const thread = await transport.execute("gmail.thread.get", { thread_id: threadId });
-      if (!thread.ok) return { ok: false, error: asMiss(thread.error) };
-      if (thread.value.id !== threadId) return { ok: false, error: shapeError };
+      // Unknown visibility reads exactly as a miss, so no answer tells a hidden target from a missing one.
+      if (!thread.ok || thread.value.id !== threadId) return { ok: false, error: NOT_FOUND };
       return { ok: true, value: [...new Set([...own, ...thread.value.messages.flatMap(message => message.label_ids)])] };
     };
     const admitted = (targets: readonly string[]): GoogleError | null => {
@@ -516,6 +521,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
           pageToken = resolved;
         }
         const limit = search.limit ?? GMAIL_LIMITS.searchDefault;
+        // Taken before Google is asked: a connect while this runs voids the next page's cursor.
+        const generation = cursors.generation();
         const [page, labels] = await Promise.all([
           transport.execute("gmail.search", { query: search.query, limit, ...(pageToken ? { page_token: pageToken } : {}) }),
           labelDirectory(),
@@ -525,8 +532,12 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
         const hits = page.value.hits.filter(hit => !hit.label_ids.some(label => hidden.includes(label)));
         let cursor: string | null = null;
         if (page.value.next_page_token) {
-          try { cursor = cursors.mint(alias, search.query, page.value.next_page_token); }
-          catch { return refused(operation, error("unavailable", "cursor_unwritable", MESSAGES.cursor_unwritable!)); }
+          try { cursor = cursors.mint(alias, search.query, page.value.next_page_token, generation); }
+          catch (failure) {
+            return refused(operation, failure instanceof GoogleCursorStale
+              ? error("unavailable", "connection_changed", MESSAGES.connection_changed!)
+              : error("unavailable", "cursor_unwritable", MESSAGES.cursor_unwritable!));
+          }
         }
         const filtered = { ...page.value, hits };
         return ok(view === "structured" ? structuredGmailSearch(filtered, { labels, cursor }) : contentGmailSearch(filtered, { labels, cursor }));
@@ -564,6 +575,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
         if (!draft.ok) return refused(operation, asMiss(draft.error));
         if (draft.value.draft.id !== id) return shape();
         const message = draft.value.draft.message;
+        // A draft with no message has no labels to establish: with anything hidden, it is not shown.
+        if (!message && hidden.length > 0) return refused(operation, NOT_FOUND);
         const targets = message ? await threadLabels(message.thread_id, message.label_ids) : { ok: true as const, value: [] as string[] };
         if (!targets.ok) return refused(operation, asMiss(targets.error));
         const refusal = admitted(targets.value);

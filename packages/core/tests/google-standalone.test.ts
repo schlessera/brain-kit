@@ -7,10 +7,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { googleCursorStore, GOOGLE_CURSOR_FILE, GOOGLE_CURSOR_LIMIT, GOOGLE_CURSOR_TTL_MS } from "../src/lib/google/cursors.ts";
+import { GoogleCursorStale, googleCursorStore, GOOGLE_CURSOR_FILE, GOOGLE_CURSOR_LIMIT, GOOGLE_CURSOR_TTL_MS } from "../src/lib/google/cursors.ts";
 import { gogAuthArgv, GogAuthArgvError } from "../src/lib/google/gog-auth.ts";
 import { checkGoogleHome, selectGoogleHome, standaloneGoogleHome } from "../src/lib/google/home.ts";
-import { standaloneGoogleRouting } from "../src/lib/google/standalone.ts";
+import { GOOGLE_SCOPE_PATTERN, standaloneGoogleRouting } from "../src/lib/google/standalone.ts";
 
 const dirs: string[] = [];
 function dir(prefix = "brain-google-unit-"): string {
@@ -119,7 +119,7 @@ describe("google search cursors", () => {
     const home = dir();
     let clock = 1_783_850_000_000;
     const store = googleCursorStore(home, () => clock);
-    const cursor = store.mint("ithaca", "from:penelope", "09876543210987654321");
+    const cursor = store.mint("ithaca", "from:penelope", "09876543210987654321", store.generation());
     expect(cursor).toMatch(/^gc_[A-Za-z0-9_-]{16,64}$/);
     expect(store.resolve("ithaca", "from:penelope", cursor)).toBe("09876543210987654321");
     // Usable again, so a failed page can be retried.
@@ -139,12 +139,25 @@ describe("google search cursors", () => {
     const home = dir();
     let clock = 1_783_850_000_000;
     const store = googleCursorStore(home, () => clock++);
-    const minted = Array.from({ length: GOOGLE_CURSOR_LIMIT + 1 }, (_, index) => store.mint("ithaca", "in:inbox", `token${index}`));
+    const minted = Array.from({ length: GOOGLE_CURSOR_LIMIT + 1 }, (_, index) => store.mint("ithaca", "in:inbox", `token${index}`, store.generation()));
     expect(store.resolve("ithaca", "in:inbox", minted[0]!)).toBeNull();
     expect(store.resolve("ithaca", "in:inbox", minted.at(-1)!)).toBe(`token${GOOGLE_CURSOR_LIMIT}`);
     writeFileSync(join(home, GOOGLE_CURSOR_FILE), "{ not json");
     expect(store.resolve("ithaca", "in:inbox", minted.at(-1)!)).toBeNull();
-    expect(() => store.mint("ithaca", "in:inbox", "a token\nwith a line")).toThrow();
+    expect(() => store.mint("ithaca", "in:inbox", "a token\nwith a line", store.generation())).toThrow();
+  });
+
+  test("google cursors die with their connection generation: a connect during a search keeps none of its pages", () => {
+    const home = dir();
+    const store = googleCursorStore(home, () => 1_783_850_000_000);
+    const kept = store.mint("ithaca", "in:inbox", "first", store.generation());
+    const during = store.generation();
+    store.clear();
+    expect(() => store.mint("ithaca", "in:inbox", "second", during)).toThrow(GoogleCursorStale);
+    expect(store.resolve("ithaca", "in:inbox", kept)).toBeNull();
+    expect(store.generation()).not.toBe(during);
+    const fresh = store.mint("ithaca", "in:inbox", "third", store.generation());
+    expect(store.resolve("ithaca", "in:inbox", fresh)).toBe("third");
   });
 });
 
@@ -152,7 +165,7 @@ describe("google cursor file", () => {
   test("google cursors are read only from a small private regular file: a link, a FIFO, a shared or a large file reads as none", () => {
     const home = dir();
     const store = googleCursorStore(home, () => 1_783_850_000_000);
-    const cursor = store.mint("ithaca", "in:inbox", "09876543210987654321");
+    const cursor = store.mint("ithaca", "in:inbox", "09876543210987654321", store.generation());
     const file = join(home, GOOGLE_CURSOR_FILE);
     const saved = readFileSync(file);
     chmodSync(file, 0o644);
@@ -182,6 +195,14 @@ describe("google standalone routing and account argv", () => {
     expect(standaloneGoogleRouting([])).toBe("allowed");
     expect(standaloneGoogleRouting([{ paths: ["me/**"], allow: ["anthropic", "google"] }])).toBe("allowed");
     expect(standaloneGoogleRouting([{ paths: ["me/**"], allow: ["anthropic"] }])).toBe("recipient_unproven");
+  });
+
+  test("google scope names: whole OAuth scopes only", () => {
+    for (const scope of ["openid", "email", "https://www.googleapis.com/auth/gmail.readonly", "https://mail.google.com/"]) expect(GOOGLE_SCOPE_PATTERN.test(scope), scope).toBe(true);
+    for (const scope of ["openid\n", "xopenid", "openidx", "https://evil.example/https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.readonly?login_hint=odysseus@example.com", "https://www.googleapis.com/auth/", ""]) {
+      expect(GOOGLE_SCOPE_PATTERN.test(scope), scope).toBe(false);
+    }
   });
 
   test("google account argv: one element per value, positionals after --, no line breaks", () => {
