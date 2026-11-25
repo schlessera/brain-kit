@@ -25,7 +25,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { realpathSync, rmSync, statSync } from "node:fs";
 import { invocationChild } from "./test-invocation-child";
 import { createInvokingTestHome } from "./test-home";
-import { runtimeBuildSelection } from "./runtime-test-builds";
+import { runtimeBrowserSelection, runtimeBuildSelection } from "./runtime-test-builds";
 import { acceptsSpeechDelegation, clearInvocation, prepareCopiedInvocation, prepareInvocation, takePreparedTree } from "./test-invocation";
 import { ensureWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
 import { ensureHostAdmission } from "./host-admission.mjs";
@@ -145,7 +145,7 @@ export async function testCommandBatches(argv: string[], cwd: string): Promise<{
     // matches before splitting, without forwarding a filter to another batch.
     return discoverTests(cwd, ["."]).filter(file => file.includes(path)).map(file => resolve(cwd, file));
   });
-  const browser = (file: string) => runtimeBuildSelection(resolve(import.meta.dir, ".."), cwd, [file]).length > 0;
+  const browser = (file: string) => runtimeBrowserSelection(resolve(import.meta.dir, ".."), cwd, [file]).length > 0;
   const kind = (file: string) => isDockerTest(file, resolve(import.meta.dir, "..")) ? "docker" : browser(file) ? "browser" : "ordinary";
   if (new Set(files.map(kind)).size < 2) return [{ argv, docker: files.some(file => isDockerTest(file)), browser: files.some(browser) }];
   const positions = new Set(testPathIndexes(argv));
