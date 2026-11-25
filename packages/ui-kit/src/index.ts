@@ -376,3 +376,59 @@ export { GitHubMergeEvent, type GitHubMergeEventProps } from "./github/GitHubMer
 export { GitHubResultList, type GitHubResult, type GitHubResultListProps } from "./github/GitHubResultList.js";
 export { GitHubDetailSection, type GitHubDetailSectionProps, type GitHubDetailState } from "./github/GitHubDetailSection.js";
 export { githubHref, type GitHubPerson, type GitHubState } from "./github/shared.js";
+
+/* Storage volumes: one gauge per capacity scope, and the cards that select one (#4542). */
+export { CapacityGauge, type CapacityGaugeProps, type CapacityLevel } from "./storage/CapacityGauge.js";
+export {
+  VolumeCard,
+  VolumeGroup,
+  type VolumeCardProps,
+  type VolumeGroupItem,
+  type VolumeGroupProps,
+  type VolumeStatus,
+} from "./storage/VolumeCard.js";
+export {
+  capacityDrawable,
+  capacitySegments,
+  percentLabel,
+  thresholdsValid,
+  tickLayout,
+  type CapacityFigures,
+  type CapacitySegment,
+  type CapacitySegmentKind,
+  type CapacityThresholds,
+  type TickLayout,
+} from "./storage/capacity-geometry.js";
+/* Storage history (#4543): the available-space chart, its event legend and a sparkline. */
+export { HistoryChart, SCENARIO_DASH, type HistoryChartProps } from "./storage/HistoryChart.js";
+export { EventList, type EventListProps } from "./storage/EventList.js";
+export { Sparkline, type SparklineProps } from "./storage/Sparkline.js";
+export {
+  projectionReasonText,
+  type HistoryEvidenceReason,
+  type HistoryMarker,
+  type HistoryPoint,
+  type HistoryScenario,
+  type HistoryScenarioWindow,
+  type HistoryThresholds,
+} from "./storage/history-geometry.js";
+/* Storage breakdown: ownership by tint, edge and label, legend and rows (#4544). */
+export { type StorageOwner } from "./storage/storage-geometry.js";
+export { StorageMapLegend, type StorageMapLegendOwner, type StorageMapLegendProps } from "./storage/StorageMapLegend.js";
+export { StorageConsumerList, type StorageConsumerListProps, type StorageSortDirection, type StorageSortKey } from "./storage/StorageConsumerList.js";
+export { StorageConsumerRow, StorageFilterRow, type StorageConsumerRowProps, type StorageFilterRowProps } from "./storage/StorageConsumerRow.js";
+export { StorageSelectionBar, type StorageSelectionBarProps } from "./storage/StorageSelectionBar.js";
+export { StorageBreadcrumb, type StorageBreadcrumbProps, type StorageCrumb } from "./storage/StorageBreadcrumb.js";
+export { StorageSummaryRow, type StorageSummaryRowProps } from "./storage/StorageSummaryRow.js";
+export { STORAGE_PARTIAL_REASON, storageUnknownReason, type StorageEligibility, type StorageGitFacet } from "./storage/storage-copy.js";
+/* Storage maintenance tools: one row per owner-supported tool, and the list
+ * with its single footnote (#4545). */
+export { ToolList, ToolRow, type ToolListProps, type ToolRowProps } from "./storage/ToolRow.js";
+export {
+  type ToolChange,
+  type ToolHeadroom,
+  type ToolHeadroomFigure,
+  type ToolNotMeasuredReason,
+  type ToolOutcomeCounts,
+  type ToolRunState,
+} from "./storage/tool-row-model.js";
