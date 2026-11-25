@@ -38,6 +38,7 @@ import {
   APIFY_TOOL_NAMES,
   GITHUB_TOOL_NAMES,
   GITHUB_TOOL_NAME_LIST,
+  GOOGLE_TOOL_NAMES,
   WEB_TOOL_NAME_LIST,
   checkEditedApproval,
   createToolPermissionRequest,
@@ -81,6 +82,8 @@ export function piToolAvailabilityRefusal(turn: TurnContext, name: string): stri
     read_attachment: "readAttachment",
     ...Object.fromEntries(WEB_TOOL_NAME_LIST.map(name => [name, "webAccess"])),
     ...Object.fromEntries(GITHUB_TOOL_NAME_LIST.map(name => [name, "github"])),
+    // Gmail (#4207): the host decides posture per call (ruling 6), so no membership here beyond its handler.
+    ...Object.fromEntries(GOOGLE_TOOL_NAMES.map(name => [name, "google"])),
   };
   const handler = handlers[name];
   if (handler && typeof (turn.bridge as unknown as Record<string, unknown> | null)?.[handler] !== "function")

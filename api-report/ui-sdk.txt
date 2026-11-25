@@ -862,6 +862,41 @@ export "./client" (./src/client/index.ts)
   GITHUB_TOOL_NAME_LIST
   GITHUB_USER_SCHEMA
   GITHUB_WEB_ORIGIN
+  GMAIL_CONTENT_MESSAGE_SCHEMA
+  GMAIL_CONTENT_SEARCH_HIT_SCHEMA
+  GMAIL_DETAIL_LIMITS
+  GMAIL_DRAFT_CONTRACT
+  GMAIL_DRAFT_INPUT
+  GMAIL_LABEL_SCHEMA
+  GMAIL_LIMITS
+  GMAIL_MESSAGE_BODY_SCHEMA
+  GMAIL_MODIFY_CONTRACT
+  GMAIL_MODIFY_INPUT
+  GMAIL_READ_CONTRACT
+  GMAIL_READ_INPUT
+  GMAIL_READ_PAYLOAD_SCHEMA
+  GMAIL_READ_TARGETS
+  GMAIL_READ_TOOL_NAMES
+  GMAIL_SEARCH_CONTRACT
+  GMAIL_SEARCH_INPUT
+  GMAIL_SEARCH_PAYLOAD_SCHEMA
+  GMAIL_SEND_CONTRACT
+  GMAIL_SEND_INPUT
+  GMAIL_STRUCTURED_LABEL_ENTRY_SCHEMA
+  GMAIL_STRUCTURED_MESSAGE_SCHEMA
+  GMAIL_STRUCTURED_SEARCH_HIT_SCHEMA
+  GMAIL_TOOL_NAMES
+  GMAIL_TRASH_CONTRACT
+  GMAIL_TRASH_INPUT
+  GMAIL_UNTRUSTED_MESSAGE_SCHEMA
+  GMAIL_WRITE_TOOL_NAMES
+  GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA
+  GOOGLE_ERROR_CODES
+  GOOGLE_ERROR_SCHEMA
+  GOOGLE_RESULT_SCHEMAS
+  GOOGLE_TOOL_CONTRACTS
+  GOOGLE_TOOL_NAMES
+  GOOGLE_VIEWS
   type GeoCoords
   type GeoRequestOptions
   type GetCurrentLocationInput
@@ -901,6 +936,28 @@ export "./client" (./src/client/index.ts)
   type GithubToolResult
   type GithubUser
   type GithubWriteToolName
+  type GmailContentMessagePayload
+  type GmailDraftInput
+  type GmailLabel
+  type GmailMessageBody
+  type GmailModifyInput
+  type GmailReadInput
+  type GmailReadPayload
+  type GmailReadTarget
+  type GmailReadToolName
+  type GmailSearchInput
+  type GmailSearchPayload
+  type GmailSendInput
+  type GmailStructuredMessagePayload
+  type GmailToolName
+  type GmailTrashInput
+  type GmailWriteToolName
+  type GoogleErrorCode
+  type GoogleToolCall
+  type GoogleToolError
+  type GoogleToolName
+  type GoogleToolResult
+  type GoogleView
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -1348,6 +1405,8 @@ export "./client" (./src/client/index.ts)
   isGithubRepositoryName
   isGithubSearchUrl
   isGithubToolName
+  isGmailReadToolName
+  isGoogleToolName
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
@@ -2790,6 +2849,41 @@ export "./server" (./src/server/index.ts)
   GITHUB_TOOL_NAME_LIST
   GITHUB_USER_SCHEMA
   GITHUB_WEB_ORIGIN
+  GMAIL_CONTENT_MESSAGE_SCHEMA
+  GMAIL_CONTENT_SEARCH_HIT_SCHEMA
+  GMAIL_DETAIL_LIMITS
+  GMAIL_DRAFT_CONTRACT
+  GMAIL_DRAFT_INPUT
+  GMAIL_LABEL_SCHEMA
+  GMAIL_LIMITS
+  GMAIL_MESSAGE_BODY_SCHEMA
+  GMAIL_MODIFY_CONTRACT
+  GMAIL_MODIFY_INPUT
+  GMAIL_READ_CONTRACT
+  GMAIL_READ_INPUT
+  GMAIL_READ_PAYLOAD_SCHEMA
+  GMAIL_READ_TARGETS
+  GMAIL_READ_TOOL_NAMES
+  GMAIL_SEARCH_CONTRACT
+  GMAIL_SEARCH_INPUT
+  GMAIL_SEARCH_PAYLOAD_SCHEMA
+  GMAIL_SEND_CONTRACT
+  GMAIL_SEND_INPUT
+  GMAIL_STRUCTURED_LABEL_ENTRY_SCHEMA
+  GMAIL_STRUCTURED_MESSAGE_SCHEMA
+  GMAIL_STRUCTURED_SEARCH_HIT_SCHEMA
+  GMAIL_TOOL_NAMES
+  GMAIL_TRASH_CONTRACT
+  GMAIL_TRASH_INPUT
+  GMAIL_UNTRUSTED_MESSAGE_SCHEMA
+  GMAIL_WRITE_TOOL_NAMES
+  GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA
+  GOOGLE_ERROR_CODES
+  GOOGLE_ERROR_SCHEMA
+  GOOGLE_RESULT_SCHEMAS
+  GOOGLE_TOOL_CONTRACTS
+  GOOGLE_TOOL_NAMES
+  GOOGLE_VIEWS
   type GeoConfig
   type GeoConfigInput
   type GeoCoords
@@ -2831,6 +2925,28 @@ export "./server" (./src/server/index.ts)
   type GithubToolResult
   type GithubUser
   type GithubWriteToolName
+  type GmailContentMessagePayload
+  type GmailDraftInput
+  type GmailLabel
+  type GmailMessageBody
+  type GmailModifyInput
+  type GmailReadInput
+  type GmailReadPayload
+  type GmailReadTarget
+  type GmailReadToolName
+  type GmailSearchInput
+  type GmailSearchPayload
+  type GmailSendInput
+  type GmailStructuredMessagePayload
+  type GmailToolName
+  type GmailTrashInput
+  type GmailWriteToolName
+  type GoogleErrorCode
+  type GoogleToolCall
+  type GoogleToolError
+  type GoogleToolName
+  type GoogleToolResult
+  type GoogleView
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -3344,6 +3460,7 @@ export "./server" (./src/server/index.ts)
   handleComputeTool
   handleGetCurrentLocation
   handleGithubTool
+  handleGoogleTool
   handleInboxTool
   handleQueryActivity
   handleReadAttachment
@@ -3360,6 +3477,8 @@ export "./server" (./src/server/index.ts)
   isGithubRepositoryName
   isGithubSearchUrl
   isGithubToolName
+  isGmailReadToolName
+  isGoogleToolName
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
@@ -3591,6 +3710,41 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   GITHUB_TOOL_NAME_LIST
   GITHUB_USER_SCHEMA
   GITHUB_WEB_ORIGIN
+  GMAIL_CONTENT_MESSAGE_SCHEMA
+  GMAIL_CONTENT_SEARCH_HIT_SCHEMA
+  GMAIL_DETAIL_LIMITS
+  GMAIL_DRAFT_CONTRACT
+  GMAIL_DRAFT_INPUT
+  GMAIL_LABEL_SCHEMA
+  GMAIL_LIMITS
+  GMAIL_MESSAGE_BODY_SCHEMA
+  GMAIL_MODIFY_CONTRACT
+  GMAIL_MODIFY_INPUT
+  GMAIL_READ_CONTRACT
+  GMAIL_READ_INPUT
+  GMAIL_READ_PAYLOAD_SCHEMA
+  GMAIL_READ_TARGETS
+  GMAIL_READ_TOOL_NAMES
+  GMAIL_SEARCH_CONTRACT
+  GMAIL_SEARCH_INPUT
+  GMAIL_SEARCH_PAYLOAD_SCHEMA
+  GMAIL_SEND_CONTRACT
+  GMAIL_SEND_INPUT
+  GMAIL_STRUCTURED_LABEL_ENTRY_SCHEMA
+  GMAIL_STRUCTURED_MESSAGE_SCHEMA
+  GMAIL_STRUCTURED_SEARCH_HIT_SCHEMA
+  GMAIL_TOOL_NAMES
+  GMAIL_TRASH_CONTRACT
+  GMAIL_TRASH_INPUT
+  GMAIL_UNTRUSTED_MESSAGE_SCHEMA
+  GMAIL_WRITE_TOOL_NAMES
+  GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA
+  GOOGLE_ERROR_CODES
+  GOOGLE_ERROR_SCHEMA
+  GOOGLE_RESULT_SCHEMAS
+  GOOGLE_TOOL_CONTRACTS
+  GOOGLE_TOOL_NAMES
+  GOOGLE_VIEWS
   type GetCurrentLocationInput
   type GetSearchContentInput
   type GithubAuthor
@@ -3627,6 +3781,28 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type GithubToolResult
   type GithubUser
   type GithubWriteToolName
+  type GmailContentMessagePayload
+  type GmailDraftInput
+  type GmailLabel
+  type GmailMessageBody
+  type GmailModifyInput
+  type GmailReadInput
+  type GmailReadPayload
+  type GmailReadTarget
+  type GmailReadToolName
+  type GmailSearchInput
+  type GmailSearchPayload
+  type GmailSendInput
+  type GmailStructuredMessagePayload
+  type GmailToolName
+  type GmailTrashInput
+  type GmailWriteToolName
+  type GoogleErrorCode
+  type GoogleToolCall
+  type GoogleToolError
+  type GoogleToolName
+  type GoogleToolResult
+  type GoogleView
   IMAGE_MARKUP_PAYLOAD_SCHEMA
   IMAGE_MASK_PAYLOAD_SCHEMA
   INBOX_ADD_CONTRACT
@@ -3745,6 +3921,8 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   isGithubRepositoryName
   isGithubSearchUrl
   isGithubToolName
+  isGmailReadToolName
+  isGoogleToolName
   isWebToolName
   parseGithubRepository
   parseToolPayload
@@ -6642,6 +6820,7 @@ signatures (every public export and the types it is made of)
         compute?(call: import("../tool-contracts/compute.js").ComputeToolCall): Promise<import("../tool-contracts/compute.js").ComputeToolResult>;
         apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
         github?(call: import("../tool-contracts/github.js").GithubToolCall): Promise<import("../tool-contracts/github.js").GithubToolResult>;
+        google?(call: import("../tool-contracts/google.js").GoogleToolCall): Promise<import("../tool-contracts/google.js").GoogleToolResult>;
         readAttachment?(input: import("../tool-contracts/attachment.js").ReadAttachmentInput): Promise<import("../tool-contracts/attachment.js").AttachmentReadResult>;
         webAccess?(call: import("../tool-contracts/web.js").WebToolCall): Promise<import("../tool-contracts/web.js").WebToolEnvelope>;
     }
@@ -9914,6 +10093,1813 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   GITHUB_WEB_ORIGIN (packages/ui-sdk/src/tool-contracts/github.ts)
     const GITHUB_WEB_ORIGIN: "https://github.com";
+  GMAIL_CONTENT_MESSAGE_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_CONTENT_MESSAGE_SCHEMA: z.ZodObject<{
+        attachment_count: z.ZodNullable<z.ZodNumber>;
+        has_attachment: z.ZodNullable<z.ZodBoolean>;
+        internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+        labels: z.ZodArray<z.ZodObject<{
+            id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                BLUE_INFO: "BLUE_INFO";
+                BLUE_STAR: "BLUE_STAR";
+                CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                CHAT: "CHAT";
+                DRAFT: "DRAFT";
+                GREEN_CHECK: "GREEN_CHECK";
+                GREEN_CIRCLE: "GREEN_CIRCLE";
+                GREEN_STAR: "GREEN_STAR";
+                IMPORTANT: "IMPORTANT";
+                INBOX: "INBOX";
+                ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                ORANGE_STAR: "ORANGE_STAR";
+                PURPLE_QUESTION: "PURPLE_QUESTION";
+                PURPLE_STAR: "PURPLE_STAR";
+                RED_BANG: "RED_BANG";
+                RED_CIRCLE: "RED_CIRCLE";
+                RED_STAR: "RED_STAR";
+                SENT: "SENT";
+                SPAM: "SPAM";
+                STARRED: "STARRED";
+                TRASH: "TRASH";
+                UNREAD: "UNREAD";
+                YELLOW_BANG: "YELLOW_BANG";
+                YELLOW_STAR: "YELLOW_STAR";
+            }>]>;
+            name: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>>;
+        message_id: z.ZodString;
+        size_bucket: z.ZodNullable<z.ZodEnum<{
+            "1mb_or_more": "1mb_or_more";
+            under_100kb: "under_100kb";
+            under_10kb: "under_10kb";
+            under_1mb: "under_1mb";
+        }>>;
+        starred: z.ZodNullable<z.ZodBoolean>;
+        thread_id: z.ZodNullable<z.ZodString>;
+        unread: z.ZodNullable<z.ZodBoolean>;
+        untrusted: z.ZodObject<{
+            attachments: z.ZodArray<z.ZodObject<{
+                filename: z.ZodNullable<z.ZodString>;
+                mime_type: z.ZodNullable<z.ZodString>;
+                size: z.ZodNullable<z.ZodNumber>;
+            }, z.core.$strict>>;
+            bcc: z.ZodNullable<z.ZodString>;
+            body_length: z.ZodNullable<z.ZodNumber>;
+            body_text: z.ZodNullable<z.ZodString>;
+            body_truncated: z.ZodBoolean;
+            cc: z.ZodNullable<z.ZodString>;
+            date: z.ZodNullable<z.ZodString>;
+            from: z.ZodNullable<z.ZodString>;
+            reply_to: z.ZodNullable<z.ZodString>;
+            snippet: z.ZodNullable<z.ZodString>;
+            subject: z.ZodNullable<z.ZodString>;
+            to: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+    }, z.core.$strict>;
+  GMAIL_CONTENT_SEARCH_HIT_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_CONTENT_SEARCH_HIT_SCHEMA: z.ZodObject<{
+        has_attachment: z.ZodNullable<z.ZodBoolean>;
+        labels: z.ZodArray<z.ZodObject<{
+            id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                BLUE_INFO: "BLUE_INFO";
+                BLUE_STAR: "BLUE_STAR";
+                CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                CHAT: "CHAT";
+                DRAFT: "DRAFT";
+                GREEN_CHECK: "GREEN_CHECK";
+                GREEN_CIRCLE: "GREEN_CIRCLE";
+                GREEN_STAR: "GREEN_STAR";
+                IMPORTANT: "IMPORTANT";
+                INBOX: "INBOX";
+                ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                ORANGE_STAR: "ORANGE_STAR";
+                PURPLE_QUESTION: "PURPLE_QUESTION";
+                PURPLE_STAR: "PURPLE_STAR";
+                RED_BANG: "RED_BANG";
+                RED_CIRCLE: "RED_CIRCLE";
+                RED_STAR: "RED_STAR";
+                SENT: "SENT";
+                SPAM: "SPAM";
+                STARRED: "STARRED";
+                TRASH: "TRASH";
+                UNREAD: "UNREAD";
+                YELLOW_BANG: "YELLOW_BANG";
+                YELLOW_STAR: "YELLOW_STAR";
+            }>]>;
+            name: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>>;
+        latest_internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+        message_count: z.ZodNullable<z.ZodNumber>;
+        size_bucket: z.ZodNullable<z.ZodEnum<{
+            "1mb_or_more": "1mb_or_more";
+            under_100kb: "under_100kb";
+            under_10kb: "under_10kb";
+            under_1mb: "under_1mb";
+        }>>;
+        starred: z.ZodNullable<z.ZodBoolean>;
+        thread_id: z.ZodString;
+        unread: z.ZodNullable<z.ZodBoolean>;
+        untrusted: z.ZodObject<{
+            cc: z.ZodNullable<z.ZodString>;
+            from: z.ZodNullable<z.ZodString>;
+            snippet: z.ZodNullable<z.ZodString>;
+            subject: z.ZodNullable<z.ZodString>;
+            to: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+    }, z.core.$strict>;
+  GMAIL_DETAIL_LIMITS (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_DETAIL_LIMITS: Readonly<{
+        bodyChars: 1048576;
+    }>;
+  GMAIL_DRAFT_CONTRACT (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_DRAFT_CONTRACT: ToolContract<"brain_google_gmail_draft", z.ZodObject<{
+        action: z.ZodEnum<{
+            create: "create";
+            delete: "delete";
+            reply: "reply";
+            update: "update";
+        }>;
+        bcc: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        body: z.ZodOptional<z.ZodString>;
+        cc: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        draft_id: z.ZodOptional<z.ZodString>;
+        message_id: z.ZodOptional<z.ZodString>;
+        quote_message_id: z.ZodOptional<z.ZodString>;
+        reply_all: z.ZodOptional<z.ZodBoolean>;
+        subject: z.ZodOptional<z.ZodString>;
+        to: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>;
+  GMAIL_DRAFT_INPUT (packages/common/src/google/catalog.ts)
+    const GMAIL_DRAFT_INPUT: z.ZodObject<{
+        action: z.ZodEnum<{
+            create: "create";
+            delete: "delete";
+            reply: "reply";
+            update: "update";
+        }>;
+        bcc: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        body: z.ZodOptional<z.ZodString>;
+        cc: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        draft_id: z.ZodOptional<z.ZodString>;
+        message_id: z.ZodOptional<z.ZodString>;
+        quote_message_id: z.ZodOptional<z.ZodString>;
+        reply_all: z.ZodOptional<z.ZodBoolean>;
+        subject: z.ZodOptional<z.ZodString>;
+        to: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>;
+  GMAIL_LABEL_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_LABEL_SCHEMA: z.ZodObject<{
+        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+            BLUE_INFO: "BLUE_INFO";
+            BLUE_STAR: "BLUE_STAR";
+            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+            CHAT: "CHAT";
+            DRAFT: "DRAFT";
+            GREEN_CHECK: "GREEN_CHECK";
+            GREEN_CIRCLE: "GREEN_CIRCLE";
+            GREEN_STAR: "GREEN_STAR";
+            IMPORTANT: "IMPORTANT";
+            INBOX: "INBOX";
+            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+            ORANGE_STAR: "ORANGE_STAR";
+            PURPLE_QUESTION: "PURPLE_QUESTION";
+            PURPLE_STAR: "PURPLE_STAR";
+            RED_BANG: "RED_BANG";
+            RED_CIRCLE: "RED_CIRCLE";
+            RED_STAR: "RED_STAR";
+            SENT: "SENT";
+            SPAM: "SPAM";
+            STARRED: "STARRED";
+            TRASH: "TRASH";
+            UNREAD: "UNREAD";
+            YELLOW_BANG: "YELLOW_BANG";
+            YELLOW_STAR: "YELLOW_STAR";
+        }>]>;
+        name: z.ZodNullable<z.ZodString>;
+    }, z.core.$strict>;
+  GMAIL_LIMITS (packages/common/src/google/catalog.ts)
+    const GMAIL_LIMITS: Readonly<{
+        attachmentNameChars: 255;
+        draftBodyChars: 32768;
+        headerChars: 2000;
+        idsPerCall: 25;
+        labelChangesPerCall: 10;
+        labelNameChars: 225;
+        mailboxChars: 320;
+        messageBodyChars: 32768;
+        queryChars: 500;
+        recipientsPerField: 50;
+        searchDefault: 10;
+        searchMax: 25;
+        snippetChars: 500;
+        subjectChars: 500;
+        threadBodyChars: 131072;
+    }>;
+  GMAIL_MESSAGE_BODY_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_MESSAGE_BODY_SCHEMA: z.ZodObject<{
+        body_length: z.ZodNullable<z.ZodNumber>;
+        body_text: z.ZodNullable<z.ZodString>;
+        body_truncated: z.ZodBoolean;
+        message_id: z.ZodString;
+    }, z.core.$strict>;
+  GMAIL_MODIFY_CONTRACT (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_MODIFY_CONTRACT: ToolContract<"brain_google_gmail_modify", z.ZodObject<{
+        add_label_ids: z.ZodOptional<z.ZodArray<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>>;
+        message_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        remove_label_ids: z.ZodOptional<z.ZodArray<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>>;
+        thread_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>;
+  GMAIL_MODIFY_INPUT (packages/common/src/google/catalog.ts)
+    const GMAIL_MODIFY_INPUT: z.ZodObject<{
+        add_label_ids: z.ZodOptional<z.ZodArray<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>>;
+        message_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        remove_label_ids: z.ZodOptional<z.ZodArray<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>>;
+        thread_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>;
+  GMAIL_READ_CONTRACT (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_READ_CONTRACT: ToolContract<"brain_google_gmail_read", z.ZodObject<{
+        id: z.ZodOptional<z.ZodString>;
+        target: z.ZodEnum<{
+            draft: "draft";
+            labels: "labels";
+            message: "message";
+            thread: "thread";
+        }>;
+        view: z.ZodDefault<z.ZodEnum<{
+            content: "content";
+            structured: "structured";
+        }>>;
+    }, z.core.$strict>>;
+  GMAIL_READ_INPUT (packages/common/src/google/catalog.ts)
+    const GMAIL_READ_INPUT: z.ZodObject<{
+        id: z.ZodOptional<z.ZodString>;
+        target: z.ZodEnum<{
+            draft: "draft";
+            labels: "labels";
+            message: "message";
+            thread: "thread";
+        }>;
+        view: z.ZodDefault<z.ZodEnum<{
+            content: "content";
+            structured: "structured";
+        }>>;
+    }, z.core.$strict>;
+  GMAIL_READ_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_READ_PAYLOAD_SCHEMA: z.ZodUnion<readonly [z.ZodObject<{
+        kind: z.ZodLiteral<"thread">;
+        message_count: z.ZodNumber;
+        messages: z.ZodArray<z.ZodObject<{
+            attachment_count: z.ZodNullable<z.ZodNumber>;
+            has_attachment: z.ZodNullable<z.ZodBoolean>;
+            internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+            labels: z.ZodArray<z.ZodObject<{
+                id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>;
+                name: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            message_id: z.ZodString;
+            size_bucket: z.ZodNullable<z.ZodEnum<{
+                "1mb_or_more": "1mb_or_more";
+                under_100kb: "under_100kb";
+                under_10kb: "under_10kb";
+                under_1mb: "under_1mb";
+            }>>;
+            starred: z.ZodNullable<z.ZodBoolean>;
+            thread_id: z.ZodNullable<z.ZodString>;
+            unread: z.ZodNullable<z.ZodBoolean>;
+        }, z.core.$strict>>;
+        thread_id: z.ZodString;
+        view: z.ZodLiteral<"structured">;
+    }, z.core.$strict>, z.ZodObject<{
+        kind: z.ZodLiteral<"thread">;
+        message_count: z.ZodNumber;
+        messages: z.ZodArray<z.ZodObject<{
+            attachment_count: z.ZodNullable<z.ZodNumber>;
+            has_attachment: z.ZodNullable<z.ZodBoolean>;
+            internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+            labels: z.ZodArray<z.ZodObject<{
+                id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>;
+                name: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            message_id: z.ZodString;
+            size_bucket: z.ZodNullable<z.ZodEnum<{
+                "1mb_or_more": "1mb_or_more";
+                under_100kb: "under_100kb";
+                under_10kb: "under_10kb";
+                under_1mb: "under_1mb";
+            }>>;
+            starred: z.ZodNullable<z.ZodBoolean>;
+            thread_id: z.ZodNullable<z.ZodString>;
+            unread: z.ZodNullable<z.ZodBoolean>;
+            untrusted: z.ZodObject<{
+                attachments: z.ZodArray<z.ZodObject<{
+                    filename: z.ZodNullable<z.ZodString>;
+                    mime_type: z.ZodNullable<z.ZodString>;
+                    size: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>>;
+                bcc: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNullable<z.ZodNumber>;
+                body_text: z.ZodNullable<z.ZodString>;
+                body_truncated: z.ZodBoolean;
+                cc: z.ZodNullable<z.ZodString>;
+                date: z.ZodNullable<z.ZodString>;
+                from: z.ZodNullable<z.ZodString>;
+                reply_to: z.ZodNullable<z.ZodString>;
+                snippet: z.ZodNullable<z.ZodString>;
+                subject: z.ZodNullable<z.ZodString>;
+                to: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        thread_id: z.ZodString;
+        view: z.ZodLiteral<"content">;
+    }, z.core.$strict>, z.ZodObject<{
+        kind: z.ZodLiteral<"message">;
+        message: z.ZodObject<{
+            attachment_count: z.ZodNullable<z.ZodNumber>;
+            has_attachment: z.ZodNullable<z.ZodBoolean>;
+            internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+            labels: z.ZodArray<z.ZodObject<{
+                id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>;
+                name: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            message_id: z.ZodString;
+            size_bucket: z.ZodNullable<z.ZodEnum<{
+                "1mb_or_more": "1mb_or_more";
+                under_100kb: "under_100kb";
+                under_10kb: "under_10kb";
+                under_1mb: "under_1mb";
+            }>>;
+            starred: z.ZodNullable<z.ZodBoolean>;
+            thread_id: z.ZodNullable<z.ZodString>;
+            unread: z.ZodNullable<z.ZodBoolean>;
+        }, z.core.$strict>;
+        view: z.ZodLiteral<"structured">;
+    }, z.core.$strict>, z.ZodObject<{
+        kind: z.ZodLiteral<"message">;
+        message: z.ZodObject<{
+            attachment_count: z.ZodNullable<z.ZodNumber>;
+            has_attachment: z.ZodNullable<z.ZodBoolean>;
+            internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+            labels: z.ZodArray<z.ZodObject<{
+                id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>;
+                name: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            message_id: z.ZodString;
+            size_bucket: z.ZodNullable<z.ZodEnum<{
+                "1mb_or_more": "1mb_or_more";
+                under_100kb: "under_100kb";
+                under_10kb: "under_10kb";
+                under_1mb: "under_1mb";
+            }>>;
+            starred: z.ZodNullable<z.ZodBoolean>;
+            thread_id: z.ZodNullable<z.ZodString>;
+            unread: z.ZodNullable<z.ZodBoolean>;
+            untrusted: z.ZodObject<{
+                attachments: z.ZodArray<z.ZodObject<{
+                    filename: z.ZodNullable<z.ZodString>;
+                    mime_type: z.ZodNullable<z.ZodString>;
+                    size: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>>;
+                bcc: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNullable<z.ZodNumber>;
+                body_text: z.ZodNullable<z.ZodString>;
+                body_truncated: z.ZodBoolean;
+                cc: z.ZodNullable<z.ZodString>;
+                date: z.ZodNullable<z.ZodString>;
+                from: z.ZodNullable<z.ZodString>;
+                reply_to: z.ZodNullable<z.ZodString>;
+                snippet: z.ZodNullable<z.ZodString>;
+                subject: z.ZodNullable<z.ZodString>;
+                to: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+        }, z.core.$strict>;
+        view: z.ZodLiteral<"content">;
+    }, z.core.$strict>, z.ZodObject<{
+        draft_id: z.ZodString;
+        kind: z.ZodLiteral<"draft">;
+        message: z.ZodNullable<z.ZodObject<{
+            attachment_count: z.ZodNullable<z.ZodNumber>;
+            has_attachment: z.ZodNullable<z.ZodBoolean>;
+            internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+            labels: z.ZodArray<z.ZodObject<{
+                id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>;
+                name: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            message_id: z.ZodString;
+            size_bucket: z.ZodNullable<z.ZodEnum<{
+                "1mb_or_more": "1mb_or_more";
+                under_100kb: "under_100kb";
+                under_10kb: "under_10kb";
+                under_1mb: "under_1mb";
+            }>>;
+            starred: z.ZodNullable<z.ZodBoolean>;
+            thread_id: z.ZodNullable<z.ZodString>;
+            unread: z.ZodNullable<z.ZodBoolean>;
+        }, z.core.$strict>>;
+        view: z.ZodLiteral<"structured">;
+    }, z.core.$strict>, z.ZodObject<{
+        draft_id: z.ZodString;
+        kind: z.ZodLiteral<"draft">;
+        message: z.ZodNullable<z.ZodObject<{
+            attachment_count: z.ZodNullable<z.ZodNumber>;
+            has_attachment: z.ZodNullable<z.ZodBoolean>;
+            internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+            labels: z.ZodArray<z.ZodObject<{
+                id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>;
+                name: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            message_id: z.ZodString;
+            size_bucket: z.ZodNullable<z.ZodEnum<{
+                "1mb_or_more": "1mb_or_more";
+                under_100kb: "under_100kb";
+                under_10kb: "under_10kb";
+                under_1mb: "under_1mb";
+            }>>;
+            starred: z.ZodNullable<z.ZodBoolean>;
+            thread_id: z.ZodNullable<z.ZodString>;
+            unread: z.ZodNullable<z.ZodBoolean>;
+            untrusted: z.ZodObject<{
+                attachments: z.ZodArray<z.ZodObject<{
+                    filename: z.ZodNullable<z.ZodString>;
+                    mime_type: z.ZodNullable<z.ZodString>;
+                    size: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>>;
+                bcc: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNullable<z.ZodNumber>;
+                body_text: z.ZodNullable<z.ZodString>;
+                body_truncated: z.ZodBoolean;
+                cc: z.ZodNullable<z.ZodString>;
+                date: z.ZodNullable<z.ZodString>;
+                from: z.ZodNullable<z.ZodString>;
+                reply_to: z.ZodNullable<z.ZodString>;
+                snippet: z.ZodNullable<z.ZodString>;
+                subject: z.ZodNullable<z.ZodString>;
+                to: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        view: z.ZodLiteral<"content">;
+    }, z.core.$strict>, z.ZodObject<{
+        kind: z.ZodLiteral<"labels">;
+        labels: z.ZodArray<z.ZodObject<{
+            id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                BLUE_INFO: "BLUE_INFO";
+                BLUE_STAR: "BLUE_STAR";
+                CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                CHAT: "CHAT";
+                DRAFT: "DRAFT";
+                GREEN_CHECK: "GREEN_CHECK";
+                GREEN_CIRCLE: "GREEN_CIRCLE";
+                GREEN_STAR: "GREEN_STAR";
+                IMPORTANT: "IMPORTANT";
+                INBOX: "INBOX";
+                ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                ORANGE_STAR: "ORANGE_STAR";
+                PURPLE_QUESTION: "PURPLE_QUESTION";
+                PURPLE_STAR: "PURPLE_STAR";
+                RED_BANG: "RED_BANG";
+                RED_CIRCLE: "RED_CIRCLE";
+                RED_STAR: "RED_STAR";
+                SENT: "SENT";
+                SPAM: "SPAM";
+                STARRED: "STARRED";
+                TRASH: "TRASH";
+                UNREAD: "UNREAD";
+                YELLOW_BANG: "YELLOW_BANG";
+                YELLOW_STAR: "YELLOW_STAR";
+            }>]>;
+            messages_total: z.ZodNullable<z.ZodNumber>;
+            messages_unread: z.ZodNullable<z.ZodNumber>;
+            name: z.ZodNullable<z.ZodString>;
+            threads_total: z.ZodNullable<z.ZodNumber>;
+            threads_unread: z.ZodNullable<z.ZodNumber>;
+            type: z.ZodEnum<{
+                system: "system";
+                user: "user";
+            }>;
+        }, z.core.$strict>>;
+        view: z.ZodLiteral<"structured">;
+    }, z.core.$strict>]>;
+  GMAIL_READ_TARGETS (packages/common/src/google/catalog.ts)
+    const GMAIL_READ_TARGETS: readonly ["thread", "message", "draft", "labels"];
+  GMAIL_READ_TOOL_NAMES (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_READ_TOOL_NAMES: readonly GmailReadToolName[];
+  GMAIL_SEARCH_CONTRACT (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_SEARCH_CONTRACT: ToolContract<"brain_google_gmail_search", z.ZodObject<{
+        cursor: z.ZodOptional<z.ZodString>;
+        limit: z.ZodOptional<z.ZodNumber>;
+        query: z.ZodString;
+        view: z.ZodDefault<z.ZodEnum<{
+            content: "content";
+            structured: "structured";
+        }>>;
+    }, z.core.$strict>>;
+  GMAIL_SEARCH_INPUT (packages/common/src/google/catalog.ts)
+    const GMAIL_SEARCH_INPUT: z.ZodObject<{
+        cursor: z.ZodOptional<z.ZodString>;
+        limit: z.ZodOptional<z.ZodNumber>;
+        query: z.ZodString;
+        view: z.ZodDefault<z.ZodEnum<{
+            content: "content";
+            structured: "structured";
+        }>>;
+    }, z.core.$strict>;
+  GMAIL_SEARCH_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_SEARCH_PAYLOAD_SCHEMA: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        kind: z.ZodLiteral<"search">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        result_size_estimate: z.ZodNullable<z.ZodNumber>;
+        threads: z.ZodArray<z.ZodObject<{
+            has_attachment: z.ZodNullable<z.ZodBoolean>;
+            labels: z.ZodArray<z.ZodObject<{
+                id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>;
+                name: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            latest_internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+            message_count: z.ZodNullable<z.ZodNumber>;
+            size_bucket: z.ZodNullable<z.ZodEnum<{
+                "1mb_or_more": "1mb_or_more";
+                under_100kb: "under_100kb";
+                under_10kb: "under_10kb";
+                under_1mb: "under_1mb";
+            }>>;
+            starred: z.ZodNullable<z.ZodBoolean>;
+            thread_id: z.ZodString;
+            unread: z.ZodNullable<z.ZodBoolean>;
+        }, z.core.$strict>>;
+        view: z.ZodLiteral<"structured">;
+    }, z.core.$strict>, z.ZodObject<{
+        kind: z.ZodLiteral<"search">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        result_size_estimate: z.ZodNullable<z.ZodNumber>;
+        threads: z.ZodArray<z.ZodObject<{
+            has_attachment: z.ZodNullable<z.ZodBoolean>;
+            labels: z.ZodArray<z.ZodObject<{
+                id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>;
+                name: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            latest_internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+            message_count: z.ZodNullable<z.ZodNumber>;
+            size_bucket: z.ZodNullable<z.ZodEnum<{
+                "1mb_or_more": "1mb_or_more";
+                under_100kb: "under_100kb";
+                under_10kb: "under_10kb";
+                under_1mb: "under_1mb";
+            }>>;
+            starred: z.ZodNullable<z.ZodBoolean>;
+            thread_id: z.ZodString;
+            unread: z.ZodNullable<z.ZodBoolean>;
+            untrusted: z.ZodObject<{
+                cc: z.ZodNullable<z.ZodString>;
+                from: z.ZodNullable<z.ZodString>;
+                snippet: z.ZodNullable<z.ZodString>;
+                subject: z.ZodNullable<z.ZodString>;
+                to: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        view: z.ZodLiteral<"content">;
+    }, z.core.$strict>], "view">;
+  GMAIL_SEND_CONTRACT (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_SEND_CONTRACT: ToolContract<"brain_google_gmail_send", z.ZodObject<{
+        draft_id: z.ZodString;
+    }, z.core.$strict>>;
+  GMAIL_SEND_INPUT (packages/common/src/google/catalog.ts)
+    const GMAIL_SEND_INPUT: z.ZodObject<{
+        draft_id: z.ZodString;
+    }, z.core.$strict>;
+  GMAIL_STRUCTURED_LABEL_ENTRY_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_STRUCTURED_LABEL_ENTRY_SCHEMA: z.ZodObject<{
+        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+            BLUE_INFO: "BLUE_INFO";
+            BLUE_STAR: "BLUE_STAR";
+            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+            CHAT: "CHAT";
+            DRAFT: "DRAFT";
+            GREEN_CHECK: "GREEN_CHECK";
+            GREEN_CIRCLE: "GREEN_CIRCLE";
+            GREEN_STAR: "GREEN_STAR";
+            IMPORTANT: "IMPORTANT";
+            INBOX: "INBOX";
+            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+            ORANGE_STAR: "ORANGE_STAR";
+            PURPLE_QUESTION: "PURPLE_QUESTION";
+            PURPLE_STAR: "PURPLE_STAR";
+            RED_BANG: "RED_BANG";
+            RED_CIRCLE: "RED_CIRCLE";
+            RED_STAR: "RED_STAR";
+            SENT: "SENT";
+            SPAM: "SPAM";
+            STARRED: "STARRED";
+            TRASH: "TRASH";
+            UNREAD: "UNREAD";
+            YELLOW_BANG: "YELLOW_BANG";
+            YELLOW_STAR: "YELLOW_STAR";
+        }>]>;
+        messages_total: z.ZodNullable<z.ZodNumber>;
+        messages_unread: z.ZodNullable<z.ZodNumber>;
+        name: z.ZodNullable<z.ZodString>;
+        threads_total: z.ZodNullable<z.ZodNumber>;
+        threads_unread: z.ZodNullable<z.ZodNumber>;
+        type: z.ZodEnum<{
+            system: "system";
+            user: "user";
+        }>;
+    }, z.core.$strict>;
+  GMAIL_STRUCTURED_MESSAGE_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_STRUCTURED_MESSAGE_SCHEMA: z.ZodObject<{
+        attachment_count: z.ZodNullable<z.ZodNumber>;
+        has_attachment: z.ZodNullable<z.ZodBoolean>;
+        internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+        labels: z.ZodArray<z.ZodObject<{
+            id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                BLUE_INFO: "BLUE_INFO";
+                BLUE_STAR: "BLUE_STAR";
+                CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                CHAT: "CHAT";
+                DRAFT: "DRAFT";
+                GREEN_CHECK: "GREEN_CHECK";
+                GREEN_CIRCLE: "GREEN_CIRCLE";
+                GREEN_STAR: "GREEN_STAR";
+                IMPORTANT: "IMPORTANT";
+                INBOX: "INBOX";
+                ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                ORANGE_STAR: "ORANGE_STAR";
+                PURPLE_QUESTION: "PURPLE_QUESTION";
+                PURPLE_STAR: "PURPLE_STAR";
+                RED_BANG: "RED_BANG";
+                RED_CIRCLE: "RED_CIRCLE";
+                RED_STAR: "RED_STAR";
+                SENT: "SENT";
+                SPAM: "SPAM";
+                STARRED: "STARRED";
+                TRASH: "TRASH";
+                UNREAD: "UNREAD";
+                YELLOW_BANG: "YELLOW_BANG";
+                YELLOW_STAR: "YELLOW_STAR";
+            }>]>;
+            name: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>>;
+        message_id: z.ZodString;
+        size_bucket: z.ZodNullable<z.ZodEnum<{
+            "1mb_or_more": "1mb_or_more";
+            under_100kb: "under_100kb";
+            under_10kb: "under_10kb";
+            under_1mb: "under_1mb";
+        }>>;
+        starred: z.ZodNullable<z.ZodBoolean>;
+        thread_id: z.ZodNullable<z.ZodString>;
+        unread: z.ZodNullable<z.ZodBoolean>;
+    }, z.core.$strict>;
+  GMAIL_STRUCTURED_SEARCH_HIT_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_STRUCTURED_SEARCH_HIT_SCHEMA: z.ZodObject<{
+        has_attachment: z.ZodNullable<z.ZodBoolean>;
+        labels: z.ZodArray<z.ZodObject<{
+            id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                BLUE_INFO: "BLUE_INFO";
+                BLUE_STAR: "BLUE_STAR";
+                CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                CHAT: "CHAT";
+                DRAFT: "DRAFT";
+                GREEN_CHECK: "GREEN_CHECK";
+                GREEN_CIRCLE: "GREEN_CIRCLE";
+                GREEN_STAR: "GREEN_STAR";
+                IMPORTANT: "IMPORTANT";
+                INBOX: "INBOX";
+                ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                ORANGE_STAR: "ORANGE_STAR";
+                PURPLE_QUESTION: "PURPLE_QUESTION";
+                PURPLE_STAR: "PURPLE_STAR";
+                RED_BANG: "RED_BANG";
+                RED_CIRCLE: "RED_CIRCLE";
+                RED_STAR: "RED_STAR";
+                SENT: "SENT";
+                SPAM: "SPAM";
+                STARRED: "STARRED";
+                TRASH: "TRASH";
+                UNREAD: "UNREAD";
+                YELLOW_BANG: "YELLOW_BANG";
+                YELLOW_STAR: "YELLOW_STAR";
+            }>]>;
+            name: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>>;
+        latest_internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+        message_count: z.ZodNullable<z.ZodNumber>;
+        size_bucket: z.ZodNullable<z.ZodEnum<{
+            "1mb_or_more": "1mb_or_more";
+            under_100kb: "under_100kb";
+            under_10kb: "under_10kb";
+            under_1mb: "under_1mb";
+        }>>;
+        starred: z.ZodNullable<z.ZodBoolean>;
+        thread_id: z.ZodString;
+        unread: z.ZodNullable<z.ZodBoolean>;
+    }, z.core.$strict>;
+  GMAIL_TOOL_NAMES (packages/common/src/google/catalog.ts)
+    const GMAIL_TOOL_NAMES: Readonly<{
+        readonly draft: "brain_google_gmail_draft";
+        readonly modify: "brain_google_gmail_modify";
+        readonly read: "brain_google_gmail_read";
+        readonly search: "brain_google_gmail_search";
+        readonly send: "brain_google_gmail_send";
+        readonly trash: "brain_google_gmail_trash";
+    }>;
+  GMAIL_TRASH_CONTRACT (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_TRASH_CONTRACT: ToolContract<"brain_google_gmail_trash", z.ZodObject<{
+        message_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        thread_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>;
+  GMAIL_TRASH_INPUT (packages/common/src/google/catalog.ts)
+    const GMAIL_TRASH_INPUT: z.ZodObject<{
+        message_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        thread_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>;
+  GMAIL_UNTRUSTED_MESSAGE_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_UNTRUSTED_MESSAGE_SCHEMA: z.ZodObject<{
+        attachments: z.ZodArray<z.ZodObject<{
+            filename: z.ZodNullable<z.ZodString>;
+            mime_type: z.ZodNullable<z.ZodString>;
+            size: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>>;
+        bcc: z.ZodNullable<z.ZodString>;
+        body_length: z.ZodNullable<z.ZodNumber>;
+        body_text: z.ZodNullable<z.ZodString>;
+        body_truncated: z.ZodBoolean;
+        cc: z.ZodNullable<z.ZodString>;
+        date: z.ZodNullable<z.ZodString>;
+        from: z.ZodNullable<z.ZodString>;
+        reply_to: z.ZodNullable<z.ZodString>;
+        snippet: z.ZodNullable<z.ZodString>;
+        subject: z.ZodNullable<z.ZodString>;
+        to: z.ZodNullable<z.ZodString>;
+    }, z.core.$strict>;
+  GMAIL_WRITE_TOOL_NAMES (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GMAIL_WRITE_TOOL_NAMES: readonly GmailWriteToolName[];
+  GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA: z.ZodObject<{
+        error: z.ZodObject<{
+            code: z.ZodEnum<{
+                approval_declined: "approval_declined";
+                draft_locked: "draft_locked";
+                draft_not_displayable: "draft_not_displayable";
+                forbidden: "forbidden";
+                invalid_input: "invalid_input";
+                not_found: "not_found";
+                outcome_unknown: "outcome_unknown";
+                policy_denied: "policy_denied";
+                rate_limited: "rate_limited";
+                recording_unavailable: "recording_unavailable";
+                transport_incompatible: "transport_incompatible";
+                unavailable: "unavailable";
+                upstream_error: "upstream_error";
+            }>;
+            message: z.ZodString;
+            reason: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+    }, z.core.$strict>;
+  GOOGLE_ERROR_CODES (packages/common/src/google/catalog.ts)
+    const GOOGLE_ERROR_CODES: readonly ["invalid_input", "unavailable", "policy_denied", "approval_declined", "not_found", "forbidden", "rate_limited", "upstream_error", "draft_not_displayable", "draft_locked", "recording_unavailable", "transport_incompatible", "outcome_unknown"];
+  GOOGLE_ERROR_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GOOGLE_ERROR_SCHEMA: z.ZodObject<{
+        code: z.ZodEnum<{
+            approval_declined: "approval_declined";
+            draft_locked: "draft_locked";
+            draft_not_displayable: "draft_not_displayable";
+            forbidden: "forbidden";
+            invalid_input: "invalid_input";
+            not_found: "not_found";
+            outcome_unknown: "outcome_unknown";
+            policy_denied: "policy_denied";
+            rate_limited: "rate_limited";
+            recording_unavailable: "recording_unavailable";
+            transport_incompatible: "transport_incompatible";
+            unavailable: "unavailable";
+            upstream_error: "upstream_error";
+        }>;
+        message: z.ZodString;
+        reason: z.ZodNullable<z.ZodString>;
+    }, z.core.$strict>;
+  GOOGLE_RESULT_SCHEMAS (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GOOGLE_RESULT_SCHEMAS: {
+        readonly brain_google_gmail_draft: z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    draft_locked: "draft_locked";
+                    draft_not_displayable: "draft_not_displayable";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    outcome_unknown: "outcome_unknown";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    recording_unavailable: "recording_unavailable";
+                    transport_incompatible: "transport_incompatible";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_google_gmail_draft: "brain_google_gmail_draft";
+                brain_google_gmail_modify: "brain_google_gmail_modify";
+                brain_google_gmail_read: "brain_google_gmail_read";
+                brain_google_gmail_search: "brain_google_gmail_search";
+                brain_google_gmail_send: "brain_google_gmail_send";
+                brain_google_gmail_trash: "brain_google_gmail_trash";
+            }>;
+        }, z.core.$strict>;
+        readonly brain_google_gmail_modify: z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    draft_locked: "draft_locked";
+                    draft_not_displayable: "draft_not_displayable";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    outcome_unknown: "outcome_unknown";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    recording_unavailable: "recording_unavailable";
+                    transport_incompatible: "transport_incompatible";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_google_gmail_draft: "brain_google_gmail_draft";
+                brain_google_gmail_modify: "brain_google_gmail_modify";
+                brain_google_gmail_read: "brain_google_gmail_read";
+                brain_google_gmail_search: "brain_google_gmail_search";
+                brain_google_gmail_send: "brain_google_gmail_send";
+                brain_google_gmail_trash: "brain_google_gmail_trash";
+            }>;
+        }, z.core.$strict>;
+        readonly brain_google_gmail_read: z.ZodUnion<readonly [z.ZodObject<{
+            ok: z.ZodLiteral<true>;
+            result: z.ZodUnion<readonly [z.ZodObject<{
+                kind: z.ZodLiteral<"thread">;
+                message_count: z.ZodNumber;
+                messages: z.ZodArray<z.ZodObject<{
+                    attachment_count: z.ZodNullable<z.ZodNumber>;
+                    has_attachment: z.ZodNullable<z.ZodBoolean>;
+                    internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+                    labels: z.ZodArray<z.ZodObject<{
+                        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                            BLUE_INFO: "BLUE_INFO";
+                            BLUE_STAR: "BLUE_STAR";
+                            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                            CHAT: "CHAT";
+                            DRAFT: "DRAFT";
+                            GREEN_CHECK: "GREEN_CHECK";
+                            GREEN_CIRCLE: "GREEN_CIRCLE";
+                            GREEN_STAR: "GREEN_STAR";
+                            IMPORTANT: "IMPORTANT";
+                            INBOX: "INBOX";
+                            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                            ORANGE_STAR: "ORANGE_STAR";
+                            PURPLE_QUESTION: "PURPLE_QUESTION";
+                            PURPLE_STAR: "PURPLE_STAR";
+                            RED_BANG: "RED_BANG";
+                            RED_CIRCLE: "RED_CIRCLE";
+                            RED_STAR: "RED_STAR";
+                            SENT: "SENT";
+                            SPAM: "SPAM";
+                            STARRED: "STARRED";
+                            TRASH: "TRASH";
+                            UNREAD: "UNREAD";
+                            YELLOW_BANG: "YELLOW_BANG";
+                            YELLOW_STAR: "YELLOW_STAR";
+                        }>]>;
+                        name: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>>;
+                    message_id: z.ZodString;
+                    size_bucket: z.ZodNullable<z.ZodEnum<{
+                        "1mb_or_more": "1mb_or_more";
+                        under_100kb: "under_100kb";
+                        under_10kb: "under_10kb";
+                        under_1mb: "under_1mb";
+                    }>>;
+                    starred: z.ZodNullable<z.ZodBoolean>;
+                    thread_id: z.ZodNullable<z.ZodString>;
+                    unread: z.ZodNullable<z.ZodBoolean>;
+                }, z.core.$strict>>;
+                thread_id: z.ZodString;
+                view: z.ZodLiteral<"structured">;
+            }, z.core.$strict>, z.ZodObject<{
+                kind: z.ZodLiteral<"thread">;
+                message_count: z.ZodNumber;
+                messages: z.ZodArray<z.ZodObject<{
+                    attachment_count: z.ZodNullable<z.ZodNumber>;
+                    has_attachment: z.ZodNullable<z.ZodBoolean>;
+                    internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+                    labels: z.ZodArray<z.ZodObject<{
+                        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                            BLUE_INFO: "BLUE_INFO";
+                            BLUE_STAR: "BLUE_STAR";
+                            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                            CHAT: "CHAT";
+                            DRAFT: "DRAFT";
+                            GREEN_CHECK: "GREEN_CHECK";
+                            GREEN_CIRCLE: "GREEN_CIRCLE";
+                            GREEN_STAR: "GREEN_STAR";
+                            IMPORTANT: "IMPORTANT";
+                            INBOX: "INBOX";
+                            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                            ORANGE_STAR: "ORANGE_STAR";
+                            PURPLE_QUESTION: "PURPLE_QUESTION";
+                            PURPLE_STAR: "PURPLE_STAR";
+                            RED_BANG: "RED_BANG";
+                            RED_CIRCLE: "RED_CIRCLE";
+                            RED_STAR: "RED_STAR";
+                            SENT: "SENT";
+                            SPAM: "SPAM";
+                            STARRED: "STARRED";
+                            TRASH: "TRASH";
+                            UNREAD: "UNREAD";
+                            YELLOW_BANG: "YELLOW_BANG";
+                            YELLOW_STAR: "YELLOW_STAR";
+                        }>]>;
+                        name: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>>;
+                    message_id: z.ZodString;
+                    size_bucket: z.ZodNullable<z.ZodEnum<{
+                        "1mb_or_more": "1mb_or_more";
+                        under_100kb: "under_100kb";
+                        under_10kb: "under_10kb";
+                        under_1mb: "under_1mb";
+                    }>>;
+                    starred: z.ZodNullable<z.ZodBoolean>;
+                    thread_id: z.ZodNullable<z.ZodString>;
+                    unread: z.ZodNullable<z.ZodBoolean>;
+                    untrusted: z.ZodObject<{
+                        attachments: z.ZodArray<z.ZodObject<{
+                            filename: z.ZodNullable<z.ZodString>;
+                            mime_type: z.ZodNullable<z.ZodString>;
+                            size: z.ZodNullable<z.ZodNumber>;
+                        }, z.core.$strict>>;
+                        bcc: z.ZodNullable<z.ZodString>;
+                        body_length: z.ZodNullable<z.ZodNumber>;
+                        body_text: z.ZodNullable<z.ZodString>;
+                        body_truncated: z.ZodBoolean;
+                        cc: z.ZodNullable<z.ZodString>;
+                        date: z.ZodNullable<z.ZodString>;
+                        from: z.ZodNullable<z.ZodString>;
+                        reply_to: z.ZodNullable<z.ZodString>;
+                        snippet: z.ZodNullable<z.ZodString>;
+                        subject: z.ZodNullable<z.ZodString>;
+                        to: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>;
+                }, z.core.$strict>>;
+                thread_id: z.ZodString;
+                view: z.ZodLiteral<"content">;
+            }, z.core.$strict>, z.ZodObject<{
+                kind: z.ZodLiteral<"message">;
+                message: z.ZodObject<{
+                    attachment_count: z.ZodNullable<z.ZodNumber>;
+                    has_attachment: z.ZodNullable<z.ZodBoolean>;
+                    internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+                    labels: z.ZodArray<z.ZodObject<{
+                        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                            BLUE_INFO: "BLUE_INFO";
+                            BLUE_STAR: "BLUE_STAR";
+                            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                            CHAT: "CHAT";
+                            DRAFT: "DRAFT";
+                            GREEN_CHECK: "GREEN_CHECK";
+                            GREEN_CIRCLE: "GREEN_CIRCLE";
+                            GREEN_STAR: "GREEN_STAR";
+                            IMPORTANT: "IMPORTANT";
+                            INBOX: "INBOX";
+                            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                            ORANGE_STAR: "ORANGE_STAR";
+                            PURPLE_QUESTION: "PURPLE_QUESTION";
+                            PURPLE_STAR: "PURPLE_STAR";
+                            RED_BANG: "RED_BANG";
+                            RED_CIRCLE: "RED_CIRCLE";
+                            RED_STAR: "RED_STAR";
+                            SENT: "SENT";
+                            SPAM: "SPAM";
+                            STARRED: "STARRED";
+                            TRASH: "TRASH";
+                            UNREAD: "UNREAD";
+                            YELLOW_BANG: "YELLOW_BANG";
+                            YELLOW_STAR: "YELLOW_STAR";
+                        }>]>;
+                        name: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>>;
+                    message_id: z.ZodString;
+                    size_bucket: z.ZodNullable<z.ZodEnum<{
+                        "1mb_or_more": "1mb_or_more";
+                        under_100kb: "under_100kb";
+                        under_10kb: "under_10kb";
+                        under_1mb: "under_1mb";
+                    }>>;
+                    starred: z.ZodNullable<z.ZodBoolean>;
+                    thread_id: z.ZodNullable<z.ZodString>;
+                    unread: z.ZodNullable<z.ZodBoolean>;
+                }, z.core.$strict>;
+                view: z.ZodLiteral<"structured">;
+            }, z.core.$strict>, z.ZodObject<{
+                kind: z.ZodLiteral<"message">;
+                message: z.ZodObject<{
+                    attachment_count: z.ZodNullable<z.ZodNumber>;
+                    has_attachment: z.ZodNullable<z.ZodBoolean>;
+                    internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+                    labels: z.ZodArray<z.ZodObject<{
+                        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                            BLUE_INFO: "BLUE_INFO";
+                            BLUE_STAR: "BLUE_STAR";
+                            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                            CHAT: "CHAT";
+                            DRAFT: "DRAFT";
+                            GREEN_CHECK: "GREEN_CHECK";
+                            GREEN_CIRCLE: "GREEN_CIRCLE";
+                            GREEN_STAR: "GREEN_STAR";
+                            IMPORTANT: "IMPORTANT";
+                            INBOX: "INBOX";
+                            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                            ORANGE_STAR: "ORANGE_STAR";
+                            PURPLE_QUESTION: "PURPLE_QUESTION";
+                            PURPLE_STAR: "PURPLE_STAR";
+                            RED_BANG: "RED_BANG";
+                            RED_CIRCLE: "RED_CIRCLE";
+                            RED_STAR: "RED_STAR";
+                            SENT: "SENT";
+                            SPAM: "SPAM";
+                            STARRED: "STARRED";
+                            TRASH: "TRASH";
+                            UNREAD: "UNREAD";
+                            YELLOW_BANG: "YELLOW_BANG";
+                            YELLOW_STAR: "YELLOW_STAR";
+                        }>]>;
+                        name: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>>;
+                    message_id: z.ZodString;
+                    size_bucket: z.ZodNullable<z.ZodEnum<{
+                        "1mb_or_more": "1mb_or_more";
+                        under_100kb: "under_100kb";
+                        under_10kb: "under_10kb";
+                        under_1mb: "under_1mb";
+                    }>>;
+                    starred: z.ZodNullable<z.ZodBoolean>;
+                    thread_id: z.ZodNullable<z.ZodString>;
+                    unread: z.ZodNullable<z.ZodBoolean>;
+                    untrusted: z.ZodObject<{
+                        attachments: z.ZodArray<z.ZodObject<{
+                            filename: z.ZodNullable<z.ZodString>;
+                            mime_type: z.ZodNullable<z.ZodString>;
+                            size: z.ZodNullable<z.ZodNumber>;
+                        }, z.core.$strict>>;
+                        bcc: z.ZodNullable<z.ZodString>;
+                        body_length: z.ZodNullable<z.ZodNumber>;
+                        body_text: z.ZodNullable<z.ZodString>;
+                        body_truncated: z.ZodBoolean;
+                        cc: z.ZodNullable<z.ZodString>;
+                        date: z.ZodNullable<z.ZodString>;
+                        from: z.ZodNullable<z.ZodString>;
+                        reply_to: z.ZodNullable<z.ZodString>;
+                        snippet: z.ZodNullable<z.ZodString>;
+                        subject: z.ZodNullable<z.ZodString>;
+                        to: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>;
+                }, z.core.$strict>;
+                view: z.ZodLiteral<"content">;
+            }, z.core.$strict>, z.ZodObject<{
+                draft_id: z.ZodString;
+                kind: z.ZodLiteral<"draft">;
+                message: z.ZodNullable<z.ZodObject<{
+                    attachment_count: z.ZodNullable<z.ZodNumber>;
+                    has_attachment: z.ZodNullable<z.ZodBoolean>;
+                    internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+                    labels: z.ZodArray<z.ZodObject<{
+                        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                            BLUE_INFO: "BLUE_INFO";
+                            BLUE_STAR: "BLUE_STAR";
+                            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                            CHAT: "CHAT";
+                            DRAFT: "DRAFT";
+                            GREEN_CHECK: "GREEN_CHECK";
+                            GREEN_CIRCLE: "GREEN_CIRCLE";
+                            GREEN_STAR: "GREEN_STAR";
+                            IMPORTANT: "IMPORTANT";
+                            INBOX: "INBOX";
+                            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                            ORANGE_STAR: "ORANGE_STAR";
+                            PURPLE_QUESTION: "PURPLE_QUESTION";
+                            PURPLE_STAR: "PURPLE_STAR";
+                            RED_BANG: "RED_BANG";
+                            RED_CIRCLE: "RED_CIRCLE";
+                            RED_STAR: "RED_STAR";
+                            SENT: "SENT";
+                            SPAM: "SPAM";
+                            STARRED: "STARRED";
+                            TRASH: "TRASH";
+                            UNREAD: "UNREAD";
+                            YELLOW_BANG: "YELLOW_BANG";
+                            YELLOW_STAR: "YELLOW_STAR";
+                        }>]>;
+                        name: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>>;
+                    message_id: z.ZodString;
+                    size_bucket: z.ZodNullable<z.ZodEnum<{
+                        "1mb_or_more": "1mb_or_more";
+                        under_100kb: "under_100kb";
+                        under_10kb: "under_10kb";
+                        under_1mb: "under_1mb";
+                    }>>;
+                    starred: z.ZodNullable<z.ZodBoolean>;
+                    thread_id: z.ZodNullable<z.ZodString>;
+                    unread: z.ZodNullable<z.ZodBoolean>;
+                }, z.core.$strict>>;
+                view: z.ZodLiteral<"structured">;
+            }, z.core.$strict>, z.ZodObject<{
+                draft_id: z.ZodString;
+                kind: z.ZodLiteral<"draft">;
+                message: z.ZodNullable<z.ZodObject<{
+                    attachment_count: z.ZodNullable<z.ZodNumber>;
+                    has_attachment: z.ZodNullable<z.ZodBoolean>;
+                    internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+                    labels: z.ZodArray<z.ZodObject<{
+                        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                            BLUE_INFO: "BLUE_INFO";
+                            BLUE_STAR: "BLUE_STAR";
+                            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                            CHAT: "CHAT";
+                            DRAFT: "DRAFT";
+                            GREEN_CHECK: "GREEN_CHECK";
+                            GREEN_CIRCLE: "GREEN_CIRCLE";
+                            GREEN_STAR: "GREEN_STAR";
+                            IMPORTANT: "IMPORTANT";
+                            INBOX: "INBOX";
+                            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                            ORANGE_STAR: "ORANGE_STAR";
+                            PURPLE_QUESTION: "PURPLE_QUESTION";
+                            PURPLE_STAR: "PURPLE_STAR";
+                            RED_BANG: "RED_BANG";
+                            RED_CIRCLE: "RED_CIRCLE";
+                            RED_STAR: "RED_STAR";
+                            SENT: "SENT";
+                            SPAM: "SPAM";
+                            STARRED: "STARRED";
+                            TRASH: "TRASH";
+                            UNREAD: "UNREAD";
+                            YELLOW_BANG: "YELLOW_BANG";
+                            YELLOW_STAR: "YELLOW_STAR";
+                        }>]>;
+                        name: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>>;
+                    message_id: z.ZodString;
+                    size_bucket: z.ZodNullable<z.ZodEnum<{
+                        "1mb_or_more": "1mb_or_more";
+                        under_100kb: "under_100kb";
+                        under_10kb: "under_10kb";
+                        under_1mb: "under_1mb";
+                    }>>;
+                    starred: z.ZodNullable<z.ZodBoolean>;
+                    thread_id: z.ZodNullable<z.ZodString>;
+                    unread: z.ZodNullable<z.ZodBoolean>;
+                    untrusted: z.ZodObject<{
+                        attachments: z.ZodArray<z.ZodObject<{
+                            filename: z.ZodNullable<z.ZodString>;
+                            mime_type: z.ZodNullable<z.ZodString>;
+                            size: z.ZodNullable<z.ZodNumber>;
+                        }, z.core.$strict>>;
+                        bcc: z.ZodNullable<z.ZodString>;
+                        body_length: z.ZodNullable<z.ZodNumber>;
+                        body_text: z.ZodNullable<z.ZodString>;
+                        body_truncated: z.ZodBoolean;
+                        cc: z.ZodNullable<z.ZodString>;
+                        date: z.ZodNullable<z.ZodString>;
+                        from: z.ZodNullable<z.ZodString>;
+                        reply_to: z.ZodNullable<z.ZodString>;
+                        snippet: z.ZodNullable<z.ZodString>;
+                        subject: z.ZodNullable<z.ZodString>;
+                        to: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>;
+                }, z.core.$strict>>;
+                view: z.ZodLiteral<"content">;
+            }, z.core.$strict>, z.ZodObject<{
+                kind: z.ZodLiteral<"labels">;
+                labels: z.ZodArray<z.ZodObject<{
+                    id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                        BLUE_INFO: "BLUE_INFO";
+                        BLUE_STAR: "BLUE_STAR";
+                        CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                        CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                        CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                        CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                        CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                        CHAT: "CHAT";
+                        DRAFT: "DRAFT";
+                        GREEN_CHECK: "GREEN_CHECK";
+                        GREEN_CIRCLE: "GREEN_CIRCLE";
+                        GREEN_STAR: "GREEN_STAR";
+                        IMPORTANT: "IMPORTANT";
+                        INBOX: "INBOX";
+                        ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                        ORANGE_STAR: "ORANGE_STAR";
+                        PURPLE_QUESTION: "PURPLE_QUESTION";
+                        PURPLE_STAR: "PURPLE_STAR";
+                        RED_BANG: "RED_BANG";
+                        RED_CIRCLE: "RED_CIRCLE";
+                        RED_STAR: "RED_STAR";
+                        SENT: "SENT";
+                        SPAM: "SPAM";
+                        STARRED: "STARRED";
+                        TRASH: "TRASH";
+                        UNREAD: "UNREAD";
+                        YELLOW_BANG: "YELLOW_BANG";
+                        YELLOW_STAR: "YELLOW_STAR";
+                    }>]>;
+                    messages_total: z.ZodNullable<z.ZodNumber>;
+                    messages_unread: z.ZodNullable<z.ZodNumber>;
+                    name: z.ZodNullable<z.ZodString>;
+                    threads_total: z.ZodNullable<z.ZodNumber>;
+                    threads_unread: z.ZodNullable<z.ZodNumber>;
+                    type: z.ZodEnum<{
+                        system: "system";
+                        user: "user";
+                    }>;
+                }, z.core.$strict>>;
+                view: z.ZodLiteral<"structured">;
+            }, z.core.$strict>]>;
+            tool: z.ZodLiteral<"brain_google_gmail_read">;
+        }, z.core.$strict>, z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    draft_locked: "draft_locked";
+                    draft_not_displayable: "draft_not_displayable";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    outcome_unknown: "outcome_unknown";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    recording_unavailable: "recording_unavailable";
+                    transport_incompatible: "transport_incompatible";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_google_gmail_draft: "brain_google_gmail_draft";
+                brain_google_gmail_modify: "brain_google_gmail_modify";
+                brain_google_gmail_read: "brain_google_gmail_read";
+                brain_google_gmail_search: "brain_google_gmail_search";
+                brain_google_gmail_send: "brain_google_gmail_send";
+                brain_google_gmail_trash: "brain_google_gmail_trash";
+            }>;
+        }, z.core.$strict>]>;
+        readonly brain_google_gmail_search: z.ZodUnion<readonly [z.ZodObject<{
+            ok: z.ZodLiteral<true>;
+            result: z.ZodDiscriminatedUnion<[z.ZodObject<{
+                kind: z.ZodLiteral<"search">;
+                next_cursor: z.ZodNullable<z.ZodString>;
+                result_size_estimate: z.ZodNullable<z.ZodNumber>;
+                threads: z.ZodArray<z.ZodObject<{
+                    has_attachment: z.ZodNullable<z.ZodBoolean>;
+                    labels: z.ZodArray<z.ZodObject<{
+                        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                            BLUE_INFO: "BLUE_INFO";
+                            BLUE_STAR: "BLUE_STAR";
+                            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                            CHAT: "CHAT";
+                            DRAFT: "DRAFT";
+                            GREEN_CHECK: "GREEN_CHECK";
+                            GREEN_CIRCLE: "GREEN_CIRCLE";
+                            GREEN_STAR: "GREEN_STAR";
+                            IMPORTANT: "IMPORTANT";
+                            INBOX: "INBOX";
+                            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                            ORANGE_STAR: "ORANGE_STAR";
+                            PURPLE_QUESTION: "PURPLE_QUESTION";
+                            PURPLE_STAR: "PURPLE_STAR";
+                            RED_BANG: "RED_BANG";
+                            RED_CIRCLE: "RED_CIRCLE";
+                            RED_STAR: "RED_STAR";
+                            SENT: "SENT";
+                            SPAM: "SPAM";
+                            STARRED: "STARRED";
+                            TRASH: "TRASH";
+                            UNREAD: "UNREAD";
+                            YELLOW_BANG: "YELLOW_BANG";
+                            YELLOW_STAR: "YELLOW_STAR";
+                        }>]>;
+                        name: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>>;
+                    latest_internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+                    message_count: z.ZodNullable<z.ZodNumber>;
+                    size_bucket: z.ZodNullable<z.ZodEnum<{
+                        "1mb_or_more": "1mb_or_more";
+                        under_100kb: "under_100kb";
+                        under_10kb: "under_10kb";
+                        under_1mb: "under_1mb";
+                    }>>;
+                    starred: z.ZodNullable<z.ZodBoolean>;
+                    thread_id: z.ZodString;
+                    unread: z.ZodNullable<z.ZodBoolean>;
+                }, z.core.$strict>>;
+                view: z.ZodLiteral<"structured">;
+            }, z.core.$strict>, z.ZodObject<{
+                kind: z.ZodLiteral<"search">;
+                next_cursor: z.ZodNullable<z.ZodString>;
+                result_size_estimate: z.ZodNullable<z.ZodNumber>;
+                threads: z.ZodArray<z.ZodObject<{
+                    has_attachment: z.ZodNullable<z.ZodBoolean>;
+                    labels: z.ZodArray<z.ZodObject<{
+                        id: z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                            BLUE_INFO: "BLUE_INFO";
+                            BLUE_STAR: "BLUE_STAR";
+                            CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                            CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                            CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                            CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                            CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                            CHAT: "CHAT";
+                            DRAFT: "DRAFT";
+                            GREEN_CHECK: "GREEN_CHECK";
+                            GREEN_CIRCLE: "GREEN_CIRCLE";
+                            GREEN_STAR: "GREEN_STAR";
+                            IMPORTANT: "IMPORTANT";
+                            INBOX: "INBOX";
+                            ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                            ORANGE_STAR: "ORANGE_STAR";
+                            PURPLE_QUESTION: "PURPLE_QUESTION";
+                            PURPLE_STAR: "PURPLE_STAR";
+                            RED_BANG: "RED_BANG";
+                            RED_CIRCLE: "RED_CIRCLE";
+                            RED_STAR: "RED_STAR";
+                            SENT: "SENT";
+                            SPAM: "SPAM";
+                            STARRED: "STARRED";
+                            TRASH: "TRASH";
+                            UNREAD: "UNREAD";
+                            YELLOW_BANG: "YELLOW_BANG";
+                            YELLOW_STAR: "YELLOW_STAR";
+                        }>]>;
+                        name: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>>;
+                    latest_internal_date: z.ZodNullable<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>;
+                    message_count: z.ZodNullable<z.ZodNumber>;
+                    size_bucket: z.ZodNullable<z.ZodEnum<{
+                        "1mb_or_more": "1mb_or_more";
+                        under_100kb: "under_100kb";
+                        under_10kb: "under_10kb";
+                        under_1mb: "under_1mb";
+                    }>>;
+                    starred: z.ZodNullable<z.ZodBoolean>;
+                    thread_id: z.ZodString;
+                    unread: z.ZodNullable<z.ZodBoolean>;
+                    untrusted: z.ZodObject<{
+                        cc: z.ZodNullable<z.ZodString>;
+                        from: z.ZodNullable<z.ZodString>;
+                        snippet: z.ZodNullable<z.ZodString>;
+                        subject: z.ZodNullable<z.ZodString>;
+                        to: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>;
+                }, z.core.$strict>>;
+                view: z.ZodLiteral<"content">;
+            }, z.core.$strict>], "view">;
+            tool: z.ZodLiteral<"brain_google_gmail_search">;
+        }, z.core.$strict>, z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    draft_locked: "draft_locked";
+                    draft_not_displayable: "draft_not_displayable";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    outcome_unknown: "outcome_unknown";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    recording_unavailable: "recording_unavailable";
+                    transport_incompatible: "transport_incompatible";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_google_gmail_draft: "brain_google_gmail_draft";
+                brain_google_gmail_modify: "brain_google_gmail_modify";
+                brain_google_gmail_read: "brain_google_gmail_read";
+                brain_google_gmail_search: "brain_google_gmail_search";
+                brain_google_gmail_send: "brain_google_gmail_send";
+                brain_google_gmail_trash: "brain_google_gmail_trash";
+            }>;
+        }, z.core.$strict>]>;
+        readonly brain_google_gmail_send: z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    draft_locked: "draft_locked";
+                    draft_not_displayable: "draft_not_displayable";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    outcome_unknown: "outcome_unknown";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    recording_unavailable: "recording_unavailable";
+                    transport_incompatible: "transport_incompatible";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_google_gmail_draft: "brain_google_gmail_draft";
+                brain_google_gmail_modify: "brain_google_gmail_modify";
+                brain_google_gmail_read: "brain_google_gmail_read";
+                brain_google_gmail_search: "brain_google_gmail_search";
+                brain_google_gmail_send: "brain_google_gmail_send";
+                brain_google_gmail_trash: "brain_google_gmail_trash";
+            }>;
+        }, z.core.$strict>;
+        readonly brain_google_gmail_trash: z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    draft_locked: "draft_locked";
+                    draft_not_displayable: "draft_not_displayable";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    outcome_unknown: "outcome_unknown";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    recording_unavailable: "recording_unavailable";
+                    transport_incompatible: "transport_incompatible";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_google_gmail_draft: "brain_google_gmail_draft";
+                brain_google_gmail_modify: "brain_google_gmail_modify";
+                brain_google_gmail_read: "brain_google_gmail_read";
+                brain_google_gmail_search: "brain_google_gmail_search";
+                brain_google_gmail_send: "brain_google_gmail_send";
+                brain_google_gmail_trash: "brain_google_gmail_trash";
+            }>;
+        }, z.core.$strict>;
+    };
+  GOOGLE_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GOOGLE_TOOL_CONTRACTS: readonly [ToolContract<"brain_google_gmail_search", z.ZodObject<{
+        cursor: z.ZodOptional<z.ZodString>;
+        limit: z.ZodOptional<z.ZodNumber>;
+        query: z.ZodString;
+        view: z.ZodDefault<z.ZodEnum<{
+            content: "content";
+            structured: "structured";
+        }>>;
+    }, z.core.$strict>>, ToolContract<"brain_google_gmail_read", z.ZodObject<{
+        id: z.ZodOptional<z.ZodString>;
+        target: z.ZodEnum<{
+            draft: "draft";
+            labels: "labels";
+            message: "message";
+            thread: "thread";
+        }>;
+        view: z.ZodDefault<z.ZodEnum<{
+            content: "content";
+            structured: "structured";
+        }>>;
+    }, z.core.$strict>>, ToolContract<"brain_google_gmail_modify", z.ZodObject<{
+        add_label_ids: z.ZodOptional<z.ZodArray<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>>;
+        message_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        remove_label_ids: z.ZodOptional<z.ZodArray<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>>;
+        thread_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>, ToolContract<"brain_google_gmail_trash", z.ZodObject<{
+        message_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        thread_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>, ToolContract<"brain_google_gmail_draft", z.ZodObject<{
+        action: z.ZodEnum<{
+            create: "create";
+            delete: "delete";
+            reply: "reply";
+            update: "update";
+        }>;
+        bcc: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        body: z.ZodOptional<z.ZodString>;
+        cc: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        draft_id: z.ZodOptional<z.ZodString>;
+        message_id: z.ZodOptional<z.ZodString>;
+        quote_message_id: z.ZodOptional<z.ZodString>;
+        reply_all: z.ZodOptional<z.ZodBoolean>;
+        subject: z.ZodOptional<z.ZodString>;
+        to: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>, ToolContract<"brain_google_gmail_send", z.ZodObject<{
+        draft_id: z.ZodString;
+    }, z.core.$strict>>];
+  GOOGLE_TOOL_NAMES (packages/common/src/google/catalog.ts)
+    const GOOGLE_TOOL_NAMES: readonly GoogleToolName[];
+  GOOGLE_VIEWS (packages/common/src/google/catalog.ts)
+    const GOOGLE_VIEWS: readonly ["structured", "content"];
   GeoConfig (packages/geo/src/config.ts) recorded in api-report/geo.txt
   GeoConfigInput (packages/geo/src/config.ts) recorded in api-report/geo.txt
   GeoCoords (packages/ui-sdk/src/protocol.ts)
@@ -10066,6 +12052,89 @@ signatures (every public export and the types it is made of)
     export type GithubUser = z.infer<typeof GITHUB_USER_SCHEMA>;
   GithubWriteToolName (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubWriteToolName = typeof GITHUB_TOOL_NAMES.create | typeof GITHUB_TOOL_NAMES.comment;
+  GmailContentMessagePayload (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GmailContentMessagePayload = z.infer<typeof GMAIL_CONTENT_MESSAGE_SCHEMA>;
+  GmailDraftInput (packages/common/src/google/catalog.ts)
+    export type GmailDraftInput = z.infer<typeof GMAIL_DRAFT_INPUT>;
+  GmailLabel (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GmailLabel = z.infer<typeof GMAIL_LABEL_SCHEMA>;
+  GmailMessageBody (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GmailMessageBody = z.infer<typeof GMAIL_MESSAGE_BODY_SCHEMA>;
+  GmailModifyInput (packages/common/src/google/catalog.ts)
+    export type GmailModifyInput = z.infer<typeof GMAIL_MODIFY_INPUT>;
+  GmailReadInput (packages/common/src/google/catalog.ts)
+    export type GmailReadInput = z.infer<typeof GMAIL_READ_INPUT>;
+  GmailReadPayload (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GmailReadPayload = z.infer<typeof GMAIL_READ_PAYLOAD_SCHEMA>;
+  GmailReadTarget (packages/common/src/google/catalog.ts)
+    export type GmailReadTarget = typeof GMAIL_READ_TARGETS[number];
+  GmailReadToolName (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GmailReadToolName = typeof GMAIL_TOOL_NAMES.search | typeof GMAIL_TOOL_NAMES.read;
+  GmailSearchInput (packages/common/src/google/catalog.ts)
+    export type GmailSearchInput = z.infer<typeof GMAIL_SEARCH_INPUT>;
+  GmailSearchPayload (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GmailSearchPayload = z.infer<typeof GMAIL_SEARCH_PAYLOAD_SCHEMA>;
+  GmailSendInput (packages/common/src/google/catalog.ts)
+    export type GmailSendInput = z.infer<typeof GMAIL_SEND_INPUT>;
+  GmailStructuredMessagePayload (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GmailStructuredMessagePayload = z.infer<typeof GMAIL_STRUCTURED_MESSAGE_SCHEMA>;
+  GmailToolName (packages/common/src/google/catalog.ts)
+    export type GmailToolName = typeof GMAIL_TOOL_NAMES[keyof typeof GMAIL_TOOL_NAMES];
+  GmailTrashInput (packages/common/src/google/catalog.ts)
+    export type GmailTrashInput = z.infer<typeof GMAIL_TRASH_INPUT>;
+  GmailWriteToolName (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GmailWriteToolName = Exclude<GmailToolName, GmailReadToolName>;
+  GoogleErrorCode (packages/common/src/google/catalog.ts)
+    export type GoogleErrorCode = typeof GOOGLE_ERROR_CODES[number];
+  GoogleToolCall (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GoogleToolCall = {
+        tool: typeof GMAIL_TOOL_NAMES.search;
+        input: GmailSearchInput;
+    } | {
+        tool: typeof GMAIL_TOOL_NAMES.read;
+        input: GmailReadInput;
+    } | {
+        tool: typeof GMAIL_TOOL_NAMES.modify;
+        input: GmailModifyInput;
+    } | {
+        tool: typeof GMAIL_TOOL_NAMES.trash;
+        input: GmailTrashInput;
+    } | {
+        tool: typeof GMAIL_TOOL_NAMES.draft;
+        input: GmailDraftInput;
+    } | {
+        tool: typeof GMAIL_TOOL_NAMES.send;
+        input: GmailSendInput;
+    };
+  GoogleToolError (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GoogleToolError = z.infer<typeof GOOGLE_ERROR_SCHEMA>;
+  GoogleToolName (packages/common/src/google/catalog.ts)
+    export type GoogleToolName = GmailToolName;
+  GoogleToolResult (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GoogleToolResult = {
+        ok: true;
+        tool: typeof GMAIL_TOOL_NAMES.search;
+        result: GmailSearchPayload;
+    } | {
+        ok: true;
+        tool: typeof GMAIL_TOOL_NAMES.read;
+        result: GmailReadPayload;
+    } | {
+        ok: false;
+        tool: GmailToolName;
+        error: GoogleToolError;
+    };
+  GoogleToolsBrief (packages/ui-sdk/src/server/system-prompt.ts)
+    export interface GoogleToolsBrief {
+        search: string;
+        read: string;
+        modify: string;
+        trash: string;
+        draft: string;
+        send: string;
+    }
+  GoogleView (packages/common/src/google/catalog.ts)
+    export type GoogleView = typeof GOOGLE_VIEWS[number];
   GovernedStatus (packages/ui-sdk/src/protocol.ts)
     export type GovernedStatus = {
         hostExecution: "worker" | "host";
@@ -15666,6 +17735,7 @@ signatures (every public export and the types it is made of)
         webSearch?: WebSearchBrief;
         webTools?: boolean;
         githubTools?: GithubToolsBrief;
+        googleTools?: GoogleToolsBrief;
     }): string;
   checkEditedApproval (packages/ui-sdk/src/server/permission-gate.ts)
     export function checkEditedApproval(options: EditedApprovalCheckInput): string | null;
@@ -17105,6 +19175,11 @@ signatures (every public export and the types it is made of)
     export function handleGetCurrentLocation(input: GetCurrentLocationInput, bridge: BackendBridge, options: LocationHandlerOptions): Promise<LocationPayload>;
   handleGithubTool (packages/ui-sdk/src/server/bridge-tools/github.ts)
     export function handleGithubTool(name: GithubToolName, input: unknown, bridge: Pick<BackendBridge, "github">): Promise<{
+        text: string;
+        isError: boolean;
+    }>;
+  handleGoogleTool (packages/ui-sdk/src/server/bridge-tools/google.ts)
+    export function handleGoogleTool(name: GmailToolName, input: unknown, bridge: Pick<BackendBridge, "google">): Promise<{
         text: string;
         isError: boolean;
     }>;
@@ -20660,6 +22735,10 @@ signatures (every public export and the types it is made of)
     } | null, q: string): boolean;
   isGithubToolName (packages/ui-sdk/src/tool-contracts/github.ts)
     const isGithubToolName: (name: string) => name is GithubToolName;
+  isGmailReadToolName (packages/ui-sdk/src/tool-contracts/google.ts)
+    const isGmailReadToolName: (name: string) => name is GmailReadToolName;
+  isGoogleToolName (packages/common/src/google/catalog.ts)
+    const isGoogleToolName: (value: unknown) => value is GoogleToolName;
   isPricingRoute (packages/ui-sdk/src/protocol.ts)
     export function isPricingRoute(v: unknown): v is PricingRoute;
   isProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
@@ -21766,6 +23845,7 @@ signatures (every public export and the types it is made of)
                 egress_connection: "egress_connection";
                 fetching_command: "fetching_command";
                 github_result: "github_result";
+                google_result: "google_result";
                 legacy_unknown: "legacy_unknown";
                 mcp_document: "mcp_document";
                 staged_share: "staged_share";
@@ -21923,6 +24003,7 @@ signatures (every public export and the types it is made of)
             egress_connection: "egress_connection";
             fetching_command: "fetching_command";
             github_result: "github_result";
+            google_result: "google_result";
             legacy_unknown: "legacy_unknown";
             mcp_document: "mcp_document";
             staged_share: "staged_share";
@@ -22431,6 +24512,7 @@ signatures (every public export and the types it is made of)
                 egress_connection: "egress_connection";
                 fetching_command: "fetching_command";
                 github_result: "github_result";
+                google_result: "google_result";
                 legacy_unknown: "legacy_unknown";
                 mcp_document: "mcp_document";
                 staged_share: "staged_share";
@@ -27353,6 +29435,7 @@ signatures (every public export and the types it is made of)
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
                     github_result: "github_result";
+                    google_result: "google_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
@@ -27522,6 +29605,7 @@ signatures (every public export and the types it is made of)
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
                     github_result: "github_result";
+                    google_result: "google_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
@@ -28212,6 +30296,7 @@ signatures (every public export and the types it is made of)
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
                     github_result: "github_result";
+                    google_result: "google_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
@@ -28397,6 +30482,7 @@ signatures (every public export and the types it is made of)
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
                     github_result: "github_result";
+                    google_result: "google_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";

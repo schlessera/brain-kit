@@ -735,6 +735,23 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>;
             version: number;
         };
+        readonly google_call: {
+            payload: z.ZodObject<{
+                code: z.ZodNullable<z.ZodString>;
+                operation: z.ZodNullable<z.ZodString>;
+                outcome: z.ZodEnum<{
+                    refused: "refused";
+                    returned: "returned";
+                }>;
+                reason: z.ZodNullable<z.ZodString>;
+                tool: z.ZodString;
+                view: z.ZodNullable<z.ZodEnum<{
+                    content: "content";
+                    structured: "structured";
+                }>>;
+            }, z.core.$strict>;
+            version: number;
+        };
         readonly outward_action: {
             payload: z.ZodObject<{
                 action: z.ZodEnum<{
@@ -1160,6 +1177,7 @@ signatures (every public export and the types it is made of)
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
                     github_result: "github_result";
+                    google_result: "google_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";

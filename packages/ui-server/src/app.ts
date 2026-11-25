@@ -46,6 +46,9 @@ import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
 import { createGoogleCredential } from "./google/credential.js";
+import { createGoogleToolsHost, googlePrincipalKind } from "./google/host.js";
+import { governancePolicyReaderFor } from "./brain/governance-policy.js";
+import { createGoogleDetailRoutes } from "./routes/google-details.js";
 import { googleHostLayout, googleWorkerMasks } from "./google/home.js";
 import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, googleHostEnv, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHostWebTools } from "./web-tools/host.js";
@@ -225,6 +228,12 @@ export interface CreateAppOptions {
   workerProfile?: "governed" | "strict";
   /** @internal `false` starts no host web executor even where pi is configured (#3686). */
   webTools?: false;
+  /**
+   * @internal A test's fake gog (`createFakeGog().binary`) for the host's
+   * Google credential (#4207). Never configuration: production always runs
+   * the pinned `BRAIN_UI_GOG_PATH`.
+   */
+  googleBinary?: import("@schlessera/brain-common/internal/google-gog").GogBinary;
   /** Full SemVer minima composed with package requirements; unknown explicit identities refuse startup. */
   versionRequirements?: HostVersionRequirements;
   /**
@@ -845,8 +854,30 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // and a home that fails a check makes Google unavailable with its reason,
   // never this boot. Its masks are in nativeMaskPaths above.
   const google = createGoogleCredential({ env: googleEnv, layout: googleLayout, masks: googleMasks,
+    ...(options.googleBinary ? { binary: options.googleBinary } : {}),
     report: (message, status) => brainLog.emit({ severityText: status.state === "available" ? "INFO" : "WARN", body: message,
       attributes: { "google.state": status.state, ...(status.state === "unavailable" ? { "google.reason": status.reason } : {}) } }) });
+  // Host Gmail tools (#4207): the owner only, under the turn's frozen policy.
+  // The owner is the owner account as the account partition knows it: an
+  // owner login, or the ambient principal where the auth mode makes it the
+  // owner (no auth, Tailscale); a proxy's upstream users are each their own
+  // account and never the owner of the host's Google credential. The
+  // session's G6 taint commits before any content view reaches a turn, and a
+  // record that is not made withholds it; a structured view records nothing.
+  const googleTools = createGoogleToolsHost({ credential: google, principal: id => googlePrincipalKind(resolvePrincipal(db, id), authMode, Date.now()),
+    untrusted: async (turn, event) => {
+      const collection=db.query("SELECT id,policy_hash FROM safety_collections WHERE turn_id=?").get(turn.turnId) as {id:string;policy_hash:string|null}|null;
+      const observed=occurrence(collection?.id??crypto.randomUUID(),"compute_input",null,"finalized");
+      observed.admission={trusted:false,policyHash:collection?.policy_hash??null,trustRevision:"0"};
+      const recorded = await activity.governanceWrites.firstTaint({ kind: "taint", payload: { source: "google_result", tool: event.tool, detail: event.detail.slice(0, 200), occurrence: observed },
+        sessionId: turn.sessionId(), turnId: turn.turnId, actor: turn.posture, model: null, profile: null });
+      // A fresh occurrence the store did not keep (a restricted turn's lost record) is no record: the content is withheld.
+      if (!recorded) throw new Error("The google_result taint was not recorded.");
+    },
+    audit: async (scope, event) => {
+      await activity.governanceWrites.record({ kind: "google_call", payload: event, sessionId: scope.sessionId, turnId: scope.turnId, actor: scope.actor, model: null, profile: null });
+    },
+    report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());
   const accountSeed = await accountWrites(db).partitionSeed();
   const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, accountSeed);
@@ -894,6 +925,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     apify: apifyHost,
     githubTools,
     google,
+    googleTools,
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
@@ -1226,6 +1258,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // GitHub detail pages and avatars for the chat components (#3796): display
   // data under the tools' dedicated credential, never provider context.
   app.route("/api", createGithubDetailRoutes({ details: createGithubDetails({ token: githubToolsTokenSource() }),
+    principalValid: principal => host.isPrincipalValid(principal),
+    owns: (principal, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && chatOwnedBy(db, chat, principal.id); },
+    retired: sessionId => host.catalog.chatRetired?.({ sessionId }) === true,
+    history: async sessionId => {
+      const stored = db.query("SELECT backend_id AS backendId FROM sessions WHERE id = ?").get(sessionId) as { backendId: string | null } | null;
+      return (await registry.getBackendForSession(stored?.backendId ?? null)).getHistory(sessionId);
+    },
+    settled: () => host.historySettled() }));
+  // The Gmail display route (#4207): a returned message's full body for the
+  // owner, decided again under the brain's current policy, never provider context.
+  app.route("/api", createGoogleDetailRoutes({ tools: googleTools, policy: () => governancePolicyReaderFor(config.brainPath).load().policy.google,
     principalValid: principal => host.isPrincipalValid(principal),
     owns: (principal, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && chatOwnedBy(db, chat, principal.id); },
     retired: sessionId => host.catalog.chatRetired?.({ sessionId }) === true,

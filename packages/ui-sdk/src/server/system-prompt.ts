@@ -260,12 +260,13 @@ const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
  * carries its own brief and this function cannot skip one. `tests/` asserts
  * that every contract in `BRIDGE_TOOL_CONTRACTS` reaches the prompt.
  */
-function toolSection(tools: SurfaceTools, webSearch?: WebSearchBrief, webTools?: boolean, githubTools?: GithubToolsBrief): string {
+function toolSection(tools: SurfaceTools, webSearch?: WebSearchBrief, webTools?: boolean, githubTools?: GithubToolsBrief, googleTools?: GoogleToolsBrief): string {
   const lines = toolBriefLines(BRIDGE_TOOL_CONTRACTS, (contract) =>
     tools[SURFACE_TOOL_KEYS[contract.name as BridgeToolName]]
   );
   if (webTools) lines.push(webToolsLine());
   if (githubTools) lines.push(githubToolsLine(githubTools));
+  if (googleTools) lines.push(googleToolsLine(googleTools));
   if (webSearch) lines.push(webSearchLine(webSearch));
   return lines.length ? `\n${lines.join("\n")}` : "";
 }
@@ -305,6 +306,26 @@ function githubToolsLine(tools: GithubToolsBrief): string {
   that outward.github.repositories lists. If these tools answer unavailable or
   policy_denied, tell the user what they said and stop. Do not fall back to
   gh, curl or WebFetch for GitHub.`;
+}
+
+/** The host Gmail tools' names as this backend's model sees them (#4207). */
+export interface GoogleToolsBrief { search: string; read: string; modify: string; trash: string; draft: string; send: string }
+
+/**
+ * Gmail goes through the host tools (#4207): the worker never holds a Google
+ * credential, a structured read keeps the session untainted, and a refusal
+ * is reported, not worked around. Fixed text for a session's fixed roster,
+ * so the system prompt does not move whatever the brain's policy says.
+ */
+function googleToolsLine(tools: GoogleToolsBrief): string {
+  return `- **Gmail goes through the host tools.** This worker holds no Google
+  credential, so \`gog\`, \`curl\` and WebFetch cannot act as the user on Google.
+  Search and read mail with \`${tools.search}\` and \`${tools.read}\`; ask for
+  view structured when ids, labels and dates are enough to act on, which keeps
+  this session untainted, and content only to read what was written. Change
+  mail only with \`${tools.modify}\`, \`${tools.trash}\`, \`${tools.draft}\` and
+  \`${tools.send}\`. If these tools answer unavailable or policy_denied, tell the
+  user what they said and stop.`;
 }
 
 /**
@@ -429,10 +450,12 @@ export function buildSystemPromptAppend(
     webTools?: boolean;
     /** The session lists the host GitHub tools (#3797, #3798) under these names; the brief sends GitHub through them. */
     githubTools?: GithubToolsBrief;
+    /** The session lists the host Gmail tools (#4207) under these names; the brief sends Gmail through them. */
+    googleTools?: GoogleToolsBrief;
   } = {}
 ): string {
   const device = opts.client ? describeClient(opts.client) : UNKNOWN_DEVICE;
-  return `${BRAIN_UI_SYSTEM_PROMPT_APPEND}${turnLifecycleSection(opts.turnBudgetMs, opts.execution)}${toolSection(opts.tools ?? {}, opts.webSearch, opts.webTools, opts.githubTools)}
+  return `${BRAIN_UI_SYSTEM_PROMPT_APPEND}${turnLifecycleSection(opts.turnBudgetMs, opts.execution)}${toolSection(opts.tools ?? {}, opts.webSearch, opts.webTools, opts.githubTools, opts.googleTools)}
 
 # Who is reading
 

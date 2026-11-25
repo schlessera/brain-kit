@@ -119,6 +119,8 @@ export interface WsHostOptions {
   githubTools?: import("../github/host.js").GithubToolsHost;
   /** @internal The host's Google credential and availability probe (#4206), for the Google tools. */
   google?: import("../google/credential.js").GoogleCredential;
+  /** @internal The host Gmail tools (#4207): interactive turns of both backends call them through the bridge. */
+  googleTools?: import("../google/host.js").GoogleToolsHost;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
@@ -317,6 +319,8 @@ export class WsHost {
   readonly githubTools?: import("../github/host.js").GithubToolsHost;
   /** @internal The host's Google credential and availability probe (#4206). */
   readonly google?: import("../google/credential.js").GoogleCredential;
+  /** @internal The host Gmail tools (#4207). */
+  readonly googleTools?: import("../google/host.js").GoogleToolsHost;
   /** @internal The open worker generation of each running turn. */
   readonly referenceWorktreeGenerations: Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration> = new Map();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
@@ -437,6 +441,7 @@ export class WsHost {
     this.webTools = options.webTools;
     this.githubTools = options.githubTools;
     this.google = options.google;
+    this.googleTools = options.googleTools;
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
     this.budgets = options.budgets;

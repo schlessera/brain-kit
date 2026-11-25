@@ -29,6 +29,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> } = {
   safety_admission_expired: { toolUseId: "ithaca-card", evidenceRevision: "1", trustRevision: "0", authorityEpoch: "0", reason: "safety_changed" },
   taint_exposure: { occurrenceId: "ithaca-exposure", state: "interrupted_unknown" },
+  google_call: { tool: "brain_google_gmail_search", operation: "gmail.search", view: "structured", outcome: "returned", code: null, reason: null },
   egress_connection: { host: "ithaca.invalid", port: 443, method: "CONNECT", bytes: 100, accounting: "opaque_bytes", durationMs: 5, outcome: "completed" },
   policy_change: { requestId: "policy-ithaca", baseHash: null, proposedHash: "a".repeat(64), sections: ["profiles.interactive"], outcome: "updated" },
   state_room_warning: { usedBytes: 51 * 1024 * 1024, allowanceBytes: 64 * 1024 * 1024, observedAt: Date.UTC(2026, 6, 12) },

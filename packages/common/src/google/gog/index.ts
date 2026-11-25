@@ -14,7 +14,7 @@
  * this module.
  */
 export {
-  createGogTransport, GOG_CONCURRENCY, GOG_READ_OPERATIONS,
+  createGogTransport, GOG_CONCURRENCY, GOG_READ_OPERATIONS, isTargetIndependentGogFailure,
   type GogAvailability, type GogBinary, type GogLogEvent, type GogReadOperation, type GogReadResults, type GogResult, type GogTransport,
   type GogTransportOptions,
 } from "./transport.js";

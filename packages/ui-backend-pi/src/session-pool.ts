@@ -62,8 +62,8 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       ...(req.workerLock ? { workerLock: req.workerLock } : {}),
       ...(req.autonomous ? { autonomous: req.autonomous } : {}),
       ...(req.client ? { client: req.client } : {}),
-      // An autonomous roster never lists compute (#3108), Apify (#3162), attachment reads (#3154), the web tools (#3685) or GitHub (#3797).
-      caps: req.autonomous ? { ...capsOf(req.bridge), policyChange: false, turnTemp: false, compute: false, apify: false, attachments: false, web: false, github: false } : { ...INTERACTIVE_SESSION_CAPS },
+      // An autonomous roster never lists compute (#3108), Apify (#3162), attachment reads (#3154), the web tools (#3685), GitHub (#3797) or Gmail (#4207).
+      caps: req.autonomous ? { ...capsOf(req.bridge), policyChange: false, turnTemp: false, compute: false, apify: false, attachments: false, web: false, github: false, google: false } : { ...INTERACTIVE_SESSION_CAPS },
       currentSurface: req.autonomous ? undefined : { posture: req.posture ?? "default", noGrantSurface: req.noGrantSurface === true,
         inbox: { list: available("inbox_list"), get: available("inbox_get"), add: available("inbox_add"),
           resolveAction: available("resolve_action"), completeShare: available("complete_share") } },
@@ -72,7 +72,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
         location: available("get_current_location"), activity: available("query_activity"), inbox: available("inbox_list"),
         mask: available("request_image_mask"), markup: available("request_image_markup"), policyChange: available("propose_policy_change"), turnTemp: true,
         reference: available("reference_source"), compute: available("brain_compute_run"), apify: available("brain_apify_discover"),
-        attachments: available("read_attachment"), web: available("web_search"), github: available("brain_github_issue_read") },
+        attachments: available("read_attachment"), web: available("web_search"), github: available("brain_github_issue_read"), google: available("brain_google_gmail_search") },
       ...(req.turnBudgetMs ? { turnBudgetMs: req.turnBudgetMs } : {}),
     };
     if (req.sessionId) {

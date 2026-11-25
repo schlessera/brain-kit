@@ -5,6 +5,7 @@ import { registerReferenceTools } from "./reference-tools.js";
 import { registerComputeTools } from "./compute-tools.js";
 import { registerApifyTools } from "./apify-tools.js";
 import { registerGithubTools } from "./github-tools.js";
+import { registerGoogleTools } from "./google-tools.js";
 import { registerReadAttachmentTool } from "./read-attachment-tool.js";
 import { registerBrainApplicationTools } from "./brain-application-tools.js";
 import type { AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -112,6 +113,8 @@ export function createBrainUiMcpServer(handlers: {
   apify?: Pick<BackendBridge, "apify">;
   /** The host GitHub read tools (#3797); interactive sessions only. */
   github?: Pick<BackendBridge, "github">;
+  /** The host Gmail tools (#4207); interactive sessions only. */
+  google?: Pick<BackendBridge, "google">;
   /** On-demand reads of the conversation's composer originals (#3154); interactive sessions only. */
   attachments?: Pick<BackendBridge, "readAttachment">;
   application?: Pick<BackendBridge, "applyBrain" | "readBrainBase" | "applyImageMask">;
@@ -145,6 +148,7 @@ export function createBrainUiMcpServer(handlers: {
       compute: handlers.compute ?? {},
       apify: handlers.apify ?? {},
       github: handlers.github ?? {},
+      google: handlers.google ?? {},
       attachments: handlers.attachments ?? {},
     };
   }
@@ -201,6 +205,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.compute) registerComputeTools(server.instance, handlers.compute, observe);
   if (handlers.apify) registerApifyTools(server.instance, handlers.apify, observe);
   if (handlers.github) registerGithubTools(server.instance, handlers.github, observe);
+  if (handlers.google) registerGoogleTools(server.instance, handlers.google, observe);
   if (handlers.attachments) registerReadAttachmentTool(server.instance, handlers.attachments, observe);
   if (handlers.application && (handlers.stableRoster || handlers.application.applyBrain)) registerBrainApplicationTools(server.instance, handlers.application, handlers.stableRoster, observe);
   if (rosterComplete) {

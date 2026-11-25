@@ -324,6 +324,14 @@ export interface BackendBridge {
    */
   github?(call: import("../tool-contracts/github.js").GithubToolCall): Promise<import("../tool-contracts/github.js").GithubToolResult>;
   /**
+   * One host Gmail tool (#4207). The host binds principal, session, turn,
+   * posture and the turn's frozen policy, holds the Google credential and
+   * records the session's taint before a content result returns; the call
+   * carries the tool's parsed input only. Every refusal resolves as
+   * `{ ok: false, tool, error }`.
+   */
+  google?(call: import("../tool-contracts/google.js").GoogleToolCall): Promise<import("../tool-contracts/google.js").GoogleToolResult>;
+  /**
    * Read one composer original the calling session was sent (#3154). The
    * host binds session, principal and turn, re-checks the reference and the
    * digest, and enforces every bound; the call carries the parsed input only.

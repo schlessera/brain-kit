@@ -7,11 +7,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createGogTransport, GOG_CONCURRENCY, GOG_ENVIRONMENT_NAMES, type GogLogEvent } from "@schlessera/brain-common/internal/google-gog";
+import { createGogTransport, GOG_CONCURRENCY, GOG_ENVIRONMENT_NAMES, GOG_PIN_REFUSALS, isTargetIndependentGogFailure, type GogLogEvent } from "@schlessera/brain-common/internal/google-gog";
 import { structuredGmailSearch } from "@schlessera/brain-common/internal/google-operations";
 import { watchdogMs } from "../../../scripts/test-deadlines";
 import { gogInvocation, type GogInvocation } from "../src/google/gog/argv.ts";
-import { GOG_EXIT_CODES, gogProcessError, type GogEffect, type GogProcessEnd } from "../src/google/gog/errors.ts";
+import { GOG_EXIT_CODES, gogError, gogProcessError, type GogEffect, type GogProcessEnd } from "../src/google/gog/errors.ts";
 import { createGogTransportInternals, gogConcurrencyState, type GogTransportOptions } from "../src/google/gog/transport.ts";
 import { createFakeGog, type FakeGog, type FakeGogScenario } from "./support/fake-gog.ts";
 
@@ -360,4 +360,27 @@ describe("the operation boundary", () => {
     const missing = createGogTransport({ binary: { kind: "fake", path: join(transport.account, "no-such-binary") }, account: "ithaca", environment: { home: "/nonexistent", keyringPassword: "x" } });
     expect(errorOf(await missing.execute("gmail.labels.list", {}))).toEqual(["transport_incompatible", "spawn_failed"]);
   });
+});
+
+test("a failure says nothing about its target only when the account, the input or the binary was refused", () => {
+  const independent = [
+    gogError("unavailable", "auth_required"), gogError("unavailable", "config"), gogError("rate_limited", null), gogError("invalid_input", "id"),
+    gogError("transport_incompatible", "spawn_failed"), gogError("transport_incompatible", "usage"),
+    ...GOG_PIN_REFUSALS.map(reason => gogError("transport_incompatible", reason)),
+  ];
+  for (const failure of independent) {
+    expect(isTargetIndependentGogFailure(failure), `GOG_TARGET_INDEPENDENT ${failure.code} ${failure.reason}`).toBe(true);
+  }
+  // Each of these may be the target's own: a reader that hides labels answers them as a miss.
+  const dependent = [
+    gogError("not_found", null), gogError("forbidden", null), gogError("upstream_error", "timeout"), gogError("upstream_error", "error"),
+    gogError("upstream_error", "signal"), gogError("upstream_error", "retryable"), gogError("upstream_error", "cancelled"),
+    gogError("transport_incompatible", "output_too_large"), gogError("transport_incompatible", "unexpected_shape"),
+    gogError("transport_incompatible", "unexpected_output"), gogError("transport_incompatible", "page_too_large"),
+    gogError("transport_incompatible", "orphaned"), gogError("transport_incompatible", "unknown_exit"),
+    gogError("transport_incompatible", "empty_results"), gogError("transport_incompatible", null),
+  ];
+  for (const failure of dependent) {
+    expect(isTargetIndependentGogFailure(failure), `GOG_TARGET_DEPENDENT ${failure.code} ${failure.reason}`).toBe(false);
+  }
 });

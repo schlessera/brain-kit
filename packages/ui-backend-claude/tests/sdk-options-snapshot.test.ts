@@ -41,6 +41,10 @@ afterEach(() => { testHome?.dispose(); testHome = undefined; });
  * #3613 adds reference_read to the four interactive rosters and retained
  * briefs, and to the allowlist where reference access is available. The two
  * autonomous modes and all unrelated options remain byte-identical.
+ * #4207 adds the six host Gmail tools after the GitHub tools in the four
+ * interactive modes' stable roster (names and the schema digest) and their
+ * bullet after the GitHub bullet in the retained append; allowlists and the
+ * autonomous modes stay byte-identical.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

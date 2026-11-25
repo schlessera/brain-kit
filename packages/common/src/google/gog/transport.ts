@@ -40,7 +40,7 @@ import { GOG_READ_CODECS, GogShapeError, searchHitFromThread, type GogDraftRead 
 import { GOG_COMMANDS } from "./commands.js";
 import { gogEnvironment, type GogEnvironment, type GogEnvironmentConfig } from "./environment.js";
 import { gogError, gogProcessError, type GogEffect } from "./errors.js";
-import { gogBinaryIdentity, sameGogIdentity, verifyGogBinary, verifyGogBinaryWith, type GogPinParameters, type GogPinResult } from "./pin.js";
+import { GOG_PIN_REFUSALS, gogBinaryIdentity, sameGogIdentity, verifyGogBinary, verifyGogBinaryWith, type GogPinParameters, type GogPinResult } from "./pin.js";
 import { GOG_STDOUT_CAP, runGogProcess } from "./runner.js";
 
 /**
@@ -332,4 +332,19 @@ export function createGogTransportInternals(
   }
 
   return { account, availability, execute, invoke };
+}
+
+/**
+ * Whether a failed read says nothing about the item it targets: the account
+ * is not connected or is rate limited, or the input or the binary was
+ * refused. Any other failure (a timeout, a refusal from Google, an answer
+ * too large or in a shape the codec refuses) may be the target's own, so
+ * while any label is hidden a reader answers it exactly as a miss: no answer
+ * may tell a hidden target from a missing one. The host tools (#4207) and
+ * the standalone CLI (#4208) both decide with this one rule.
+ */
+export function isTargetIndependentGogFailure(failure: GoogleError): boolean {
+  return failure.code === "unavailable" || failure.code === "rate_limited" || failure.code === "invalid_input"
+    || (failure.code === "transport_incompatible"
+      && (failure.reason === "spawn_failed" || failure.reason === "usage" || (GOG_PIN_REFUSALS as readonly string[]).includes(failure.reason ?? "")));
 }

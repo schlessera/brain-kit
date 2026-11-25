@@ -200,6 +200,8 @@ export interface SessionCaps {
   web?: boolean;
   /** The host GitHub read tools (#3797); interactive sessions only, never an autonomous turn. */
   github?: boolean;
+  /** The host Gmail tools (#4207); interactive sessions only, never an autonomous turn. */
+  google?: boolean;
 }
 
 /** What one session's system prompt and toolset are conditioned on. */
@@ -251,11 +253,12 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     attachments: Boolean(bridge.readAttachment),
     web: Boolean(bridge.webAccess),
     github: Boolean(bridge.github),
+    google: Boolean(bridge.google),
   };
 }
 
 /** Deployment-owned tools exist even when this turn has no matching handler. */
 export const INTERACTIVE_SESSION_CAPS: Readonly<SessionCaps> = Object.freeze({
   policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-  location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true, github: true,
+  location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true, github: true, google: true,
 });

@@ -171,6 +171,29 @@ function applyExternalServices(ctx: BridgeContext, bridge: BackendBridge, transc
     };
     bridge.github = call => github.call({ turnId, principalId, sessionId, signal, routing, write }, call);
   }
+  // Gmail (#4207): the host holds the credential, decides each call under
+  // this turn's frozen policy and records the session's taint before a
+  // content view returns; the turn, never the call, names principal, session
+  // and posture. Every read is routed (G2) as the recipient `google` under the
+  // same policy and the conversation's recorded exposures. Without a frozen
+  // policy there is no google block, so Google is off for the turn.
+  if (host.googleTools) {
+    const google = host.googleTools;
+    const sessionId = () => transcript.collectedSessionId ?? turn.sessionId ?? null;
+    const routing = async (recipient: string) => {
+      if (!governance) return "recipient_unproven" as const;
+      const named = sessionId();
+      let shown: ProviderExposure[] | undefined;
+      if (named && host.governedTurns) try { shown = await host.governedTurns.exposures([named]); } catch { shown = undefined; }
+      return recipientRouting(governance.policy.policy, governance.typeFolders, shown, recipient);
+    };
+    const tainted = () => {
+      const writes = host.activity?.governanceWrites, db = host.activity?.governanceDb;
+      return writes ? writes.taint(turnId, sessionId()) !== null : db ? sessionTaint(db, turnId, sessionId()) !== null : true;
+    };
+    bridge.google = call => google.call({ turnId, principalId, sessionId, posture: work?.posture === "voice" ? "voice" : "interactive",
+      policy: () => governance?.policy.policy.google ?? null, routing, tainted }, call);
+  }
 }
 
 /**
@@ -203,7 +226,7 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
  */
 export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds" | "assertAuthority">, bridge: BackendBridge): void {
   const { work, afterHolds, assertAuthority } = ctx;
-  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "requestImageMarkup", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "github", "readAttachment", "webAccess"] as const) {
+  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "requestImageMarkup", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "github", "google", "readAttachment", "webAccess"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {

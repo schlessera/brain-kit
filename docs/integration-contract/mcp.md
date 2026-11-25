@@ -1729,6 +1729,170 @@ WebFetch. When the tools answer `unavailable` or `policy_denied`, the model is
 to tell the user what they said and stop. A session retained before #3799
 keeps its earlier append. No wire shape changes.
 
+## Host Gmail tools (additive, 0.46.0, #4207)
+
+A hosted turn reaches the owner's Gmail through six fixed host tools, declared
+with the strict input schemas of `@schlessera/brain-common`'s Google catalog
+and typed payloads in `@schlessera/brain-ui-sdk/tool-contracts` (`google.ts`).
+Both first-party backends attach all six to their UI bridge in the catalog's
+order, after the GitHub tools: Claude names them `mcp__brain-ui__<name>` and
+loads them eagerly; pi attaches plain names. They are in every interactive
+session's fixed roster (typed, voice and no-grant-surface) whether or not the
+brain's policy enables Google, and auto-allowed by both backends' default
+permission lists wherever the turn has a host handler: the host decides every
+call, posture included. (A pi embedder that passes its own `allowedTools`
+list decides its own cards, as for every other host tool.) Restricted and
+governed autonomous rosters do not include them. The four write tools are
+declared with their final names, descriptions and schemas and answer
+`unavailable` until the write engine lands (#4211), so the roster does not
+change again for Gmail.
+
+| Tool | Input | Registered |
+|---|---|---|
+| `brain_google_gmail_search` | `query` (one line, 1–500 characters, Gmail search syntax), `view?` (`structured` or `content`, default `content`), `limit?` (1–25, default 10), `cursor?` (a `next_cursor` this conversation was given) | 0.46.0 (#4207) |
+| `brain_google_gmail_read` | `target` (`thread`, `message`, `draft` or `labels`), `id` (the thread, message or draft id; absent for `labels`), `view?` | 0.46.0 (#4207) |
+| `brain_google_gmail_modify` | exactly one of `message_ids` and `thread_ids` (1–25 each), `add_label_ids?`, `remove_label_ids?` (label ids, never names) | 0.46.0 (#4207); answers `unavailable` until #4211 |
+| `brain_google_gmail_trash` | exactly one of `message_ids` and `thread_ids` | 0.46.0 (#4207); answers `unavailable` until #4211 |
+| `brain_google_gmail_draft` | `action` (`create`, `reply`, `update`, `delete`) and that action's fields: `to`, `cc`, `bcc`, `subject`, `body`, `draft_id`, `message_id`, `reply_all`, `quote_message_id` | 0.46.0 (#4207); answers `unavailable` until #4211 |
+| `brain_google_gmail_send` | `draft_id` | 0.46.0 (#4207); answers `unavailable` until #4211 |
+
+Inputs are strict objects; ids are checked against the shapes Gmail mints, and
+no field names an account, credential, endpoint, principal or session. Each
+result is one JSON document, `{ ok: true, tool, result }` or
+`{ ok: false, tool, error: { code, reason, message } }` (a tool error).
+`code` is one of the catalog's `GOOGLE_ERROR_CODES`: `invalid_input`,
+`unavailable`, `policy_denied`, `approval_declined`, `not_found`, `forbidden`,
+`rate_limited`, `upstream_error`, `draft_not_displayable`, `draft_locked`,
+`recording_unavailable`, `transport_incompatible` or `outcome_unknown`.
+`reason` is the decision function's cause (`not_owner`, `no_principal`,
+`not_enabled`, `policy_invalid`, `no_account`, `service_not_enabled`,
+`class_denied`, `operation_denied`, `recipient_restricted`,
+`recipient_unproven`, …); a reason the host's credential gives for its
+configuration and home (`home_unset`, `keyring_password_unset`,
+`gog_path_unset`, `account_unset`, `account_invalid`, `home_overlaps_brain`
+and the other `home_*` reasons), with code `unavailable`; the transport's
+coded reason (`auth_required` or `config` with `unavailable` for an account
+the home holds no usable token for; `binary_missing`, `hash_not_pinned`,
+`version_mismatch` and the other pin reasons, `spawn_failed`, `usage` or
+`unexpected_shape` with `transport_incompatible`; `timeout` or `retryable`
+with `upstream_error`); or one of the host's own: `writes_unavailable` (a
+write tool before #4211), `no_host` (no host handler in this turn), `schema`
+(the input did not parse; the toolkit handler's message names the schema's
+field and the rule, never a value or an unknown key the call supplied; a
+backend runtime that validates the registered schema first answers in its own
+format), `cursor` (a cursor this
+conversation's search for this query did not return, or one that expired) and
+`recording_unavailable` (below). A hidden thread answers exactly as a missing one does: `not_found`,
+`reason: null`, `message: "No such Gmail thread, message or draft was found."`.
+
+**Deciding a call.** The host decides every read with the pure decision
+function in common, under the turn's frozen governance policy
+([`google` block](../supported-inputs.md#governance-policy)), before anything
+reaches Google:
+
+1. The caller is the brain's owner: the turn's principal, with current
+   authority, is the owner account as the account partition names it, an
+   owner login or, where the auth mode makes it the owner (no auth,
+   Tailscale), the ambient principal. A proxy's upstream user, a delegated
+   agent or a system principal is refused `policy_denied` (`not_owner`), and a
+   missing, revoked or expired principal `policy_denied` (`no_principal`).
+2. Google is enabled: a turn under no policy, or a policy without an enabled
+   `google` block naming an account and listing `gmail`, is `unavailable`.
+   `google.modes.read: deny` and a `deny` override refuse `policy_denied`.
+3. Routing (G2): a read or search sends Google text the model chose, so it is
+   checked as the provider-policy recipient `google` under the turn's policy
+   and the conversation's recorded exposures, by the rules the GitHub reads
+   use: `policy_denied` with `recipient_restricted` or `recipient_unproven`.
+4. A call refused at one of these steps sends Google nothing, returns no
+   text and taints nothing. A refusal after the read (a hidden target, an
+   answer the transport does not read, an unrecorded taint) returns no text
+   either.
+
+A read needs no approval, so a voice turn reads as a typed one does.
+
+**Views.** `structured` carries only host-validated typed values: Gmail-minted
+thread, message and draft ids, label ids from the closed system list or
+`Label_<n>`, the owner's label names (escaped, ruling 5; only where the
+policy admits `gmail.labels.list`, since they come from that list, else
+`null`), RFC 3339
+timestamps, counts, size buckets (`under_10kb`, `under_100kb`, `under_1mb`,
+`1mb_or_more`), unread, starred and attachment flags, and host cursors. A
+value that fails its validator is dropped. `content` adds, under one
+`untrusted` key per message or hit, what a third party wrote: from, to, cc,
+bcc, reply-to, subject, the Date header, the snippet, the text body (32,768
+characters per message and 131,072 per thread, counted in UTF-16 code units,
+with `body_truncated` and
+`body_length`) and attachment metadata. Their JSON Schema carries
+`untrusted: true`; it is data, never instructions. The label list is always
+structured, whatever the view.
+
+**Payloads** (`GOOGLE_RESULT_SCHEMAS`). A search returns `kind: "search"`,
+`view`, `threads` (at most 25: `thread_id`, `message_count`, `labels`,
+`latest_internal_date`, `size_bucket`, `unread`, `starred`,
+`has_attachment`, and in `content` the newest message's untrusted from, to,
+cc, subject and snippet), `next_cursor` and `result_size_estimate`. A read
+returns `kind: "thread"` (`thread_id`, `message_count`, `messages`),
+`"message"` (`message`), `"draft"` (`draft_id`, `message` or null) or
+`"labels"` (`labels`: `id`, `name`, `type`, message and thread totals and
+unread counts). Each message has `message_id`, `thread_id`, `labels`
+(`{ id, name }`), `internal_date`, `size_bucket`, `unread`, `starred`,
+`has_attachment` and `attachment_count`, and in `content` its `untrusted`
+fields. The write tools have no success payload yet.
+
+**Hidden labels.** `google.gmail.hidden_labels` is enforced on results, never
+on the query. A search drops every hit whose thread has a message carrying a
+hidden label; a thread, message or draft read of such a thread answers
+`not_found` as above (a message or draft read under a non-empty list also
+reads its thread to see every message's labels); and the label list leaves the
+hidden labels out. While any label is hidden, a thread, message or draft
+whose labels could not be established reads as a miss too: a fetch that
+failed in a way that may be the target's own (a timeout, a refusal from
+Google, an answer too large or in a shape the codec refuses), an answer for
+another id, a draft with no message, or a thread that could not be read
+(`isTargetIndependentGogFailure` in common, the rule `brain google` uses).
+A failed fetch of the target itself keeps its code only when the failure says
+nothing about the target (the account unavailable or rate limited, the input
+or the binary refused); a failed read of its thread is always a miss. Pagination is Google's: a page is filtered
+after it is read, so a page can come back shorter than `limit`, or empty, with
+a `next_cursor`.
+
+**Cursors.** `next_cursor` is minted by the host (`gc_` and 24 base64url
+characters) and maps, on the host only, to Google's page token: the token
+never reaches the model. A cursor is bound to the conversation and the query
+that produced it and kept in memory for at most 30 minutes; the host keeps at
+most 512, dropping the oldest first, and forgets them at a restart.
+
+**Provenance.** Before a `content` result returns, the host records the
+session's taint with the new source `google_result`
+([governance events](../http-api.md)); if that record cannot be written, the
+result is withheld (`recording_unavailable`). A `structured` result records no
+safety occurrence: the call's result discharges its collector obligation with
+nothing to record, and the session's safety projection stays as it was.
+
+**Credential and host.** The host runs the pinned gog binary as the account
+alias the policy names, from its own credential home
+(`BRAIN_UI_GOOGLE_HOME`, [supported inputs](../supported-inputs.md)); no
+worker, maintenance or subprocess environment receives the home, the keyring
+password or any `GOG_*` name. A home, binary or account the host cannot use
+answers `unavailable` or `transport_incompatible` with its reason; it never
+stops the host.
+
+**Audit.** Every call the host decides, returned or refused, records one governance event
+`google_call` ([governance events](../http-api.md)) with the tool, the
+operation, the view of a returned result, the outcome and a refusal's code and
+reason. It holds nothing Google returned, is never safety evidence, and a
+failure to record it changes no answer. A call the backend runtime or the
+toolkit handler refuses for its input never reaches the host and records
+none.
+
+Both backends' fixed system brief, the append each interactive session retains
+once, gains one line: Gmail goes through these tools, under the backend's
+visible names; `gog`, `curl` and WebFetch cannot act as the user on Google;
+the `structured` view keeps a session untainted; and when the tools answer
+`unavailable` or `policy_denied`, the model is to tell the user and stop. A
+session retained before #4207 keeps its earlier append byte for byte, and
+lists the six tools from its next turn.
+
 ## Host-owned web tools (additive, 0.45.0, #3685)
 
 The pi backend's ordinary governed and strict interactive sessions list four

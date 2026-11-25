@@ -31,6 +31,8 @@ const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness", "immutable"];
 const COMPUTE_STATES = ["running", "running", "succeeded"] as const;
 /** Scenarios whose every turn calls a host bridge tool. */
 const TOOL_SCENARIOS = [...REFERENCE_SCENARIOS, "compute"];
+/** #4207: the brief a session retained before the host Gmail tools existed; it names no Gmail tool. */
+const RETAINED_BRIEF = "Retained brief from before the host Gmail tools: GitHub goes through the host tools.";
 let scenario = "";
 let brain = "";
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -63,7 +65,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety", "retained"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
@@ -77,7 +79,9 @@ try {
       const controller = new AbortController();
       const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", ...(scenario === "promotion" ? {} : { areas: [] }) });
       const view = createFixtureWorkerStartupView(brain);
-      const turn = createClaudeSdkTurn({ backend: { brainPath: brain, ...(scenario === "safety" ? { systemPromptAppend: turnIndex === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal." } : {}) }, req: {
+      // #4207: `retained` opens its session under a brief from before the Gmail tools, then resumes under the current one.
+      const turn = createClaudeSdkTurn({ backend: { brainPath: brain, ...(scenario === "safety" ? { systemPromptAppend: turnIndex === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal." }
+        : scenario === "retained" && turnIndex === 0 ? { systemPromptAppend: RETAINED_BRIEF } : {}) }, req: {
         prompt: `Odysseus checks voyage step ${turnIndex}.`, sessionId, signal: controller.signal, turnId: `odysseus-${turnIndex}`,
         workerStartupView: view, workerSandbox: { ...sandbox, ...(scenario === "safety" ? { commandPolicy: { hash: null, deny: [], confirm: [], outwardAllow: [],
             taint: () => turnIndex === 2 ? null : { eventId: 7, source: "web_fetch" } } } : {}), noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
