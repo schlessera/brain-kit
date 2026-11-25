@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import * as historyWrites from "./history-writes.js";
-import { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type Pending, type StorageWriteReport } from "./history-data.js";
+import { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type OwnerEvidence, type Pending, type StorageWriteReport } from "./history-data.js";
+import { STORAGE_EVENT_EVIDENCE_LIMIT } from "./events.js";
 import { HISTORY_LIMITS, jsonBytes, validateHistory, type Aggregate } from "./history-model.js";
 export { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type HistoryState, type StoredHistory, type StorageWriteReport } from "./history-data.js";
 
@@ -11,6 +12,10 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
   let pending: Pending | null = null, unavailable: string | null = null, closed = false;
   let pendingWrites: StorageWriteReport[] = [], interrupted = false, ownerOverflow = false;
   let inFlight: Promise<boolean> | null = null, flushAgain = false;
+  // Every accepted owner report since the last committed write, uncoalesced and
+  // bounded, for the event timeline only (#4541). Overflow drops evidence and
+  // pauses the kinds it times; pressure state uses the coalesced reports.
+  let evidence: OwnerEvidence[] = [], evidenceDropped = false, droppedVersion = 0;
   // New failures arriving during a commit must survive that commit's result.
   let interruptionVersion = 0, overflowVersion = 0;
   const procedures = options.writer ? null : historyWrites.setup(db, { brain, initial });
@@ -44,10 +49,14 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
     const candidate = pending, writes = pendingWrites, time = now();
     const at = Math.max(candidate ? candidate.kind === "aggregate" ? candidate.value.at : candidate.at : 0, ...writes.map(row => row.at));
     const interruption = interruptionVersion, overflow = overflowVersion;
-    const input = { candidate, writes, time, at, interrupted, ownerOverflow };
+    const raw = evidence, dropped = droppedVersion;
+    const input = { candidate, writes, time, at, interrupted, ownerOverflow, evidence: raw, evidenceDropped };
     const apply = (changed: boolean) => {
       if (changed) {
         if (pending === candidate) pending = null;
+        // The committed evidence is a prefix; reports appended meanwhile wait.
+        evidence = evidence.slice(raw.length);
+        if (droppedVersion === dropped) evidenceDropped = false;
         // Overflow raised during this commit still needs these buffered reports
         // to carry its evidence-loss marker into the next bounded write.
         if (pendingWrites === writes && overflowVersion === overflow) pendingWrites = [];
@@ -94,7 +103,10 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
       if (jsonBytes(next) > HISTORY_LIMITS.metadataBytes) {
         ownerOverflow = true; overflowVersion++; interrupted = true; interruptionVersion++; unavailable = "history-owner-evidence-budget"; return;
       }
-      pendingWrites = next; flush();
+      pendingWrites = next;
+      if (evidence.length >= STORAGE_EVENT_EVIDENCE_LIMIT) { evidenceDropped = true; droppedVersion++; }
+      else evidence = [...evidence, { identity: report.identity, target: report.target, resource: report.resource, at: report.at, outcome: report.outcome }];
+      flush();
     },
     status() {
       const history = read();
@@ -104,7 +116,7 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
     },
     /** Settles once no flush is committing: a read of the history then sees every one submitted before it. */
     async settled() { while (inFlight) await inFlight; },
-    close() { closed = true; pending = null; pendingWrites = []; },
+    close() { closed = true; pending = null; pendingWrites = []; evidence = []; },
   };
 }
 export type StorageHistory = ReturnType<typeof createStorageHistory>;

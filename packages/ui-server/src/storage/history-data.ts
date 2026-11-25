@@ -16,6 +16,11 @@ export interface HistoryState {
 export type StoredHistory = HistoryPayload<HistoryState>;
 export type Pending = { kind: "aggregate"; value: Aggregate } | { kind: "failure"; at: number };
 export interface StorageWriteReport { identity: string; rootScope: string; target: string; resource: Refusal["resource"]; at: number; outcome: "no-space" | "success" }
+/**
+ * One accepted owner report, kept uncoalesced for the event timeline only
+ * (#4541). Pressure state never reads it.
+ */
+export type OwnerEvidence = Pick<StorageWriteReport, "identity" | "target" | "resource" | "at" | "outcome">;
 export const storageBrainKey = (brainPath: string) => hashScope(realpathSync(brainPath));
 export function emptyHistory(): StoredHistory {
   return { metadata: { samples: {}, capacities: {}, state: { version: 1, salt: randomBytes(32).toString("hex"), lastPersistedAt: 0, lastObservedAt: 0, lastAttemptBucket: null, paused: null, pressures: [], suppressedEpisodes: [], scopeLimit: false } }, samples: [] };

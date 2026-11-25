@@ -30,6 +30,7 @@ const unavailableSafetyReview: NonNullable<Check["verify"]> = async (response, t
 const checks: Record<string, Check> = {
   "GET /api/storage/history": { body: { version: 1, state: "available", observations: [] } },
   "GET /api/storage/guidance": { body: { version: 1, state: "unknown", severity: null, capacities: [] } },
+  "GET /api/storage/events": { body: { version: 1, since: 0, next: 0, events: [] } },
   "GET /api/storage/removals": { verify: async r => { const value = await r.json(); expect(value).toHaveProperty("available"); expect(value.limits.items).toBe(32); } },
   "POST /api/storage/removals/inspection": { init: json("POST", {paths: []}), status: 400, body: {error:"Select bounded attachment paths for inspection."} },
   "POST /api/storage/removals/reviews": { init: json("POST", { id: "odysseus-mounted-review", paths: [] }), status: 400, body: {error:"Select bounded attachment paths and a new review identity."} },
