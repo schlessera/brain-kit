@@ -553,6 +553,13 @@ chart, and with more than one volume the section says they are never added
 together. Tool rows reflow inside `ToolList`. No element sums capacities,
 draws a gap as zero or prints an unknown as `0`.
 
+**Free up space** lists a tool when its operation's scope categories overlap
+the stores on the selected volume or on any Low or Very low volume. A tool
+with a run in progress stays listed. Without inventory, or for a volume whose
+stores are unknown, every tool stays listed: an unknown never hides a tool.
+When none applies, one line says so: "No owner-supported tool frees space on
+{volume}."
+
 The status line's glyph carries its state: `●` complete, `◑` partial (`≥`
 entries, stores not measured), `◷` out of date (from `staleAfter`), `◐`
 measuring (with Cancel in place of Measure again), `○` not measured yet (with
