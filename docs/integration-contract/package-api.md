@@ -5102,7 +5102,9 @@ ownership is tint, edge and label with no hatching (#4537 D8). Brain tiles
 draw a solid edge, App an inner dotted edge, Operator a dashed edge, and the
 `smaller` aggregate a neutral outline whatever its `owner`. Tiles of at least
 62 × 40 prefix their name with the owner's letter (`B ·`, `A ·`, `O ·`) at
-any width, and the legend decodes the letters. It adds optional
+any width, and the legend decodes the letters. Neighbouring tiles are
+separated by a 2px gutter, with areas proportional before the trim and the
+label and target sizes measured on the drawn tile. It adds optional
 `highlightedId`, `onHighlight(id | null)` and `muted`. A tile's accessible
 name uses the owner word, and the aggregate's ends in "Open list.".
 
