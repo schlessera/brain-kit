@@ -1223,6 +1223,14 @@ describe("google", () => {
       "auth", "remove", "--", ADDRESS]);
   });
 
+  test("google connect refuses a grant that lacks a scope it asked for, and names no alias", async () => {
+    fake.setScenario({ "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY) });
+    const res = await google(["connect", ADDRESS, "--write"]);
+    expect(res.code).toBe(1);
+    expect(JSON.parse(res.stdout)).toMatchObject({ ok: false, operation: "connect", error: { code: "unavailable", reason: "scopes_missing" } });
+    expect(fake.calls().map(call => call.command)).toEqual(["auth.add", "auth.list"]);
+  });
+
   test("google connect selects the home: BRAIN_UI_GOOGLE_HOME on a host, BRAIN_GOOGLE_HOME, else $XDG_DATA_HOME/brain/google", async () => {
     const scenario = { "auth.add": { stdout: { stored: true } }, "auth.list": accounts(GRANT_READONLY), "auth.alias.set": { stdout: {} } };
     fake.setScenario(scenario);
