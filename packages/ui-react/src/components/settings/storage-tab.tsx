@@ -86,6 +86,10 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
     );
     return () => clearTimeout(timer);
   }, [view.snapshot]);
+  // The chart's now and the status line's age follow the evidence: a
+  // measurement received after opening is the current point, never a future
+  // one that would suppress its scenario lines.
+  useEffect(() => setNow(Date.now()), [guidance.guidance, guidance.history, view.status]);
   const refreshGuidance = guidance.refresh;
   const observed = Math.max(view.status?.snapshot?.observedAt ?? 0, view.status?.previous?.observedAt ?? 0, view.status?.lastFailure?.at ?? 0);
   useEffect(() => { if (observed) void refreshGuidance(); }, [observed, refreshGuidance]);
