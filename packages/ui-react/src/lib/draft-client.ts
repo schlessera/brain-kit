@@ -138,7 +138,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     // and the host refuses an empty one. It waits for content or a file
     // chosen again; what the host still holds of it (older text, deleted
     // snapshots) is deleted there.
-    if (!saveable(d)) return d.host !== null && !held(d.draftId);
+    if (!saveable(d)) return (d.host !== null || d.uncertain) && !held(d.draftId);
     return d.host === null || d.host.edit !== d.edit;
   }
 
@@ -301,7 +301,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       failed(d.draftId, result, d.edit);
       return;
     }
-    if (!hasContent(d) && !holdsSnapshots(d) && !d.host && d.uncertain) {
+    if (((!hasContent(d) && !holdsSnapshots(d)) || !saveable(d)) && !d.host && d.uncertain) {
       // Emptied after a save that got no answer: ask what the host holds,
       // and delete what it stored, rather than let a refresh bring it back.
       const read = await api.get(d.draftId);
@@ -328,6 +328,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!current()) return;
       if (result.ok) { bumpHost(d.draftId); failures.delete(d.draftId); drafts.getState().removed(d.draftId); retryFull(); return; }
       if (result.status === 410 || result.status === 404) { bumpHost(d.draftId); drafts.getState().removed(d.draftId); return; }
+      // The host still holds a waiting message of this draft: deleting is refused until it is settled, so it is not asked again.
+      if (result.status === 409 && result.body.error === "DRAFT_OUTGOING_PENDING") { refuse(d.draftId, d.edit, result.body); return; }
       // The edit this delete was for: one typed since is not refused by its answer.
       failed(d.draftId, result, d.edit);
       return;

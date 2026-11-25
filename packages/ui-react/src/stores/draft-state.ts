@@ -586,9 +586,11 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     }
 
     /** The content under a new id (attachments upload again), the old id left to delete. */
-    function rotate(d: ComposerDraft, sessionId: string | null): string {
+    /** `snapshots`: carry the draft's snapshots too (ones the old id's host copy never held). */
+    function rotate(d: ComposerDraft, sessionId: string | null, snapshots = false): string {
       // Originals keep their lineage: the new id cannot bind them, so they read as needing to be chosen again.
-      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, files: d.files, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly, deviceConflict: d.deviceConflict };
+      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, files: d.files, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly, deviceConflict: d.deviceConflict,
+        ...(snapshots && d.snapshots?.length ? { snapshots: d.snapshots } : {}) };
       successors.set(d.draftId, next.draftId);
       origins.set(next.draftId, origins.get(d.draftId) ?? d.draftId);
       set((state) => {
@@ -843,7 +845,10 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // tombstone, files and all) is not a version to open over the link.
         const here = get().drafts[draftId];
         const present = !!here && (here.text.length > 0 || here.attachments.length > 0 || holdsSnapshots(here));
-        if (kept) get().adoptDeviceRecord(kept);
+        // The device's record of an id a rotation moved, with no text or images, is its tombstone: not adopted
+        // (it would be saved, refused as deleted and rotated again over the link).
+        const tombstone = !!kept && !present && successors.has(draftId) && kept.text.length === 0 && kept.attachments.length === 0;
+        if (kept && !tombstone) get().adoptDeviceRecord(kept);
         if (present) successors.delete(draftId);
         for (const [source, target] of deviceRedirects) if (source === draftId || target === draftId) deviceRedirects.delete(source);
         for (const [session, branch] of deviceViews) if (branch === draftId || get().drafts[resolve(branch)]?.deviceConflict?.otherId === draftId) deviceViews.delete(session);
@@ -1125,7 +1130,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       removed(draftId) {
         const d = get().drafts[draftId];
         if (!d) return;
-        if (!hasContent(d)) {
+        // A Send made while the delete was out holds a snapshot the host never saw (#4567): it goes with the content.
+        const carried = draftSnapshots(d).length > 0;
+        if (!hasContent(d) && !carried) {
           if (held(draftId)) put({ ...d, host: null, uploads: new Map(), savingSince: null });
           else if (d.deviceConflict) rotate({ ...d, host: null, uploads: new Map(), savingSince: null }, d.sessionId);
           else drop(draftId);
@@ -1134,7 +1141,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // Typed again while the delete was out: the id is a tombstone now,
         // so the new words move to a new id of the same session.
         put({ ...d, host: null, uploads: new Map(), savingSince: null });
-        rotate(get().drafts[draftId]!, d.sessionId);
+        rotate(get().drafts[draftId]!, d.sessionId, carried);
       },
 
       hostGone(draftId) {
