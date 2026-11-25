@@ -6301,8 +6301,10 @@ recorder’s loss changes the safety context and refuses with 403 safety_changed
 When an independent evidence reservation is the only recording block, the
 proxy, managed references, inference and paid-provider relays, and Claude and
 Pi tool admissions wait up to two seconds and check the settled evidence and
-current authority before proceeding. A
-reservation still pending at the deadline retains the stale-safety refusal. The internal optional
+current authority before proceeding. The paid-provider host checks recording
+both before and after budget admission. Managed acquisition checks it at entry,
+after metadata and Git waits, and before publishing the result. A reservation
+still pending at the deadline retains the stale-safety refusal. The internal optional
 AdmissionSafetySnapshot.operationRecordingAvailable distinguishes the two;
 legacy snapshots without that detail retain conservative unavailable behavior.
 

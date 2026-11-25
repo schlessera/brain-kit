@@ -10,6 +10,8 @@ import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
 import { openSqliteWriter } from "../src/db/write-worker";
 import { createGovernanceWrites } from "../src/governance/event-writes";
+import { createEffectiveSafety } from "../src/governance/effective-safety";
+import { holdSiblingEvidence } from "./helpers/pending-sibling-evidence";
 import { createSafetyCollector } from "../src/governance/safety-collector";
 import { safetyCatalogCreated, safetyRecords } from "../src/governance/safety-store";
 import { createStaticBackendRegistry } from "../src/agent/backend";
@@ -46,16 +48,25 @@ function providerRequest(socketPath: string, origin: string): Promise<{ status: 
   });
 }
 
-for (const mode of ["healthy", "own-turn-recording-loss", "other-chat-recording-loss", "cancelled"] as const) {
-  test(`final provider admission rechecks ${mode} after the budget wait`, async () => {
+for (const mode of ["healthy", "own-turn-recording-loss", "other-chat-recording-loss", "cancelled", "sibling before budget", "sibling during budget", "effective recorder loss", "sibling timeout"] as const) {
+  test(`host provider admission rechecks recording and budget: ${mode}`, async () => {
     const f = fixture(), controller = new AbortController();
     let requests = 0, admissions = 0;
     const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { requests++; return Response.json({ content: [] }); } });
     const waiting = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
     const saved = Object.getOwnPropertyDescriptor(process.env, "ODYSSEUS_RELAY_KEY");
     process.env.ODYSSEUS_RELAY_KEY = "odysseus-offline-only-key";
+    const bindingId = crypto.randomUUID(), observed = Promise.withResolvers<void>();
+    const writes = { ...f.writes, recordingAvailable(...args: Parameters<typeof f.writes.recordingAvailable>) {
+      const available = f.writes.recordingAvailable(...args);
+      if (!available) observed.resolve();
+      return available;
+    } };
+    const safety = createEffectiveSafety(f.db, { turnId: "requesting-turn", sessionId: () => null, policyHash: null,
+      writes, authority: () => ({ current: true, epoch: "1" }) });
+    let settle: (() => Promise<void>) | undefined;
     const run = {
-      host: { activity: { governanceDb: f.db, governanceWrites: f.writes },
+      host: { activity: { governanceDb: f.db, governanceWrites: writes },
         cliProviderOrigins: new Map([["ODYSSEUS_RELAY_KEY", [upstream.url.origin]]]),
         budgets: { async providerAdmission() {
           // The relay calls admission before upload and again immediately before fetch.
@@ -69,13 +80,20 @@ for (const mode of ["healthy", "own-turn-recording-loss", "other-chat-recording-
     const budget = { write(pending: Promise<unknown>) { void pending; } } as TurnBudget;
     try {
       for (const turnId of ["requesting-turn", "other-turn"]) {
-        await f.writes.safetyBegin({ turnId, bindingId: crypto.randomUUID(), sessionId: null, principalId: "odysseus", backendId: "claude", at: 0 });
+        await f.writes.safetyBegin({ turnId, bindingId: turnId === "requesting-turn" ? bindingId : crypto.randomUUID(), sessionId: null, principalId: "odysseus", backendId: "claude", at: 0 });
         await f.writes.safetyReady(turnId, "claude", 1);
       }
-      await prepareRelayedEgress(run, { emit() {}, requestPermission: async () => ({ behavior: "allow" }) }, budget);
+      const sibling = mode.startsWith("sibling");
+      await prepareRelayedEgress(run, { ...(sibling || mode === "effective recorder loss" ? { admissionSafety: safety } : {}), emit() {}, requestPermission: async () => ({ behavior: "allow" }) }, budget);
+      if (mode === "sibling before budget") settle = await holdSiblingEvidence(f.writer, f.writes, "requesting-turn", bindingId);
       const response = providerRequest(run.held.providerRelay!.socketPath, upstream.url.origin);
-      await waiting.promise;
-      if (mode === "own-turn-recording-loss") {
+      if (mode === "sibling before budget") {
+        await Promise.race([observed.promise, response]);
+        expect(requests).toBe(0);
+        await settle!();
+      }
+      await Promise.race([waiting.promise, response]);
+      if (mode === "own-turn-recording-loss" || mode === "effective recorder loss") {
         // The loss notice lands during the wait, leaving this turn's signal live.
         await f.writes.safetyFail("requesting-turn");
         expect(controller.signal.aborted, "SAFETY_LOSS_LEAVES_REQUEST_SIGNAL_LIVE").toBe(false);
@@ -85,15 +103,28 @@ for (const mode of ["healthy", "own-turn-recording-loss", "other-chat-recording-
         await f.writes.safetyFail("other-turn");
         expect(f.writes.recordingAvailable("requesting-turn", null), "SAFETY_OTHER_CHAT_LOSS_LEAVES_THIS_TURN").toBe(true);
       } else if (mode === "cancelled") controller.abort();
+      if (mode === "sibling during budget" || mode === "sibling timeout") settle = await holdSiblingEvidence(f.writer, f.writes, "requesting-turn", bindingId);
       release.resolve();
+      if (mode === "sibling during budget") {
+        await Promise.race([observed.promise, response]);
+        expect(requests).toBe(0);
+        await settle!();
+      }
       const result = await response;
+      if (mode === "sibling timeout" || mode === "effective recorder loss") {
+        expect(result.status).toBe(mode === "sibling timeout" ? 403 : 503);
+        expect(JSON.parse(result.body).error.reason).toBe(mode === "sibling timeout" ? "safety_changed" : "egress_unavailable");
+        expect(requests).toBe(0);
+        return;
+      }
+      if (sibling) expect(result.status, "SETTLED_SIBLING_AT_HOST_PROVIDER_GATE").toBe(200);
       expect(admissions, "SAFETY_TEST_REACHES_FINAL_BUDGET_WAIT").toBe(2);
-      const passes = mode === "healthy" || mode === "other-chat-recording-loss";
+      const passes = sibling || mode === "healthy" || mode === "other-chat-recording-loss";
       expect(requests, "SAFETY_LOSS_DURING_FINAL_WAIT_NEVER_REACHES_UPSTREAM").toBe(passes ? 1 : 0);
       expect(result.status).toBe(passes ? 200 : 403);
       if (!passes) expect(result.body).toContain("Input recording is unavailable");
     } finally {
-      release.resolve();
+      release.resolve(); await settle?.();
       await run.held.providerRelay?.stop();
       run.held.turnEgress?.stop();
       await run.held.turnEgress?.settled();

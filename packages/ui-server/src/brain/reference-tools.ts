@@ -133,7 +133,7 @@ export function createReferenceTools(options: {
     attachEgress(turnId: string, principalId: string, input: Omit<ReferenceAcquisitionContext, "turnId">): void {
       const access = turns.get(turnId);
       if (!access || access.principalId !== principalId || access.acquisition) throw new ReferenceSourceError("unavailable", "Reference turn egress cannot be attached.");
-      access.acquisition = { turnId, egress: input.egress, current: () => current(turnId, access) && input.current() };
+      access.acquisition = { turnId, egress: input.egress, pendingRecording: input.pendingRecording, current: () => current(turnId, access) && input.current() };
     },
     /**
      * Record one turn's reference access before its workers start. Opens the

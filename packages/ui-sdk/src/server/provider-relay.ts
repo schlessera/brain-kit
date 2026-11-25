@@ -204,6 +204,8 @@ export interface ProviderRelayRefusal {
     | "upload_url_rejected";
 }
 
+type ProviderAdmission = { allowed: true } | { allowed: false; message: string; cause?: "egress_unavailable" | "safety_changed" };
+
 export interface ProviderRelayOptions {
   /** Exact recipients the operator added: key variable → origins (`BRAIN_UI_CLI_PROVIDER_ORIGINS`). */
   origins?: ReadonlyMap<string, readonly string[]>;
@@ -212,10 +214,9 @@ export interface ProviderRelayOptions {
   /** The concrete turn proxy: share its destination admission, byte ceiling and connection records. */
   egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "relayed"> & Partial<Pick<Awaited<ReturnType<typeof startEgressProxy>>, "remainingBytes">>;
   /**
-   * Called before each dispatch, and awaited. A refusal is answered with
-   * `budget_exceeded` and nothing is sent.
+   * Called before dispatch. Host recording refusals keep their egress cause.
    */
-  admit?(): { allowed: true } | { allowed: false; message: string } | Promise<{ allowed: true } | { allowed: false; message: string }>;
+  admit?(): ProviderAdmission | Promise<ProviderAdmission>;
   /** One receipt per dispatched attempt. A throw is reported through `failed`, never to the worker. */
   observe?(receipt: ProviderRelayReceipt): void;
   preparing?(attempt: Omit<ProviderRelayReceipt,"outcome">):void;
@@ -434,8 +435,11 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     }
     // Polling is free and deletion is cleanup: neither waits on a budget.
     const budgeted = files?.step !== "poll" && files?.step !== "delete";
+    const admissionRefused = (decision: Extract<ProviderAdmission, { allowed: false }>) => decision.cause
+      ? refuse(decision.cause === "egress_unavailable" ? 503 : 403, "egress_refused", decision.message, { cause: decision.cause, message: decision.message })
+      : refuse(403, "budget_exceeded", decision.message);
     const budget = budgeted ? await options.admit?.() ?? { allowed: true as const } : { allowed: true as const };
-    if (!budget.allowed) return refuse(403, "budget_exceeded", budget.message);
+    if (!budget.allowed) return admissionRefused(budget);
     const operation = options.egress?.relayed(request.method, target, request.signal);
     const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
     const allowance=relayAllowance(operation,options.egress?.remainingBytes?.bind(options.egress),MAX_PROVIDER_REQUEST_BYTES);
@@ -522,8 +526,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     // Admission again, after every wait: a scope may have blocked meanwhile.
     const now = budgeted ? await options.admit?.() ?? { allowed: true as const } : { allowed: true as const };
     if (!now.allowed) {
-      operation?.finish("denied", "budget_exceeded");
-      return refuse(403, "budget_exceeded", now.message);
+      operation?.finish("denied", now.cause ?? "budget_exceeded");
+      return admissionRefused(now);
     }
     for (const pending of operation?.pendingRecording?.() ?? []) await pending;
     const dispatchDecision = operation?.prepare();

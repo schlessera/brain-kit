@@ -22,6 +22,7 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
   maxBytes: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  pendingRecording?(signal?: AbortSignal): Iterable<Promise<void>>;
   /** Host reads live principal/grant/recipient state, including after async waits. */
   authorize(recipient: Recipient, credentialed: boolean): void;
   /** Lowest transport test seams; production uses fixed public DNS/TCP and system TLS trust. */
@@ -53,6 +54,10 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       const error = new ReferenceTransportError("denied", "reference authority is no longer available"); fail(error); throw error;
     }
   };
+  function* settledAuthority(recipient: Recipient, credentialed: boolean) {
+    yield* options.pendingRecording?.(controller.signal) ?? [];
+    check(recipient, credentialed);
+  }
   const track = <T extends Duplex>(socket: T): T => {
     sockets.add(socket); socket.on("error", () => {}); socket.once("close", () => sockets.delete(socket)); return socket;
   };
@@ -85,7 +90,7 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       if (!recipient || !capability) {
         client.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); return;
       }
-      check(recipient, capability.credentialed);
+      for (const pending of settledAuthority(recipient, capability.credentialed)) await pending;
       const target = new URL(recipient === "git" ? repository!.canonical : resource.metadataUrl);
       const operation = options.egress.managedReference(target, controller.signal); operations.add(operation);
       let upstream: Socket | undefined, piping = false;
@@ -210,7 +215,7 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
     failure: () => failure,
     /** Fixed GET only; no redirect, worker header/body, arbitrary API path or generic authenticated relay. */
     async metadata(token: string | null): Promise<{ status: number; value: unknown }> {
-      check("metadata", token !== null);
+      for (const pending of settledAuthority("metadata", token !== null)) await pending;
       const capability = capabilities.find(value => value.recipient === "metadata" && value.credentialed === (token !== null))!;
       const agent = new Agent({ keepAlive: false, maxSockets: 1 });
       agent.createConnection = (_input, callback) => {
@@ -228,8 +233,11 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
           if (response.statusCode !== 200 || head.length) { socket.destroy(); complete(new Error("Reference metadata tunnel refused")); return; }
           const tls = connectTls({ socket, servername: "api.github.com", minVersion: "TLSv1.2", rejectUnauthorized: true, ...(options.ca ? { ca: options.ca } : {}) });
           tls.once("error", error => { if (!completed) complete(error); });
-          tls.once("secureConnect", () => {
-            try { check("metadata", token !== null); complete(null, tls); }
+          tls.once("secureConnect", async () => {
+            try {
+              for (const pending of settledAuthority("metadata", token !== null)) await pending;
+              complete(null, tls);
+            }
             catch (error) { tls.destroy(); complete(error as Error); }
           });
         });
@@ -250,16 +258,18 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
               else chunks.push(chunk);
             });
             response.once("error", reject);
-            response.once("end", () => {
+            response.once("end", async () => {
               try {
-                check("metadata", token !== null); const status = response.statusCode ?? 0;
+                for (const pending of settledAuthority("metadata", token !== null)) await pending;
+                const status = response.statusCode ?? 0;
                 resolve({ status, value: status === 200 ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null });
               } catch (error) { reject(error); }
             });
           });
           request.once("error", reject); request.end();
         });
-        check("metadata", token !== null); return result;
+        for (const pending of settledAuthority("metadata", token !== null)) await pending;
+        return result;
       } finally { agent.destroy(); }
     },
     async close() {
