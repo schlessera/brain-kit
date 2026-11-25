@@ -360,7 +360,6 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
             view={view}
             guidance={guidance.guidance}
             format={format}
-            onFindLargeFiles={snapshot && !view.filtering ? enterFind : undefined}
           />
         </div>
         <StorageAbout

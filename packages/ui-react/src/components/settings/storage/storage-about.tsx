@@ -1,6 +1,6 @@
 import { Disclosure } from "@schlessera/brain-ui-kit";
 import type { StorageGuidanceResponse, StoragePage, StorageSnapshot } from "@schlessera/brain-ui-sdk/protocol";
-import { bytes, exactBytes } from "./storage-model.js";
+import { bytes, exactBytes, humanReason } from "./storage-model.js";
 
 /**
  * "About these numbers" (#4549 brief, item 3): every caveat the old pane
@@ -39,6 +39,11 @@ export function StorageAbout({
           <p className={paragraph}>
             Partial evidence. Known subtotals are at least what was measured (≥); unknown stores are excluded from map area
             and listed as ? rows with their reason.
+            {snapshot.errors.length
+              ? ` ${snapshot.errors
+                  .map((error) => `${snapshot.roots.find((root) => root.id === error.rootId)?.label ?? "Observation"}: ${humanReason(error.reason)}`)
+                  .join("; ")}.`
+              : ""}
             {snapshot.omittedErrors > 0 ? ` ${snapshot.omittedErrors} additional errors omitted.` : ""}
           </p>
         )}
