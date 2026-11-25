@@ -1,5 +1,5 @@
 -- Bounded storage events timeline (#4541): operational evidence recorded at its
--- source. A full kind stops recording; no row is ever updated, or deleted to
+-- source. A full kind stops recording; no event is ever updated, or deleted to
 -- make room. A start's own seq is its episode, so only later steps store one.
 CREATE TABLE storage_events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,3 +24,13 @@ CREATE TABLE storage_events (
 );
 CREATE INDEX storage_events_kind ON storage_events(brain, kind, identity, seq);
 CREATE UNIQUE INDEX storage_events_receipt ON storage_events(brain, receipt, phase) WHERE receipt IS NOT NULL;
+-- The last scope each capacity was observed with, whatever its evidence quality,
+-- so scope events chain from it. Tracking only: at most 16 capacities per brain,
+-- the least recently observed forgotten first; no event is derived from a guess.
+CREATE TABLE storage_event_scopes (
+  brain TEXT NOT NULL CHECK (length(brain) = 32),
+  identity TEXT NOT NULL CHECK (length(identity) = 32),
+  root_scope TEXT NOT NULL CHECK (length(root_scope) = 32),
+  at INTEGER NOT NULL CHECK (at >= 0),
+  PRIMARY KEY (brain, identity)
+);

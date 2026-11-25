@@ -3,12 +3,12 @@ import type { Database } from "bun:sqlite";
 import { capacityEvidence } from "./history-evidence.js";
 import { newPressure, observePressure, ownerWrite } from "./pressure.js";
 import { HISTORY_LIMITS, bucket, retainAggregate, validateHistory } from "./history-model.js";
-import { readStoredHistory, stateSchema, type StoredHistory, type Pending, type StorageWriteReport } from "./history-data.js";
+import { readStoredHistory, stateSchema, type BufferedWrite, type StoredHistory, type Pending } from "./history-data.js";
 import { recordPressureChange, recordRefusalChange, recordScopeChange } from "./events.js";
 
 export const url = import.meta.url;
 export interface HistoryFlush {
-  candidate: Pending | null; writes: StorageWriteReport[]; time: number; at: number;
+  candidate: Pending | null; writes: BufferedWrite[]; time: number; at: number;
   interrupted: boolean; ownerOverflow: boolean;
 }
 export function setup(db: Database, { brain, initial }: { brain: string; initial: StoredHistory }) {
@@ -34,10 +34,7 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           const evaluation = retainAggregate({ ...structuredClone(next), samples: next.samples.filter(row => row[1] !== 0 || bucket(0, row[3]) !== bucket(0, at)) }, candidate.value);
           if (interrupted || state.paused) for (const sample of evaluation.samples) if (sample[3] === candidate.value.at) sample[2] = 1;
           const incoming = candidate.value.capacities.map(row => row.descriptor);
-          for (const [identity, rootScope] of incoming) {
-            const previous = state.pressures.find(value => value.identity === identity);
-            if (previous) recordScopeChange(db, brain, previous, rootScope, candidate.value.at);
-          }
+          for (const [identity, rootScope] of incoming) recordScopeChange(db, brain, identity, rootScope, candidate.value.at, state.pressures.find(value => value.identity === identity));
           const pressures = state.pressures.filter(value => value.severity !== "observed" || incoming.some(([identity]) => identity === value.identity))
             .map(value => value.severity === "observed" ? newPressure(value.identity, incoming.find(([identity]) => identity === value.identity)![1]) : value);
           for (const [identity, rootScope] of incoming) if (!pressures.some(value => value.identity === identity) && pressures.length < 4) pressures.push(newPressure(identity, rootScope));
@@ -72,9 +69,11 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           if (pressure.refusals.some(value => value.target === report.target && value.resource === report.resource && value.at > report.at)) continue;
           const changed = ownerWrite({ ...pressure, at: Math.min(pressure.at, report.at) }, report, time);
           changed.at = Math.max(changed.at, pressure.at);
-          // The refusal precedes the warning it starts; both carry the report's time.
-          recordRefusalChange(db, brain, pressure, changed, report);
-          recordPressureChange(db, brain, pressure, changed, report.at);
+          // The refusal precedes the warning it starts. Each keeps the time of the
+          // first refusal behind it, not the newest one the buffer kept.
+          const { firstAt, earliestAt, ...applied } = report;
+          recordRefusalChange(db, brain, pressure, changed, applied, firstAt ?? report.at);
+          recordPressureChange(db, brain, pressure, changed, earliestAt ?? firstAt ?? report.at);
           next.metadata.state.pressures[index] = changed;
         }
         if (ownerEvidenceLost) next.metadata.state.paused = "history-owner-evidence-budget";

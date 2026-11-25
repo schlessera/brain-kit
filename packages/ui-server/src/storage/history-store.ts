@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import * as historyWrites from "./history-writes.js";
-import { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type Pending, type StorageWriteReport } from "./history-data.js";
+import { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type BufferedWrite, type Pending, type StorageWriteReport } from "./history-data.js";
 import { HISTORY_LIMITS, jsonBytes, validateHistory, type Aggregate } from "./history-model.js";
 export { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type HistoryState, type StoredHistory, type StorageWriteReport } from "./history-data.js";
 
@@ -9,7 +9,7 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
   const brain = storageBrainKey(brainPath), now = options.now ?? Date.now;
   const initial = emptyHistory();
   let pending: Pending | null = null, unavailable: string | null = null, closed = false;
-  let pendingWrites: StorageWriteReport[] = [], interrupted = false, ownerOverflow = false;
+  let pendingWrites: BufferedWrite[] = [], interrupted = false, ownerOverflow = false;
   let inFlight: Promise<boolean> | null = null, flushAgain = false;
   // New failures arriving during a commit must survive that commit's result.
   let interruptionVersion = 0, overflowVersion = 0;
@@ -89,8 +89,20 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
       if (report.outcome === "success" && !pendingWrites.some(value => same(value) && value.outcome === "no-space")
         && !stored?.metadata.state.pressures.some(value => value.identity === report.identity && value.rootScope === report.rootScope
           && value.refusals.some(refusal => refusal.target === report.target && refusal.resource === report.resource))) return;
-      const next = [...pendingWrites.filter(value => !same(value) || value.at > report.at
-        || report.outcome === "success" && value.outcome === "no-space"), report];
+      const kept = (value: BufferedWrite) => !same(value) || value.at > report.at || report.outcome === "success" && value.outcome === "no-space";
+      const buffered: BufferedWrite = { identity: report.identity, rootScope: report.rootScope, target: report.target, resource: report.resource, at: report.at, outcome: report.outcome };
+      if (report.outcome === "no-space") {
+        // Coalescing keeps the newest refusal for its support time; the event
+        // timeline still needs the first one (#4541). A pending success can
+        // only follow the pending refusal it resolves, and ends that run.
+        const dropped = pendingWrites.filter(value => !kept(value)), refusal = dropped.find(value => value.outcome === "no-space");
+        if (refusal) {
+          const first = refusal.firstAt ?? refusal.at, earliest = refusal.earliestAt ?? first;
+          if (!dropped.some(value => value.outcome === "success")) buffered.firstAt = first;
+          buffered.earliestAt = earliest;
+        }
+      }
+      const next = [...pendingWrites.filter(kept), buffered];
       if (jsonBytes(next) > HISTORY_LIMITS.metadataBytes) {
         ownerOverflow = true; overflowVersion++; interrupted = true; interruptionVersion++; unavailable = "history-owner-evidence-budget"; return;
       }

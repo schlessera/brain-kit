@@ -16,6 +16,13 @@ export interface HistoryState {
 export type StoredHistory = HistoryPayload<HistoryState>;
 export type Pending = { kind: "aggregate"; value: Aggregate } | { kind: "failure"; at: number };
 export interface StorageWriteReport { identity: string; rootScope: string; target: string; resource: Refusal["resource"]; at: number; outcome: "no-space" | "success" }
+/**
+ * A report waiting for the next history flush. Coalescing keeps only the newest
+ * report per target and resource, so it carries the times the dropped ones held:
+ * `firstAt` starts its unresolved run of refusals and `earliestAt` is the
+ * earliest refusal coalesced into it, which is when a warning it causes began.
+ */
+export interface BufferedWrite extends StorageWriteReport { firstAt?: number; earliestAt?: number }
 export const storageBrainKey = (brainPath: string) => hashScope(realpathSync(brainPath));
 export function emptyHistory(): StoredHistory {
   return { metadata: { samples: {}, capacities: {}, state: { version: 1, salt: randomBytes(32).toString("hex"), lastPersistedAt: 0, lastObservedAt: 0, lastAttemptBucket: null, paused: null, pressures: [], suppressedEpisodes: [], scopeLimit: false } }, samples: [] };

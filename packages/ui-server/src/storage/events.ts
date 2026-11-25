@@ -67,27 +67,32 @@ export function recordPressureChange(db: Database, brain: string, before: Pressu
   }
 }
 
-/** Records a refusal entering the refused state, or the success that resolves it. Repeats are one event. */
-export function recordRefusalChange(db: Database, brain: string, before: Pressure, after: Pressure, report: { target: string; resource: Refusal["resource"]; at: number; outcome: "no-space" | "success" }): void {
+/**
+ * Records a refusal entering the refused state, or the success that resolves it.
+ * Repeats are one event. `at` is the first refusal of a coalesced run.
+ */
+export function recordRefusalChange(db: Database, brain: string, before: Pressure, after: Pressure, report: { target: string; resource: Refusal["resource"]; at: number; outcome: "no-space" | "success" }, at = report.at): void {
   const find = (pressure: Pressure) => pressure.refusals.find(value => value.target === report.target && value.resource === report.resource);
   const previous = find(before), next = find(after);
-  const base = { kind: "refusal" as const, identity: after.identity, target: report.target, resource: report.resource, at: report.at };
+  const base = { kind: "refusal" as const, identity: after.identity, target: report.target, resource: report.resource, at };
   if (report.outcome === "no-space" && next?.at === report.at && next.successAt === null && (!previous || previous.successAt !== null)) recordStorageEvent(db, brain, { ...base, phase: "refused" });
   else if (report.outcome === "success" && previous && previous.successAt === null && next?.successAt === report.at) recordStorageEvent(db, brain, { ...base, phase: "succeeded" });
 }
 
+const TRACKED_SCOPES = 16;
 /**
- * Records a capacity's new store scope. A warning keeps its original scope and
- * a changed flag while it lasts, so its current scope is the last recorded one;
- * when that is unknown, nothing is recorded rather than a guessed predecessor.
- * A change the pressure state has not adopted yet is recorded once.
+ * Records a capacity's new store scope against the scope it was last observed
+ * with, which is tracked on every observation (#4541). A warning's pressure
+ * keeps its original scope, and its changed flag moves only with fresh evidence,
+ * so neither is the predecessor. With no tracked scope yet, an unchanged
+ * pressure's scope stands in; otherwise nothing is recorded rather than a guess.
  */
-export function recordScopeChange(db: Database, brain: string, previous: Pressure, rootScope: string, at: number): void {
-  const last = db.query("SELECT root_scope, previous_root_scope FROM storage_events WHERE brain = ? AND kind = 'scope' AND identity = ? ORDER BY seq DESC LIMIT 1")
-    .get(brain, previous.identity) as { root_scope: string; previous_root_scope: string } | null;
-  const known = previous.scopeChanged ? last?.root_scope ?? null : previous.rootScope;
-  if (known === null || known === rootScope || last?.root_scope === rootScope && last.previous_root_scope === known) return;
-  recordStorageEvent(db, brain, { kind: "scope", phase: "changed", identity: previous.identity, rootScope, previousRootScope: known, at });
+export function recordScopeChange(db: Database, brain: string, identity: string, rootScope: string, at: number, pressure?: Pressure): void {
+  const tracked = db.query("SELECT root_scope FROM storage_event_scopes WHERE brain = ? AND identity = ?").get(brain, identity) as { root_scope: string } | null;
+  const known = tracked?.root_scope ?? (pressure && !pressure.scopeChanged ? pressure.rootScope : null);
+  if (known !== null && known !== rootScope) recordStorageEvent(db, brain, { kind: "scope", phase: "changed", identity, rootScope, previousRootScope: known, at });
+  db.query("INSERT INTO storage_event_scopes (brain, identity, root_scope, at) VALUES (?, ?, ?, ?) ON CONFLICT (brain, identity) DO UPDATE SET root_scope = excluded.root_scope, at = excluded.at").run(brain, identity, rootScope, at);
+  db.query("DELETE FROM storage_event_scopes WHERE brain = ? AND identity NOT IN (SELECT identity FROM storage_event_scopes WHERE brain = ? ORDER BY at DESC, identity LIMIT ?)").run(brain, brain, TRACKED_SCOPES);
 }
 
 function project(row: Row): StorageEvent {

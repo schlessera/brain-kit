@@ -16,8 +16,9 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 const start = Date.UTC(2026, 6, 12, 9, 41), MINUTE = 60_000;
 const identity = hashScope("Odysseus volume"), scope = hashScope("Odysseus stores");
 const TOTAL = 1_000_000_000;
-const aggregate = (at: number, available: number, rootScope = scope, id = identity): Aggregate => ({ at, startedAt: at - 10, source: 1, descriptor: ["0.44.0", scope, 1], coverage: 0, reason: 0,
-  capacities: [{ descriptor: [id, rootScope], values: [TOTAL, TOTAL - available, available, available, 0, 1, 4096, 2, 8192, 0, 0, 3, 12288] }] });
+/** `coverage` 2 is a capacity whose measurement is unknown: the observation is retained but is not fresh evidence. */
+const aggregate = (at: number, available: number, rootScope = scope, id = identity, coverage: 0 | 2 = 0): Aggregate => ({ at, startedAt: at - 10, source: 1, descriptor: ["0.44.0", scope, 1], coverage: 0, reason: 0,
+  capacities: [{ descriptor: [id, rootScope], values: [TOTAL, TOTAL - available, available, available, coverage, 1, 4096, 2, 8192, 0, 0, 3, 12288] }] });
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "odysseus-storage-events-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
@@ -28,7 +29,7 @@ function fixture() {
   return {
     root, get db() { return db; }, get history() { return history; },
     /** Offers an observation made at `at` and flushes it later, as a slow collection would. */
-    observe(at: number, available: number, rootScope = scope) { now = at + 5_000; history.offer(aggregate(at, available, rootScope)); },
+    observe(at: number, available: number, rootScope = scope, coverage: 0 | 2 = 0) { now = at + 5_000; history.offer(aggregate(at, available, rootScope, identity, coverage)); },
     advance(value: number) { now = value; },
     events(query: { identity?: string; since?: number } = {}) { return readStorageEvents(db, history.brain, "odysseus", query); },
     reopen() { history.close(); db.close(); db = createUiDb(path); history = createStorageHistory(db, root, { now: () => now }); },
@@ -105,6 +106,45 @@ test("a capacity's store scope change is recorded once with both opaque scopes",
   f.observe(start + 10 * MINUTE, 40_000_000, scope);
   expect(f.events({ since: f.events().events[0]!.seq }).events.filter(event => event.kind === "scope").map(event => event.kind === "scope" && [event.previousRootScope, event.rootScope]))
     .toEqual([[next, scope]]);
+});
+
+test("buffered repeated refusals keep the first refusal's time for the refusal and the warning it starts", () => {
+  const f = fixture(); f.observe(start, 500_000_000);
+  const report = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: start + 10_000 };
+  // Both reports arrive inside one write interval and are coalesced before the next flush.
+  f.advance(start + 10_000); f.history.ownerWrite(report);
+  f.advance(start + 20_000); f.history.ownerWrite({ ...report, at: start + 20_000 });
+  expect(f.events().events).toEqual([]);
+  f.advance(start + 70_000); expect(f.history.flush()).toBe(true);
+  expect(f.history.read()!.metadata.state.pressures[0]!.refusals[0]!.at, "STORAGE_EVENTS_BUFFER_KEEPS_LATEST_SUPPORT").toBe(start + 20_000);
+  expect(f.events().events.map(event => [event.kind, event.phase, event.at]), "STORAGE_EVENTS_BUFFERED_REFUSAL_FIRST_TIME").toEqual([
+    ["refusal", "refused", start + 10_000], ["pressure", "start", start + 10_000],
+  ]);
+});
+
+test("a buffered success ends the coalesced refusal run but not the warning the first refusal started", () => {
+  const f = fixture(); f.observe(start, 500_000_000);
+  const report = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: start + 10_000 };
+  f.advance(start + 10_000); f.history.ownerWrite(report);
+  f.advance(start + 15_000); f.history.ownerWrite({ ...report, at: start + 15_000, outcome: "success" });
+  f.advance(start + 20_000); f.history.ownerWrite({ ...report, at: start + 20_000 });
+  f.advance(start + 70_000); expect(f.history.flush()).toBe(true);
+  // The resolved refusal and its success were coalesced away; neither is invented.
+  expect(f.events().events.map(event => [event.kind, event.phase, event.at]), "STORAGE_EVENTS_BUFFERED_RUN_RESTARTS").toEqual([
+    ["refusal", "refused", start + 20_000], ["pressure", "start", start + 10_000],
+  ]);
+});
+
+test("scope changes during a warning without fresh capacity evidence chain from the last observed scope", () => {
+  const f = fixture(), b = hashScope("Odysseus stores and the loom"), c = hashScope("Odysseus stores and the bow");
+  f.observe(start, 40_000_000);
+  f.observe(start + 2 * MINUTE, 40_000_000, b, 2);
+  f.observe(start + 4 * MINUTE, 40_000_000, c, 2);
+  f.observe(start + 6 * MINUTE, 40_000_000, scope, 2);
+  expect(f.history.read()!.metadata.state.pressures[0], "STORAGE_EVENTS_UNFRESH_EVIDENCE_KEEPS_FLAG").toMatchObject({ severity: "critical", scopeChanged: false, rootScope: scope });
+  expect(f.events().events.flatMap(event => event.kind === "scope" ? [[event.previousRootScope, event.rootScope, event.at]] : []), "STORAGE_EVENTS_SCOPE_CHAIN").toEqual([
+    [scope, b, start + 2 * MINUTE], [b, c, start + 4 * MINUTE], [c, scope, start + 6 * MINUTE],
+  ]);
 });
 
 const synthetic = (kind: StorageEventKind, index: number) => kind === "maintenance"

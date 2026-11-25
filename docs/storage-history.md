@@ -104,7 +104,11 @@ Each event is written in the same transaction that changes the state it
 describes: warning starts, severity steps, recovery attempts and ends, and
 owner refusals and scope changes in the history flush; maintenance requests and
 finishes in the receipt write. Its time is that of the observation, owner report
-or receipt, so a slow flush never moves a start.
+or receipt, so a slow flush never moves a start. Owner reports buffered for one
+write keep the time of their first refusal through coalescing. Scope events
+chain from the last scope each capacity was observed with, tracked in
+`storage_event_scopes` for at most 16 capacities per brain, because a warning's
+pressure keeps its original scope until fresh evidence arrives.
 
 The limits are fixed per kind: 256 pressure, 128 refusal, 64 scope and 512
 maintenance events per brain. Their worst-case encodings (187, 195, 228 and 323
