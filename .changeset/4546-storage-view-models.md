@@ -1,0 +1,5 @@
+---
+"@schlessera/brain-ui-react": patch
+---
+
+The Storage pane gains pure view models for its new components (#4546). Each volume is named from what it holds ("Disk", "Brain disk", "App data disk", "Memory (tmpfs)", "Unidentified volume", with " 2" on a clash) and carries its own gauge figures, Low and Very-low ticks from the shared pressure policy, trend, runway and stale verdict. History becomes one series per volume and tier, with gaps kept as gaps, scope breaks, a provisional current bucket, one scenario line per qualified window and markers for gaps, scope changes, refusals and maintenance runs. Breakdown rows fold database sidecars, keep unknown sizes with their reason and hide only known empty rows. Tool rows show an unattributed before → after change or why it was not measured, and Pack Git objects' headroom from its last run. No output adds two volumes together, and an unknown value is never shown as 0. Nothing on screen changes yet; the pane adopts these in a later release.
