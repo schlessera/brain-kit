@@ -135,14 +135,17 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (sendingSnapshot(d.draftId)) return false;
     if (!hasContent(d) && !holdsSnapshots(d)) return (d.host !== null || d.uncertain) && !held(d.draftId);
     // Only originals this id cannot bind (#4566): the save would be empty,
-    // and the host refuses an empty one. It waits for content or a file chosen again.
-    if (!saveable(d)) return false;
+    // and the host refuses an empty one. It waits for content or a file
+    // chosen again; what the host still holds of it (older text, deleted
+    // snapshots) is deleted there.
+    if (!saveable(d)) return d.host !== null && !held(d.draftId);
     return d.host === null || d.host.edit !== d.edit;
   }
 
   /** What a save of this draft would list: anything beyond originals carried from another id or gone. */
   function saveable(d: ComposerDraft): boolean {
-    return d.text.length > 0 || d.attachments.length > 0 || bindableFiles(d).length > 0 || holdsSnapshots(d);
+    // Local snapshots only: the host's copy of ones deleted here is not content to save.
+    return d.text.length > 0 || d.attachments.length > 0 || bindableFiles(d).length > 0 || draftSnapshots(d).length > 0;
   }
 
   /**
@@ -319,7 +322,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       drafts.getState().removed(d.draftId);
       return;
     }
-    if (!hasContent(d) && !holdsSnapshots(d)) {
+    if ((!hasContent(d) && !holdsSnapshots(d)) || !saveable(d)) {
       if (!d.host) return;
       const result = await api.remove(d.draftId, d.host.revision);
       if (!current()) return;
@@ -352,6 +355,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     else if (pending) {
       const gone = await goneFiles(d, pending.fileIds);
       if (!current()) return;
+      // Changed while the read was out: what it found was about the edit it read for.
+      if (drafts.getState().drafts[d.draftId]?.edit !== d.edit) { recoveries.delete(d.draftId); schedule(d.draftId, 0); return; }
       if (gone === null) { backoff(d.draftId); return; }
       applyGone(d, gone, pending.body);
       return;
@@ -402,6 +407,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!mayRecover(d.draftId, d.edit, result.body, "file")) return;
       const gone = await goneFiles(d, fileIds);
       if (!current()) return;
+      if (drafts.getState().drafts[d.draftId]?.edit !== d.edit) { schedule(d.draftId, 0); return; }
       // The read got no answer: nothing was learned. The next try reads again.
       if (gone === null) { recoveries.set(d.draftId, { edit: d.edit, fileIds, body: result.body }); backoff(d.draftId); return; }
       applyGone(d, gone, result.body);
@@ -767,8 +773,13 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         deviceSeq.set(source, (deviceSeq.get(source) ?? 0) + 1);
         bumpHost(source);
         forgetVersion(source);
+        // The retained version back under its id may look unchanged by its edit count: it is owed as itself.
+        const back = state.drafts[source];
+        if (back && owed(back)) schedule(source, 0);
       }
     }
+    // A draft forgotten here leaves nothing to recover: an id typed into again is new work.
+    for (const id of Object.keys(prev.drafts)) if (!state.drafts[id]) forgetVersion(id);
     if (!live()) return;
     for (const [id, d] of Object.entries(state.drafts)) {
       const before = prev.drafts[id];
