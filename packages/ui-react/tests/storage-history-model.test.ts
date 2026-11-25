@@ -169,11 +169,11 @@ describe("client-side markers", () => {
     observation("six-hour", sixHour(0), [{ identity: ITHACA, available: 16 * GB, app: 1 }]),
   ]);
   const series = storageSeries(history, ITHACA, "six-hour", worldTime);
-  const brain = capacity(ITHACA, brainRoots.map((root) => root.id), 161 * GB, 16 * GB);
+  const brainDisk = capacity(ITHACA, brainRoots.map((root) => root.id), 161 * GB, 16 * GB);
   const refused = pressure(ITHACA, "critical", null, {
     causes: { capacity: true, forecast: false, refusals: [{ target: "c".repeat(32), resource: "bytes", at: sixHour(3), successAt: null }] },
   });
-  const pack = packRow(receipt({ before: observe([brain], [brainRoots[1]!]), after: observe([brain], [brainRoots[1]!]), completedAt: sixHour(2) }));
+  const pack = packRow(receipt({ before: observe([brainDisk], [brainRoots[1]!]), after: observe([brainDisk], [brainRoots[1]!]), completedAt: sixHour(2) }));
 
   test("gaps, scope changes, refusals and each operation's latest run, numbered in time order", () => {
     const markers = storageMarkers({ series, identity: ITHACA, pressure: refused, maintenance: [pack], now: worldTime, format });
@@ -188,7 +188,7 @@ describe("client-side markers", () => {
   test("a run on another volume, or outside the chart's span, is not marked", () => {
     const other = capacity(SCHERIA, [], 250 * GB, 48 * GB);
     const elsewhere = packRow(receipt({ before: observe([other], []), after: observe([other], []) }));
-    const early = packRow(receipt({ before: observe([brain], []), completedAt: sixHour(40) }));
+    const early = packRow(receipt({ before: observe([brainDisk], []), completedAt: sixHour(40) }));
     expect(storageMarkers({ series, identity: ITHACA, maintenance: [elsewhere, early], now: worldTime, format })).toEqual([
       expect.objectContaining({ label: "Scope changed" }),
       expect.objectContaining({ label: "Collection gap" }),
