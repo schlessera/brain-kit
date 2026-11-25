@@ -52,6 +52,13 @@ export "." (./src/index.ts)
   Callout
   type CalloutProps
   type CalloutVariant
+  type CapacityFigures
+  CapacityGauge
+  type CapacityGaugeProps
+  type CapacityLevel
+  type CapacitySegment
+  type CapacitySegmentKind
+  type CapacityThresholds
   Chip
   type ChipProps
   type ChipVariant
@@ -357,6 +364,7 @@ export "." (./src/index.ts)
   TextButton
   type TextButtonProps
   type TextMark
+  type TickLayout
   type TimelineItem
   TimelineList
   type TimelineListProps
@@ -411,10 +419,18 @@ export "." (./src/index.ts)
   type VoiceTone
   VoiceToolChip
   type VoiceToolChipProps
+  VolumeCard
+  type VolumeCardProps
+  VolumeGroup
+  type VolumeGroupItem
+  type VolumeGroupProps
+  type VolumeStatus
   WORKING_STATES
   type WorkingSession
   type WorkingSessionView
   type WorkingState
+  capacityDrawable
+  capacitySegments
   color
   countMarks
   describeCounts
@@ -429,7 +445,10 @@ export "." (./src/index.ts)
   markupReceiptRows
   markupSummary
   overCapMessage
+  percentLabel
   registrableDomain
+  thresholdsValid
+  tickLayout
   z
 
 export "./brand" (./src/brand.ts)
@@ -862,6 +881,40 @@ signatures (every public export and the types it is made of)
     }
   CalloutVariant (packages/ui-kit/src/types.ts)
     export type CalloutVariant = "accent" | "boxed" | "banner" | "plain";
+  CapacityFigures (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export interface CapacityFigures {
+        total: number;
+        used: number;
+        free: number;
+        available: number;
+    }
+  CapacityGauge (packages/ui-kit/src/storage/CapacityGauge.tsx)
+    export function CapacityGauge(p: CapacityGaugeProps): import("react").JSX.Element;
+  CapacityGaugeProps (packages/ui-kit/src/storage/CapacityGauge.tsx)
+    export interface CapacityGaugeProps {
+        capacity?: CapacityFigures;
+        unknownReason?: string;
+        thresholds: CapacityThresholds;
+        format: (bytes: number) => string;
+        level?: CapacityLevel;
+        stale?: boolean;
+        label?: string;
+    }
+  CapacityLevel (packages/ui-kit/src/storage/CapacityGauge.tsx)
+    export type CapacityLevel = "ok" | "low" | "very-low";
+  CapacitySegment (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export interface CapacitySegment {
+        kind: CapacitySegmentKind;
+        start: number;
+        size: number;
+    }
+  CapacitySegmentKind (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export type CapacitySegmentKind = "used" | "reserved" | "available";
+  CapacityThresholds (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export interface CapacityThresholds {
+        low: number;
+        veryLow: number;
+    }
   Chip (packages/ui-kit/src/primitives/Chip.tsx)
     export function Chip(p: ChipProps): import("react").JSX.Element;
   ChipProps (packages/ui-kit/src/primitives/Chip.tsx)
@@ -3015,6 +3068,14 @@ signatures (every public export and the types it is made of)
         at: MarkupPoint;
         text: string;
     }
+  TickLayout (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export interface TickLayout {
+        low: number;
+        veryLow: number;
+        gapPx: number | null;
+        collapsed: boolean;
+        split: boolean;
+    }
   TimelineItem (packages/ui-kit/src/blocks/TimelineList.tsx)
     export interface TimelineItem {
         time: string;
@@ -3318,6 +3379,44 @@ signatures (every public export and the types it is made of)
         label: string;
         state?: "running" | "done";
     }
+  VolumeCard (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export function VolumeCard(p: VolumeCardProps): import("react").JSX.Element;
+  VolumeCardProps (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export interface VolumeCardProps {
+        name: string;
+        status: VolumeStatus;
+        capacity?: CapacityFigures;
+        unknownReason?: string;
+        unidentified?: string;
+        thresholds: CapacityThresholds;
+        format: (bytes: number) => string;
+        trend?: string;
+        runway?: string;
+        stores?: readonly string[];
+        stale?: boolean;
+        measured?: string;
+        scopeChanged?: string;
+        selected?: boolean;
+        onSelect?: () => void;
+        tabStop?: boolean;
+    }
+  VolumeGroup (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export function VolumeGroup(p: VolumeGroupProps): import("react").JSX.Element;
+  VolumeGroupItem (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export interface VolumeGroupItem extends Omit<VolumeCardProps, "selected" | "onSelect" | "tabStop" | "thresholds" | "format"> {
+        id: string;
+    }
+  VolumeGroupProps (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export interface VolumeGroupProps {
+        volumes: readonly VolumeGroupItem[];
+        selected?: string;
+        onSelect: (id: string) => void;
+        thresholds: CapacityThresholds;
+        format: (bytes: number) => string;
+        label?: string;
+    }
+  VolumeStatus (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export type VolumeStatus = "ok" | "low" | "very-low" | "not-measured";
   WEB_APP_COLORS (packages/ui-kit/src/brand.ts)
     const WEB_APP_COLORS: {
         readonly background_color: "#0c1417";
@@ -3357,6 +3456,10 @@ signatures (every public export and the types it is made of)
     }
   WorkingState (packages/ui-kit/src/chrome/SessionStrip.tsx)
     export type WorkingState = (typeof WORKING_STATES)[number];
+  capacityDrawable (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function capacityDrawable(c: CapacityFigures): boolean;
+  capacitySegments (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function capacitySegments(c: CapacityFigures): CapacitySegment[] | null;
   classifyLink (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   classifyMailto (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   color (packages/ui-kit/src/tokens.ts)
@@ -3405,9 +3508,18 @@ signatures (every public export and the types it is made of)
     export function markupSummary(marks: readonly Mark[]): string;
   overCapMessage (packages/ui-kit/src/images/markup.ts)
     export function overCapMessage(bytes: number, maxBytes?: number): string;
+  percentLabel (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function percentLabel(fraction: number): string;
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   registrableDomain (packages/ui-kit/src/evidence/UntrustedText.tsx)
     export function registrableDomain(host: string): string;
+  thresholdsValid (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function thresholdsValid(t: CapacityThresholds): boolean;
+  tickLayout (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function tickLayout(width: number | null, t: CapacityThresholds, labels: {
+        low: string;
+        veryLow: string;
+    }): TickLayout;
   z (packages/ui-kit/src/tokens.ts)
     const z: {
         readonly banner: "var(--bk-z-banner)";
