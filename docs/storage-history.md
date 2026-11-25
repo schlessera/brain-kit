@@ -119,5 +119,8 @@ bytes) total 252,800 bytes, so a full response fits the 262,144-byte cap;
 `STORAGE_EVENT_LIMITS` in `packages/ui-server/src/storage/events.ts` carries
 the arithmetic. A full kind stops recording and reports `paused`. No event is
 updated or deleted, and pausing never blocks the history, pressure policy or
-maintenance. Episodes already open before this table existed are not emitted.
+maintenance. Episodes, refusals and receipts already open before this table
+existed are not emitted: a step, recovery, end, resolution or finish needs its
+recorded opening event, and a capacity's first tracked scope is a starting
+point rather than a change.
 Operational export and restore carry the table like the history.

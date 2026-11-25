@@ -1393,7 +1393,8 @@ and the `since` continuation, so equal `at` values stay distinct. A maintenance
 event matches its receipt by `receipt` and `phase`, never by time. Each kind is
 bounded (256 pressure, 128 refusal, 64 scope, 512 maintenance) so the worst case
 fits the 262,144-byte cap; a full kind reports `paused` and keeps every earlier
-event. Episodes open before recording began are omitted. `StorageHistoryResponse`
+event. Episodes, refusals and receipts open before recording began are omitted,
+and no event closes one whose opening was not recorded. `StorageHistoryResponse`
 and the other storage shapes are unchanged; a client keeps an unavailable state
 when an older host returns 404.
 

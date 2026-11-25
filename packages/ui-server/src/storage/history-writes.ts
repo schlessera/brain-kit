@@ -34,7 +34,7 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           const evaluation = retainAggregate({ ...structuredClone(next), samples: next.samples.filter(row => row[1] !== 0 || bucket(0, row[3]) !== bucket(0, at)) }, candidate.value);
           if (interrupted || state.paused) for (const sample of evaluation.samples) if (sample[3] === candidate.value.at) sample[2] = 1;
           const incoming = candidate.value.capacities.map(row => row.descriptor);
-          for (const [identity, rootScope] of incoming) recordScopeChange(db, brain, identity, rootScope, candidate.value.at, state.pressures.find(value => value.identity === identity));
+          for (const [identity, rootScope] of incoming) recordScopeChange(db, brain, identity, rootScope, candidate.value.at);
           const pressures = state.pressures.filter(value => value.severity !== "observed" || incoming.some(([identity]) => identity === value.identity))
             .map(value => value.severity === "observed" ? newPressure(value.identity, incoming.find(([identity]) => identity === value.identity)![1]) : value);
           for (const [identity, rootScope] of incoming) if (!pressures.some(value => value.identity === identity) && pressures.length < 4) pressures.push(newPressure(identity, rootScope));

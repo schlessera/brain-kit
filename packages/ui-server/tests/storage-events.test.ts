@@ -94,6 +94,33 @@ test("an owner refusal and the warning it starts are distinct events at one time
   expect(events[1]).toMatchObject({ severity: "critical" });
 });
 
+test("a refusal open before recording began never emits its resolution", () => {
+  const f = fixture(); f.observe(start, 500_000_000);
+  const report = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: start + 2 * MINUTE };
+  f.advance(report.at); f.history.ownerWrite(report);
+  // The refusal and its warning started before this version recorded events.
+  f.db.query("DELETE FROM storage_events").run();
+  f.advance(report.at + 2 * MINUTE); f.history.ownerWrite({ ...report, at: report.at + 2 * MINUTE, outcome: "success" });
+  expect(f.history.read()!.metadata.state.pressures[0]!.refusals[0]!.successAt).toBe(report.at + 2 * MINUTE);
+  expect(f.events().events, "STORAGE_EVENTS_NO_ORPHAN_REFUSAL_RESOLUTION").toEqual([]);
+  // A refusal that starts afterwards is recorded and resolved as usual.
+  f.advance(report.at + 4 * MINUTE); f.history.ownerWrite({ ...report, at: report.at + 4 * MINUTE });
+  f.advance(report.at + 6 * MINUTE); f.history.ownerWrite({ ...report, at: report.at + 6 * MINUTE, outcome: "success" });
+  expect(f.events().events.filter(event => event.kind === "refusal").map(event => [event.phase, event.at])).toEqual([["refused", report.at + 4 * MINUTE], ["succeeded", report.at + 6 * MINUTE]]);
+});
+
+test("a scope first observed after recording began is a starting point, never a change from older state", () => {
+  const f = fixture(), b = hashScope("Odysseus stores and the loom"), c = hashScope("Odysseus stores and the bow");
+  f.observe(start, 40_000_000);
+  // Before this version, the capacity moved to B; that observation was not fresh evidence.
+  f.observe(start + 2 * MINUTE, 40_000_000, b, 2);
+  f.db.query("DELETE FROM storage_events").run(); f.db.query("DELETE FROM storage_event_scopes").run();
+  f.observe(start + 4 * MINUTE, 40_000_000, b, 2);
+  expect(f.events().events, "STORAGE_EVENTS_NO_PRE_UPGRADE_SCOPE_CHANGE").toEqual([]);
+  f.observe(start + 6 * MINUTE, 40_000_000, c, 2);
+  expect(f.events().events.map(event => event.kind === "scope" && [event.previousRootScope, event.rootScope, event.at])).toEqual([[b, c, start + 6 * MINUTE]]);
+});
+
 test("a capacity's store scope change is recorded once with both opaque scopes", () => {
   const f = fixture(), next = hashScope("Odysseus stores and Penelope's loom");
   f.observe(start, 500_000_000);
@@ -305,6 +332,17 @@ test("maintenance runs appear per receipt with their own times, beyond the lates
   const full = readStorageEvents(f.db, f.brain, "odysseus");
   expect(full.paused.maintenance).toBe(true);
   expect(full.events.filter(event => event.kind === "maintenance" && event.receipt === third.id).map(event => event.phase)).toEqual(["requested"]);
+});
+
+test("a receipt requested before recording began never emits a finish when it is reconciled", async () => {
+  const f = maintenanceFixture();
+  f.operations.start("odysseus", { id: "odysseus-pre-upgrade-01", operation: "prune-scratch" }); await f.operations.idle();
+  // Make it a receipt left waiting by a process that died before this version recorded events.
+  f.db.query("DELETE FROM storage_events").run();
+  f.db.query("UPDATE storage_maintenance_operations SET state = 'waiting', pid = ?, pid_start = 'before the timeline' WHERE id = ?").run(process.pid, "odysseus-pre-upgrade-01");
+  const reconciled = f.operations.list("odysseus").operations.find(row => row.id === "prune-scratch")!.latest!;
+  expect(reconciled, "STORAGE_EVENTS_PRE_UPGRADE_RECEIPT_RECONCILED").toMatchObject({ state: "refused", reason: "interrupted_before_owner" });
+  expect(readStorageEvents(f.db, f.brain, "odysseus").events, "STORAGE_EVENTS_NO_ORPHAN_FINISH").toEqual([]);
 });
 
 test("mounted storage events keep human-owner scope, per-principal receipts, identity filters and since paging", async () => {

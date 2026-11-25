@@ -25,8 +25,11 @@ export function setup(db: Database, { brain, self: SELF }: { brain: string; self
     const text = encoded(receipt, strict);
     db.transaction(() => {
       const { changes } = db.query("UPDATE storage_maintenance_operations SET state=?,receipt=? WHERE id=? AND brain=?").run(receipt.state, text, receipt.id, brain);
-      // A terminal receipt records its finish once, at its own completion time.
+      // A terminal receipt records its finish once, at its own completion time,
+      // and only after its recorded request: a receipt from before the
+      // timeline, or one whose request found the kind full, never finishes in it.
       if (!changes || receipt.completedAt === null || ["waiting", "running"].includes(receipt.state)
+        || !db.query("SELECT 1 FROM storage_events WHERE brain=? AND receipt=? AND phase='requested'").get(events, receipt.id)
         || db.query("SELECT 1 FROM storage_events WHERE brain=? AND receipt=? AND phase='finished'").get(events, receipt.id)) return;
       const { principal_id } = db.query("SELECT principal_id FROM storage_maintenance_operations WHERE id=? AND brain=?").get(receipt.id, brain) as { principal_id: string };
       recordStorageEvent(db, events, { kind: "maintenance", phase: "finished", at: receipt.completedAt, receipt: receipt.id, operation: receipt.operation, state: receipt.state, reason: receipt.reason, principal: principal_id });

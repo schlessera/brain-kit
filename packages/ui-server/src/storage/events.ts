@@ -76,7 +76,10 @@ export function recordRefusalChange(db: Database, brain: string, before: Pressur
   const previous = find(before), next = find(after);
   const base = { kind: "refusal" as const, identity: after.identity, target: report.target, resource: report.resource, at };
   if (report.outcome === "no-space" && next?.at === report.at && next.successAt === null && (!previous || previous.successAt !== null)) recordStorageEvent(db, brain, { ...base, phase: "refused" });
-  else if (report.outcome === "success" && previous && previous.successAt === null && next?.successAt === report.at) recordStorageEvent(db, brain, { ...base, phase: "succeeded" });
+  // A resolution needs its recorded refusal; one open before the timeline is omitted.
+  else if (report.outcome === "success" && previous && previous.successAt === null && next?.successAt === report.at
+    && (db.query("SELECT phase FROM storage_events WHERE brain = ? AND kind = 'refusal' AND identity = ? AND target = ? AND resource = ? ORDER BY seq DESC LIMIT 1")
+      .get(brain, after.identity, report.target, report.resource) as { phase: string } | null)?.phase === "refused") recordStorageEvent(db, brain, { ...base, phase: "succeeded" });
 }
 
 const TRACKED_SCOPES = 16;
@@ -84,13 +87,12 @@ const TRACKED_SCOPES = 16;
  * Records a capacity's new store scope against the scope it was last observed
  * with, which is tracked on every observation (#4541). A warning's pressure
  * keeps its original scope, and its changed flag moves only with fresh evidence,
- * so neither is the predecessor. With no tracked scope yet, an unchanged
- * pressure's scope stands in; otherwise nothing is recorded rather than a guess.
+ * so neither is the predecessor. The first observation after recording began
+ * only sets the starting scope: a change from older state has no known time.
  */
-export function recordScopeChange(db: Database, brain: string, identity: string, rootScope: string, at: number, pressure?: Pressure): void {
-  const tracked = db.query("SELECT root_scope FROM storage_event_scopes WHERE brain = ? AND identity = ?").get(brain, identity) as { root_scope: string } | null;
-  const known = tracked?.root_scope ?? (pressure && !pressure.scopeChanged ? pressure.rootScope : null);
-  if (known !== null && known !== rootScope) recordStorageEvent(db, brain, { kind: "scope", phase: "changed", identity, rootScope, previousRootScope: known, at });
+export function recordScopeChange(db: Database, brain: string, identity: string, rootScope: string, at: number): void {
+  const known = (db.query("SELECT root_scope FROM storage_event_scopes WHERE brain = ? AND identity = ?").get(brain, identity) as { root_scope: string } | null)?.root_scope;
+  if (known !== undefined && known !== rootScope) recordStorageEvent(db, brain, { kind: "scope", phase: "changed", identity, rootScope, previousRootScope: known, at });
   db.query("INSERT INTO storage_event_scopes (brain, identity, root_scope, at) VALUES (?, ?, ?, ?) ON CONFLICT (brain, identity) DO UPDATE SET root_scope = excluded.root_scope, at = excluded.at").run(brain, identity, rootScope, at);
   db.query("DELETE FROM storage_event_scopes WHERE brain = ? AND identity NOT IN (SELECT identity FROM storage_event_scopes WHERE brain = ? ORDER BY at DESC, identity LIMIT ?)").run(brain, brain, TRACKED_SCOPES);
 }

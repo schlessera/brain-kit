@@ -2339,8 +2339,10 @@ each refusal keeps the time of its first report, and the warning they start
 keeps the earliest refusal of any target. A refusal resolved within that wait
 can be omitted; it is never invented.
 Events are recorded when they happen. An episode already open before the host
-recorded events is not emitted, and no start time is invented for it; receipts
-from before then are not emitted either.
+recorded events is not emitted, and no start time is invented for it. The
+same holds for anything else open by then: a refusal is never resolved and a
+maintenance receipt never finished without its recorded opening event, and a
+capacity's first scope observed afterwards is its starting point, not a change.
 
 `seq` is the recording order. Responses list every retained event with `seq`
 greater than `since` (default 0) in `seq` order, and `next` is the greatest
