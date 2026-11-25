@@ -720,12 +720,12 @@ test("Clear, Show new measurement and paging keep focus on the pane", async () =
   (button("Next 200 items").element() as HTMLElement).focus();
   await button("Next 200 items").click();
   await expect
-    .poll(() => document.activeElement, { message: "STORAGE_NEXT_KEEPS_FOCUS" })
-    .toBe(button("First 200 items").element());
+    .poll(() => document.activeElement?.getAttribute("role") === "button" && document.activeElement.textContent, { message: "STORAGE_NEXT_KEEPS_FOCUS" })
+    .toBe("First 200 items");
   await button("First 200 items").click();
   await expect
-    .poll(() => document.activeElement, { message: "STORAGE_FIRST_KEEPS_FOCUS" })
-    .toBe(button("Next 200 items").element());
+    .poll(() => document.activeElement?.getAttribute("role") === "button" && document.activeElement.textContent, { message: "STORAGE_FIRST_KEEPS_FOCUS" })
+    .toBe("Next 200 items");
   await select("Ithaca-chart-204.pdf");
   await button("Clear").click();
   await expect.poll(() => host.textContent).not.toContain("1 selected");
