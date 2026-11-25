@@ -81,6 +81,8 @@ async function laidOut(canvasElement: HTMLElement) {
     if (wide) {
       await expect(result.left, "the result block is its own column").toBeGreaterThan(name.left);
       await expect(chip.left, "the chip sits right of the result").toBeGreaterThanOrEqual(result.right);
+      const desc = row.querySelector<HTMLElement>(".bk-tool-desc")!.getBoundingClientRect();
+      await expect(desc.top - name.bottom, "the description sits right under the name").toBeLessThan(10);
     } else {
       await expect(Math.abs(chip.top - name.top), "the chip sits beside the name").toBeLessThan(8);
       await expect(result.left, "stacked: the result starts at the row's edge").toBeCloseTo(grid.left, 0);

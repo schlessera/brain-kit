@@ -1753,7 +1753,9 @@
      * stays under the name when the result block is taller. */
     grid-template-columns: minmax(200px, 1fr) minmax(240px, 1.2fr) auto minmax(7rem, max-content);
     grid-template-rows: auto 1fr;
-    grid-template-areas: "name result chip action" "desc result . .";
+    /* Chip and action span both rows, so the 44px button never sets the
+     * first row's height and the description sits right under the name. */
+    grid-template-areas: "name result chip action" "desc result chip action";
   }
   .bk-tool-chip { padding-top: 2px; }
   .bk-tool-wide-only { display: block; }
