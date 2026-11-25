@@ -266,6 +266,12 @@ export function useStorage(root: BrainUiRoot) {
     !signal.aborted && root.authLock.epoch() === epoch;
   async function inspect(entry: StorageFileEntry) {
     if (!snapshot) return;
+    // One request at a time: action() would refuse this inspection, leaving
+    // its sheet open and unverified, so no sheet opens while one is pending.
+    if (posting.current) {
+      setAnnouncement("Another Storage action is still running. Inspect again when it finishes.");
+      return;
+    }
     const path = canonicalPath(entry, snapshot.roots),
       base: InspectedFile = {
         entry,
@@ -298,7 +304,9 @@ export function useStorage(root: BrainUiRoot) {
             : null,
       };
       setEvidence((previous) => ({ ...previous, [entry.id]: result }));
-      setInspected(result);
+      // Only the sheet this inspection opened takes its result: a sheet
+      // closed meanwhile stays closed, and a newer one is never replaced.
+      setInspected((shown) => (shown === base ? result : shown));
     });
   }
   function toggle(file: InspectedFile) {
