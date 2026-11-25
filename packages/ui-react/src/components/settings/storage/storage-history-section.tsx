@@ -43,6 +43,7 @@ export function StorageHistorySection({
   history,
   maintenance,
   unavailable,
+  historyUnavailable = false,
   now,
   format,
 }: {
@@ -51,6 +52,8 @@ export function StorageHistorySection({
   history: StorageHistoryResponse | null;
   maintenance: readonly StorageMaintenanceRow[];
   unavailable: boolean;
+  /** The history read settled without a history, as opposed to still loading. */
+  historyUnavailable?: boolean;
   now: number;
   format: StorageFormat;
 }) {
@@ -85,6 +88,8 @@ export function StorageHistorySection({
             ? "? History and guidance are unavailable on this host · inventory and recovery actions remain separate"
             : !volume
             ? "? No volume measured yet · Measure to see available space over time"
+            : historyUnavailable
+            ? "? Observation history is unavailable · read again on the next refresh"
             : "Loading history…"}
         </p>
       ) : (

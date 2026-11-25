@@ -285,6 +285,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
           history={guidance.history}
           maintenance={view.maintenance}
           unavailable={guidance.error !== null}
+          historyUnavailable={guidance.historyError}
           now={now}
           format={format}
         />
