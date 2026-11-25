@@ -242,3 +242,16 @@ test("a failed switch is still said when the device write failed too", () => {
   const view = draftIndicatorView({ draft: st.drafts[BRANCH], store: st, queued: [], online: true, localFailed: true, switchNote: "failed" });
   expect(view, "SWITCH_NOTE_WITH_LOCAL_FAILURE").toMatchObject({ key: "device_conflict", summary: "Couldn't open the other version.", action: "other_version" });
 });
+
+test("a device tombstone left under the old id does not hide where a rotation moved the version", async () => {
+  const s = scene();
+  s.drafts.getState().hostGone(s.original);
+  // The device read finds the emptied record this device kept under the old id, and adopts it.
+  s.root.localWork = { openDeviceVersion: async (id: string) => {
+    s.drafts.getState().openDeviceVersion(id, { draftId: id, sessionId: ITHACA, text: "", attachments: [], editedAt: 2, host: null });
+  }, dispose() {} } as unknown as NonNullable<BrainUiRoot["localWork"]>;
+  openOtherVersion(s.root, s.original, BRANCH);
+  await turn();
+  s.root.localWork = null;
+  expect(s.shown(), "TOMBSTONE_SKIPPED").toEqual({ sessionId: null, text: OTHER_TEXT });
+});
