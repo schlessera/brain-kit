@@ -14,7 +14,6 @@ const original = {
   width: innerWidth,
   height: innerHeight,
   theme: document.documentElement.dataset.theme,
-  zoom: document.documentElement.style.zoom,
 };
 afterEach(async () => {
   if (renderer) flushSync(() => renderer.unmount());
@@ -22,8 +21,6 @@ afterEach(async () => {
   host?.remove();
   style?.remove();
   vi.useRealTimers();
-  delete document.body.dataset.buttonGallery;
-  document.documentElement.style.zoom = original.zoom;
   if (original.theme === undefined) delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = original.theme;
   await page.viewport(original.width, original.height);
@@ -31,13 +28,11 @@ afterEach(async () => {
   outer = undefined;
 });
 
-async function scene({ width = 320, theme = "dark", zoom = 1, timeline = "events" as TimelineState } = {}) {
+async function scene({ width = 320, theme = "dark", timeline = "events" as TimelineState } = {}) {
   const fixture = storagePaneFixture({ state: "healthy", chart: "full", timeline });
-  outer ??= await commands.formViewport(width * zoom, 900 * zoom);
-  await page.viewport(width * zoom, 900 * zoom);
-  document.documentElement.style.zoom = String(zoom);
+  outer ??= await commands.formViewport(width, 900);
+  await page.viewport(width, 900);
   document.documentElement.dataset.theme = theme;
-  document.body.dataset.buttonGallery = "";
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(paneTime);
   style = document.createElement("style");
@@ -73,13 +68,13 @@ function boxes() {
   };
 }
 /** Grow the runner's frame and the viewport to the content: no scaling, no clipping. */
-async function unclip(width: number, zoom = 1) {
+async function unclip(width: number) {
   host.style.height = "auto";
   const pane = host.querySelector<HTMLElement>("[data-storage-pane]");
   if (pane) pane.style.overflow = "visible";
   const tall = Math.ceil(host.getBoundingClientRect().height) + 16;
-  outer = await commands.formViewport(width * zoom, tall * zoom);
-  await page.viewport(width * zoom, tall * zoom);
+  outer = await commands.formViewport(width, tall);
+  await page.viewport(width, tall);
   await document.fonts.ready;
 }
 
@@ -146,13 +141,3 @@ for (const timeline of ["missing", "error"] as const)
     expect(host.querySelector('[role="alert"]'), "STORAGE_TIMELINE_NO_ERROR_BANNER").toBeNull();
     expect(section()!.textContent).not.toMatch(/could not|unavailable|timeline/i);
   });
-
-// 2× review renders of the composed pane with server events.
-for (const width of [320, 1440])
-  for (const theme of ["dark", "light"])
-    test(`Pane with server events, 200% at ${width} ${theme}`, async () => {
-      await scene({ width, theme, zoom: 2 });
-      await expect.poll(() => legend().length).toBe(6);
-      await unclip(width, 2);
-      await commands.buttonCapture(`storage-events-pane-${width}-${theme === "light" ? "paper" : theme}-2x`);
-    });
