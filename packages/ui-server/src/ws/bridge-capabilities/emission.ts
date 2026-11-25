@@ -1,4 +1,4 @@
-import { HOST_TIMEOUT_OUTCOME_DETAIL, hostStopOutcomeDetail, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
+import { HOST_TIMEOUT_OUTCOME_DETAIL, hostStopFromOutcomeDetail, hostStopOutcomeDetail, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { TurnTextCollector } from "../../classification/classify-turn.js";
 import type { ClaudeUsageEvidence } from "../claude-usage-accounting.js";
@@ -94,6 +94,9 @@ function normalizeFrame(ctx: BridgeContext, thinkingLevel: ReturnType<typeof cap
   // Recorded only when nothing had ended the turn, so a cancel that lands
   // while the stop unwinds does not relabel it.
   const stopped = turn.turnId === turnId ? hostStopOf(turn, turnId) : undefined;
+  // Only the host attests a host stop: a backend's own claim of one is dropped.
+  if (msg.type === "tool_result" && msg.hostStop !== undefined) { const { hostStop: _claimed, ...rest } = msg; msg = rest; }
+  if (msg.type === "result" && hostStopFromOutcomeDetail(msg.outcomeDetail) !== undefined) { const { outcomeDetail: _claimed, ...rest } = msg; msg = rest; }
   if (stopped) {
     if (msg.type === "status" && msg.status === "cancelled") msg = { ...msg, detail: TURN_STOPPED_BY_HOST };
     else if (msg.type === "result" && msg.outcome === "cancelled") msg = { ...msg, outcomeDetail: hostStopOutcomeDetail(stopped) };

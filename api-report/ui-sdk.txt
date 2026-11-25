@@ -6728,7 +6728,7 @@ signatures (every public export and the types it is made of)
         kind: "policy_confirm";
         toolUseId: string;
         payload: PolicyCommandRecord<"commands.confirm"> & {
-            decision: "approved" | "declined" | "timed_out" | "cancelled";
+            decision: "approved" | "declined" | "timed_out" | "cancelled" | "host_stopped";
         };
     } | {
         kind: "runtime_observed";

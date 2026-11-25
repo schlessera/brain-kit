@@ -129,3 +129,17 @@ test("a composer-opened reply's unanswered tool shows the host's stop, before an
   const tool = root.stores.chat.getState().buffers.s1!.messages.find((m) => m.id === "reply")!.toolCalls.find((t) => t.id === "loom");
   expect(tool, "COMPOSER_REPLY_TOOL_SHOWS_HOST_STOP").toMatchObject({ hostStop: "inbox_share", isError: true });
 });
+
+test("a host stop before the new reply opens never labels an earlier answer's tools", () => {
+  const send = (frame: ServerMessage) => act(() => { root.connection.handleServerMessage(frame); });
+  root.stores.chat.getState().setActiveSession("s1");
+  // An earlier, finished answer whose Read never reported a result.
+  send({ type: "session_history", sessionId: "s1", messages: [
+    { role: "user", content: "Read the log", toolCalls: [] },
+    { role: "assistant", content: "Reading it.", toolCalls: [{ id: "read", name: "Read", input: { path: "log.md" } }] },
+    { role: "user", content: "Weave the shroud", toolCalls: [] },
+  ] } as ServerMessage);
+  send({ type: "result", outcome: "cancelled", outcomeDetail: hostStopOutcomeDetail("inbox_share"), durationMs: 1, numTurns: 1, isError: false, ...scoped } as ServerMessage);
+  const earlier = root.stores.chat.getState().buffers.s1!.messages.find((m) => m.role === "assistant" && m.content === "Reading it.")!;
+  expect(earlier.toolCalls.find((t) => t.id === "read")?.hostStop, "EARLIER_ANSWER_UNTOUCHED").toBeUndefined();
+});

@@ -78,6 +78,7 @@ async function stoppedTurn(backend: ReturnType<typeof interruptedTurn>, options:
     run: { outcome: run?.outcome, reason: run?.outcomeReason },
     toolSpan: store.getSpan("loom"),
     toolOutput: store.snapshotRun(turnId)?.events.find(event => event.spanId === "loom" && event.eventType === "tool_output")?.payload,
+    policyConfirm: store.snapshotRun(turnId)?.events.find(event => event.eventType === "policy_confirm")?.payload as { decision?: string } | undefined,
     result,
     tool: frames.find(frame => frame.type === "tool_result" && frame.toolUseId === "loom") as Extract<ServerMessage, { type: "tool_result" }>,
     status: frames.find(frame => frame.type === "status" && frame.status === "cancelled") as Extract<ServerMessage, { type: "status" }>,
@@ -171,4 +172,32 @@ test("a host stop closes the question its backend was waiting on, with its own c
   const turn = await stoppedTurn(backend, () => ({ inboxTools: inboxTools as never }));
   expect((answer as Error | null)?.message, "PENDING_QUESTION_CLOSED_WITH_HOST_CAUSE").toBe(HOST_STOP_REASONS.inbox_share);
   expectHostStop(turn, "inbox_share", "SHARE_DURING_QUESTION");
+});
+
+test("a confirmation pending when the host stopped the turn records the host stop, not a timeout", async () => {
+  const inboxTools = { forTurn: () => undefined, shares: { start: () => Promise.resolve(), end: () => Promise.resolve(), bind: () => Promise.reject(new Error("fixture share failure")) } };
+  const backend = makeFakeBackend({ id: "claude", async startTurn({ bridge, signal }) {
+    bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
+    if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
+    // The runtime reports the confirmation it was waiting on as it unwinds.
+    bridge.activity?.({ kind: "policy_confirm", toolUseId: "push", payload: { tool: "Bash", input: "git push origin main", inputTruncated: false,
+      rule: { list: "commands.confirm", index: 0, pattern: "^git push" }, decision: "timed_out", policyHash: null } });
+    bridge.emit({ type: "result", sessionId: "ithaca", outcome: "cancelled", isError: false, durationMs: 1, numTurns: 1 });
+  } });
+  const turn = await stoppedTurn(backend as never, () => ({ inboxTools: inboxTools as never }));
+  expect(turn.policyConfirm?.decision, "PENDING_CONFIRM_RECORDS_HOST_STOP").toBe("host_stopped");
+});
+
+test("a backend cannot claim a host stop the host did not make", async () => {
+  const backend = makeFakeBackend({ id: "claude", async startTurn({ bridge }) {
+    bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
+    bridge.emit({ type: "tool_use_start", toolUseId: "loom", toolName: "Bash" });
+    bridge.emit({ type: "tool_result", toolUseId: "loom", output: "bash: unweave: command not found", isError: true, hostStop: "safety_recording" } as never);
+    bridge.emit({ type: "result", sessionId: "ithaca", outcome: "cancelled", outcomeDetail: "host_stop:safety_recording", isError: false, durationMs: 1, numTurns: 1 });
+  } });
+  const turn = await stoppedTurn(backend as never);
+  expect(turn.tool.hostStop, "BACKEND_TOOL_HOST_STOP_DROPPED").toBeUndefined();
+  expect(turn.tool.output).toBe("bash: unweave: command not found");
+  expect(turn.result.outcomeDetail, "BACKEND_HOST_STOP_DETAIL_DROPPED").toBeUndefined();
+  expect(turn.toolSpan?.outcomeReason).toBe("bash: unweave: command not found");
 });

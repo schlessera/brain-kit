@@ -820,6 +820,7 @@ signatures (every public export and the types it is made of)
                     approved: "approved";
                     cancelled: "cancelled";
                     declined: "declined";
+                    host_stopped: "host_stopped";
                     timed_out: "timed_out";
                 }>;
                 input: z.ZodString;
