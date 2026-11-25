@@ -124,6 +124,14 @@ the next list item, never to the top of the document.
 What never scales: one primary action per pane, one ambient animation, two
 background colours, and the effect chip on anything that writes.
 
+**Amended 2026-11-25 (#4538):** the 720px figure above is the measure of
+answer prose, not a cap on every pane. Settings panes keep a 720px column
+unless they opt in as wide panes, which grow to 1200px; prose inside them
+keeps a 68ch reading measure. Multi-column content in a Settings pane stacks
+at **560** and **840** CSS px of the pane's own container (`@container`), not
+of the viewport. The opt-in rule and the pane table are in
+[navigation.md](navigation.md#2026-11-25--wide-settings-panes-4538).
+
 Mobile-first still holds as the authoring order, and `PhoneFrame` stays a
 Storybook decorator — `browser-window.jsx` presumably becomes its desktop
 counterpart.

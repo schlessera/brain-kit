@@ -126,8 +126,10 @@ files. It does not widen coverage to make a checkbox available.
 
 These are annotated wireframes using synthetic Odysseus content dated
 2026-07-12. They specify content order and behavior, not exact text raster or
-pixel baselines. Desktop retains the Settings section column and a 720px content
-column; 320px uses 12px side gutters and a 296px map. Panels and labels wrap at
+pixel baselines. Desktop retains the Settings section column; Storage is a
+[wide Settings pane](navigation.md#2026-11-25--wide-settings-panes-4538) of up
+to 1200px, with prose at the 68ch measure. 320px uses 12px side gutters and a
+296px map. Panels and labels wrap at
 200% zoom. Review is a dialog on desktop and a pushed view on phone.
 
 **Overview, desktop (1280px):** capacity remains above ownership and metric.
