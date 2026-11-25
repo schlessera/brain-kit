@@ -9,10 +9,17 @@ import type { BrainUiRoot } from "../../../root.js";
 import { ApiRequestError } from "../../../lib/api-client.js";
 import { storageApi } from "../../../lib/storage-api.js";
 import { latestInventory } from "./storage-volumes.js";
+import { readStorageTimeline, type StorageTimeline } from "./storage-timeline.js";
 interface EvidenceState {
   epoch: number;
   guidance: StorageGuidanceResponse | null;
   history: StorageHistoryResponse | null;
+  /**
+   * The events timeline (#4541), read with history and continued with
+   * `since`. `null` until a page is read; an older host's 404 or any failure
+   * keeps what was read, so the chart falls back to its own markers.
+   */
+  timeline: StorageTimeline | null;
   /**
    * The newest inventory snapshot, read with the guidance so a volume's name
    * (#4537 D7) joins the same roots everywhere. `null` when unread or refused;
@@ -26,6 +33,7 @@ const empty = (epoch: number): EvidenceState => ({
   epoch,
   guidance: null,
   history: null,
+  timeline: null,
   inventory: null,
   error: null,
   loading: false,
@@ -72,8 +80,11 @@ function createEvidence(root: BrainUiRoot) {
       guidanceRead,
       withHistory ? api.history(request.signal) : Promise.resolve(null),
       inventoryRead,
+      withHistory
+        ? readStorageTimeline((since) => api.events(since, request.signal), state.getState().timeline)
+        : Promise.resolve(null),
     ])
-      .then(([guidance, history, status]) => {
+      .then(([guidance, history, status, timeline]) => {
         if (
           owner !== generation ||
           account !== root.stores.connection.getState().accountKey ||
@@ -113,6 +124,8 @@ function createEvidence(root: BrainUiRoot) {
               Array.isArray(history.value.observations)
                 ? history.value
                 : null,
+            // A missing or failed timeline is not an error: the chart keeps its own markers.
+            ...(timeline.status === "fulfilled" && timeline.value ? { timeline: timeline.value } : {}),
           });
       })
       .finally(() => {

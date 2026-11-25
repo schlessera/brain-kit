@@ -13,7 +13,9 @@ import {
   storageMarkers,
   storageScenarios,
   storageSeries,
+  storageTimelineNote,
 } from "./storage-history.js";
+import type { StorageTimeline } from "./storage-timeline.js";
 import { StorageHistoryTable } from "./storage-history-table.js";
 import { StorageSegmented } from "./storage-segmented.js";
 import { humanReason } from "./storage-model.js";
@@ -34,7 +36,8 @@ const STATE_WORD: Record<StorageVolume["status"], string> = {
 
 /**
  * Available space over time for the selected volume (#4537 D3): the tier
- * switch, the chart with its scenario lines (D9) and derived markers (D10),
+ * switch, the chart with its scenario lines (D9) and its markers, derived
+ * (D10) and from the server's timeline (#4548),
  * and the exact endpoints behind "Measurements behind this chart".
  */
 export function StorageHistorySection({
@@ -42,6 +45,7 @@ export function StorageHistorySection({
   guidance,
   history,
   maintenance,
+  timeline = null,
   unavailable,
   now,
   format,
@@ -50,6 +54,8 @@ export function StorageHistorySection({
   guidance: StorageGuidanceResponse | null;
   history: StorageHistoryResponse | null;
   maintenance: readonly StorageMaintenanceRow[];
+  /** The server's events timeline (#4548); without it the markers are derived here alone. */
+  timeline?: StorageTimeline | null;
   unavailable: boolean;
   now: number;
   format: StorageFormat;
@@ -64,6 +70,7 @@ export function StorageHistorySection({
   const notes = [
     guidance?.paused ? `History paused · ${humanReason(guidance.paused)} · last valid evidence retained` : null,
     guidance?.pending ? "A new observation is awaiting history storage · warnings stay until recovery is confirmed" : null,
+    storageTimelineNote(timeline),
     unavailable ? "Current guidance could not be checked · the retained warning is out of date; refresh before relying on it" : null,
   ].filter((value): value is string => value !== null);
   const heading = `Available space · ${volume?.name ?? "no volume"}`;
@@ -97,7 +104,7 @@ export function StorageHistorySection({
             intervalLabel={STORAGE_TIER_BUCKET[tier].label}
             thresholds={historyThresholds(volume.capacity?.total ?? null)}
             scenarios={storageScenarios(pressure, format)}
-            markers={storageMarkers({ series, identity: volume.id, pressure, maintenance, now, format })}
+            markers={storageMarkers({ series, identity: volume.id, pressure, maintenance, timeline, now, format })}
             nowState={STATE_WORD[volume.status]}
             notes={notes}
             unmeasuredReason={series.length ? undefined : "no retained observation of this volume in this tier"}
