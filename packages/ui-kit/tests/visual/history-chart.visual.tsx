@@ -45,6 +45,7 @@ const STATES: Array<[string, unknown, unknown]> = [
   ["now-not-measured", chart.NowNotMeasured, chart.NowNotMeasuredDesktop],
   ["both-windows-reach-zero", chart.BothWindowsReachZero, chart.BothWindowsReachZeroDesktop],
   ["crowded-events", chart.CrowdedEvents, chart.CrowdedEventsDesktop],
+  ["thin-bands", chart.ThinBands, chart.ThinBandsDesktop],
   ["all-unknown", chart.AllUnknown, chart.AllUnknownDesktop],
   ["event-cluster", chart.EventCluster, chart.EventClusterDesktop],
   ["very-low-now", chart.VeryLowNow, chart.VeryLowNowDesktop],

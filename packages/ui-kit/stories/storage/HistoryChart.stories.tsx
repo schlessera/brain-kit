@@ -4,6 +4,9 @@ import { expect, waitFor } from "storybook/test";
 import {
   CLUSTERED_EVENTS,
   CROWDED_EVENTS,
+  TB_THRESHOLDS,
+  nearlyEmpty,
+  twoTerabytes,
   HISTORY_BASE,
   LONG_FINITE,
   LONG_GAP,
@@ -29,7 +32,7 @@ import {
   weeklyThree,
 } from "../../fixtures/storage-history.js";
 import { HistoryChart, type HistoryChartProps } from "../../src/storage/HistoryChart.js";
-import { DESKTOP, HistoryCard, PHONE, chartHolds, desktop, everyMarkInside, frame, laidOut, openAt, phone, svgOf, tableMatchesPoints } from "./_history.js";
+import { DESKTOP, HistoryCard, PHONE, chartHolds, desktop, everyMarkInside, frame, noTextOverlaps, laidOut, openAt, phone, svgOf, tableMatchesPoints } from "./_history.js";
 
 const DAY = 86_400_000;
 
@@ -451,6 +454,8 @@ const WIDTH_CASES: Array<[string, Partial<HistoryChartProps>]> = [
   ["weekly", { points: weeklyThree, intervalMs: 7 * DAY, markers: [] }],
   ["single point", { points: singlePoint, markers: [], scenarios: [SHORT_NONE, LONG_NONE] }],
   ["all unknown", { points: allUnknown, markers: [], scenarios: [SHORT_NONE, LONG_NONE] }],
+  ["nearly empty, thin bands", { points: nearlyEmpty, nowState: undefined, scenarios: [LONG_SHORT_HISTORY] }],
+  ["2 TB volume", { points: twoTerabytes, thresholds: TB_THRESHOLDS, nowState: undefined, scenarios: [LONG_SHORT_HISTORY] }],
 ];
 
 /**
@@ -482,9 +487,27 @@ export const EveryWidth = meta.story({
         return found!;
       });
       await everyMarkInside(svg, `${c.dataset.case}:`);
+      await noTextOverlaps(svg, `${c.dataset.case}:`);
     }
   },
 });
+
+/**
+ * A nearly empty volume (#4559 review): 150 GB available on 161 GB, so the
+ * Low and Very low bands are a few pixels tall. The two threshold labels may
+ * not share their few pixels: they move apart, or to the caption, together.
+ */
+export const ThinBands = meta.story({
+  ...phone,
+  args: { points: nearlyEmpty, nowState: undefined, scenarios: [LONG_SHORT_HISTORY] },
+  play: async (ctx) => {
+    const { svg } = await open(ctx);
+    const said = (svg.textContent ?? "") + caption(ctx.canvasElement).join(" ");
+    await expect(said).toContain("\u25b3 Low < 16.1 GB");
+    await expect(said).toContain("\u25b2 Very low < 8.05 GB");
+  },
+});
+export const ThinBandsDesktop = ThinBands.extend({ ...desktop });
 
 /* ── Greyscale, zoom, motion ────────────────────────────────────────────────── */
 

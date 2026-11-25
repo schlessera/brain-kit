@@ -29,6 +29,8 @@ import {
   sparklineGeometry,
   spreadLabels,
   subpathCount,
+  textBox,
+  SCENARIO_LABEL_BOX,
   thresholdBands,
   timeDomain,
   timeTicks,
@@ -391,7 +393,7 @@ describe("ticks", () => {
     expect(layout.xTicks.map((t) => t.at)).toEqual(weekly.map((p) => p.at));
     expect(layout.dots).toHaveLength(3);
     const single = historyLayout({ width: 296, points: [weekly[2]!], now: weekly[2]!.at, intervalMs: 6 * H });
-    expect(single.xTicks).toEqual([{ at: weekly[2]!.at, x: single.nowX, now: true }]);
+    expect(single.xTicks).toEqual([{ at: weekly[2]!.at, x: single.nowX, now: true, anchor: "middle" }]);
   });
 });
 
@@ -714,5 +716,90 @@ describe("the y labels never leave the chart", () => {
     }
     // Short labels keep the designed gutter.
     expect(historyLayout({ width: 296, points: pts, formatValue: (v) => `${v / GB} GB` }).frame.left).toBe(44);
+  });
+});
+
+/* ── Fourth review of #4559: every label, one registry ─────────────────────── */
+
+describe("no two labels overlap, and all stay inside (property)", () => {
+  /** A small seeded generator, so a failure names a case that reproduces. */
+  function rng(seed: number) {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const gb = (v: number) => `${Number((v / GB).toPrecision(3))} GB`;
+  const day = (at: number) => { const d = new Date(at); return `${d.getUTCDate()} ${["Jun", "Jul", "Aug"][d.getUTCMonth() - 5] ?? "Jan"}`; };
+  const hit = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+  test("the reviewer's case: 150 GB available, 16.1 / 8.05 GB thresholds, 296px", () => {
+    const pts = Array.from({ length: 64 }, (_, i) => ({ at: T0 + i * 6 * H, value: 150 * GB }));
+    const layout = historyLayout({ width: 296, points: pts, thresholds: { low: 16.1 * GB, veryLow: 8.05 * GB }, formatValue: gb });
+    // Both bands are 6px tall: no room to keep two 12px labels apart in the
+    // plot, so both move to the caption, with their copy intact.
+    const bands = layout.labels.filter((l) => l.role.startsWith("band-"));
+    expect(layout.bandsCaptioned).toBe(true);
+    expect(bands).toHaveLength(0);
+    expect(layout.bandTexts.map((b) => b.text)).toEqual(["\u25b2 Very low < 8.05 GB", "\u25b3 Low < 16.1 GB"]);
+  });
+
+  test("random y maxima, thresholds, events, scenarios and widths", () => {
+    const next = rng(4559);
+    for (let k = 0; k < 600; k += 1) {
+      const width = [136, 200, 240, 296, 360, 480, 599, 600, 720, 880, 1240][Math.floor(next() * 11)]!;
+      const total = 10 ** (9 + next() * 4); // 1 GB .. 10 TB
+      const level = total * (0.02 + next() * 0.96);
+      const n = 2 + Math.floor(next() * 80);
+      const gapAt = next() < 0.3 ? Math.floor(next() * n) : -1;
+      const cut = next() < 0.2 ? Math.floor(next() * n) : -1;
+      const pts = Array.from({ length: n }, (_, i) => ({
+        at: T0 + i * 6 * H,
+        value: i === gapAt ? null : Math.max(0, level * (1 + 0.3 * (next() - 0.5))),
+        otherScope: i < cut ? true : undefined,
+      }));
+      const now = pts[n - 1]!.at;
+      const thresholds = next() < 0.85 ? { low: total * 0.1, veryLow: total * 0.05 } : undefined;
+      const markers = Array.from({ length: Math.floor(next() * 12) }, (_, i) => ({ at: T0 + next() * (now - T0), n: i + 1, label: "e" }));
+      const scenarios: HistoryScenario[] = next() < 0.7
+        ? [
+            { window: "short", name: "7-day", detail: "empty ~20 Jul", to: { at: now + next() * 10 * DAY, value: next() < 0.5 ? 0 : level * next() } },
+            { window: "long", name: "30-day", detail: "empty ~28 Jul", to: { at: now + next() * 40 * DAY, value: next() < 0.5 ? 0 : level * next() } },
+          ]
+        : [];
+      const layout = historyLayout({ width, points: pts, now, intervalMs: 6 * H, thresholds, markers, scenarios, formatValue: gb, formatTick: day });
+      const { frame } = layout;
+      const what = `case ${k}: ${width}px, total ${gb(total)}, level ${gb(level)}`;
+      const boxes = layout.labels.map((l) => ({ l, b: textBox(l) }));
+      for (const { l, b } of boxes) {
+        const right = l.role === "now" ? frame.width : frame.right;
+        expect(b.x >= frame.left - 0.5 && b.x + b.width <= right + 0.5, `${what}: "${l.text}" across x`).toBe(true);
+        expect(b.y >= frame.top - 0.5 && b.y + b.height <= frame.bottom + 0.5, `${what}: "${l.text}" across y`).toBe(true);
+      }
+      const gutter = layout.scenarioLabels.map((g) => ({ x: frame.right + 6, y: g.y - SCENARIO_LABEL_BOX.above, width: 16 + 10 * 0.6 * 13, height: SCENARIO_LABEL_BOX.above + SCENARIO_LABEL_BOX.below }));
+      for (const g of gutter) expect(g.y >= -0.5 && g.y + g.height <= frame.height + 0.5, `${what}: a gutter label`).toBe(true);
+      const all = [...boxes.map((x) => x.b), ...gutter];
+      for (let i = 0; i < all.length; i += 1) for (let j = i + 1; j < all.length; j += 1) expect(hit(all[i]!, all[j]!), `${what}: two labels overlap`).toBe(false);
+      // Tick labels: inside the chart and apart.
+      const ticks = layout.xTicks.map((t) => {
+        const w = t.now ? 3 * 9.5 * 0.6 : day(t.at).length * 9.5 * 0.6;
+        return t.anchor === "start" ? [t.x, t.x + w] : [t.x - w / 2, t.x + w / 2];
+      });
+      for (const [l, r] of ticks) expect(l >= -0.5 && r <= frame.width + 0.5, `${what}: a tick label`).toBe(true);
+      for (let i = 1; i < ticks.length; i += 1) expect(ticks[i]![0]! >= ticks[i - 1]![1]!, `${what}: tick labels overlap`).toBe(true);
+      // The axes' labels against each other: y labels end 6px left of the
+      // plot, tick labels hang under it; the corner is where they could meet.
+      const tickBoxes = layout.xTicks.map((t, i) => ({ x: ticks[i]![0]!, y: frame.bottom + 13 - 9.5 * 1.02, width: ticks[i]![1]! - ticks[i]![0]!, height: 9.5 * 1.32 }));
+      const yBoxes = layout.yTicks.map((t) => textBox({ text: gb(t.value), x: frame.left - 6, y: t.y + 3, anchor: "end", size: 9.5 }));
+      for (const yb of yBoxes) {
+        expect(yb.x, `${what}: a y label leaves the chart`).toBeGreaterThanOrEqual(-0.5);
+        for (const tb of tickBoxes) expect(hit(yb, tb), `${what}: a y label meets a tick label`).toBe(false);
+      }
+    }
   });
 });

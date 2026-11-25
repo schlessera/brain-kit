@@ -89,11 +89,19 @@ export const FUTURE_SHARE = 0.2;
 /** A gutter label's text starts this far right of the plot: a 6px gap and its 16px dash sample. */
 const GUTTER_TEXT_OFFSET = 22;
 /**
- * A gutter label's two 10px lines, relative to its centre `y`: baselines at
- * y+3 and y+15, and the box they paint (0.8em ascent above the first, 0.25em
- * descent below the second).
+ * The box a line of mono text occupies around its baseline, as the browser
+ * lays it out: JetBrains Mono's 1.02em ascent and 0.3em descent. Every label
+ * box in this module is measured with these, so "does not overlap" here means
+ * the rendered `<text>` boxes do not intersect.
  */
-export const SCENARIO_LABEL_BOX = { line1: 3, line2: 15, above: 5, below: 17.5 } as const;
+const TEXT_ASCENT = 1.02;
+const TEXT_DESCENT = 0.3;
+/**
+ * A gutter label's two 10px lines, relative to its centre `y`: baselines at
+ * y+3 and y+17, and the box they paint, from the first line's ascent to the
+ * second line's descent.
+ */
+export const SCENARIO_LABEL_BOX = { line1: 3, line2: 17, above: 7.2, below: 20 } as const;
 /** Height of the event lane under the x axis. */
 const EVENT_LANE = 28;
 
@@ -123,7 +131,7 @@ export function chartFrame(width: number, withEvents: boolean, yLabelWidth = 0):
 }
 
 /** Approximate rendered width of a mono label. */
-export function textWidth(text: string, size = LABEL_SIZE): number {
+function textWidth(text: string, size = LABEL_SIZE): number {
   return [...text].length * size * MONO_ADVANCE;
 }
 
@@ -466,6 +474,8 @@ interface XTick {
   at: number;
   x: number;
   now?: boolean;
+  /** How its label hangs off `x`: the range's start label starts there, the rest are centred. */
+  anchor?: "start" | "middle";
 }
 
 const STEP_DAYS = [1, 2, 4, 7, 14, 30, 61, 91, 182];
@@ -488,6 +498,8 @@ export function timeTicks(
   x: LinearScale,
   wide: boolean,
   sparsePoints?: readonly number[],
+  /** Label measurement: the plot's left edge, the chart width and each label's width. */
+  measure?: { left: number; width: number; labelWidth: (at: number) => number },
 ): XTick[] {
   const { start, now } = domain;
   const candidates: number[] = [];
@@ -505,15 +517,27 @@ export function timeTicks(
     }
   }
   const nowX = x(now);
+  // With measurement, a tick is also dropped when its label's box would touch
+  // a kept neighbour's or now's, or leave the chart.
+  const span = (at: number, px: number, anchor: "start" | "middle") => {
+    const w = measure ? measure.labelWidth(at) : 0;
+    return anchor === "start" ? [px, px + w] : [px - w / 2, px + w / 2];
+  };
+  const nowSpan = measure ? [nowX - textWidth(HISTORY_COPY.now) / 2, nowX + textWidth(HISTORY_COPY.now) / 2] : [nowX, nowX];
   const kept: XTick[] = [];
+  let prevRight = -Infinity;
   for (const at of candidates.sort((a, b) => a - b)) {
     const px = x(at);
     if (nowX - px < TICK_MIN_GAP) continue;
     const prev = kept[kept.length - 1];
     if (prev && px - prev.x < TICK_MIN_GAP) continue;
-    kept.push({ at, x: px });
+    const anchor = measure && px - measure.left < 24 ? "start" : "middle";
+    const [l, r] = span(at, px, anchor);
+    if (measure && (l < 0 || r > measure.width || l < prevRight + 4 || r > nowSpan[0]! - 4)) continue;
+    kept.push({ at, x: px, anchor });
+    prevRight = r;
   }
-  kept.push({ at: now, x: nowX, now: true });
+  kept.push({ at: now, x: nowX, now: true, anchor: "middle" });
   return kept;
 }
 
@@ -669,8 +693,10 @@ interface HistoryLayoutInput {
   thresholds?: HistoryThresholds;
   scenarios?: readonly HistoryScenario[];
   markers?: readonly HistoryMarker[];
-  /** The y label formatter, so the left gutter can widen to its widest label. */
+  /** The y label formatter, so the left gutter can widen to its widest label and labels can be measured. */
   formatValue?: (value: number) => string;
+  /** The x tick formatter, so tick labels can be kept apart. */
+  formatTick?: (at: number) => string;
 }
 
 interface PlottedPoint {
@@ -702,11 +728,22 @@ interface DrawnGap extends GapSpan {
   captioned: boolean;
 }
 
-interface TopLabel {
+/** One label drawn in the plot, at its baseline `y`. */
+interface PlacedText {
   text: string;
   x: number;
+  y: number;
   anchor: "start" | "middle" | "end";
-  role: "future" | "gap" | "scope" | "other";
+  size: number;
+  role: "future" | "gap" | "scope" | "other" | "now" | "band-low" | "band-veryLow";
+}
+type TopLabel = PlacedText;
+
+/** The box a placed label paints. */
+export function textBox(t: Pick<PlacedText, "text" | "x" | "y" | "anchor" | "size">): Rect {
+  const w = textWidth(t.text, t.size);
+  const left = t.anchor === "start" ? t.x : t.anchor === "end" ? t.x - w : t.x - w / 2;
+  return { x: left, y: t.y - t.size * TEXT_ASCENT, width: w, height: t.size * (TEXT_ASCENT + TEXT_DESCENT) };
 }
 
 interface ScenarioLabel {
@@ -741,6 +778,8 @@ export interface HistoryLayout {
   gaps: DrawnGap[];
   /** `captioned` when neither side of the rule had room for its label. */
   scopeBreaks: Array<{ at: number; x: number; captioned: boolean }>;
+  /** The threshold label copy, in band order (Very low first). */
+  bandTexts: Array<{ kind: Band["kind"]; text: string }>;
   bands: Band[];
   future: { x: number; width: number };
   nowX: number;
@@ -748,7 +787,19 @@ export interface HistoryLayout {
   /** Gutter labels; empty below {@link GUTTER_MIN_WIDTH}, where the caption carries them. */
   scenarioLabels: ScenarioLabel[];
   markers: MarkerCluster[];
+  /** The top row: scope, gap and future labels. */
   topLabels: TopLabel[];
+  /**
+   * Every label drawn in the plot, the top row included, placed through one
+   * registry: inside its region and clear of every other label's box.
+   */
+  labels: PlacedText[];
+  /** The now value (or "?" when now was not measured); null when it is captioned or there is no data. */
+  nowLabel: PlacedText | null;
+  /** True when no position in the plot held the now label: the caption carries it. */
+  nowCaptioned: boolean;
+  /** True when the threshold labels could not both sit in the plot: the caption carries both. */
+  bandsCaptioned: boolean;
 }
 
 /** A series is drawn as countable dots when its measurements sit at least this far apart. */
@@ -847,42 +898,82 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
 
   const breakTimes = scopeBreaks(sorted).map((at) => ({ at, x: x(at) }));
 
-  // Top-row labels, by priority, every one inside the plot and clear of the
-  // others: scope labels first (falling back to the caption only when neither
-  // side of the rule has room); a gap's full copy falls back to "?" and then
-  // to nothing (the caption keeps its copy); the future label goes first of all.
-  // The occupied boxes, kept apart from the labels: a label's `x` is its
-  // anchor, which is not its box's left edge for a middle or end anchor.
-  const placed: Array<{ box: Rect; label: TopLabel }> = [];
-  const rectFor = (text: string, at: number, anchor: TopLabel["anchor"]): Rect => {
-    const w = textWidth(text);
-    const left = anchor === "start" ? at : anchor === "end" ? at - w : at - w / 2;
-    return { x: left, y: 0, width: w, height: 10 };
-  };
-  const fits = (rect: Rect) => rect.x >= frame.left - 0.5 && rect.x + rect.width <= frame.right + 0.5 && placed.every((p) => !overlaps(p.box, rect, 4));
-  /** Place a label, sliding a centred one along x to stay inside the plot. Returns its x, or null. */
-  const place = (text: string, at: number, anchor: TopLabel["anchor"], role: TopLabel["role"]) => {
-    const rect = rectFor(text, at, anchor);
-    let x = at;
-    if (anchor === "middle") {
-      const slid = Math.min(Math.max(rect.x, frame.left), frame.right - rect.width);
-      x += slid - rect.x;
+  // Every in-plot label goes through one registry, by priority: scope
+  // labels, the now value, gap labels, threshold labels, then "future". Each
+  // is placed only inside its region and clear of every box already placed
+  // (gutter scenario labels included); otherwise it falls back (another
+  // position, the caption, or nothing for "future").
+  const fmt = input.formatValue ?? ((v: number) => String(v));
+  const placed: Array<{ box: Rect; label: PlacedText | null }> = [];
+  for (const l of scenarioLabels) {
+    const w = Math.max(textWidth(`${l.line.scenario.name} rate`, 10), textWidth(l.line.scenario.detail ?? "", 10));
+    placed.push({ box: { x: frame.right + 6, y: l.y - SCENARIO_LABEL_BOX.above, width: GUTTER_TEXT_OFFSET - 6 + w, height: SCENARIO_LABEL_BOX.above + SCENARIO_LABEL_BOX.below }, label: null });
+  }
+  const plotRegion = { left: frame.left, right: frame.right, top: frame.top, bottom: frame.bottom };
+  const PAD = 2;
+  const fits = (rect: Rect, region = plotRegion) =>
+    rect.x >= region.left - 0.5 &&
+    rect.x + rect.width <= region.right + 0.5 &&
+    rect.y >= region.top - 0.5 &&
+    rect.y + rect.height <= region.bottom + 0.5 &&
+    placed.every((p) => !overlaps(p.box, rect, PAD));
+  /** Place a label, sliding a centred one along x to stay in its region. Returns it, or null. */
+  const put = (label: PlacedText, region = plotRegion): PlacedText | null => {
+    const rect = textBox(label);
+    let at = label.x;
+    if (label.anchor === "middle") {
+      const slid = Math.min(Math.max(rect.x, region.left), region.right - rect.width);
+      at += slid - rect.x;
       rect.x = slid;
     }
-    if (!fits(rect)) return null;
-    placed.push({ box: rect, label: { text, x, anchor, role } });
-    return x;
+    if (!fits(rect, region)) return null;
+    const placedLabel = { ...label, x: at };
+    placed.push({ box: rect, label: placedLabel });
+    return placedLabel;
   };
-  // Scope labels go first, through the same bounds and overlap check as every
-  // other label: right of the rule, else left of it, else the caption says it.
+  const top = (text: string, at: number, anchor: PlacedText["anchor"], role: PlacedText["role"]) =>
+    put({ text, x: at, y: frame.top + 11, anchor, size: LABEL_SIZE, role })?.x ?? null;
+
+  // Scope labels: right of the rule, else left of it, else the caption.
   // "other volume" sits left of the rule only when that side is free.
   const breaks = breakTimes.map((b) => {
-    if (place(HISTORY_COPY.scopeChanged, b.x + 4, "start", "scope") !== null) {
-      place(HISTORY_COPY.otherVolume, b.x - 4, "end", "other");
+    if (top(HISTORY_COPY.scopeChanged, b.x + 4, "start", "scope") !== null) {
+      top(HISTORY_COPY.otherVolume, b.x - 4, "end", "other");
       return { ...b, captioned: false };
     }
-    return { ...b, captioned: place(HISTORY_COPY.scopeChanged, b.x - 4, "end", "scope") === null };
+    return { ...b, captioned: top(HISTORY_COPY.scopeChanged, b.x - 4, "end", "scope") === null };
   });
+
+  // The now value, beside its point; "?" at the now rule when now was not
+  // measured. It may reach into the gutter only from the "above" positions.
+  let nowLabel: PlacedText | null = null;
+  const nowPoint = latest && nowMeasured ? latest : null;
+  if (nowPoint || measured.length) {
+    const text = nowPoint ? fmt(nowPoint.value) : "?";
+    const at = nowPoint ? { x: nowPoint.x, y: nowPoint.y } : { x: nowX, y: (frame.top + frame.bottom) / 2 };
+    const wideRegion = { ...plotRegion, right: frame.width };
+    const tries: Array<[number, number, PlacedText["anchor"], typeof plotRegion]> = nowPoint
+      ? [
+          [at.x + 7, at.y - 6, "start", plotRegion],
+          [at.x - 2, at.y - 10, "start", wideRegion],
+          [at.x + 2, at.y - 10, "end", wideRegion],
+          [at.x + 7, at.y + 16, "start", wideRegion],
+          [at.x - 7, at.y + 16, "end", wideRegion],
+          [at.x - 7, at.y - 6, "end", wideRegion],
+        ]
+      : [
+          [at.x + 4, at.y, "start", wideRegion],
+          [at.x - 4, at.y, "end", wideRegion],
+          [at.x + 4, frame.top + 30, "start", wideRegion],
+          [at.x + 4, frame.bottom - 6, "start", wideRegion],
+        ];
+    for (const [lx, ly, anchor, region] of tries) {
+      nowLabel = put({ text, x: lx, y: ly, anchor, size: 10, role: "now" }, region);
+      if (nowLabel) break;
+    }
+  }
+  const nowCaptioned = !nowLabel && (Boolean(nowPoint) || measured.length > 0);
+
   // An all-unknown range is one statement ("not measured"), not one long gap:
   // it draws the bands alone, with no hatch to read as a span between values.
   const gaps: DrawnGap[] = (measured.length ? gapSpans(sorted) : []).map((g) => {
@@ -890,15 +981,43 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
     const x1 = Math.min(frame.right, x(g.to));
     const mid = (x0 + x1) / 2;
     let label = "";
-    let labelX = frame.wide ? place(HISTORY_COPY.gap, mid, "middle", "gap") : null;
+    let labelX = frame.wide ? top(HISTORY_COPY.gap, mid, "middle", "gap") : null;
     if (labelX !== null) label = HISTORY_COPY.gap;
     else {
-      labelX = place(HISTORY_COPY.gapShort, mid, "middle", "gap");
+      labelX = top(HISTORY_COPY.gapShort, mid, "middle", "gap");
       if (labelX !== null) label = HISTORY_COPY.gapShort;
     }
     return { ...g, x0, x1, label, labelX: labelX ?? mid, captioned: label !== HISTORY_COPY.gap };
   });
-  if (future.width > textWidth(HISTORY_COPY.future) + 6) place(HISTORY_COPY.future, future.x + 4, "start", "future");
+
+  // Threshold labels: inside their band under its edge, nudged down within
+  // the band when the first spot is taken; else just above the edge, nudged
+  // up a little. Both stay in the plot or both go to the caption.
+  const bands = thresholdBands(input.thresholds, y, frame.left, frame.right);
+  const bandTexts = bands.map((b) => ({ kind: b.kind, text: `${b.kind === "low" ? "\u25b3 Low" : "\u25b2 Very low"} < ${fmt(b.level)}` }));
+  const before = placed.length;
+  let bandsCaptioned = false;
+  for (const [i, b] of bands.entries()) {
+    const text = bandTexts[i]!.text;
+    const role = b.kind === "low" ? "band-low" : "band-veryLow";
+    const bandRegion = { ...plotRegion, top: b.edgeY, bottom: b.edgeY + b.height };
+    let done: PlacedText | null = null;
+    for (let base = b.edgeY + 11; !done && base + LABEL_SIZE * TEXT_DESCENT <= b.edgeY + b.height + 0.5; base += 2) {
+      done = put({ text, x: frame.left + 6, y: base, anchor: "start", size: LABEL_SIZE, role }, bandRegion);
+    }
+    for (let base = b.edgeY - 4; !done && base >= b.edgeY - 10; base -= 2) {
+      done = put({ text, x: frame.left + 6, y: base, anchor: "start", size: LABEL_SIZE, role });
+    }
+    if (!done) {
+      bandsCaptioned = true;
+      placed.splice(before);
+      break;
+    }
+  }
+
+  if (future.width > textWidth(HISTORY_COPY.future) + 6) top(HISTORY_COPY.future, future.x + 4, "start", "future");
+
+  const labels = placed.flatMap((p) => (p.label ? [p.label] : []));
 
   return {
     frame,
@@ -908,7 +1027,13 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
     yMax,
     yTicks,
     // A lone point ticks only now: there is no range yet to mark.
-    xTicks: timeTicks(domain, x, frame.wide, sorted.length <= 1 ? [] : sparse ? measured.map((p) => p.at) : undefined),
+    xTicks: timeTicks(
+      domain,
+      x,
+      frame.wide,
+      sorted.length <= 1 ? [] : sparse ? measured.map((p) => p.at) : undefined,
+      input.formatTick ? { left: frame.left, width: frame.width, labelWidth: (at) => textWidth(input.formatTick!(at)) } : undefined,
+    ),
     sparse,
     allUnknown: measured.length === 0,
     measuredCount: measured.length,
@@ -918,13 +1043,18 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
     nowMeasured,
     gaps,
     scopeBreaks: breaks,
-    bands: thresholdBands(input.thresholds, y, frame.left, frame.right),
+    bandTexts,
+    bands,
     future,
     nowX,
     scenarioLines: lines,
     scenarioLabels,
     markers: clusterMarkers(markersIn, x, frame.left, frame.right),
-    topLabels: placed.map((p) => p.label),
+    topLabels: labels.filter((l) => l.role === "scope" || l.role === "other" || l.role === "gap" || l.role === "future"),
+    labels,
+    nowLabel,
+    nowCaptioned,
+    bandsCaptioned,
   };
 }
 
