@@ -456,3 +456,34 @@ test("a reconciliation read the host refuses outright is not retried forever: a 
   expect(s.gets() - gets, "REFUSED_READ_NOT_RETRIED_FOREVER").toBe(0);
   expect(s.drafts.getState().drafts[s.id]?.failure?.kind).toBe("refused");
 });
+
+test("a file recovery read the host refuses outright ends in a refusal, not endless reads", async () => {
+  const s = scene();
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees", files: [{ file: PERMIT, lineage: s.id }] });
+  await run(SAVE_DELAY + 100);
+  s.swept.add(PERMIT.fileId);
+  s.failGets(400, 1_000);
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees for the permit" });
+  await run(LONG);
+  const gets = s.gets();
+  await run(LONG);
+  expect(s.gets() - gets, "REFUSED_FILE_READ_NOT_RETRIED").toBe(0);
+  expect(s.drafts.getState().drafts[s.id]?.failure?.kind).toBe("refused");
+});
+
+test("a newer edit is saved as itself while an older edit's re-read still gets no answer", async () => {
+  let refusing = true;
+  const s = scene({ snapshots: true, refuse: (body) => (refusing && body.snapshots?.length ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } } : null) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  s.silenceGets(1_000);
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-muster" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-muster", requestId: "req-muster", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "Muster the crew");
+  await run(10_000);
+  refusing = false;
+  const before = s.saves.length;
+  s.drafts.getState().edit(s.id, SESSION, { text: "Then sail" });
+  await run(SAVE_DELAY + 100);
+  expect(s.saves.length - before, "NEWER_EDIT_NOT_BLOCKED_BY_REREAD").toBe(1);
+  expect(s.rows.get(s.id)?.text).toBe("Then sail");
+});

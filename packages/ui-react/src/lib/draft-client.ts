@@ -78,7 +78,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    */
   const recoveries = new Map<string, { edit: number; fileIds: string[]; body: { message?: string } }>();
   /** Drafts whose refused snapshot list is being read again: no save goes out meanwhile. */
-  const reconciling = new Set<string>();
+  /** The edit each re-read belongs to: a newer edit is saved as itself, and ends the re-read. */
+  const reconciling = new Map<string, number>();
   const reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Idempotency keys per draft for the save in flight: a retry of the same body reuses it. */
   const saveKeys = new Map<string, { body: string; key: string }>();
@@ -266,7 +267,11 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   }
 
   async function sync(draftId: string): Promise<void> {
-    if (!live() || busy.has(draftId) || reconciling.has(draftId)) return;
+    if (!live() || busy.has(draftId)) return;
+    if (reconciling.has(draftId)) {
+      if (reconciling.get(draftId) === drafts.getState().drafts[draftId]?.edit) return;
+      endReconcile(draftId);
+    }
     const d = drafts.getState().drafts[draftId];
     if (!d || !owed(d)) return;
     busy.add(draftId);
@@ -422,7 +427,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    */
   async function goneFiles(d: ComposerDraft, fileIds: readonly string[]): Promise<string[] | null> {
     const read = await api.get(d.draftId);
-    if (!read.ok && read.status !== 404 && read.status !== 410) return null;
+    // No answer is no evidence; any other refusal of the read proves nothing gone either.
+    if (!read.ok && transient(read.status)) return null;
+    if (!read.ok && read.status !== 404 && read.status !== 410) return [];
     const listed = new Set(read.ok ? (read.value.files ?? []).map((f) => f.fileId) : []);
     const bound = new Set(d.host?.fileIds ?? []);
     const unlisted = fileIds.filter((id) => !listed.has(id));
@@ -445,14 +452,24 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    * sent again until one does.
    */
   function reconcile(draftId: string, tries = 0) {
-    reconciling.add(draftId);
+    const edit = drafts.getState().drafts[draftId]?.edit ?? 0;
+    reconciling.set(draftId, edit);
     void reconcileSnapshots(draftId).then((again) => {
-      if (again && !disposed) {
-        reconcileTimers.set(draftId, setTimeout(() => { reconcileTimers.delete(draftId); reconcile(draftId, tries + 1); }, RETRY_MS[Math.min(tries, RETRY_MS.length - 1)]));
+      if (reconciling.get(draftId) !== edit) return;
+      if (again && !disposed && drafts.getState().drafts[draftId]?.edit === edit) {
+        reconcileTimers.set(draftId, setTimeout(() => { reconcileTimers.delete(draftId); if (reconciling.get(draftId) === edit) reconcile(draftId, tries + 1); }, RETRY_MS[Math.min(tries, RETRY_MS.length - 1)]));
         return;
       }
       reconciling.delete(draftId);
+      // A newer edit waited for this re-read: it goes now.
+      if (again) schedule(draftId, 0);
     });
+  }
+
+  function endReconcile(draftId: string) {
+    reconciling.delete(draftId);
+    clearTimeout(reconcileTimers.get(draftId));
+    reconcileTimers.delete(draftId);
   }
 
   /** True when the read got no answer and is owed again. */
