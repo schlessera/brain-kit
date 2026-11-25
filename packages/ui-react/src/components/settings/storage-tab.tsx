@@ -457,10 +457,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                     </p>
                   )}
                   <p id={`${id}-map-description`} className="text-xs">
-                    Equivalent contents list below. Brain: solid outline. App:
-                    hatching. Operator backups and smaller items: dashed
-                    outline. Unknown subtrees have no proportional area. Arrow
-                    keys move between map tiles; Enter opens; Backspace goes up.
+                    Equivalent contents list below. Brain: solid edge, B. App:
+                    dotted edge, A. Operator backups: dashed edge, O. Smaller
+                    items: thin outline. Unknown subtrees have no proportional
+                    area. Arrow keys move between map tiles; Enter opens;
+                    Backspace goes up.
                   </p>
                   {view.chart?.nodes
                     .filter((node) => node.area[view.metric] === null)

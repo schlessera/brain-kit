@@ -52,6 +52,13 @@ export "." (./src/index.ts)
   Callout
   type CalloutProps
   type CalloutVariant
+  type CapacityFigures
+  CapacityGauge
+  type CapacityGaugeProps
+  type CapacityLevel
+  type CapacitySegment
+  type CapacitySegmentKind
+  type CapacityThresholds
   Chip
   type ChipProps
   type ChipVariant
@@ -110,6 +117,8 @@ export "." (./src/index.ts)
   type EmptyStateProps
   type EmptyTone
   type EmptyVariant
+  EventList
+  type EventListProps
   FeedbackRow
   type FeedbackRowProps
   type FeedbackValue
@@ -166,6 +175,14 @@ export "." (./src/index.ts)
   GraphView
   type GraphViewProps
   HATCH_GLYPH
+  HistoryChart
+  type HistoryChartProps
+  type HistoryEvidenceReason
+  type HistoryMarker
+  type HistoryPoint
+  type HistoryScenario
+  type HistoryScenarioWindow
+  type HistoryThresholds
   HygieneBlocker
   HygieneCard
   type HygieneCardProps
@@ -296,6 +313,8 @@ export "." (./src/index.ts)
   type RelatedFilesProps
   type RunState
   type RunToolState
+  SCENARIO_DASH
+  STORAGE_PARTIAL_REASON
   ScaleList
   type ScaleListProps
   type ScheduleGroup
@@ -313,6 +332,8 @@ export "." (./src/index.ts)
   type SessionStripProps
   SideRail
   type SideRailProps
+  Sparkline
+  type SparklineProps
   type Speaker
   SpokenMark
   type SpokenMarkProps
@@ -338,9 +359,30 @@ export "." (./src/index.ts)
   type StepListProps
   type StepListVariant
   type StepState
+  StorageBreadcrumb
+  type StorageBreadcrumbProps
+  StorageConsumerList
+  type StorageConsumerListProps
+  StorageConsumerRow
+  type StorageConsumerRowProps
+  type StorageCrumb
+  type StorageEligibility
+  StorageFilterRow
+  type StorageFilterRowProps
+  type StorageGitFacet
   StorageMap
   type StorageMapItem
+  StorageMapLegend
+  type StorageMapLegendOwner
+  type StorageMapLegendProps
   type StorageMapProps
+  type StorageOwner
+  StorageSelectionBar
+  type StorageSelectionBarProps
+  type StorageSortDirection
+  type StorageSortKey
+  StorageSummaryRow
+  type StorageSummaryRowProps
   type StreamPhase
   StreamingAnswer
   type StreamingAnswerProps
@@ -357,6 +399,7 @@ export "." (./src/index.ts)
   TextButton
   type TextButtonProps
   type TextMark
+  type TickLayout
   type TimelineItem
   TimelineList
   type TimelineListProps
@@ -365,6 +408,16 @@ export "." (./src/index.ts)
   type ToggleProps
   type ToggleTone
   type Tone
+  type ToolChange
+  type ToolHeadroom
+  type ToolHeadroomFigure
+  ToolList
+  type ToolListProps
+  type ToolNotMeasuredReason
+  type ToolOutcomeCounts
+  ToolRow
+  type ToolRowProps
+  type ToolRunState
   type TraceState
   type TraceStep
   TraceSteps
@@ -411,10 +464,18 @@ export "." (./src/index.ts)
   type VoiceTone
   VoiceToolChip
   type VoiceToolChipProps
+  VolumeCard
+  type VolumeCardProps
+  VolumeGroup
+  type VolumeGroupItem
+  type VolumeGroupProps
+  type VolumeStatus
   WORKING_STATES
   type WorkingSession
   type WorkingSessionView
   type WorkingState
+  capacityDrawable
+  capacitySegments
   color
   countMarks
   describeCounts
@@ -429,7 +490,12 @@ export "." (./src/index.ts)
   markupReceiptRows
   markupSummary
   overCapMessage
+  percentLabel
+  projectionReasonText
   registrableDomain
+  storageUnknownReason
+  thresholdsValid
+  tickLayout
   z
 
 export "./brand" (./src/brand.ts)
@@ -862,6 +928,40 @@ signatures (every public export and the types it is made of)
     }
   CalloutVariant (packages/ui-kit/src/types.ts)
     export type CalloutVariant = "accent" | "boxed" | "banner" | "plain";
+  CapacityFigures (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export interface CapacityFigures {
+        total: number;
+        used: number;
+        free: number;
+        available: number;
+    }
+  CapacityGauge (packages/ui-kit/src/storage/CapacityGauge.tsx)
+    export function CapacityGauge(p: CapacityGaugeProps): import("react").JSX.Element;
+  CapacityGaugeProps (packages/ui-kit/src/storage/CapacityGauge.tsx)
+    export interface CapacityGaugeProps {
+        capacity?: CapacityFigures;
+        unknownReason?: string;
+        thresholds: CapacityThresholds;
+        format: (bytes: number) => string;
+        level?: CapacityLevel;
+        stale?: boolean;
+        label?: string;
+    }
+  CapacityLevel (packages/ui-kit/src/storage/CapacityGauge.tsx)
+    export type CapacityLevel = "ok" | "low" | "very-low";
+  CapacitySegment (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export interface CapacitySegment {
+        kind: CapacitySegmentKind;
+        start: number;
+        size: number;
+    }
+  CapacitySegmentKind (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export type CapacitySegmentKind = "used" | "reserved" | "available";
+  CapacityThresholds (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export interface CapacityThresholds {
+        low: number;
+        veryLow: number;
+    }
   Chip (packages/ui-kit/src/primitives/Chip.tsx)
     export function Chip(p: ChipProps): import("react").JSX.Element;
   ChipProps (packages/ui-kit/src/primitives/Chip.tsx)
@@ -1224,6 +1324,13 @@ signatures (every public export and the types it is made of)
     export type EmptyTone = "amber" | "gold" | "teal" | "purple" | "red" | "neutral";
   EmptyVariant (packages/ui-kit/src/types.ts)
     export type EmptyVariant = "caught_up" | "no-results" | "offline" | "first-run" | "quiet";
+  EventList (packages/ui-kit/src/storage/EventList.tsx)
+    export function EventList({ events, label = "Events on this chart" }: EventListProps): import("react").JSX.Element | null;
+  EventListProps (packages/ui-kit/src/storage/EventList.tsx)
+    export interface EventListProps {
+        events: readonly HistoryMarker[];
+        label?: string;
+    }
   FeedbackRow (packages/ui-kit/src/blocks/FeedbackRow.tsx)
     export function FeedbackRow(p: FeedbackRowProps): import("react").JSX.Element;
   FeedbackRowProps (packages/ui-kit/src/blocks/FeedbackRow.tsx)
@@ -1605,6 +1712,64 @@ signatures (every public export and the types it is made of)
     const HATCH_GLYPH: "▨";
   HTML_ICON_LINKS (packages/ui-kit/src/brand.ts)
     const HTML_ICON_LINKS: readonly HtmlIconLink[];
+  HistoryChart (packages/ui-kit/src/storage/HistoryChart.tsx)
+    export function HistoryChart(p: HistoryChartProps): import("react").JSX.Element;
+  HistoryChartProps (packages/ui-kit/src/storage/HistoryChart.tsx)
+    export interface HistoryChartProps {
+        label: string;
+        points: readonly HistoryPoint[];
+        now?: number;
+        intervalMs?: number;
+        intervalLabel?: string;
+        thresholds?: HistoryThresholds;
+        scenarios?: readonly HistoryScenario[];
+        markers?: readonly HistoryMarker[];
+        nowState?: string;
+        notes?: readonly string[];
+        unmeasuredReason?: string;
+        valueHeading?: string;
+        showEvents?: boolean;
+        formatValue: (value: number) => string;
+        formatTick: (at: number) => string;
+        formatTime?: (at: number) => string;
+        formatSpan?: (from: number, to: number) => string;
+        width?: number;
+    }
+  HistoryEvidenceReason (packages/ui-kit/src/storage/history-geometry.ts)
+    export type HistoryEvidenceReason = "no-observation" | "stale" | "future" | "incomplete" | "changed-scope" | "changed-capacity" | "gap" | "ordering" | "insufficient-count" | "insufficient-span" | "mixed-direction" | "single-burst" | "arithmetic";
+  HistoryMarker (packages/ui-kit/src/storage/history-geometry.ts)
+    export interface HistoryMarker {
+        at: number;
+        n: number;
+        tone?: "amber" | "gold" | "teal" | "purple" | "blue" | "red" | "neutral";
+        label: string;
+        time?: string;
+    }
+  HistoryPoint (packages/ui-kit/src/storage/history-geometry.ts)
+    export interface HistoryPoint {
+        at: number;
+        value: number | null;
+        provisional?: boolean;
+        otherScope?: boolean;
+    }
+  HistoryScenario (packages/ui-kit/src/storage/history-geometry.ts)
+    export interface HistoryScenario {
+        window: HistoryScenarioWindow;
+        name: string;
+        detail?: string;
+        to?: {
+            at: number;
+            value: number;
+        };
+        reason?: string;
+    }
+  HistoryScenarioWindow (packages/ui-kit/src/storage/history-geometry.ts)
+    export type HistoryScenarioWindow = "short" | "long";
+  HistoryThresholds (packages/ui-kit/src/storage/history-geometry.ts)
+    export interface HistoryThresholds {
+        low?: number;
+        veryLow?: number;
+    }
   HtmlIconLink (packages/ui-kit/src/brand.ts)
     export interface HtmlIconLink {
         rel: "icon" | "apple-touch-icon";
@@ -2662,6 +2827,13 @@ signatures (every public export and the types it is made of)
     export type RunState = "running" | "waiting" | "done" | "failed" | "stopped";
   RunToolState (packages/ui-kit/src/types.ts)
     export type RunToolState = "done" | "active" | "failed" | "idle";
+  SCENARIO_DASH (packages/ui-kit/src/storage/HistoryChart.tsx)
+    const SCENARIO_DASH: Record<HistoryScenarioWindow, {
+        dash: string;
+        glyph: string;
+    }>;
+  STORAGE_PARTIAL_REASON (packages/ui-kit/src/storage/storage-copy.ts)
+    const STORAGE_PARTIAL_REASON: "size so far · scan stopped early";
   ScaleList (packages/ui-kit/src/decisions/AskUserListCard.tsx)
     export function ScaleList(p: ScaleListProps): import("react").JSX.Element;
   ScaleListProps (packages/ui-kit/src/decisions/AskUserListCard.tsx)
@@ -2775,6 +2947,18 @@ signatures (every public export and the types it is made of)
         spendText?: string;
         hint?: string | null;
         width?: number;
+    }
+  Sparkline (packages/ui-kit/src/storage/Sparkline.tsx)
+    export function Sparkline({ points, label, valueLabel, showValue = true, tone = "blue", width = 120, height = 24 }: SparklineProps): import("react").JSX.Element;
+  SparklineProps (packages/ui-kit/src/storage/Sparkline.tsx)
+    export interface SparklineProps {
+        points: readonly HistoryPoint[];
+        label: string;
+        valueLabel?: string;
+        showValue?: boolean;
+        tone?: Tone;
+        width?: number;
+        height?: number;
     }
   Speaker (packages/ui-kit/src/voice/SpokenTurn.tsx)
     export type Speaker = "you" | "brain";
@@ -2899,17 +3083,101 @@ signatures (every public export and the types it is made of)
     export type StepListVariant = "numbered" | "checklist" | "progress";
   StepState (packages/ui-kit/src/types.ts)
     export type StepState = "done" | "current" | "todo";
+  StorageBreadcrumb (packages/ui-kit/src/storage/StorageBreadcrumb.tsx)
+    export function StorageBreadcrumb({ trail, onNavigate, actions, label = "Storage location" }: StorageBreadcrumbProps): import("react").JSX.Element;
+  StorageBreadcrumbProps (packages/ui-kit/src/storage/StorageBreadcrumb.tsx)
+    export interface StorageBreadcrumbProps {
+        trail: readonly StorageCrumb[];
+        onNavigate: (id: string) => void;
+        actions?: ReactNode;
+        label?: string;
+    }
+  StorageConsumerList (packages/ui-kit/src/storage/StorageConsumerList.tsx)
+    export function StorageConsumerList({ label, mode = "browse", sort, onSort, onUp, children, empty, footer }: StorageConsumerListProps): import("react").JSX.Element;
+  StorageConsumerListProps (packages/ui-kit/src/storage/StorageConsumerList.tsx)
+    export interface StorageConsumerListProps {
+        label: string;
+        mode?: "browse" | "filter";
+        sort: {
+            key: StorageSortKey;
+            direction: StorageSortDirection;
+        };
+        onSort?: (key: StorageSortKey) => void;
+        onUp?: () => void;
+        children?: ReactNode;
+        empty?: ReactNode;
+        footer?: ReactNode;
+    }
+  StorageConsumerRow (packages/ui-kit/src/storage/StorageConsumerRow.tsx)
+    export function StorageConsumerRow(p: StorageConsumerRowProps): import("react").JSX.Element;
+  StorageConsumerRowProps (packages/ui-kit/src/storage/StorageConsumerRow.tsx)
+    export interface StorageConsumerRowProps {
+        id?: string;
+        name: string;
+        owner: StorageOwner | null;
+        action: "drill" | "inspect";
+        kind: string;
+        meta?: string;
+        size: string | null;
+        atLeast?: boolean;
+        share?: number;
+        shareLabel?: string;
+        reason?: string;
+        onActivate: () => void;
+        highlighted?: boolean;
+        onHighlight?: (active: boolean) => void;
+    }
+  StorageCrumb (packages/ui-kit/src/storage/StorageBreadcrumb.tsx)
+    export interface StorageCrumb {
+        id: string;
+        label: string;
+    }
+  StorageEligibility (packages/ui-kit/src/storage/storage-copy.ts)
+    export type StorageEligibility = "can-remove" | "check" | "kept" | "cant-tell";
+  StorageFilterRow (packages/ui-kit/src/storage/StorageConsumerRow.tsx)
+    export function StorageFilterRow(p: StorageFilterRowProps): import("react").JSX.Element;
+  StorageFilterRowProps (packages/ui-kit/src/storage/StorageConsumerRow.tsx)
+    export interface StorageFilterRowProps {
+        id?: string;
+        name: string;
+        folder: string;
+        size: string | null;
+        atLeast?: boolean;
+        git: StorageGitFacet;
+        links: number | null;
+        eligibility: StorageEligibility;
+        why?: string;
+        selected: boolean;
+        onSelectedChange: (selected: boolean) => void;
+        onInspect: () => void;
+    }
+  StorageGitFacet (packages/ui-kit/src/storage/storage-copy.ts)
+    export type StorageGitFacet = "tracked" | "untracked" | "unknown";
   StorageMap (packages/ui-kit/src/storage/StorageMap.tsx)
-    export function StorageMap({ items, width, height, label, descriptionId, onOpen, onUp, }: StorageMapProps): import("react").JSX.Element;
+    export function StorageMap({ items, width, height, label, descriptionId, onOpen, onUp, highlightedId, onHighlight, muted }: StorageMapProps): import("react").JSX.Element;
   StorageMapItem (packages/ui-kit/src/storage/StorageMap.tsx)
     export interface StorageMapItem {
         id: string;
         name: string;
-        owner: "brain" | "app" | "operator";
+        owner: StorageOwner;
         bytes: number;
         label: string;
         smaller?: boolean;
         interactive?: boolean;
+    }
+  StorageMapLegend (packages/ui-kit/src/storage/StorageMapLegend.tsx)
+    export function StorageMapLegend({ owners, unknownCount = 0, onShowUnknown, label = "Map legend" }: StorageMapLegendProps): import("react").JSX.Element;
+  StorageMapLegendOwner (packages/ui-kit/src/storage/StorageMapLegend.tsx)
+    export interface StorageMapLegendOwner {
+        owner: StorageOwner;
+        total?: string;
+    }
+  StorageMapLegendProps (packages/ui-kit/src/storage/StorageMapLegend.tsx)
+    export interface StorageMapLegendProps {
+        owners: readonly StorageMapLegendOwner[];
+        unknownCount?: number;
+        onShowUnknown?: () => void;
+        label?: string;
     }
   StorageMapProps (packages/ui-kit/src/storage/StorageMap.tsx)
     export interface StorageMapProps {
@@ -2920,6 +3188,36 @@ signatures (every public export and the types it is made of)
         descriptionId: string;
         onOpen: (id: string) => void;
         onUp: () => void;
+        highlightedId?: string | null;
+        onHighlight?: (id: string | null) => void;
+        muted?: boolean;
+    }
+  StorageOwner (packages/ui-kit/src/storage/storage-geometry.ts)
+    export type StorageOwner = "brain" | "app" | "operator";
+  StorageSelectionBar (packages/ui-kit/src/storage/StorageSelectionBar.tsx)
+    export function StorageSelectionBar({ count, size, basis, unknown, onClear, onReview, reviewLabel = "Review removal" }: StorageSelectionBarProps): import("react").JSX.Element;
+  StorageSelectionBarProps (packages/ui-kit/src/storage/StorageSelectionBar.tsx)
+    export interface StorageSelectionBarProps {
+        count: number;
+        size: string;
+        basis: string;
+        unknown?: boolean;
+        onClear: () => void;
+        onReview: () => void;
+        reviewLabel?: string;
+    }
+  StorageSortDirection (packages/ui-kit/src/storage/StorageConsumerList.tsx)
+    export type StorageSortDirection = "ascending" | "descending";
+  StorageSortKey (packages/ui-kit/src/storage/StorageConsumerList.tsx)
+    export type StorageSortKey = "name" | "size";
+  StorageSummaryRow (packages/ui-kit/src/storage/StorageSummaryRow.tsx)
+    export function StorageSummaryRow({ label = "What this app added", chart, value, window }: StorageSummaryRowProps): import("react").JSX.Element;
+  StorageSummaryRowProps (packages/ui-kit/src/storage/StorageSummaryRow.tsx)
+    export interface StorageSummaryRowProps {
+        label?: string;
+        chart?: ReactNode;
+        value: string;
+        window: string;
     }
   StreamPhase (packages/ui-kit/src/types.ts)
     export type StreamPhase = "thinking" | "searching" | "reading" | "fetching" | "writing";
@@ -3015,6 +3313,14 @@ signatures (every public export and the types it is made of)
         at: MarkupPoint;
         text: string;
     }
+  TickLayout (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export interface TickLayout {
+        low: number;
+        veryLow: number;
+        gapPx: number | null;
+        collapsed: boolean;
+        split: boolean;
+    }
   TimelineItem (packages/ui-kit/src/blocks/TimelineList.tsx)
     export interface TimelineItem {
         time: string;
@@ -3048,6 +3354,65 @@ signatures (every public export and the types it is made of)
     export type ToggleTone = "amber" | "teal" | "purple";
   Tone (packages/ui-kit/src/types.ts)
     export type Tone = "amber" | "gold" | "teal" | "purple" | "blue" | "red" | "neutral";
+  ToolChange (packages/ui-kit/src/storage/tool-row-model.ts)
+    export type ToolChange = {
+        delta: string;
+    } | {
+        notMeasured: ToolNotMeasuredReason;
+    };
+  ToolHeadroom (packages/ui-kit/src/storage/tool-row-model.ts)
+    export interface ToolHeadroom {
+        required: ToolHeadroomFigure | null;
+        available: ToolHeadroomFigure | null;
+        shortfall?: string;
+        note?: string;
+    }
+  ToolHeadroomFigure (packages/ui-kit/src/storage/tool-row-model.ts)
+    export interface ToolHeadroomFigure {
+        bytes: number;
+        text: string;
+    }
+  ToolList (packages/ui-kit/src/storage/ToolRow.tsx)
+    export function ToolList(p: ToolListProps): import("react").JSX.Element;
+  ToolListProps (packages/ui-kit/src/storage/ToolRow.tsx)
+    export interface ToolListProps {
+        heading?: string;
+        headingLevel?: 2 | 3 | 4;
+        children: ReactNode;
+        onFindLargeFiles?: () => void;
+        announcement?: string;
+    }
+  ToolNotMeasuredReason (packages/ui-kit/src/storage/tool-row-model.ts)
+    export type ToolNotMeasuredReason = "before measurement missing" | "after measurement missing" | "volume changed" | "measurement incomplete";
+  ToolOutcomeCounts (packages/ui-kit/src/storage/tool-row-model.ts)
+    export interface ToolOutcomeCounts {
+        packed?: number | null;
+        removed?: number | null;
+        failed?: number | null;
+        deferred?: number | null;
+        suspended?: boolean;
+    }
+  ToolRow (packages/ui-kit/src/storage/ToolRow.tsx)
+    export function ToolRow(p: ToolRowProps): import("react").JSX.Element;
+  ToolRowProps (packages/ui-kit/src/storage/ToolRow.tsx)
+    export interface ToolRowProps {
+        name: string;
+        description: string;
+        state: ToolRunState;
+        at?: string;
+        available?: boolean;
+        unavailableReason?: string | null;
+        reason?: string | null;
+        change?: ToolChange | null;
+        counts?: ToolOutcomeCounts | null;
+        headroom?: ToolHeadroom | null;
+        effect?: string;
+        cancelling?: boolean;
+        onRun?: () => void;
+        onCancel?: () => void;
+    }
+  ToolRunState (packages/ui-kit/src/storage/tool-row-model.ts)
+    export type ToolRunState = "never" | "waiting" | "running" | "complete" | "partial" | "refused" | "cancelled" | "unknown";
   TraceState (packages/ui-kit/src/types.ts)
     export type TraceState = "done" | "active" | "paused" | "failed" | "skipped";
   TraceStep (packages/ui-kit/src/evidence/TraceSteps.tsx)
@@ -3318,6 +3683,44 @@ signatures (every public export and the types it is made of)
         label: string;
         state?: "running" | "done";
     }
+  VolumeCard (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export function VolumeCard(p: VolumeCardProps): import("react").JSX.Element;
+  VolumeCardProps (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export interface VolumeCardProps {
+        name: string;
+        status: VolumeStatus;
+        capacity?: CapacityFigures;
+        unknownReason?: string;
+        unidentified?: string;
+        thresholds: CapacityThresholds;
+        format: (bytes: number) => string;
+        trend?: string;
+        runway?: string;
+        stores?: readonly string[];
+        stale?: boolean;
+        measured?: string;
+        scopeChanged?: string;
+        selected?: boolean;
+        onSelect?: () => void;
+        tabStop?: boolean;
+    }
+  VolumeGroup (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export function VolumeGroup(p: VolumeGroupProps): import("react").JSX.Element;
+  VolumeGroupItem (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export interface VolumeGroupItem extends Omit<VolumeCardProps, "selected" | "onSelect" | "tabStop" | "thresholds" | "format"> {
+        id: string;
+    }
+  VolumeGroupProps (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export interface VolumeGroupProps {
+        volumes: readonly VolumeGroupItem[];
+        selected?: string;
+        onSelect: (id: string) => void;
+        thresholds: CapacityThresholds;
+        format: (bytes: number) => string;
+        label?: string;
+    }
+  VolumeStatus (packages/ui-kit/src/storage/VolumeCard.tsx)
+    export type VolumeStatus = "ok" | "low" | "very-low" | "not-measured";
   WEB_APP_COLORS (packages/ui-kit/src/brand.ts)
     const WEB_APP_COLORS: {
         readonly background_color: "#0c1417";
@@ -3357,6 +3760,10 @@ signatures (every public export and the types it is made of)
     }
   WorkingState (packages/ui-kit/src/chrome/SessionStrip.tsx)
     export type WorkingState = (typeof WORKING_STATES)[number];
+  capacityDrawable (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function capacityDrawable(c: CapacityFigures): boolean;
+  capacitySegments (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function capacitySegments(c: CapacityFigures): CapacitySegment[] | null;
   classifyLink (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   classifyMailto (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   color (packages/ui-kit/src/tokens.ts)
@@ -3405,9 +3812,22 @@ signatures (every public export and the types it is made of)
     export function markupSummary(marks: readonly Mark[]): string;
   overCapMessage (packages/ui-kit/src/images/markup.ts)
     export function overCapMessage(bytes: number, maxBytes?: number): string;
+  percentLabel (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function percentLabel(fraction: number): string;
+  projectionReasonText (packages/ui-kit/src/storage/history-geometry.ts)
+    export function projectionReasonText(reason: HistoryEvidenceReason, n?: number): string;
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   registrableDomain (packages/ui-kit/src/evidence/UntrustedText.tsx)
     export function registrableDomain(host: string): string;
+  storageUnknownReason (packages/ui-kit/src/storage/storage-copy.ts)
+    export function storageUnknownReason(reason: string | null | undefined): string;
+  thresholdsValid (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function thresholdsValid(t: CapacityThresholds): boolean;
+  tickLayout (packages/ui-kit/src/storage/capacity-geometry.ts)
+    export function tickLayout(width: number | null, t: CapacityThresholds, labels: {
+        low: string;
+        veryLow: string;
+    }): TickLayout;
   z (packages/ui-kit/src/tokens.ts)
     const z: {
         readonly banner: "var(--bk-z-banner)";
