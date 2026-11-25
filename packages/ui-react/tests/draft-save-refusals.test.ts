@@ -735,3 +735,44 @@ test("after a lost save, a delete refused for a waiting message brings it back i
   expect(deletes, "LOST_SAVE_PENDING_NOT_REPEATED").toBe(1);
   expect(s.drafts.getState().drafts[s.id]?.snapshots?.map((x) => x.snapshotId)).toEqual(["snap-held"]);
 });
+
+test("a draft restored clean from the device, holding only a carried original, is not deleted", async () => {
+  const s = scene({ snapshots: true });
+  s.drafts.getState().restoreLocal([{ draftId: "4e2a6c8d-0f1b-4d3e-9a5c-7b9d1f3e5a70", sessionId: "odysseus-raft", text: "", attachments: [], files: [{ file: CREW, lineage: "a-rotated-away-draft" }], editedAt: 1,
+    host: { revision: 2, sessionId: "odysseus-raft", updatedAt: 1, clean: true } }]);
+  await run(LONG);
+  expect(s.removes(), "CLEAN_RESTORE_NOT_DELETED").toBe(0);
+  expect(s.saves).toEqual([]);
+});
+
+test("a Send made while a delete is out survives the host refusing that delete over a waiting message", async () => {
+  let answer!: (r: DraftCallResult<null>) => void;
+  const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const, createdAt: 5 };
+  const s = scene({ snapshots: true, remove: () => new Promise((resolve) => { answer = resolve; }) });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [] });
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [], editedAt: 1, edit: 3,
+    host: { revision: 3, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ ...held }], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  await run(SAVE_DELAY + 100);
+  const message = { type: "chat_message" as const, text: "Sail at dawn", sessionId: SESSION, requestId: "req-new" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-new", requestId: "req-new", text: "Sail at dawn", files: [], state: "held", createdAt: null, message }, "");
+  answer({ ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "waiting", current: { draftId: s.id, sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [], snapshots: [held] } } });
+  await run(LONG);
+  expect(s.drafts.getState().drafts[s.id]?.snapshots?.map((x) => x.snapshotId), "SEND_KEPT_AFTER_REFUSED_DELETE").toEqual(["snap-held", "snap-new"]);
+});
+
+test("a Send still uploading while the emptied draft's delete is out comes back unsent", async () => {
+  let answer!: (r: DraftCallResult<null>) => void;
+  const s = scene({ snapshots: true, remove: () => new Promise((resolve) => { answer = resolve; }) });
+  const old = { snapshotId: "snap-old", requestId: "req-old", text: "Lash the raft", fileIds: [], state: "returned" as const };
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [{ ...old, files: [], createdAt: 1 }], editedAt: 1, edit: 2,
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [old], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  s.drafts.getState().deleteSnapshot(s.id, "snap-old");
+  await run(SAVE_DELAY + 100);
+  const message = { type: "chat_message" as const, text: "Read the chart", sessionId: SESSION, requestId: "req-chart" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-chart", requestId: "req-chart", text: "Read the chart", files: [], state: "held", createdAt: null, message, uploads: ["queue-1"] }, "");
+  answer({ ok: true, value: null });
+  await run(LONG);
+  const all = Object.values(s.drafts.getState().drafts);
+  expect(all.some((d) => d.snapshots?.some((x) => x.snapshotId === "snap-chart")), "UPLOADING_SNAPSHOT_NOT_CARRIED").toBe(false);
+  expect(all.some((d) => d.text === "Read the chart")).toBe(true);
+});

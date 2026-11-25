@@ -493,3 +493,10 @@ test("a branch whose first message starts its own chat keeps the rotation that m
   s.drafts.getState().edit(BRANCH, "odysseus-voyage", { text: "Telemachus keeps the voyage, sent" });
   expect(s.drafts.getState().versionHome(s.original), "ROTATION_KEPT_WHEN_BRANCH_BOUND").toBe(moved);
 });
+
+test("a failed switch is said over a host conflict that arrived during the read", () => {
+  const s = scene();
+  s.drafts.getState().noteVersionSwitch({ draftId: BRANCH, outcome: "failed" });
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [BRANCH]: { ...st.drafts[BRANCH]!, conflict: { other: { draftId: BRANCH, sessionId: null, revision: 2, updatedAt: 9, text: "Elsewhere", attachments: [] }, sameId: true } } } }));
+  expect(summary(s.root, BRANCH), "NOTE_OVER_CONFLICT").toBe("Draft changed on another device. Compare to choose which to keep. Couldn't open the other version.");
+});
