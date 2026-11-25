@@ -169,7 +169,7 @@ if (import.meta.main) {
       const chrome = requireRuntimeTools({ ...plan, local: { ...plan.local, fullTests: native,
         browser: !native, layout: !native, captures: !native } });
       if (chrome && (category === "unit" || category === "determinism")) await runCommands([{ name: "first real Chrome launch and render",
-        argv: offlineCommand([process.execPath, "--no-env-file", "packages/ui-render-puppeteer/tests/cold-start.ts", chrome]) }], root);
+        argv: offlineCommand([process.execPath, "--no-env-file", "packages/ui-render-puppeteer/tests/cold-start.ts", chrome], true) }], root);
       const commands = categoryCommands(category, plan, root, shard, unitWorkers, dockerDrivers).map(command => ({ ...command,
         env: { ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}), ...command.env } }));
       // The host/container lease regression deliberately uses --pull=never

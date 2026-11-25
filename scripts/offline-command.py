@@ -21,8 +21,25 @@ def refuse(error):
 def clean_env(env):
     return {key: value for key, value in env.items() if not (
         re.search(r'(API_KEY|AUTH_TOKEN|ACCESS_TOKEN|SECRET_ACCESS_KEY|ACCESS_KEY_ID|SESSION_TOKEN)$', key)
-        or key in {'GOOGLE_APPLICATION_CREDENTIALS', 'AWS_SHARED_CREDENTIALS_FILE',
-                   'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN'})}
+        or key.startswith(('ANTHROPIC_', 'CLAUDE_CODE_OAUTH', 'AWS_', 'GOOGLE_', 'VERTEX_', 'GCLOUD_', 'OPENAI', 'AZURE_OPENAI_', 'GEMINI_')))}
+
+
+def already_inside(browser=False):
+    try:
+        ip = shutil.which('ip')
+        def query(*args):
+            return json.loads(subprocess.check_output([ip, '-j', *args], stderr=subprocess.DEVNULL))
+        allowed = {'lo', 'offline0', 'offline1'} if browser else {'lo'}
+        links = query('link', 'show')
+        managed = Path('/etc/claude-code')
+        try:
+            hidden = not managed.exists() or not any(managed.iterdir())
+        except PermissionError:
+            hidden = True
+        return hidden and any(row['ifname'] == 'lo' and 'UP' in row['flags'] for row in links) and all(
+            row['ifname'] in allowed for row in links) and all(not query(family, 'route', 'show', 'table', 'main') for family in ('-4', '-6'))
+    except (OSError, ValueError, subprocess.CalledProcessError, TypeError):
+        return False
 
 
 def setup(data):
@@ -53,16 +70,17 @@ def setup(data):
     if not ip:
         raise RuntimeError('ip executable unavailable')
     subprocess.run([ip, 'link', 'set', 'lo', 'up'], check=True, capture_output=True)
-    # A route-free link gives Chrome its online indicator without an egress route.
-    dummy = subprocess.run([ip, 'link', 'add', 'offline0', 'type', 'dummy'], capture_output=True) if Path('/sys/module/dummy').exists() else None
-    if dummy is None or dummy.returncode:
-        subprocess.run([ip, 'link', 'add', 'offline0', 'type', 'veth', 'peer', 'name', 'offline1'],
-                       check=True, capture_output=True)
-        subprocess.run([ip, 'link', 'set', 'offline1', 'addrgenmode', 'none'], check=True, capture_output=True)
-        subprocess.run([ip, 'link', 'set', 'offline1', 'up'], check=True, capture_output=True)
-    subprocess.run([ip, 'link', 'set', 'offline0', 'addrgenmode', 'none'], check=True, capture_output=True)
-    subprocess.run([ip, '-4', 'address', 'add', '198.18.0.1/32', 'dev', 'offline0', 'noprefixroute'], check=True, capture_output=True)
-    subprocess.run([ip, 'link', 'set', 'offline0', 'up'], check=True, capture_output=True)
+    if data.get('browser'):
+        # A route-free link gives Chrome its online indicator without an egress route.
+        dummy = subprocess.run([ip, 'link', 'add', 'offline0', 'type', 'dummy'], capture_output=True) if Path('/sys/module/dummy').exists() else None
+        if dummy is None or dummy.returncode:
+            subprocess.run([ip, 'link', 'add', 'offline0', 'type', 'veth', 'peer', 'name', 'offline1'],
+                           check=True, capture_output=True)
+            subprocess.run([ip, 'link', 'set', 'offline1', 'addrgenmode', 'none'], check=True, capture_output=True)
+            subprocess.run([ip, 'link', 'set', 'offline1', 'up'], check=True, capture_output=True)
+        subprocess.run([ip, 'link', 'set', 'offline0', 'addrgenmode', 'none'], check=True, capture_output=True)
+        subprocess.run([ip, '-4', 'address', 'add', '198.18.0.1/32', 'dev', 'offline0', 'noprefixroute'], check=True, capture_output=True)
+        subprocess.run([ip, 'link', 'set', 'offline0', 'up'], check=True, capture_output=True)
     if os.geteuid() == 0:
         os.setgroups(data['groups'])
         os.setgid(data['gid'])
@@ -85,6 +103,11 @@ def main(argv):
             setup(json.loads(Path(argv[1]).read_text()))
         except Exception as error:
             return refuse(error)
+    browser = argv[:1] == ['--browser-online']
+    if browser:
+        argv = argv[1:]
+    if argv == ['--check']:
+        return 0 if already_inside(browser) else 1
     if not argv:
         return refuse(RuntimeError('no command supplied'))
     if sys.platform != 'linux':
@@ -123,7 +146,7 @@ def main(argv):
             except (ValueError, OSError):
                 pass
             data = dict(lease_fd=lease_fd, launcher_pid=os.getpid(), uid=os.getuid(), gid=os.getgid(), groups=os.getgroups(),
-                        cwd=os.getcwd(), argv=argv, env=env, started=str(Path(scratch, 'started')))
+                        cwd=os.getcwd(), argv=argv, browser=browser, env=env, started=str(Path(scratch, 'started')))
             record = Path(scratch, 'command.json')
             record.write_text(json.dumps(data))
             record.chmod(0o600)

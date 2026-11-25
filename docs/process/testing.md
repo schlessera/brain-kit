@@ -57,8 +57,11 @@ inspecting CI on a PR live in the `work-issue` skill's
   their own policy. The startup-view copier still refuses concurrent changes.
 
 `bun run test` enters a command-scoped Linux network/mount namespace before
-starting tests. Only loopback and an address-only, route-free browser indicator
-are present. `/etc/claude-code` is covered, inherited provider credentials are
+taking its lease or preparing builds. Ordinary commands have only loopback;
+commands selected by `runtimeBuildSelection` also get the route-free browser indicator.
+Nested commands reuse isolation only after checking interfaces, routes and hidden
+managed settings. Mixed ordinary/browser/Docker selections run separately, with
+separate reports merged into the requested JUnit and timing paths. `/etc/claude-code` is covered, inherited provider credentials are
 removed, and HOME/config storage is private. Setup uses unprivileged namespaces
 when they preserve the caller identity, otherwise passwordless sudo for setup
 followed by restoration of UID/GID/groups and capability removal. A failed setup

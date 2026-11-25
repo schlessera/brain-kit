@@ -74,12 +74,7 @@ else: raise AssertionError('MANAGED_SETTINGS_MUST_BE_HIDDEN')
                 assert mutant != original
                 green = run(original, code)
                 assert green.returncode == 0, (name, green.stderr)
-                try:
-                    red = run(mutant, code)
-                finally:
-                    # Removing --net lets the one network mutation create its indicator here.
-                    if name == 'NETWORK_MUST_BE_LOOPBACK_ONLY':
-                        subprocess.run([ip, 'link', 'del', 'offline0'], check=True, capture_output=True)
+                red = run(mutant, code)
                 assert red.returncode != 0 and name in red.stderr, (name, red.stderr)
                 restored = run(original, code)
                 assert restored.returncode == 0, (name, restored.stderr)

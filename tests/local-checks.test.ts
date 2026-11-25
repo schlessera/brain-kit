@@ -307,6 +307,11 @@ test("the full local plan retains default discovery, real probes and every pinne
   expect(args).toContain("measure-claude-delegation.ts");
   expect(args).toContain("measure-claude-capability.ts");
   expect(args).toContain("measure-claude-haiku.ts");
+  const wrapped = commands.filter(command => command.argv.some(arg => arg.endsWith("offline-command.py")));
+  expect(wrapped).toHaveLength(3);
+  for (const command of wrapped) {
+    expect(command.argv.join(" "), "WRAPPED_BUN_MUST_NOT_LOAD_DOTENV").not.toMatch(/\bbun (?!--no-env-file\b)/);
+  }
   expect(args).toContain("run test ./tests/measurement-isolation.test.ts");
   expect(args).toContain("--shard=1/1 packages/ui-react/tests/chat-focus-runtime.test.ts packages/ui-react/tests/external-speech-runtime.test.ts");
 });
