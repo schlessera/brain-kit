@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { CapacityEvidence, WindowEvidence } from "./history-evidence.js";
-import { RECENT } from "./history-model.js";
+import {
+  STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS, STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS, STORAGE_PRESSURE_CRITICAL_PERCENT,
+  STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT, STORAGE_PRESSURE_EVIDENCE_WINDOW_MS, STORAGE_PRESSURE_LOW_FORECAST_DAYS,
+  STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS, STORAGE_PRESSURE_LOW_PERCENT, STORAGE_PRESSURE_LOW_RECOVERY_PERCENT,
+  STORAGE_PRESSURE_RECOVERY_OBSERVATIONS, STORAGE_PRESSURE_RECOVERY_SPACING_MS,
+} from "@schlessera/brain-ui-sdk/protocol";
 type Severity = "observed" | "low" | "critical";
 export interface Refusal {
   target: string;
@@ -19,6 +24,11 @@ export const newPressure = (identity: string, rootScope: string): Pressure => ({
 const rank = (severity: Severity) => severity === "critical" ? 2 : severity === "low" ? 1 : 0;
 const within = (evidence: WindowEvidence, days: number) => evidence.state === "finite" && evidence.days !== null && evidence.days <= days;
 const beyond = (evidence: WindowEvidence, days: number) => evidence.state === "non-depleting" || evidence.state === "finite" && evidence.days !== null && evidence.days > days;
+// `recoveryAt` holds the first qualifying observation and the next one, at least
+// the spacing later, downgrades: a pair. Changing the policy count must change
+// this state machine, so the assignment stops compiling until it does.
+const RECOVERY_PAIR: 2 = STORAGE_PRESSURE_RECOVERY_OBSERVATIONS;
+void RECOVERY_PAIR;
 function percentage(evidence: CapacityEvidence, threshold: number) {
   return evidence.total !== null && Number.isSafeInteger(evidence.total) && evidence.total > 0 && evidence.available !== null && Number.isSafeInteger(evidence.available) && evidence.available >= 0
     ? BigInt(evidence.available) * 100n <= BigInt(evidence.total) * BigInt(threshold) : null;
@@ -27,27 +37,28 @@ function percentage(evidence: CapacityEvidence, threshold: number) {
 /** Independent causes survive missing evidence. Only a complete recovery pair can downgrade. */
 export function observePressure(previous: Pressure, evidence: CapacityEvidence | null, now: number): Pressure {
   const next = structuredClone(previous);
-  if (!evidence || !evidence.fresh || evidence.at > now || now - evidence.at > RECENT || evidence.at < previous.at) {
+  if (!evidence || !evidence.fresh || evidence.at > now || now - evidence.at > STORAGE_PRESSURE_EVIDENCE_WINDOW_MS || evidence.at < previous.at) {
     next.recoveryAt = null; next.supportAt = null; next.at = Math.max(next.at, now); return next;
   }
   if (evidence.identity !== previous.identity || evidence.rootScope !== previous.rootScope) {
     next.recoveryAt = null; next.supportAt = null; next.scopeChanged = true; return next;
   }
   next.scopeChanged = false;
-  const criticalCapacity = percentage(evidence, 5) === true, lowCapacity = percentage(evidence, 10) === true;
-  const criticalForecast = within(evidence.short, 7) && within(evidence.long, 7), lowForecast = within(evidence.short, 30) || within(evidence.long, 30);
+  const criticalCapacity = percentage(evidence, STORAGE_PRESSURE_CRITICAL_PERCENT) === true, lowCapacity = percentage(evidence, STORAGE_PRESSURE_LOW_PERCENT) === true;
+  const criticalForecast = within(evidence.short, STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS) && within(evidence.long, STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS);
+  const lowForecast = within(evidence.short, STORAGE_PRESSURE_LOW_FORECAST_DAYS) || within(evidence.long, STORAGE_PRESSURE_LOW_FORECAST_DAYS);
   next.capacity ||= lowCapacity; next.forecast ||= lowForecast;
   const incoming: Severity = next.refusals.length || criticalCapacity || criticalForecast ? "critical" : lowCapacity || lowForecast ? "low" : "observed";
-  const capacityRecovery = percentage(evidence, previous.severity === "critical" ? 7 : 12) === false;
+  const capacityRecovery = percentage(evidence, previous.severity === "critical" ? STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT : STORAGE_PRESSURE_LOW_RECOVERY_PERCENT) === false;
   const forecastRecovery = previous.severity === "critical"
-    ? beyond(evidence.short, 10) || beyond(evidence.long, 10)
-    : beyond(evidence.short, 45) && beyond(evidence.long, 45);
-  const refusalRecovery = next.refusals.every(refusal => refusal.resource === "bytes" && refusal.successAt !== null && refusal.successAt > refusal.at && percentage(evidence, 7) === false);
+    ? beyond(evidence.short, STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS) || beyond(evidence.long, STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS)
+    : beyond(evidence.short, STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS) && beyond(evidence.long, STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS);
+  const refusalRecovery = next.refusals.every(refusal => refusal.resource === "bytes" && refusal.successAt !== null && refusal.successAt > refusal.at && percentage(evidence, STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT) === false);
   // A known matching recovery of quota/inode limits still lacks their capacity
   // observation in this version. Keep those refusals explicit and unresolved.
-  const supportedCapacity = next.capacity && percentage(evidence, 7) === true;
+  const supportedCapacity = next.capacity && percentage(evidence, STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT) === true;
   const supportedForecast = next.forecast && evidence.short.state !== "unavailable" && evidence.long.state !== "unavailable" && !forecastRecovery;
-  const supportedRefusal = next.refusals.some(refusal => refusal.at <= now && now - refusal.at <= RECENT) && !refusalRecovery;
+  const supportedRefusal = next.refusals.some(refusal => refusal.at <= now && now - refusal.at <= STORAGE_PRESSURE_EVIDENCE_WINDOW_MS) && !refusalRecovery;
   next.supportAt = supportedCapacity || supportedForecast || supportedRefusal ? evidence.at : null;
   if (rank(incoming) > rank(previous.severity)) {
     next.severity = incoming; next.recoveryAt = null;
@@ -57,7 +68,7 @@ export function observePressure(previous: Pressure, evidence: CapacityEvidence |
     if (!allRecover) next.recoveryAt = null;
     else if (evidence.at > previous.at) {
       if (next.recoveryAt === null) next.recoveryAt = evidence.at;
-      else if (evidence.at - next.recoveryAt >= 60_000) {
+      else if (evidence.at - next.recoveryAt >= STORAGE_PRESSURE_RECOVERY_SPACING_MS) {
         next.recoveryAt = null; next.supportAt = null;
         if (previous.severity === "critical") {
           next.severity = "low"; next.resolvedEpisode = next.episode; next.episode = null;

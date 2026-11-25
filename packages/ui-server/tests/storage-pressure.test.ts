@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { newPressure, observePressure, ownerWrite } from "../src/storage/pressure.js";
 import type { CapacityEvidence, WindowEvidence } from "../src/storage/history-evidence.js";
 import { hashScope, HOUR, RECENT } from "../src/storage/history-model.js";
+import { STORAGE_PRESSURE_RECOVERY_OBSERVATIONS } from "@schlessera/brain-ui-sdk/protocol";
 const at = Date.UTC(2026, 6, 12, 9, 41), identity = hashScope("Odysseus volume"), rootScope = hashScope("Odysseus stores"), target = hashScope("Odysseus attachment");
 const unavailable: WindowEvidence = { state: "unavailable", reason: "insufficient-count", start: null, end: null, samples: 0, depletionPerDay: null, days: null };
 const finite = (days: number): WindowEvidence => ({ state: "finite", reason: null, start: at - 2 * 24 * HOUR, end: at, samples: 9, depletionPerDay: 100, days });
@@ -72,4 +73,81 @@ test("a later byte refusal cannot replace unresolved quota or another target's r
   expect(value.severity, "STORAGE_REFUSALS_REMAIN_INDEPENDENT").toBe("critical");
   expect(value.refusals).toHaveLength(2);
   expect(value.refusals[0]?.resource).toBe("quota");
+});
+
+// Policy boundaries (docs/decisions/storage-guidance.md, #4539). Values are
+// literal on purpose: they pin the policy, so a change to an exported
+// threshold constant fails here on the named assertion.
+const step = 60_000;
+/** Applies each evidence one recovery spacing apart and returns the final state. */
+const observeAll = (start: ReturnType<typeof newPressure>, values: Array<(time: number) => CapacityEvidence>) => {
+  let value = start, time = Math.max(at, start.at);
+  for (const make of values) { time += step; value = observePressure(value, make(time), time); }
+  return value;
+};
+const fresh = () => newPressure(identity, rootScope);
+const capacityAt = (available: number) => (time: number) => evidence(time, available);
+const forecastAt = (short: WindowEvidence, long: WindowEvidence) => (time: number) => evidence(time, 50_000, short, long);
+
+test("capacity entry is inclusive at exactly 10% and 5% available, one byte either side", () => {
+  expect(observeAll(fresh(), [capacityAt(10_001)]).severity, "STORAGE_LOW_ENTRY_ABOVE_TEN_PERCENT").toBe("observed");
+  expect(observeAll(fresh(), [capacityAt(10_000)]).severity, "STORAGE_LOW_ENTRY_AT_TEN_PERCENT").toBe("low");
+  expect(observeAll(fresh(), [capacityAt(9_999)]).severity, "STORAGE_LOW_ENTRY_BELOW_TEN_PERCENT").toBe("low");
+  expect(observeAll(fresh(), [capacityAt(5_001)]).severity, "STORAGE_CRITICAL_ENTRY_ABOVE_FIVE_PERCENT").toBe("low");
+  expect(observeAll(fresh(), [capacityAt(5_000)]).severity, "STORAGE_CRITICAL_ENTRY_AT_FIVE_PERCENT").toBe("critical");
+  expect(observeAll(fresh(), [capacityAt(4_999)]).severity, "STORAGE_CRITICAL_ENTRY_BELOW_FIVE_PERCENT").toBe("critical");
+});
+test("capacity recovery is strict above 12% from Low and above 7% from Critical, one byte either side", () => {
+  const low = observeAll(fresh(), [capacityAt(10_000)]);
+  expect(observeAll(low, [capacityAt(11_999)]).recoveryAt, "STORAGE_LOW_RECOVERY_BELOW_TWELVE_PERCENT").toBeNull();
+  expect(observeAll(low, [capacityAt(12_000)]).recoveryAt, "STORAGE_LOW_RECOVERY_AT_TWELVE_PERCENT").toBeNull();
+  expect(observeAll(low, [capacityAt(12_000), capacityAt(12_000)]).severity, "STORAGE_LOW_HOLDS_AT_TWELVE_PERCENT").toBe("low");
+  expect(observeAll(low, [capacityAt(12_001)]).recoveryAt, "STORAGE_LOW_RECOVERY_ABOVE_TWELVE_PERCENT").not.toBeNull();
+  expect(observeAll(low, [capacityAt(12_001), capacityAt(12_001)]).severity, "STORAGE_LOW_RECOVERS_ABOVE_TWELVE_PERCENT").toBe("observed");
+  const critical = observeAll(fresh(), [capacityAt(5_000)]);
+  expect(observeAll(critical, [capacityAt(6_999)]).recoveryAt, "STORAGE_CRITICAL_RECOVERY_BELOW_SEVEN_PERCENT").toBeNull();
+  expect(observeAll(critical, [capacityAt(7_000)]).recoveryAt, "STORAGE_CRITICAL_RECOVERY_AT_SEVEN_PERCENT").toBeNull();
+  expect(observeAll(critical, [capacityAt(7_000), capacityAt(7_000)]).severity, "STORAGE_CRITICAL_HOLDS_AT_SEVEN_PERCENT").toBe("critical");
+  expect(observeAll(critical, [capacityAt(7_001)]).recoveryAt, "STORAGE_CRITICAL_RECOVERY_ABOVE_SEVEN_PERCENT").not.toBeNull();
+  expect(observeAll(critical, [capacityAt(7_001), capacityAt(7_001)]).severity, "STORAGE_CRITICAL_RECOVERS_ABOVE_SEVEN_PERCENT").toBe("low");
+});
+test("forecast entry is inclusive at exactly 30 days (either window) and 7 days (both windows)", () => {
+  expect(observeAll(fresh(), [forecastAt(finite(30), unavailable)]).severity, "STORAGE_LOW_FORECAST_SHORT_AT_THIRTY_DAYS").toBe("low");
+  expect(observeAll(fresh(), [forecastAt(unavailable, finite(30))]).severity, "STORAGE_LOW_FORECAST_LONG_AT_THIRTY_DAYS").toBe("low");
+  expect(observeAll(fresh(), [forecastAt(finite(30.001), finite(30.001))]).severity, "STORAGE_LOW_FORECAST_BEYOND_THIRTY_DAYS").toBe("observed");
+  expect(observeAll(fresh(), [forecastAt(finite(7), finite(7))]).severity, "STORAGE_CRITICAL_FORECAST_AT_SEVEN_DAYS").toBe("critical");
+  expect(observeAll(fresh(), [forecastAt(finite(7), finite(7.001))]).severity, "STORAGE_CRITICAL_FORECAST_NEEDS_BOTH_WINDOWS").toBe("low");
+  expect(observeAll(fresh(), [forecastAt(finite(7.001), finite(7))]).severity, "STORAGE_CRITICAL_FORECAST_NEEDS_BOTH_SHORT").toBe("low");
+});
+test("forecast recovery is strict beyond 45 days (both windows) from Low and beyond 10 days (either window) from Critical", () => {
+  const low = observeAll(fresh(), [forecastAt(finite(30), unavailable)]);
+  expect(observeAll(low, [forecastAt(finite(45), finite(45))]).recoveryAt, "STORAGE_LOW_FORECAST_RECOVERY_AT_FORTY_FIVE_DAYS").toBeNull();
+  expect(observeAll(low, [forecastAt(finite(45.001), finite(45))]).recoveryAt, "STORAGE_LOW_FORECAST_RECOVERY_NEEDS_BOTH_WINDOWS").toBeNull();
+  expect(observeAll(low, [forecastAt(finite(45.001), finite(45.001))]).recoveryAt, "STORAGE_LOW_FORECAST_RECOVERY_BEYOND_FORTY_FIVE_DAYS").not.toBeNull();
+  expect(observeAll(low, [forecastAt(finite(45.001), finite(45.001)), forecastAt(finite(45.001), finite(45.001))]).severity, "STORAGE_LOW_FORECAST_RECOVERS").toBe("observed");
+  const critical = observeAll(fresh(), [forecastAt(finite(7), finite(7))]);
+  expect(observeAll(critical, [forecastAt(finite(10), finite(10))]).recoveryAt, "STORAGE_CRITICAL_FORECAST_RECOVERY_AT_TEN_DAYS").toBeNull();
+  expect(observeAll(critical, [forecastAt(finite(10.001), finite(10))]).recoveryAt, "STORAGE_CRITICAL_FORECAST_RECOVERY_SHORT_BEYOND_TEN_DAYS").not.toBeNull();
+  expect(observeAll(critical, [forecastAt(finite(10), finite(10.001))]).recoveryAt, "STORAGE_CRITICAL_FORECAST_RECOVERY_LONG_BEYOND_TEN_DAYS").not.toBeNull();
+  expect(observeAll(critical, [forecastAt(finite(10.001), finite(10)), forecastAt(finite(10.001), finite(10))]).severity, "STORAGE_CRITICAL_FORECAST_RECOVERS").toBe("low");
+});
+test("recovery takes exactly two qualifying observations at least 60 seconds apart", () => {
+  const low = observeAll(fresh(), [capacityAt(10_000)]);
+  const first = observePressure(low, evidence(low.at + step, 12_001), low.at + step);
+  expect(first.severity, "STORAGE_RECOVERY_FIRST_OBSERVATION_HOLDS").toBe("low");
+  const early = observePressure(first, evidence(first.at + 59_999, 12_001), first.at + 59_999);
+  expect(early.severity, "STORAGE_RECOVERY_SPACING_BELOW_SIXTY_SECONDS").toBe("low");
+  const second = observePressure(first, evidence(first.at + 60_000, 12_001), first.at + 60_000);
+  expect(second.severity, "STORAGE_RECOVERY_SECOND_OBSERVATION_AT_SIXTY_SECONDS").toBe("observed");
+  let value = low, observations = 0;
+  while (value.severity === "low" && observations < 10) { observations++; value = observePressure(value, evidence(value.at + step, 12_001), value.at + step); }
+  expect(observations, "STORAGE_RECOVERY_OBSERVATION_COUNT_MATCHES_POLICY").toBe(STORAGE_PRESSURE_RECOVERY_OBSERVATIONS);
+});
+test("evidence is current for exactly six hours", () => {
+  const low = observeAll(fresh(), [capacityAt(10_000)]);
+  const time = low.at + step;
+  const aged = observePressure(low, evidence(time, 12_001), time + 6 * HOUR);
+  expect(aged.recoveryAt, "STORAGE_EVIDENCE_CURRENT_AT_SIX_HOURS").toBe(time);
+  const stale = observePressure(low, evidence(time, 12_001), time + 6 * HOUR + 1);
+  expect(stale.recoveryAt, "STORAGE_EVIDENCE_STALE_AFTER_SIX_HOURS").toBeNull();
 });
