@@ -63,84 +63,84 @@ export function SkillsList(p: SkillsListProps) {
 
       {/* Create and Install are two field groups: two-up from 840px of pane. */}
       <div className="grid items-start gap-x-3 @[840px]/settings-pane:grid-cols-2">
-      <div className="mt-4 flex items-center gap-2">
-        <input
-          value={p.newName}
-          onChange={(e) => p.onNewName(e.target.value.toLowerCase())}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && p.newName.trim()) p.onCreate();
-          }}
-          placeholder="new-skill-name (kebab-case)"
-          className="min-w-0 flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
-        />
-        <Button label="Create" icon="add" tone="primary" size="sm" block={false} disabled={!p.newName.trim()} onClick={p.onCreate} />
-      </div>
-
-      <div className="mt-3 rounded-lg border border-border-subtle bg-surface p-3 @[840px]/settings-pane:mt-4">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Install
-        </p>
-        <div className="mt-2 flex items-center gap-2">
-          <label
-            className={cn(
-              "flex cursor-pointer items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary",
-              p.installing && "pointer-events-none opacity-50",
-            )}
-          >
-            <Upload className="h-3 w-3" />
-            Upload .zip
-            <input
-              type="file"
-              accept=".zip,application/zip"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) p.onInstallZip(file);
-              }}
-            />
-          </label>
-          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <input type="checkbox" checked={p.overwrite} onChange={(e) => p.onOverwrite(e.target.checked)} />
-            overwrite existing
-          </label>
-        </div>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-4 flex items-center gap-2">
           <input
-            value={p.githubSource}
-            onChange={(e) => p.onGithubSource(e.target.value)}
+            value={p.newName}
+            onChange={(e) => p.onNewName(e.target.value.toLowerCase())}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && canInstall) p.onInstallGitHub();
+              if (e.key === "Enter" && p.newName.trim()) p.onCreate();
             }}
-            placeholder="GitHub: owner/repo or https://github.com/…/tree/main/skills"
-            className="min-w-0 flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+            placeholder="new-skill-name (kebab-case)"
+            className="min-w-0 flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
           />
-          {p.installing ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden /> : null}
-          <Button label="Install" icon="install" tone="ghost" size="sm" block={false} disabled={!canInstall} onClick={p.onInstallGitHub} />
+          <Button label="Create" icon="add" tone="primary" size="sm" block={false} disabled={!p.newName.trim()} onClick={p.onCreate} />
         </div>
-        <Prose className="mt-1.5 text-[11px] text-muted-foreground">
-          A skill is any folder with a SKILL.md; one source may carry several.
-          Private repos use the server's GITHUB_TOKEN.
-        </Prose>
-        {p.outcomes && (
-          <ul className="mt-2 flex flex-col gap-1">
-            {p.outcomes.map((o, i) => (
-              <li key={`${o.name}-${i}`} className="text-[11px]">
-                {o.status === "skipped" ? (
-                  <span className="text-muted-foreground">
-                    ✗ {o.name} — {o.reason}
-                  </span>
-                ) : (
-                  <span className="text-primary">
-                    ✓ {o.name} {o.status === "replaced" ? "replaced" : "installed"}
-                    {typeof o.files === "number" ? ` (${o.files} file${o.files === 1 ? "" : "s"})` : ""}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+
+        <div className="mt-3 rounded-lg border border-border-subtle bg-surface p-3 @[840px]/settings-pane:mt-4">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Install
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <label
+              className={cn(
+                "flex cursor-pointer items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary",
+                p.installing && "pointer-events-none opacity-50",
+              )}
+            >
+              <Upload className="h-3 w-3" />
+              Upload .zip
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) p.onInstallZip(file);
+                }}
+              />
+            </label>
+            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <input type="checkbox" checked={p.overwrite} onChange={(e) => p.onOverwrite(e.target.checked)} />
+              overwrite existing
+            </label>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              value={p.githubSource}
+              onChange={(e) => p.onGithubSource(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canInstall) p.onInstallGitHub();
+              }}
+              placeholder="GitHub: owner/repo or https://github.com/…/tree/main/skills"
+              className="min-w-0 flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+            />
+            {p.installing ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden /> : null}
+            <Button label="Install" icon="install" tone="ghost" size="sm" block={false} disabled={!canInstall} onClick={p.onInstallGitHub} />
+          </div>
+          <Prose className="mt-1.5 text-[11px] text-muted-foreground">
+            A skill is any folder with a SKILL.md; one source may carry several.
+            Private repos use the server's GITHUB_TOKEN.
+          </Prose>
+          {p.outcomes && (
+            <ul className="mt-2 flex flex-col gap-1">
+              {p.outcomes.map((o, i) => (
+                <li key={`${o.name}-${i}`} className="text-[11px]">
+                  {o.status === "skipped" ? (
+                    <span className="text-muted-foreground">
+                      ✗ {o.name} — {o.reason}
+                    </span>
+                  ) : (
+                    <span className="text-primary">
+                      ✓ {o.name} {o.status === "replaced" ? "replaced" : "installed"}
+                      {typeof o.files === "number" ? ` (${o.files} file${o.files === 1 ? "" : "s"})` : ""}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {p.error && <Prose className="mt-2 text-xs text-destructive">{p.error}</Prose>}
@@ -148,7 +148,7 @@ export function SkillsList(p: SkillsListProps) {
 
       <ul data-settings-grid="" className={cn("mt-4 gap-2", PANE_GRID)}>
         {custom.length === 0 && (
-          <li>
+          <li className="col-span-full">
             <Placeholder variant="empty" message="No custom skills yet." icon="steps" pad={10} />
           </li>
         )}
