@@ -246,7 +246,12 @@ export const Group = meta.story({
  * points down at the chart.
  */
 export const GroupDesktop = meta.story({
-  render: () => <SelectableGroup volumes={v.group} initial="data" />,
+  // The 12px below is where the chart's heading would start; it keeps the notch in frame.
+  render: () => (
+    <div style={{ width: "100%", paddingBottom: 12 }}>
+      <SelectableGroup volumes={v.group} initial="data" />
+    </div>
+  ),
   parameters: { stageWidth: 940 },
   play: async ({ canvasElement }) => {
     const cards = [...canvasElement.querySelectorAll<HTMLElement>("[data-volume-card]")].map((c) => c.getBoundingClientRect());
