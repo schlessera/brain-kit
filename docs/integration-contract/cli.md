@@ -63,7 +63,9 @@ labels could not be established: any failed fetch that may be the target's own
 codec refuses, an answer for another id), a draft with no message, or one
 whose thread's labels could not be read. Only a failure that says nothing
 about the target (the account unavailable or rate limited, the input or the
-binary refused) keeps its code. The process uses `BRAIN_UI_GOOGLE_HOME`, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`
+binary refused) keeps its code. A search still fails its whole page when a
+hit's thread cannot be read, which while a label is hidden can tell a hidden
+match from none (#4553, the shared transport's search). The process uses `BRAIN_UI_GOOGLE_HOME`, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`
 and `BRAIN_UI_GOG_PATH` when the first is set (an operator's shell on a host),
 else `BRAIN_GOOGLE_HOME` (default `$XDG_DATA_HOME/brain/google`),
 `BRAIN_GOOGLE_KEYRING_PASSWORD` and `BRAIN_GOOGLE_GOG_PATH`. A home inside or
