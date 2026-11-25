@@ -49,6 +49,8 @@ const RETRY_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 60_000];
  * dropped) is tried, and then the client stops until the content changes.
  */
 const MAX_REFUSED_CALLS = 2;
+/** What a 400 was recovered as: each kind of recovery is tried once per edit. */
+type RefusalKind = "image" | "file" | "list" | "other";
 
 /** Errors the host sends for a frame it could not tie to a request, when they name none. */
 const UNCORRELATED = ["RATE_LIMITED", "PARSE_ERROR", "INTERNAL_ERROR"];
@@ -69,7 +71,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   const failures = new Map<string, number>();
   /** 400s for one edit of a draft (#4566): a refused edit is not sent again. */
-  const refusals = new Map<string, { edit: number; count: number }>();
+  const refusals = new Map<string, { edit: number; counts: Partial<Record<RefusalKind, number>>; spared?: true }>();
+  /** Drafts whose refused snapshot list is being read again: no save goes out meanwhile. */
+  const reconciling = new Set<string>();
   /** Idempotency keys per draft for the save in flight: a retry of the same body reuses it. */
   const saveKeys = new Map<string, { body: string; key: string }>();
   /**
@@ -139,23 +143,28 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    * tried; otherwise the edit is marked refused and nothing is sent again
    * until the content changes.
    */
-  function mayRecover(draftId: string, edit: number, body: { message?: string }): boolean {
+  function mayRecover(draftId: string, edit: number, body: { message?: string }, kind: RefusalKind): boolean {
     const last = refusals.get(draftId);
-    const count = last?.edit === edit ? last.count + 1 : 1;
-    refusals.set(draftId, { edit, count });
+    const entry = last?.edit === edit ? last : { edit, counts: {} };
+    const count = (entry.counts[kind] ?? 0) + 1;
+    refusals.set(draftId, { ...entry, counts: { ...entry.counts, [kind]: count } });
     if (count < MAX_REFUSED_CALLS) return true;
     refuse(draftId, edit, body);
     return false;
   }
 
-  /** A recovery that could not run (its read got no answer) does not use up the edit's attempt. */
-  function uncount(draftId: string) {
+  /**
+   * A recovery that could not run (its read got no answer) does not use up
+   * the edit's attempt, once: a read that keeps failing then counts.
+   */
+  function uncount(draftId: string, kind: RefusalKind) {
     const last = refusals.get(draftId);
-    if (last && last.count > 0) refusals.set(draftId, { ...last, count: last.count - 1 });
+    const count = last?.counts[kind] ?? 0;
+    if (last && !last.spared && count > 0) refusals.set(draftId, { ...last, spared: true, counts: { ...last.counts, [kind]: count - 1 } });
   }
 
   function refuse(draftId: string, edit: number, body: { message?: string }) {
-    refusals.set(draftId, { edit, count: MAX_REFUSED_CALLS });
+    refusals.set(draftId, { edit, counts: { other: MAX_REFUSED_CALLS } });
     failures.delete(draftId);
     drafts.getState().saveFailed(draftId, { kind: "refused", edit, reason: String(body.message ?? "") || "No reason given." });
   }
@@ -209,7 +218,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         // released a snapshot). Read it, and save again from what it holds,
         // once: the same list refused again is not sent again (#4566). A
         // draft the host never stored has no list of its own to read.
-        if (mayRecover(draftId, at, body)) void reconcileSnapshots(draftId);
+        if (mayRecover(draftId, at, body, "list")) {
+          reconciling.add(draftId);
+          void reconcileSnapshots(draftId).finally(() => reconciling.delete(draftId));
+        }
         return;
       }
       // Any other 400 is the host's answer to this content as it is (#4566).
@@ -239,7 +251,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   }
 
   async function sync(draftId: string): Promise<void> {
-    if (!live() || busy.has(draftId)) return;
+    if (!live() || busy.has(draftId) || reconciling.has(draftId)) return;
     const d = drafts.getState().drafts[draftId];
     if (!d || !owed(d)) return;
     busy.add(draftId);
@@ -356,11 +368,11 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     // stored under this id): its bytes are not here to upload again, so it
     // is left out and reads as needing to be chosen again (#4566).
     if (result.status === 400 && result.body.error === "ATTACHMENT_INVALID" && /no longer available|not stored/i.test(message) && fileIds.length > 0) {
-      if (!mayRecover(d.draftId, d.edit, result.body)) return;
+      if (!mayRecover(d.draftId, d.edit, result.body, "file")) return;
       const gone = await goneFiles(d, fileIds);
       if (!current()) return;
       // The read got no answer: nothing was learned, so the recovery is still owed.
-      if (gone === null) { uncount(d.draftId); backoff(d.draftId); return; }
+      if (gone === null) { uncount(d.draftId, "file"); backoff(d.draftId); return; }
       if (gone.length === 0) { refuse(d.draftId, d.edit, result.body); return; }
       drafts.getState().filesGone(d.draftId, gone);
       backoff(d.draftId);
@@ -369,7 +381,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     // An image the host no longer stores (swept, or dropped by another
     // revision): upload again rather than save a list it cannot attach.
     if (result.status === 400 && /attachment/i.test(message)) {
-      if (!mayRecover(d.draftId, d.edit, result.body)) return;
+      if (!mayRecover(d.draftId, d.edit, result.body, "image")) return;
       drafts.getState().forgetUploads(d.draftId);
       backoff(d.draftId);
       return;
@@ -392,7 +404,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     const unlisted = fileIds.filter((id) => !listed.has(id));
     const proven = unlisted.filter((id) => bound.has(id));
     if (proven.length > 0) return proven;
-    return holdsSnapshots(d) ? [] : unlisted;
+    // A snapshot's originals may be the refused ones: those are not the composer's to leave out.
+    return draftSnapshots(d).some((s) => s.files.length > 0) ? [] : unlisted;
   }
 
   /**

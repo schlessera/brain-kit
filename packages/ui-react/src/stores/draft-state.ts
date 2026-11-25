@@ -289,6 +289,8 @@ export interface LocalDraft {
   host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
   /** A first save got no answer: the host may hold it, and a reconciliation is owed (#1214). */
   uncertain?: boolean;
+  /** The host refused this content as it is (#4566): its reason. Not sent again until it changes. */
+  refused?: string;
   /** An accepted first message's session, still to be bound on the host (#1214). */
   bind?: { sessionId: string; requestId: string } | null;
 }
@@ -453,6 +455,9 @@ const SETTLED_SENDS_KEPT = 16;
 export function holdsUnsaved(state: Pick<DraftStoreState, "drafts" | "sends">): boolean {
   for (const d of Object.values(state.drafts)) {
     if (hasContent(d) && !(d.host !== null && d.host.edit === d.edit)) return true;
+    // A Send's snapshot the host never acknowledged lives only here (#4566), as does a refused edit.
+    if (draftSnapshots(d).some((s) => !s.retiring && !d.host?.snapshots?.some((h) => h.snapshotId === s.snapshotId))) return true;
+    if (d.failure?.kind === "refused") return true;
     // Emptied, with the host still holding it: the delete has not landed.
     // Or a save is out: its answer is still owed.
     if (d.conflict || d.savingSince !== null || d.uncertain || (d.host !== null && !hasContent(d))) return true;
@@ -764,6 +769,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
             // The draft client's uncertain-save and bind paths pick these up again (#1214).
             uncertain: k.uncertain === true && k.host === null,
             bind: k.bind ?? null,
+            // A refusal kept on this device stays one: the same content is not sent again (#4566).
+            ...(k.refused ? { failure: { kind: "refused" as const, edit, reason: k.refused } } : {}),
           });
         }
       },
@@ -800,7 +807,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           // The caller keeps its prior expectation until those edits save.
           if (other && (!preserveOther || !drafts[other.draftId])) {
             const edit = 1;
-            const { uncertain: _uncertain, bind: _bind, ...content } = other;
+            const { uncertain: _uncertain, bind: _bind, refused: _refused, ...content } = other;
             drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...content, files: content.files ?? [], edit,
               host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null };
           }
@@ -812,7 +819,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (current) release(current.attachments, []);
         const edit = 1;
         // Another tab's pending reconciliation stays that tab's to finish.
-        const { uncertain: _uncertain, bind: _bind, ...content } = kept;
+        const { uncertain: _uncertain, bind: _bind, refused: _refused, ...content } = kept;
         const d = { ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...content, files: content.files ?? [], edit, deviceEpoch: (current?.deviceEpoch ?? 0) + 1,
           host: kept.host ? { ...kept.host, edit: kept.host.clean ? edit : -1, attachmentIds: [] } : null };
         set(s => ({ drafts: { ...s.drafts, [kept.draftId]: d } }));

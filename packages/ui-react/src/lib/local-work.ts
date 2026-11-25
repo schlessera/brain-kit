@@ -169,7 +169,7 @@ export function parseDraft(raw: unknown): LocalDraft | null {
   const b = r.bind;
   const bind = b && isStr(b.sessionId) && isStr(b.requestId) ? { sessionId: b.sessionId, requestId: b.requestId } : null;
   return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, ...(files.length ? { files } : {}), editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true, ...(r.deviceConflict && isStr(r.deviceConflict.otherId) && isStrOrNull(r.deviceConflict.sessionId) ? { deviceConflict: r.deviceConflict } : {}),
-    ...(r.uncertain === true ? { uncertain: true } : {}), ...(bind ? { bind } : {}) };
+    ...(r.uncertain === true ? { uncertain: true } : {}), ...(bind ? { bind } : {}), ...(isStr(r.refused) && r.refused ? { refused: r.refused } : {}) };
 }
 
 function parseContext(raw: unknown): WorkContext | null {
@@ -210,6 +210,8 @@ export function storeDraft(d: ComposerDraft): StoredDraft {
     // Reconciliation the draft client still owes the host (#1214).
     ...(d.uncertain ? { uncertain: true } : {}),
     ...(d.bind ? { bind: { sessionId: d.bind.sessionId, requestId: d.bind.requestId } } : {}),
+    // The host refused this content as it is (#4566): the cause survives a reload.
+    ...(d.failure?.kind === "refused" && d.failure.edit === d.edit ? { refused: d.failure.reason } : {}),
   };
 }
 

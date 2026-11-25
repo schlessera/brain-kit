@@ -114,10 +114,12 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
   const files = draftFiles(d);
 
   const note = input.switchNote ? VERSION_SWITCH_COPY[input.switchNote] : null;
+  // A branch's refused save is said beside the other version, not hidden by it (#4566).
+  const refusedHere = d?.failure?.kind === "refused" && d.failure.edit === d.edit ? d.failure.reason : null;
   if (d?.deviceConflict && !d.conflict && !input.localFailed) {
-    return { key: "device_conflict", state: "attention", stateLabel: "Another tab changed this draft",
-      summary: `Another tab changed this draft. Both versions are kept.${note ? ` ${note}.` : ""}`,
-      facts: note ? [{ key: "Other version", value: note }] : [], action: "other_version" };
+    return { key: "device_conflict", state: refusedHere ? "refused" : "attention", stateLabel: "Another tab changed this draft",
+      summary: `Another tab changed this draft. Both versions are kept.${refusedHere ? " This one isn't saved: the brain refused it." : ""}${note ? ` ${note}.` : ""}`,
+      facts: [...(refusedHere ? [{ key: "Brain said", value: refusedHere }] : []), ...(note ? [{ key: "Other version", value: note }] : [])], action: "other_version" };
   }
   // A failed device write takes back "both versions are kept", not the switch's outcome (#4567).
   if (d?.deviceConflict && !d.conflict && note) {
