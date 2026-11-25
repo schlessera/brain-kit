@@ -84,9 +84,14 @@ export function pauseStorageEvents(db: Database, brain: string, kinds: StorageEv
  * owner report of one history write in time order, arrival order breaking
  * ties, with plain sequential semantics: a refusal opens a target's refusal and
  * a later success resolves it (#4541). It starts from the refusal state before
- * these reports, as the timeline last recorded it; a refusal with no recorded
- * opening resolves silently. Pressure state is not touched: `before` and
- * `after` only say which capacities these reports escalated.
+ * these reports, as the timeline last recorded it, at the newest committed
+ * refusal time: a report older than that, such as another writer's buffer
+ * flushed after a newer commit, is superseded and changes nothing, so an open
+ * refusal is only ever closed after it opened. A refusal with no recorded
+ * opening resolves silently. The pressure state after this write has the last
+ * word: a resolution it does not hold is not emitted. Pressure state is not
+ * touched; `before` and `after` only say which capacities these reports
+ * escalated and which refusals they left resolved.
  */
 export function recordOwnerEvidence(db: Database, brain: string, before: Pressure[], after: Pressure[], evidence: OwnerEvidence[]): void {
   const escalated = new Map<string, { from: Pressure; to: Pressure }>();
@@ -94,30 +99,43 @@ export function recordOwnerEvidence(db: Database, brain: string, before: Pressur
     const from = before.find(value => value.identity === to.identity);
     if ((from?.severity ?? "observed") !== to.severity) escalated.set(to.identity, { from: from ?? { ...to, severity: "observed", recoveryAt: null }, to });
   }
-  const targets = new Map<string, { open: boolean; openAt: number; recorded: boolean }>();
+  const find = (pressures: Pressure[], report: OwnerEvidence) => pressures.find(value => value.identity === report.identity)?.refusals.find(value => value.target === report.target && value.resource === report.resource);
+  const targets = new Map<string, { open: boolean; openAt: number; recorded: boolean; report: OwnerEvidence }>();
+  const pending: Array<{ key: string | null; write(): void; succeeded?: boolean }> = [];
   const ordered = evidence.map((report, index) => ({ report, index })).sort((a, b) => a.report.at - b.report.at || a.index - b.index);
   for (const { report } of ordered) {
     const key = `${report.identity}:${report.target}:${report.resource}`;
     let state = targets.get(key);
     if (!state) {
-      const refusal = before.find(value => value.identity === report.identity)?.refusals.find(value => value.target === report.target && value.resource === report.resource);
+      const refusal = find(before, report);
       const last = (db.query("SELECT phase FROM storage_events WHERE brain = ? AND kind = 'refusal' AND identity = ? AND target = ? AND resource = ? ORDER BY seq DESC LIMIT 1")
         .get(brain, report.identity, report.target, report.resource) as { phase: string } | null)?.phase;
       // A refusal the pressure no longer holds ended with its warning.
-      state = { open: !!refusal && (last === undefined ? refusal.successAt === null : last === "refused"), openAt: refusal?.at ?? -1, recorded: last !== undefined };
+      state = { open: !!refusal && (last === undefined ? refusal.successAt === null : last === "refused"), openAt: refusal?.at ?? -1, recorded: last !== undefined, report };
       targets.set(key, state);
     }
     const base = { kind: "refusal" as const, identity: report.identity, target: report.target, resource: report.resource, at: report.at };
     if (report.outcome === "no-space") {
-      if (!state.open) { recordStorageEvent(db, brain, { ...base, phase: "refused" }); state.open = true; state.recorded = true; }
-      state.openAt = report.at;
+      // A refusal older than a newer committed one on this target is superseded.
+      if (report.at >= state.openAt) {
+        if (!state.open) { pending.push({ key, write: () => recordStorageEvent(db, brain, { ...base, phase: "refused" }) }); state.open = true; state.recorded = true; }
+        state.openAt = report.at;
+      }
+      // The refusal precedes the warning it starts.
       const warning = escalated.get(report.identity);
-      if (warning) { recordPressureChange(db, brain, warning.from, warning.to, report.at); escalated.delete(report.identity); }
+      if (warning) { escalated.delete(report.identity); pending.push({ key: null, write: () => recordPressureChange(db, brain, warning.from, warning.to, report.at) }); }
     } else if (state.open && report.at > state.openAt) {
-      if (state.recorded) recordStorageEvent(db, brain, { ...base, phase: "succeeded" });
+      if (state.recorded) pending.push({ key, write: () => recordStorageEvent(db, brain, { ...base, phase: "succeeded" }), succeeded: true });
       state.open = false;
     }
   }
+  // Pressure keeps the refusal open: its last resolution here did not hold.
+  for (const [key, state] of targets) {
+    if (state.open || find(after, state.report)?.successAt !== null) continue;
+    const index = pending.findLastIndex(value => value.key === key);
+    if (index >= 0 && pending[index]!.succeeded) pending.splice(index, 1);
+  }
+  for (const event of pending) event.write();
 }
 
 const TRACKED_SCOPES = 16;

@@ -2338,7 +2338,10 @@ Owner reports that wait for the same history write are replayed for the
 timeline one by one in time order: a refusal opens its target's refusal, a
 later success resolves it, and a warning they start begins at the first
 refusal on the capacity. A success that arrives before its target has any
-refusal is not evidence. When one write receives more than 512 owner reports,
+refusal is not evidence. A report older than a refusal already committed for
+its target, such as another writer's late flush, changes nothing, so a
+resolution always follows the refusal it closes, and a resolution the
+pressure state does not hold after the write is not emitted. When one write receives more than 512 owner reports,
 refusal and pressure events are paused instead of timed from partial evidence.
 Events are recorded when they happen. An episode already open before the host
 recorded events is not emitted, and no start time is invented for it. The
