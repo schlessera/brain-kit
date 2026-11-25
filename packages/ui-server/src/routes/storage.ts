@@ -19,6 +19,13 @@ export function createStorageRoutes(storage: StorageCoordinator, guidance?: Stor
   if (guidance) {
     routes.get("/storage/history", async c => { await guidance.settled(); return c.json(guidance.history(c.get("principal")!.id)); });
     routes.get("/storage/guidance", async c => { await guidance.settled(); return c.json(guidance.guidance(c.get("principal")!.id)); });
+    routes.get("/storage/events", async c => {
+      const raw = c.req.query();
+      if (Object.keys(raw).some(key => key !== "identity" && key !== "since") || raw.identity !== undefined && !/^[a-f0-9]{32}$/.test(raw.identity)
+        || raw.since !== undefined && (!/^\d{1,16}$/.test(raw.since) || !Number.isSafeInteger(Number(raw.since)))) return c.json({ error: "Invalid Storage event query." }, 400);
+      await guidance.settled();
+      return c.json(guidance.events(c.get("principal")!.id, { ...(raw.identity !== undefined ? { identity: raw.identity } : {}), ...(raw.since !== undefined ? { since: Number(raw.since) } : {}) }));
+    });
   }
   routes.get("/storage", c => c.json(storage.status(c.get("principal")!.id)));
   routes.post("/storage/scans", requireJson(), async c => {
