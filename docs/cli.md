@@ -219,7 +219,7 @@ preserved without checking whether the heading exists.
 | `setup` | Idempotent: install git hooks (`.githooks/` + `core.hooksPath`), sync skills, bin links | run explicitly with `bun run setup` in the template |
 | `init --check` | Preflight JSON: bun/git/hooks/config/content dirs/key presence (booleans, never values) | consumed by `/brain-init` Stage 0 |
 | `init --default` | Non-interactive minimal brain: `brain.config.json` (dependency-free), core dirs, root `_index.md`, empty sidecars, index + validate | the keyless Tier-0 path; idempotent |
-| `doctor` ⚖ | Health battery: runtime, git-hooks (also warns when an installed hook differs from the one the package ships, as after an upgrade; `--fix` or `brain setup` reinstalls them), symlinks, shadowed-commands (a `.claude/commands` file a same-named skill overrides), instructions-weight (always-loaded tokens against `instructions.maxTokens`), config, db (the index in `.brain-index/`), legacy-index (a root-level `brain.db` an earlier release left; `--fix` deletes it after rebuilding the index), legacy-caches (a root-level `.context-cache.jsonl` or `.asset-cache.jsonl` an earlier release left; `--fix`, like any index run, moves every line into `.brain-cache/` and deletes it), embeddings, reranker (activation is off by default; when enabled, the configured provider resolves, its key is present and its model is pinned), mcp, deps, version, privacy (public-remote = loud fail), git-storage (loose objects over 100 MB; a `refs/original/` filter-branch backup, whose removal command is shown as text and never run), tracked-leftovers (committed OS, editor or LaTeX leftovers; the `git rm --cached` command is shown as text and never run), tracked-media (the five largest tracked binaries; warns on a tracked file over `media.maxTrackedBytes`), scratch, cache-merge (the sidecar caches in `.brain-cache/` and `.stats-history.jsonl` carry `merge=union` in `.gitattributes`; `--fix` appends the lines), eval-baseline (a reminder when `evals/baseline.json` was recorded with another version; never fails), search-language (`search.language` against the tokenizer the index was built with), macOS sqlite-vec | `{checks:[{id,status,detail,fix?}]}`; `--fix` applies auto-fixables |
+| `doctor` ⚖ | Health battery: runtime, git-hooks (also warns when an installed hook differs from the one the package ships, as after an upgrade; `--fix` or `brain setup` reinstalls them), symlinks, shadowed-commands (a `.claude/commands` file a same-named skill overrides), instructions-weight (always-loaded tokens against `instructions.maxTokens`), config, db (the index in `.brain-index/`), legacy-index (a root-level `brain.db` an earlier release left; `--fix` deletes it after rebuilding the index), legacy-caches (a root-level `.context-cache.jsonl` or `.asset-cache.jsonl` an earlier release left; `--fix`, like any index run, moves every line into `.brain-cache/` and deletes it), embeddings, reranker (activation is off by default; when enabled, the configured provider resolves, its key is present and its model is pinned), mcp, deps, version, privacy (public-remote = loud fail), git-storage (loose objects over 100 MB; a `refs/original/` filter-branch backup, whose removal command is shown as text and never run), tracked-leftovers (committed OS, editor or LaTeX leftovers; the `git rm --cached` command is shown as text and never run), tracked-media (the five largest tracked binaries; warns on a tracked file over `media.maxTrackedBytes`), scratch, cache-merge (the sidecar caches in `.brain-cache/` and `.stats-history.jsonl` carry `merge=union` in `.gitattributes`; `--fix` appends the lines), eval-baseline (a reminder when `evals/baseline.json` was recorded with another version; never fails), search-language (`search.language` against the tokenizer the index was built with), macOS sqlite-vec, google-home (fails when the standalone `brain google` home lies inside or holds a brain repository) | `{checks:[{id,status,detail,fix?}]}`; `--fix` applies auto-fixables |
 | `import --stamp <dir>` | Mechanical frontmatter stamping for imports (type note, status draft, title from H1/filename, dates from mtime) | skips files that already have frontmatter |
 | `mcp` | Start the stdio MCP server in-process | register this command with an MCP client; see [mcp.md](mcp.md) |
 
@@ -399,6 +399,54 @@ only two fit) and waits for your choice. The comparison explains identity,
 fit, available pricing and limitations. Picking one does not approve its
 execution; the normal Actor approval follows in chat. A suitable remembered
 approval can be reused across sessions, subject to current policy and budgets.
+
+## Google
+
+`brain google` connects one Google account and reads its Gmail, with the same
+operations, policy and decision the hosted `brain_google_*` tools use. It is
+off until `context/policies/governance.md` has a `google` block with
+`enabled: true`, the gog `account` alias and `services: [gmail]`
+([policy fields](supported-inputs.md#governance-policy)). It drives the pinned
+gog release ([gogcli](https://github.com/openclaw/gogcli) v0.48.1) through the
+same transport as the server.
+
+| Command | Does | Notes |
+|---|---|---|
+| `google status` | The home, the pinned gog, the policy, the connected alias and its scopes | warns on a grant broader than brain google asks for; never prints the address |
+| `google connect <address> [--write]` | Connects the policy's alias through gog's OAuth flow | read-only scopes, or with `--write` exactly `gmail.readonly` and `gmail.modify`; a broader grant is removed and refused |
+| `google connect <address> --remote [--auth-url URL]` | The same, for a machine without a browser | prints a URL to open elsewhere; run it again with `--auth-url` and the URL the browser landed on |
+| `google gmail search <query…>` | One page of threads (Gmail search syntax) | `--limit N` (1–25, default 10), `--cursor C` from the previous page's `next_cursor` |
+| `google gmail read thread\|message\|draft <id>` | One thread, message or draft | |
+| `google gmail labels` | The account's labels | always structured |
+
+`--view content`, the default, adds senders, recipients, subjects, snippets
+and bodies, each under an `untrusted` key; `--view structured` returns only ids,
+label ids and names, dates, counts, size buckets and flags. Threads carrying a
+label in `google.gmail.hidden_labels` are left out of every search and read as
+a miss. `connect --credentials FILE` stores your Google Cloud **Desktop** OAuth
+client in the home first. Each command prints one `{ ok, operation, data }` or
+`{ ok: false, operation, error }` envelope and exits `0` or `1`
+([the contract](integration-contract/cli.md#google-commands-additive-0460-4208)).
+
+**What standalone means.** The process has no chat session, so nothing it reads
+taints anything and nothing is ever asked: there is no card and no remembered
+approval, and a read runs only where the policy's read mode is `allow`. The
+`untrusted` text is still third-party text, and whatever reads it, a local
+agent included, should treat it so. A local agent with shell access runs as
+you and is inside this boundary: it can run gog or read its keyring itself, and
+brain google holds it to the policy only for what it asks brain google to do.
+Read-only scopes are the only enforcement there, which is why `connect` asks
+for them unless you pass `--write`.
+
+The home is `BRAIN_GOOGLE_HOME`, by default `$XDG_DATA_HOME/brain/google`,
+with its file keyring's password in `BRAIN_GOOGLE_KEYRING_PASSWORD` and the
+pinned binary in `BRAIN_GOOGLE_GOG_PATH`. It must lie outside every brain
+repository (`brain doctor` fails otherwise) and be private to you. In an
+operator's shell on a host that sets `BRAIN_UI_GOOGLE_HOME`, brain google uses
+the server's home, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD` and `BRAIN_UI_GOG_PATH`
+instead, which is how `brain google connect --remote` connects a hosted
+install. A chat worker holds none of these variables, so its `brain google`
+answers `unavailable`.
 
 ## Queue intake on a UI server
 

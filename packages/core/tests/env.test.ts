@@ -53,6 +53,9 @@ describe("config/env descriptor", () => {
         "BRAIN_APIFY_LEDGER",
         "BRAIN_CHROME_NO_SANDBOX",
         "BRAIN_COMPUTE_STATE_DIR",
+        "BRAIN_GOOGLE_GOG_PATH",
+        "BRAIN_GOOGLE_HOME",
+        "BRAIN_GOOGLE_KEYRING_PASSWORD",
         "BRAIN_MEDIA_PINNED_PATH_LIMIT",
         "BRAIN_MEDIA_REFERENCE_LIMITS",
         "BRAIN_PROVIDER_RELAY_SOCKET",
@@ -60,6 +63,9 @@ describe("config/env descriptor", () => {
         "BRAIN_ROOT",
         "BRAIN_STORAGE_GIT_ROOTS",
         "BRAIN_UI_CHROME_NO_SANDBOX",
+        "BRAIN_UI_GOG_PATH",
+        "BRAIN_UI_GOOGLE_HOME",
+        "BRAIN_UI_GOOGLE_KEYRING_PASSWORD",
         "BRAIN_WITHHELD_KEYS",
         "BRAIN_WORKER_CONFIG_ROOT",
         "BRAIN_WORKER_DATA_ROOT",
@@ -69,6 +75,7 @@ describe("config/env descriptor", () => {
         "NO_COLOR",
         "TYPESAFE_API_KEY",
         "XDG_BIN_HOME",
+        "XDG_DATA_HOME",
         "XDG_STATE_HOME",
       ].sort()
     );

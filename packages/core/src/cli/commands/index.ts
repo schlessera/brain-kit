@@ -44,6 +44,7 @@ import { hygieneCommand } from "./hygiene.js";
 import { policyCommand } from "./policy.js";
 import { computeCommand } from "./compute.js";
 import { apifyCommand } from "./apify.js";
+import { googleCommand } from "./google.js";
 
 import { storageCommand } from "./storage.js";
 
@@ -87,6 +88,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   policy: policyCommand,
   compute: computeCommand,
   apify: apifyCommand,
+  google: googleCommand,
 };
 
 export { generateBriefing } from "./briefing.js";
