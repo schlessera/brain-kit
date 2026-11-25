@@ -364,3 +364,38 @@ test("a Send's snapshot a full host never stored holds updates on its own", asyn
   expect(s.drafts.getState().drafts[s.id]?.failure?.kind).toBe("full");
   expect(holdsUnsaved(s.drafts.getState()), "UNACKED_SNAPSHOT_ALONE_HOLDS_UPDATE").toBe(true);
 });
+
+test("a refusal kept in a device record survives adoption and a kept-both import", () => {
+  const s = scene();
+  const record = { draftId: "4e2a6c8d-0f1b-4d3e-9a5c-7b9d1f3e5a70", sessionId: "odysseus-raft", text: "Lash the raft", attachments: [], editedAt: 1, host: null, refused: "The draft names an unknown field." };
+  s.drafts.getState().adoptDeviceRecord(record);
+  const adopted = s.drafts.getState().drafts[record.draftId]!;
+  expect(adopted.failure, "ADOPTED_REFUSAL_KEPT").toEqual({ kind: "refused", edit: adopted.edit, reason: "The draft names an unknown field." });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Telemachus keeps the voyage" });
+  s.drafts.getState().keepDeviceBranch(s.id, "voyage-branch", { draftId: s.id, sessionId: SESSION, text: "Penelope keeps the loom", attachments: [], editedAt: 1, host: null, refused: "Refused elsewhere." }, SESSION);
+  const imported = s.drafts.getState().drafts[s.id]!;
+  expect(imported.failure, "IMPORTED_REFUSAL_KEPT").toEqual({ kind: "refused", edit: imported.edit, reason: "Refused elsewhere." });
+});
+
+test("a refusal of a body with outgoing snapshots is not kept on the device, where the snapshots are not", async () => {
+  const s = scene({ snapshots: true, refuse: () => ({ status: 400, body: { error: "DRAFT_INVALID", message: "Refused." } }) });
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-first" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-first", requestId: "req-first", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "");
+  s.drafts.getState().edit(s.id, SESSION, { text: "Bring the wine" });
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.failure?.kind).toBe("refused");
+  expect(storeDraft(d).refused, "SNAPSHOT_REFUSAL_NOT_KEPT").toBeUndefined();
+});
+
+test("a draft whose id the host allows and spells like the gone lineage still sees its stale file as gone", async () => {
+  const s = scene();
+  const id = "gone";
+  s.drafts.getState().edit(id, SESSION, { text: "Harbour fees", files: [{ file: PERMIT, lineage: id }] });
+  await run(SAVE_DELAY + 100);
+  s.swept.add(PERMIT.fileId);
+  s.drafts.getState().edit(id, SESSION, { text: "Harbour fees for the permit" });
+  await run(LONG);
+  expect(s.drafts.getState().drafts[id]?.files, "GONE_LINEAGE_NEVER_A_DRAFT_ID").toEqual([{ file: PERMIT, lineage: GONE_LINEAGE }]);
+  expect(s.saves.at(-1)!.body.fileIds).toEqual([]);
+});
