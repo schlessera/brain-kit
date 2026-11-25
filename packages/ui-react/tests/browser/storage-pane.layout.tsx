@@ -449,6 +449,10 @@ test("Dense folder pages preserve the full measured subtotal and query before pa
   await button("Next 200 items").click();
   await expect.poll(rows).toBe(5);
   expect(host.textContent).toContain("205 items");
+  // The last page has no Next: focus moves to First, never to the body (#4549 review F5).
+  await expect
+    .poll(() => document.activeElement, { message: "STORAGE_BREAKDOWN_NEXT_KEEPS_FOCUS" })
+    .toBe(button("First 200 items").element());
   await page
     .getByRole("textbox", { name: "Search this folder" })
     .fill("chart-204");
