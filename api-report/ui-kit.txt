@@ -110,6 +110,8 @@ export "." (./src/index.ts)
   type EmptyStateProps
   type EmptyTone
   type EmptyVariant
+  EventList
+  type EventListProps
   FeedbackRow
   type FeedbackRowProps
   type FeedbackValue
@@ -166,6 +168,14 @@ export "." (./src/index.ts)
   GraphView
   type GraphViewProps
   HATCH_GLYPH
+  HistoryChart
+  type HistoryChartProps
+  type HistoryEvidenceReason
+  type HistoryMarker
+  type HistoryPoint
+  type HistoryScenario
+  type HistoryScenarioWindow
+  type HistoryThresholds
   HygieneBlocker
   HygieneCard
   type HygieneCardProps
@@ -296,6 +306,7 @@ export "." (./src/index.ts)
   type RelatedFilesProps
   type RunState
   type RunToolState
+  SCENARIO_DASH
   ScaleList
   type ScaleListProps
   type ScheduleGroup
@@ -313,6 +324,8 @@ export "." (./src/index.ts)
   type SessionStripProps
   SideRail
   type SideRailProps
+  Sparkline
+  type SparklineProps
   type Speaker
   SpokenMark
   type SpokenMarkProps
@@ -429,6 +442,7 @@ export "." (./src/index.ts)
   markupReceiptRows
   markupSummary
   overCapMessage
+  projectionReasonText
   registrableDomain
   z
 
@@ -1224,6 +1238,13 @@ signatures (every public export and the types it is made of)
     export type EmptyTone = "amber" | "gold" | "teal" | "purple" | "red" | "neutral";
   EmptyVariant (packages/ui-kit/src/types.ts)
     export type EmptyVariant = "caught_up" | "no-results" | "offline" | "first-run" | "quiet";
+  EventList (packages/ui-kit/src/storage/EventList.tsx)
+    export function EventList({ events, label = "Events on this chart" }: EventListProps): import("react").JSX.Element | null;
+  EventListProps (packages/ui-kit/src/storage/EventList.tsx)
+    export interface EventListProps {
+        events: readonly HistoryMarker[];
+        label?: string;
+    }
   FeedbackRow (packages/ui-kit/src/blocks/FeedbackRow.tsx)
     export function FeedbackRow(p: FeedbackRowProps): import("react").JSX.Element;
   FeedbackRowProps (packages/ui-kit/src/blocks/FeedbackRow.tsx)
@@ -1605,6 +1626,64 @@ signatures (every public export and the types it is made of)
     const HATCH_GLYPH: "▨";
   HTML_ICON_LINKS (packages/ui-kit/src/brand.ts)
     const HTML_ICON_LINKS: readonly HtmlIconLink[];
+  HistoryChart (packages/ui-kit/src/storage/HistoryChart.tsx)
+    export function HistoryChart(p: HistoryChartProps): import("react").JSX.Element;
+  HistoryChartProps (packages/ui-kit/src/storage/HistoryChart.tsx)
+    export interface HistoryChartProps {
+        label: string;
+        points: readonly HistoryPoint[];
+        now?: number;
+        intervalMs?: number;
+        intervalLabel?: string;
+        thresholds?: HistoryThresholds;
+        scenarios?: readonly HistoryScenario[];
+        markers?: readonly HistoryMarker[];
+        nowState?: string;
+        notes?: readonly string[];
+        unmeasuredReason?: string;
+        valueHeading?: string;
+        showEvents?: boolean;
+        formatValue: (value: number) => string;
+        formatTick: (at: number) => string;
+        formatTime?: (at: number) => string;
+        formatSpan?: (from: number, to: number) => string;
+        width?: number;
+    }
+  HistoryEvidenceReason (packages/ui-kit/src/storage/history-geometry.ts)
+    export type HistoryEvidenceReason = "no-observation" | "stale" | "future" | "incomplete" | "changed-scope" | "changed-capacity" | "gap" | "ordering" | "insufficient-count" | "insufficient-span" | "mixed-direction" | "single-burst" | "arithmetic";
+  HistoryMarker (packages/ui-kit/src/storage/history-geometry.ts)
+    export interface HistoryMarker {
+        at: number;
+        n: number;
+        tone?: "amber" | "gold" | "teal" | "purple" | "blue" | "red" | "neutral";
+        label: string;
+        time?: string;
+    }
+  HistoryPoint (packages/ui-kit/src/storage/history-geometry.ts)
+    export interface HistoryPoint {
+        at: number;
+        value: number | null;
+        provisional?: boolean;
+        otherScope?: boolean;
+    }
+  HistoryScenario (packages/ui-kit/src/storage/history-geometry.ts)
+    export interface HistoryScenario {
+        window: HistoryScenarioWindow;
+        name: string;
+        detail?: string;
+        to?: {
+            at: number;
+            value: number;
+        };
+        reason?: string;
+    }
+  HistoryScenarioWindow (packages/ui-kit/src/storage/history-geometry.ts)
+    export type HistoryScenarioWindow = "short" | "long";
+  HistoryThresholds (packages/ui-kit/src/storage/history-geometry.ts)
+    export interface HistoryThresholds {
+        low?: number;
+        veryLow?: number;
+    }
   HtmlIconLink (packages/ui-kit/src/brand.ts)
     export interface HtmlIconLink {
         rel: "icon" | "apple-touch-icon";
@@ -2662,6 +2741,11 @@ signatures (every public export and the types it is made of)
     export type RunState = "running" | "waiting" | "done" | "failed" | "stopped";
   RunToolState (packages/ui-kit/src/types.ts)
     export type RunToolState = "done" | "active" | "failed" | "idle";
+  SCENARIO_DASH (packages/ui-kit/src/storage/HistoryChart.tsx)
+    const SCENARIO_DASH: Record<HistoryScenarioWindow, {
+        dash: string;
+        glyph: string;
+    }>;
   ScaleList (packages/ui-kit/src/decisions/AskUserListCard.tsx)
     export function ScaleList(p: ScaleListProps): import("react").JSX.Element;
   ScaleListProps (packages/ui-kit/src/decisions/AskUserListCard.tsx)
@@ -2775,6 +2859,17 @@ signatures (every public export and the types it is made of)
         spendText?: string;
         hint?: string | null;
         width?: number;
+    }
+  Sparkline (packages/ui-kit/src/storage/Sparkline.tsx)
+    export function Sparkline({ points, label, valueLabel, tone = "blue", width = 120, height = 24 }: SparklineProps): import("react").JSX.Element;
+  SparklineProps (packages/ui-kit/src/storage/Sparkline.tsx)
+    export interface SparklineProps {
+        points: readonly HistoryPoint[];
+        label: string;
+        valueLabel?: string;
+        tone?: Tone;
+        width?: number;
+        height?: number;
     }
   Speaker (packages/ui-kit/src/voice/SpokenTurn.tsx)
     export type Speaker = "you" | "brain";
@@ -3405,6 +3500,8 @@ signatures (every public export and the types it is made of)
     export function markupSummary(marks: readonly Mark[]): string;
   overCapMessage (packages/ui-kit/src/images/markup.ts)
     export function overCapMessage(bytes: number, maxBytes?: number): string;
+  projectionReasonText (packages/ui-kit/src/storage/history-geometry.ts)
+    export function projectionReasonText(reason: HistoryEvidenceReason, n?: number): string;
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   registrableDomain (packages/ui-kit/src/evidence/UntrustedText.tsx)
     export function registrableDomain(host: string): string;
