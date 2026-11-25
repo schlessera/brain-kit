@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 199 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, Gmail message-body, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 200 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -170,6 +170,7 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/sessions/:id/safety/reviews/future/status` | S | Read retained combined completion and current rule presence | Same live owner, exact Origin and bounded JSON session/occurrence; read-only, redacted uncommitted verdict handles, JSON null for unretained receipts (#3611). |
 | GET | `/api/sessions/:id/github/:owner/:repo/:number/:part` | I | Page one part of a GitHub object a session's GitHub tool result returned | Chat GitHub components (#3796, #3795); owner account only, display data never provider context, no compatibility guarantee. |
 | GET | `/api/sessions/:id/github/avatars/:login` | I | Serve the avatar of a login in a session's GitHub results from this origin | Chat GitHub components (#3796, #3795); owner account only, magic-byte image check, bounded in-memory cache, every failure 404. |
+| GET | `/api/sessions/:id/google/gmail/messages/:message/body` | I | Serve the whole text body of a Gmail message a session's Gmail read returned | Chat Gmail components (#4207); owner account only, decided again under the current policy and hidden labels, display data never provider context, no compatibility guarantee. |
 | GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
@@ -232,7 +233,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 199 declared endpoints are mounted regardless of backend, renderer or
+All 200 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
