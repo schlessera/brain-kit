@@ -1387,7 +1387,9 @@ headroom or a malformed one, and on a receipt recorded before this field existed
 A row's own `headroom` is the operation's static disclosure and always carries
 `null`; the figure from the most recent run is on the row's `latest` receipt, so
 before any run there is none. The figure describes that run, not a current
-preflight. Each kind has its own `note`; only `pack-git`'s describes packs.
+preflight. Each kind has its own `note`; only `pack-git`'s describes packs. A
+`note` describes the kind, not the run: every receipt of another kind, including
+one recorded before #4540, reads back with that kind's current note.
 
 ### Storage history and pressure guidance (additive, #2058)
 
