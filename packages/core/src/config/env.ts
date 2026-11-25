@@ -157,6 +157,57 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     default: "unset: every Apify operation refuses as accounting_unavailable",
     required: false,
   },
+  {
+    name: "BRAIN_GOOGLE_HOME",
+    description:
+      "Absolute gog home (config and file keyring) of a standalone `brain google` process (#4208). Never inside a brain " +
+      "repository: `brain doctor` fails, and `connect` and every read refuse, when it is. A chat worker never receives it.",
+    default: "$XDG_DATA_HOME/brain/google, else ~/.local/share/brain/google",
+    required: false,
+  },
+  {
+    name: "BRAIN_GOOGLE_KEYRING_PASSWORD",
+    description: "Password of the file keyring in BRAIN_GOOGLE_HOME, for a standalone `brain google` process (#4208); never printed. A chat worker never receives it.",
+    default: "unset: Google is unavailable",
+    required: false,
+  },
+  {
+    name: "BRAIN_GOOGLE_GOG_PATH",
+    description: "Absolute path of the pinned gog release binary a standalone `brain google` process runs (#4208), checked against the pin list at first use.",
+    default: "unset: Google is unavailable",
+    required: false,
+  },
+  {
+    name: "BRAIN_GOOGLE_ROOT_UID",
+    description:
+      "The uid root's directories show as to a `brain google` process when it is not 0 (#4208): inside a user namespace that does not map root, the kernel's overflow uid, usually 65534. Directories above the Google home that it owns then count as root's. That uid also stands for every other unmapped user, so set it only where you know it is root; a home refuses and names this variable when it is needed.",
+    default: "unset: only uid 0 counts as root",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_GOOGLE_HOME",
+    description:
+      "The chat server's gog home. Set in an operator's shell on the host, `brain google` uses it, BRAIN_UI_GOOGLE_KEYRING_PASSWORD and BRAIN_UI_GOG_PATH " +
+      "instead of the standalone names, so `brain google connect --remote` connects the host's account (#4208).",
+    default: "unset: the standalone home",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_GOOGLE_KEYRING_PASSWORD",
+    description: "The chat server's file keyring password, read by `brain google` only while BRAIN_UI_GOOGLE_HOME is set; never printed.",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_GOG_PATH",
+    description: "The chat server's pinned gog binary, run by `brain google` only while BRAIN_UI_GOOGLE_HOME is set.",
+    required: false,
+  },
+  {
+    name: "XDG_DATA_HOME",
+    description: "Base directory of the default standalone gog home (`brain google`); a relative value is ignored.",
+    default: "~/.local/share",
+    required: false,
+  },
 ];
 
 export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
@@ -212,6 +263,25 @@ export interface CoreEnv {
   apifyToken: string | undefined;
   /** BRAIN_APIFY_LEDGER, trimmed, or undefined when unset or blank. */
   apifyLedger: string | undefined;
+  /**
+   * The Google home, keyring password and gog binary `brain google` uses
+   * (#4208): the host's while BRAIN_UI_GOOGLE_HOME is set, else the standalone
+   * names. Each trimmed, undefined when unset or blank; validated by the caller.
+   */
+  google: {
+    hostHome: string | undefined;
+    hostKeyringPassword: string | undefined;
+    hostGogPath: string | undefined;
+    home: string | undefined;
+    keyringPassword: string | undefined;
+    gogPath: string | undefined;
+    /** XDG_DATA_HOME as given, undefined when unset or blank (a relative value is the caller's to ignore). */
+    dataHome: string | undefined;
+    /** The user's home directory, for the default when XDG_DATA_HOME is unusable. */
+    userHome: string;
+    /** BRAIN_GOOGLE_ROOT_UID, undefined when unset or not a uid ({@link parseUid}). */
+    rootUid: number | undefined;
+  };
   /** BRAIN_MEDIA_PINNED_PATH_LIMIT, unvalidated (`pinnedPathLimit` validates it). */
   mediaPinnedPathLimit: string | undefined;
   /** BRAIN_MEDIA_REFERENCE_LIMITS, unvalidated (`mediaReferenceLimits` validates it). */
@@ -230,6 +300,14 @@ export function inheritedEnv(
 }
 
 /** Resolve the statically-named variables. Reads happen here and only here. */
+/** A uid as the kernel prints one: decimal, no sign or leading zero, at most 2^32 - 2; else undefined. */
+export function parseUid(text: string | undefined): number | undefined {
+  const trimmed = text?.trim() ?? "";
+  if (!/^(0|[1-9][0-9]{0,9})$/.test(trimmed)) return undefined;
+  const uid = Number(trimmed);
+  return uid <= 4294967294 ? uid : undefined;
+}
+
 export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
   return {
     brainRoot: env.BRAIN_ROOT || undefined,
@@ -247,6 +325,18 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
     stateHome: env.XDG_STATE_HOME || join(homedir(), ".local", "state"),
     apifyToken: env.APIFY_TOKEN?.trim() || undefined,
     apifyLedger: env.BRAIN_APIFY_LEDGER?.trim() || undefined,
+    google: {
+      hostHome: env.BRAIN_UI_GOOGLE_HOME?.trim() || undefined,
+      // A password is used as given: gog reads every byte of it.
+      hostKeyringPassword: env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD || undefined,
+      hostGogPath: env.BRAIN_UI_GOG_PATH?.trim() || undefined,
+      home: env.BRAIN_GOOGLE_HOME?.trim() || undefined,
+      keyringPassword: env.BRAIN_GOOGLE_KEYRING_PASSWORD || undefined,
+      gogPath: env.BRAIN_GOOGLE_GOG_PATH?.trim() || undefined,
+      dataHome: env.XDG_DATA_HOME?.trim() || undefined,
+      userHome: homedir(),
+      rootUid: parseUid(env.BRAIN_GOOGLE_ROOT_UID),
+    },
     mediaPinnedPathLimit: env.BRAIN_MEDIA_PINNED_PATH_LIMIT,
     mediaReferenceLimits: env.BRAIN_MEDIA_REFERENCE_LIMITS,
   };

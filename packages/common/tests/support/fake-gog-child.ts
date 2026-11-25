@@ -3,8 +3,9 @@
  * and calls {@link runFakeGog} with its own paths baked in: the transport
  * gives gog an allow-listed environment, so nothing can arrive through one.
  *
- * It records its argv, the names (never the values) of its environment, its
- * stdin and its timing, then answers as the scenario says for the command its
+ * It records its argv, the names (never the values) of its environment, the
+ * one value that is only a path (`GOG_HOME`, so a test can tell which home a
+ * caller chose), its stdin and its timing, then answers as the scenario says for the command its
  * `--enable-commands-exact` names (`version` and `schema` for the pin's own
  * calls). It never reaches a network and never reads a gog home.
  */
@@ -42,6 +43,8 @@ export interface FakeGogCall {
   env_names: string[];
   /** BUN_OPTIONS as the child saw it, so a test can tell the offline guard's own `--no-env-file` from a leaked value. */
   bun_options: string | null;
+  /** GOG_HOME as the child saw it: a path, never a secret. */
+  gog_home: string | null;
   stdin_base64: string;
   started_at: number;
   ended_at: number | null;
@@ -77,7 +80,8 @@ export async function runFakeGog(paths: { scenario: string; calls: string }): Pr
   const { ordinal, path } = claim(paths.calls, command);
   const stdin = new Uint8Array(await Bun.stdin.arrayBuffer());
   const call: FakeGogCall = {
-    command, ordinal, argv, env_names: Object.keys(process.env).sort(), bun_options: process.env.BUN_OPTIONS ?? null, stdin_base64: Buffer.from(stdin).toString("base64"),
+    command, ordinal, argv, env_names: Object.keys(process.env).sort(), bun_options: process.env.BUN_OPTIONS ?? null,
+    gog_home: process.env.GOG_HOME ?? null, stdin_base64: Buffer.from(stdin).toString("base64"),
     started_at: Date.now(), ended_at: null, pid: process.pid, grandchild_pid: null,
   };
   // Written aside and renamed, so a reader never sees half a record.

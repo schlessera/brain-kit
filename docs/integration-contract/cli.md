@@ -3,6 +3,82 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Google commands (additive, 0.46.0, #4208)
+
+`brain google` runs the Gmail reads of the
+[Google operations](../plans/google-workspace.md#4-operation-catalog) in the
+standalone posture, and connects the account they read. Like `brain policy`,
+it reads the governance policy as data and never loads brain configuration or
+executes repository code.
+
+| Command | Operation input |
+|---|---|
+| `brain google status` | none |
+| `brain google connect <address> [--write] [--remote [--auth-url URL]] [--credentials FILE]` | the account's plain address; `--auth-url` only with `--remote` |
+| `brain google gmail search <query…> [--view V] [--limit N] [--cursor C]` | `{ query, view?, limit?, cursor? }`: the words joined by single spaces, one line of at most 500 characters; `view` `content` (default) or `structured`; `limit` 1–25, default 10 |
+| `brain google gmail read thread\|message\|draft <id> [--view V]` | `{ target, id, view? }`: a Gmail thread, message or draft id |
+| `brain google gmail labels` | `{ target: "labels" }` |
+
+In JSON mode (`--json`, or stdout not a terminal) every command prints one
+envelope and a newline; otherwise a success prints `data` and a refusal its
+message on stderr. Every command exits `0` when `ok` is true and `1` when it
+is not; a usage error exits `1` with a message on stderr and nothing on
+stdout:
+
+```ts
+type GoogleCliOperation = "status" | "connect" | "gmail.search" | "gmail.thread.get" | "gmail.message.get" | "gmail.draft.get" | "gmail.labels.list";
+type GoogleCliEnvelope =
+  | { ok: true; operation: GoogleCliOperation; data: unknown }
+  | { ok: false; operation: GoogleCliOperation; error: { code: GoogleErrorCode; reason: string | null; message: string } };
+```
+
+`GoogleErrorCode` is the Google operations' list (`invalid_input`,
+`unavailable`, `policy_denied`, `not_found`, `forbidden`, `rate_limited`,
+`upstream_error`, `transport_incompatible` and the write codes). `reason` is a
+short machine string that may grow (`not_enabled`, `policy_invalid`,
+`keyring_password_unset`, `gog_path_unset`, `not_connected`,
+`home_inside_brain`, `home_ancestor_unsafe`, `class_denied`, `recipient_unproven`, `cursor`, `connection_changed`,
+`scopes_broader`, `usage`, `unexpected_shape` and the like); `message` is fixed
+prose that never carries an address, a token, a password or gog's own text.
+
+`data` per command:
+
+- `status` (always `ok: true`): `{ state: "available" | "unavailable", reason, boundary: "standalone" | "host", statement, home: { path, source, exists, ok, reason }, pin: { state: "verified" | "fake" | "refused" | "not_checked", version, commit, sha256, reason }, policy: { status, enabled, account, services, read, standalone_reversible }, account: { alias, connected }, scopes: { granted, needed, broader, missing, write }, warnings }`. `source` is `BRAIN_UI_GOOGLE_HOME`, `BRAIN_GOOGLE_HOME`, `XDG_DATA_HOME` or `HOME`. `statement` is, on the standalone boundary, the plain statement that a local agent with shell access is inside it, and `null` on a host. `granted` is the scopes gog recorded for the alias's grant, `null` when nothing is connected or gog's answer holds a value that is not a scope (`reason: "unexpected_shape"`); `broader` lists any beyond gog's identity scopes (`openid`, `email`, `userinfo.email`), `gmail.readonly` and, while the policy can admit any Gmail write, `gmail.modify`, and adds a warning; `needed` is `gmail.readonly` while the policy lists Gmail, and `missing` what of it the grant lacks. Status never contacts Google.
+- `connect`: `{ state: "connected", alias, write, boundary, home, scopes, warnings }`, or with `--remote` and no `--auth-url`, `{ state: "authorize", alias, auth_url, write, next }`, where `auth_url` is gog's authorization URL as gog built it. A grant broader than asked for is removed and refused as `policy_denied` / `scopes_broader` (the message says whether the removal failed); one lacking a scope asked for is `unavailable` / `scopes_missing`. Either way the alias is left unchanged. A step gog did not finish (a timeout or a signal) may or may not have taken effect. A successful connect forgets every search cursor and voids the next page of any search running meanwhile (`unavailable` / `connection_changed`); `warnings` says when the cursors could not be forgotten.
+- `gmail.search`: the operations' search result, `{ view, threads, next_cursor, result_size_estimate }`, each thread under `content` with an `untrusted` object. `next_cursor` is a host cursor (`gc_…`) for the same query and alias, valid for an hour, until 64 newer cursors exist, or until the next successful connect, and a search a connect overlaps returns no page (`connection_changed`); a cursor that is not is refused as `invalid_input` / `cursor`. Label names appear only where the policy admits `gmail.labels.list`, and are `null` otherwise.
+- `gmail.thread.get`, `gmail.message.get`, `gmail.draft.get`: `{ view, thread_id, message_count, messages }`, `{ view, message }`, `{ view, draft_id, message }`.
+- `gmail.labels.list`: `{ view: "structured", labels: [{ id, name, type, messages_total, messages_unread, threads_total, threads_unread }] }`.
+
+The posture is standalone (ruling 4 of the
+[decision record](../decisions/google-workspace.md#rulings)): the principal is
+the local operator, there is no session, no taint and no remembered approval,
+and nothing is ever asked. Reads run where the policy's read mode admits them;
+a policy whose provider rules keep anything from recipient `google` refuses as
+`recipient_unproven`, since no conversation can be inspected. A thread with a
+`google.gmail.hidden_labels` label on any message is left out of a search and
+answers a read with the same `not_found` error, without a reason, as a real
+miss; while any label is hidden, so does a thread, message or draft whose
+labels could not be established: any failed fetch that may be the target's own
+(a timeout, a refusal from Google, an answer too large or in a shape the
+codec refuses, an answer for another id), a draft with no message, or one
+whose thread's labels could not be read. Only a failure that says nothing
+about the target (the account unavailable or rate limited, the input or the
+binary refused) keeps its code. A search still fails its whole page when a
+hit's thread cannot be read, which while a label is hidden can tell a hidden
+match from none (#4553, the shared transport's search). The process uses `BRAIN_UI_GOOGLE_HOME`, `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`
+and `BRAIN_UI_GOG_PATH` when the first is set (an operator's shell on a host),
+else `BRAIN_GOOGLE_HOME` (default `$XDG_DATA_HOME/brain/google`),
+`BRAIN_GOOGLE_KEYRING_PASSWORD` and `BRAIN_GOOGLE_GOG_PATH`. A home inside or
+holding a brain repository, or below a directory another user owns or may
+write without the sticky bit, refuses `connect` and every read, and `status`
+reports it; `brain doctor` fails its `google-home` check for the first two and
+warns for the last. A directory above the home owned by any uid but 0 or the
+caller's is another user's, including the kernel's overflow uid that root's
+directories show inside a user namespace that does not map root; its refusal
+names the uid and, for the overflow uid, `BRAIN_GOOGLE_ROOT_UID`, which
+declares the uid root's directories show as. A declared uid counts as root's
+above the home only.
+
 ## External compute (additive, 0.45.0, #3107)
 
 `brain compute` exposes the [external compute](../decisions/external-compute.md)
