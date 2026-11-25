@@ -664,3 +664,55 @@ describe("the last measurement is not now's value (F5)", () => {
     expect(historyLayout({ width: 880, points: series([30, 20, 16], { otherBefore: 3 }), now: pts[2]!.at }).nowMeasured).toBe(false);
   });
 });
+
+/* ── Third review of #4559 ──────────────────────────────────────────────────── */
+
+describe("event boxes always fit the plot", () => {
+  /** Every marker in exactly one cluster; every box inside the plot; no two boxes touching. */
+  function boxesHold(markers: Array<{ at: number; n: number; label: string }>, width: number, now: number, what: string) {
+    const pts = Array.from({ length: 64 }, (_, i) => ({ at: T0 + i * 6 * H, value: 20 * GB }));
+    const layout = historyLayout({ width, points: pts, now, markers });
+    const { left, right } = layout.frame;
+    const seen = layout.markers.flatMap((c) => c.markers.map((m) => m.n)).sort((a, b) => a - b);
+    expect(seen, `${what}: every event is in exactly one box`).toEqual(markers.map((m) => m.n).sort((a, b) => a - b));
+    const boxes = layout.markers.map((c) => [c.boxX - c.boxWidth / 2, c.boxX + c.boxWidth / 2] as const).sort((a, b) => a[0] - b[0]);
+    for (const [a, b] of boxes) {
+      expect(a, `${what}: a box's left edge`).toBeGreaterThanOrEqual(left - 1e-6);
+      expect(b, `${what}: a box's right edge`).toBeLessThanOrEqual(right + 1e-6);
+    }
+    for (let i = 1; i < boxes.length; i += 1) expect(boxes[i]![0], `${what}: boxes overlap`).toBeGreaterThanOrEqual(boxes[i - 1]![1] - 1e-6);
+  }
+
+  test("eighteen events in nine pairs at 296px: the first boxes stay inside the plot", () => {
+    const now = T0 + 63 * 6 * H;
+    const markers = Array.from({ length: 18 }, (_, i) => ({ at: T0 + Math.floor(i / 2) * 2 * DAY + (i % 2) * 6 * H, n: i + 1, label: `event ${i + 1}` }));
+    // Two days apart: nine separate pairs, at x=-78 and x=-36 for the first two before the fix.
+    boxesHold(markers, 296, now, "nine pairs");
+  });
+
+  test("property: any count and spacing at 240, 296, 600 and 880px", () => {
+    const now = T0 + 63 * 6 * H;
+    const span = now - T0;
+    for (const width of [240, 296, 600, 880]) {
+      for (const count of [1, 2, 3, 5, 8, 13, 21, 34, 60]) {
+        for (const spacing of [0, 0.002, 0.01, 0.03, 0.08, 0.2]) {
+          const markers = Array.from({ length: count }, (_, i) => ({ at: T0 + ((i * spacing * span) % span), n: i + 1, label: "e" }));
+          boxesHold(markers, width, now, `${width}px, ${count} events, spacing ${spacing}`);
+        }
+      }
+    }
+  });
+});
+
+describe("the y labels never leave the chart", () => {
+  test("a long formatted label widens the left gutter to hold it", () => {
+    const pts = series([30, 20, 16].map((v) => v * GB));
+    const long = (v: number) => `${(v / GB).toFixed(2)} gigabytes`;
+    for (const width of [240, 296, 880]) {
+      const layout = historyLayout({ width, points: pts, formatValue: long });
+      for (const t of layout.yTicks) expect(layout.frame.left - 6 - [...long(t.value)].length * 9.5 * 0.6, `${width}px "${long(t.value)}"`).toBeGreaterThanOrEqual(0);
+    }
+    // Short labels keep the designed gutter.
+    expect(historyLayout({ width: 296, points: pts, formatValue: (v) => `${v / GB} GB` }).frame.left).toBe(44);
+  });
+});

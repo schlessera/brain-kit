@@ -183,9 +183,9 @@ export function HistoryChart(p: HistoryChartProps) {
     () =>
       width === null
         ? null
-        : historyLayout({ width, points: p.points, now: p.now, intervalMs: p.intervalMs, thresholds: p.thresholds, scenarios, markers }),
+        : historyLayout({ width, points: p.points, now: p.now, intervalMs: p.intervalMs, thresholds: p.thresholds, scenarios, markers, formatValue: p.formatValue }),
     // `scenarios` and `markers` default to fresh arrays; the props themselves are the inputs.
-    [width, p.points, p.now, p.intervalMs, p.thresholds, p.scenarios, p.markers],
+    [width, p.points, p.now, p.intervalMs, p.thresholds, p.scenarios, p.markers, p.formatValue],
   );
 
   const wrap: CSSProperties = { width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: 8 };

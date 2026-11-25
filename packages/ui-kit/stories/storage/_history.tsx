@@ -115,14 +115,7 @@ export async function chartHolds(root: HTMLElement) {
   await expect(overflowing(root.querySelector<HTMLElement>('[data-part="history-chart"]')!), "nothing escapes the chart").toEqual([]);
   await expect(document.documentElement.scrollWidth, "no horizontal page scroll").toBeLessThanOrEqual(document.documentElement.clientWidth);
 
-  const box = svg.getBoundingClientRect();
-  const texts = [...svg.querySelectorAll("text")];
-  await expect(texts.length, "the chart's labels are SVG text").toBeGreaterThan(2);
-  for (const t of texts) {
-    await expect((t.textContent ?? "").trim(), "no empty label").not.toBe("");
-    const r = t.getBoundingClientRect();
-    await expect(r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1, `"${t.textContent}" sits inside the drawing`).toBe(true);
-  }
+  await everyMarkInside(svg);
 
   const now = svg.querySelector('[data-part="now-rule"]')!.getBoundingClientRect().left;
   for (const shape of svg.querySelectorAll<SVGGraphicsElement>("path, polygon, rect, circle, ellipse")) {
@@ -176,4 +169,26 @@ export async function tableMatchesPoints(root: HTMLElement, user: { click: (el: 
   await user.click(button);
   await expect(button.getAttribute("aria-expanded")).toBe("false");
   button.blur();
+}
+
+/**
+ * The one invariant for every chart at every width: each rendered text and
+ * each painted shape (rects, lines, polylines, paths, circles) lies inside the
+ * SVG, so nothing is clipped on a phone or lost in an export, and every label
+ * has words in it. Definitions (patterns, clip paths) are not painted and are
+ * skipped. A 1px tolerance absorbs sub-pixel rounding.
+ */
+export async function everyMarkInside(svg: SVGSVGElement, what = "") {
+  const box = svg.getBoundingClientRect();
+  const marks = [...svg.querySelectorAll<SVGGraphicsElement>("text, rect, line, polyline, path, circle")].filter((el) => !el.closest("defs, clipPath, pattern"));
+  await expect(marks.filter((m) => m.tagName === "text").length, `${what} the chart's labels are SVG text`).toBeGreaterThan(2);
+  for (const el of marks) {
+    const name = el.tagName === "text" ? `"${el.textContent}"` : `<${el.tagName}> ${el.getAttribute("data-part") ?? el.parentElement?.getAttribute("data-part") ?? ""}`;
+    if (el.tagName === "text") await expect((el.textContent ?? "").trim(), `${what} no empty label`).not.toBe("");
+    const r = el.getBoundingClientRect();
+    await expect(
+      r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1,
+      `${what} ${name} sits inside the drawing (${Math.round(r.left - box.left)}..${Math.round(r.right - box.left)} x ${Math.round(r.top - box.top)}..${Math.round(r.bottom - box.top)} in ${Math.round(box.width)} x ${Math.round(box.height)})`,
+    ).toBe(true);
+  }
 }
