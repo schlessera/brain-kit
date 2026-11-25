@@ -132,9 +132,9 @@ export function checkGoogleHome(home: string, brainRoot: string, uid: number = p
   } catch {
     return refuse("home_unreadable", "A directory on the way to the Google home cannot be read.");
   }
-  if (rootIsBrain && within(path, root)) return refuse("home_inside_brain", "The Google home is inside this brain repository, where its credential would be part of the brain.");
-  if (rootIsBrain && within(root, path)) return refuse("home_holds_brain", "The Google home holds this brain repository; use a directory of its own outside every brain.");
+  // A home inside this brain is found by the walk up, since this brain's root holds its config.
   if (repository !== null) return refuse("home_inside_brain", "The Google home is inside a brain repository, where its credential would be part of that brain.");
+  if (rootIsBrain && within(root, path)) return refuse("home_holds_brain", "The Google home holds this brain repository; use a directory of its own outside every brain.");
   let stats: ReturnType<typeof statSync>;
   try {
     // `path` is resolved, so this is the directory itself, not a link to it.
