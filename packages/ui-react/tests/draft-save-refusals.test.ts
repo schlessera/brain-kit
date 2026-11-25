@@ -4,7 +4,9 @@ import { createBrainUiRoot, type BrainUiRoot } from "../src/root.ts";
 import { createDraftClient } from "../src/lib/draft-client.ts";
 import type { DraftApi, DraftCallResult } from "../src/lib/draft-api.ts";
 import { draftIndicatorView } from "../src/lib/draft-indicator.ts";
-import { GONE_LINEAGE, type ComposerDraft } from "../src/stores/draft-state.ts";
+import { GONE_LINEAGE, holdsUnsaved, type ComposerDraft } from "../src/stores/draft-state.ts";
+import { parseDraft, storeDraft } from "../src/lib/local-work.ts";
+import type { PendingAttachment } from "../src/lib/image-attachments.ts";
 
 // A save the host refuses with a 400 it will give again (#4566): the client
 // does not send the same edit again and again, a draft holding only
@@ -44,10 +46,14 @@ type Refusal = { status: 400; body: { error: string; message: string } };
  */
 function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; snapshots?: boolean; remove?: () => Promise<DraftCallResult<null>> } = {}) {
   const saves: { draftId: string; body: DraftSaveRequest }[] = [];
+  let uploads = 0;
   const rows = new Map<string, Draft>();
+  const rowsSnapshots = new Map<string, NonNullable<DraftSaveRequest["snapshots"]>>();
   const swept = new Set<string>();
   /** Reads that get no answer before the host answers again. */
   let silentGets = 0;
+  /** While set, every read waits for it. */
+  let getGate: Promise<void> | null = null;
   const empty = (body: DraftSaveRequest): Refusal | null =>
     body.text.length === 0 && body.attachmentIds.length === 0 && (body.fileIds?.length ?? 0) === 0 && (body.snapshots?.length ?? 0) === 0
       ? { status: 400, body: { error: "DRAFT_INVALID", message: "An empty draft is deleted, not saved." } } : null;
@@ -57,6 +63,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const api: DraftApi = {
     list: async () => ({ ok: true, value: { drafts: [...rows.values()].map((r) => ({ draftId: r.draftId, sessionId: r.sessionId, revision: r.revision, updatedAt: r.updatedAt, preview: r.text, attachmentCount: 0 })) } }),
     get: async (draftId) => {
+      if (getGate) await getGate;
       if (silentGets > 0) { silentGets--; return { ok: false, status: 503, body: {} }; }
       const row = rows.get(draftId);
       if (!row) return { ok: false, status: 404, body: { error: "DRAFT_NOT_FOUND" } };
@@ -71,14 +78,17 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
       if ((row?.revision ?? 0) !== ifMatch) return { ok: false, status: 409, body: { error: "DRAFT_CONFLICT" } };
       const revision = ifMatch + 1;
       const files = (body.fileIds ?? []).map((id) => [PERMIT, CREW].find((f) => f.fileId === id)!);
+      if ((body.snapshots?.length ?? 0) > 0) rowsSnapshots.set(draftId, body.snapshots!);
       rows.set(draftId, { draftId, sessionId: body.sessionId, revision, updatedAt: 1_000 + revision, text: body.text, attachments: [], ...(body.fileIds ? { files } : {}) });
       return { ok: true, value: { revision, updatedAt: 1_000 + revision } };
     },
-    upload: async () => ({ ok: true, value: { attachmentId: "att-1" } }),
+    upload: async () => ({ ok: true, value: { attachmentId: `att-${++uploads}` } }),
     remove: options.remove ?? (async () => ({ ok: true, value: null })),
     bind: async () => ({ ok: false, status: 404, body: {} }),
   };
-  const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({}) });
+  // The root's own draft client shares this store; its requests never answer,
+  // so only this scene's client (and its fixture host) writes save outcomes.
+  const ui = createBrainUiRoot({ storage: null, request: () => new Promise<Response>(() => {}) });
   roots.push(ui);
   const client = createDraftClient(ui, { send: () => true, api });
   clients.push(client);
@@ -90,7 +100,8 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const drafts = ui.stores.drafts;
   const id = drafts.getState().idFor(SESSION);
   const indicator = (draftId: string) => draftIndicatorView({ draft: drafts.getState().drafts[draftId], store: drafts.getState(), queued: [], online: true });
-  return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), silenceGets: (n: number) => { silentGets = n; } };
+  return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), silenceGets: (n: number) => { silentGets = n; },
+    holdGets: () => { let open!: () => void; getGate = new Promise<void>((resolve) => { open = resolve; }); return () => { getGate = null; open(); }; } };
 }
 
 test("a draft holding only originals of another draft id is never saved as empty, and says to choose them again", async () => {
@@ -228,4 +239,98 @@ test("a read that gets no answer does not use up the file recovery", async () =>
   await run(LONG);
   expect(s.saves.at(-1)!.body, "TRANSIENT_READ_KEEPS_RECOVERY").toEqual({ sessionId: SESSION, text: "Harbour fees for the permit", attachmentIds: [], fileIds: [] });
   expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
+});
+
+test("a read that keeps getting no answer stops the file recovery instead of looping", async () => {
+  const s = scene();
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees", files: [{ file: PERMIT, lineage: s.id }] });
+  await run(SAVE_DELAY + 100);
+  s.swept.add(PERMIT.fileId);
+  s.silenceGets(1_000);
+  const before = s.saves.length;
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees for the permit" });
+  await run(LONG);
+  await run(LONG);
+  expect(s.saves.length - before, "PERSISTENT_READ_FAILURE_BOUNDED").toBeLessThanOrEqual(3);
+  expect(s.drafts.getState().drafts[s.id]?.failure).toMatchObject({ kind: "refused" });
+});
+
+test("no save goes out while a refused snapshot list is read again, and the corrected draft is saved", async () => {
+  let refusals = 1;
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length && refusals-- > 0 ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } } : null) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  const release = s.holdGets();
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-muster" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-muster", requestId: "req-muster", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "Muster the crew");
+  s.drafts.getState().edit(s.id, SESSION, { text: "Then sail" });
+  await run(LONG);
+  expect(s.saves.filter((x) => x.body.snapshots?.length).length, "RECONCILE_HOLDS_SAVES").toBe(1);
+  release();
+  await run(LONG);
+  expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
+  expect(s.saves.at(-1)!.body.text).toBe("Then sail");
+});
+
+test("a Send's snapshot the host never acknowledged, and a refused edit, hold updates", async () => {
+  const s = scene({ snapshots: true, refuse: () => ({ status: 400, body: { error: "DRAFT_INVALID", message: "Refused." } }) });
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-first" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-first", requestId: "req-first", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "");
+  await run(LONG);
+  expect(holdsUnsaved(s.drafts.getState()), "UNACKED_SNAPSHOT_HOLDS_UPDATE").toBe(true);
+});
+
+test("a text-only snapshot does not stop a stale composer file from being left out", async () => {
+  const s = scene({ snapshots: true });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-muster" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-muster", requestId: "req-muster", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "Muster the crew");
+  await run(SAVE_DELAY + 100);
+  expect(s.drafts.getState().drafts[s.id]?.host?.snapshots).toHaveLength(1);
+  s.swept.add(CREW.fileId);
+  s.drafts.getState().edit(s.id, SESSION, { text: "Crew list", files: [{ file: CREW, lineage: s.id }] });
+  await run(LONG);
+  expect(s.saves.at(-1)!.body.fileIds, "TEXT_SNAPSHOT_DOES_NOT_BLOCK").toBeUndefined();
+  expect(s.drafts.getState().drafts[s.id]?.files).toEqual([{ file: CREW, lineage: GONE_LINEAGE }]);
+  expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
+});
+
+test("an image repair does not use up the file recovery of the same edit", async () => {
+  let imageRefusals = 1;
+  const s = scene({ refuse: (body) => {
+    if (body.attachmentIds.length && imageRefusals-- > 0) return { status: 400, body: { error: "DRAFT_INVALID", message: "An attachment is not stored for this draft; upload it again." } };
+    return (body.fileIds ?? []).includes(PERMIT.fileId) ? { status: 400, body: { error: "ATTACHMENT_INVALID", message: "A file is no longer available; upload it again." } } : null;
+  } });
+  const image: PendingAttachment = { attachment: { data: "iVBORw0KGgo=", mediaType: "image/png" }, previewUrl: "data:image/png;base64,iVBORw0KGgo=", bytes: 8, name: "ithaca-chart.png" };
+  s.drafts.getState().edit(s.id, SESSION, { text: "Chart and permit", attachments: [image], files: [{ file: PERMIT, lineage: s.id }] });
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.failure, "IMAGE_THEN_FILE_RECOVERED").toBeNull();
+  expect(d.files).toEqual([{ file: PERMIT, lineage: GONE_LINEAGE }]);
+  expect(d.host?.edit).toBe(d.edit);
+});
+
+test("a refused edit kept on this device is still refused after a reload, with its reason", async () => {
+  const s = scene({ refuse: () => ({ status: 400, body: { error: "DRAFT_INVALID", message: "The draft names an unknown field." } }) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Ask Penelope about the loom" });
+  await run(LONG);
+  const kept = parseDraft(JSON.parse(JSON.stringify(storeDraft(s.drafts.getState().drafts[s.id]!))))!;
+  expect(kept.refused, "REFUSAL_KEPT_ON_DEVICE").toBe("The draft names an unknown field.");
+  const t = scene({ refuse: () => ({ status: 400, body: { error: "DRAFT_INVALID", message: "The draft names an unknown field." } }) });
+  t.drafts.getState().restoreLocal([{ ...kept, sessionId: "odysseus-raft" }]);
+  await run(LONG);
+  expect(t.saves, "REFUSAL_RESTORED_NOT_RESENT").toEqual([]);
+  expect(t.indicator(kept.draftId)).toMatchObject({ key: "refused", facts: [{ key: "Brain said", value: "The draft names an unknown field." }] });
+});
+
+test("a device branch's refusal is shown beside the other version", () => {
+  const s = scene();
+  s.drafts.getState().edit(s.id, SESSION, { text: "Telemachus keeps the voyage" });
+  s.drafts.getState().keepDeviceBranch(s.id, "voyage-branch", { draftId: s.id, sessionId: SESSION, text: "Penelope keeps the loom", attachments: [], editedAt: 1, host: null }, SESSION);
+  const d = s.drafts.getState().drafts["voyage-branch"]!;
+  s.drafts.getState().saveFailed("voyage-branch", { kind: "refused", edit: d.edit, reason: "The draft names an unknown field." });
+  expect(s.indicator("voyage-branch"), "BRANCH_REFUSAL_SHOWN").toMatchObject({ key: "device_conflict", state: "refused", action: "other_version",
+    summary: "Another tab changed this draft. Both versions are kept. This one isn't saved: the brain refused it.",
+    facts: [{ key: "Brain said", value: "The draft names an unknown field." }] });
 });
