@@ -399,3 +399,16 @@ export {
   type CapacityThresholds,
   type TickLayout,
 } from "./storage/capacity-geometry.js";
+/* Storage history (#4543): the available-space chart, its event legend and a sparkline. */
+export { HistoryChart, SCENARIO_DASH, type HistoryChartProps } from "./storage/HistoryChart.js";
+export { EventList, type EventListProps } from "./storage/EventList.js";
+export { Sparkline, type SparklineProps } from "./storage/Sparkline.js";
+export {
+  projectionReasonText,
+  type HistoryEvidenceReason,
+  type HistoryMarker,
+  type HistoryPoint,
+  type HistoryScenario,
+  type HistoryScenarioWindow,
+  type HistoryThresholds,
+} from "./storage/history-geometry.js";
