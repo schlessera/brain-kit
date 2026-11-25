@@ -668,6 +668,26 @@ test("The default state has exactly one primary-tone button", async () => {
   await expect.poll(() => host.querySelectorAll("[data-tool-row]").length).toBe(3);
   expect(primaries().map((el) => el.textContent), "STORAGE_ONE_PRIMARY").toEqual(["Find large files"]);
 });
+test("Each rendered volume card shows its own Trend and Runway, never another volume's", async () => {
+  // The data volume falls 1.2 GB/day with a 14-day short window; the backups
+  // disk falls 100 MB/day and is not running out in either window.
+  const fixture = storagePaneFixture({ state: "low" });
+  await scene("dense", 1280, "dark", 1, { request: fixture.request, now: paneTime });
+  await expect.poll(() => host.querySelectorAll("[data-volume-id]").length).toBe(2);
+  const cards = Array.from(host.querySelectorAll("[data-volume-id]")).map((card) => ({
+    id: card.getAttribute("data-volume-id"),
+    text: card.textContent ?? "",
+  }));
+  const data = fixture.guidance.capacities[0]!.identity,
+    disk = fixture.guidance.capacities[1]!.identity;
+  expect(cards.map((card) => card.id)).toEqual([data, disk]);
+  const [first, second] = cards as [(typeof cards)[0], (typeof cards)[0]];
+  expect(first.text, "STORAGE_CARD_OWN_TREND").toContain("−1.2 GB/day");
+  expect(first.text, "STORAGE_CARD_OWN_RUNWAY").toContain("~14 days");
+  expect(second.text, "STORAGE_CARD_OWN_TREND").toContain("−100 MB/day");
+  expect(second.text, "STORAGE_CARD_OWN_RUNWAY").toContain("not projected · not running out");
+  expect(second.text, "STORAGE_CARD_NOT_ANOTHER_VOLUMES_FIGURES").not.toMatch(/−1\.2 GB\/day|~14 days/);
+});
 test("Opening the pane announces no empty selection that could talk over the mode", async () => {
   await scene("dense", 1280);
   await new Promise((resolve) => setTimeout(resolve, 600));
@@ -722,7 +742,29 @@ interface MatrixScenario {
 }
 const ALL: Cell[] = ["320-dark", "320-light", "1280-dark", "1280-light"];
 const MATRIX: MatrixScenario[] = [
+  // The approved composition's states (#4549 brief): healthy with no banner,
+  // Low with the banner, Very low with a refused tool; filter mode is pdf-filter.
+  {
+    name: "healthy",
+    cells: ALL,
+    kind: "dense",
+    pane: { state: "healthy" },
+    act: async () => {
+      await expect.poll(() => host.querySelectorAll("[data-tool-row]").length).toBe(3);
+      expect(host.querySelector("[data-storage-banner]"), "STORAGE_HEALTHY_HAS_NO_BANNER").toBeNull();
+    },
+  },
   { name: "dense-overview", cells: ALL, kind: "dense", pane: { state: "low" } },
+  {
+    name: "very-low-refused",
+    cells: ALL,
+    kind: "dense",
+    pane: { state: "very-low" },
+    act: async () => {
+      await expect.poll(() => host.querySelector("[data-storage-banner]")?.getAttribute("data-storage-banner")).toBe("critical");
+      await expect.poll(() => host.querySelector("[data-storage-free-up]")?.textContent ?? "", { message: "STORAGE_VERY_LOW_SHOWS_REFUSED_TOOL" }).toContain("not enough free space to pack");
+    },
+  },
   { name: "separate-tmpfs", cells: ["320-dark", "1280-dark"], kind: "separate" },
   { name: "nearly-empty", cells: ["320-light", "1280-light"], kind: "empty" },
   {
