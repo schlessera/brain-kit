@@ -761,8 +761,8 @@ That action ends at the other version's content or says why not (#4567). A
 version a rotation moved opens where it lives now. One with no chat, or whose
 chat's restore answers that it is gone, opens on its own in the new-chat view
 with the hint `Other version · not in a chat yet`; one whose chat is gone moves
-to a new draft of no chat first, unless it holds outgoing messages, which
-belong to that chat. A switch cancelled by a change of view, a
+to a new draft of no chat first. Outgoing messages belong to that chat and
+stay with it; only the composer's content moves. A switch cancelled by a change of view, a
 failed device read, or a version found nowhere leaves the reader where they
 are and adds the reason to the indicator's summary and facts.
 Both versions remain reachable through the draft/session surfaces after a
