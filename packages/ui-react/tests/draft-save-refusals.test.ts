@@ -52,6 +52,8 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const swept = new Set<string>();
   /** Reads that get no answer before the host answers again. */
   let silentGets = 0;
+  let getStatus = 503;
+  let getCount = 0;
   /** While set, every read waits for it. */
   let getGate: Promise<void> | null = null;
   const empty = (body: DraftSaveRequest): Refusal | null =>
@@ -63,8 +65,9 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const api: DraftApi = {
     list: async () => ({ ok: true, value: { drafts: [...rows.values()].map((r) => ({ draftId: r.draftId, sessionId: r.sessionId, revision: r.revision, updatedAt: r.updatedAt, preview: r.text, attachmentCount: 0 })) } }),
     get: async (draftId) => {
+      getCount++;
       if (getGate) await getGate;
-      if (silentGets > 0) { silentGets--; return { ok: false, status: 503, body: {} }; }
+      if (silentGets > 0) { silentGets--; return { ok: false, status: getStatus, body: {} }; }
       const row = rows.get(draftId);
       if (!row) return { ok: false, status: 404, body: { error: "DRAFT_NOT_FOUND" } };
       // The host's draft lists only the originals it still stores.
@@ -100,7 +103,8 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const drafts = ui.stores.drafts;
   const id = drafts.getState().idFor(SESSION);
   const indicator = (draftId: string) => draftIndicatorView({ draft: drafts.getState().drafts[draftId], store: drafts.getState(), queued: [], online: true });
-  return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), silenceGets: (n: number) => { silentGets = n; },
+  return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), silenceGets: (n: number) => { silentGets = n; getStatus = 503; },
+    failGets: (status: number, n: number) => { silentGets = n; getStatus = status; }, gets: () => getCount,
     holdGets: () => { let open!: () => void; getGate = new Promise<void>((resolve) => { open = resolve; }); return () => { getGate = null; open(); }; } };
 }
 
@@ -275,7 +279,11 @@ test("two stale originals, one bound before and one new, are both left out", asy
 
 test("no save goes out while a refused snapshot list is read again, and the corrected draft is saved", async () => {
   let refusals = 1;
-  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length && refusals-- > 0 ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } } : null) });
+  let moved = () => {};
+  // The host refuses the list because its own moved on (a revision this tab has not seen): only a
+  // save over the re-read revision can succeed, so an identical retry would fail.
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length && refusals-- > 0 ? (moved(), { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } }) : null) });
+  moved = () => { const r = s.rows.get(s.id)!; s.rows.set(s.id, { ...r, revision: r.revision + 1 }); };
   s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
   await run(SAVE_DELAY + 100);
   const release = s.holdGets();
@@ -417,7 +425,9 @@ test("an unchanged acknowledged snapshot with files does not stop a stale compos
 
 test("a reconciliation read that gets no answer is read again, and the refused list is not sent meanwhile", async () => {
   let refusals = 1;
-  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length && refusals-- > 0 ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } } : null) });
+  let moved = () => {};
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length && refusals-- > 0 ? (moved(), { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } }) : null) });
+  moved = () => { const r = s.rows.get(s.id)!; s.rows.set(s.id, { ...r, revision: r.revision + 1 }); };
   s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
   await run(SAVE_DELAY + 100);
   s.silenceGets(3);
@@ -428,6 +438,21 @@ test("a reconciliation read that gets no answer is read again, and the refused l
   expect(s.saves.filter((x) => x.body.snapshots?.length).length, "REFUSED_LIST_NOT_RESENT_WHILE_READING").toBe(1);
   await run(LONG);
   expect(s.saves.filter((x) => x.body.snapshots?.length).length, "RECONCILE_READ_RETRIED").toBe(2);
+  expect(s.rows.get(s.id)?.revision, "saved over the re-read revision").toBe(3);
   expect(s.drafts.getState().drafts[s.id]?.failure).toBeNull();
   expect(s.drafts.getState().drafts[s.id]?.host?.snapshots).toHaveLength(1);
+});
+
+test("a reconciliation read the host refuses outright is not retried forever: a new edit is saved", async () => {
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.length ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } } : null) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  s.failGets(400, 1_000);
+  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-muster" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-muster", requestId: "req-muster", text: "Muster the crew", files: [], state: "held", createdAt: null, message }, "Muster the crew");
+  await run(LONG);
+  const gets = s.gets();
+  await run(LONG);
+  expect(s.gets() - gets, "REFUSED_READ_NOT_RETRIED_FOREVER").toBe(0);
+  expect(s.drafts.getState().drafts[s.id]?.failure?.kind).toBe("refused");
 });

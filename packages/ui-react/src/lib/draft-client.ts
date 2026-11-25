@@ -464,7 +464,11 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (!d) return false;
     if (!read.ok) {
       if (read.status === 404 || read.status === 410) { bumpHost(draftId); store.hostGone(draftId); return false; }
-      return true;
+      // No answer, or a transient refusal: read again. Any other answer is the
+      // host's, and the save it refused goes back to its own bound.
+      if (transient(read.status)) return true;
+      backoff(draftId);
+      return false;
     }
     const held = new Set((read.value.snapshots ?? []).map((x) => x.snapshotId));
     for (const s of draftSnapshots(d)) {
