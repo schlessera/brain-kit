@@ -223,7 +223,9 @@ export function storageVolumes(input: StorageVolumeInput): StorageVolume[] {
   const format = input.format ?? storageFormat();
   const inventory = input.inventory;
   const pressures = input.guidance?.capacities ?? [];
-  const capacities = inventory?.capacities ?? [];
+  // One volume per capacity id: a repeated id is the same observation (bind
+  // aliases), never a second volume to add.
+  const capacities = [...new Map((inventory?.capacities ?? []).map((capacity) => [capacity.id, capacity])).values()];
   const guidanceCurrent =
     !!input.guidance && input.guidance.state === "current" && !input.guidance.pending;
   const entries: Array<{ id: string; capacity: StorageCapacityView | null; pressure: StoragePressureView | null }> = [

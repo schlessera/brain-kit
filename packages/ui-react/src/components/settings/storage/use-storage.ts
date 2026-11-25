@@ -39,7 +39,7 @@ export function useStorage(root: BrainUiRoot) {
       null
     ),
     [maintenance, setMaintenance] = useState<StorageMaintenanceRow[]>([]);
-  const [owner, setOwner] = useState<"all" | "brain" | "app">("all"),
+  const [owner, setOwner] = useState<"all" | "brain" | "app" | "operator">("all"),
     [metric, setMetric] = useState<StorageMetric>("allocated"),
     [parent, setParent] = useState<string | undefined>(),
     [search, setSearch] = useState("");
@@ -566,6 +566,8 @@ export function useStorage(root: BrainUiRoot) {
     selectedBytes,
     selected,
     toggle,
+    /** Drops every selected file, as Clear and a confirmed Back to overview do. */
+    clearSelection: () => setSelected({}),
     inspect,
     receipt,
     reviewOpen,
