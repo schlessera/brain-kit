@@ -20,6 +20,7 @@ import { isDockerTest } from "./docker-test-files";
 import { cleanTestEnvironment, offlineCommand } from "./offline-command";
 export { offlineCommand } from "./offline-command";
 import { constants } from "node:os";
+import { stripVTControlCharacters } from "node:util";
 import { isAbsolute, join, resolve } from "node:path";
 import { realpathSync, rmSync, statSync } from "node:fs";
 import { invocationChild } from "./test-invocation-child";
@@ -171,14 +172,15 @@ const optionValue = (argv: readonly string[], flag: string) => {
 };
 
 /** Keep the requested aggregate as well as each command's separate report. */
-export async function mergeBatchReports(argv: readonly string[], batches: readonly { argv: string[] }[]) {
+export async function mergeBatchReports(argv: readonly string[], batches: readonly { argv: string[]; empty?: boolean }[]) {
   for (const flag of ["--reporter-outfile", "--timings"]) {
     const destination = optionValue(argv, flag);
     if (!destination) continue;
-    const reports = await Promise.all(batches.map(batch => Bun.file(optionValue(batch.argv, flag)!).text()));
+    const reports = await Promise.all(batches.filter(batch => !batch.empty).map(batch => Bun.file(optionValue(batch.argv, flag)!).text()));
     if (flag === "--timings") {
       await Bun.write(destination, JSON.stringify({ version: 1, files: Object.assign({}, ...reports.map(text => JSON.parse(text).files)) }));
     } else {
+      if (!reports.length) continue; // Bun emits no JUnit when every selection is empty.
       const totals = { tests: 0, failures: 0, skipped: 0, assertions: 0, time: 0 };
       for (const xml of reports) {
         const tag = /<testsuites\b[^>]*>/.exec(xml)?.[0];
@@ -272,15 +274,21 @@ if (import.meta.main) {
   }
   const root = resolve(import.meta.dir, "..");
   const batches = await testCommandBatches(argv, process.cwd());
-  const run = async (command: string[]) => {
+  const run = async (command: string[], observe?: (stderr: string) => void) => {
     const child = invocationChild(command, { stdin: "inherit" });
     const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
     const listeners = signals.map(signal => () => { void child.stop(signal); });
     signals.forEach((signal, index) => process.on(signal, listeners[index]!));
     try {
-      const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };
+      let stderr = "";
+      const decoder = new TextDecoder();
+      const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => {
+        for await (const chunk of stream) { process[channel].write(chunk); if (observe && channel === "stderr") stderr += decoder.decode(chunk, { stream: true }); }
+        if (observe && channel === "stderr") stderr += decoder.decode();
+      };
       const [code] = await Promise.all([child.exited, relay(child.stdout, "stdout"), relay(child.stderr, "stderr")]);
       await child.finish();
+      observe?.(stripVTControlCharacters(stderr));
       return code;
     } finally { signals.forEach((signal, index) => process.off(signal, listeners[index]!)); }
   };
@@ -288,15 +296,23 @@ if (import.meta.main) {
   // its parent's descriptor through procfs. Nested commands reuse isolation.
   if (!help && batches.length > 1) {
     let code = 0;
-    const completed: typeof batches = [];
+    const completed: { argv: string[]; empty?: boolean }[] = [];
+    for (const flag of ["--reporter-outfile", "--timings"]) {
+      const path = optionValue(argv, flag); if (path) rmSync(path, { force: true });
+    }
     for (const batch of batches) for (const flag of ["--reporter-outfile", "--timings"]) {
       const path = optionValue(batch.argv, flag); if (path) rmSync(path, { force: true });
     }
     for (const [index, batch] of batches.entries()) {
+      console.error(JSON.stringify({ kind: "test-invocation", event: "batch-start", pid: process.pid, batch: index }));
       code = await run([process.execPath, "--no-env-file", import.meta.path,
         ...(fullPreparation && index === 0 ? ["--internal-full-preparation"] : []),
-        ...(delegatedSpeech ? ["--internal-external-speech"] : []), ...batch.argv]);
-      completed.push(batch);
+        ...(delegatedSpeech ? ["--internal-external-speech"] : []), ...batch.argv], output => {
+        const changed = batch.argv.some(arg => /^--changed(?:=|$)/.test(arg)) ? /^--changed: .*$/m.exec(output)?.[0] ?? "" : "";
+        const assignment = batch.argv.some(arg => /^--shard(?:=|$)/.test(arg)) ? /^--shard=\d+\/\d+: running (\d+)\/\d+ test files?$/m.exec(output) : null;
+        const empty = assignment?.[1] === "0" || /^--changed: (?:no changed files, nothing to run|\d+ changed files?, but no test files are affected)\.?$/.test(changed);
+        completed.push({ argv: batch.argv, empty });
+      });
       if (code) break;
     }
     await mergeBatchReports(argv, completed);
