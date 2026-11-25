@@ -48,6 +48,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const saves: { draftId: string; body: DraftSaveRequest }[] = [];
   let uploads = 0;
   let removes = 0;
+  let lostSaves = 0;
   const rows = new Map<string, Draft>();
   const rowsSnapshots = new Map<string, NonNullable<DraftSaveRequest["snapshots"]>>();
   const swept = new Set<string>();
@@ -87,6 +88,8 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
       const files = (body.fileIds ?? []).map((id) => [PERMIT, CREW].find((f) => f.fileId === id)!);
       if ((body.snapshots?.length ?? 0) > 0) rowsSnapshots.set(draftId, body.snapshots!);
       rows.set(draftId, { draftId, sessionId: body.sessionId, revision, updatedAt: 1_000 + revision, text: body.text, attachments: [], ...(body.fileIds ? { files } : {}) });
+      // Stored, and the answer lost on the way back.
+      if (lostSaves > 0) { lostSaves--; return { ok: false, status: 0, body: {} }; }
       return { ok: true, value: { revision, updatedAt: 1_000 + revision } };
     },
     upload: async () => ({ ok: true, value: { attachmentId: `att-${++uploads}` } }),
@@ -108,7 +111,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const id = drafts.getState().idFor(SESSION);
   const indicator = (draftId: string) => draftIndicatorView({ draft: drafts.getState().drafts[draftId], store: drafts.getState(), queued: [], online: true });
   return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), withoutDrafts: () => client.hello({ ...hello, capabilities: { ...hello.capabilities, sessionDrafts: false } }), silenceGets: (n: number) => { silentGets = n; getStatus = 503; },
-    failGets: (status: number, n: number) => { silentGets = n; getStatus = status; }, gets: () => getCount, removes: () => removes,
+    failGets: (status: number, n: number) => { silentGets = n; getStatus = status; }, gets: () => getCount, removes: () => removes, loseSaves: (n: number) => { lostSaves = n; },
     holdSaves: () => { let open!: () => void; saveGate = new Promise<void>((resolve) => { open = resolve; }); return () => { saveGate = null; open(); }; },
     holdGets: () => { let open!: () => void; getGate = new Promise<void>((resolve) => { open = resolve; }); return () => { getGate = null; open(); }; } };
 }
@@ -640,4 +643,45 @@ test("a fork's branch does not inherit the original's refusal, and the retained 
   expect(s.drafts.getState().drafts["voyage-branch"]?.failure, "BRANCH_NOT_REFUSED").toBeNull();
   await run(SAVE_DELAY + 100);
   expect(s.rows.get(s.id)?.text, "RETAINED_VERSION_SAVED").toBe("Penelope keeps the loom");
+});
+
+test("a Send made while the emptied draft's delete is out survives its acknowledgement", async () => {
+  let answer!: (r: DraftCallResult<null>) => void;
+  let deletes = 0;
+  const s = scene({ snapshots: true, remove: () => { deletes++; return new Promise((resolve) => { answer = resolve; }); } });
+  const old = { snapshotId: "snap-old", requestId: "req-old", text: "Lash the raft", fileIds: [], state: "returned" as const };
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [{ ...old, files: [], createdAt: 1 }], editedAt: 1, edit: 2,
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [old], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  s.drafts.getState().deleteSnapshot(s.id, "snap-old");
+  await run(SAVE_DELAY + 100);
+  expect(deletes).toBe(1);
+  const message = { type: "chat_message" as const, text: "Sail at dawn", sessionId: SESSION, requestId: "req-new" };
+  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-new", requestId: "req-new", text: "Sail at dawn", files: [], state: "held", createdAt: null, message }, "");
+  answer({ ok: true, value: null });
+  await run(LONG);
+  const holding = Object.values(s.drafts.getState().drafts).filter((d) => d.snapshots?.some((x) => x.snapshotId === "snap-new"));
+  expect(holding, "SEND_SURVIVES_DELETE_ACK").toHaveLength(1);
+  expect(s.saves.some((x) => x.body.snapshots?.some((w) => w.snapshotId === "snap-new"))).toBe(true);
+});
+
+test("a delete the host refuses because a message still waits there is refused once, not repeated", async () => {
+  const s = scene({ snapshots: true, remove: async () => ({ ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "A message of this draft is still waiting or unconfirmed. Cancel it or check it first." } }) });
+  const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const };
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [], editedAt: 1, edit: 3,
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [held], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.failure, "PENDING_DELETE_REFUSED_ONCE").toMatchObject({ kind: "refused", reason: "A message of this draft is still waiting or unconfirmed. Cancel it or check it first." });
+});
+
+test("text erased after a save whose answer was lost is deleted on the host, even with a carried original left", async () => {
+  const s = scene();
+  s.loseSaves(1);
+  s.drafts.getState().edit(s.id, SESSION, { text: "Harbour fees", files: [{ file: CREW, lineage: "a-rotated-away-draft" }] });
+  await run(SAVE_DELAY + 100);
+  expect(s.rows.get(s.id)?.text, "the host stored it").toBe("Harbour fees");
+  expect(s.drafts.getState().drafts[s.id]?.uncertain).toBe(true);
+  s.drafts.getState().edit(s.id, SESSION, { text: "" });
+  await run(LONG);
+  expect(s.removes(), "LOST_SAVE_RECONCILED").toBe(1);
 });
