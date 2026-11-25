@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings and sync policy-review routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 207 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings, sync policy-review and storage-events routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 208 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -39,6 +39,7 @@ client code has a gap. Source owners are listed after the table.
 | DELETE | `/api/storage/maintenance/:id` | S | Request cancellation of remaining work | Existing committed effects remain in the receipt. |
 | GET | `/api/storage/history` | S | Read bounded aggregate history | Current human-owner access; no scan on read. |
 | GET | `/api/storage/guidance` | S | Read pressure, scenarios and delivery evidence | Current human-owner access; no scan on read. |
+| GET | `/api/storage/events` | S | Read the bounded storage events timeline | Current human-owner access; maintenance events of the caller's own receipts only. |
 | GET | `/api/storage` | S | Read current bounded inventory state | Human-owner Storage inspection; no delegated or worker access. |
 | POST | `/api/storage/scans` | S | Refresh configured stores | Human-owner Storage inspection; no delegated or worker access. |
 | DELETE | `/api/storage/scans/:id` | S | Cancel an active scan | Human-owner Storage inspection; no delegated or worker access. |
@@ -240,7 +241,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 207 declared endpoints are mounted regardless of backend, renderer or
+All 208 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -2147,7 +2148,10 @@ Before/after observations separately retain affected stores and capacities,
 coverage and basis. They explicitly permit concurrent writers. File counts and
 packed-object counts are never converted into reclaimed bytes. Unknown headroom
 is null; old/new Git packs may coexist and required temporary bytes are workload
-dependent. Existing worker admission controls its temporary space. A known zero
+dependent. `headroom.requiredBytes` is always null. A `pack-git` receipt adds
+core's conservative preflight need as `headroom.packingRequiredBytes`, reported
+by that run; every other case, including a row's own headroom, carries null
+([pack headroom](integration-contract/http.md#storage-maintenance-pack-headroom-additive-4540)). Existing worker admission controls its temporary space. A known zero
 capacity refuses packing, and receipt admission failure starts no owner action.
 No other recovery store is purged to make room.
 
@@ -2307,6 +2311,70 @@ unknown is terminal for automatic retry. Three attempts per episode/subscription
 are the maximum, with one/five-minute delays only after known non-delivery.
 Restored episodes never regain notification authority. See
 [Storage history](storage-history.md) for sampling, recovery and physical costs.
+
+## Storage events timeline
+
+`GET /api/storage/events?identity=&since=` returns SDK `StorageEventsResponse`,
+version 1: a bounded timeline of storage events for the chart's markers. It
+requires the same current human-owner authority as history, uses
+`Cache-Control: private, no-store` and never collects inventory. Unauthenticated
+callers receive 401 and delegated principals 403. The only options are
+`identity`, a 32-character lowercase capacity identity, and `since`, a
+non-negative integer; anything else is 400.
+
+Each event has `seq`, `at`, `kind` and `phase`:
+
+- `pressure` (`start`, `step`, `recovery-started`, `end`): a warning episode on
+  one capacity, with the severity after the event and `episode`, the `seq` of
+  its `start`. `recovery-started` is the first recovery attempt after a start
+  or step.
+- `refusal` (`refused`, `succeeded`): an owning operation's write refusal on a
+  capacity, recorded once until a matching successful write resolves it.
+- `scope` (`changed`): the capacity's opaque store scope and the scope it was
+  last observed with, whether or not that observation was fresh evidence.
+- `maintenance` (`requested`, `finished`): one of the caller's own maintenance
+  receipts. `finished` carries the receipt's terminal `state` and `reason`.
+
+`at` is the time of the observation, owner report or receipt that caused the
+event, not the time it was stored, so an episode's start stays its real start.
+Owner reports that wait for the same history write are replayed for the
+timeline one by one in time order: a refusal opens its target's refusal, a
+later success resolves it, and a warning they start begins at the first
+refusal on the capacity. A success that arrives before its target has any
+refusal is not evidence. A report older than a refusal already committed for
+its target, such as another writer's late flush, changes nothing, so a
+resolution always follows the refusal it closes, and a resolution the
+pressure state does not hold after the write is not emitted. When one write receives more than 512 owner reports,
+refusal and pressure events are paused instead of timed from partial evidence.
+Events are recorded when they happen. An episode already open before the host
+recorded events is not emitted, and no start time is invented for it. The
+same holds for anything else open by then: a refusal is never resolved and a
+maintenance receipt never finished without its recorded opening event, and a
+capacity's first scope observed afterwards is its starting point, not a change.
+
+`seq` is the recording order. Responses list every retained event with `seq`
+greater than `since` (default 0) in `seq` order, and `next` is the greatest
+`seq` returned, or `since` when none is. Pass `next` as the following `since`;
+an event recorded later with an earlier `at` still arrives. With `identity`,
+the response holds that capacity's pressure, refusal and scope events plus all
+of the caller's maintenance events, which have no capacity. Sort by `at` to
+plot.
+
+Each kind keeps at most 256 pressure, 128 refusal, 64 scope and 512 maintenance
+events per brain (256 runs), chosen so the worst case, every kind full with
+16-digit numbers, a 96-character receipt identity and a 64-character reason,
+stays within the 262,144-byte payload cap. A kind at its limit, or paused for
+dropped owner evidence, stops recording: `paused` marks it true, every earlier
+event remains, and the other kinds, pressure policy and maintenance keep
+working. Nothing is deleted to make room.
+
+A maintenance run can appear in the timeline, in `GET /api/storage/maintenance`
+(the latest receipt per operation) and in `GET /api/storage/maintenance/:id`.
+Match them by the event's `receipt`, which is the receipt's `id`, and `phase`:
+`requested` is the receipt's `requestedAt` and `finished` its `completedAt`.
+Never match by time. Distinct events can share an `at` (an owner refusal and
+the warning it starts do, and two runs can), but never a `seq`, and a receipt
+has at most one event per phase.
 
 ### Session safety sidecars
 
