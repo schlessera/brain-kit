@@ -147,3 +147,33 @@ test("mixed substring selections run each match once and keep ordinary files out
     expect((await testCommandBatches(["chat-focus-runtime"], root))[0]!.argv).toEqual(["chat-focus-runtime"]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test("Docker selection resolves both cwd flag forms against Bun's effective directory", async () => {
+  const { testCommandBatches } = await import("../scripts/test");
+  const root = join(import.meta.dir, "..");
+  for (const flag of [["--cwd", "tests"], ["--cwd=tests"]]) {
+    const batch = await testCommandBatches([...flag, "./workspace-lease.test.ts"], root);
+    expect(batch[0]!.docker, "CWD_DRIVER_IS_CLASSIFIED_AT_ITS_EFFECTIVE_PATH").toBe(true);
+  }
+  const batch = await testCommandBatches(["--cwd", "packages/ui-server", "tests/workspace-lease.test.ts"], root);
+  expect(batch[0]!.docker, "CWD_MUST_NOT_EXEMPT_ANOTHER_FILE").toBe(false);
+});
+
+
+test("an empty host settings directory does not count as a hidden settings mount", () => {
+  const probe = `import importlib.util,json,sys
+from unittest.mock import patch
+spec=importlib.util.spec_from_file_location('launcher',sys.argv[1])
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+links=json.dumps([{'ifname':'lo','flags':['UP']}]).encode()
+def query(argv,**kwargs):return links if 'link' in argv else b'[]'
+def mounted(fs):return '1 0 0:1 / /etc/claude-code rw - '+fs+' source rw\\n'
+with patch.object(m.subprocess,'check_output',side_effect=query), patch.object(m.Path,'exists',return_value=True), patch.object(m.Path,'iterdir',return_value=iter([])):
+ with patch.object(m.Path,'read_text',return_value=mounted('ext4')):assert not m.already_inside(), 'EMPTY_HOST_SETTINGS_MUST_NOT_BE_REUSED'
+ with patch.object(m.Path,'read_text',return_value=mounted('tmpfs')):assert m.already_inside(), 'OWN_SETTINGS_MOUNT_IS_REUSABLE'
+with patch.object(m.subprocess,'check_output',side_effect=query), patch.object(m.Path,'exists',return_value=False):assert m.already_inside()
+`;
+  const child = Bun.spawnSync(["/usr/bin/python3", "-B", "-I", "-S", "-c", probe, join(import.meta.dir, "../scripts/offline-command.py")], { stdout: "pipe", stderr: "pipe" });
+  expect(child.exitCode, child.stderr.toString()).toBe(0);
+});

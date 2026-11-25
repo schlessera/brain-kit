@@ -134,6 +134,13 @@ export function testPaths(args: readonly string[]): string[] {
 
 /** Separate ordinary, browser-runtime and host Docker commands before isolation. */
 export async function testCommandBatches(argv: string[], cwd: string): Promise<{ argv: string[]; docker: boolean; browser?: boolean }[]> {
+  const launchCwd = cwd;
+  for (let i = 0; i < argv.length && argv[i] !== "--"; i++) {
+    const arg = argv[i]!;
+    if (arg === "--cwd") cwd = resolve(launchCwd, argv[++i]!);
+    else if (arg.startsWith("--cwd=")) cwd = resolve(launchCwd, arg.slice(6));
+    else if (VALUE_FLAGS.has(arg) || (arg.startsWith("-") && !arg.startsWith("--") && shortTakesNext(arg))) i++;
+  }
   const paths = testPaths(argv);
   const { discoverTests } = await import("./test-shards");
   const files = paths.flatMap(path => {

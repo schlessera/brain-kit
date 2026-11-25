@@ -31,10 +31,9 @@ def already_inside(browser=False):
         allowed = {'lo', 'offline0', 'offline1'} if browser else {'lo'}
         links = query('link', 'show')
         managed = Path('/etc/claude-code')
-        try:
-            hidden = not managed.exists() or not any(managed.iterdir())
-        except PermissionError:
-            hidden = True
+        hidden = not managed.exists() or any(
+            row.split()[4] == str(managed) and row.split(' - ', 1)[1].startswith('tmpfs ')
+            for row in Path('/proc/self/mountinfo').read_text().splitlines())
         return hidden and (not browser or any(row['ifname'] == 'offline0' and 'UP' in row['flags'] for row in links)) and any(row['ifname'] == 'lo' and 'UP' in row['flags'] for row in links) and all(
             row['ifname'] in allowed for row in links) and all(not query(family, 'route', 'show', 'table', 'main') for family in ('-4', '-6'))
     except (OSError, ValueError, subprocess.CalledProcessError, TypeError):
