@@ -194,8 +194,10 @@ const status = run("docker", [
   "run",
   "--rm",
   "--ipc=host",
-  // The consumer layout project needs only the in-container Vite server.
+  // All browser projects use a network-none container with a route-free indicator.
+  // Disable IPv6 autoconfiguration on that new link; existing loopback is unchanged.
   "--network=none",
+  "--sysctl=net.ipv6.conf.default.disable_ipv6=1",
   "--user",
   "0:0",
   "--cap-drop=ALL",
@@ -218,7 +220,8 @@ const status = run("docker", [
     "-e", "GITHUB_RUN_ID", "-e", "GITHUB_RUN_ATTEMPT", "-e", "GITHUB_JOB"] : []),
   ...(nativePrepared ? ["-e", `BRAIN_NATIVE_DIAGRAM_PREPARED=${nativePrepared}`] : []),
   IMAGE,
-  "python3", "scripts/browser-offline-entry.py", String(uid), String(gid),
+  // Capture public setup source before switching UID; a local checkout may be mode 0700.
+  "python3", "-c", readFileSync(resolve(REPO, "scripts/browser-offline-entry.py"), "utf8"), String(uid), String(gid),
   "node",
   "scripts/visual.mjs",
   "--inside",

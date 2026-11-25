@@ -67,9 +67,9 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
       import { dirname, resolve } from "node:path";
       const argv = process.argv.slice(2);
       const image = argv.findIndex((arg) => arg.startsWith("mcr.microsoft.com/playwright@sha256:"));
-      if (image < 0 || argv[image + 1] !== "python3" || argv[image + 2] !== "scripts/browser-offline-entry.py" || argv[image + 5] !== "node" || argv[image + 6] !== "scripts/visual.mjs") process.exit(91);
+      if (image < 0 || argv[image + 1] !== "python3" || argv[image + 2] !== "-c" || argv[image + 6] !== "node" || argv[image + 7] !== "scripts/visual.mjs") process.exit(91);
       const child = spawnSync(process.execPath,
-        [resolve(process.env.RUNNER_ROOT, "scripts/visual.mjs"), ...argv.slice(image + 7)],
+        [resolve(process.env.RUNNER_ROOT, "scripts/visual.mjs"), ...argv.slice(image + 8)],
         {env: process.env, stdio: "inherit"});
       process.exit(child.status ?? 92);` : "";
     const nativeRouting = command === "docker" ? `

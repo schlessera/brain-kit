@@ -69,7 +69,10 @@ See the [minimal-boundary ruling](https://github.com/schlessera/brain-kit/issues
 
 Docker-driving Bun files run in their own CI step with their original assertions;
 their real containers keep `--network=none`. Browser/layout/endurance commands
-also use network-disabled containers. `runtime_host` keeps its existing native
+also use network-disabled containers. Their initializer holds only NET_ADMIN,
+SETUID, SETGID and SETPCAP to create an address-only dummy link without routes,
+then restores the caller UID/GID, clears all capability sets and sets
+no_new_privs before Node. The pinned image is unchanged. `runtime_host` keeps its existing native
 container path. No child qualification service or copied source closure is used.
 The runtime proof is `scripts/offline-command-proof.py`: network, managed-settings
 and credential negatives, one mutation each, plus setup refusal and cause logging.

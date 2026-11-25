@@ -25,11 +25,9 @@ def request(kind, payload, create=False):
 
 def main():
     uid, gid = int(sys.argv[1]), int(sys.argv[2])
-    # IFLA_IFNAME=3, LINKINFO=18, INFO_KIND=1; AF_SPEC=26,
-    # AF_INET6=10, INET6_ADDR_GEN_MODE=8, ADDR_GEN_MODE_NONE=1.
+    # IFLA_IFNAME=3, LINKINFO=18, INFO_KIND=1.
     info = struct.pack('BBHiII', 0, 0, 0, 0, 0, 0)
-    request(16, info + attribute(3, b'offline0\0') + attribute(18, attribute(1, b'dummy\0')) +
-            attribute(26, attribute(10, attribute(8, b'\1'))), create=True)
+    request(16, info + attribute(3, b'offline0\0') + attribute(18, attribute(1, b'dummy\0')), create=True)
     index = socket.if_nametoindex('offline0')
     # IFA_ADDRESS=1, LOCAL=2, FLAGS=8; IFA_F_NOPREFIXROUTE=0x200.
     address = socket.inet_aton('198.18.0.1')
