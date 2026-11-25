@@ -1,7 +1,7 @@
 import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
-import { sameSafetyAdmission, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
+import { sameAuthority, sameSafetyAdmission, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
 import { approvalRequestFrame, withTurnScope } from "../frames.js";
 import type { BridgeContext, BridgeSlice } from "./context.js";
 import { waitWhile } from "../../brain/authority-hold.js";
@@ -16,7 +16,7 @@ import { STORAGE_SETTLEMENT_MS } from "../../db/settlement.js";
 export function createPermissions(ctx: BridgeContext, self: () => BackendBridge): BridgeSlice<"requestPermission"> {
   const { host, turn, turnId, recorder } = ctx;
   const { coordinator } = host;
-  const requestPermission: BackendBridge["requestPermission"] = (req) => {
+  const requestPermission: BackendBridge["requestPermission"] = async (req) => {
     // Retain the coordinator's original terminal reason for a late request;
     // cancellation must not replace it with a new safety diagnosis.
     const drained = coordinator.drainedReason(turn, turnId);
@@ -30,7 +30,13 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
     // cannot opt a card out of withdrawal or supply its authority.
     const safety = self().admissionSafety;
     let snapshot: AdmissionSafetySnapshot | undefined;
-    try { snapshot = safety?.read(); }
+    try {
+      const before = safety?.read();
+      let waited = false;
+      for (const pending of safety?.pendingRecording?.(before, ctx.signal) ?? []) { waited = true; await pending; }
+      snapshot = waited || before?.recordingAvailable === false ? safety?.read() : before;
+      if (snapshot && !sameAuthority(snapshot, before)) return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+    }
     catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
     const revalidate = (): string | null => {
       if (ctx.signal.aborted || (safety || ctx.backendId === "claude" || ctx.backendId === "pi") && !ctx.current()) return STALE_SAFETY_ADMISSION;

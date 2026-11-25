@@ -280,15 +280,22 @@ called, from its built-in default or its existing endpoint override). The
 server decides whether that key may go to that origin, adds the key and
 forwards the request; the response comes back unchanged except that any copy
 of the key in it is replaced by `[redacted]`. A streamed request (`"stream":
-true`) is refused. A refusal is a `403` JSON error whose `error.type` is
-`budget_exceeded` once a budget scope is blocked, or `brain_provider_refused`
-otherwise. Neither is retried. Additively since #3431, `error.reason` names the
-cause: for a request the turn's egress proxy refused, one of `denied_host`,
-`not_allowlisted`, `byte_cap`, `taint_allowlist` or `outward_not_approved`,
-with `error.message` saying it in words; otherwise the relay's own refusal
-reason, such as `budget_exceeded` or `route_not_allowed`. The OpenAI image
-provider shows such a message without its account hint. A relay that is busy answers `503`, which the
-built-in providers retry as a transient error.
+true`) is refused. A blocked budget returns HTTP 403 with `error.type`
+`budget_exceeded`. Policy and authority refusals also return 403, with
+`error.type` `brain_provider_refused`. Built-in providers treat 403 as final.
+Since #3431, `error.reason` gives the specific cause and `error.message`
+explains it. Egress causes include `denied_host`, `not_allowlisted`, `byte_cap`,
+`taint_allowlist` and `outward_not_approved`. The relay can also report its
+own reason, such as `budget_exceeded` or `route_not_allowed`. The OpenAI image
+provider shows the message without its account hint.
+
+The host checks recording before and after budget admission. When only a
+sibling’s pending evidence write blocks recording, the host waits up to two
+seconds and rereads. A changed authority or expired wait returns 403 with
+`error.reason` `safety_changed`. Loss of the turn’s recording returns 503
+with `error.reason` `egress_unavailable`. Both use `error.type`
+`brain_provider_refused`. A busy relay also returns 503. Built-in providers
+apply their existing transient-error retry policy to 503 responses.
 
 A seam that is only available through the relay counts as configured: hybrid
 `brain search` embeds its query, `brain process` completes, `brain image` lists

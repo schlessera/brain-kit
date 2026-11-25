@@ -1,5 +1,5 @@
 /** One live read for enforcement; ordinary governance remains turn-bound. */
-import type { AdmissionSafety } from "@schlessera/brain-ui-sdk/internal";
+import { sameAuthority, type AdmissionSafety } from "@schlessera/brain-ui-sdk/internal";
 import { Database } from "bun:sqlite";
 import type { GovernanceWrites } from "./event-writes.js";
 import { safetyEvidenceSequence, safetyProjection, safetyScopeTurns } from "./safety-store.js";
@@ -56,12 +56,16 @@ export function createEffectiveSafety(db: Database, options: {
       // covers anything it loses, so it runs under its tainted policy (#3812).
       recordingAvailable: options.writes?.recordingAvailable ? options.writes.recordingAvailable(options.turnId, sessionId)
         : !projection.reasons.some(reason => ["recording_pending", "recording_failed", "capacity"].includes(reason)),
+      // A different recorder can fail while this producer is still healthy.
+      // Only a pending-only block may wait for settlement.
+      recordingPending: projection.reasons.includes("recording_pending") &&
+        !projection.reasons.some(reason => reason === "recording_failed" || reason === "capacity"),
       operationRecordingAvailable: !safetyQueue(db).lostTurns.has(options.turnId) &&
         !db.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND failure IS NOT NULL AND ended=0").get(options.turnId),
       authorityCurrent: authority.current };
     if (cacheAllowed) cached = { key, value }; return value;
   };
-  return {
+  const safety: AdmissionSafety = {
     read(excludedPending=[]) {
       // Projection and immutable sequence must describe one SQLite snapshot.
       const cacheAllowed=!db.inTransaction;
@@ -81,6 +85,38 @@ export function createEffectiveSafety(db: Database, options: {
       };
       return db.inTransaction ? snapshot() : Database.prototype.transaction.call(db,snapshot).deferred() as ReturnType<AdmissionSafety["read"]>;
     },
+    *pendingRecording(before, signal = options.signal, excludedPending) {
+      if (signal?.aborted) return;
+      const pending = () => {
+        try {
+          const now = safety.read(excludedPending?.());
+          return now.recordingPending === true && !now.recordingAvailable &&
+            now.operationRecordingAvailable === true && sameAuthority(now, before);
+        } catch { return false; } // An unreadable snapshot goes to the caller's refusal gate.
+      };
+      const deadline = performance.now() + 2000;
+      // A woken sibling can reserve again before this caller resumes. The
+      // caller advances this iterator in the same continuation as its fence.
+      while (!signal?.aborted && pending()) {
+        const remaining = deadline - performance.now();
+        if (remaining <= 0) return;
+        const { promise, resolve } = Promise.withResolvers<void>();
+        const check = () => { if (!pending()) resolve(); };
+        const unsubscribe = safety.subscribe(check);
+        const timer = setTimeout(resolve, remaining);
+        const abort = () => resolve();
+        signal?.addEventListener("abort", abort, { once: true });
+        try {
+          if (signal?.aborted) resolve();
+          else check();
+          yield promise;
+        } finally {
+          clearTimeout(timer);
+          unsubscribe();
+          signal?.removeEventListener("abort", abort);
+        }
+      }
+    },
     subscribe(changed) {
       const listeners = safetyQueue(db).listeners;
       listeners.add(changed);
@@ -89,4 +125,5 @@ export function createEffectiveSafety(db: Database, options: {
       return () => { listeners.delete(changed); release?.(); options.signal?.removeEventListener("abort", changed); };
     },
   };
+  return safety;
 }
