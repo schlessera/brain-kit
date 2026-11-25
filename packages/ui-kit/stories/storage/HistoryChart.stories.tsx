@@ -454,8 +454,8 @@ const WIDTH_CASES: Array<[string, Partial<HistoryChartProps>]> = [
   ["weekly", { points: weeklyThree, intervalMs: 7 * DAY, markers: [] }],
   ["single point", { points: singlePoint, markers: [], scenarios: [SHORT_NONE, LONG_NONE] }],
   ["all unknown", { points: allUnknown, markers: [], scenarios: [SHORT_NONE, LONG_NONE] }],
-  ["nearly empty, thin bands", { points: nearlyEmpty, nowState: undefined, scenarios: [SHORT_NONE, LONG_NONE] }],
-  ["2 TB volume", { points: twoTerabytes, thresholds: TB_THRESHOLDS, nowState: undefined, scenarios: [SHORT_NONE, LONG_NONE] }],
+  ["nearly empty, thin bands", { points: nearlyEmpty, nowState: undefined, scenarios: [LONG_SHORT_HISTORY] }],
+  ["2 TB volume", { points: twoTerabytes, thresholds: TB_THRESHOLDS, nowState: undefined, scenarios: [LONG_SHORT_HISTORY] }],
 ];
 
 /**
@@ -499,7 +499,7 @@ export const EveryWidth = meta.story({
  */
 export const ThinBands = meta.story({
   ...phone,
-  args: { points: nearlyEmpty, nowState: undefined, scenarios: [SHORT_NONE, LONG_NONE] },
+  args: { points: nearlyEmpty, nowState: undefined, scenarios: [LONG_SHORT_HISTORY] },
   play: async (ctx) => {
     const { svg } = await open(ctx);
     const said = (svg.textContent ?? "") + caption(ctx.canvasElement).join(" ");
