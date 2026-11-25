@@ -339,6 +339,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   trigger.current = document.activeElement as HTMLElement;
                   view.setReviewOpen(true);
                 }}
+                onClear={() => {
+                  // Clear removes itself with the selection; the mode's heading keeps focus.
+                  view.clearSelection();
+                  findHeading.current?.focus();
+                }}
               />
             ) : (
               <StorageBreakdown

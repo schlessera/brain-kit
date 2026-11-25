@@ -44,11 +44,14 @@ export function StorageLargeFiles({
   onInspect,
   onReview,
   onReceipt,
+  onClear,
 }: {
   view: StorageView;
   onInspect: (entry: StorageFileEntry) => void;
   onReview: () => void;
   onReceipt: () => void;
+  /** Clears the selection and moves focus off the Clear button it removes. */
+  onClear: () => void;
 }) {
   const id = useId();
   const { pager, paging } = usePageFocus(view.loading, view.files);
@@ -112,7 +115,7 @@ export function StorageLargeFiles({
       count={view.selection.length}
       size={bytes(view.selectedBytes)}
       basis="file size · not space freed"
-      onClear={view.clearSelection}
+      onClear={onClear}
       onReview={() => {
         if (!blocked) onReview();
       }}
