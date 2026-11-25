@@ -130,6 +130,8 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
 
   function enterFind() {
     entering.current = true;
+    view.setFileSort("size");
+    view.setFileDirection("desc");
     view.setFiltering(true);
     view.setSearch("");
     view.setCursor(undefined);

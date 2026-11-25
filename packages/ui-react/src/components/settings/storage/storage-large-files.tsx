@@ -221,7 +221,14 @@ export function StorageLargeFiles({
         <StorageConsumerList
           label={`Matching PDFs larger than ${view.larger} MB`}
           mode={unavailable ? "browse" : "filter"}
-          sort={{ key: "size", direction: "descending" }}
+          sort={{ key: view.fileSort, direction: view.fileDirection === "asc" ? "ascending" : "descending" }}
+          onSort={(key) => {
+            if (view.fileSort === key) view.setFileDirection(view.fileDirection === "asc" ? "desc" : "asc");
+            else {
+              view.setFileSort(key);
+              view.setFileDirection(key === "name" ? "asc" : "desc");
+            }
+          }}
           footer={footer}
           empty={
             <span className="text-xs">

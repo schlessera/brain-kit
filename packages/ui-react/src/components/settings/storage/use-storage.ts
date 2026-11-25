@@ -46,6 +46,10 @@ export function useStorage(root: BrainUiRoot) {
   const [sort, setSort] = useState<"size" | "name">("size"),
     [direction, setDirection] = useState<"asc" | "desc">("desc"),
     [cursor, setCursor] = useState<string | undefined>();
+  // Find large files keeps its own order: file size, largest first, unless
+  // its own header changes it. The overview's sort and basis never reach it.
+  const [fileSort, setFileSort] = useState<"size" | "name">("size"),
+    [fileDirection, setFileDirection] = useState<"asc" | "desc">("desc");
   const [filtering, setFiltering] = useState(false),
     [larger, setLarger] = useState("5"),
     [where, setWhere] = useState("content"),
@@ -143,6 +147,8 @@ export function useStorage(root: BrainUiRoot) {
     search,
     sort,
     direction,
+    fileSort,
+    fileDirection,
     filtering,
     larger,
     where,
@@ -167,9 +173,10 @@ export function useStorage(root: BrainUiRoot) {
             type: "pdf",
             largerThan: threshold,
             search,
-            sort,
-            metric,
-            direction,
+            // Removal is per file, so the mode's basis is file size (D11).
+            sort: fileSort,
+            metric: "logical",
+            direction: fileDirection,
             cursor,
           },
           controller.signal
@@ -226,6 +233,8 @@ export function useStorage(root: BrainUiRoot) {
     search,
     sort,
     direction,
+    fileSort,
+    fileDirection,
     cursor,
     filtering,
     threshold,
@@ -548,6 +557,10 @@ export function useStorage(root: BrainUiRoot) {
     setSort,
     direction,
     setDirection,
+    fileSort,
+    setFileSort,
+    fileDirection,
+    setFileDirection,
     cursor,
     setCursor,
     filtering,
