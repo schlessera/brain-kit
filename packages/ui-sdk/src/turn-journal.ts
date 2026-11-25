@@ -101,16 +101,33 @@ export interface TurnJournalChange {
 
 /** An admission receipt, not a claim that the external action completed. */
 export interface JournalOutwardAction {
+  google?: { callId: string; operation: string; effect: "irreversible" };
   id: number;
   at: number;
   tool: string;
   /** `compute_run` (additive, #3108): an approved or refused external compute job start. */
-  action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect" | "compute_run";
+  action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect" | "compute_run" | "google_write";
   target: string | null;
   decision: "policy_allowed" | "approved" | "declined" | "refused";
   historyRewrite: boolean;
   /** Restoring local files cannot undo an external action. */
   revertible: false;
+}
+
+/** A reversible Google admission, never evidence of external completion or available undo. */
+export interface JournalGoogleAction {
+  id: number;
+  at: number;
+  callId: string;
+  tool: string;
+  operation: string;
+  effect: "reversible";
+  target: string | null;
+  tainted: boolean;
+  decision: "allowed" | "approved" | "declined" | "refused";
+  admission: "policy" | "remembered_approval" | "session_allowance" | null;
+  revertible: false;
+  undoAvailable: false;
 }
 
 export interface TurnJournalDetails {
@@ -119,6 +136,8 @@ export interface TurnJournalDetails {
   summary: TurnJournalSummary;
   changes: TurnJournalChange[];
   missing: { path: string; reason: string }[];
+  googleActions?: JournalGoogleAction[];
+  googleActionsTruncated?: boolean;
   outwardActions?: JournalOutwardAction[];
   /** The details endpoint bounds rows; retained governance records remain queryable. */
   outwardActionsTruncated?: boolean;

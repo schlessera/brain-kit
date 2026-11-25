@@ -1,4 +1,5 @@
 /** Real FULL SQLite writers, loopback transport and backend permission bindings. */
+import { GOOGLE_CARD } from "./helpers/google-write-fixture.js";
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
@@ -444,7 +445,7 @@ for (const last of ["rtk", "agent", "native-read", "index"] as const) {
   }
 }
 
-for (const kind of ["tool", "command", "policy", "actor"] as const) for (const change of ["healthy", "remove"] as const) {
+for (const kind of ["tool", "command", "policy", "actor", "google"] as const) for (const change of ["healthy", "remove"] as const) {
   test(`direct host ${kind} approval: host-owned snapshot fences ${change}`, async () => {
     const f = await fixture(), raised = Promise.withResolvers<void>();
     let reached = 0, decision: string | undefined, run: Promise<void> | undefined;
@@ -453,7 +454,7 @@ for (const kind of ["tool", "command", "policy", "actor"] as const) for (const c
       await req.bridge.inputSafety!.ready("claude", 1);
       req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: false });
       // Application, policy, compute and Apify callers all use this boundary.
-      const result = await req.bridge.requestPermission({ toolUseId: "direct-card", toolName: "OdysseyTool", kind, input: {} });
+      const result = await req.bridge.requestPermission({ toolUseId: "direct-card", toolName: "OdysseyTool", kind, input: kind === "google" ? GOOGLE_CARD : {} });
       decision = result.behavior;
       if (result.behavior === "allow") await fetch(origin.url);
       req.bridge.emit({ type: "result", sessionId: "ithaca", isError: false, durationMs: 1, numTurns: 1 });

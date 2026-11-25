@@ -88,7 +88,7 @@ const MAX_ID = 200;
 /** Byte budget for one episode's failure list, well under the writer's 64 KiB payload limit. */
 const FAILURE_BYTES = 48 * 1024;
 /** The governance kinds that can contribute a failure; the rest are never read. */
-const CONTRIBUTING_KINDS = ["policy_block", "policy_confirm", "outward_action", "read_only_refusal", "egress_denial",
+const CONTRIBUTING_KINDS = ["policy_block", "policy_confirm", "outward_action", "google_reversible_action", "read_only_refusal", "egress_denial",
   "budget_block", "scope_cap"] as const;
 /** Token-set similarity at or above which two failed inputs are the same attempt again. */
 const RETRY_SIMILARITY = 0.8;
@@ -437,6 +437,10 @@ function governanceCause(event: GovernanceEvent): { cause: Cause; tool: string |
     case "policy_confirm":
       if (p.decision === "approved") return null;
       return { cause: { category: "permission_denied", detail: `confirm ${String(p.decision)}` }, tool, family: toolFamily ?? "policy", attach: true };
+    case "google_reversible_action":
+      if (p.decision !== "declined" && p.decision !== "refused") return null;
+      return { cause: { category: "permission_denied", detail: `google ${String(p.operation)} ${String(p.decision)}` },
+        tool, family: toolFamily ?? "google", attach: true };
     case "outward_action":
       if (p.decision !== "declined" && p.decision !== "refused") return null;
       return { cause: { category: "permission_denied", detail: `outward ${String(p.action)} ${String(p.decision)}` }, tool,

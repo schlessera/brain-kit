@@ -6252,3 +6252,29 @@ rule removal, authority, recorder availability, outward permission and byte
 ceilings remain independently fenced. Outward callbacks retain their original
 {host, port, method} shape; transport metadata is confined to source/recipient
 matching and the corresponding Network-card identity.
+
+
+## Google write engine contracts (additive, #4211)
+
+`@schlessera/brain-ui-sdk/tool-contracts` exports `GoogleMailApproval`,
+`GoogleApprovalMessage`, `GOOGLE_MAIL_APPROVAL_SCHEMA` and
+`GOOGLE_APPROVAL_MESSAGE_SCHEMA`. The strict operation-specific cards reuse
+parsed Gmail fields and require complete bounded outbound text; see
+[Google mail approval](wire.md#google-mail-approval-additive-4211).
+`/server` exports `GooglePermissionRequest` and extends `PermissionRequest`
+and denial activity with kind `google`; `PermissionDecision` allows
+`forSession?: boolean`. `/protocol` adds the same client answer and request
+kind, plus `JournalGoogleAction`, the optional journal `googleActions` and
+truncation flag, and `google_write` with irreversible metadata in
+`JournalOutwardAction`. `/schemas` validates Google card inputs and session
+answers. No new extension interface is introduced. The concrete Google state
+procedures remain internal to ui-server; standing-grant behavior is #4212.
+
+`GOOGLE_WRITE_SUCCESS_SCHEMA` and `GoogleWriteSuccess` add the strict write
+success union to the Google tool contracts. `GoogleToolResult` and each write
+entry in `GOOGLE_RESULT_SCHEMAS` accept its matching success receipt as defined
+in [write results](wire.md#google-write-results-and-admission-additive-4211).
+The prepared-write test factories are not public exports or configuration.
+`GOOGLE_APPROVAL_CARD_BYTES` (256,000) is the most UTF-8 bytes a mail
+approval card's JSON may take; the host refuses a larger card before showing
+it, so replication never shrinks an approval.

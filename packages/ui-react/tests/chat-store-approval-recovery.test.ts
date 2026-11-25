@@ -1,3 +1,4 @@
+import { offersAlwaysAllow } from "../src/stores/chat-state.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ServerMessage, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore } from "../src/stores/chat-store";
@@ -111,4 +112,13 @@ describe("replayed turn ids", () => {
     ]);
     expect(messages().map((m) => m.turnId)).toEqual([undefined, "turn-1", undefined]);
   });
+});
+
+
+test("google cards never offer the generic always control", () => {
+  for (const approvalRememberable of [undefined, false] as const) {
+    expect(offersAlwaysAllow({ approvalKind: "google", approvalRememberable })).toBe(false);
+  }
+  expect(offersAlwaysAllow({ approvalKind: "actor", approvalRememberable: undefined })).toBe(true);
+  expect(offersAlwaysAllow({ approvalKind: "tool", approvalRememberable: undefined })).toBe(true);
 });

@@ -37,7 +37,12 @@ hash directly. Missing/expired raw details never grant a download bypass.
 `createBrainApi` adds `turnJournal(sessionId, turnId, signal?)`,
 `turnJournalPreview(sessionId, turnId, sequence, signal?)`. Reader download
 links use the embedding root's configured API base.
-Those read helpers do not execute mutations.
+Those read helpers do not execute mutations. Additively (#4211), journal
+`outwardActions` accepts `google_write` with irreversible Google metadata;
+optional `googleActions` contains reversible admission receipts, bounded by
+`googleActionsTruncated`. Both lists have a 1,000-row bound and imply neither
+completion nor undo. [The wire contract](wire.md#google-action-receipts-additive-4211)
+defines their fields.
 
 <a id="untrusted-file-marks-additive-2673"></a>
 
@@ -459,6 +464,15 @@ order. Each event is `{ id, sessionId, turnId, at, kind, schemaVersion, actor,
 model, profile, payload }`. The [HTTP specification](../http-api.md#governance-events-additive-1651)
 holds the parameters, the errors, the attribution values and every kind's
 payload fields.
+
+Additively (#4211), version 1 `outward_action` accepts `google_write`, requiring
+strict irreversible Google metadata. New version 1 `google_reversible_action`
+records reversible decisions and their inverse reference. `google_call` gains
+optional `callId`, `effect`, `target`, `decision`, `admission` and
+`decisionEventId` metadata. The separate audit remains best-effort and is
+never safety evidence; neither are Google action receipts. Only the decision
+and inverse commit is required before dispatch. No mail body, snapshot or
+serialized message belongs in these governance payloads.
 
 The additive `egress_connection` kind records the concrete turn proxy's host,
 port, visible HTTP method/path, bytes, accounting scope, duration and outcome.

@@ -228,6 +228,30 @@ describe("the SDK options a turn is built with", () => {
     } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
   });
 
+  test("google write MCP forwarding preserves the success envelope and one host call", async () => {
+    const brain = mkdtempSync(join(tmpdir(), "google-write-forward-"));
+    let finish: (() => Promise<void>) | undefined;
+    try {
+      const calls: unknown[] = [];
+      const receipt = { ok: true, tool: "brain_google_gmail_modify", operation: "gmail.modify", effect: "reversible", admission: "card",
+        result: { message_ids: ["19a0c3d2e4f50601"], add_label_ids: [], remove_label_ids: ["INBOX"] } };
+      const turn = turnFor(brain, { google: async (call: unknown) => { calls.push(call); return receipt; } }, false, undefined, undefined);
+      finish = turn.finishWorker;
+      const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+      const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "google-write", version: "0.1.0" }, {});
+      await (turn.options.mcpServers!["brain-ui"] as { instance: { connect(t: unknown): Promise<void> } }).instance.connect(serverTransport);
+      await client.connect(clientTransport);
+      const input = { message_ids: ["19a0c3d2e4f50601"], remove_label_ids: ["INBOX"] };
+      const answer = await client.callTool({ name: receipt.tool, arguments: input }) as { isError?: boolean; content: { text: string }[] };
+      expect(calls, "GOOGLE_CLAUDE_ONE_HOST_WRITE").toEqual([{ tool: receipt.tool, input }]);
+      expect(answer.isError).not.toBe(true);
+      expect(JSON.parse(answer.content[0]!.text)).toEqual(receipt);
+      await client.close();
+    } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
+  });
+
   test("a no-grant turn retains the form schema while withholding authority", async () => {
     const brain = mkdtempSync(join(tmpdir(), "sdk-options-form-"));
     try {

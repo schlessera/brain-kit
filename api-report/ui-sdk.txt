@@ -254,6 +254,7 @@ export "." (./src/index.ts)
   type InboxThread
   type InboxView
   type InboxWorkPayload
+  type JournalGoogleAction
   type JournalObservationReference
   type JournalOutwardAction
   type JournalRecoveryStatus
@@ -890,13 +891,17 @@ export "./client" (./src/client/index.ts)
   GMAIL_TRASH_INPUT
   GMAIL_UNTRUSTED_MESSAGE_SCHEMA
   GMAIL_WRITE_TOOL_NAMES
+  GOOGLE_APPROVAL_CARD_BYTES
+  GOOGLE_APPROVAL_MESSAGE_SCHEMA
   GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA
   GOOGLE_ERROR_CODES
   GOOGLE_ERROR_SCHEMA
+  GOOGLE_MAIL_APPROVAL_SCHEMA
   GOOGLE_RESULT_SCHEMAS
   GOOGLE_TOOL_CONTRACTS
   GOOGLE_TOOL_NAMES
   GOOGLE_VIEWS
+  GOOGLE_WRITE_SUCCESS_SCHEMA
   type GeoCoords
   type GeoRequestOptions
   type GetCurrentLocationInput
@@ -952,12 +957,15 @@ export "./client" (./src/client/index.ts)
   type GmailToolName
   type GmailTrashInput
   type GmailWriteToolName
+  type GoogleApprovalMessage
   type GoogleErrorCode
+  type GoogleMailApproval
   type GoogleToolCall
   type GoogleToolError
   type GoogleToolName
   type GoogleToolResult
   type GoogleView
+  type GoogleWriteSuccess
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -1025,6 +1033,7 @@ export "./client" (./src/client/index.ts)
   type InboxThread
   type InboxView
   type InboxWorkPayload
+  type JournalGoogleAction
   type JournalObservationReference
   type JournalOutwardAction
   type JournalRecoveryStatus
@@ -1967,6 +1976,7 @@ export "./protocol" (./src/protocol.ts)
   type InboxThread
   type InboxView
   type InboxWorkPayload
+  type JournalGoogleAction
   type JournalObservationReference
   type JournalOutwardAction
   type JournalRecoveryStatus
@@ -2877,13 +2887,17 @@ export "./server" (./src/server/index.ts)
   GMAIL_TRASH_INPUT
   GMAIL_UNTRUSTED_MESSAGE_SCHEMA
   GMAIL_WRITE_TOOL_NAMES
+  GOOGLE_APPROVAL_CARD_BYTES
+  GOOGLE_APPROVAL_MESSAGE_SCHEMA
   GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA
   GOOGLE_ERROR_CODES
   GOOGLE_ERROR_SCHEMA
+  GOOGLE_MAIL_APPROVAL_SCHEMA
   GOOGLE_RESULT_SCHEMAS
   GOOGLE_TOOL_CONTRACTS
   GOOGLE_TOOL_NAMES
   GOOGLE_VIEWS
+  GOOGLE_WRITE_SUCCESS_SCHEMA
   type GeoConfig
   type GeoConfigInput
   type GeoCoords
@@ -2941,12 +2955,16 @@ export "./server" (./src/server/index.ts)
   type GmailToolName
   type GmailTrashInput
   type GmailWriteToolName
+  type GoogleApprovalMessage
   type GoogleErrorCode
+  type GoogleMailApproval
+  type GooglePermissionRequest
   type GoogleToolCall
   type GoogleToolError
   type GoogleToolName
   type GoogleToolResult
   type GoogleView
+  type GoogleWriteSuccess
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -3018,6 +3036,7 @@ export "./server" (./src/server/index.ts)
   type InboxToolName
   type InboxView
   type InboxWorkPayload
+  type JournalGoogleAction
   type JournalObservationReference
   type JournalOutwardAction
   type JournalRecoveryStatus
@@ -3738,13 +3757,17 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   GMAIL_TRASH_INPUT
   GMAIL_UNTRUSTED_MESSAGE_SCHEMA
   GMAIL_WRITE_TOOL_NAMES
+  GOOGLE_APPROVAL_CARD_BYTES
+  GOOGLE_APPROVAL_MESSAGE_SCHEMA
   GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA
   GOOGLE_ERROR_CODES
   GOOGLE_ERROR_SCHEMA
+  GOOGLE_MAIL_APPROVAL_SCHEMA
   GOOGLE_RESULT_SCHEMAS
   GOOGLE_TOOL_CONTRACTS
   GOOGLE_TOOL_NAMES
   GOOGLE_VIEWS
+  GOOGLE_WRITE_SUCCESS_SCHEMA
   type GetCurrentLocationInput
   type GetSearchContentInput
   type GithubAuthor
@@ -3797,12 +3820,15 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type GmailToolName
   type GmailTrashInput
   type GmailWriteToolName
+  type GoogleApprovalMessage
   type GoogleErrorCode
+  type GoogleMailApproval
   type GoogleToolCall
   type GoogleToolError
   type GoogleToolName
   type GoogleToolResult
   type GoogleView
+  type GoogleWriteSuccess
   IMAGE_MARKUP_PAYLOAD_SCHEMA
   IMAGE_MASK_PAYLOAD_SCHEMA
   INBOX_ADD_CONTRACT
@@ -6680,7 +6706,7 @@ signatures (every public export and the types it is made of)
     } | {
         kind: "permission_denied";
         toolUseId: string;
-        requestKind: "tool" | "command" | "policy" | "actor";
+        requestKind: "tool" | "command" | "policy" | "actor" | "google";
         reason: string;
     } | {
         kind: "outward_classification";
@@ -7685,6 +7711,7 @@ signatures (every public export and the types it is made of)
         toolUseId: string;
         updatedInput?: Record<string, unknown>;
         always?: boolean;
+        forSession?: boolean;
         channel?: ApprovalChannel;
         turnId?: string;
     }
@@ -10328,6 +10355,8 @@ signatures (every public export and the types it is made of)
         remove_label_ids: z.ZodOptional<z.ZodArray<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>>;
         thread_ids: z.ZodOptional<z.ZodArray<z.ZodString>>;
     }, z.core.$strict>;
+  GMAIL_RAW_DRAFT_PROBLEMS (packages/common/src/google/mime.ts)
+    const GMAIL_RAW_DRAFT_PROBLEMS: readonly ["too_large", "bare_cr", "header_syntax", "header_encoding", "header_control_character", "duplicate_header", "unshown_address_header", "address_syntax", "from_not_single", "encoded_word", "message_id_syntax", "content_type", "content_disposition", "extended_parameter", "body_parameter", "transfer_encoding", "charset", "body_control_character", "multipart_subtype", "multipart_structure", "too_deep", "too_many_parts"];
   GMAIL_READ_CONTRACT (packages/ui-sdk/src/tool-contracts/google.ts)
     const GMAIL_READ_CONTRACT: ToolContract<"brain_google_gmail_read", z.ZodObject<{
         id: z.ZodOptional<z.ZodString>;
@@ -11092,6 +11121,47 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   GMAIL_WRITE_TOOL_NAMES (packages/ui-sdk/src/tool-contracts/google.ts)
     const GMAIL_WRITE_TOOL_NAMES: readonly GmailWriteToolName[];
+  GOOGLE_APPROVAL_CARD_BYTES (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GOOGLE_APPROVAL_CARD_BYTES: 256000;
+  GOOGLE_APPROVAL_MESSAGE_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GOOGLE_APPROVAL_MESSAGE_SCHEMA: z.ZodObject<{
+        bcc: z.ZodArray<z.ZodObject<{
+            address: z.ZodString;
+            display_name: z.ZodNullable<z.ZodString>;
+            domain: z.ZodString;
+            local: z.ZodString;
+        }, z.core.$strict>>;
+        body_text: z.ZodString;
+        bytes: z.ZodNumber;
+        cc: z.ZodArray<z.ZodObject<{
+            address: z.ZodString;
+            display_name: z.ZodNullable<z.ZodString>;
+            domain: z.ZodString;
+            local: z.ZodString;
+        }, z.core.$strict>>;
+        digest: z.ZodString;
+        from: z.ZodObject<{
+            address: z.ZodString;
+            display_name: z.ZodNullable<z.ZodString>;
+            domain: z.ZodString;
+            local: z.ZodString;
+        }, z.core.$strict>;
+        in_reply_to: z.ZodArray<z.ZodString>;
+        references: z.ZodArray<z.ZodString>;
+        reply_to: z.ZodArray<z.ZodObject<{
+            address: z.ZodString;
+            display_name: z.ZodNullable<z.ZodString>;
+            domain: z.ZodString;
+            local: z.ZodString;
+        }, z.core.$strict>>;
+        subject: z.ZodNullable<z.ZodString>;
+        to: z.ZodArray<z.ZodObject<{
+            address: z.ZodString;
+            display_name: z.ZodNullable<z.ZodString>;
+            domain: z.ZodString;
+            local: z.ZodString;
+        }, z.core.$strict>>;
+    }, z.core.$strict>;
   GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
     const GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA: z.ZodObject<{
         error: z.ZodObject<{
@@ -11136,9 +11206,259 @@ signatures (every public export and the types it is made of)
         message: z.ZodString;
         reason: z.ZodNullable<z.ZodString>;
     }, z.core.$strict>;
+  GOOGLE_MAIL_APPROVAL_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GOOGLE_MAIL_APPROVAL_SCHEMA: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        effect: z.ZodEnum<{
+            irreversible: "irreversible";
+            reversible: "reversible";
+        }>;
+        entities: z.ZodArray<z.ZodString>;
+        offers: z.ZodObject<{
+            allow_always: z.ZodBoolean;
+            allow_for_session: z.ZodBoolean;
+        }, z.core.$strict>;
+        operation: z.ZodLiteral<"gmail.modify">;
+        payload: z.ZodObject<{
+            add_label_ids: z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                BLUE_INFO: "BLUE_INFO";
+                BLUE_STAR: "BLUE_STAR";
+                CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                CHAT: "CHAT";
+                DRAFT: "DRAFT";
+                GREEN_CHECK: "GREEN_CHECK";
+                GREEN_CIRCLE: "GREEN_CIRCLE";
+                GREEN_STAR: "GREEN_STAR";
+                IMPORTANT: "IMPORTANT";
+                INBOX: "INBOX";
+                ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                ORANGE_STAR: "ORANGE_STAR";
+                PURPLE_QUESTION: "PURPLE_QUESTION";
+                PURPLE_STAR: "PURPLE_STAR";
+                RED_BANG: "RED_BANG";
+                RED_CIRCLE: "RED_CIRCLE";
+                RED_STAR: "RED_STAR";
+                SENT: "SENT";
+                SPAM: "SPAM";
+                STARRED: "STARRED";
+                TRASH: "TRASH";
+                UNREAD: "UNREAD";
+                YELLOW_BANG: "YELLOW_BANG";
+                YELLOW_STAR: "YELLOW_STAR";
+            }>]>>;
+            message_ids: z.ZodArray<z.ZodString>;
+            remove_label_ids: z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                BLUE_INFO: "BLUE_INFO";
+                BLUE_STAR: "BLUE_STAR";
+                CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                CHAT: "CHAT";
+                DRAFT: "DRAFT";
+                GREEN_CHECK: "GREEN_CHECK";
+                GREEN_CIRCLE: "GREEN_CIRCLE";
+                GREEN_STAR: "GREEN_STAR";
+                IMPORTANT: "IMPORTANT";
+                INBOX: "INBOX";
+                ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                ORANGE_STAR: "ORANGE_STAR";
+                PURPLE_QUESTION: "PURPLE_QUESTION";
+                PURPLE_STAR: "PURPLE_STAR";
+                RED_BANG: "RED_BANG";
+                RED_CIRCLE: "RED_CIRCLE";
+                RED_STAR: "RED_STAR";
+                SENT: "SENT";
+                SPAM: "SPAM";
+                STARRED: "STARRED";
+                TRASH: "TRASH";
+                UNREAD: "UNREAD";
+                YELLOW_BANG: "YELLOW_BANG";
+                YELLOW_STAR: "YELLOW_STAR";
+            }>]>>;
+        }, z.core.$strict>;
+        tainted: z.ZodBoolean;
+    }, z.core.$strict>, z.ZodObject<{
+        effect: z.ZodLiteral<"irreversible">;
+        entities: z.ZodArray<z.ZodString>;
+        offers: z.ZodObject<{
+            allow_always: z.ZodBoolean;
+            allow_for_session: z.ZodBoolean;
+        }, z.core.$strict>;
+        operation: z.ZodLiteral<"gmail.trash">;
+        payload: z.ZodObject<{
+            message_ids: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>;
+        tainted: z.ZodBoolean;
+    }, z.core.$strict>, z.ZodObject<{
+        effect: z.ZodEnum<{
+            irreversible: "irreversible";
+            reversible: "reversible";
+        }>;
+        entities: z.ZodArray<z.ZodString>;
+        offers: z.ZodObject<{
+            allow_always: z.ZodBoolean;
+            allow_for_session: z.ZodBoolean;
+        }, z.core.$strict>;
+        operation: z.ZodLiteral<"gmail.draft.save">;
+        payload: z.ZodObject<{
+            action: z.ZodEnum<{
+                create: "create";
+                reply: "reply";
+                update: "update";
+            }>;
+            draft_id: z.ZodNullable<z.ZodString>;
+            message: z.ZodObject<{
+                bcc: z.ZodArray<z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>>;
+                body_text: z.ZodString;
+                bytes: z.ZodNumber;
+                cc: z.ZodArray<z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>>;
+                digest: z.ZodString;
+                from: z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>;
+                in_reply_to: z.ZodArray<z.ZodString>;
+                references: z.ZodArray<z.ZodString>;
+                reply_to: z.ZodArray<z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>>;
+                subject: z.ZodNullable<z.ZodString>;
+                to: z.ZodArray<z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>>;
+            }, z.core.$strict>;
+            thread_id: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        tainted: z.ZodBoolean;
+    }, z.core.$strict>, z.ZodObject<{
+        effect: z.ZodLiteral<"irreversible">;
+        entities: z.ZodArray<z.ZodString>;
+        offers: z.ZodObject<{
+            allow_always: z.ZodBoolean;
+            allow_for_session: z.ZodBoolean;
+        }, z.core.$strict>;
+        operation: z.ZodLiteral<"gmail.draft.delete">;
+        payload: z.ZodObject<{
+            digest: z.ZodString;
+            draft_id: z.ZodString;
+        }, z.core.$strict>;
+        tainted: z.ZodBoolean;
+    }, z.core.$strict>, z.ZodObject<{
+        effect: z.ZodLiteral<"irreversible">;
+        entities: z.ZodArray<z.ZodString>;
+        offers: z.ZodObject<{
+            allow_always: z.ZodBoolean;
+            allow_for_session: z.ZodBoolean;
+        }, z.core.$strict>;
+        operation: z.ZodLiteral<"gmail.draft.send">;
+        payload: z.ZodObject<{
+            draft_id: z.ZodString;
+            message: z.ZodObject<{
+                bcc: z.ZodArray<z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>>;
+                body_text: z.ZodString;
+                bytes: z.ZodNumber;
+                cc: z.ZodArray<z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>>;
+                digest: z.ZodString;
+                from: z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>;
+                in_reply_to: z.ZodArray<z.ZodString>;
+                references: z.ZodArray<z.ZodString>;
+                reply_to: z.ZodArray<z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>>;
+                subject: z.ZodNullable<z.ZodString>;
+                to: z.ZodArray<z.ZodObject<{
+                    address: z.ZodString;
+                    display_name: z.ZodNullable<z.ZodString>;
+                    domain: z.ZodString;
+                    local: z.ZodString;
+                }, z.core.$strict>>;
+            }, z.core.$strict>;
+            send_as: z.ZodObject<{
+                address: z.ZodString;
+                display_name: z.ZodNullable<z.ZodString>;
+                domain: z.ZodString;
+                local: z.ZodString;
+            }, z.core.$strict>;
+            thread_id: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        tainted: z.ZodBoolean;
+    }, z.core.$strict>], "operation">;
   GOOGLE_RESULT_SCHEMAS (packages/ui-sdk/src/tool-contracts/google.ts)
     const GOOGLE_RESULT_SCHEMAS: {
-        readonly brain_google_gmail_draft: z.ZodObject<{
+        readonly brain_google_gmail_draft: z.ZodUnion<readonly [z.ZodObject<{
+            admission: z.ZodEnum<{
+                card: "card";
+                policy: "policy";
+                remembered_approval: "remembered_approval";
+                session_allowance: "session_allowance";
+            }>;
+            effect: z.ZodEnum<{
+                irreversible: "irreversible";
+                reversible: "reversible";
+            }>;
+            ok: z.ZodLiteral<true>;
+            operation: z.ZodLiteral<"gmail.draft.save">;
+            result: z.ZodObject<{
+                draft_id: z.ZodString;
+                fingerprint: z.ZodString;
+            }, z.core.$strict>;
+            tool: z.ZodLiteral<"brain_google_gmail_draft">;
+        }, z.core.$strict>, z.ZodObject<{
+            admission: z.ZodEnum<{
+                card: "card";
+                policy: "policy";
+                remembered_approval: "remembered_approval";
+                session_allowance: "session_allowance";
+            }>;
+            effect: z.ZodLiteral<"irreversible">;
+            ok: z.ZodLiteral<true>;
+            operation: z.ZodLiteral<"gmail.draft.delete">;
+            result: z.ZodObject<{
+                draft_id: z.ZodString;
+            }, z.core.$strict>;
+            tool: z.ZodLiteral<"brain_google_gmail_draft">;
+        }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
                     approval_declined: "approval_declined";
@@ -11167,8 +11487,85 @@ signatures (every public export and the types it is made of)
                 brain_google_gmail_send: "brain_google_gmail_send";
                 brain_google_gmail_trash: "brain_google_gmail_trash";
             }>;
-        }, z.core.$strict>;
-        readonly brain_google_gmail_modify: z.ZodObject<{
+        }, z.core.$strict>]>;
+        readonly brain_google_gmail_modify: z.ZodUnion<readonly [z.ZodObject<{
+            admission: z.ZodEnum<{
+                card: "card";
+                policy: "policy";
+                remembered_approval: "remembered_approval";
+                session_allowance: "session_allowance";
+            }>;
+            effect: z.ZodEnum<{
+                irreversible: "irreversible";
+                reversible: "reversible";
+            }>;
+            ok: z.ZodLiteral<true>;
+            operation: z.ZodLiteral<"gmail.modify">;
+            result: z.ZodObject<{
+                add_label_ids: z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>>;
+                message_ids: z.ZodArray<z.ZodString>;
+                remove_label_ids: z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                    BLUE_INFO: "BLUE_INFO";
+                    BLUE_STAR: "BLUE_STAR";
+                    CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                    CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                    CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                    CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                    CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                    CHAT: "CHAT";
+                    DRAFT: "DRAFT";
+                    GREEN_CHECK: "GREEN_CHECK";
+                    GREEN_CIRCLE: "GREEN_CIRCLE";
+                    GREEN_STAR: "GREEN_STAR";
+                    IMPORTANT: "IMPORTANT";
+                    INBOX: "INBOX";
+                    ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                    ORANGE_STAR: "ORANGE_STAR";
+                    PURPLE_QUESTION: "PURPLE_QUESTION";
+                    PURPLE_STAR: "PURPLE_STAR";
+                    RED_BANG: "RED_BANG";
+                    RED_CIRCLE: "RED_CIRCLE";
+                    RED_STAR: "RED_STAR";
+                    SENT: "SENT";
+                    SPAM: "SPAM";
+                    STARRED: "STARRED";
+                    TRASH: "TRASH";
+                    UNREAD: "UNREAD";
+                    YELLOW_BANG: "YELLOW_BANG";
+                    YELLOW_STAR: "YELLOW_STAR";
+                }>]>>;
+            }, z.core.$strict>;
+            tool: z.ZodLiteral<"brain_google_gmail_modify">;
+        }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
                     approval_declined: "approval_declined";
@@ -11197,7 +11594,7 @@ signatures (every public export and the types it is made of)
                 brain_google_gmail_send: "brain_google_gmail_send";
                 brain_google_gmail_trash: "brain_google_gmail_trash";
             }>;
-        }, z.core.$strict>;
+        }, z.core.$strict>]>;
         readonly brain_google_gmail_read: z.ZodUnion<readonly [z.ZodObject<{
             ok: z.ZodLiteral<true>;
             result: z.ZodUnion<readonly [z.ZodObject<{
@@ -11787,7 +12184,23 @@ signatures (every public export and the types it is made of)
                 brain_google_gmail_trash: "brain_google_gmail_trash";
             }>;
         }, z.core.$strict>]>;
-        readonly brain_google_gmail_send: z.ZodObject<{
+        readonly brain_google_gmail_send: z.ZodUnion<readonly [z.ZodObject<{
+            admission: z.ZodEnum<{
+                card: "card";
+                policy: "policy";
+                remembered_approval: "remembered_approval";
+                session_allowance: "session_allowance";
+            }>;
+            effect: z.ZodLiteral<"irreversible">;
+            ok: z.ZodLiteral<true>;
+            operation: z.ZodLiteral<"gmail.draft.send">;
+            result: z.ZodObject<{
+                draft_id: z.ZodString;
+                message_id: z.ZodString;
+                thread_id: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            tool: z.ZodLiteral<"brain_google_gmail_send">;
+        }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
                     approval_declined: "approval_declined";
@@ -11816,8 +12229,22 @@ signatures (every public export and the types it is made of)
                 brain_google_gmail_send: "brain_google_gmail_send";
                 brain_google_gmail_trash: "brain_google_gmail_trash";
             }>;
-        }, z.core.$strict>;
-        readonly brain_google_gmail_trash: z.ZodObject<{
+        }, z.core.$strict>]>;
+        readonly brain_google_gmail_trash: z.ZodUnion<readonly [z.ZodObject<{
+            admission: z.ZodEnum<{
+                card: "card";
+                policy: "policy";
+                remembered_approval: "remembered_approval";
+                session_allowance: "session_allowance";
+            }>;
+            effect: z.ZodLiteral<"irreversible">;
+            ok: z.ZodLiteral<true>;
+            operation: z.ZodLiteral<"gmail.trash">;
+            result: z.ZodObject<{
+                message_ids: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>;
+            tool: z.ZodLiteral<"brain_google_gmail_trash">;
+        }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
                     approval_declined: "approval_declined";
@@ -11846,7 +12273,7 @@ signatures (every public export and the types it is made of)
                 brain_google_gmail_send: "brain_google_gmail_send";
                 brain_google_gmail_trash: "brain_google_gmail_trash";
             }>;
-        }, z.core.$strict>;
+        }, z.core.$strict>]>;
     };
   GOOGLE_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/google.ts)
     const GOOGLE_TOOL_CONTRACTS: readonly [ToolContract<"brain_google_gmail_search", z.ZodObject<{
@@ -11900,6 +12327,147 @@ signatures (every public export and the types it is made of)
     const GOOGLE_TOOL_NAMES: readonly GoogleToolName[];
   GOOGLE_VIEWS (packages/common/src/google/catalog.ts)
     const GOOGLE_VIEWS: readonly ["structured", "content"];
+  GOOGLE_WRITE_SUCCESS_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
+    const GOOGLE_WRITE_SUCCESS_SCHEMA: z.ZodUnion<readonly [z.ZodObject<{
+        admission: z.ZodEnum<{
+            card: "card";
+            policy: "policy";
+            remembered_approval: "remembered_approval";
+            session_allowance: "session_allowance";
+        }>;
+        effect: z.ZodEnum<{
+            irreversible: "irreversible";
+            reversible: "reversible";
+        }>;
+        ok: z.ZodLiteral<true>;
+        operation: z.ZodLiteral<"gmail.modify">;
+        result: z.ZodObject<{
+            add_label_ids: z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                BLUE_INFO: "BLUE_INFO";
+                BLUE_STAR: "BLUE_STAR";
+                CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                CHAT: "CHAT";
+                DRAFT: "DRAFT";
+                GREEN_CHECK: "GREEN_CHECK";
+                GREEN_CIRCLE: "GREEN_CIRCLE";
+                GREEN_STAR: "GREEN_STAR";
+                IMPORTANT: "IMPORTANT";
+                INBOX: "INBOX";
+                ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                ORANGE_STAR: "ORANGE_STAR";
+                PURPLE_QUESTION: "PURPLE_QUESTION";
+                PURPLE_STAR: "PURPLE_STAR";
+                RED_BANG: "RED_BANG";
+                RED_CIRCLE: "RED_CIRCLE";
+                RED_STAR: "RED_STAR";
+                SENT: "SENT";
+                SPAM: "SPAM";
+                STARRED: "STARRED";
+                TRASH: "TRASH";
+                UNREAD: "UNREAD";
+                YELLOW_BANG: "YELLOW_BANG";
+                YELLOW_STAR: "YELLOW_STAR";
+            }>]>>;
+            message_ids: z.ZodArray<z.ZodString>;
+            remove_label_ids: z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodEnum<{
+                BLUE_INFO: "BLUE_INFO";
+                BLUE_STAR: "BLUE_STAR";
+                CATEGORY_FORUMS: "CATEGORY_FORUMS";
+                CATEGORY_PERSONAL: "CATEGORY_PERSONAL";
+                CATEGORY_PROMOTIONS: "CATEGORY_PROMOTIONS";
+                CATEGORY_SOCIAL: "CATEGORY_SOCIAL";
+                CATEGORY_UPDATES: "CATEGORY_UPDATES";
+                CHAT: "CHAT";
+                DRAFT: "DRAFT";
+                GREEN_CHECK: "GREEN_CHECK";
+                GREEN_CIRCLE: "GREEN_CIRCLE";
+                GREEN_STAR: "GREEN_STAR";
+                IMPORTANT: "IMPORTANT";
+                INBOX: "INBOX";
+                ORANGE_GUILLEMET: "ORANGE_GUILLEMET";
+                ORANGE_STAR: "ORANGE_STAR";
+                PURPLE_QUESTION: "PURPLE_QUESTION";
+                PURPLE_STAR: "PURPLE_STAR";
+                RED_BANG: "RED_BANG";
+                RED_CIRCLE: "RED_CIRCLE";
+                RED_STAR: "RED_STAR";
+                SENT: "SENT";
+                SPAM: "SPAM";
+                STARRED: "STARRED";
+                TRASH: "TRASH";
+                UNREAD: "UNREAD";
+                YELLOW_BANG: "YELLOW_BANG";
+                YELLOW_STAR: "YELLOW_STAR";
+            }>]>>;
+        }, z.core.$strict>;
+        tool: z.ZodLiteral<"brain_google_gmail_modify">;
+    }, z.core.$strict>, z.ZodObject<{
+        admission: z.ZodEnum<{
+            card: "card";
+            policy: "policy";
+            remembered_approval: "remembered_approval";
+            session_allowance: "session_allowance";
+        }>;
+        effect: z.ZodLiteral<"irreversible">;
+        ok: z.ZodLiteral<true>;
+        operation: z.ZodLiteral<"gmail.trash">;
+        result: z.ZodObject<{
+            message_ids: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>;
+        tool: z.ZodLiteral<"brain_google_gmail_trash">;
+    }, z.core.$strict>, z.ZodObject<{
+        admission: z.ZodEnum<{
+            card: "card";
+            policy: "policy";
+            remembered_approval: "remembered_approval";
+            session_allowance: "session_allowance";
+        }>;
+        effect: z.ZodEnum<{
+            irreversible: "irreversible";
+            reversible: "reversible";
+        }>;
+        ok: z.ZodLiteral<true>;
+        operation: z.ZodLiteral<"gmail.draft.save">;
+        result: z.ZodObject<{
+            draft_id: z.ZodString;
+            fingerprint: z.ZodString;
+        }, z.core.$strict>;
+        tool: z.ZodLiteral<"brain_google_gmail_draft">;
+    }, z.core.$strict>, z.ZodObject<{
+        admission: z.ZodEnum<{
+            card: "card";
+            policy: "policy";
+            remembered_approval: "remembered_approval";
+            session_allowance: "session_allowance";
+        }>;
+        effect: z.ZodLiteral<"irreversible">;
+        ok: z.ZodLiteral<true>;
+        operation: z.ZodLiteral<"gmail.draft.delete">;
+        result: z.ZodObject<{
+            draft_id: z.ZodString;
+        }, z.core.$strict>;
+        tool: z.ZodLiteral<"brain_google_gmail_draft">;
+    }, z.core.$strict>, z.ZodObject<{
+        admission: z.ZodEnum<{
+            card: "card";
+            policy: "policy";
+            remembered_approval: "remembered_approval";
+            session_allowance: "session_allowance";
+        }>;
+        effect: z.ZodLiteral<"irreversible">;
+        ok: z.ZodLiteral<true>;
+        operation: z.ZodLiteral<"gmail.draft.send">;
+        result: z.ZodObject<{
+            draft_id: z.ZodString;
+            message_id: z.ZodString;
+            thread_id: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        tool: z.ZodLiteral<"brain_google_gmail_send">;
+    }, z.core.$strict>]>;
   GeoConfig (packages/geo/src/config.ts) recorded in api-report/geo.txt
   GeoConfigInput (packages/geo/src/config.ts) recorded in api-report/geo.txt
   GeoCoords (packages/ui-sdk/src/protocol.ts)
@@ -12062,6 +12630,27 @@ signatures (every public export and the types it is made of)
     export type GmailMessageBody = z.infer<typeof GMAIL_MESSAGE_BODY_SCHEMA>;
   GmailModifyInput (packages/common/src/google/catalog.ts)
     export type GmailModifyInput = z.infer<typeof GMAIL_MODIFY_INPUT>;
+  GmailRawDraft (packages/common/src/google/mime.ts)
+    export interface GmailRawDraft {
+        digest: string;
+        bytes: number;
+        from: GoogleMailbox | null;
+        to: GoogleMailbox[];
+        cc: GoogleMailbox[];
+        bcc: GoogleMailbox[];
+        reply_to: GoogleMailbox[];
+        subject: string | null;
+        in_reply_to: string[];
+        references: string[];
+        body_text: string | null;
+        html_part: boolean;
+        attachment: boolean;
+        unreadable_headers: boolean;
+        unreadable_body: boolean;
+        problems: GmailRawDraftProblem[];
+    }
+  GmailRawDraftProblem (packages/common/src/google/mime.ts)
+    export type GmailRawDraftProblem = typeof GMAIL_RAW_DRAFT_PROBLEMS[number];
   GmailReadInput (packages/common/src/google/catalog.ts)
     export type GmailReadInput = z.infer<typeof GMAIL_READ_INPUT>;
   GmailReadPayload (packages/ui-sdk/src/tool-contracts/google.ts)
@@ -12084,8 +12673,24 @@ signatures (every public export and the types it is made of)
     export type GmailTrashInput = z.infer<typeof GMAIL_TRASH_INPUT>;
   GmailWriteToolName (packages/ui-sdk/src/tool-contracts/google.ts)
     export type GmailWriteToolName = Exclude<GmailToolName, GmailReadToolName>;
+  GoogleApprovalMessage (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GoogleApprovalMessage = Pick<GmailRawDraft, "digest" | "bytes" | "from" | "to" | "cc" | "bcc" | "reply_to" | "subject" | "in_reply_to" | "references" | "body_text">;
   GoogleErrorCode (packages/common/src/google/catalog.ts)
     export type GoogleErrorCode = typeof GOOGLE_ERROR_CODES[number];
+  GoogleMailApproval (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GoogleMailApproval = z.infer<typeof GOOGLE_MAIL_APPROVAL_SCHEMA>;
+  GoogleMailbox (packages/common/src/google/address.ts)
+    export interface GoogleMailbox {
+        address: string;
+        local: string;
+        domain: string;
+        display_name: string | null;
+    }
+  GooglePermissionRequest (packages/ui-sdk/src/server/backend.ts)
+    export type GooglePermissionRequest = Omit<PermissionRequest, "kind" | "input"> & {
+        kind: "google";
+        input: import("../tool-contracts/google.js").GoogleMailApproval;
+    };
   GoogleToolCall (packages/ui-sdk/src/tool-contracts/google.ts)
     export type GoogleToolCall = {
         tool: typeof GMAIL_TOOL_NAMES.search;
@@ -12119,7 +12724,7 @@ signatures (every public export and the types it is made of)
         ok: true;
         tool: typeof GMAIL_TOOL_NAMES.read;
         result: GmailReadPayload;
-    } | {
+    } | GoogleWriteSuccess | {
         ok: false;
         tool: GmailToolName;
         error: GoogleToolError;
@@ -12135,6 +12740,8 @@ signatures (every public export and the types it is made of)
     }
   GoogleView (packages/common/src/google/catalog.ts)
     export type GoogleView = typeof GOOGLE_VIEWS[number];
+  GoogleWriteSuccess (packages/ui-sdk/src/tool-contracts/google.ts)
+    export type GoogleWriteSuccess = z.infer<typeof GOOGLE_WRITE_SUCCESS_SCHEMA>;
   GovernedStatus (packages/ui-sdk/src/protocol.ts)
     export type GovernedStatus = {
         hostExecution: "worker" | "host";
@@ -12803,6 +13410,21 @@ signatures (every public export and the types it is made of)
         instruction: string;
         operation?: InboxOperation;
     }
+  JournalGoogleAction (packages/ui-sdk/src/turn-journal.ts)
+    export interface JournalGoogleAction {
+        id: number;
+        at: number;
+        callId: string;
+        tool: string;
+        operation: string;
+        effect: "reversible";
+        target: string | null;
+        tainted: boolean;
+        decision: "allowed" | "approved" | "declined" | "refused";
+        admission: "policy" | "remembered_approval" | "session_allowance" | null;
+        revertible: false;
+        undoAvailable: false;
+    }
   JournalObservationReference (packages/ui-sdk/src/turn-journal.ts)
     export interface JournalObservationReference {
         turnId: string;
@@ -12811,10 +13433,15 @@ signatures (every public export and the types it is made of)
     }
   JournalOutwardAction (packages/ui-sdk/src/turn-journal.ts)
     export interface JournalOutwardAction {
+        google?: {
+            callId: string;
+            operation: string;
+            effect: "irreversible";
+        };
         id: number;
         at: number;
         tool: string;
-        action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect" | "compute_run";
+        action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect" | "compute_run" | "google_write";
         target: string | null;
         decision: "policy_allowed" | "approved" | "declined" | "refused";
         historyRewrite: boolean;
@@ -13410,6 +14037,7 @@ signatures (every public export and the types it is made of)
         behavior: "allow";
         updatedInput?: Record<string, unknown>;
         always?: boolean;
+        forSession?: boolean;
     } | {
         behavior: "deny";
         message: string;
@@ -13429,7 +14057,7 @@ signatures (every public export and the types it is made of)
         toolName: string;
         input: Record<string, unknown>;
         description?: string;
-        kind?: "tool" | "command" | "policy" | "actor";
+        kind?: "tool" | "command" | "policy" | "actor" | "google";
         outsideEnforcedAllowlist?: boolean;
         display?: import("../protocol.js").ApprovalDisplay;
     }
@@ -15938,7 +16566,7 @@ signatures (every public export and the types it is made of)
         toolName: string;
         input: Record<string, unknown>;
         description?: string;
-        kind?: "tool" | "command" | "policy" | "actor";
+        kind?: "tool" | "command" | "policy" | "actor" | "google";
         rememberable?: boolean;
         display?: ApprovalDisplay;
     }
@@ -17157,6 +17785,8 @@ signatures (every public export and the types it is made of)
             path: string;
             reason: string;
         }[];
+        googleActions?: JournalGoogleAction[];
+        googleActionsTruncated?: boolean;
         outwardActions?: JournalOutwardAction[];
         outwardActionsTruncated?: boolean;
     }
@@ -18267,6 +18897,7 @@ signatures (every public export and the types it is made of)
             card: "card";
             voice: "voice";
         }>>;
+        forSession: z.ZodOptional<z.ZodBoolean>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_approval">;
@@ -18658,6 +19289,7 @@ signatures (every public export and the types it is made of)
             card: "card";
             voice: "voice";
         }>>;
+        forSession: z.ZodOptional<z.ZodBoolean>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_approval">;
@@ -26718,6 +27350,7 @@ signatures (every public export and the types it is made of)
         kind: z.ZodOptional<z.ZodEnum<{
             actor: "actor";
             command: "command";
+            google: "google";
             policy: "policy";
             tool: "tool";
         }>>;
@@ -31248,6 +31881,7 @@ signatures (every public export and the types it is made of)
         kind: z.ZodOptional<z.ZodEnum<{
             actor: "actor";
             command: "command";
+            google: "google";
             policy: "policy";
             tool: "tool";
         }>>;

@@ -1,3 +1,4 @@
+import { GOOGLE_OPERATIONS } from "@schlessera/brain-common/internal/google-operations";
 import { safetyAdmissionSchema } from "@schlessera/brain-ui-sdk/internal";
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
@@ -22,6 +23,10 @@ import { redactCredentials } from "../activity/runtime-status.js";
 
 const path = z.string().min(1).max(4096);
 const text = z.string().max(2000);
+const googleOperation = z.enum(GOOGLE_OPERATIONS);
+const googleCallId = z.string().min(1).max(128);
+const googleAdmission = z.enum(["policy", "remembered_approval", "session_allowance"]).nullable();
+const googleDecision = z.enum(["allowed", "approved", "declined", "refused"]);
 const count = z.number().int().nonnegative();
 const amount = z.number().finite().nonnegative();
 /** Tool input as recorded: emitters cap it and say so, never a silent cut. */
@@ -213,12 +218,27 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   outward_action: kind(1, z.strictObject({
     ...toolInput,
     // `compute_run` (additive, #3108): a hosted external compute job start, its target the instance.
-    action: z.enum(["git_push", "gh_write", "mcp_tool", "http_write", "outward_host_connect", "compute_run"]),
+    action: z.enum(["git_push", "gh_write", "mcp_tool", "http_write", "outward_host_connect", "compute_run", "google_write"]),
     target: text.nullable(),
     historyRewrite: z.boolean(),
     tainted: z.boolean(),
     decision: z.enum(["policy_allowed", "approved", "declined", "refused"]),
     rule: policyRule(["outward.allow"]).nullable(),
+    google: z.strictObject({ callId: googleCallId, operation: googleOperation, effect: z.literal("irreversible") }).optional(),
+  }).superRefine((value, ctx) => {
+    if (value.action === "google_write" && (!value.google || value.decision === "policy_allowed" || value.historyRewrite || value.inputTruncated || value.rule !== null)) {
+      ctx.addIssue({ code: "custom", message: "Google outward decisions require irreversible metadata and per-use admission" });
+    }
+  })),
+  /** Admission receipt only; snapshots live in session-owned Google storage. */
+  google_reversible_action: kind(1, z.strictObject({
+    callId: googleCallId, tool: z.string().min(1).max(200), operation: googleOperation,
+    effect: z.literal("reversible"), target: text.nullable(), tainted: z.boolean(),
+    decision: googleDecision, admission: googleAdmission, inverseId: googleCallId.nullable(),
+  }).superRefine((value, ctx) => {
+    const admitted = value.decision === "allowed" || value.decision === "approved";
+    if (admitted !== (value.inverseId !== null)) ctx.addIssue({ code: "custom", path: ["inverseId"], message: "admitted reversible calls require an inverse; refusals have none" });
+    if ((value.decision === "allowed") !== (value.admission !== null)) ctx.addIssue({ code: "custom", path: ["admission"], message: "only card-less allowed decisions require standing admission" });
   })),
   /** Every independently observed untrusted-input occurrence. */
   taint: kind(1, z.strictObject({
@@ -252,6 +272,9 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     outcome: z.enum(["returned", "refused"]),
     code: z.string().regex(/^[a-z_]{1,64}$/).nullable(),
     reason: z.string().max(64).nullable(),
+    callId: googleCallId.optional(), effect: z.enum(["read", "reversible", "irreversible"]).optional(),
+    target: text.nullable().optional(), decision: googleDecision.optional(), admission: googleAdmission.optional(),
+    decisionEventId: count.nullable().optional(),
   })),
   /** A provider a worker command needed but could not reach without a key (#1666). */
   provider_unavailable: kind(1, z.strictObject({

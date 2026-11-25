@@ -88,3 +88,19 @@ test("a call forwards the parsed input only, and a refusal is a tool error", asy
   expect(String(error), "PI_GOOGLE_REFUSAL_IS_TOOL_ERROR").toContain("not_enabled");
   expect(calls, "PI_GOOGLE_FORWARDS_PARSED_INPUT").toEqual([{ tool: "brain_google_gmail_search", input: { query: "from:penelope", view: "content" } }]);
 });
+
+test("google write forwarding returns the bounded receipt without a second runtime card", async () => {
+  const turn = createTurnContext(), calls: unknown[] = [];
+  let cards = 0;
+  const result = { ok: true, tool: "brain_google_gmail_modify", operation: "gmail.modify", effect: "reversible", admission: "card",
+    result: { message_ids: ["19a0c3d2e4f50601"], add_label_ids: [], remove_label_ids: ["INBOX"] } };
+  turn.bridge = { emit() {}, requestPermission: async () => { cards++; return { behavior: "allow" }; },
+    google: async (call: unknown) => { calls.push(call); return result; } } as never;
+  const tool = createPiBridgeTools({ brainPath: "/tmp/odysseus", turn, capabilities: { google: true } as never }).find(tool => tool.name === result.tool)!;
+  const input = { message_ids: ["19a0c3d2e4f50601"], remove_label_ids: ["INBOX"] };
+  expect(await decidePiToolPermission({ turn, allowedTools: new Set(DEFAULT_PI_ALLOWED_TOOLS), confirmPatterns: [] }, tool.name, input, "google-modify")).toMatchObject({ behavior: "allow" });
+  const answer = await tool.execute("google-modify", input, new AbortController().signal, undefined, undefined as never);
+  expect(calls).toEqual([{ tool: result.tool, input }]);
+  expect(JSON.parse((answer.content[0] as { text: string }).text)).toEqual(result);
+  expect(cards, "GOOGLE_PI_NO_SECOND_CARD").toBe(0);
+});

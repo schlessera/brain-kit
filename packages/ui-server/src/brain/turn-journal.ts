@@ -4,7 +4,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
-import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
+import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalGoogleAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
 import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
 import { JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
@@ -859,8 +859,16 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const outward = queryGovernanceEvents(db, { sessionId, turnId, kinds: ["outward_action"], limit: 1001 });
       const outwardActions: JournalOutwardAction[] = outward.slice(0, 1000).map(event => ({ id: event.id, at: event.at,
         tool: String(event.payload.tool), action: event.payload.action as JournalOutwardAction["action"], target: event.payload.target as string | null,
-        decision: event.payload.decision as JournalOutwardAction["decision"], historyRewrite: event.payload.historyRewrite === true, revertible: false }));
-      return { turnId, sessionId, summary: summary(turnId), changes, ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...JSON.parse(row.missing), ...(db.query("SELECT path FROM turn_journal_claude_memory WHERE turn_id=? AND state!='saved'").all(turnId) as {path:string}[]).filter(item => !(JSON.parse(row.missing) as {path:string}[]).some(missing => missing.path === item.path)).map(item => ({path:item.path,reason:"memory_persistence_unconfirmed"})), ...configurationOf(row).paths.map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };
+        decision: event.payload.decision as JournalOutwardAction["decision"], historyRewrite: event.payload.historyRewrite === true, revertible: false,
+        ...(event.payload.google ? { google: event.payload.google as JournalOutwardAction["google"] } : {}) }));
+      const google = queryGovernanceEvents(db, { sessionId, turnId, kinds: ["google_reversible_action"], limit: 1001 });
+      const googleActions: JournalGoogleAction[] = google.slice(0, 1000).map(event => ({
+        id: event.id, at: event.at, callId: String(event.payload.callId), tool: String(event.payload.tool),
+        operation: String(event.payload.operation), effect: "reversible", target: event.payload.target as string | null,
+        tainted: event.payload.tainted === true, decision: event.payload.decision as JournalGoogleAction["decision"],
+        admission: event.payload.admission as JournalGoogleAction["admission"], revertible: false, undoAvailable: false,
+      }));
+      return { turnId, sessionId, summary: summary(turnId), changes, ...(googleActions.length ? { googleActions, googleActionsTruncated: google.length > 1000 } : {}), ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...JSON.parse(row.missing), ...(db.query("SELECT path FROM turn_journal_claude_memory WHERE turn_id=? AND state!='saved'").all(turnId) as {path:string}[]).filter(item => !(JSON.parse(row.missing) as {path:string}[]).some(missing => missing.path === item.path)).map(item => ({path:item.path,reason:"memory_persistence_unconfirmed"})), ...configurationOf(row).paths.map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };
     },
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);

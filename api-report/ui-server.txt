@@ -737,18 +737,71 @@ signatures (every public export and the types it is made of)
         };
         readonly google_call: {
             payload: z.ZodObject<{
+                admission: z.ZodOptional<z.ZodNullable<z.ZodEnum<{
+                    policy: "policy";
+                    remembered_approval: "remembered_approval";
+                    session_allowance: "session_allowance";
+                }>>>;
+                callId: z.ZodOptional<z.ZodString>;
                 code: z.ZodNullable<z.ZodString>;
+                decision: z.ZodOptional<z.ZodEnum<{
+                    allowed: "allowed";
+                    approved: "approved";
+                    declined: "declined";
+                    refused: "refused";
+                }>>;
+                decisionEventId: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                effect: z.ZodOptional<z.ZodEnum<{
+                    irreversible: "irreversible";
+                    read: "read";
+                    reversible: "reversible";
+                }>>;
                 operation: z.ZodNullable<z.ZodString>;
                 outcome: z.ZodEnum<{
                     refused: "refused";
                     returned: "returned";
                 }>;
                 reason: z.ZodNullable<z.ZodString>;
+                target: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 tool: z.ZodString;
                 view: z.ZodNullable<z.ZodEnum<{
                     content: "content";
                     structured: "structured";
                 }>>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly google_reversible_action: {
+            payload: z.ZodObject<{
+                admission: z.ZodNullable<z.ZodEnum<{
+                    policy: "policy";
+                    remembered_approval: "remembered_approval";
+                    session_allowance: "session_allowance";
+                }>>;
+                callId: z.ZodString;
+                decision: z.ZodEnum<{
+                    allowed: "allowed";
+                    approved: "approved";
+                    declined: "declined";
+                    refused: "refused";
+                }>;
+                effect: z.ZodLiteral<"reversible">;
+                inverseId: z.ZodNullable<z.ZodString>;
+                operation: z.ZodEnum<{
+                    "gmail.draft.delete": "gmail.draft.delete";
+                    "gmail.draft.get": "gmail.draft.get";
+                    "gmail.draft.save": "gmail.draft.save";
+                    "gmail.draft.send": "gmail.draft.send";
+                    "gmail.labels.list": "gmail.labels.list";
+                    "gmail.message.get": "gmail.message.get";
+                    "gmail.modify": "gmail.modify";
+                    "gmail.search": "gmail.search";
+                    "gmail.thread.get": "gmail.thread.get";
+                    "gmail.trash": "gmail.trash";
+                }>;
+                tainted: z.ZodBoolean;
+                target: z.ZodNullable<z.ZodString>;
+                tool: z.ZodString;
             }, z.core.$strict>;
             version: number;
         };
@@ -758,6 +811,7 @@ signatures (every public export and the types it is made of)
                     compute_run: "compute_run";
                     gh_write: "gh_write";
                     git_push: "git_push";
+                    google_write: "google_write";
                     http_write: "http_write";
                     mcp_tool: "mcp_tool";
                     outward_host_connect: "outward_host_connect";
@@ -768,6 +822,22 @@ signatures (every public export and the types it is made of)
                     policy_allowed: "policy_allowed";
                     refused: "refused";
                 }>;
+                google: z.ZodOptional<z.ZodObject<{
+                    callId: z.ZodString;
+                    effect: z.ZodLiteral<"irreversible">;
+                    operation: z.ZodEnum<{
+                        "gmail.draft.delete": "gmail.draft.delete";
+                        "gmail.draft.get": "gmail.draft.get";
+                        "gmail.draft.save": "gmail.draft.save";
+                        "gmail.draft.send": "gmail.draft.send";
+                        "gmail.labels.list": "gmail.labels.list";
+                        "gmail.message.get": "gmail.message.get";
+                        "gmail.modify": "gmail.modify";
+                        "gmail.search": "gmail.search";
+                        "gmail.thread.get": "gmail.thread.get";
+                        "gmail.trash": "gmail.trash";
+                    }>;
+                }, z.core.$strict>>;
                 historyRewrite: z.ZodBoolean;
                 input: z.ZodString;
                 inputTruncated: z.ZodBoolean;

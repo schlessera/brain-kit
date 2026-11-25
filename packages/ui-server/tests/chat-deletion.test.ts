@@ -23,6 +23,7 @@ import { createDraftStore, DraftError } from "../src/drafts/store.js";
 import { createSessionCatalog, type SessionCatalog } from "../src/ws/session-catalog.js";
 import { ChatRetiredError, type RetiredChatIdentities } from "../src/ws/chat-lifecycle.js";
 import { createChatDeletion, type ChatDeletionDeps } from "../src/ws/chat-deletion.js";
+import { PROJECTION_TABLES } from "../src/ws/chat-store-cleanup.js";
 import { createChatDeletionRoutes } from "../src/routes/chat-deletions.js";
 import { createSessionRoutes } from "../src/routes/sessions.js";
 import { readLiveHistory } from "../src/ws/live-history.js";
@@ -459,5 +460,80 @@ test("a principal revoked during the read gets 401, never the receipt", async ()
     expect([response.status, JSON.parse(text)], "REVOKED_MID_READ").toEqual([401, { error: "Authentication required", authRequired: true }]);
     expect(text, "REVOKED_LEARNS_NOTHING").not.toContain("delete-voyage");
     expect(text, "REVOKED_LEARNS_NOTHING").not.toContain("removed");
+  } finally { await f.host.close(); }
+});
+
+const GOOGLE_TABLES = ["google_calendar_handles", "google_inverses", "google_send_locks", "google_session_allowances"];
+function seedGoogle(db: Database, sessionId: string, marker: string) {
+  const now = Date.now();
+  db.query("INSERT INTO google_send_locks VALUES (?,?,?,?,?,?,?,?,?,?)").run(sessionId, "card", "turn", "odysseus", "brain", "mail", sessionId, "epoch", now, now + 60_000);
+  for (const state of ["prepared", "confirmed", "unknown"]) db.query("INSERT INTO google_inverses VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(sessionId, state, state, "turn", "odysseus", "brain", "resolved-ithaca", "gmail.modify", 1, state,
+      JSON.stringify({ marker }), JSON.stringify({ marker }), Buffer.from(marker), 1, 2);
+  db.query("INSERT INTO google_session_allowances VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(sessionId, "odysseus", "brain", "resolved-ithaca", "gmail.modify", marker, "epoch", "policy", "card", now, now + 60_000, 25);
+  db.query("INSERT INTO google_calendar_handles VALUES (?,?,?,?,?,?,?,?)")
+    .run(sessionId, "handle", "odysseus", "brain", "resolved-ithaca", marker, marker, now);
+}
+
+test("google chat deletion removes all four tables and snapshot markers while retaining audit and control chat", async () => {
+  const f = await fixture();
+  try {
+    const { db, catalog } = f.host;
+    seedGoogle(db, "voyage", MARKER); seedGoogle(db, "aeaea", CONTROL);
+    const { recordGovernanceEvent } = await import("../src/governance/events.js");
+    const receipt = recordGovernanceEvent(db, { kind: "google_call", sessionId: "voyage", turnId: "turn", actor: "interactive", model: null, profile: "governed",
+      payload: { tool: "gmail_modify", operation: "gmail.modify", view: null, outcome: "returned", code: null, reason: null } });
+    const result = await deletionFor(catalog, backend([])).deletion.delete(voyage(f.owner));
+    expect(result).toMatchObject({ status: "retired", receipt: { status: "removed", retained: RETAINED } });
+    for (const table of GOOGLE_TABLES) {
+      expect(db.query(`SELECT COUNT(*) AS n FROM ${table} WHERE session_id='voyage'`).get(), `GOOGLE_ROWS_REMOVED_${table}`).toEqual({ n: 0 });
+      expect((db.query(`SELECT COUNT(*) AS n FROM ${table} WHERE session_id='aeaea'`).get() as { n: number }).n).toBeGreaterThan(0);
+    }
+    expect(holding(db, MARKER), "GOOGLE_SNAPSHOT_MARKER_REMOVED").toEqual([]);
+    expect(db.query("SELECT id FROM governance_events WHERE id=?").get(receipt.id)).toEqual({ id: receipt.id });
+  } finally { await f.host.close(); }
+});
+test("google chat deletion inventory covers every session-keyed Google table", () => {
+  const db = createUiDb(":memory:");
+  try {
+    const tables = (db.query("SELECT name FROM sqlite_master WHERE type='table' AND name GLOB 'google_*'").all() as { name: string }[])
+      .filter(({ name }) => (db.query(`PRAGMA table_info(${name})`).all() as { name: string }[]).some(column => column.name === "session_id"))
+      .map(({ name }) => name).sort();
+    expect(tables).toEqual(GOOGLE_TABLES);
+    for (const table of tables) expect(PROJECTION_TABLES as readonly string[], `GOOGLE_TABLE_SCRUBBED: ${table}`).toContain(table);
+  } finally { db.close(); }
+});
+test("google chat deletion remains partial on blocked cleanup and recovers on retry", async () => {
+  const f = await fixture();
+  try {
+    seedGoogle(f.host.db, "voyage", MARKER);
+    f.host.db.exec("CREATE TRIGGER block_google BEFORE DELETE ON google_inverses BEGIN SELECT RAISE(ABORT,'blocked'); END");
+    const { deletion } = deletionFor(f.host.catalog, backend([]));
+    expect(await deletion.delete(voyage(f.owner))).toMatchObject({ status: "retired", receipt: { status: "partial", stores: { projections: "partial" } } });
+    f.host.db.exec("DROP TRIGGER block_google");
+    await deletion.reconcile();
+    expect(await deletion.delete(voyage(f.owner))).toMatchObject({ status: "retired", receipt: { status: "removed", stores: { projections: "removed" } } });
+    expect(holding(f.host.db, MARKER)).toEqual([]);
+  } finally { await f.host.close(); }
+});
+test("google chat deletion fences late locks, decisions and inverse callbacks", async () => {
+  const f = await fixture();
+  try {
+    const { createGoogleStateWrites } = await import("../src/google/state-writes.js");
+    const state = createGoogleStateWrites(f.host.db);
+    seedGoogle(f.host.db, "voyage", MARKER);
+    await deletionFor(f.host.catalog, backend([])).deletion.delete(voyage(f.owner));
+    await expect(state.acquireSendLock({ sessionId: "voyage", cardId: "late", turnId: "turn", principalId: f.owner,
+      brainId: "brain", account: "mail", draftId: "r123", hostEpoch: "epoch", createdAt: Date.now(), expiresAt: Date.now() + 60_000 })).rejects.toThrow("retired");
+    // Releasing is a delete and cannot resurrect the chat, so a card ending after its chat still cleans up (no retry loop).
+    await state.releaseSendLock("voyage", "late");
+    await expect(state.confirmInverse("voyage", "prepared", { id: "r123", fingerprint: "a".repeat(64) })).rejects.toThrow("retired");
+    // Downgrading a deleted row is a no-op, so the retry after an unknown outcome cannot loop on a retired chat.
+    await state.markInverseUnknown("voyage", "prepared");
+    await expect(state.commitGoogleDecision({ kind: "google_reversible_action", sessionId: "voyage", turnId: "turn", actor: "interactive", model: null, profile: "governed",
+      payload: { callId: "late", tool: "gmail_modify", operation: "gmail.modify", effect: "reversible", target: null,
+        tainted: false, decision: "refused", admission: null, inverseId: null } }, null)).rejects.toThrow("retired");
+    for (const table of GOOGLE_TABLES) expect(f.host.db.query(`SELECT COUNT(*) AS n FROM ${table} WHERE session_id='voyage'`).get()).toEqual({ n: 0 });
   } finally { await f.host.close(); }
 });

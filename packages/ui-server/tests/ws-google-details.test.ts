@@ -97,7 +97,9 @@ test("the owner reads a returned message's full body; detail reads leave the ses
     await chat("What did Telemachus write?");
     await chat("What did Telemachus write?");
     const [read, control] = ["sess-ithaca-1", "sess-ithaca-2"];
-    const turnResult = JSON.parse(histories[read]![1]!.toolCalls![0]!.output!) as { result: { message: { untrusted: { body_text: string; body_truncated: boolean; body_length: number } } } };
+    const output = histories[read]![1]!.toolCalls![0]!.output!;
+    expect((JSON.parse(output) as { ok: boolean }).ok, `GMAIL_DETAIL_READ_RETURNED: ${output.slice(0, 600)}`).toBe(true);
+    const turnResult = JSON.parse(output) as { result: { message: { untrusted: { body_text: string; body_truncated: boolean; body_length: number } } } };
     expect(turnResult.result.message.untrusted, "GMAIL_DETAIL_MODEL_CAPPED").toMatchObject({ body_truncated: true, body_length: LETTER.text.length });
     expect(turnResult.result.message.untrusted.body_text).not.toContain("The end of Pylos.");
     const taints = (sessionId: string) => queryGovernanceEvents(app.db, { sessionId, kinds: ["taint"], limit: 50 }).map(event => event.id);

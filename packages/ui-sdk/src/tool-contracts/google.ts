@@ -10,7 +10,7 @@
  * fixed whatever the host's configuration, so configuring Google never
  * changes a session's tools (D44): every tool is always listed and decides
  * availability when it is called. The four write tools answer `unavailable`
- * until the write engine lands (#4211).
+ * until concrete Gmail writes land (#4213/#4214).
  *
  * Two views. A `structured` payload carries only host-validated typed values:
  * Gmail-minted ids, label ids and the owner's label names (escaped), RFC 3339
@@ -28,7 +28,7 @@ import {
   GMAIL_DRAFT_INPUT, GMAIL_LABEL_NAME_ESCAPED_MAX, GMAIL_LABEL_TYPES, GMAIL_LIMITS, GMAIL_MODIFY_INPUT, GMAIL_READ_INPUT,
   GMAIL_SEARCH_INPUT, GMAIL_SEND_INPUT, GMAIL_SIZE_BUCKETS, GMAIL_SYSTEM_LABELS, GMAIL_TOOL_NAMES, GMAIL_TRASH_INPUT, GMAIL_USER_LABEL_ID_PATTERN,
   GMAIL_DRAFT_ID_PATTERN, GMAIL_MESSAGE_ID_PATTERN, GMAIL_THREAD_ID_PATTERN, GOOGLE_ERROR_CODES, GOOGLE_HOST_CURSOR_PATTERN, GOOGLE_TOOL_NAMES,
-  isRfc3339Timestamp,
+  isRfc3339Timestamp, parseGoogleMailbox, type GmailRawDraft,
   type GmailDraftInput, type GmailModifyInput, type GmailReadInput, type GmailSearchInput, type GmailSendInput, type GmailToolName,
   type GmailTrashInput,
 } from "@schlessera/brain-common/internal/google-operations";
@@ -45,7 +45,7 @@ export type {
 
 /** The two read tools. Their results taint in the `content` view only. */
 export type GmailReadToolName = typeof GMAIL_TOOL_NAMES.search | typeof GMAIL_TOOL_NAMES.read;
-/** The four write tools. They answer `unavailable` until the write engine lands (#4211). */
+/** The four write tools. They answer `unavailable` until concrete Gmail writes land (#4213/#4214). */
 export type GmailWriteToolName = Exclude<GmailToolName, GmailReadToolName>;
 export const GMAIL_READ_TOOL_NAMES: readonly GmailReadToolName[] = Object.freeze([GMAIL_TOOL_NAMES.search, GMAIL_TOOL_NAMES.read]);
 export const GMAIL_WRITE_TOOL_NAMES: readonly GmailWriteToolName[] = Object.freeze([
@@ -186,22 +186,39 @@ const refusal = z.strictObject({ ok: z.literal(false), tool: z.enum(GMAIL_TOOL_N
 const success = <Name extends GmailToolName, Payload extends z.ZodType>(name: Name, payload: Payload) =>
   z.strictObject({ ok: z.literal(true), tool: z.literal(name), result: payload });
 
-/**
- * Each tool's result: `{ ok: true, tool, result }` or `{ ok: false, tool, error }`,
- * one JSON document. The write tools have no success payload until #4211.
- */
+/** Bounded structured write receipts. Never mail text or arbitrary transport output. */
+const writeBase = { ok: z.literal(true), effect: z.enum(["reversible", "irreversible"]),
+  admission: z.enum(["card", "policy", "remembered_approval", "session_allowance"]) };
+const changedMessages = z.array(messageId).max(GMAIL_LIMITS.idsPerCall);
+const labelDelta = z.array(labelId).max(GMAIL_LIMITS.labelChangesPerCall);
+const fingerprint = z.string().regex(/^[a-f0-9]{64}$/);
+const modifySuccess = z.strictObject({ ...writeBase, tool: z.literal(GMAIL_TOOL_NAMES.modify), operation: z.literal("gmail.modify"),
+  result: z.strictObject({ message_ids: changedMessages, add_label_ids: labelDelta, remove_label_ids: labelDelta }) });
+const trashSuccess = z.strictObject({ ...writeBase, effect: z.literal("irreversible"), tool: z.literal(GMAIL_TOOL_NAMES.trash), operation: z.literal("gmail.trash"),
+  result: z.strictObject({ message_ids: changedMessages }) });
+const draftSaveSuccess = z.strictObject({ ...writeBase, tool: z.literal(GMAIL_TOOL_NAMES.draft), operation: z.literal("gmail.draft.save"),
+  result: z.strictObject({ draft_id: draftId, fingerprint }) });
+const draftDeleteSuccess = z.strictObject({ ...writeBase, effect: z.literal("irreversible"), tool: z.literal(GMAIL_TOOL_NAMES.draft), operation: z.literal("gmail.draft.delete"),
+  result: z.strictObject({ draft_id: draftId }) });
+const sendSuccess = z.strictObject({ ...writeBase, effect: z.literal("irreversible"), tool: z.literal(GMAIL_TOOL_NAMES.send), operation: z.literal("gmail.draft.send"),
+  result: z.strictObject({ draft_id: draftId, message_id: messageId, thread_id: threadId.nullable() }) });
+export const GOOGLE_WRITE_SUCCESS_SCHEMA = z.union([modifySuccess, trashSuccess, draftSaveSuccess, draftDeleteSuccess, sendSuccess]);
+export type GoogleWriteSuccess = z.infer<typeof GOOGLE_WRITE_SUCCESS_SCHEMA>;
+
+/** One strict JSON envelope; operations without an implementation still refuse. */
 export const GOOGLE_RESULT_SCHEMAS = {
   [GMAIL_TOOL_NAMES.search]: z.union([success(GMAIL_TOOL_NAMES.search, GMAIL_SEARCH_PAYLOAD_SCHEMA), refusal]),
   [GMAIL_TOOL_NAMES.read]: z.union([success(GMAIL_TOOL_NAMES.read, GMAIL_READ_PAYLOAD_SCHEMA), refusal]),
-  [GMAIL_TOOL_NAMES.modify]: refusal,
-  [GMAIL_TOOL_NAMES.trash]: refusal,
-  [GMAIL_TOOL_NAMES.draft]: refusal,
-  [GMAIL_TOOL_NAMES.send]: refusal,
+  [GMAIL_TOOL_NAMES.modify]: z.union([modifySuccess, refusal]),
+  [GMAIL_TOOL_NAMES.trash]: z.union([trashSuccess, refusal]),
+  [GMAIL_TOOL_NAMES.draft]: z.union([draftSaveSuccess, draftDeleteSuccess, refusal]),
+  [GMAIL_TOOL_NAMES.send]: z.union([sendSuccess, refusal]),
 } as const;
 
 export type GoogleToolResult =
   | { ok: true; tool: typeof GMAIL_TOOL_NAMES.search; result: GmailSearchPayload }
   | { ok: true; tool: typeof GMAIL_TOOL_NAMES.read; result: GmailReadPayload }
+  | GoogleWriteSuccess
   | { ok: false; tool: GmailToolName; error: GoogleToolError };
 
 /** What a backend hands the host: the tool and its parsed input, nothing else. */
@@ -291,3 +308,68 @@ export const GMAIL_MESSAGE_BODY_SCHEMA = z.strictObject({
 export type GmailMessageBody = z.infer<typeof GMAIL_MESSAGE_BODY_SCHEMA>;
 
 export const GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA = z.strictObject({ error: GOOGLE_ERROR_SCHEMA });
+
+/** Complete parsed mail, never the truncatable content projection. The host must
+ * reject parser problems, HTML, attachments and unreadable fields before construction.
+ * Its digest binds this display to the raw bytes retained only by the host. */
+export type GoogleApprovalMessage = Pick<GmailRawDraft,
+  "digest" | "bytes" | "from" | "to" | "cc" | "bcc" | "reply_to" |
+  "subject" | "in_reply_to" | "references" | "body_text">;
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const mailbox = z.strictObject({
+  address: z.string().min(1).max(GMAIL_LIMITS.mailboxChars),
+  local: z.string().min(1).max(GMAIL_LIMITS.mailboxChars),
+  domain: z.string().min(1).max(GMAIL_LIMITS.mailboxChars),
+  display_name: z.string().max(GMAIL_LIMITS.headerChars).nullable(),
+}).refine(value => {
+  const parsed = parseGoogleMailbox(value.address);
+  return parsed.ok && parsed.mailbox.address === value.address && parsed.mailbox.local === value.local && parsed.mailbox.domain === value.domain;
+}, "must be a canonical parsed mailbox");
+const mailboxes = z.array(mailbox).max(GMAIL_LIMITS.recipientsPerField);
+const messageReferences = z.array(z.string().min(3).max(GMAIL_LIMITS.headerChars).regex(/^<[^<>\s]+@[^<>\s]+>$/)).max(100);
+export const GOOGLE_APPROVAL_MESSAGE_SCHEMA = z.strictObject({
+  digest, bytes: count.max(32 * 1024 * 1024), from: mailbox,
+  to: mailboxes, cc: mailboxes, bcc: mailboxes, reply_to: mailboxes,
+  subject: z.string().max(GMAIL_LIMITS.subjectChars).nullable(),
+  in_reply_to: messageReferences, references: messageReferences,
+  body_text: z.string().max(GMAIL_LIMITS.draftBodyChars),
+}) satisfies z.ZodType<GoogleApprovalMessage>;
+const approvalBase = {
+  effect: z.enum(["reversible", "irreversible"]), tainted: z.boolean(),
+  entities: z.array(z.string().min(1).max(GMAIL_LIMITS.headerChars)).max(100),
+  offers: z.strictObject({ allow_always: z.boolean(), allow_for_session: z.boolean() }),
+};
+const approvalMessageIds = z.array(messageId).min(1).max(GMAIL_LIMITS.idsPerCall);
+/**
+ * The most UTF-8 bytes a mail approval card's JSON may take. A card is shown
+ * exactly or not at all: half the WebSocket frame ceiling leaves room for the
+ * frame around it, so replication never shrinks an approval. The host refuses
+ * a larger card before showing it (`draft_not_displayable`, `card_too_large`).
+ */
+export const GOOGLE_APPROVAL_CARD_BYTES = 256_000;
+/** Host-prepared, operation-specific mail approval. No outbound field is truncated. */
+export const GOOGLE_MAIL_APPROVAL_SCHEMA = z.discriminatedUnion("operation", [
+  z.strictObject({ ...approvalBase, operation: z.literal("gmail.modify"), payload: z.strictObject({
+    message_ids: approvalMessageIds,
+    add_label_ids: z.array(labelId).max(GMAIL_LIMITS.labelChangesPerCall),
+    remove_label_ids: z.array(labelId).max(GMAIL_LIMITS.labelChangesPerCall),
+  }) }),
+  z.strictObject({ ...approvalBase, operation: z.literal("gmail.trash"), effect: z.literal("irreversible"),
+    payload: z.strictObject({ message_ids: approvalMessageIds }) }),
+  z.strictObject({ ...approvalBase, operation: z.literal("gmail.draft.save"), payload: z.strictObject({
+    action: z.enum(["create", "reply", "update"]), draft_id: draftId.nullable(), thread_id: threadId.nullable(),
+    message: GOOGLE_APPROVAL_MESSAGE_SCHEMA,
+  }).refine(p => p.action === "update" ? p.draft_id !== null : p.draft_id === null,
+    "only update has a destination draft").refine(p => p.action !== "reply" || p.thread_id !== null, "reply requires its thread") }),
+  z.strictObject({ ...approvalBase, operation: z.literal("gmail.draft.delete"), effect: z.literal("irreversible"),
+    payload: z.strictObject({ draft_id: draftId, digest }) }),
+  z.strictObject({ ...approvalBase, operation: z.literal("gmail.draft.send"), effect: z.literal("irreversible"), payload: z.strictObject({
+    draft_id: draftId, thread_id: threadId.nullable(), send_as: mailbox, message: GOOGLE_APPROVAL_MESSAGE_SCHEMA,
+  }).refine(p => p.send_as.address === p.message.from.address, "sender must match verified send-as") }),
+]).superRefine((card, ctx) => {
+  if ((card.effect === "irreversible" && (card.offers.allow_always || card.offers.allow_for_session)) ||
+      (card.tainted && card.offers.allow_always) || (!card.tainted && card.offers.allow_for_session)) {
+    ctx.addIssue({ code: "custom", path: ["offers"], message: "standing choice is unavailable for this effect and taint" });
+  }
+});
+export type GoogleMailApproval = z.infer<typeof GOOGLE_MAIL_APPROVAL_SCHEMA>;

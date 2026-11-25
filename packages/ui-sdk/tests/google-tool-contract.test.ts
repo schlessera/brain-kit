@@ -146,3 +146,15 @@ describe("the bridge handler", () => {
     expect(answer.isError, "GOOGLE_HOST_REFUSAL_IS_ERROR").toBe(true);
   });
 });
+
+test("google write success receipts are bounded structured metadata with matching operation and tool", () => {
+  const receipt = { ok: true, tool: "brain_google_gmail_modify", operation: "gmail.modify", effect: "reversible", admission: "card",
+    result: { message_ids: ["19a0c3d2e4f50601"], add_label_ids: [], remove_label_ids: ["INBOX"] } };
+  expect(c.GOOGLE_WRITE_SUCCESS_SCHEMA.safeParse(receipt).success).toBe(true);
+  for (const invalid of [
+    { ...receipt, operation: "gmail.draft.send" }, { ...receipt, tool: "brain_google_gmail_send" },
+    { ...receipt, result: { ...receipt.result, body_text: "The suitors are in the hall." } },
+    { ...receipt, result: { ...receipt.result, message_ids: ["unbounded free text"] } },
+    { ...receipt, result: { ...receipt.result, message_ids: Array(101).fill("19a0c3d2e4f50601") } },
+  ]) expect(c.GOOGLE_WRITE_SUCCESS_SCHEMA.safeParse(invalid).success).toBe(false);
+});

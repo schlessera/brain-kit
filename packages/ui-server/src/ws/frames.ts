@@ -1,3 +1,4 @@
+import { GOOGLE_MAIL_APPROVAL_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { ServerMessage, ServerToolApprovalRequest } from "@schlessera/brain-ui-sdk/protocol";
 import type { PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import type { RunningTurn } from "./turns.js";
@@ -42,6 +43,8 @@ export function approvalRequestFrame(
   req: PermissionRequest,
   hasGrantStore: boolean
 ): ServerToolApprovalRequest {
+  const google = req.kind === "google" ? GOOGLE_MAIL_APPROVAL_SCHEMA.safeParse(req.input) : null;
+  const googleRememberable = google?.success && (google.data.offers.allow_always || google.data.offers.allow_for_session);
   return {
     type: "tool_approval_request",
     toolUseId: req.toolUseId,
@@ -49,7 +52,7 @@ export function approvalRequestFrame(
     input: req.input,
     description: req.description,
     ...(req.kind ? { kind: req.kind } : {}),
-    ...(req.kind === "policy" || req.outsideEnforcedAllowlist || (!hasGrantStore && req.kind !== "actor") ? { rememberable: false } : {}),
+    ...(req.kind === "google" ? (googleRememberable ? {} : { rememberable: false }) : req.kind === "policy" || req.outsideEnforcedAllowlist || (!hasGrantStore && req.kind !== "actor") ? { rememberable: false } : {}),
     // Display-only facts the host verified (#4154); a re-delivery carries the same ones.
     ...(req.display ? { display: req.display } : {}),
   };
