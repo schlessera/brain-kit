@@ -424,6 +424,11 @@ export interface DraftStoreState {
   uploaded(draftId: string, attachment: PendingAttachment, attachmentId: string): void;
   /** The host's uploads for this draft are gone; upload again on the next save. */
   forgetUploads(draftId: string): void;
+  /**
+   * The host refused to delete this draft because a message of it still waits there (#4567): its
+   * revision and snapshot list come back, so the message is shown with its own actions again.
+   */
+  adoptHostSnapshots(draftId: string, draft: Draft): void;
   /** The host no longer stores these originals for this draft (#4566): they read as needing to be chosen again. */
   filesGone(draftId: string, fileIds: readonly string[]): void;
   /** The host deleted the draft (DELETE acknowledged): it is gone here too. */
@@ -554,7 +559,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // A retained Draft explicitly sent as a new conversation now owns
         // that session. The original session goes back to its own version.
         for (const [session, branch] of deviceViews) if (resolve(branch) === draft.draftId) deviceViews.delete(session);
-        successors.delete(draft.deviceConflict.otherId);
+        // Only a link to this branch: a rotation that moved the other version elsewhere still finds it (#4567).
+        if (successors.get(draft.deviceConflict.otherId) === draft.draftId) successors.delete(draft.deviceConflict.otherId);
         deviceRedirects.delete(draft.deviceConflict.otherId);
       }
       set((state) => ({
@@ -1121,6 +1127,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (d && d.uploads.size > 0) put({ ...d, uploads: new Map() });
       },
 
+      adoptHostSnapshots(draftId, draft) {
+        const d = get().drafts[draftId];
+        if (!d) return;
+        put({ ...d, host: hostCopy(draft, -1), snapshots: mergeSnapshots(d.snapshots, draft.snapshots), uncertain: false, edit: d.edit + 1, editedAt: now() });
+      },
+
       filesGone(draftId, fileIds) {
         const d = get().drafts[draftId];
         if (!d || !draftFiles(d).some((f) => fileIds.includes(f.file.fileId))) return;
@@ -1130,7 +1142,18 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       removed(draftId) {
         const d = get().drafts[draftId];
         if (!d) return;
-        // A Send made while the delete was out holds a snapshot the host never saw (#4567): it goes with the content.
+        // A Send made while the delete was out holds a snapshot the host never saw (#4567): it goes with the
+        // content. One with originals cannot: they were minted for the deleted id, so it comes back to the
+        // composer unsent, its files to be chosen again.
+        const unsent = draftSnapshots(d).filter((x) => x.files.length > 0);
+        if (unsent.length > 0) {
+          let text = d.text;
+          for (const r of [...unsent].reverse()) text = text ? (r.text ? `${r.text}\n${text}` : text) : r.text;
+          const back = unsent.flatMap((r) => r.files.flatMap((f) => f.file ? [{ file: f.file, lineage: draftId }] : []));
+          put({ ...d, text, files: [...back, ...draftFiles(d).filter((f) => !back.some((b) => b.file.fileId === f.file.fileId))],
+            snapshots: draftSnapshots(d).filter((x) => x.files.length === 0), edit: d.edit + 1, editedAt: now() });
+          return get().removed(draftId);
+        }
         const carried = draftSnapshots(d).length > 0;
         if (!hasContent(d) && !carried) {
           if (held(draftId)) put({ ...d, host: null, uploads: new Map(), savingSince: null });
