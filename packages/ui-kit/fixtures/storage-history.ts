@@ -179,3 +179,11 @@ export const sixHourTrailingGap: HistoryPoint[] = sixHourFull.map((p) => (p.at =
 /** Both windows run the volume out inside the future zone, so both lines end on the zero baseline. */
 export const SHORT_SOON: HistoryScenario = { window: "short", name: "7-day", detail: "empty ~13 Jul", to: { at: HISTORY_NOW + DAY, value: 0 } };
 export const LONG_SOON: HistoryScenario = { window: "long", name: "30-day", detail: "empty ~14 Jul", to: { at: HISTORY_NOW + 2 * DAY, value: 0 } };
+
+/** Eighteen events in nine pairs, two days apart: more boxes than a phone's plot can hold side by side. */
+export const CROWDED_EVENTS: HistoryMarker[] = Array.from({ length: 18 }, (_, i) => ({
+  at: utc(6, 27) + Math.floor(i / 2) * 2 * DAY + (i % 2) * 6 * HOUR,
+  n: i + 1,
+  tone: i % 2 ? "teal" : "amber",
+  label: i % 2 ? "Clean up retained history" : "Backups store grew",
+}));

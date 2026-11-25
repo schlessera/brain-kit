@@ -3,6 +3,7 @@ import { expect, waitFor } from "storybook/test";
 
 import {
   CLUSTERED_EVENTS,
+  CROWDED_EVENTS,
   HISTORY_BASE,
   LONG_FINITE,
   LONG_GAP,
@@ -28,7 +29,7 @@ import {
   weeklyThree,
 } from "../../fixtures/storage-history.js";
 import { HistoryChart, type HistoryChartProps } from "../../src/storage/HistoryChart.js";
-import { DESKTOP, HistoryCard, PHONE, chartHolds, desktop, frame, laidOut, openAt, phone, svgOf, tableMatchesPoints } from "./_history.js";
+import { DESKTOP, HistoryCard, PHONE, chartHolds, desktop, everyMarkInside, frame, laidOut, openAt, phone, svgOf, tableMatchesPoints } from "./_history.js";
 
 const DAY = 86_400_000;
 
@@ -420,6 +421,70 @@ export const VeryLowNow = meta.story({
   },
 });
 export const VeryLowNowDesktop = VeryLowNow.extend({ ...desktop });
+
+/**
+ * Eighteen events in nine pairs (#4559 review): more boxes than a phone's plot
+ * holds. Neighbouring clusters merge (`1–4`) until every box fits; the list
+ * still names all eighteen.
+ */
+export const CrowdedEvents = meta.story({
+  ...phone,
+  args: { markers: CROWDED_EVENTS },
+  play: async (ctx) => {
+    const { svg } = await open(ctx);
+    const numbers = parts(svg, "event-box").flatMap((b) => (b.getAttribute("data-events") ?? "").split(",").map(Number));
+    await expect(numbers.sort((a, b) => a - b)).toEqual(CROWDED_EVENTS.map((m) => m.n));
+    await expect(ctx.canvasElement.querySelectorAll('[data-part="event-list"] li')).toHaveLength(18);
+  },
+});
+export const CrowdedEventsDesktop = CrowdedEvents.extend({ ...desktop });
+
+const WIDTHS = [136, 200, 240, 296, 360, 480, 599, 600, 720, 880, 1100, 1240];
+const WIDTH_CASES: Array<[string, Partial<HistoryChartProps>]> = [
+  ["full", {}],
+  ["crowded events", { markers: CROWDED_EVENTS }],
+  ["gap", { points: sixHourGap }],
+  ["scope change at now", { points: scopeChangedAtNow, markers: [], scenarios: [SHORT_SCOPE, LONG_SCOPE] }],
+  ["now not measured", { points: sixHourTrailingGap }],
+  ["both windows reach zero", { markers: [], scenarios: [SHORT_SOON, LONG_SOON] }],
+  ["very low now", { points: veryLowNow, scenarios: [SHORT_VERY_LOW, LONG_SHORT_HISTORY] }],
+  ["weekly", { points: weeklyThree, intervalMs: 7 * DAY, markers: [] }],
+  ["single point", { points: singlePoint, markers: [], scenarios: [SHORT_NONE, LONG_NONE] }],
+  ["all unknown", { points: allUnknown, markers: [], scenarios: [SHORT_NONE, LONG_NONE] }],
+];
+
+/**
+ * The invariant at every width, not just the two the design draws: from a
+ * 136px chart (320px at 200% zoom) to 1240px, every text and every painted
+ * shape of every state sits inside its SVG.
+ */
+export const EveryWidth = meta.story({
+  ...desktop,
+  render: (args) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {WIDTH_CASES.flatMap(([name, over]) =>
+        WIDTHS.map((w) => (
+          <div key={`${name}-${w}`} data-case={`${name} at ${w}px`} style={{ width: w }}>
+            <HistoryChart {...args} {...over} />
+          </div>
+        )),
+      )}
+    </div>
+  ),
+  play: async ({ canvasElement, globals }) => {
+    await openAt(DESKTOP, globals);
+    const cases = [...canvasElement.querySelectorAll<HTMLElement>("[data-case]")];
+    await expect(cases).toHaveLength(WIDTH_CASES.length * WIDTHS.length);
+    for (const c of cases) {
+      const svg = await waitFor(() => {
+        const found = c.querySelector<SVGSVGElement>('svg[data-part="history-svg"]');
+        expect(Number(found?.getAttribute("width"))).toBe(c.clientWidth);
+        return found!;
+      });
+      await everyMarkInside(svg, `${c.dataset.case}:`);
+    }
+  },
+});
 
 /* ── Greyscale, zoom, motion ────────────────────────────────────────────────── */
 

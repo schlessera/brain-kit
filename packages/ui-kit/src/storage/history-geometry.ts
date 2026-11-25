@@ -108,12 +108,14 @@ interface ChartFrame {
 }
 
 /** The chart's outer box and plot rectangle at a given width. */
-export function chartFrame(width: number, withEvents: boolean): ChartFrame {
+export function chartFrame(width: number, withEvents: boolean, yLabelWidth = 0): ChartFrame {
   const w = Math.max(0, width);
   const wide = w >= GUTTER_MIN_WIDTH;
   const top = 8;
   const plotHeight = wide ? 200 : 150;
-  const left = wide ? 56 : 44;
+  // The y labels end 6px left of the plot and start at least 2px inside the
+  // chart, so a wider formatted label widens the gutter instead of leaving.
+  const left = Math.max(wide ? 56 : 44, Math.ceil(yLabelWidth) + 8);
   const right = Math.max(left, w - (wide ? 150 : 12));
   const bottom = top + plotHeight;
   const height = bottom + 20 + (withEvents ? EVENT_LANE : 0);
@@ -532,17 +534,29 @@ export function clusterLabel(ns: readonly number[]): string {
   const sorted = [...ns].sort((a, b) => a - b);
   if (sorted.length === 1) return String(sorted[0]);
   const consecutive = sorted.every((n, i) => i === 0 || n === sorted[i - 1]! + 1);
-  return consecutive ? `${sorted[0]}–${sorted[sorted.length - 1]}` : sorted.join(", ");
+  if (consecutive) return `${sorted[0]}\u2013${sorted[sorted.length - 1]}`;
+  // Not a range: list a few, and past that say how many. A range would claim
+  // numbers that are not in the box; the list under the chart has each one.
+  return sorted.length <= 3 ? sorted.join(", ") : `${sorted.length} events`;
 }
+
+const boxWidthFor = (label: string) => Math.max(16, textWidth(label, 10) + 8);
+/** Space kept between two event boxes. */
+const BOX_GAP = 4;
 
 /**
  * Group markers that would collide. Walk left to right; a marker less than
  * {@link MARKER_CLUSTER_GAP} from the current cluster's LAST marker joins it.
  * Each cluster gets one box centred on its markers, and boxes that would still
  * touch are spread apart inside the plot. Every marker keeps its own rule.
+ *
+ * When the boxes cannot all fit side by side inside the plot, the two
+ * neighbouring clusters whose centres are closest merge into one (`1–4`),
+ * and again, until they fit. No box ever leaves the plot or covers another,
+ * and every number stays in exactly one box; `EventList` lists each one.
  */
 export function clusterMarkers(markers: readonly HistoryMarker[], x: LinearScale, left: number, right: number): MarkerCluster[] {
-  const sorted = [...markers].filter((m) => Number.isFinite(m.at)).sort((a, b) => a.at - b.at || a.n - b.n);
+  const sorted = placeable(markers).sort((a, b) => a.at - b.at || a.n - b.n);
   const groups: HistoryMarker[][] = [];
   let lastX = -Infinity;
   for (const m of sorted) {
@@ -552,15 +566,30 @@ export function clusterMarkers(markers: readonly HistoryMarker[], x: LinearScale
     else groups.push([m]);
     lastX = px;
   }
-  const clusters = groups.map((markers) => {
+  const make = (markers: HistoryMarker[]) => {
     const label = clusterLabel(markers.map((m) => m.n));
     const centre = markers.reduce((s, m) => s + x(m.at), 0) / markers.length;
-    return { markers, label, x: centre, boxX: centre, boxWidth: Math.max(16, textWidth(label, 10) + 8) };
-  });
-  // Spread box centres apart: the widest neighbouring pair sets the gap.
-  const gap = Math.max(0, ...clusters.map((c) => c.boxWidth)) + 4;
-  const half = (clusters[0]?.boxWidth ?? 16) / 2;
-  const spread = spreadLabels(clusters.map((c) => c.x), gap, left + half, Math.max(left + half, right - half));
+    return { markers, label, x: centre, boxX: centre, boxWidth: boxWidthFor(label) };
+  };
+  let clusters = groups.map(make);
+  const room = Math.max(0, right - left);
+  // Boxes are spread on a uniform pitch (the widest box plus the gap), so they
+  // fit when n - 1 pitches plus one widest box fit the plot.
+  const needs = (cs: typeof clusters) => {
+    const widest = Math.max(0, ...cs.map((c) => c.boxWidth));
+    return (cs.length - 1) * (widest + BOX_GAP) + widest;
+  };
+  while (clusters.length > 1 && needs(clusters) > room) {
+    let best = 0;
+    for (let i = 1; i < clusters.length - 1; i += 1) {
+      if (clusters[i + 1]!.x - clusters[i]!.x < clusters[best + 1]!.x - clusters[best]!.x) best = i;
+    }
+    clusters = [...clusters.slice(0, best), make([...clusters[best]!.markers, ...clusters[best + 1]!.markers]), ...clusters.slice(best + 2)];
+  }
+  if (!clusters.length) return [];
+  const widest = Math.max(...clusters.map((c) => c.boxWidth));
+  const half = widest / 2;
+  const spread = spreadLabels(clusters.map((c) => c.x), widest + BOX_GAP, left + half, Math.max(left + half, right - half));
   return clusters.map((c, i) => ({ ...c, boxX: spread[i]! }));
 }
 
@@ -640,6 +669,8 @@ interface HistoryLayoutInput {
   thresholds?: HistoryThresholds;
   scenarios?: readonly HistoryScenario[];
   markers?: readonly HistoryMarker[];
+  /** The y label formatter, so the left gutter can widen to its widest label. */
+  formatValue?: (value: number) => string;
 }
 
 interface PlottedPoint {
@@ -726,9 +757,17 @@ const SPARSE_SPACING = 24;
 /** Lay out the whole chart. Pure: the same input always yields the same geometry. */
 export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
   const markersIn = input.markers ?? [];
-  const frame = chartFrame(input.width, markersIn.length > 0);
   const sorted = placeable(input.points);
   const measured = sorted.filter((p): p is HistoryPoint & { value: number } => isMeasured(p.value));
+  const levels = [
+    ...measured.map((p) => p.value),
+    ...(input.thresholds?.low ? [input.thresholds.low] : []),
+    ...(input.thresholds?.veryLow ? [input.thresholds.veryLow] : []),
+  ];
+  const yMax = valueMax(levels);
+  const wideish = Math.max(0, input.width) >= GUTTER_MIN_WIDTH;
+  const yLabelWidth = input.formatValue ? Math.max(0, ...valueTicks(yMax, wideish).map((v) => textWidth(input.formatValue!(v)))) : 0;
+  const frame = chartFrame(input.width, markersIn.length > 0, yLabelWidth);
   const plotWidth = frame.right - frame.left;
 
   // Sparse when the measurements would sit far enough apart to count (a few
@@ -738,12 +777,6 @@ export function historyLayout(input: HistoryLayoutInput): HistoryLayout {
   const domain = timeDomain(sorted, input.now, input.intervalMs, sparse);
 
   const x = linearScale([domain.start, domain.end], [frame.left, frame.right]);
-  const levels = [
-    ...measured.map((p) => p.value),
-    ...(input.thresholds?.low ? [input.thresholds.low] : []),
-    ...(input.thresholds?.veryLow ? [input.thresholds.veryLow] : []),
-  ];
-  const yMax = valueMax(levels);
   const y = linearScale([0, yMax], [frame.bottom, frame.top]);
   const yTicks = valueTicks(yMax, frame.wide).map((value) => ({ value, y: y(value) }));
 
