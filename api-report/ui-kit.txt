@@ -3115,7 +3115,7 @@ signatures (every public export and the types it is made of)
         id?: string;
         name: string;
         owner: StorageOwner | null;
-        action: "drill" | "inspect";
+        action: "drill" | "inspect" | "none";
         kind: string;
         meta?: string;
         size: string | null;
@@ -3123,7 +3123,7 @@ signatures (every public export and the types it is made of)
         share?: number;
         shareLabel?: string;
         reason?: string;
-        onActivate: () => void;
+        onActivate?: () => void;
         highlighted?: boolean;
         onHighlight?: (active: boolean) => void;
     }

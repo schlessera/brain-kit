@@ -3508,6 +3508,10 @@ button.bk-storage-sort:focus-visible { outline: 2px solid var(--bk-focus-ring); 
   outline: 2px solid var(--bk-focus-ring);
   outline-offset: -2px;
 }
+/* A row with no action (a folder's own metadata) is text: no pointer, hover or press. */
+div.bk-storage-row-main { cursor: default; }
+div.bk-storage-row-main:hover { background: transparent; }
+div.bk-storage-row-main:active { filter: none; }
 .bk-storage-lead { display: flex; align-items: flex-start; gap: 8px; flex: 1 1 140px; min-width: 0; }
 .bk-storage-lead > [data-owner-swatch] { margin-top: 1px; }
 .bk-storage-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }

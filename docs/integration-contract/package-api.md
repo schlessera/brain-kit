@@ -5122,6 +5122,10 @@ callbacks and perform no I/O. A row with a `null` size is the unknown row: a
 `?` mark, `? not measured` and its reason, never a bar or a zero. Rows have no
 Open action; the caller places Open in its inspect panel and the breadcrumb's
 `actions` slot.
+- `StorageConsumerRow` takes `action: "none"` (additive, #4549) for a row with
+  nothing to open, such as a folder's own metadata. It renders as text, with
+  no button, no glyph and no tab stop, in an interactive row's columns, and
+  `onActivate` is optional for it.
 
 ### Storage volumes, history and tools (additive, #4542, #4543, #4545)
 
