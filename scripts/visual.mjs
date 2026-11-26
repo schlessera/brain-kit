@@ -41,7 +41,7 @@
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { accessSync, constants, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -100,6 +100,11 @@ function run(command, args, options = {}) {
 }
 
 if (inside) {
+  const privateHome = mkdtempSync(resolve(tmpdir(), "brain-visual-home-"));
+  process.env.HOME = privateHome;
+  process.env.CLAUDE_CONFIG_DIR = resolve(privateHome, ".claude");
+  mkdirSync(process.env.CLAUDE_CONFIG_DIR);
+  process.on("exit", () => rmSync(privateHome, { recursive: true, force: true }));
   // Lock inside the container: its mount shares the host lock inode, while a
   // Docker process cannot inherit a host descriptor. Separate worktrees keep
   // separate locks. Exclusive access also preserves project scheduling/captures.
@@ -185,14 +190,16 @@ if (projects.some(project => project.startsWith("diagrams-"))) {
 // Worktree .git indirection points outside the container mount. Capture on the
 // host and check again after exit; the reporter must not guess an identity.
 const proofCheckout = argv.includes("--proof-report") ? gitCheckout() : undefined;
+const onlineIndicator = !projects.some(project => ["ui-react-layout", "ui-react-endurance"].includes(project));
 const status = run("docker", [
   "run",
   "--rm",
   "--ipc=host",
-  // The consumer layout project needs only the in-container Vite server.
-  ...(projects.some(project => ["ui-react-layout", "ui-react-endurance"].includes(project)) ? ["--network=none"] : []),
-  "--user",
-  `${uid}:${gid}`,
+  "--network=none",
+  // Preserve main's offline layout/endurance signal. Other projects used a
+  // connected Docker interface; replace it with a route-free indicator.
+  ...(onlineIndicator ? ["--sysctl=net.ipv6.conf.default.disable_ipv6=1", "--user", "0:0", "--cap-drop=ALL",
+    "--cap-add=NET_ADMIN", "--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=SETPCAP"] : ["--user", `${uid}:${gid}`]),
   "-v",
   `${REPO}:/repo`,
   "-v",
@@ -211,6 +218,8 @@ const status = run("docker", [
     "-e", "GITHUB_RUN_ID", "-e", "GITHUB_RUN_ATTEMPT", "-e", "GITHUB_JOB"] : []),
   ...(nativePrepared ? ["-e", `BRAIN_NATIVE_DIAGRAM_PREPARED=${nativePrepared}`] : []),
   IMAGE,
+  // Capture public setup source before switching UID; a local checkout may be mode 0700.
+  ...(onlineIndicator ? ["python3", "-c", readFileSync(resolve(REPO, "scripts/browser-offline-entry.py"), "utf8"), String(uid), String(gid)] : []),
   "node",
   "scripts/visual.mjs",
   "--inside",

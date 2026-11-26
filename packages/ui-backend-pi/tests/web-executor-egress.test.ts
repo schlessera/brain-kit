@@ -3,6 +3,7 @@
  * no network but the host egress proxy, so a direct socket, a spawned curl and
  * a proxy-bypass setting reach nothing, while the route itself works.
  */
+import { localNetworkFixture } from "../../../tests/helpers/local-network-fixture";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
@@ -20,6 +21,7 @@ function hostAddress(): string | undefined {
 }
 
 test("inside the executor boundary only the egress route reaches anything", async () => {
+  if (await localNetworkFixture(import.meta.path, "inside the executor boundary only the egress route reaches anything")) return;
   const address = hostAddress();
   expect(address, "a non-loopback host address is needed to prove the namespace").toBeDefined();
   // Listens on every address: reachable directly by anything that has the host's network.

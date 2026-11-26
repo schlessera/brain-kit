@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../scripts/test-deadlines";
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
 import { startFixtureTurn } from "./worker-input-fixture.js";
 /** Executed inside a network namespace with loopback fixture inference only. */
@@ -113,7 +114,7 @@ const backend = backendName === "claude" ? createClaudeBackend({ brainPath, prof
   createPiBackend({ brainPath, sessionDir: join(root, "pi-sessions"), profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }], loadExtensions: false });
 const controller = new AbortController();
 if (scenario === "preaborted") controller.abort();
-const deadline = setTimeout(() => controller.abort(), 15_000);
+const deadline = setTimeout(() => controller.abort(), watchdogMs(15_000));
 try {
   if (scenario === "ordinary") {
     await startFixtureTurn(backend, brainPath, { prompt: "Odysseus fixture", profileId: "fixture", signal: controller.signal,
