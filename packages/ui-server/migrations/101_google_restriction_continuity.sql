@@ -15,6 +15,14 @@ FROM google_session_allowances a LEFT JOIN safety_sessions s ON s.session_id=a.s
 
 -- Each correlated UNION uses equality lookups and deduplicates scope membership.
 -- Keep these subqueries correlated: a shared materialized scope can scan the brain.
+-- Every trigger below evaluates this view, so a JSON function that throws here
+-- would refuse that trigger's write, brain-wide latch recovery included (#4631).
+-- One rule, shared with safetyProjection: an acknowledgement or occurrence
+-- payload that single-argument json_valid rejects is unreadable, even where
+-- SQLite's extractors could read it (JSON5, JSONB). Its safety scope is never
+-- normal here, decided or not, and keeps its allowances. The projection throws
+-- for that scope, so they cannot be used while the value remains. CASE, unlike
+-- AND, guarantees no JSON function ever sees that value.
 CREATE VIEW google_normal_allowance_sessions AS
 SELECT t.session_id FROM google_allowance_targets t
 WHERE (SELECT failed=0 AND (reason IS NULL OR reason<>'capacity') FROM safety_meta WHERE singleton=1)
@@ -34,7 +42,8 @@ WHERE (SELECT failed=0 AND (reason IS NULL OR reason<>'capacity') FROM safety_me
         UNION SELECT c.id FROM dialogue_aliases a INDEXED BY google_dialogue_aliases_owner
           CROSS JOIN safety_collections c INDEXED BY google_safety_collections_owner
           ON c.history_owner_id=a.id AND c.generation=t.generation WHERE a.owner_id=t.owner)
-      AND (NULLIF(c.gap,'') IS NOT NULL OR NULLIF(c.failure,'') IS NOT NULL OR json_array_length(c.acknowledged)<9))
+      AND (NULLIF(c.gap,'') IS NOT NULL OR NULLIF(c.failure,'') IS NOT NULL
+        OR CASE WHEN json_valid(c.acknowledged) THEN json_array_length(c.acknowledged) ELSE 0 END<9))
   AND NOT EXISTS (
     SELECT 1 FROM safety_collections c
     CROSS JOIN safety_pending p INDEXED BY safety_pending_collection ON p.collection_id=c.id
@@ -56,8 +65,10 @@ WHERE (SELECT failed=0 AND (reason IS NULL OR reason<>'capacity') FROM safety_me
           CROSS JOIN safety_collections c INDEXED BY google_safety_collections_owner
           ON c.history_owner_id=a.id AND c.generation=t.generation WHERE a.owner_id=t.owner)
       AND r.kind='occurrence'
-      AND COALESCE(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0)<>1
-      AND NOT EXISTS (SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id));
+      AND CASE WHEN json_valid(r.payload)
+        THEN COALESCE(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0)<>1
+          AND NOT EXISTS (SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)
+        ELSE 1 END);
 
 CREATE TRIGGER google_continuity_safety_meta_update AFTER UPDATE OF failed,reason ON safety_meta
 WHEN EXISTS (SELECT 1 FROM google_session_allowances LIMIT 1) AND (OLD.failed IS NOT NEW.failed OR OLD.reason IS NOT NEW.reason)
