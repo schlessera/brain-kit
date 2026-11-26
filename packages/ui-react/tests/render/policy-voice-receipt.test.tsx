@@ -6,8 +6,9 @@
  * `tool_resolution` ("Denied on screen"). Once the reply carries the turn
  * (#4565 stamps it for a tool-only reply, a text delta always did), that
  * receipt reaches the policy card's tool. The card has its own host-recorded
- * outcome, read from the policy proposal: that is what it says. A voice
- * receipt only speaks for a card nobody answered.
+ * outcome, read from the policy proposal: that is what it says once the
+ * card was answered on screen. A voice refusal, the host's expiry reason
+ * and the turn's end for a card nobody answered still say what happened.
  *
  * Real frames, through the real connection, voice router, store and card.
  */
@@ -29,6 +30,7 @@ const PENDING: PolicyChangeReview = {
   frontmatterDiff: "+profiles.interactive: strict", bodyChanged: false, bodyDiff: "", sections: ["profiles.interactive"],
   message: "Policy change proposed. Review before approving.", warnings: [],
 };
+const EXPIRY_REASON = "Safety or authority changed before admission. Nothing ran; a fresh attempt needs a fresh decision.";
 const DECLINED: PolicyChangeReview = { ...PENDING, state: "declined", message: "Policy change declined. Nothing was written." };
 
 let root: BrainUiRoot;
@@ -104,11 +106,38 @@ test("a declined proposal after text keeps its own receipt over the host's on-sc
   expect(view.container.textContent).not.toContain("Denied on screen");
 });
 
-test("an unanswered proposal still shows the voice receipt that closed it and offers no decision", async () => {
+test("an unanswered proposal still shows the turn-end receipt over the host's decline and offers no decision", async () => {
   const { view } = await proposed(false);
+  // Nobody answered: the request settles as declined when the turn ends.
+  served = DECLINED;
+  send({ type: "tool_result", toolUseId: REQUEST, output: JSON.stringify(DECLINED), isError: false, policyChange: DECLINED });
   send({ type: "result", durationMs: 1, numTurns: 1, isError: false });
   await settle();
   expect(tool().voicePermission?.phase).toBe("expired");
   expect(receiptText(view), "UNANSWERED_CARD_SHOWS_VOICE_RECEIPT").toBe("Expired · denied · no answer before the turn ended");
   expect(view.container.querySelector("[data-kit-approval-actions]"), "UNANSWERED_CARD_LOCKED").toBeNull();
+});
+
+test("an unanswered proposal the host expired keeps the host's reason, not the decline it records", async () => {
+  const { view } = await proposed(true);
+  send({ type: "tool_resolution", toolUseId: REQUEST, outcome: "expired", reason: EXPIRY_REASON });
+  served = DECLINED;
+  send({ type: "tool_result", toolUseId: REQUEST, output: JSON.stringify(DECLINED), isError: false, policyChange: DECLINED });
+  send({ type: "result", durationMs: 1, numTurns: 1, isError: false });
+  await settle();
+  expect(tool().voicePermission?.phase).toBe("expired");
+  expect(receiptText(view), "HOST_EXPIRY_REASON_KEPT").toBe(EXPIRY_REASON);
+});
+
+test("an answered proposal the host expired before admitting the answer keeps the host's reason", async () => {
+  const { view } = await proposed(true);
+  const approve = [...view.container.querySelectorAll<HTMLElement>('[data-kit-approval-actions] [role="button"]')].find((b) => b.textContent?.includes("Approve and write"))!;
+  act(() => { fireEvent.click(approve); });
+  // The safety posture changed while the answer was in flight: the host withdraws the request and writes nothing.
+  send({ type: "tool_resolution", toolUseId: REQUEST, outcome: "expired", reason: EXPIRY_REASON });
+  served = DECLINED;
+  send({ type: "tool_result", toolUseId: REQUEST, output: JSON.stringify(DECLINED), isError: false, policyChange: DECLINED });
+  send({ type: "result", durationMs: 1, numTurns: 1, isError: false });
+  await settle();
+  expect(receiptText(view), "ANSWERED_HOST_EXPIRY_REASON_KEPT").toBe(EXPIRY_REASON);
 });

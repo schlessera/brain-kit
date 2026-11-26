@@ -20,6 +20,13 @@ export interface VoicePermissionReceipt {
 /** The strip line while this turn's approvals wait for a tap; the live field draws its own copy for it (#3699). */
 export const PERMISSION_PENDING_LINE = "Use Deny on screen · voice can’t approve or refuse with this service";
 
+/**
+ * What a receipt says when this client closed it at the turn's end, having
+ * heard no host resolution: an inference, unlike the host's own expiry reason.
+ */
+const TURN_EXPIRED = "Expired · denied · no answer before the turn ended", TURN_CANCELLED = "Cancelled · not done";
+export const TURN_END_WORDS: readonly string[] = [TURN_EXPIRED, TURN_CANCELLED];
+
 /** Concrete permission routing. Exact-copy speech is absent, so only a local earcon is queued. */
 export function createConversationPermissions(root: BrainUiServices, send: (message: ClientMessage) => boolean,
   selected: () => { active: boolean; sessionId: string | null; micOn: boolean; quiet: boolean; isolated: boolean }, earcon: () => void, overflow: () => void) {
@@ -90,7 +97,7 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
       publish(); quiet();
     } else if (message.type === "result" || message.type === "status" && (message.status === "idle" || message.status === "cancelled")) {
       for (const receipt of records.values()) if (receipt.sessionId === sessionId && receipt.turnId === turnId && ["pending", "sent"].includes(receipt.phase)) {
-        put({ ...receipt, phase: "expired", word: message.type === "status" && message.status === "cancelled" ? "Cancelled · not done" : "Expired · denied · no answer before the turn ended", script: "I stopped without doing it. Ask me again when you can look at a screen." });
+        put({ ...receipt, phase: "expired", word: message.type === "status" && message.status === "cancelled" ? TURN_CANCELLED : TURN_EXPIRED, script: "I stopped without doing it. Ask me again when you can look at a screen." });
       }
       publish();
     }

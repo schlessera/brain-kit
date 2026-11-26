@@ -4,6 +4,7 @@ import type { PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts
 import { useBrainApi, useBrainUiRoot } from "../../root-context.js";
 import { useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { rememberFileEntry } from "../../lib/file-entry-focus.js";
+import { TURN_END_WORDS } from "../../voice/conversation-permissions.js";
 
 /** A policy approval retains the host's receipt in the same transcript slot. */
 export function PolicyChangeCard({ toolCall, onApproval }: {
@@ -55,11 +56,16 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
     if (explicit.current && (busy || review.state !== "pending")) { explicit.current = false; receipt.current?.focus({ preventScroll: true }); }
   }, [busy, review.state]);
   const voiceLocked = toolCall.voicePermission && toolCall.voicePermission.phase !== "pending";
-  // A voice receipt speaks only for a request this card never answered. Once
-  // the card has its own outcome (a decision in flight or the host's recorded
-  // state), that outcome is the receipt: a turn-end expiry or an on-screen
-  // resolution must not replace "Nothing was written" (#4629).
-  const voiceReceipt = voiceLocked && !busy && review.state === "pending";
+  // Once the card has its own outcome (a decision in flight or the host's
+  // recorded state), that outcome is the receipt for an on-screen decision
+  // and for this card's own answer that the turn's end closed without a
+  // resolution: neither may replace "Nothing was written" (#4629). A voice
+  // refusal, a posture denial or the host's expiry reason still says what
+  // happened, as before.
+  const permission = toolCall.voicePermission;
+  const superseded = !!permission && (permission.phase === "granted" || permission.phase === "denied" && !permission.byVoice && !permission.postureDenied
+    || permission.phase === "expired" && sent.current && TURN_END_WORDS.includes(permission.word));
+  const voiceReceipt = voiceLocked && !(superseded && (busy || review.state !== "pending"));
   function decide(approved: boolean) {
     if (voiceLocked || !verified || !current() || busy || sent.current || review.state !== "pending" || !onApproval) return;
     sent.current = true;
