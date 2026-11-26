@@ -265,7 +265,7 @@ const replyTo = (headers: { name: string; value: string }[]) => {
   return { ctx, fake, prepare: () => prepareGmailDraft(ctx, { action: "reply", message_id: FIRST, body: "Home" }, { createdByBrainKit: false, fingerprint: null }) };
 };
 
-for (const [kind, id] of [["non_ascii", "<ü@example.com>"], ["control", "<lo\u0001om@example.com>"], ["bidi", "<lo‮om@example.com>"]] as const)
+for (const [kind, id] of [["non_ascii", "<\u00fc@example.com>"], ["control", "<lo\u0001om@example.com>"], ["bidi", "<lo\u202eom@example.com>"]] as const)
   test(`google reply refuses a Message-ID the saved draft cannot read back ${kind}`, async () => {
     const { fake, prepare } = replyTo([{ name: "Message-ID", value: id }]);
     await expect(prepare(), `REPLY_ID_UNREADABLE_${kind.toUpperCase()}`).rejects.toMatchObject({ error: { reason: "reply_threading_unreadable" } });
