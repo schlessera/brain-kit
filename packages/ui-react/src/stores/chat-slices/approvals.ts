@@ -19,7 +19,7 @@ type ApprovalsSliceSlice = Pick<ChatState,
 export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice {
   const { set, get, nextId, mutateBuffer, mutateToolHolder } = ctx;
   return {
-    requestToolApproval: (key, toolUseId, toolName, input, description, kind, rememberable, turnId, display) =>
+    requestToolApproval: (key, toolUseId, toolName, input, description, kind, rememberable, turnId, display, network) =>
       mutateBuffer(key, (chat) => {
         const msgs = [...chat.messages];
         const request = (previous: ToolCall | undefined, restored: boolean): ToolCall => ({
@@ -34,6 +34,8 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
           ...(description ? { approvalDescription: description } : {}),
           // Display only (#4154): a re-delivery carries the host's facts again, so they are never older than the card.
           ...(display ? { approvalDisplay: display } : {}),
+          // The scopes the host offers (#3595); a re-delivery offers the same ones.
+          ...(network ? { approvalNetwork: network } : {}),
           // A card already pending keeps what it was; anything else is
           // restored when it lands on a message no live turn is streaming.
           ...((previous?.status === "pending_approval" ? previous.restored : restored)
@@ -116,7 +118,7 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
       }) })) }));
     },
 
-    resolveToolApproval: (key, toolUseId, approved) =>
+    resolveToolApproval: (key, toolUseId, approved, networkScope) =>
       mutateToolHolder(key, toolUseId, (last) => ({
         ...last,
         toolCalls: last.toolCalls.map((t) =>
@@ -124,6 +126,7 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
             ? {
               ...t,
               status: approved ? ("approved" as const) : ("denied" as const),
+              ...(approved && networkScope ? { approvalNetworkScope: networkScope } : {}),
               // Don't let approval wait time inflate the duration badge
               ...(approved ? { startedAt: Date.now() } : {}),
             }

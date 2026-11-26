@@ -1,3 +1,4 @@
+import type { NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
 import { PolicyChangeCard } from "./policy-change-card.js";
 import { ToolSafetyIndicator } from "./safety-indicator.js";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -48,7 +49,7 @@ export function ToolCallTimeline({
   turnId,
 }: {
   toolCalls: ToolCall[];
-  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean, networkScope?: NetworkApprovalScope) => void;
   /** Parent message still streaming — keep the timeline open while work runs. */
   live?: boolean;
   turnId?: string;
@@ -110,7 +111,7 @@ export function ToolCallTimelineCell({
 }: {
   toolCalls: ToolCall[];
   toolIndex: number;
-  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean, networkScope?: NetworkApprovalScope) => void;
   live: boolean;
   collapsed: boolean;
   onExpand: () => void;
@@ -200,7 +201,7 @@ function TimelineSummaryRow({
 type EntryProps = {
   toolCall: ToolCall;
   backendId: string;
-  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean, networkScope?: NetworkApprovalScope) => void;
   turnId?: string;
 };
 

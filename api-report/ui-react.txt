@@ -910,6 +910,8 @@ signatures (every public export and the types it is made of)
         approvalRememberable?: false;
         approvalDescription?: string;
         approvalDisplay?: ApprovalDisplay;
+        approvalNetwork?: NetworkApprovalOffer;
+        approvalNetworkScope?: NetworkApprovalScope;
         restored?: true;
         approvalTurnId?: string;
         readOnly?: RestoredApprovalClosure;

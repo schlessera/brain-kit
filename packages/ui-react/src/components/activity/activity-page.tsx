@@ -4,7 +4,7 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Activity as ActivityIcon, RefreshCw } from "lucide-react";
-import type { ActivitySpan, InboxActionItem, InboxQueueItem, SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { ActivitySpan, InboxActionItem, InboxQueueItem, NetworkApprovalScope, SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { useInboxStore, pendingDecisionCount } from "../../stores/inbox-store.js";
 import {
   DECISION_CARD,
@@ -388,14 +388,14 @@ export function ActivityPage() {
     setDrained(approvals.length === 0);
     void acknowledgeAllIntents();
   }
-  function decideApproval(key: string | null, toolUseId: string, approved: boolean, asked?: boolean) {
+  function decideApproval(key: string | null, toolUseId: string, approved: boolean, asked?: boolean, networkScope?: NetworkApprovalScope) {
     const tool = approvals.find((a) => a.tool.id === toolUseId)?.tool;
-    const { receipt, frame } = approvalOutcome(tool, toolUseId, approved, asked);
+    const { receipt, frame, networkScope: granted } = approvalOutcome(tool, toolUseId, approved, asked, networkScope);
     // A refused send keeps the card open and produces no decision receipt.
     if (!root.connection.send(frame)) return;
     setReceipt(receipt);
     setDrained(inbox.length + approvals.length <= 1);
-    resolveToolApproval(key, toolUseId, approved);
+    resolveToolApproval(key, toolUseId, approved, granted);
   }
   /**
    * The badge's one number (#684): live approvals plus open, non-FYI durable
@@ -684,7 +684,7 @@ export function ActivityPage() {
                           tool={tool}
                           origin={key ? `session ${key.slice(0, 8)}` : "this conversation"}
                           keys={keys}
-                          onDecide={(approved, always) => decideApproval(key, tool.id, approved, always)}
+                          onDecide={(approved, always, networkScope) => decideApproval(key, tool.id, approved, always, networkScope)}
                         />
                       ))}
                     </div>

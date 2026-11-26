@@ -22,6 +22,8 @@ import type {
   TurnJournalSummary,
   ApprovalDisplay,
   HostStopCause,
+  NetworkApprovalOffer,
+  NetworkApprovalScope,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../lib/stats/compose-stats.js";
@@ -203,6 +205,13 @@ export interface ToolCall {
    * model. Absent means unknown, and the card shows its neutral state.
    */
   approvalDisplay?: ApprovalDisplay;
+  /**
+   * A tainted Network card's destination and the scopes the host offers
+   * (#3595). Present, the card offers them in place of its single Allow.
+   */
+  approvalNetwork?: NetworkApprovalOffer;
+  /** The scope this client granted on the card (#3595), for its receipt. */
+  approvalNetworkScope?: NetworkApprovalScope;
   /**
    * The host re-delivered this pending approval after the transcript was
    * rebuilt from history (#964, D52 §4 R3): it is the original request,
@@ -492,10 +501,12 @@ export interface ChatState {
     /** The host turn the request belongs to, from the frame. */
     turnId?: string,
     /** Display-only facts the host verified for the card (#4154). */
-    display?: ApprovalDisplay
+    display?: ApprovalDisplay,
+    /** A tainted Network card's offered scopes (#3595). */
+    network?: NetworkApprovalOffer
   ) => void;
   applyVoicePermission: (receipt: VoicePermissionReceipt) => void;
-  resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
+  resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean, networkScope?: NetworkApprovalScope) => void;
   /**
    * Make restored approval cards read-only, each with the host fact that
    * closed it (#1072, D52 §4 R3). Only a restored card that is not already

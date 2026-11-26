@@ -1,6 +1,7 @@
 import { ActionCard, Button } from "@schlessera/brain-ui-kit";
 import type { KeyboardEvent } from "react";
-import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
+import { NETWORK_SCOPE_ALLOW_LABELS, NETWORK_SCOPE_RECEIPTS, offeredNetworkScope } from "../../lib/tool-approval.js";
 import { offersAlwaysAllow, type ToolCall } from "../../stores/chat-store.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { effectOf, getToolLabel, getToolSummary } from "../chat/tool-views.js";
@@ -24,14 +25,16 @@ import { useFinePointer } from "../../hooks/use-fine-pointer.js";
  * are equally likely. The title — the tool and its target — is the kit
  * `ActionCard`'s, which wraps; the target is the record and never truncates.
  */
-const ALLOW_MOUNT = { flex: "1 1 auto", minWidth: 0, width: "auto" } as const;
+const ALLOW_MOUNT = { flex: "1 1 auto", minWidth: 0, minHeight: 44, width: "auto" } as const;
 const DENY_MOUNT = { flex: "0 0 auto", minWidth: 96, minHeight: 44, width: "auto" } as const;
+/** A wider Network scope (#3595): it may wrap onto its own row, so it keeps the 44px floor itself. */
+const WIDER_MOUNT = { flex: "1 1 auto", minWidth: 0, minHeight: 44, width: "auto" } as const;
 interface ApprovalCardProps {
   tool: ToolCall;
   /** Where it came from, for the foot line. */
   origin: string;
   keys: boolean;
-  onDecide: (approved: boolean, always?: boolean) => void;
+  onDecide: (approved: boolean, always?: boolean, networkScope?: NetworkApprovalScope) => void;
 }
 
 const APPROVAL_CARD = "[data-approval-card]";
@@ -47,21 +50,27 @@ export function approvalOutcome(
   tool: ToolCall | undefined,
   toolUseId: string,
   approved: boolean,
-  asked?: boolean
+  asked?: boolean,
+  networkScope?: NetworkApprovalScope
 ): {
   receipt: { text: string; target: string; effect: string };
   frame: Extract<ClientMessage, { type: "tool_approval" | "tool_denial" }>;
+  /** The tainted Network scope the frame grants (#3595), when the card offered scopes. */
+  networkScope?: NetworkApprovalScope;
 } {
   const always = approved && asked === true && tool !== undefined && offersAlwaysAllow(tool);
+  // Only a scope the card offered; the narrowest when none was named (#3595).
+  const scope = approved && tool ? offeredNetworkScope(tool, networkScope) : undefined;
   return {
+    ...(scope ? { networkScope: scope } : {}),
     receipt: {
-      text: approved ? (always ? "Always allowed" : "Allowed") : "Denied",
+      text: approved ? (always ? "Always allowed" : scope ? NETWORK_SCOPE_RECEIPTS[scope] : "Allowed") : "Denied",
       target: tool ? tool.name : toolUseId,
       effect: always ? "write_policy" : approved ? "tool_approval" : "tool_denial",
     },
     // Every decision on this surface is made on the card (#113).
     frame: approved
-      ? { type: "tool_approval", toolUseId, ...(always ? { always: true } : {}), channel: "card" }
+      ? { type: "tool_approval", toolUseId, ...(always ? { always: true } : {}), ...(scope ? { networkScope: scope } : {}), channel: "card" }
       : { type: "tool_denial", toolUseId, message: "Denied by user", channel: "card" },
   };
 }
@@ -71,9 +80,12 @@ export function ApprovalCard(p: ApprovalCardProps) {
   const summary = getToolSummary(p.tool);
   const finePointer = useFinePointer();
   const printKeys = p.keys && finePointer;
-  function decide(card: HTMLElement | null, approved: boolean, always?: boolean) {
+  // A tainted Network card offers its scopes (#3595); Allow, and the `a`
+  // key, stay the narrowest.
+  const network = p.tool.approvalNetwork;
+  function decide(card: HTMLElement | null, approved: boolean, always?: boolean, networkScope: NetworkApprovalScope | undefined = approved ? network?.scopes[0] : undefined) {
     if (card) focusAfterDecision(card, APPROVAL_CARD, "[data-needs-you-heading]");
-    p.onDecide(approved, always);
+    p.onDecide(approved, always, networkScope);
   }
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (!p.keys) return;
@@ -83,7 +95,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
     decide(event.currentTarget, key === "a");
   }
   return (
-    <div data-approval-card="" role="group" aria-label={`Approval: ${label}`} tabIndex={0} onKeyDown={onKeyDown} className="rounded-[14px] outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+    <div data-approval-card="" role="group" aria-label={`Approval: ${label}`} tabIndex={0} onKeyDown={onKeyDown} className="rounded-[14px] outline-none focus-visible:ring-2 focus-visible:ring-primary/50" style={{ overflowWrap: "anywhere" }}>
       <ActionCard
         kind="approval"
         kindLabel="Live approval"
@@ -97,7 +109,10 @@ export function ApprovalCard(p: ApprovalCardProps) {
         chevron={false}
       >
         <div className="mt-2 flex flex-wrap gap-2">
-          <Button label="Allow" icon="confirm" tone="primary" size="sm" center block={false} style={ALLOW_MOUNT} onClick={() => decide(cardOf(), true)} />
+          <Button label={network ? NETWORK_SCOPE_ALLOW_LABELS[network.scopes[0]!] : "Allow"} icon="confirm" tone="primary" size="sm" center block={false} style={ALLOW_MOUNT} onClick={() => decide(cardOf(), true)} />
+          {network?.scopes.slice(1).map(scope => (
+            <Button key={scope} label={NETWORK_SCOPE_ALLOW_LABELS[scope]} tone="ghost" size="sm" block={false} style={WIDER_MOUNT} onClick={() => decide(cardOf(), true, undefined, scope)} />
+          ))}
           {offersAlwaysAllow(p.tool) && (
             <Button label="Always allow" effect="write_policy" tone="ghost" size="sm" block={false} onClick={() => decide(cardOf(), true, true)} />
           )}

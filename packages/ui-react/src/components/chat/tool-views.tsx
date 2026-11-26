@@ -724,5 +724,11 @@ function ReadOutputStub({ output }: { output: string }) {
  * is the runtime's own text, so it is not drawn.
  */
 export function effectOf(tool: ToolCall): string | undefined {
-  return tool.approvalKind === "command" ? tool.approvalDescription : undefined;
+  if (tool.approvalKind !== "command") return undefined;
+  // A card offering Network scopes (#3595) says what each does on its
+  // buttons; the host's legacy sentence promising a session-wide grant
+  // describes an unscoped Allow only.
+  return tool.approvalNetwork ? tool.approvalDescription?.replace(LEGACY_NETWORK_GRANT, "").trimEnd() : tool.approvalDescription;
 }
+/** The legacy tainted-destination card's closing sentence (`taintedDestinationDescription`, #3430). */
+const LEGACY_NETWORK_GRANT = / Allowing lets it send data to \S+ for the rest of this session without asking again\.$/;

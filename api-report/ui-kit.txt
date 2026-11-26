@@ -634,6 +634,10 @@ signatures (every public export and the types it is made of)
         onAllow?: () => void;
         onDeny?: () => void;
         onAlwaysAllow?: () => void;
+        widerAllows?: ReadonlyArray<{
+            label: string;
+            onAllow?: () => void;
+        }>;
         children?: ReactNode;
         wrapHeader?: boolean;
         wrapActions?: boolean;

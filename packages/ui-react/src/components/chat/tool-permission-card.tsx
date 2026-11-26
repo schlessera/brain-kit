@@ -11,10 +11,12 @@ import { effectOf, getToolLabel } from "./tool-views.js";
 import { riskHints } from "./risk-hints.js";
 import { APIFY_APPROVAL_TOOLS, apifyApprovalTarget } from "./renderers/apify-tools.js";
 import { githubApproval } from "./renderers/github-tools.js";
+import { NETWORK_SCOPE_ALLOW_LABELS } from "../../lib/tool-approval.js";
+import type { NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
 
 export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: forced }: {
   toolCall: ToolCall;
-  onApproval?: (id: string, approved: boolean, always?: boolean) => boolean | void;
+  onApproval?: (id: string, approved: boolean, always?: boolean, networkScope?: NetworkApprovalScope) => boolean | void;
   backendId?: string;
   /** Skip resolution: the timeline row's boundary caught this tool's renderer throwing. */
   renderer?: ToolRenderer;
@@ -39,12 +41,15 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
   const target = apifyApprovalTarget(toolCall) ?? github?.target ?? [input.command, input.cmd, input.file_path, input.notebook_path, input.path, input.url, input.target]
     .find((value): value is string => typeof value === "string" && value.length > 0)
     ?? JSON.stringify(input);
-  function decide(approved: boolean, always?: boolean) {
+  // A tainted Network card offers its scopes (#3595): Allow is the narrowest
+  // one, and each wider one has its own button.
+  const network = toolCall.approvalNetwork;
+  function decide(approved: boolean, always?: boolean, networkScope: NetworkApprovalScope | undefined = approved ? network?.scopes[0] : undefined) {
     if (!onApproval || decision.current.sent) return;
     decision.current.sent = true;
     const focused = document.activeElement;
     if (card.current) focusAfterDecision(card.current, "[data-approval-card]", "textarea[data-composer]");
-    if (onApproval(toolCall.id, approved, always) === false) {
+    if (onApproval(toolCall.id, approved, always, networkScope) === false) {
       decision.current.sent = false;
       if (focused instanceof HTMLElement && focused.isConnected) focused.focus();
     }
@@ -61,6 +66,8 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
       badge={`Approval needed${apifyRun ? " · paid run" : ""}${toolCall.restored ? " · restored" : ""}`}
       {...(apifyApprovalTarget(toolCall) !== null ? { allowLabel: "Allow once" } : {})}
       {...(github ? { allowLabel: github.allowLabel, denyLabel: github.denyLabel } : {})}
+      {...(network ? { allowLabel: NETWORK_SCOPE_ALLOW_LABELS[network.scopes[0]!], wrapActions: true,
+        widerAllows: network.scopes.slice(1).map(scope => ({ label: NETWORK_SCOPE_ALLOW_LABELS[scope], ...(onApproval ? { onAllow: () => decide(true, undefined, scope) } : {}) })) } : {})}
       wrapHeader diff="" risk={riskHints(toolCall, renderer.semantics).join(" · ")}
       shortcuts={printKeys ? { allow: "a", deny: "d" } : undefined}
       onAllow={onApproval ? () => decide(true) : undefined} onDeny={onApproval ? () => decide(false) : undefined}
