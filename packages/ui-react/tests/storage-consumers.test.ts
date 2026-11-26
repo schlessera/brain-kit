@@ -185,6 +185,17 @@ describe("rows", () => {
       ["charts", "drill", "folder"],
     ]);
   });
+
+  test("folder metadata has no action: there is nothing to open or inspect", () => {
+    const nodes = [
+      node({ id: 42, rootId: 1, name: "charts", kind: "directory", owner: "brain", bytes: 5_000_000 }),
+      node({ id: 43, rootId: 1, name: "Folder metadata", kind: "metadata", owner: "brain", bytes: 12_000 }),
+    ];
+    expect(storageConsumerRows(page(nodes, brainRoots[0]!.id), "allocated").rows.map((row) => [row.name, row.action, row.kind])).toEqual([
+      ["charts", "drill", "folder"],
+      ["Folder metadata", "none", "folder metadata"],
+    ]);
+  });
 });
 
 describe("the ownership legend counts only complete evidence", () => {
