@@ -803,7 +803,8 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "BRAIN_GOOGLE_LEDGER",
     description:
       "Absolute path of the shared Google ledger, private to the host user and outside every brain. " +
-      "Read once at boot and kept host-only; nothing in this release opens it (the Gmail writes of #4201 will). Never passed to a worker.",
+      "Read once at boot and kept host-only. Remembered Google approvals use this file; standalone approval management (`brain google approvals` / `revoke`) " +
+      "requires this same absolute path explicitly. The file is private (0600) in a private (0700) directory. Never passed to a worker.",
     default: "DB_PATH.google-ledger.sqlite",
     required: false,
   },
