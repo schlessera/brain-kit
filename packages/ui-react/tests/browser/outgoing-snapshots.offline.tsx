@@ -226,7 +226,10 @@ test("text pasted while a Send's snapshot is unacknowledged is shown in the fiel
   const sentBefore = s.messages().length;
   const image = { attachment: { data: "iVBORw0KGgo=", mediaType: "image/png" as const }, previewUrl: "data:image/png;base64,iVBORw0KGgo=", bytes: 8, name: "ithaca-map.png" };
   s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: { ...st.drafts[d2.draftId]!, attachments: [image] } } }));
+  // The composer renders the image before Send reads it.
+  await new Promise((resolve) => setTimeout(resolve, 50));
   s.sendButton().click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
   expect(s.messages().length, "INLINE_SEND_WAITS_FOR_LAST_MESSAGE").toBe(sentBefore);
   expect(s.draft()!.attachments).toHaveLength(1);
   // Nor while the draft's delete is out, with every snapshot it shows as the host holds it.
