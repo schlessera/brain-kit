@@ -752,7 +752,7 @@ for (const coverage of ["incomplete", "refused", "complete"] as const)
     await files();
     await inspect("Troy-charts.PDF").click();
     const sheet = () => page.getByRole("dialog").element().textContent ?? "";
-    await expect.poll(sheet).toContain("References");
+    await expect.poll(sheet).toContain("Current source review:");
     if (coverage === "complete") {
       expect(sheet(), "STORAGE_SHEET_NONE_FOUND").toContain("No references found in the checked scope.");
     } else {
