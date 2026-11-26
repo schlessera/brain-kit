@@ -218,7 +218,7 @@ for(const [name,input,value] of [
  * Real installed Claude Grep content rows; the brain holds Odysseus's notes. */
 const odysseusBrain=(()=>{
  const root=mkdtempSync(join(tmpdir(),'ithaca-brain-'));
- for(const path of ['notes/loom.md','notes/log:12:00.md','notes/voyage','notes/voyage:2'])mkdirSync(join(root,path,'..'),{recursive:true}),writeFileSync(join(root,path),'Odysseus sails at dawn.\n');
+ for(const path of ['notes/loom.md','notes/log:12:00.md','notes/voyage','notes/voyage:2']){mkdirSync(join(root,path,'..'),{recursive:true});writeFileSync(join(root,path),'Odysseus sails at dawn.\n');}
  mkdirSync(join(root,'notes/harbour:4'),{recursive:true});
  return root;
 })();
