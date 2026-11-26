@@ -602,6 +602,27 @@ test("A running removal's receipt stays reachable beside its retained selection"
   await button("View removal receipt").click();
   await expect.poll(() => button("Cancel remaining files").elements().length).toBe(1);
 });
+// #4549 review (seventh round): when that removal finishes, its receipt line
+// leaves the selection bar. Focus on it moves to a surviving control there.
+test("A finishing removal hands focus from its receipt line to the selection bar", async () => {
+  const fixture = await scene();
+  await files();
+  await select("Ithaca-harbor.pdf");
+  await select("Troy-charts.PDF");
+  fixture.holdNextConfirmation();
+  await button("Review removal").click();
+  await button("Remove 2 files").click();
+  await expect.poll(() => button("Cancel remaining files").elements().length).toBe(1);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => page.getByRole("dialog").elements().length).toBe(0);
+  await expect.poll(() => button("View removal receipt").elements().length).toBe(1);
+  (button("View removal receipt").element() as HTMLElement).focus();
+  fixture.finishHeldRemoval();
+  await expect.poll(() => button("View removal receipt").elements().length).toBe(0);
+  const active = document.activeElement;
+  expect(active === document.body ? "body" : "control", "STORAGE_FINISHED_RECEIPT_KEEPS_FOCUS").toBe("control");
+  expect(host.querySelector("[data-storage-large-files]")?.contains(active)).toBe(true);
+});
 test("A late old-root inspection cannot populate the replacement root", async () => {
   const oldFixture = await scene();
   await files();

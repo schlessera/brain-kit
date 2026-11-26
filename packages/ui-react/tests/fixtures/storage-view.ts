@@ -713,6 +713,11 @@ export function storageViewFixture(scene: StorageScene = "dense") {
     holdNextConfirmation() {
       holdConfirmation = true;
     },
+    /** A held removal finishes: the next receipt read reports it partial. */
+    finishHeldRemoval() {
+      holdConfirmation = false;
+      if (receipt) receipt = { ...receipt, state: "partial", completedAt: stamp + 1500 };
+    },
     deferInspection() {
       let release!: () => void;
       inspectionWait = new Promise<void>((resolve) => {
