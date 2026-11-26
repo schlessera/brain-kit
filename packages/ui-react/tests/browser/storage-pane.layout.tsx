@@ -981,6 +981,12 @@ const MATRIX: MatrixScenario[] = [
       fixture.changeVersion();
       await button("Review removal").click();
       await expect.poll(() => page.getByRole("dialog").element().textContent).toContain("A selected version changed");
+      // #4549 review F4: the matrix row is the mixed removal result itself.
+      await expect
+        .poll(() => page.getByRole("dialog").element().textContent, { message: "STORAGE_MIXED_RESULT_SHOWN" })
+        .toContain("1 removed · 0 restored · 1 other outcomes");
+      expect(page.getByRole("dialog").element().textContent).toContain("changed since review");
+      expect(button("Undo removal of attachments/Ithaca-harbor.pdf").elements(), "STORAGE_MIXED_RESULT_OFFERS_UNDO").toHaveLength(1);
     },
   },
   { name: "unsupported", cells: ["320-dark", "1280-dark"], kind: "unsupported", act: files },
