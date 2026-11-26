@@ -103,8 +103,10 @@ for (const width of [320, 1280])
       const chart = boxes();
       expect(chart.numbers, "STORAGE_LEGEND_MATCHES_CHART").toEqual([1, 2, 3, 4, 5, 6]);
       expect(chart.leftToRight, "STORAGE_CHART_NUMBERED_IN_TIME_ORDER").toEqual([...chart.leftToRight].sort((a, b) => a! - b!));
-      // Read with since until a page is empty.
-      expect(f.eventReads, "STORAGE_TIMELINE_SINCE_PAGING").toEqual([0, 6]);
+      // Read with since until a page is empty. A refresh queued behind the
+      // first read (#4549) continues from the last event, never from 0.
+      expect(f.eventReads.slice(0, 2), "STORAGE_TIMELINE_SINCE_PAGING").toEqual([0, 6]);
+      expect(f.eventReads.slice(2), "STORAGE_TIMELINE_CONTINUES").toEqual(f.eventReads.slice(2).map(() => 6));
       expect(host.querySelector('[role="alert"]')).toBeNull();
       await unclip(width);
       await expect(page.elementLocator(section()!)).toMatchScreenshot(`storage-events-${width}-${theme}`);
