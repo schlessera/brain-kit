@@ -360,6 +360,18 @@ describe("reading the timeline with since", () => {
     ]);
   });
 
+  test("a time no date can hold is unreadable, and an out-of-span time is never formatted", async () => {
+    const good = warning(1, sixHour(4), "start", "low");
+    const far = warning(2, Number.MAX_SAFE_INTEGER, "end", "observed");
+    const read = await readStorageTimeline(async (since) => (since === 0 ? page(0, [good, far]) : page(since, [])), null);
+    expect(read?.events).toEqual([good]);
+    // Past the span, a time is dropped before it is formatted, whatever its source.
+    const lost = onIthaca({ state: "complete", completedAt: Number.MAX_SAFE_INTEGER });
+    expect(
+      storageMarkers({ series: steady, identity: ITHACA, maintenance: [lost], timeline: timeline([good, far]), now: worldTime, format }).map((m) => m.label)
+    ).toEqual(["Low warning started"]);
+  });
+
   test("an older host's 404, a failure or a malformed page leaves what was read", async () => {
     const before = timeline([warning(1, 1, "start", "low")]);
     const missing = async () => {
