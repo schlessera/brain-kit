@@ -427,14 +427,19 @@ test("a collection's end waits for a stopped turn's result record already under 
 // A Pi grant is usable the moment it exists, by any concurrent RPC for the
 // call. So the dispatcher publishes it only after the collector's last check
 // passed: a check that then refuses the call must find nothing used (#3812).
-test("a Pi grant is unusable until the collector's last check passes, and a call refused at that check stays owed", async () => {
+for (const legacy of [false, true]) test(`a Pi grant is unusable until the collector's last check passes, and a call refused at that check stays owed (legacy=${legacy})`, async () => {
   const f = await voyage(); let release = () => {};
   try {
     mkdirSync(join(f.brain, "notes"), { recursive: true }); writeFileSync(join(f.brain, "notes/sirens.md"), "The sirens sing.\n");
     let read = 0, checking = () => {};
     const checked = new Promise<void>(resolve => { checking = resolve; }), hold = new Promise<void>(resolve => { release = resolve; });
     // Hold the collector's last check for the read, once it is reached.
-    const inputSafety = { ...f.collector, allowed: async (id: string) => { checking(); await hold; return f.collector.allowed!(id); } };
+    const inputSafety = { ...f.collector,
+      // Modern dispatch prepares a ticket; old hosts expose only allowed().
+      // Gate the boundary the backend actually uses before publishing a grant.
+      prepareDispatch: legacy ? undefined : async (id: string) => { const ticket = await f.collector.prepareDispatch!(id); checking(); await hold; return ticket; },
+      allowed: async (id: string) => { checking(); await hold; return f.collector.allowed!(id); },
+    };
     const admissionSafety = createEffectiveSafety(f.db, { turnId: "voyage", sessionId: () => "ithaca", policyHash: null, writes: f.writes, authority: () => ({ current: true, epoch: "1" }) });
     const turn = { bridge: { inputSafety, admissionSafety, emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Penelope declines the push" }),
       readBrainBase: async (path: string) => { read++; return { content: await Bun.file(join(f.brain, path)).text() }; } },

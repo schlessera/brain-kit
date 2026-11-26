@@ -3,6 +3,7 @@ import type { Database } from "bun:sqlite";
 import type { SessionTaint } from "./session-taint.js";
 type PendingSafety = {id:string;occurrenceId:string|null;turnId:string|null;sessionId:string|null;source:SessionTaint["source"];bytes:number};
 const queues=new WeakMap<Database,{generation:bigint;pending:Set<PendingSafety>;bytes:number;failed:boolean;inflight:number;
+
  /** The safety revision when this process latched in memory; null when unreadable. */
  latchRevision:string|null;
  lostTurns:Set<string>;unscopedLoss:boolean;listeners:Set<()=>void>;recovery:{timer:ReturnType<typeof setTimeout>|null;attempt:number};

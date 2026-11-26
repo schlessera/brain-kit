@@ -5,6 +5,13 @@ import type { GovernanceWrites } from "./event-writes.js";
 import { safetyEvidenceSequence, safetyProjection, safetyScopeTurns } from "./safety-store.js";
 import { safetyQueue, safetyReadVersion } from "./safety-queue.js";
 
+const causalReaders=new WeakMap<AdmissionSafety,(excluded:readonly string[])=>ReturnType<AdmissionSafety['read']>>();
+/** Only the concrete host facade can subtract a known own reservation. */
+export function readCausalRoot(root:AdmissionSafety,excluded:readonly string[]):{state:ReturnType<AdmissionSafety['read']>;externalRevision:string|null}{
+ const reader=causalReaders.get(root);if(reader)return {state:reader(excluded),externalRevision:null};
+ const state=root.read();return {state,externalRevision:state.evidenceRevision};
+}
+
 /** Concrete input from the host's future trust publisher, not a policy loader or matcher. */
 export interface LiveTrustRevision {
   revision(): string;
@@ -67,6 +74,7 @@ export function createEffectiveSafety(db: Database, options: {
   };
   const safety: AdmissionSafety = {
     read(excludedPending=[]) {
+
       // Projection and immutable sequence must describe one SQLite snapshot.
       const cacheAllowed=!db.inTransaction;
       const snapshot=()=>{
@@ -125,5 +133,7 @@ export function createEffectiveSafety(db: Database, options: {
       return () => { listeners.delete(changed); release?.(); options.signal?.removeEventListener("abort", changed); };
     },
   };
+  causalReaders.set(safety,excluded=>{const ids=[...safetyQueue(db).pending].filter(item=>item.occurrenceId!==null&&excluded.includes(item.occurrenceId)).map(item=>item.id);return safety.read(ids);});
   return safety;
+
 }

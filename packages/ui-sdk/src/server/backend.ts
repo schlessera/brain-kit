@@ -168,6 +168,21 @@ export interface LocationFix {
   timestamp: number;
 }
 
+/** Synchronous final host check, run before an allowance becomes usable. */
+export type InputSafetyAdmissionCheck = () => string | null;
+/** Host-only single-use dispatch handoff; never serialized to workers. */
+export interface InputSafetyDispatchTicket {
+  commit(validate?: InputSafetyAdmissionCheck): void;
+  cancel(): Promise<void>;
+}
+
+/** Host-owned causal view factory for an exact logical tool call. Never a grant. */
+export type InputSafetyAdmissionView = (
+  toolUseId: string,
+  toolName: string,
+  safety: import("./admission-safety.js").AdmissionSafety,
+) => import("./admission-safety.js").AdmissionSafety;
+
 /** Host-only collection status. This is evidence, never dispatch authority. */
 export interface InputSafetyOutputStatus {
   readonly complete: boolean;
@@ -195,6 +210,10 @@ export interface BackendBridge {
   /** @internal Host-owned versioned input collection. Await before executing a
    * tool and before returning its result to the provider. Never a grant. */
   inputSafety?: {
+    /** Host-only causal view for this exact logical call. Cache it per id/tool.
+     * Exclude only its own recorded input, never decisions, results, other
+     * calls, pending/lost evidence or trust/authority changes. Never a grant. */
+    forAdmission?: InputSafetyAdmissionView;
     ready(backendId: string, detectorVersion: number): Promise<void>;
     /** @internal Persist collector loss before refusing unqualified input. */
     unavailable?(): Promise<void>;
@@ -232,8 +251,13 @@ export interface BackendBridge {
      * grant, a capability) until it resolves; a backend that calls `refused`
      * must call this too. Rejects when the call's id was refused or its
      * latest `begin` did not complete; the backend then refuses the call
-     * instead. */
-    allowed?(toolUseId: string): Promise<void>;
+     * instead. `validate` runs synchronously inside the serialized step,
+     * before the allowance is marked; a refusal never marks the call allowed. */
+    allowed?(toolUseId: string, validate?: InputSafetyAdmissionCheck): Promise<void>;
+    /** Prepare without recording dispatch. After every final wait/check, commit
+     * synchronously immediately before exposing allowance. Cancel an unused
+     * ticket on refusal; old hosts lacking this method retain conservative gaps. */
+    prepareDispatch?(toolUseId: string): Promise<InputSafetyDispatchTicket>;
   };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;

@@ -1613,6 +1613,7 @@ export "./internal" (./src/internal.ts)
   observeDiagnostic
   observeOutwardPlan
   outputStagingLimit
+  outwardAdmissionRefusal
   ownedNames
   parseCliProviderOrigins
   parseNativeBrainDelta
@@ -1655,6 +1656,7 @@ export "./internal" (./src/internal.ts)
   resolveWorkerStateLimits
   resolveWorkspacesMount
   restrictedReadPaths
+  retainSettledAdmission
   retainWorkerStartupView
   rewriteWorkerRtk
   runMaintenanceWorker
@@ -1673,6 +1675,7 @@ export "./internal" (./src/internal.ts)
   startInferenceRelay
   startProviderRelay
   stripHostContextFromTitle
+  toolAdmissionSafety
   turnTempLimit
   turnTempSpace
   validatedEgressProvenance
@@ -3001,6 +3004,9 @@ export "./server" (./src/server/index.ts)
   type InboxToolName
   type InboxView
   type InboxWorkPayload
+  type InputSafetyAdmissionCheck
+  type InputSafetyAdmissionView
+  type InputSafetyDispatchTicket
   type InputSafetyOutputStatus
   type JournalObservationReference
   type JournalOutwardAction
@@ -4750,6 +4756,25 @@ signatures (every public export and the types it is made of)
     }
   ActivityView (packages/ui-sdk/src/protocol.ts)
     export type ActivityView = "index" | "session" | "run";
+  AdmissionSafety (packages/ui-sdk/src/server/admission-safety.ts)
+    export interface AdmissionSafety {
+        read(excludedPending?: readonly string[]): AdmissionSafetySnapshot;
+        pendingRecording?(before: AdmissionSafetySnapshot | undefined, signal: AbortSignal | undefined, excludedPending?: () => readonly string[] | undefined): Iterable<Promise<void>>;
+        subscribe(changed: () => void): () => void;
+    }
+  AdmissionSafetySnapshot (packages/ui-sdk/src/server/admission-safety.ts)
+    export interface AdmissionSafetySnapshot {
+        readonly evidenceRevision: string;
+        readonly trustRevision: string;
+        readonly authorityEpoch: string;
+        readonly scope: string;
+        readonly policyHash: string | null;
+        readonly restricted: boolean;
+        readonly recordingAvailable: boolean;
+        readonly recordingPending?: boolean;
+        readonly operationRecordingAvailable?: boolean;
+        readonly authorityCurrent: boolean;
+    }
   AgentBackend (packages/ui-sdk/src/server/backend.ts)
     export interface AgentBackend {
         id: string;
@@ -10970,6 +10995,15 @@ signatures (every public export and the types it is made of)
     export interface InboxWorkPayload {
         instruction: string;
         operation?: InboxOperation;
+    }
+  InputSafetyAdmissionCheck (packages/ui-sdk/src/server/backend.ts)
+    export type InputSafetyAdmissionCheck = () => string | null;
+  InputSafetyAdmissionView (packages/ui-sdk/src/server/backend.ts)
+    export type InputSafetyAdmissionView = (toolUseId: string, toolName: string, safety: import("./admission-safety.js").AdmissionSafety) => import("./admission-safety.js").AdmissionSafety;
+  InputSafetyDispatchTicket (packages/ui-sdk/src/server/backend.ts)
+    export interface InputSafetyDispatchTicket {
+        commit(validate?: InputSafetyAdmissionCheck): void;
+        cancel(): Promise<void>;
     }
   InputSafetyOutputStatus (packages/ui-sdk/src/server/backend.ts)
     export interface InputSafetyOutputStatus {

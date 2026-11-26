@@ -105,6 +105,7 @@ export interface GovernanceWrites {
   safety(turnId:string|null,sessionId:string|null,excludedPending?:readonly string[]):SafetyProjection;
   /** Input recording must be settled and healthy before any provider delivery. */
   recordingAvailable(turnId:string|null,sessionId:string|null,excludedPending?:readonly string[]):boolean;
+
   /**
    * Validates now, throwing `GovernanceEventError` as the synchronous writer
    * did; the returned promise settles once the row commits, or with the
@@ -229,6 +230,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     const reservation=crypto.randomUUID();
     const payload=JSON.parse(row.payload);
     const pending = {id:reservation,occurrenceId:input.kind==="taint"?payload.occurrence?.id??null:payload.occurrenceId??null, turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
+
     pendingTaints.add(pending); shared.bytes += bytes;
     notifySafetyChanged(db);
     let reserved=false;
@@ -307,6 +309,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
         if(shared.failed||lostInScope(turnId,sessionId)||pendingInScope(turnId,sessionId).some(p=>!excludedPending.includes(p.id)))return false;
         const state=safetyProjection(db,turnId,sessionId,excludedPending);
         return !state.reasons.some(reason=>["recording_failed","recording_pending","capacity"].includes(reason));
+
       });
     },
     firstTaint: (input, options) => record(input, options).then(result => result.recorded),
