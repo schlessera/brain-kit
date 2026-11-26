@@ -169,7 +169,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     const outputComplete=searchOutputComplete(output,outputStatus,tool==='grep'&&options.backendId==='pi');
     const call=calls.get(toolUseId);
     const verified=op.grepNote&&options.grepCheckpoint
-      &&outputComplete&&finalized&&!segments&&!op.uncertain&&!op.refused&&op.inputHashes.size===1
+      &&outputComplete!==false&&finalized&&!segments&&!op.uncertain&&!op.refused&&op.inputHashes.size===1
       &&call?.tools.size===1&&call.tools.get(tool)===1&&!marked(op.grepNote)
       &&checkpointGrepMatches(options.grepCheckpoint,op.grepNote,output);
     // The checkpoint proves these are lines of note content, including any
