@@ -581,6 +581,27 @@ test("Cancellation keeps acknowledged removal and stops the remaining selection"
   ]);
   expect(fixture.confirms).toBe(1);
 });
+// #4549 review (sixth round): a removal still running keeps its selection,
+// and Review removal is held while it runs. Closing its dialog must leave the
+// receipt reachable, for status and Cancel, without clearing the selection.
+test("A running removal's receipt stays reachable beside its retained selection", async () => {
+  const fixture = await scene();
+  await files();
+  await select("Ithaca-harbor.pdf");
+  await select("Troy-charts.PDF");
+  fixture.holdNextConfirmation();
+  await button("Review removal").click();
+  await button("Remove 2 files").click();
+  await expect.poll(() => button("Cancel remaining files").elements().length).toBe(1);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => page.getByRole("dialog").elements().length).toBe(0);
+  expect(host.textContent).toContain("2 selected");
+  await expect
+    .poll(() => button("View removal receipt").elements().length, { message: "STORAGE_RUNNING_RECEIPT_WITH_SELECTION" })
+    .toBe(1);
+  await button("View removal receipt").click();
+  await expect.poll(() => button("Cancel remaining files").elements().length).toBe(1);
+});
 test("A late old-root inspection cannot populate the replacement root", async () => {
   const oldFixture = await scene();
   await files();
