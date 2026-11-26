@@ -36,13 +36,31 @@ export async function storageViewport({ globals }: { globals?: { viewport?: unkn
   const width = Number(/^consumer-(\d+)$/.exec(key)?.[1]);
   if (!width) throw new Error(`storage stories open at viewportAt(320) or viewportAt(1280), not "${key}"`);
   const { page, commands } = await import("vitest/browser");
+  const { onTestFinished } = await import("vitest");
   const before = { width: innerWidth, height: innerHeight };
   const outer = await commands.consumerParityViewport(width);
-  await page.viewport(width, 800);
-  return async () => {
-    await page.viewport(before.width, before.height);
-    await commands.consumerParityViewport(null, outer);
+  let restored = false;
+  const cleanup = async () => {
+    if (restored) return;
+    restored = true;
+    const errors: unknown[] = [];
+    try { await page.viewport(before.width, before.height); } catch (error) { errors.push(error); }
+    try { await commands.consumerParityViewport(null, outer); } catch (error) { errors.push(error); }
+    if (errors.length) throw new AggregateError(errors, "Storage viewport cleanup failed");
   };
+  // Storybook runs the returned cleanup only when the next story loads, so
+  // the last story of a file would leave the outer viewport and its
+  // reduced-motion emulation to every later file (#4582). Register before
+  // resizing: a rejected resize can still have changed the iframe.
+  onTestFinished(cleanup);
+  try { await page.viewport(width, 800); }
+  catch (error) {
+    try { await cleanup(); } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Storage viewport setup and cleanup failed");
+    }
+    throw error;
+  }
+  return cleanup;
 }
 
 /** The 320px phone gutter (storage.md), or desktop padding. */
