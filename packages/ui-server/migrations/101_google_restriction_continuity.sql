@@ -17,10 +17,12 @@ FROM google_session_allowances a LEFT JOIN safety_sessions s ON s.session_id=a.s
 -- Keep these subqueries correlated: a shared materialized scope can scan the brain.
 -- Every trigger below evaluates this view, so a JSON function that throws here
 -- would refuse that trigger's write, brain-wide latch recovery included (#4631).
--- A value json_valid rejects is unreadable instead: the projection throws for
--- its chat, so the chat is never normal here, decided or not, and keeps an
--- allowance that the throwing projection leaves unusable. CASE, unlike AND,
--- guarantees no JSON function ever sees that value.
+-- One rule, shared with safetyProjection: an acknowledgement or occurrence
+-- payload that single-argument json_valid rejects is unreadable, even where
+-- SQLite's extractors could read it (JSON5, JSONB). Its safety scope is never
+-- normal here, decided or not, and keeps its allowances. The projection throws
+-- for that scope, so they cannot be used while the value remains. CASE, unlike
+-- AND, guarantees no JSON function ever sees that value.
 CREATE VIEW google_normal_allowance_sessions AS
 SELECT t.session_id FROM google_allowance_targets t
 WHERE (SELECT failed=0 AND (reason IS NULL OR reason<>'capacity') FROM safety_meta WHERE singleton=1)

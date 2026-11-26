@@ -192,14 +192,20 @@ to the changed collection's session and canonical owner/generation group.
 Collection, record and pending lookups use persistent indexes. Old-epoch
 allowances are cleared at host startup, even when concrete writes are disabled.
 
-A check never throws on a safety value that is not valid JSON, a record
-payload or a detector acknowledgement. Each check runs inside the write it
-observes, so a throw would refuse that write, brain-wide recorder recovery at
-boot or by the owner included, while one corrupt row and one live grant
-existed (#4631). The check treats such a value as unreadable: its chat is not
-normal, whether or not the record was reviewed, and keeps its allowance. The
-safety projection throws for that chat, so every admission refuses until the
-value is readable again.
+Continuity and the safety projection share one rule for a record payload or a
+detector acknowledgement: a value that SQLite's single-argument `json_valid`
+rejects is unreadable. That covers malformed text, and also JSON5, JSONB and
+nesting past SQLite's depth limit, which SQLite's extractors or `JSON.parse`
+could still read (#4631). The check never throws on such a value: it runs
+inside the write it observes, so a throw would refuse that write, brain-wide
+recorder recovery at boot or by the owner included. Its safety scope, every
+chat that shares that canonical history, is never normal to the check, reviewed
+or not, and keeps its allowances. The projection throws for that scope instead
+of reading trust from the value. While the value remains, the scope never reads
+as normal, so no normal interval can pass unseen, and an allowance kept there
+cannot admit a call. Valid JSON that is not an array acknowledges no detector
+in either reader. Nothing here needs SQLite newer than single-argument
+`json_valid`: Bun on macOS uses the system SQLite.
 
 A session restricted only by a pending reservation loses its allowance when
 that reservation commits: `safetyCommit` releases the reservation before
