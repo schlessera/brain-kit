@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { isEnvName, PROTECTED_TIER_A } from "@schlessera/brain-ui-sdk/internal";
 import { prepareClientTurnReceipt } from "../client-turn-receipts.js";
 import { withTurnScope } from "../frames.js";
+import { hostStopOf } from "../host-stop.js";
 import type { TurnOutcome } from "./outcome.js";
 import { releaseActive } from "./slot.js";
 import type { TurnRun } from "./types.js";
@@ -43,11 +44,12 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
         void host.computeTools.cancelTurn(turn.turnId, reason).catch(error => host.log.emit({ severityText: "ERROR", body: `compute jobs of a stopped turn were not cancelled: ${String(error)}` }));
       } else host.computeTools.endTurn(turn.turnId);
     }
-    // Apify (#3162): a cancelled, timed-out or budget-stopped turn aborts the
-    // runs it started, off the turn's path; a finished turn leaves them for
-    // later status reads in its conversation.
+    // Apify (#3162): a cancelled, timed-out, host-stopped (#4565) or
+    // budget-stopped turn aborts the runs it started, off the turn's path; a
+    // finished turn leaves them for later status reads in its conversation.
     if (host.apify && (turn.cancelled || run.abortController.signal.aborted || budgetFailure))
-      void host.apify.stop({ turnId: turn.turnId, sessionId: turn.sessionId }, budgetFailure ? "budget_exhausted" : turn.cancelled ? "cancelled" : "timeout");
+      void host.apify.stop({ turnId: turn.turnId, sessionId: turn.sessionId }, budgetFailure ? "budget_exhausted"
+        : hostStopOf(turn, run.turnId) ? "host_stop" : turn.cancelled ? "cancelled" : "timeout");
     // No grant after this point: the final observation covers everything granted.
     if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});
     const journalEnd = host.journal ? lifecycle?.timer("closing")("journal_finish") : undefined;

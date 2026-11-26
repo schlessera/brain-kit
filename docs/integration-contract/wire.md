@@ -1491,6 +1491,56 @@ HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout"          // exported from @schlesse
   client that validates with `@schlessera/brain-ui-sdk/schemas` drops an
   unreadable `runtimeNotice` and keeps the message.
 
+<a id="host-stops-additive-in-0450"></a>
+
+### Host stops (additive in 0.45.0, #4565)
+
+```
+result.outcomeDetail?: "host_stop:<cause>"            // on outcome: "cancelled"
+status.detail?: "Stopped by the host"                 // on the same turn's status: "cancelled"
+tool_result.hostStop?: HostStopCause                  // on a tool the host cut short
+HostStopCause = "safety_recording" | "change_journal" | "approval_record" | "inbox_share" | "egress_record"
+HOST_STOP_CAUSES, HOST_STOP_OUTCOME_DETAIL_PREFIX = "host_stop:",
+hostStopOutcomeDetail(cause), hostStopFromOutcomeDetail(detail)   // exported from @schlessera/brain-ui-sdk/protocol
+```
+
+- **A host stop** is the host itself ending a turn because something it must
+  keep for that turn failed: its safety checks, its change journal, an
+  approval's outcome, the chat's inbox shares or its network requests could
+  not be recorded. Like a
+  timeout it is set by the owner that stopped the turn, never inferred from an
+  aborted signal, and never over a cancel or a timeout that ended the turn
+  first. The turn stays `outcome: "cancelled"` and `isError: false`.
+- **`tool_result.hostStop`** marks the result of a tool that was still
+  running when the host stopped its turn. Display only: `output` is still the
+  runtime's own text, which the model received as written. For a Claude turn
+  that text reads as the user refusing the tool; a client shows the host's
+  stop instead.
+- **Activity.** The turn's run ends `outcome: "error"` with a reason naming
+  the cause (`Stopped by the host: …`) where it used to end `timeout`. A
+  journal stop the turn's own journal raised keeps the journal's words on the
+  run instead. The interrupted tool's span records the cause's
+  `Stopped by the host: …` reason instead of the runtime's text. A host stop no longer records `timeout`; the host's elapsed-time
+  limit and a runtime's own `max_turns` or `max_budget` stop still do, and
+  `timeout` keeps its meaning.
+- **Apify.** Actor runs that a host-stopped turn started and that are still
+  running when the turn tears down are stopped with the ledger note
+  `stopped:host_stop`, not `stopped:timeout`. A run whose own polling sees the
+  aborted signal first keeps its existing `stopped:cancelled` note.
+- **Governance.** A `policy_confirm` event whose confirmation was pending when
+  the host stopped the turn records `decision: "host_stopped"`, not
+  `timed_out`. The value is new, so the kind's `schema_version` is now 2;
+  stored version 1 rows keep their version and never carry it. Only the host
+  sets it: a backend's own `host_stopped` before any host stop is recorded as
+  `declined`. Its lifecycle record ends `error` with the host-stop reason.
+- **Attestation.** Only the host sets these: a backend's own
+  `tool_result.hostStop` or `host_stop:` result detail is dropped.
+- **Tolerance.** A client that does not read these shows a cancelled turn and
+  the runtime's tool text, as before. A cause it does not know is still a host
+  stop: `hostStopFromOutcomeDetail` returns `null` for it. A client that
+  validates with `@schlessera/brain-ui-sdk/schemas` drops an unreadable
+  `hostStop` and keeps the result.
+
 <a id="manual-retry-receipts-additive-in-0400"></a>
 
 ### Manual retry receipts (additive in 0.40.0)

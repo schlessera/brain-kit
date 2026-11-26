@@ -3,8 +3,10 @@ import {
   foldSidecarLabels,
   sidecarBase,
   storageConsumerRows,
+  storageLegend,
+  storageListing,
 } from "../src/components/settings/storage/storage-consumers.js";
-import { bytes } from "../src/components/settings/storage/storage-model.js";
+import { bytes, mapItems } from "../src/components/settings/storage/storage-model.js";
 import { GB, appRoots, brainRoots, inventory, node, page, root } from "./fixtures/storage-volumes.js";
 
 describe("sidecar folding", () => {
@@ -96,6 +98,53 @@ describe("sidecar folding", () => {
   });
 });
 
+// A database and its sidecars are one item everywhere (#4546, maintainer
+// 2026-11-26): one tile at the combined size, one row, and never a
+// "smaller items" entry of their own.
+describe("the map folds sidecars as the list does", () => {
+  function scene(nodes: ReturnType<typeof node>[]) {
+    const sum = nodes.reduce((total, value) => total + (value.area.allocated ?? 0), 0);
+    const tree = { ...page(nodes, appRoots[1]!.id), totals: { logical: sum, allocated: sum, coverage: "complete" as const } };
+    const tiles = mapItems(tree, "allocated", false);
+    const shown = new Set(tiles.filter((tile) => !tile.smaller).map((tile) => tile.id));
+    return { tiles, smaller: tiles.find((tile) => tile.smaller), listed: storageListing(storageConsumerRows(tree, "allocated"), { shown }) };
+  }
+  const ledger = (database: number, wal: number) => [
+    node({ id: 22, rootId: 6, name: "ledger.db", kind: "file", owner: "app", bytes: database }),
+    node({ id: 23, rootId: 6, name: "ledger.db-wal", kind: "file", owner: "app", bytes: wal }),
+  ];
+
+  test("a 2 GB database and its 1 MB -wal are one tile, and no smaller item is offered for the sidecar", () => {
+    const { tiles, smaller, listed } = scene(ledger(2 * GB, 1_000_000));
+    expect(tiles.map((tile) => [tile.name, tile.bytes]), "STORAGE_SIDECAR_ONE_TILE").toEqual([["ledger.db", 2 * GB + 1_000_000]]);
+    expect(smaller, "STORAGE_SIDECAR_NO_SMALLER_ITEM").toBeUndefined();
+    expect(listed).toEqual([]);
+  });
+
+  test("a sidecar larger than its database still draws as the database's tile", () => {
+    const nodes = ledger(10_000_000, 2 * GB);
+    const { tiles, smaller } = scene(nodes);
+    expect(tiles.map((tile) => [tile.id, tile.name, tile.bytes])).toEqual([[nodes[0]!.id, "ledger.db", 2 * GB + 10_000_000]]);
+    expect(smaller).toBeUndefined();
+  });
+
+  test("a genuinely small unfolded entry is the one smaller item, and the list shows it", () => {
+    const notes = node({ id: 24, rootId: 6, name: "notes.txt", kind: "file", owner: "app", bytes: 1_000_000 });
+    const { smaller, listed } = scene([...ledger(2 * GB, 1_000_000), notes]);
+    expect(smaller, "STORAGE_SMALLER_COUNTS_ITEMS").toMatchObject({ name: "1 smaller items", bytes: 1_000_000 });
+    expect(listed.map((row) => [row.name, row.size]), "STORAGE_SMALLER_LISTS_ENTRY").toEqual([["notes.txt", bytes(1_000_000)]]);
+  });
+
+  test("a store's sidecar stores draw no tile of their own", () => {
+    const stores = appRoots.map(node);
+    const tree = { ...page(stores), totals: { logical: 8.4 * GB, allocated: 8.4 * GB, coverage: "partial" as const } };
+    expect(mapItems(tree, "allocated", false).map((tile) => [tile.name, tile.bytes])).toEqual([
+      ["Operational database", 5_400_000_000],
+      ["App journal", 3 * GB],
+    ]);
+  });
+});
+
 describe("rows", () => {
   const roots = [
     ...brainRoots,
@@ -134,6 +183,57 @@ describe("rows", () => {
     expect(storageConsumerRows(page(nodes, brainRoots[0]!.id), "allocated").rows.map((row) => [row.name, row.action, row.kind])).toEqual([
       ["voyage.pdf", "inspect", "file"],
       ["charts", "drill", "folder"],
+    ]);
+  });
+
+  test("folder metadata has no action: there is nothing to open or inspect", () => {
+    const nodes = [
+      node({ id: 42, rootId: 1, name: "charts", kind: "directory", owner: "brain", bytes: 5_000_000 }),
+      node({ id: 43, rootId: 1, name: "Folder metadata", kind: "metadata", owner: "brain", bytes: 12_000 }),
+    ];
+    expect(storageConsumerRows(page(nodes, brainRoots[0]!.id), "allocated").rows.map((row) => [row.name, row.action, row.kind])).toEqual([
+      ["charts", "drill", "folder"],
+      ["Folder metadata", "none", "folder metadata"],
+    ]);
+  });
+});
+
+describe("the ownership legend counts only complete evidence", () => {
+  const nodes = [
+    node({ id: 50, rootId: 1, name: "charts", kind: "directory", owner: "brain", bytes: 3 * GB }),
+    node({ id: 51, rootId: 1, name: "log.md", kind: "file", owner: "brain", bytes: 2_000_000 }),
+    node({ id: 52, rootId: 1, name: "cache", kind: "directory", owner: "app", bytes: GB }),
+  ];
+  const folder = (nextCursor: string | null) => ({ ...page(nodes, brainRoots[0]!.id), nextCursor });
+  const derived = (value: ReturnType<typeof folder>) => storageConsumerRows(value, "allocated");
+
+  test("a folder of two pages gives its owners no totals, on either page", () => {
+    const first = folder("odysseus-page-2"),
+      last = folder(null);
+    for (const legend of [
+      storageLegend(derived(first), { nextCursor: first.nextCursor }),
+      storageLegend(derived(last), { cursor: "odysseus-page-2", nextCursor: last.nextCursor }),
+    ])
+      expect(legend.owners).toEqual([
+        { owner: "brain", total: undefined },
+        { owner: "app", total: undefined },
+      ]);
+  });
+
+  test("Smaller items does not change the totals of a complete page", () => {
+    const whole = folder(null);
+    const rows = derived(whole);
+    // The map draws charts and cache as tiles; the list shows only log.md.
+    const shown = new Set([nodes[0]!.id, nodes[2]!.id]);
+    expect(storageListing(rows, { shown }).map((row) => row.name)).toEqual(["log.md"]);
+    expect(storageLegend(rows, { nextCursor: null, shown }).owners).toEqual(storageLegend(rows, { nextCursor: null }).owners);
+  });
+
+  test("a complete page keeps its totals", () => {
+    const whole = folder(null);
+    expect(storageLegend(derived(whole), { nextCursor: null }).owners).toEqual([
+      { owner: "brain", total: bytes(3 * GB + 2_000_000) },
+      { owner: "app", total: bytes(GB) },
     ]);
   });
 });

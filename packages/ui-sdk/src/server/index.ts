@@ -4,6 +4,7 @@ export type {
   InputSafetyAdmissionView,
   InputSafetyAdmissionCheck,
   InputSafetyDispatchTicket,
+  InputSafetyOutputStatus,
   BackendActivityEvent,
   ActivityQuery,
   ActivityQueryResult,

@@ -718,6 +718,29 @@ Activity. A skipped module cron is an `error` whose reason starts
 bytes do not change. See [wire semantics](integration-contract/wire.md#module-discovery-outcome-additive-0450-3381).
 This ships in a minor; no breaking ruling is required.
 
+## Host stops (additive, 0.45.0, #4565)
+
+A turn the host itself stopped, because its safety checks, change journal, an
+approval's outcome, the chat's inbox shares or its network requests could not
+be recorded, now says
+so instead of reading as a timeout: `result.outcomeDetail: "host_stop:<cause>"`
+on its cancelled result, `detail: "Stopped by the host"` on its
+`status: cancelled`, and `tool_result.hostStop` on the result of a tool it cut
+short, whose `output` the model already received is unchanged. Its Activity
+run ends `error` with a reason naming the cause, and the interrupted tool's
+span records the cause's host-stop reason. A host stop no longer records `timeout`; the
+host's elapsed-time limit and a runtime's own max-turns or max-budget stop
+still do, and `timeout` keeps its meaning. A `policy_confirm` governance event
+pending when the host stopped the turn records the new `decision:
+"host_stopped"` (also on the SDK's `BackendActivityEvent`), not `timed_out`,
+and that kind's `schema_version` becomes 2. The SDK exports
+`HostStopCause`, `HOST_STOP_CAUSES`, `HOST_STOP_OUTCOME_DETAIL_PREFIX`,
+`hostStopOutcomeDetail` and `hostStopFromOutcomeDetail`;
+`@schlessera/brain-ui-react` adds `TurnNotice` cause `host_stop` with
+`hostStop`, `ToolCall.hostStop`, and `AskUserExchange.endedBy: "host_stop"`
+for a question the stop closed. See [wire](integration-contract/wire.md#host-stops-additive-in-0450).
+This ships in a minor; no breaking ruling is required.
+
 ## Turn timeouts and runtime stop notices (additive, 0.45.0, #3356)
 
 A turn the host's hard elapsed-time limit ended stays `outcome: "cancelled"`,
@@ -1913,6 +1936,13 @@ additive; the retention/privacy meaning change is a pre-1.0 breaking minor.
 See [durable dialogue](integration-contract/wire.md#durable-live-dialogue-breaking-retention-supersession-3177).
 Historical provider input remains separate #3178 work.
 
+
+## Collected search output status (additive, 0.45.0, #4275)
+
+The host input collector accepts optional, explicit completeness and process
+status for search output. Incomplete evidence remains restrictive without
+rewriting the result text. See the
+[package API](integration-contract/package-api.md#collected-search-output-status-additive-0450-4275).
 
 ## Causal tool admission view (additive, 0.45.0, #4271)
 

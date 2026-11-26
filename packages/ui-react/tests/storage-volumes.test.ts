@@ -22,10 +22,13 @@ import {
   brainRoots,
   capacity,
   evidence,
+  finite,
   guidance,
   inventory,
   memoryRoots,
+  flat,
   pressure,
+  root,
   twoVolumes,
   unavailable,
   unknownRoots,
@@ -108,6 +111,21 @@ describe("volume naming (#4537 D7)", () => {
     });
     expect(volume!.name).toBe("Unidentified volume");
     expect(volume!.identified).toBe(false);
+  });
+
+  test("a disk holding only Operator backups is Backups; alone it is Disk, and mixed it stays Disk", () => {
+    const backups = [root(11, "Backups", "backup", "operator", 40 * GB), root(12, "Backup staging", "staging", "operator", 1 * GB)];
+    const brainDisk = capacity(ITHACA, brainRoots.map((value) => value.id), 161 * GB, 16 * GB);
+    const backupDisk = capacity(SCHERIA, backups.map((value) => value.id), 250 * GB, 48 * GB);
+    expect(names([brainDisk, backupDisk], [...brainRoots, ...backups]), "STORAGE_BACKUPS_NAME").toEqual(["Brain disk", "Backups"]);
+    expect(
+      names([brainDisk, backupDisk, capacity(AEAEA, [backups[1]!.id], 120 * GB, 30 * GB)], [...brainRoots, ...backups])
+    ).toEqual(["Brain disk", "Backups", "Backups 2"]);
+    expect(names([backupDisk], backups)).toEqual(["Disk"]);
+    const mixed = [backups[0]!, appRoots[0]!];
+    expect(
+      names([brainDisk, capacity(SCHERIA, mixed.map((value) => value.id), 250 * GB, 48 * GB)], [...brainRoots, ...mixed])
+    ).toEqual(["Brain disk", "Disk"]);
   });
 
   test("a clash appends 2 in measurement order, and severity reordering keeps the names", () => {
@@ -229,12 +247,26 @@ describe("facts and qualifiers", () => {
     expect(evidenceStale(null)).toBe(false);
   });
 
+  test("runway names the window it comes from: the 30-day rate when the 7-day one is not depleting", () => {
+    const { inventory: snapshot } = twoVolumes();
+    const runway = (short: ReturnType<typeof flat>, long: ReturnType<typeof flat>) =>
+      storageVolumes({
+        guidance: guidance([pressure(ITHACA, "low", evidence(ITHACA, 161 * GB, 16 * GB, { short, long }))]),
+        inventory: snapshot,
+        format,
+      }).find((volume) => volume.id === ITHACA)!.runway;
+    expect(runway(flat(7), finite(40, 30)), "STORAGE_RUNWAY_NAMES_WINDOW").toBe("~40 days · 30-day rate");
+    expect(runway(flat(7), finite(40, 21))).toBe("~40 days · 21-day rate");
+    expect(runway(finite(12, 5), finite(40, 30))).toBe("~12 days · 5-day rate");
+    expect(runway(flat(7), flat(30))).toBe("not projected · not running out");
+  });
+
   test("trend and runway come from the evidence; a missing rate is unknown, never 0", () => {
     const { inventory: snapshot, guidance: response } = twoVolumes();
     const [scheria, ithaca] = storageVolumes({ guidance: response, inventory: snapshot, format });
     expect(scheria!.trend).toBe("−1.2 GB/day");
-    expect(scheria!.runway).toBe("~6 days");
-    expect(ithaca!.runway).toBe("~20 days");
+    expect(scheria!.runway).toBe("~6 days · 7-day rate");
+    expect(ithaca!.runway).toBe("~20 days · 7-day rate");
     const [none] = storageVolumes({
       guidance: guidance([pressure(ITHACA, "low", evidence(ITHACA, 161 * GB, 16 * GB, { availableChange: null }))]),
       inventory: snapshot,

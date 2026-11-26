@@ -18,6 +18,7 @@ import { createBrainToolKit, type BrainToolKit } from "../src/tool-kit";
 import { toolLockFromKeyed, type BrainToolDeps } from "../src/tools";
 import { createTurnContext } from "../src/turn-context";
 import { resultText } from "./helpers";
+import {baselineGrepTool} from "./fixtures/grep-before-safety";
 import { makeMockBridge } from "./mock-bridge";
 
 const CTX = {} as never;
@@ -187,4 +188,32 @@ test("brainReadBaseTool reads the server base and remembers its whole-document h
   const result = await run(brainReadBaseTool(tools), { path: "notes/ithaca.md" });
   expect(JSON.parse(resultText(result))).toMatchObject({ expectedBaseHash: "d".repeat(64) });
   expect(tools.bases.get(tools.turn.bridge!)?.get("notes/ithaca.md")).toBe("d".repeat(64));
+});
+
+test('grepTool never reports a failed regular expression as an empty search',async()=>{
+ const result=await run(grepTool(kit({exec:{}})),{pattern:'['});
+ expect(resultText(result),'FAILED_GREP_IS_NOT_THE_EMPTY_SENTINEL').not.toBe('No matches.');
+});
+
+test('grepTool prefixes a single file operand with its exact filename',async()=>{
+ const result=await run(grepTool(kit({exec:{}})),{pattern:'Odysseus',path:'notes/ithaca.md'});
+ expect(resultText(result),'SINGLE_FILE_GREP_HAS_A_FILENAME_BOUNDARY').toBe('notes/ithaca.md:3:Odysseus sails home.');
+});
+
+ test('grep model text is byte-identical to ordinary grep directory output',async()=>{
+  const result=await run(grepTool(kit({exec:{}})),{pattern:'Odysseus',path:'notes'});
+  const old=resultText(await run(baselineGrepTool(kit({exec:{}})),{pattern:'Odysseus',path:'notes'}));
+  expect(resultText(result),'MODEL_VISIBLE_GREP_BYTES_MATCH_OLD_FORMAT').toBe(old);
+  expect((result.details as {search:{framedOutput:string}}).search.framedOutput,'EXACT_FILENAME_FRAME_IS_HOST_ONLY').toBe(old.replace(':3:',':\0'+'3:')+'\n');
+  expect(resultText(result)).not.toContain('\0');
+ });
+
+test('grep diagnostics drain without whole-stream buffering',async()=>{
+ const original=Response.prototype.arrayBuffer;let allocations=0;
+ Response.prototype.arrayBuffer=function(){allocations++;return original.call(this);};
+ try{
+  const result=await run(grepTool(kit({exec:{}})),{pattern:'['});
+  expect((result.details as {search:{stderr:boolean}}).search.stderr).toBe(true);
+  expect(allocations,'ONLY_STDOUT_MAY_ALLOCATE_THE_WHOLE_STREAM').toBe(1);
+ }finally{Response.prototype.arrayBuffer=original;}
 });

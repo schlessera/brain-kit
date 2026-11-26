@@ -7,6 +7,7 @@ import { approvalRequestFrame, withTurnScope } from "../frames.js";
 import type { BridgeContext, BridgeSlice } from "./context.js";
 import { waitWhile } from "../../brain/authority-hold.js";
 import { STORAGE_SETTLEMENT_MS } from "../../db/settlement.js";
+import { stopTurnForHost } from "../host-stop.js";
 
 /**
  * Permission requests: a remembered grant, a policy proposal's checkpoint, or
@@ -17,6 +18,8 @@ import { STORAGE_SETTLEMENT_MS } from "../../db/settlement.js";
 export function createPermissions(ctx: BridgeContext, self: () => BackendBridge): BridgeSlice<"requestPermission"> {
   const { host, turn, turnId, recorder } = ctx;
   const { coordinator } = host;
+  // This bridge's turn: a late storage failure never stops the successor (#4565).
+  const controller = turn.abortController;
   const requestPermission: BackendBridge["requestPermission"] = async (req) => {
     // Retain the coordinator's original terminal reason for a late request;
     // cancellation must not replace it with a new safety diagnosis.
@@ -158,7 +161,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
           const failed = "Safety withdrawal could not be retained; the turn was stopped.";
           coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, expiryCause: "grant_storage_failed", reason: failed });
           recorded({ behavior: "deny", message: failed });
-          turn.abortController.abort(error);
+          stopTurnForHost(host, turn, turnId, controller, "approval_record", error);
         });
       };
       if (!coordinator.openApproval(req.toolUseId, { turn, turnId, request: req, resolve: recorded, revalidate, ...(snapshot ? { expire } : {}) })) {

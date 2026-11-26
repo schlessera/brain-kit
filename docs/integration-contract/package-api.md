@@ -1232,7 +1232,7 @@ The additive server-only `BackendActivityEvent` variants `policy_block` and
 `policy_confirm` (#1661) contain `{ toolUseId, payload }`. The payload names the
 Bash tool/input, truncation, original policy-file rule index/pattern/reason and
 captured policy hash; confirmation also records its approved, declined,
-cancelled or timed-out decision. Both adapters report these through the existing
+cancelled, timed-out or host-stopped (#4565) decision. Both adapters report these through the existing
 Activity callback. The host supplies turn/session/actor/profile attribution and
 keeps the validated governance receipt after Activity detail pruning. They add
 no client frame and confer no execution authority.
@@ -5122,6 +5122,10 @@ callbacks and perform no I/O. A row with a `null` size is the unknown row: a
 `?` mark, `? not measured` and its reason, never a bar or a zero. Rows have no
 Open action; the caller places Open in its inspect panel and the breadcrumb's
 `actions` slot.
+- `StorageConsumerRow` takes `action: "none"` (additive, #4549) for a row with
+  nothing to open, such as a folder's own metadata. It renders as text, with
+  no button, no glyph and no tab stop, in an interactive row's columns, and
+  `onActivate` is optional for it.
 
 ### Storage volumes, history and tools (additive, #4542, #4543, #4545)
 
@@ -5154,6 +5158,9 @@ It exports `ToolRow` and `ToolList` with their props types and the types
   "unknown → unknown".
 - A missing headroom estimate shows a `?` mark, never a bar.
 - Short headroom never disables Run, because the server decides admission.
+- `actionDisabled` (additive, #4549) holds the action button in place, inert,
+  while the caller has another request in flight, so a focused Run or Cancel
+  keeps focus. It reflects the caller's busy state, not headroom.
 
 All of these take pre-formatted strings, numbers and callbacks, and perform no I/O.
 
@@ -6374,6 +6381,40 @@ rule removal, authority, recorder availability, outward permission and byte
 ceilings remain independently fenced. Outward callbacks retain their original
 {host, port, method} shape; transport metadata is confined to source/recipient
 matching and the corresponding Network-card identity.
+
+## Collected search output status (additive, 0.45.0, #4275)
+
+`BackendBridge.inputSafety.result` in `@schlessera/brain-ui-sdk/server`
+accepts an optional sixth argument, `outputStatus`, after the existing
+`segments` argument. The exported `InputSafetyOutputStatus` type has readonly required `complete: boolean`
+and optional `exitCode: number`, `stderr: boolean`, `truncated: boolean`.
+`stderr` records presence, never the error bytes. This is host-only evidence,
+not a provider-facing tool definition or a permission grant.
+
+Omission grants no success or empty-search exemption: Pi grep without explicit
+process status retains unknown evidence. Other observations preserve their
+existing behavior or become stricter. `complete: false`, a
+failed search exit, stderr or truncation retains an unknown search remainder
+alongside every identifiable source. It is independent of the existing
+`finalized` exposure argument; incomplete evidence cannot prove a managed
+reference read. Pi carries the original tool status through its result hook
+and worker RPC. Exit 1 with empty stdout and no stderr is its only empty
+sentinel; exit 0 requires matches. The shipped tool records zero stdout bytes
+in host-only observation metadata; matching sentinel text is never that proof.
+Missing search status or zero-byte proof is restrictive.
+Every wrapper forwards the complete typed callback tuple. Extraction also
+withholds its relaxation when result evidence is incomplete. Status identity
+uses canonical key order, and host frames have an independent byte bound;
+clipping that frame retains unknown instead of overflowing collection.
+Pi keeps NUL filename framing in host-only result details; provider text retains
+the advertised `path:line:content` format, with the existing trim-then-clip
+pipeline. Hidden frame separators do not consume the delivered text budget;
+an inconsistent frame cannot replace the paths in delivered text. Display-only
+result frames cannot establish the verified empty-search exemption.
+Neither metadata nor completeness is
+encoded by changing result text, and
+neither changes prior provider history. The same-commit API report records
+the additive argument.
 
 ## Causal tool admission view (additive, 0.45.0, #4271)
 

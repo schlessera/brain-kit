@@ -8,6 +8,7 @@ import { ProviderRecordsRefusedError } from "../../brain/provider-mask-refusal.j
 import { withTurnScope } from "../frames.js";
 import type { BridgeContext, BridgeSlice, MakeBridgeOptions } from "./context.js";
 import type { TurnTranscript } from "./emission.js";
+import { hostStopOf } from "../host-stop.js";
 
 type InboxSlice = ReturnType<NonNullable<NonNullable<BridgeContext["host"]["inboxTools"]>["forTurn"]>>;
 
@@ -107,8 +108,12 @@ export function createActivity(ctx: BridgeContext, transcript: TurnTranscript,
           recorder?.observeActivity({...event,usage:priced ?? event.usage});
           if (!onUsage) host.sendToClients(withTurnScope({type:"usage",turnId,usage:event.usage,observedAt:Date.now()},turn,turnId));
         } else recorder?.observeActivity(event.kind === "policy_confirm" && signal.aborted
-          ? { ...event, payload: { ...event.payload, decision: turn.cancelled ? "cancelled" : "timed_out" } }
-          : event);
+          // A host stop is recorded before any cancel and is never a timeout (#4565).
+          ? { ...event, payload: { ...event.payload, decision: hostStopOf(turn, turnId) ? "host_stopped" : turn.cancelled ? "cancelled" : "timed_out" } }
+          // Only the host attests a host stop; a confirmation it did not stop never ran.
+          : event.kind === "policy_confirm" && event.payload.decision === "host_stopped"
+            ? { ...event, payload: { ...event.payload, decision: "declined" } }
+            : event);
       }
     },
     ...(queryActivity

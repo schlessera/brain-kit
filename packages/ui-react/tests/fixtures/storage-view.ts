@@ -23,7 +23,7 @@ export type StorageScene =
   | "maintenance";
 /** Synthetic Odysseus walkthrough. No host path, credentials or provider is needed. */
 export function storageViewFixture(scene: StorageScene = "dense") {
-  const requests: Array<{ path: string; method: string; body: unknown }> = [];
+  const requests: Array<{ path: string; method: string; body: unknown; query: Record<string, string> }> = [];
   let measured = scene !== "never",
     scanReads = 0,
     scanning = false;
@@ -428,7 +428,7 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       method = init?.method ?? "GET",
       query = parsed.searchParams,
       body = init?.body ? JSON.parse(String(init.body)) : null;
-    requests.push({ path, method, body });
+    requests.push({ path, method, body, query: Object.fromEntries(query) });
     if (path === "/api/storage") {
       if (scanning && ++scanReads > 1) {
         scanning = false;
@@ -712,6 +712,11 @@ export function storageViewFixture(scene: StorageScene = "dense") {
     },
     holdNextConfirmation() {
       holdConfirmation = true;
+    },
+    /** A held removal finishes: the next receipt read reports it partial. */
+    finishHeldRemoval() {
+      holdConfirmation = false;
+      if (receipt) receipt = { ...receipt, state: "partial", completedAt: stamp + 1500 };
     },
     deferInspection() {
       let release!: () => void;

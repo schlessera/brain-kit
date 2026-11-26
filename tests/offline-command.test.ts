@@ -177,3 +177,66 @@ with patch.object(m.subprocess,'check_output',side_effect=query), patch.object(m
   const child = Bun.spawnSync(["/usr/bin/python3", "-B", "-I", "-S", "-c", probe, join(import.meta.dir, "../scripts/offline-command.py")], { stdout: "pipe", stderr: "pipe" });
   expect(child.exitCode, child.stderr.toString()).toBe(0);
 });
+
+test("matching uid and gid accept overflow supplementary groups without sudo", () => {
+  const probe = `import importlib.util,json,sys
+from unittest.mock import patch
+from types import SimpleNamespace
+spec=importlib.util.spec_from_file_location('launcher',sys.argv[1])
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+calls=[]
+def run(argv,**kwargs):
+ calls.append(argv)
+ return SimpleNamespace(returncode=0,stdout=json.dumps([1000,1000,[65534]]).encode())
+with patch.object(m.os,'getuid',return_value=1000), patch.object(m.os,'getgid',return_value=1000), patch.object(m.os,'geteuid',return_value=1000), patch.object(m.os,'getgroups',return_value=[1000,27]), patch.object(m.shutil,'which',side_effect=lambda name:'/usr/bin/'+name), patch.object(m.subprocess,'run',side_effect=run):
+ assert m.main(['/bin/true']) == 0
+ assert '--map-current-user' in calls[-1], 'OVERFLOW_GROUPS_MUST_USE_UNPRIVILEGED_PATH'
+ assert 'sudo' not in calls[-1][0]
+ data=dict(unprivileged=True,uid=1000,gid=1000,groups=[1000,27],cwd='/',started='/fixture-started',argv=['/bin/true'],env={})
+ with patch.object(m.os,'getgroups',return_value=[65534]), patch.object(m.ctypes,'CDLL') as libc, patch.object(m.os.path,'exists',return_value=False), patch.object(m.os,'chdir'), patch.object(m.Path,'touch'), patch.object(m.os,'execvpe') as execute:
+  libc.return_value.mount.return_value=0
+  m.setup(data)
+  assert execute.called, 'OVERFLOW_GROUPS_MUST_REACH_PAYLOAD'
+  data['unprivileged']=False
+  try:m.setup(data)
+  except RuntimeError:pass
+  else:raise AssertionError('PRIVILEGED_SETUP_MUST_RESTORE_GROUPS')
+`;
+  const child = Bun.spawnSync(["/usr/bin/python3", "-B", "-I", "-S", "-c", probe, join(import.meta.dir, "../scripts/offline-command.py")], { stdout: "pipe", stderr: "pipe" });
+  expect(child.exitCode, child.stderr.toString()).toBe(0);
+});
+
+test("unprivileged loopback setup failure retries sudo before starting the payload", () => {
+  const probe = `import importlib.util,json,sys
+from pathlib import Path
+from unittest.mock import patch
+from types import SimpleNamespace
+spec=importlib.util.spec_from_file_location('launcher',sys.argv[1])
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+calls=[]
+def run(argv,**kwargs):
+ calls.append(argv)
+ if '-c' in argv:return SimpleNamespace(returncode=0,stdout=b'[1000,1000,[65534]]')
+ data=json.loads(Path(argv[-1]).read_text())
+ if '--user' in argv:
+  if data.get('setup_error'):Path(data['setup_error']).write_text('loopback setup denied')
+  return SimpleNamespace(returncode=125)
+ assert argv[:3]==['/usr/bin/sudo','-n','--'], 'LOOPBACK_FAILURE_MUST_RETRY_SUDO'
+ assert not data['unprivileged'], 'SUDO_MUST_RESTORE_COMPLETE_IDENTITY'
+ Path(data['started']).touch()
+ return SimpleNamespace(returncode=37)
+with patch.object(m.os,'getuid',return_value=1000), patch.object(m.os,'getgid',return_value=1000), patch.object(m.os,'geteuid',return_value=1000), patch.object(m.os,'getgroups',return_value=[1000,27]), patch.object(m.shutil,'which',side_effect=lambda name:'/usr/bin/'+name), patch.object(m.subprocess,'run',side_effect=run):
+ assert m.main(['/bin/true'])==37, 'LOOPBACK_FAILURE_MUST_RETRY_SUDO'
+ assert len(calls)==3
+# A payload failure must never run the payload a second time.
+def payload(argv,**kwargs):
+ if '-c' in argv:return SimpleNamespace(returncode=0,stdout=b'[1000,1000,[65534]]')
+ data=json.loads(Path(argv[-1]).read_text());Path(data['started']).touch()
+ return SimpleNamespace(returncode=37)
+with patch.object(m.os,'getuid',return_value=1000), patch.object(m.os,'getgid',return_value=1000), patch.object(m.subprocess,'run',side_effect=payload) as invoke:
+ assert m.main(['/bin/true'])==37
+ assert invoke.call_count==2, 'PAYLOAD_FAILURE_MUST_NOT_RETRY'
+`;
+  const child = Bun.spawnSync(["/usr/bin/python3", "-B", "-I", "-S", "-c", probe, join(import.meta.dir, "../scripts/offline-command.py")], { stdout: "pipe", stderr: "pipe" });
+  expect(child.exitCode, child.stderr.toString()).toBe(0);
+});

@@ -15,7 +15,7 @@ import { bashLockKey, killWrapped, rtkRewriteCommand, wrapCommand } from "@schle
 import { RTK_WORKER_ENV, execWrapperSpawnOptions, WORKER_DATA_ROOT, WORKER_EGRESS_TRANSPORT_ENV } from "@schlessera/brain-ui-sdk/internal";
 
 import { resolveEnabledWebSearchEnvNames, ambientExecConfig, subprocessEnv } from "./config/env.js";
-import { clip, MAX_READ_BYTES, textResult, type BrainToolKit } from "./tool-kit.js";
+import { clip, MAX_READ_BYTES, MAX_OUTPUT_BYTES, textResult, type BrainToolKit } from "./tool-kit.js";
 import { pendingPiAdmission, revalidatePiAdmission, forgetPiAdmission } from "./tool-admission.js";
 
 
@@ -63,7 +63,7 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       const rel = params.path ?? ".";
       resolveOrThrow(rel);
       const exec = deps.exec ?? ambientExecConfig();
-      const argv=wrapCommand(["grep", "-rInE", "--", params.pattern, rel], exec.wrapper);
+      const argv=wrapCommand(["grep", "-rHInZE", "--", params.pattern, rel], exec.wrapper);
       const spawnOptions={
         cwd: brain.root,
         env: subprocessEnv([...resolveEnabledWebSearchEnvNames(), ...WORKER_EGRESS_TRANSPORT_ENV]),
@@ -78,10 +78,37 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       const proc=spawn(argv,spawnOptions);
       stop=()=>killWrapped(proc,exec);
       if(signal?.aborted)stop();
-      const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      const stderrPresent=(async()=>{let present=false;for await(const chunk of proc.stderr)if(chunk.byteLength)present=true;return present;})();
+      const [outBytes,stderr,exitCode]=await Promise.all([new Response(proc.stdout).arrayBuffer(),stderrPresent,proc.exited]);
+      // A leading BOM can be part of a POSIX filename, not stream metadata.
+      let decodingLoss=false,out:string;
+      try{out=new TextDecoder("utf-8",{ignoreBOM:true,fatal:true}).decode(outBytes);}
+      catch{decodingLoss=true;out=new TextDecoder("utf-8",{ignoreBOM:true}).decode(outBytes);}
+      // Marks use Unicode path strings, not raw byte keys. Invalid filename
+      // bytes cannot prove a complete lookup; retain unknown host evidence.
       signal?.throwIfAborted();
-      const text = out.trim();
-      return textResult(text ? clip(text) : "No matches.", { pattern: params.pattern });
+      // Keep an unambiguous machine boundary in host-only result details.
+      // POSIX filenames may contain newlines, colons and edge whitespace.
+      // This changes result data only; provider tool definitions stay identical.
+      const empty=exitCode===1&&outBytes.byteLength===0&&!stderr;
+      const frame=empty?"No matches.":out.replaceAll("\0", ":\0")||"Search output unavailable.";
+      const rawText=frame.replaceAll("\0", ""),text=rawText.trim();
+      const visibleText=clip(text),displayTruncated=text.length>MAX_OUTPUT_BYTES;
+      // Frame every character actually delivered before clip's annotation.
+      // Hidden separators do not consume the visible budget. Preserve raw
+      // filename whitespace and the final row terminator for host lookup.
+      let end=frame.length;
+      if(displayTruncated){
+        const limit=rawText.length-rawText.trimStart().length+MAX_OUTPUT_BYTES;
+        let visible=0;end=0;
+        while(end<frame.length&&(visible<limit||frame[end]==="\0")){
+          if(frame[end]!=="\0")visible++;end++;
+        }
+      }
+      const bytes=Buffer.from(frame.slice(0,end)),frameClipped=bytes.length>1048576;
+      // Leave room for a decoder replacement if the byte cut splits UTF-8.
+      const framedOutput=frameClipped?bytes.subarray(0,1048573).toString('utf8'):frame.slice(0,end);
+      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr,decodingLoss,truncated:displayTruncated||frameClipped,stdoutEmpty:outBytes.byteLength===0,framedOutput,visibleText}});
       } finally {signal?.removeEventListener("abort",onAbort);}
     },
   } satisfies ToolDefinition;

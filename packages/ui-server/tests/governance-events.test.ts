@@ -113,7 +113,8 @@ describe("governance event writer", () => {
     const events = queryGovernanceEvents(d, { limit: 100 });
     expect(events.map((e) => e.kind)).toEqual(GOVERNANCE_EVENT_KINDS);
     for (const e of events) {
-      expect(e).toMatchObject({ sessionId: "sess-ithaca", turnId: "turn-ithaca", at: NOW, actor: "interactive", model: "claude-opus-5", profile: "governed", schemaVersion: 1 });
+      // policy_confirm is at version 2 since it gained `host_stopped` (#4565).
+      expect(e).toMatchObject({ sessionId: "sess-ithaca", turnId: "turn-ithaca", at: NOW, actor: "interactive", model: "claude-opus-5", profile: "governed", schemaVersion: e.kind === "policy_confirm" ? 2 : 1 });
       if(e.kind==="taint_exposure")expect(e.payload.state).toBe("interrupted_unknown");
       else expect(e.payload).toEqual(SAMPLE_PAYLOADS[e.kind as GovernanceEventKind]);
     }

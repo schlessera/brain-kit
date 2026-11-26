@@ -20,6 +20,7 @@ import { changedPrefix, validFirstRequest, validPrefix } from "./cache-diagnosti
  * Activity failures are observational. Safety recording failures stop the
  * producer and retain a restrictive host failure instead of dropping input.
  */
+import { hostStopFromOutcomeDetail, type HostStopCause } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   BackendActivityEvent,
   ServerMessage,
@@ -44,11 +45,12 @@ import { occurrence } from "../governance/occurrence.js";
 import { recordFirstTaint } from "../governance/session-taint.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
-import { inputTaintSignals, outputTaintSignals, type IngestionSignal, type MarkedLookup } from "./ingestion-taint.js";
+import { inputTaintSignals, outputTaintSignals, searchOutputContext, type IngestionSignal, type MarkedLookup } from "./ingestion-taint.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
 import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 import { orderedWrites } from "./store-writes.js";
+import { HOST_STOP_REASONS } from "../ws/host-stop.js";
 
 export interface TurnRecorderDeps {
   store: AwaitableActivityStore;
@@ -78,6 +80,11 @@ export interface TurnRecorderDeps {
   brainPath?: string;
   /** Stops the turn when its untrusted-input taint cannot be persisted: outward rules must not stay loose. */
   abort?(error: Error): void;
+  /**
+   * The cause the host itself stopped this turn for, if it did (#4565). Only
+   * the host attests one: a frame's own `hostStop` is never read here.
+   */
+  hostStop?(): HostStopCause | undefined;
 }
 
 export interface TurnRecorder {
@@ -193,7 +200,7 @@ export function createTurnRecorder(
   // roadblock trace. Record only after a result, when content was ingested.
   let safetyHooked = false;
   const collectionEpoch = crypto.randomUUID();
-  const ingestions = new Map<string, { signals: IngestionSignal[]; tool: string; operationId: string }>();
+  const ingestions = new Map<string, { signals: IngestionSignal[]; tool: string; operationId: string; searchContext: ReturnType<typeof searchOutputContext> }>();
   const usageSamples: UsageSample[] = [];
   let outcomeDetail: string | null = null;
   let cancelledAt: number | null = null;
@@ -355,7 +362,11 @@ export function createTurnRecorder(
               break;
             }
             if (!safetyHooked && turn.origin !== "autonomous") {
-              try { ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID() }); }
+              try {
+                const searchContext=searchOutputContext(msg.toolName,msg.input);
+                if(msg.toolName==="Grep"&&(!msg.input||typeof msg.input!=="object"||!("output_mode" in msg.input)))searchContext.outputMode="legacy";
+                ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID(), searchContext });
+              }
               catch { deps.abort?.(new Error("Safety input detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
             }
             const traced = traceCall(msg.toolUseId, msg.toolName);
@@ -382,7 +393,9 @@ export function createTurnRecorder(
             ingestions.delete(msg.toolUseId);
             let signals:IngestionSignal[]=[];
             if(!safetyHooked&&ingestion){
-              try { signals=[...ingestion.signals,...outputTaintSignals(ingestion.tool,msg.output,deps.brainPath,marked)]; }
+              // Display bytes cannot verify a backend's original result parts.
+              // Only structured collection can establish an empty Pi search.
+              try { signals=[...ingestion.signals,...outputTaintSignals(ingestion.tool,msg.output,deps.brainPath,marked,{...ingestion.searchContext,displayOnly:true,outputComplete:msg.output==="No matches."?false:undefined})]; }
               catch { deps.abort?.(new Error("Safety result detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
             }
             if (!safetyHooked && ingestion && signals.length && !traced?.denied && firstTaint && deps.governance) {
@@ -422,13 +435,17 @@ export function createTurnRecorder(
             // the outcome first) rejects this as a no-op, and an unknown
             // span id is equally a no-op — no bookkeeping set needed.
             const outcome: SpanOutcome = msg.isError ? "error" : "success";
+            const interrupted = msg.isError ? deps.hostStop?.() : undefined;
             store.endSpan(msg.toolUseId, {
               outcome,
-              reason: outcome === "error" ? clip(msg.output, 500) : undefined,
+              // A tool the host cut short records the host's stop, not the
+              // runtime's text, which reads as the user refusing it (#4565).
+              reason: outcome === "error" ? interrupted ? HOST_STOP_REASONS[interrupted] : clip(msg.output, 500) : undefined,
             });
             // Error output rides along too — a failed call's output is what
             // the drill-in needs most. appendEvent no-ops on unknown spans.
-            store.appendEvent(msg.toolUseId, "tool_output", msg.output, undefined, PAYLOAD_EVENT_CAP);
+            // A tool the host cut short shows the host's account here too.
+            store.appendEvent(msg.toolUseId, "tool_output", interrupted ? HOST_STOP_REASONS[interrupted] : msg.output, undefined, PAYLOAD_EVENT_CAP);
             onWrite?.();
             break;
           }
@@ -443,13 +460,16 @@ export function createTurnRecorder(
                     ? "timeout"
                     : "error";
             resultFailureReason = msg.failure?.message;
-            outcomeDetail = msg.outcomeDetail ?? null;
+            // Only the host attests a host stop (#4565): a frame's own
+            // `host_stop:` detail without one is dropped.
+            const detail = hostStopFromOutcomeDetail(msg.outcomeDetail) !== undefined && !deps.hostStop?.() ? undefined : msg.outcomeDetail;
+            outcomeDetail = detail ?? null;
             if (msg.usage) resultUsage = usageFromTurnUsage(msg.usage);
             if (typeof msg.costUsd === "number") {
               resultUsage = { ...(resultUsage ?? {}), costUsd: msg.costUsd };
             }
             resultAttrs = {
-              ...(msg.outcomeDetail ? { "outcome.detail": msg.outcomeDetail } : {}),
+              ...(detail ? { "outcome.detail": detail } : {}),
               ...(msg.usage?.perModel
                 ? { "gen_ai.usage.per_model": msg.usage.perModel }
                 : {}),
@@ -594,9 +614,13 @@ export function createTurnRecorder(
           case "policy_block":
           case "policy_confirm": {
             ensureRoot();
-            store.appendEvent(rootSpanId, event.kind, event.payload);
+            // Only the host attests a host stop (#4565): a backend's own
+            // `host_stopped` without one is a confirmation that never ran.
+            const payload = event.kind === "policy_confirm" && event.payload.decision === "host_stopped" && !deps.hostStop?.()
+              ? { ...event.payload, decision: "declined" as const } : event.payload;
+            store.appendEvent(rootSpanId, event.kind, payload);
             try {
-              govern({ kind: event.kind, payload: event.payload,
+              govern({ kind: event.kind, payload,
                 sessionId: sessionId ?? null, turnId: runId,
                 actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
                 model: turn.origin === "autonomous" ? resultUsage?.model ?? null : mainModel, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });
@@ -794,7 +818,8 @@ export function createTurnRecorder(
             : {}),
         });
         // Anything still open died with the turn.
-        store.cascadeClose(runId, "cancelled", `turn ${outcome}`);
+        // A host-owned reason names why the turn's open work ended, too.
+        store.cascadeClose(runId, "cancelled", reason !== undefined ? clip(reason, 500) : `turn ${outcome}`);
         store.rollupRun(runId);
         // Kept now, not only when the status is next read (#254).
         if (outcome === "success" && observedBilling === "subscription") {
