@@ -119,7 +119,7 @@ interface VolumeContents {
   roots: ReadonlyArray<Pick<StorageRoot, "owner" | "category">>;
 }
 
-type ContentName = "Brain disk" | "App data disk" | "Memory (tmpfs)" | "Unidentified volume" | "Disk";
+type ContentName = "Brain disk" | "App data disk" | "Backups" | "Memory (tmpfs)" | "Unidentified volume" | "Disk";
 function contentName(contents: VolumeContents): ContentName {
   if (!contents.identified) return "Unidentified volume";
   if (contents.kind === "tmpfs") return "Memory (tmpfs)";
@@ -127,6 +127,8 @@ function contentName(contents: VolumeContents): ContentName {
   if (contents.roots.some((root) => root.owner === "brain" || BRAIN_CATEGORIES.has(root.category)))
     return "Brain disk";
   if (contents.roots.length && contents.roots.every((root) => root.owner === "app")) return "App data disk";
+  // Only Operator backups on it (#4549 decision, 2026-11-25).
+  if (contents.roots.length && contents.roots.every((root) => root.owner === "operator")) return "Backups";
   return "Disk";
 }
 
@@ -161,6 +163,22 @@ export interface StorageVolume extends VolumeGroupItem {
   /** The latest measurement time behind the figures; `null` when none. */
   measuredAt: number | null;
 }
+
+/** What an owner refusal ran out of, in words. */
+export const REFUSAL_RESOURCE: Record<StoragePressureView["causes"]["refusals"][number]["resource"], string> = {
+  bytes: "no space",
+  quota: "quota reached",
+  inodes: "no file slots",
+  unknown: "resource unknown",
+};
+
+/** A volume's status as a word, as its card's chip reads it. */
+export const VOLUME_STATUS_WORD: Record<StorageVolume["status"], string> = {
+  ok: "OK",
+  low: "Low",
+  "very-low": "Very low",
+  "not-measured": "Not measured",
+};
 
 interface StorageVolumeInput {
   guidance: StorageGuidanceResponse | null;
@@ -202,14 +220,29 @@ function trendText(pressure: StoragePressureView | null, format: StorageFormat):
   return change ? `${signedBytes(change.bytesPerDay, format)}/day` : "unknown";
 }
 
+/** The nominal span of each projection window (D9), used when a scenario has none. */
+export const NOMINAL_WINDOW_DAYS = { short: 7, long: 30 } as const;
+
+/** "7-day", or the scenario's real span rounded to whole days. */
+export function scenarioWindowName(window: "short" | "long", scenario: StorageScenario): string {
+  if (scenario.start === null || scenario.end === null) return `${NOMINAL_WINDOW_DAYS[window]}-day`;
+  return `${Math.max(1, Math.round((scenario.end - scenario.start) / DAY_MS))}-day`;
+}
+
 function runwayText(pressure: StoragePressureView | null): string {
   if (!pressure?.evidence) return "unknown";
   if (pressure.scopeChanged) return "not projected · scope changed";
   const { short, long } = pressure.evidence;
-  const finite = [short, long].find(
-    (scenario): scenario is StorageScenario & { days: number } => scenario.state === "finite" && scenario.days !== null
-  );
-  if (finite) return `~${new Intl.NumberFormat("en", { maximumFractionDigits: 0 }).format(finite.days)} days`;
+  const finite = (["short", "long"] as const).find((window) => {
+    const scenario = pressure.evidence![window];
+    return scenario.state === "finite" && scenario.days !== null;
+  });
+  // The runway names the window it comes from, as the chart does (#4549
+  // decision, 2026-11-25): the 7-day rate when it is depleting, else the 30-day.
+  if (finite) {
+    const days = new Intl.NumberFormat("en", { maximumFractionDigits: 0 }).format(pressure.evidence[finite].days!);
+    return `~${days} days · ${scenarioWindowName(finite, pressure.evidence[finite])} rate`;
+  }
   if (short.state === "non-depleting" || long.state === "non-depleting") return "not projected · not running out";
   const reason = short.reason ?? long.reason;
   return `not projected · ${reason ? projectionReasonText(reason) : "no projection"}`;
@@ -223,7 +256,9 @@ export function storageVolumes(input: StorageVolumeInput): StorageVolume[] {
   const format = input.format ?? storageFormat();
   const inventory = input.inventory;
   const pressures = input.guidance?.capacities ?? [];
-  const capacities = inventory?.capacities ?? [];
+  // One volume per capacity id: a repeated id is the same observation (bind
+  // aliases), never a second volume to add.
+  const capacities = [...new Map((inventory?.capacities ?? []).map((capacity) => [capacity.id, capacity])).values()];
   const guidanceCurrent =
     !!input.guidance && input.guidance.state === "current" && !input.guidance.pending;
   const entries: Array<{ id: string; capacity: StorageCapacityView | null; pressure: StoragePressureView | null }> = [

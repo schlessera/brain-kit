@@ -69,3 +69,56 @@ proof of device display, and ambiguous delivery is not automatically retried.
 
 The first Storage pane still includes the complete safe-removal journey under
 [S4=B](design-kit/storage.md); this later extension does not block that delivery.
+
+## 2026-11-25 — Scenario drawing and shared constants (#4537, #4539, #4549)
+
+The [epic rulings](https://github.com/schlessera/brain-kit/issues/4537) draw
+this policy as a chart in the Storage pane's **Available space over time**
+section ([the composed pane](design-kit/storage.md#2026-11-25--the-composed-pane-volumes-history-breakdown-and-tools-4537-4549)).
+The policy above is unchanged; this records how it is drawn.
+
+**Scenarios (D9).** Each qualified window is one dashed line, labelled with
+its own window ("7-day rate · empty ~26 Jul"): short `7 4`, long `2 3`. An
+unqualified window draws nothing and its caption says why, in the server's
+reason ("gap inside the 7-day window", "under 30 days of history"). A
+non-depleting window runs flat across its own span and reads "not running
+out". There is no cone and no fill between two lines, because a range is not
+a confidence interval. A line starts only at a measured current bucket: when
+now is a gap or another volume's figure, no line is drawn
+(`scenarioLines`, `packages/ui-kit/src/storage/history-geometry.ts:403-420`;
+`storageScenarios`, `packages/ui-react/src/components/settings/storage/storage-history.ts:129-159`).
+A changed scope draws no projection and says so.
+
+**History (D3).** The chart draws actual endpoints of the selected volume in
+the selected tier. Gaps break the line and are hatched with "? no observation
+· not zero"; the current bucket is a hollow, provisional point; a point
+measured under another root scope is drawn apart. Markers are derived on the
+client from data the pane already has (gaps, scope changes, owner refusals,
+each tool's latest run) until the events timeline lands (#4541, #4548). The
+exact endpoints table, including every per-owner figure, scope and collector,
+sits behind **Measurements behind this chart**.
+
+**Shared constants.** The Low and Very low ticks on the gauge and the bands on
+the chart are drawn from the ui-sdk policy constants (#4539), the same values
+the server's severity reads, so a tick sits where severity changes. There is
+no threshold field on the wire.
+
+**Notifications.** The Alerts row states the delivery rules above as they
+run: notices only at Very low (Critical); the 22:00–08:00 quiet hours hold
+them too; an unknown timezone sends nothing. Its quiet-hour bounds come from
+the guidance response, and opening the pane never asks for permission.
+
+### Alternatives and tradeoffs
+
+- A filled cone between the two windows (brief rev 1) reads as a confidence
+  interval, which the scenarios are not. One line per window keeps them as two
+  conditional statements.
+- Drawing only when both windows qualify hides a qualified window behind an
+  unqualified one; each line stands on its own window instead.
+- Starting a line at the last measured point when now is a gap would project
+  from a stale value as if it were current; the chart says why there is no
+  line instead.
+- A per-volume threshold field on the wire duplicates policy the client
+  already has as constants, and could drift from the server's severity.
+- "Very low still alerts" in quiet hours (the brief's first draft) misstates
+  the server, which holds Very low notices in quiet hours as this policy says.

@@ -53,14 +53,14 @@ for (const width of [320, 1280]) {
   test(`Storage files, inspect and review dialogs at ${width}`, async ctx => {
     const s = await storage(ctx, width, "dense");
     await button("Find large files").click();
-    await expect.poll(() => page.getByRole("table").element().textContent).toContain("Ithaca-harbor.pdf");
+    await expect.poll(() => page.getByRole("table", { name: /^Matching PDFs/ }).element().textContent).toContain("Ithaca-harbor.pdf");
     reach(s.host, "storage files");
-    await button("Inspect Ithaca-harbor.pdf").click();
+    await page.getByRole("button", { name: /^Ithaca-harbor\.pdf, .*inspect$/ }).click();
     await expect.poll(() => button("Select file").elements().length).toBe(1);
     reach(dialog(), "storage inspect dialog");
     await button("Select file").click();
     await expect.poll(() => page.getByRole("dialog").elements().length).toBe(0);
-    await button("Review selected files").click();
+    await button("Review removal").click();
     await expect.poll(() => button("Remove 1 file").elements().length).toBe(1);
     reach(dialog(), "storage review dialog");
   });

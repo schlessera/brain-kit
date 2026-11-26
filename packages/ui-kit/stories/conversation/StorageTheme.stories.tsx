@@ -87,7 +87,7 @@ export const RemovalAndUndo = meta.story({
     for (const name of ["Ithaca-harbor.pdf", "Troy-charts.PDF"]) {
       await userEvent.click(
         await screen.findByRole("button", {
-          name: `Inspect ${name}`,
+          name: new RegExp(`^${name.replace(".", "\\.")}, .*inspect$`),
         })
       );
       const select = await screen.findByRole("button", {
@@ -99,7 +99,7 @@ export const RemovalAndUndo = meta.story({
       await userEvent.click(select);
     }
     await userEvent.click(
-      screen.getByRole("button", { name: "Review selected files" })
+      screen.getByRole("button", { name: "Review removal" })
     );
     await userEvent.click(
       await screen.findByRole("button", { name: "Remove 2 files" })

@@ -20,8 +20,12 @@ export interface StorageConsumerRowProps {
   name: string;
   /** `null` is the "N smaller" aggregate: neutral swatch, no owner word. */
   owner: StorageOwner | null;
-  /** `drill` (`›`) re-roots the map on a folder; `inspect` (`⋯`) opens the inspect panel. */
-  action: "drill" | "inspect";
+  /**
+   * `drill` (`›`) re-roots the map on a folder; `inspect` (`⋯`) opens the
+   * inspect panel; `none` is a row with nothing to open, such as a folder's
+   * own metadata: plain text, no button and no glyph, in the same columns.
+   */
+  action: "drill" | "inspect" | "none";
   /** What the row is, as a screen reader says it: "folder", "file", "store". */
   kind: string;
   /** Line two after the owner word, pre-formatted: "git · 1,204 files". */
@@ -36,7 +40,8 @@ export interface StorageConsumerRowProps {
   shareLabel?: string;
   /** Why the size is unknown or partial, from `storageUnknownReason`. */
   reason?: string;
-  onActivate: () => void;
+  /** Required unless `action` is `none`, which never calls it. */
+  onActivate?: () => void;
   /** Its tile is under the pointer or focus: draw the 2px ring. */
   highlighted?: boolean;
   onHighlight?: (active: boolean) => void;
@@ -82,6 +87,8 @@ const META: CSSProperties = { font: `400 10.5px/1.35 ${font.mono}`, color: color
  * into a folder and `⋯` inspects a file (#4544 Q3). There is no per-row
  * Open: it lives in the inspect panel and the breadcrumb's menu.
  *
+ * With `action: "none"` the row is text, not a button, and not a tab stop.
+ *
  * With `size: null` it is the unknown row: a dashed border, `?` in place of
  * the swatch, `? not measured` in place of the size, the reason on line two,
  * and no share bar, so an unknown never draws as 0 B or an empty bar.
@@ -103,6 +110,38 @@ export function StorageConsumerRow(p: StorageConsumerRowProps) {
   ]
     .filter(Boolean)
     .join(", ");
+  const content = (
+    <>
+      <span className="bk-storage-lead">
+        {unknown ? <UnknownMark /> : <OwnerSwatch owner={p.owner} size={16} />}
+        <span className="bk-storage-text">
+          <span className="bk-storage-name" style={NAME}>
+            {p.name}
+          </span>
+          {meta ? (
+            <span className="bk-storage-meta" style={META}>
+              {meta}
+            </span>
+          ) : null}
+          {p.meta ? (
+            <span id={metaId} hidden>
+              {p.meta}
+            </span>
+          ) : null}
+        </span>
+      </span>
+      <span className="bk-storage-tail">
+        {unknown ? null : <ShareBar owner={p.owner} share={share} />}
+        <span className="bk-storage-size" data-size={unknown ? "unknown" : p.atLeast ? "at-least" : "known"} style={{ font: `500 11.5px/1.3 ${font.mono}`, color: color.ink }}>
+          {rowSizeCopy(p.size, p.atLeast)}
+        </span>
+        {/* Without an action the slot stays empty, so the size keeps its column. */}
+        <span aria-hidden="true" className="bk-storage-glyph" data-glyph={p.action === "none" ? undefined : p.action} style={{ color: color.inkDim }}>
+          {p.action === "none" ? null : <Icon icon={GLYPH[p.action]} size={16} />}
+        </span>
+      </span>
+    </>
+  );
   return (
     <div
       role="row"
@@ -112,48 +151,34 @@ export function StorageConsumerRow(p: StorageConsumerRowProps) {
       data-unknown={unknown ? "true" : undefined}
       data-highlighted={p.highlighted ? "true" : undefined}
     >
-      <div role="cell" aria-colspan={2} className="bk-storage-cell">
-        <button
-          /* raw-button: row — the whole breakdown row is one drill or inspect target */
-          type="button"
-          className="bk-storage-row-main"
-          aria-label={spoken}
-          aria-describedby={p.meta ? metaId : undefined}
-          data-action={p.action}
-          onClick={p.onActivate}
-          onMouseEnter={p.onHighlight ? () => p.onHighlight!(true) : undefined}
-          onMouseLeave={p.onHighlight ? () => p.onHighlight!(false) : undefined}
-          onFocus={p.onHighlight ? () => p.onHighlight!(true) : undefined}
-          onBlur={p.onHighlight ? () => p.onHighlight!(false) : undefined}
-        >
-          <span className="bk-storage-lead">
-            {unknown ? <UnknownMark /> : <OwnerSwatch owner={p.owner} size={16} />}
-            <span className="bk-storage-text">
-              <span className="bk-storage-name" style={NAME}>
-                {p.name}
-              </span>
-              {meta ? (
-                <span className="bk-storage-meta" style={META}>
-                  {meta}
-                </span>
-              ) : null}
-              {p.meta ? (
-                <span id={metaId} hidden>
-                  {p.meta}
-                </span>
-              ) : null}
-            </span>
-          </span>
-          <span className="bk-storage-tail">
-            {unknown ? null : <ShareBar owner={p.owner} share={share} />}
-            <span className="bk-storage-size" data-size={unknown ? "unknown" : p.atLeast ? "at-least" : "known"} style={{ font: `500 11.5px/1.3 ${font.mono}`, color: color.ink }}>
-              {rowSizeCopy(p.size, p.atLeast)}
-            </span>
-            <span aria-hidden="true" className="bk-storage-glyph" data-glyph={p.action} style={{ color: color.inkDim }}>
-              <Icon icon={GLYPH[p.action]} size={16} />
-            </span>
-          </span>
-        </button>
+      <div
+        role="cell"
+        aria-colspan={2}
+        className="bk-storage-cell"
+        aria-label={p.action === "none" ? spoken : undefined}
+        aria-describedby={p.action === "none" && p.meta ? metaId : undefined}
+      >
+        {p.action === "none" ? (
+          <div className="bk-storage-row-main" data-action="none">
+            {content}
+          </div>
+        ) : (
+          <button
+            /* raw-button: row — the whole breakdown row is one drill or inspect target */
+            type="button"
+            className="bk-storage-row-main"
+            aria-label={spoken}
+            aria-describedby={p.meta ? metaId : undefined}
+            data-action={p.action}
+            onClick={p.onActivate}
+            onMouseEnter={p.onHighlight ? () => p.onHighlight!(true) : undefined}
+            onMouseLeave={p.onHighlight ? () => p.onHighlight!(false) : undefined}
+            onFocus={p.onHighlight ? () => p.onHighlight!(true) : undefined}
+            onBlur={p.onHighlight ? () => p.onHighlight!(false) : undefined}
+          >
+            {content}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -46,15 +46,15 @@ describe("series per identity and tier", () => {
   test("points follow the identity and the tier, oldest first", () => {
     const series = storageSeries(history, ITHACA, "six-hour", worldTime);
     expect(series.map((value) => value.at)).toEqual([sixHour(18), sixHour(12), sixHour(6), sixHour(0)]);
-    expect(series[0]).toEqual({ at: sixHour(18), available: 20 * GB, appAllocated: 30 * GB, gap: false, provisional: false, otherScope: false, rootScope: `${ITHACA.slice(0, 8)}${"e".repeat(24)}`, scopeKey: JSON.stringify(["d".repeat(32), `${ITHACA.slice(0, 8)}${"e".repeat(24)}`]) });
+    expect(series[0]).toEqual({ at: sixHour(18), available: 20 * GB, appAllocated: 30 * GB, appLogical: 30 * GB, gap: false, provisional: false, otherScope: false, rootScope: `${ITHACA.slice(0, 8)}${"e".repeat(24)}`, scopeKey: JSON.stringify(["d".repeat(32), `${ITHACA.slice(0, 8)}${"e".repeat(24)}`]) });
     expect(storageSeries(history, ITHACA, "daily", worldTime).map((value) => value.available)).toEqual([25 * GB]);
     expect(storageSeries(history, SCHERIA, "six-hour", worldTime).map((value) => value.available)).toEqual([50 * GB, null, 49 * GB, 48 * GB]);
   });
 
   test("a gap, or an observation without this volume, is null and never 0", () => {
     const series = storageSeries(history, ITHACA, "six-hour", worldTime);
-    expect(series[1]).toMatchObject({ gap: true, available: null, appAllocated: null });
-    expect(series[2]).toMatchObject({ gap: true, available: null, appAllocated: null });
+    expect(series[1]).toMatchObject({ gap: true, available: null, appAllocated: null, appLogical: null });
+    expect(series[2]).toMatchObject({ gap: true, available: null, appAllocated: null, appLogical: null });
     expect(availablePoints(series)[1]!.value).toBeNull();
     expect(availablePoints(series)[2]!.value).toBeNull();
   });

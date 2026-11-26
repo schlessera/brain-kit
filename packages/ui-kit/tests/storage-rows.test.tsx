@@ -77,6 +77,17 @@ describe("StorageConsumerRow (#4544 Q3/Q4)", () => {
     expect(row).toContain('aria-label="Backups, Operator, store, size not measured, couldn&#x27;t read file details, inspect"');
   });
 
+  test("a row with no action is plain text: no button, no glyph, the glyph's column kept", () => {
+    const row = renderToStaticMarkup(<StorageConsumerRow name="Ithaca charts" owner="brain" action="none" kind="folder metadata" size="12 KB" share={0.1} />);
+    expect(row).not.toContain("<button");
+    expect(row).not.toContain("data-glyph");
+    expect(row, "the empty slot keeps the size in the same column as an interactive row's").toContain("bk-storage-glyph");
+    expect(row).toContain(">Ithaca charts<");
+    expect(row).toContain(">Brain<");
+    expect(row).toContain(">12 KB<");
+    expect(row).toContain('aria-label="Ithaca charts, Brain, folder metadata, 12 KB"');
+  });
+
   test("a partial row prints its lower bound", () => {
     const row = renderToStaticMarkup(<StorageConsumerRow name="Transcripts" owner="app" action="drill" kind="folder" size="4.2 GB" atLeast reason="size so far · scan stopped early" onActivate={noop} />);
     expect(row).toContain("≥ 4.2 GB");

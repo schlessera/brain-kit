@@ -1452,8 +1452,8 @@ implements them with the session store:
 
 | Site | Was | Now |
 | --- | --- | --- |
-| `storage/storage-guidance.tsx` `HistoryTable` | `<details>` section | Settings section: visible, headed "Observations · Recent, Daily and Weekly". The Storage redesign (#3250) decides its content. |
-| `storage/storage-guidance.tsx` `Notices` | `<details>` section | Settings section: visible, headed "Critical notifications". |
+| `storage/storage-history-table.tsx` `StorageHistoryTable` | `<details>` section, then a visible section | Evidence: `Disclosure`, "Measurements behind this chart", under the visible **Available space over time** section ([#4537 D3](storage.md#2026-11-25--the-composed-pane-volumes-history-breakdown-and-tools-4537-4549)). |
+| `storage/storage-alerts.tsx` `StorageAlertsRow` | `<details>` section, then a visible section | Optional control: the visible Alerts row's **Change** reveals the push switch and devices; the receipts are Evidence: `Disclosure`, "Delivery receipts" (#4549). |
 | `settings/modules-tab.tsx` complete source values | `<details>` | Evidence: `Complete source values · {n} keys`. |
 | `settings/module-settings-fields.tsx` collapsible lists | `Surface` and `<details>` | Editable item: `ItemCard`. |
 | `voice/conversation-unassigned.tsx` | `<details>` "Optional voice review" | Optional control: `Callout` and "Review in composer". |
