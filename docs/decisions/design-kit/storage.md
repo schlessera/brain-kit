@@ -560,11 +560,8 @@ stores are unknown, every tool stays listed: an unknown never hides a tool.
 When none applies, one line says so: "No owner-supported tool frees space on
 {volume}."
 
-An active refusal (the owner refused a write: no space, quota or inodes) is
-stated in words on a line under the volume cards, naming its volume, its
-severity, the cause, when it happened and that no matching write has
-succeeded since. It does not depend on the chart: empty history or a refusal
-older than every tier still shows it.
+An active write refusal is shown by the refused tool row and the chart's
+markers, with no separate line (maintainer, 2026-11-26).
 
 The list stays equivalent to the map for folded databases: each `-wal`,
 `-shm` or `-journal` member follows its database as its own row, marked
