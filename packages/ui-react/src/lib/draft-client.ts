@@ -42,6 +42,15 @@ const SAVE_DELAY_MS = 800;
 const FULL_RECHECK_MS = 15_000;
 /** Backoff for a save that got no answer or a transient refusal. */
 const RETRY_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 60_000];
+/**
+ * At most this many calls for one edit of a draft end in a 400 (#4566). A
+ * 400 is the host's answer to the body, and it gives the same answer to
+ * the same body: one recovery (a re-upload, a re-read list, gone files
+ * dropped) is tried, and then the client stops until the content changes.
+ */
+const MAX_REFUSED_CALLS = 2;
+/** What a 400 was recovered as: each kind of recovery is tried once per edit. */
+type RefusalKind = "image" | "file" | "list" | "other";
 
 /** Errors the host sends for a frame it could not tie to a request, when they name none. */
 const UNCORRELATED = ["RATE_LIMITED", "PARSE_ERROR", "INTERNAL_ERROR"];
@@ -61,6 +70,17 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   const busy = new Set<string>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   const failures = new Map<string, number>();
+  /** 400s for one edit of a draft (#4566): a refused edit is not sent again. */
+  const refusals = new Map<string, { edit: number; counts: Partial<Record<RefusalKind, number>> }>();
+  /**
+   * A refused save whose missing originals are still to be found (#4566):
+   * its read got no answer. The read is tried again, never the refused body.
+   */
+  const recoveries = new Map<string, { edit: number; fileIds: string[]; body: { message?: string } }>();
+  /** Drafts whose refused snapshot list is being read again: no save goes out meanwhile. */
+  /** The edit each re-read belongs to: a newer edit is saved as itself, and ends the re-read. */
+  const reconciling = new Map<string, number>();
+  const reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Idempotency keys per draft for the save in flight: a retry of the same body reuses it. */
   const saveKeys = new Map<string, { body: string; key: string }>();
   /**
@@ -106,13 +126,68 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   /** The draft needs a call: different from what the host acknowledged, or owed a bind or a delete. */
   function owed(d: ComposerDraft): boolean {
     if (d.deviceOnly || d.conflict) return false;
-    if (d.failure && d.failure.kind !== "unsaved") return false;
+    // A refused edit waits for the next change, whoever makes it (#4566).
+    if (d.failure?.kind === "refused") { if (d.failure.edit === d.edit) return false; }
+    else if (d.failure && d.failure.kind !== "unsaved") return false;
     if (d.bind) return true;
     // A snapshot's send is out: a save made meanwhile would list it again,
     // and the host would refuse it once the acceptance releases it (#3733). It waits.
     if (sendingSnapshot(d.draftId)) return false;
     if (!hasContent(d) && !holdsSnapshots(d)) return (d.host !== null || d.uncertain) && !held(d.draftId);
+    // Only originals this id cannot bind (#4566): the save would be empty,
+    // and the host refuses an empty one. It waits for content or a file
+    // chosen again; what the host still holds of it (older text, deleted
+    // snapshots) is deleted there.
+    // Only after a change here: a draft restored clean (its device record keeps no snapshots) is not emptied.
+    if (!saveable(d)) return (d.host !== null ? d.host.edit !== d.edit : d.uncertain) && !held(d.draftId);
     return d.host === null || d.host.edit !== d.edit;
+  }
+
+  /** What a save of this draft would list: anything beyond originals carried from another id or gone. */
+  function saveable(d: ComposerDraft): boolean {
+    // Local snapshots only: the host's copy of ones deleted here is not content to save.
+    return d.text.length > 0 || d.attachments.length > 0 || bindableFiles(d).length > 0 || draftSnapshots(d).length > 0;
+  }
+
+  /**
+   * Count a 400 for this edit (#4566). True while one recovery may still be
+   * tried; otherwise the edit is marked refused and nothing is sent again
+   * until the content changes.
+   */
+  function mayRecover(draftId: string, edit: number, body: { message?: string }, kind: RefusalKind): boolean {
+    const last = refusals.get(draftId);
+    const entry = last?.edit === edit ? last : { edit, counts: {} };
+    const count = (entry.counts[kind] ?? 0) + 1;
+    refusals.set(draftId, { ...entry, counts: { ...entry.counts, [kind]: count } });
+    if (count < MAX_REFUSED_CALLS) return true;
+    refuse(draftId, edit, body);
+    return false;
+  }
+
+  /**
+   * A recovery that changed the body (some originals left out) made progress:
+   * another refusal of the smaller body may recover again. Each one leaves out
+   * at least one original, so this ends.
+   */
+  function progressed(draftId: string, kind: RefusalKind) {
+    const last = refusals.get(draftId);
+    const count = last?.counts[kind] ?? 0;
+    if (last && count > 0) refusals.set(draftId, { ...last, counts: { ...last.counts, [kind]: count - 1 } });
+  }
+
+  /** Apply what a recovery read found: originals left out, or the edit refused when none is proven. */
+  function applyGone(d: ComposerDraft, gone: string[], body: { message?: string }) {
+    recoveries.delete(d.draftId);
+    if (gone.length === 0) { refuse(d.draftId, d.edit, body); return; }
+    drafts.getState().filesGone(d.draftId, gone);
+    progressed(d.draftId, "file");
+    backoff(d.draftId);
+  }
+
+  function refuse(draftId: string, edit: number, body: { message?: string }) {
+    refusals.set(draftId, { edit, counts: { other: MAX_REFUSED_CALLS } });
+    failures.delete(draftId);
+    drafts.getState().saveFailed(draftId, { kind: "refused", edit, reason: String(body.message ?? "") || "No reason given." });
   }
 
   function sendingSnapshot(draftId: string): boolean {
@@ -156,10 +231,21 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       else backoff(draftId);
       return;
     }
-    if (result.status === 400 && store.snapshotsOn && holdsSnapshots(store.drafts[draftId] ?? { snapshots: [], host: null })) {
-      // The host refused the list: its own may have moved (an acceptance
-      // released a snapshot). Read it, and save again from what it holds.
-      void reconcileSnapshots(draftId);
+    if (result.status === 400) {
+      const at = edit ?? store.drafts[draftId]?.edit ?? 0;
+      const d = store.drafts[draftId];
+      if (store.snapshotsOn && d?.host && holdsSnapshots(d)) {
+        // The host refused the list: its own may have moved (an acceptance
+        // released a snapshot). Read it, and save again from what it holds,
+        // once: the same list refused again is not sent again (#4566). A
+        // draft the host never stored has no list of its own to read.
+        if (mayRecover(draftId, at, body, "list")) {
+          reconcile(draftId, at);
+        }
+        return;
+      }
+      // Any other 400 is the host's answer to this content as it is (#4566).
+      refuse(draftId, at, body);
       return;
     }
     if (result.status === 410 || (result.status === 404 && body.error === "DRAFT_NOT_FOUND")) {
@@ -186,6 +272,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
 
   async function sync(draftId: string): Promise<void> {
     if (!live() || busy.has(draftId)) return;
+    if (reconciling.has(draftId)) {
+      if (reconciling.get(draftId) === drafts.getState().drafts[draftId]?.edit) return;
+      endReconcile(draftId);
+    }
     const d = drafts.getState().drafts[draftId];
     if (!d || !owed(d)) return;
     busy.add(draftId);
@@ -209,10 +299,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!current()) return;
       if (result.ok) { bumpHost(d.draftId); drafts.getState().bound(d.draftId, result.value.revision); return; }
       if (result.status === 409 && result.body.error === "DRAFT_NOT_ACCEPTED") { drafts.getState().bindFailed(d.draftId); return; }
-      failed(d.draftId, result);
+      failed(d.draftId, result, d.edit);
       return;
     }
-    if (!hasContent(d) && !holdsSnapshots(d) && !d.host && d.uncertain) {
+    if (((!hasContent(d) && !holdsSnapshots(d)) || !saveable(d)) && !d.host && d.uncertain) {
       // Emptied after a save that got no answer: ask what the host holds,
       // and delete what it stored, rather than let a refresh bring it back.
       const read = await api.get(d.draftId);
@@ -225,21 +315,34 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         return;
       }
       if (read.ok) {
-        const result = await api.remove(d.draftId, read.value.revision);
+        // Send waits while this is out, as for any delete of a draft (#4567).
+        drafts.getState().deleting(d.draftId, true);
+        const result = await api.remove(d.draftId, read.value.revision).finally(() => drafts.getState().deleting(d.draftId, false));
         if (!current()) return;
-        if (!result.ok && result.status !== 404 && result.status !== 410) { failed(d.draftId, result); return; }
-      } else if (read.status !== 404 && read.status !== 410) { failed(d.draftId, read); return; }
+        if (!result.ok && pendingOnHost(d, result)) return;
+        if (!result.ok && result.status !== 404 && result.status !== 410) { failed(d.draftId, result, d.edit); return; }
+      } else if (read.status !== 404 && read.status !== 410) { failed(d.draftId, read, d.edit); return; }
       bumpHost(d.draftId);
       drafts.getState().removed(d.draftId);
       return;
     }
-    if (!hasContent(d) && !holdsSnapshots(d)) {
+    if ((!hasContent(d) && !holdsSnapshots(d)) || !saveable(d)) {
       if (!d.host) return;
-      const result = await api.remove(d.draftId, d.host.revision);
+      // Send waits while this is out: a message made now would be one of a draft the host is deleting (#4567).
+      drafts.getState().deleting(d.draftId, true);
+      const result = await api.remove(d.draftId, d.host.revision).finally(() => drafts.getState().deleting(d.draftId, false));
       if (!current()) return;
-      if (result.ok) { bumpHost(d.draftId); failures.delete(d.draftId); drafts.getState().removed(d.draftId); retryFull(); return; }
+      if (result.ok) {
+        bumpHost(d.draftId); failures.delete(d.draftId);
+        // Its snapshots were the chat's: a slot is free now.
+        const full = drafts.getState().outgoingFull;
+        if ((d.host.snapshots?.length ?? 0) > 0 && full && (full.draftId === d.draftId || (full.sessionId !== null && full.sessionId === d.sessionId))) drafts.getState().clearOutgoingFull();
+        drafts.getState().removed(d.draftId); retryFull(); return;
+      }
       if (result.status === 410 || result.status === 404) { bumpHost(d.draftId); drafts.getState().removed(d.draftId); return; }
-      failed(d.draftId, result);
+      if (pendingOnHost(d, result)) return;
+      // The edit this delete was for: one typed since is not refused by its answer.
+      failed(d.draftId, result, d.edit);
       return;
     }
     store.saving(d.draftId, Date.now());
@@ -259,6 +362,18 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
     // Only originals minted for this id can be bound here (#3155); one
     // carried from another id waits to be chosen again, and is not listed.
+    // A refused save's read got no answer: read again rather than send the refused body (#4566).
+    const pending = recoveries.get(d.draftId);
+    if (pending && pending.edit !== d.edit) recoveries.delete(d.draftId);
+    else if (pending) {
+      const gone = await goneFiles(d, pending.fileIds);
+      if (!current()) return;
+      // Changed while the read was out: what it found was about the edit it read for.
+      if (drafts.getState().drafts[d.draftId]?.edit !== d.edit) { recoveries.delete(d.draftId); schedule(d.draftId, 0); return; }
+      if (gone === null) { backoff(d.draftId); return; }
+      applyGone(d, gone, pending.body);
+      return;
+    }
     const fileIds = bindableFiles(d).map((f) => f.file.fileId);
     // The whole snapshot list on every save, once the draft has one (#3588).
     const list = store.snapshotsOn && holdsSnapshots(d) ? snapshotSaveList(d) : null;
@@ -284,6 +399,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (result.ok) {
       saveKeys.delete(d.draftId);
       failures.delete(d.draftId);
+      refusals.delete(d.draftId);
+      recoveries.delete(d.draftId);
       bumpHost(d.draftId);
       drafts.getState().saved(d.draftId, {
         // A Send again swap is two saves: until the second, this is not the whole edit.
@@ -295,9 +412,24 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       return;
     }
     if (result.status === 409 && result.body.error === "DRAFT_KEY_REUSED") { saveKeys.delete(d.draftId); backoff(d.draftId); return; }
+    const message = String(result.body.message ?? "");
+    // An original the host no longer stores for this draft (swept, or never
+    // stored under this id): its bytes are not here to upload again, so it
+    // is left out and reads as needing to be chosen again (#4566).
+    if (result.status === 400 && result.body.error === "ATTACHMENT_INVALID" && /no longer available|not stored/i.test(message) && fileIds.length > 0) {
+      if (!mayRecover(d.draftId, d.edit, result.body, "file")) return;
+      const gone = await goneFiles(d, fileIds);
+      if (!current()) return;
+      if (drafts.getState().drafts[d.draftId]?.edit !== d.edit) { schedule(d.draftId, 0); return; }
+      // The read got no answer: nothing was learned. The next try reads again.
+      if (gone === null) { recoveries.set(d.draftId, { edit: d.edit, fileIds, body: result.body }); backoff(d.draftId); return; }
+      applyGone(d, gone, result.body);
+      return;
+    }
     // An image the host no longer stores (swept, or dropped by another
     // revision): upload again rather than save a list it cannot attach.
-    if (result.status === 400 && /attachment/i.test(String(result.body.message ?? ""))) {
+    if (result.status === 400 && /attachment/i.test(message)) {
+      if (!mayRecover(d.draftId, d.edit, result.body, "image")) return;
       drafts.getState().forgetUploads(d.draftId);
       backoff(d.draftId);
       return;
@@ -306,17 +438,101 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   }
 
   /**
+   * Which of the originals a refused save listed the host no longer stores
+   * for this draft (#4566). The host's draft lists only stored ones: one it
+   * bound before and lists no longer is gone. When none is, and the draft
+   * holds no snapshot that could be the one refused, every original it does
+   * not list is. Null: the read got no answer, so nothing is proven.
+   */
+  async function goneFiles(d: ComposerDraft, fileIds: readonly string[]): Promise<string[] | null> {
+    const read = await api.get(d.draftId);
+    // No answer is no evidence; any other refusal of the read proves nothing gone either.
+    if (!read.ok && transient(read.status)) return null;
+    if (!read.ok && read.status !== 404 && read.status !== 410) return [];
+    const listed = new Set(read.ok ? (read.value.files ?? []).map((f) => f.fileId) : []);
+    const bound = new Set(d.host?.fileIds ?? []);
+    const unlisted = fileIds.filter((id) => !listed.has(id));
+    const proven = unlisted.filter((id) => bound.has(id));
+    if (proven.length > 0) return proven;
+    // A new or changed snapshot's originals may be the refused ones (the host
+    // checks only those): they are not the composer's to leave out.
+    const acked = new Map((d.host?.snapshots ?? []).map((s) => [s.snapshotId, s.fileIds.join()]));
+    return draftSnapshots(d).some((s) => s.files.length > 0 && acked.get(s.snapshotId) !== s.files.map((f) => f.fileId).join()) ? [] : unlisted;
+  }
+
+  /**
    * The host refused a snapshot list. Read what it holds: a held or
    * dispatched snapshot it no longer lists was released by its acceptance,
    * the only way one leaves without being returned first.
    */
-  async function reconcileSnapshots(draftId: string): Promise<void> {
+  /**
+   * Re-read a refused list with no save going out meanwhile (#4566). A read
+   * that gets no answer is tried again, backing off; the refused list is not
+   * sent again until one does.
+   */
+  /** `edit`: the edit the refused save carried; a newer one is saved as itself. */
+  function reconcile(draftId: string, edit: number, tries = 0) {
+    // A host that stopped keeping drafts is not asked again.
+    if (!live()) { endReconcile(draftId); return; }
+    // Refused for an edit already superseded: the newer one is saved instead.
+    if (drafts.getState().drafts[draftId]?.edit !== edit) { schedule(draftId, 0); return; }
+    reconciling.set(draftId, edit);
+    void reconcileSnapshots(draftId, edit).then((again) => {
+      if (reconciling.get(draftId) !== edit) return;
+      if (again && !disposed && drafts.getState().drafts[draftId]?.edit === edit) {
+        reconcileTimers.set(draftId, setTimeout(() => { reconcileTimers.delete(draftId); if (reconciling.get(draftId) === edit) reconcile(draftId, edit, tries + 1); }, RETRY_MS[Math.min(tries, RETRY_MS.length - 1)]));
+        return;
+      }
+      reconciling.delete(draftId);
+      // A newer edit waited for this re-read: it goes now.
+      if (again) schedule(draftId, 0);
+    });
+  }
+
+  /**
+   * A delete the host refused because a message of this draft still waits there (#4567): the host's
+   * list comes back, so that message shows with its Cancel and Check again, and saves list it. Not
+   * asked to delete again until then. True when handled.
+   */
+  function pendingOnHost(d: ComposerDraft, result: Exclude<DraftCallResult<unknown>, { ok: true }>): boolean {
+    if (result.status !== 409 || result.body.error !== "DRAFT_OUTGOING_PENDING") return false;
+    bumpHost(d.draftId);
+    if (result.body.current) drafts.getState().adoptHostSnapshots(d.draftId, result.body.current as Draft);
+    else refuse(d.draftId, d.edit, result.body);
+    return true;
+  }
+
+  /** Another version took this id's place: what was refused or being recovered was the old one's (#4566). */
+  function forgetVersion(draftId: string) {
+    refusals.delete(draftId);
+    recoveries.delete(draftId);
+    endReconcile(draftId);
+  }
+
+  function endReconcile(draftId: string) {
+    reconciling.delete(draftId);
+    clearTimeout(reconcileTimers.get(draftId));
+    reconcileTimers.delete(draftId);
+  }
+
+  /** True when the read got no answer and is owed again. */
+  async function reconcileSnapshots(draftId: string, edit: number): Promise<boolean> {
+    const seq = hostSeq.get(draftId) ?? 0;
     const read = await api.get(draftId);
-    if (disposed) return;
+    if (disposed) return false;
+    // A newer edit took over, or the host's copy changed here meanwhile: this read is stale.
+    if (reconciling.get(draftId) !== edit || (hostSeq.get(draftId) ?? 0) !== seq) return false;
     const store = drafts.getState();
     const d = store.drafts[draftId];
-    if (!d) return;
-    if (!read.ok) { if (read.status === 404 || read.status === 410) { bumpHost(draftId); store.hostGone(draftId); } else backoff(draftId); return; }
+    if (!d) return false;
+    if (!read.ok) {
+      if (read.status === 404 || read.status === 410) { bumpHost(draftId); store.hostGone(draftId); return false; }
+      // No answer, or a transient refusal: read again. Any other answer is the
+      // host's, and the save it refused goes back to its own bound.
+      if (transient(read.status)) return true;
+      backoff(draftId);
+      return false;
+    }
     const held = new Set((read.value.snapshots ?? []).map((x) => x.snapshotId));
     for (const s of draftSnapshots(d)) {
       const acked = d.host?.snapshots?.some((x) => x.snapshotId === s.snapshotId);
@@ -327,12 +543,14 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       }
     }
     const now = drafts.getState().drafts[draftId];
-    if (!now?.host) { backoff(draftId); return; }
-    // Saved again over the host's revision, with the host's list as acknowledged.
+    if (!now?.host) { backoff(draftId); return false; }
+    // Saved again over the host's revision, with the host's list as acknowledged, and a snapshot only
+    // the host holds (one a reload did not keep here) shown again with its own actions (#4566).
+    // Still the refused edit: a new one would lift its bound, and the same list would go again and again.
     bumpHost(draftId);
-    drafts.setState((st) => st.drafts[draftId] ? { drafts: { ...st.drafts, [draftId]: { ...st.drafts[draftId]!, host: { ...st.drafts[draftId]!.host!, revision: read.value.revision, edit: -1,
-      snapshots: (read.value.snapshots ?? []).map(({ createdAt: _at, ...w }) => w) } } } } : st);
+    drafts.getState().adoptHostSnapshots(draftId, read.value, { sameEdit: true });
     backoff(draftId);
+    return false;
   }
 
   /** Whether a snapshot of this draft may send now: connected, and a new chat's only from its own view. */
@@ -570,6 +788,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     for (const [id, d] of Object.entries(state.drafts)) if (d.deviceEpoch !== undefined && d.deviceEpoch !== prev.drafts[id]?.deviceEpoch) {
       deviceSeq.set(id, (deviceSeq.get(id) ?? 0) + 1);
       bumpHost(id);
+      forgetVersion(id);
+      // Its edit count starts again, so the change below may not look like one: it is owed as itself.
+      if (owed(d)) schedule(id, 0);
     }
     for (const [id, d] of Object.entries(state.drafts)) if (!prev.drafts[id] && d.deviceConflict) {
       // The other identity can be a predecessor retired by a send while
@@ -578,8 +799,14 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       for (const source of sources) if (state.resolveId(source) === id || source === d.deviceConflict.otherId) {
         deviceSeq.set(source, (deviceSeq.get(source) ?? 0) + 1);
         bumpHost(source);
+        forgetVersion(source);
+        // The retained version back under its id may look unchanged by its edit count: it is owed as itself.
+        const back = state.drafts[source];
+        if (back && owed(back)) schedule(source, 0);
       }
     }
+    // A draft forgotten here leaves nothing to recover: an id typed into again is new work.
+    for (const id of Object.keys(prev.drafts)) if (!state.drafts[id]) forgetVersion(id);
     if (!live()) return;
     for (const [id, d] of Object.entries(state.drafts)) {
       const before = prev.drafts[id];
@@ -919,6 +1146,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
 
     dispose(): void {
       disposed = true;
+      refusals.clear();
+      for (const timer of reconcileTimers.values()) clearTimeout(timer);
+      reconcileTimers.clear();
+      recoveries.clear();
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
       for (const retry of orphanRetries.values()) clearTimeout(retry.timer);

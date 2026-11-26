@@ -172,7 +172,7 @@ export function createMessagesSlice(ctx: ChatSliceContext): MessagesSliceSlice {
         ),
       })),
 
-    setToolResult: (key, toolUseId, output, isError, policyChange) =>
+    setToolResult: (key, toolUseId, output, isError, policyChange, hostStop) =>
       mutateToolHolder(key, toolUseId, (last) => ({
         ...last,
         toolCalls: last.toolCalls.map((t) =>
@@ -182,6 +182,7 @@ export function createMessagesSlice(ctx: ChatSliceContext): MessagesSliceSlice {
               output,
               isError,
               ...(policyChange ? { policyChange } : {}),
+              ...(hostStop ? { hostStop } : {}),
               status: "complete" as const,
               endedAt: Date.now(),
             }

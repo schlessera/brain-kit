@@ -33,6 +33,7 @@ export function DraftIndicator({ draftId, queued, online }: { draftId: string; q
   const supported = useRootStore("drafts", (s) => s.supported);
   const limits = useRootStore("drafts", (s) => s.limits);
   const localFailed = useLocalWorkStatus((s) => s.failed);
+  const switchNote = useRootStore("drafts", (s) => (s.versionSwitch?.draftId === draftId && s.versionSwitch.outcome !== "unattached" ? s.versionSwitch.outcome : null));
   const wrapper = useRef<HTMLSpanElement>(null);
   const compareRef = useRef<HTMLSpanElement>(null);
   // Remounting the indicator closes its details: an action that moves the reader elsewhere does.
@@ -43,7 +44,7 @@ export function DraftIndicator({ draftId, queued, online }: { draftId: string; q
   useEffect(() => { if (!draft?.conflict) setComparing(false); }, [draft?.conflict]);
   useEffect(() => { setChecked(null); setChecking(false); }, [draftId]);
 
-  const view: DraftIndicatorView = draftIndicatorView({ draft, store: { supported, limits }, queued, online, localFailed });
+  const view: DraftIndicatorView = draftIndicatorView({ draft, store: { supported, limits }, queued, online, localFailed, switchNote });
   const trigger = () => wrapper.current?.querySelector<HTMLElement>(".bk-status-indicator-btn") ?? null;
 
   const check = async () => {
@@ -68,7 +69,7 @@ export function DraftIndicator({ draftId, queued, online }: { draftId: string; q
     if (view.action === "check") actions = act("check", checking ? "Checking…" : "Check again", () => { void check(); }, { disabled: checking });
     else if (view.action === "storage") actions = act("storage", "Open Storage", () => { setEpoch((n) => n + 1); root.stores.ui.getState().openSettings("storage"); });
     else if (view.action === "compare") actions = act("compare", "Compare drafts", () => setComparing(true));
-    else if (view.action === "other_version") actions = act("other_version", "Open other version", () => { setEpoch((n) => n + 1); openOtherVersion(root, draft!.deviceConflict!.otherId); });
+    else if (view.action === "other_version") actions = act("other_version", "Open other version", () => { setEpoch((n) => n + 1); openOtherVersion(root, draft!.deviceConflict!.otherId, draftId); });
   }
   const facts: StatusIndicatorFact[] = view.key === "none" ? [] : [...view.facts];
   if (view.key === "unconfirmed" && checked && checked.edit === draft?.edit) facts.push({ key: "Checked", value: CHECKED[checked.result] });

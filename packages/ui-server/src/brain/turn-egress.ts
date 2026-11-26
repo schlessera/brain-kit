@@ -95,6 +95,8 @@ export function createOutwardCalls() {
 export async function prepareTurnEgress(options: {
   trust?: OriginTrust;
   policy: EffectiveGovernancePolicy; policyHash?:string|null; bridge: BackendBridge; controller: AbortController;
+  /** Stops the turn when a record cannot be retained, naming why (#4565); defaults to aborting `controller`. */
+  stop?: (error: Error) => void;
   turnId: string; sessionId: () => string | null; model: () => string | null;
   profile: "governed" | "strict"; origin: "interactive" | "voice";
   /**
@@ -177,7 +179,7 @@ export async function prepareTurnEgress(options: {
     actor: options.origin, profile: options.profile });
   const fail = () => {
     recordingFailure ??= new EgressAdmissionRefused("Turn egress recording is unavailable","egress_unavailable");
-    options.controller.abort(recordingFailure);
+    if (options.stop) options.stop(recordingFailure); else options.controller.abort(recordingFailure);
   };
   const track = (committed: unknown) => {
     const confirm=(result:unknown)=>{
