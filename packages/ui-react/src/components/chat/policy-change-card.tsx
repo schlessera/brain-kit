@@ -55,6 +55,11 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
     if (explicit.current && (busy || review.state !== "pending")) { explicit.current = false; receipt.current?.focus({ preventScroll: true }); }
   }, [busy, review.state]);
   const voiceLocked = toolCall.voicePermission && toolCall.voicePermission.phase !== "pending";
+  // A voice receipt speaks only for a request this card never answered. Once
+  // the card has its own outcome (a decision in flight or the host's recorded
+  // state), that outcome is the receipt: a turn-end expiry or an on-screen
+  // resolution must not replace "Nothing was written" (#4629).
+  const voiceReceipt = voiceLocked && !busy && review.state === "pending";
   function decide(approved: boolean) {
     if (voiceLocked || !verified || !current() || busy || sent.current || review.state !== "pending" || !onApproval) return;
     sent.current = true;
@@ -88,7 +93,7 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
       </ApprovalCard>
       <span className="sr-only" role="status">Policy change proposed. Review before approving.</span>
     </div> : <div ref={receipt} tabIndex={-1} data-policy-receipt className="rounded-md border border-border-subtle p-3 outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
-      <p role="status" className="text-sm">{voiceLocked ? toolCall.voicePermission?.word : busy ? review.message : readError || review.message}</p>
+      <p role="status" className="text-sm">{voiceReceipt ? toolCall.voicePermission?.word : busy ? review.message : readError || review.message}</p>
       <p className="font-mono text-xs">{review.state === "updated" ? `${review.baseHash ?? "defaults"} → ${review.proposedHash}` : `Based on ${review.baseHash ?? "no policy file"}`}</p>
       {review.state === "updated" && <Button label="View policy" tone="quiet" size="md" reach onClick={() => { const opener = document.activeElement; if (opener instanceof HTMLElement) openFile(opener, opener.matches(":focus-visible")); }} />}
       {!busy && (review.state === "unknown" || readError) && <Button label="Check again" tone="quiet" size="md" reach onClick={() => { explicit.current = true; void check(); }} />}
