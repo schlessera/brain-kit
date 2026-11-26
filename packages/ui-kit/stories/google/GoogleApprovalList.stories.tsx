@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import preview from "#.storybook/preview";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 
@@ -19,7 +19,9 @@ import {
   spokenText,
   twoAccounts,
   type Expected,
+  loadingRows,
 } from "./_google.js";
+import { ROW_RING, ring } from "../_stage.js";
 
 /**
  * Remembered Gmail approvals, in Settings (#4212): grouped by account, each
@@ -43,7 +45,7 @@ const expected = (rest: Omit<Expected, "heading" | "explainer">): Expected => ({
 
 const ONE_ACCOUNT_NAMES = [
   `Revoke Archive for ${ODYSSEUS}`,
-  `Revoke Add label Voyage for ${ODYSSEUS}`,
+  `Revoke Add label “Voyage” for ${ODYSSEUS}`,
   `Revoke Save drafts for ${ODYSSEUS}`,
 ];
 
@@ -52,8 +54,10 @@ export const OneAccount = meta.story({
   ...desktop,
   play: async (context) => {
     await looksRight(context, expected({
-      copy: [ODYSSEUS, "Archive", "since Sat 11 Jul", "Add label Voyage", "since Fri 10 Jul", "Save drafts", "since Thu 9 Jul", "Revoke"],
+      copy: [ODYSSEUS, "Archive", "since Sat 11 Jul", "Add label “Voyage”", "since Fri 10 Jul", "Save drafts", "since Thu 9 Jul", "Revoke"],
       names: ONE_ACCOUNT_NAMES,
+      lists: [3],
+      groups: [ODYSSEUS],
     }));
     const list = listIn(context.canvasElement);
     await expect(list.querySelectorAll("[data-google-account]"), "one account, one group").toHaveLength(1);
@@ -75,12 +79,14 @@ export const TwoAccounts = meta.story({
   args: { accounts: twoAccounts() },
   play: async (context) => {
     await looksRight(context, expected({
-      copy: [ODYSSEUS, PENELOPE, "Remove label Suitors", "Add label Estate · herds and orchards", "since Wed 8 Jul"],
+      copy: [ODYSSEUS, PENELOPE, "Remove label “Suitors”", "Add label “Estate · herds and orchards”", "since Wed 8 Jul"],
+      lists: [2, 2],
+      groups: [ODYSSEUS, PENELOPE],
       names: [
         `Revoke Archive for ${ODYSSEUS}`,
-        `Revoke Add label Voyage for ${ODYSSEUS}`,
-        `Revoke Remove label Suitors for ${PENELOPE}`,
-        `Revoke Add label Estate · herds and orchards for ${PENELOPE}`,
+        `Revoke Add label “Voyage” for ${ODYSSEUS}`,
+        `Revoke Remove label “Suitors” for ${PENELOPE}`,
+        `Revoke Add label “Estate · herds and orchards” for ${PENELOPE}`,
       ],
     }));
     const groups = [...listIn(context.canvasElement).querySelectorAll<HTMLElement>("[data-google-account]")];
@@ -108,7 +114,10 @@ export const WithheldLabelName = meta.story({
     await looksRight(context, expected({
       copy: ["Add label Label_7", "Remove label Label_12"],
       names: [`Revoke Add label Label_7 for ${ODYSSEUS}`, `Revoke Remove label Label_12 for ${ODYSSEUS}`],
+      lists: [2],
+      groups: [ODYSSEUS],
     }));
+    await expect(listIn(context.canvasElement).textContent, "a withheld name's id is never quoted").not.toMatch(/[“”]/);
     const ids = [...listIn(context.canvasElement).querySelectorAll<HTMLElement>("[data-google-label-id]")];
     await expect(ids.map((id) => id.textContent)).toEqual(["Label_7", "Label_12"]);
     for (const id of ids) await expect(getComputedStyle(id).fontFamily, "the id is mono").toMatch(/JetBrains Mono/);
@@ -135,8 +144,10 @@ export const LongLabelName = meta.story({
     await expect(LONG_LABEL_NAME.length).toBe(2250);
     await expect(LONG_LABEL_NAME).not.toMatch(/\s/);
     await looksRight(context, expected({
-      copy: [`Add label ${LONG_LABEL_NAME}`, "since Sat 11 Jul"],
-      names: [`Revoke Add label ${LONG_LABEL_NAME} for ${ODYSSEUS}`, `Revoke Archive for ${ODYSSEUS}`],
+      copy: [`Add label “${LONG_LABEL_NAME}”`, "since Sat 11 Jul"],
+      names: [`Revoke Add label “${LONG_LABEL_NAME}” for ${ODYSSEUS}`, `Revoke Archive for ${ODYSSEUS}`],
+      lists: [2],
+      groups: [ODYSSEUS],
     }));
     const name = listIn(context.canvasElement).querySelector("bdi")!;
     await expect(name.textContent, "the name is the plain text the host sent").toBe(LONG_LABEL_NAME);
@@ -151,7 +162,7 @@ export const Revoking = meta.story({
   ...desktop,
   args: { busy: "appr-voyage" },
   play: async (context) => {
-    await looksRight(context, expected({ copy: ["Revoking…"], names: ONE_ACCOUNT_NAMES }));
+    await looksRight(context, expected({ copy: ["Revoking…"], names: ONE_ACCOUNT_NAMES, lists: [3], groups: [ODYSSEUS] }));
     const list = listIn(context.canvasElement);
     const [archive, voyage] = within(list).getAllByRole("button");
     await expect(voyage!.getAttribute("aria-disabled")).toBe("true");
@@ -176,7 +187,7 @@ export const RevokeError = meta.story({
   ...desktop,
   args: { error: ERROR },
   play: async (context) => {
-    await looksRight(context, expected({ copy: [ERROR], names: ONE_ACCOUNT_NAMES }));
+    await looksRight(context, expected({ copy: [ERROR], names: ONE_ACCOUNT_NAMES, lists: [3], groups: [ODYSSEUS] }));
     const alert = within(listIn(context.canvasElement)).getByRole("alert");
     await expect(alert.textContent).toBe(ERROR);
     const rows = within(listIn(context.canvasElement)).getAllByRole("button");
@@ -190,7 +201,7 @@ export const Empty = meta.story({
   ...desktop,
   args: { accounts: [] },
   play: async (context) => {
-    await looksRight(context, expected({ copy: [EMPTY], names: [] }));
+    await looksRight(context, expected({ copy: [EMPTY], names: [], lists: [], groups: [] }));
   },
 });
 export const EmptyNarrow = Empty.extend({ ...narrow });
@@ -200,10 +211,10 @@ export const Loading = meta.story({
   ...desktop,
   args: { state: "loading" },
   play: async (context) => {
-    await looksRight(context, expected({ names: [] }));
+    await looksRight(context, expected({ names: [], lists: [], groups: [] }));
     const list = listIn(context.canvasElement);
-    await expect(list.querySelector("[aria-busy='true']"), "the ghost rows say they are loading").not.toBeNull();
-    await expect(spokenText(list), "loading claims nothing").toBe(HEADING + EXPLAINER);
+    await loadingRows(list);
+    await expect(spokenText(list), "the placeholder claims nothing").toBe(HEADING + EXPLAINER);
   },
 });
 export const LoadingNarrow = Loading.extend({ ...narrow });
@@ -212,7 +223,7 @@ export const LoadingNarrow = Loading.extend({ ...narrow });
 export const Unavailable = meta.story({
   ...desktop,
   play: async (context) => {
-    await looksRight(context, expected({ copy: [UNAVAILABLE], names: [] }));
+    await looksRight(context, expected({ copy: [UNAVAILABLE], names: [], lists: [], groups: [] }));
     await expect(listIn(context.canvasElement).querySelectorAll("[data-google-account]")).toHaveLength(0);
   },
   args: { state: "unavailable" },
@@ -225,13 +236,20 @@ export const UnavailableNarrow = Unavailable.extend({ ...narrow });
 const pending: (() => void)[] = [];
 const finishRevoke = () => pending.shift()?.();
 
-/** The host's side: a revoke goes busy, then the row drops when it is done. */
-function Host(p: GoogleApprovalListProps) {
+type Accounts = GoogleApprovalListProps["accounts"];
+
+/**
+ * The host's side: a revoke goes busy, then, when the play lets it finish,
+ * the row drops, or the host's refreshed list (the next of `replies`)
+ * replaces the rows, as a response carrying changes made elsewhere would.
+ */
+function Host({ replies = [], ...p }: GoogleApprovalListProps & { replies?: Accounts[] }) {
   const [accounts, setAccounts] = useState(() => {
     pending.length = 0;
     return p.accounts;
   });
   const [busy, setBusy] = useState<string | null>(null);
+  const queue = useRef(replies.slice());
   return (
     <GoogleApprovalList
       {...p}
@@ -241,7 +259,8 @@ function Host(p: GoogleApprovalListProps) {
         p.onRevoke(id);
         setBusy(id);
         pending.push(() => {
-          setAccounts((all) => all.map((account) => ({ ...account, approvals: account.approvals.filter((approval) => approval.id !== id) })));
+          const reply = queue.current.shift();
+          setAccounts(reply ?? ((all) => all.map((account) => ({ ...account, approvals: account.approvals.filter((approval) => approval.id !== id) }))));
           setBusy(null);
         });
       }}
@@ -258,15 +277,21 @@ export const KeyboardRevoke = meta.story({
   ...desktop,
   render: (args) => <Host {...args} />,
   play: async (context) => {
-    await looksRight(context, expected({ names: ONE_ACCOUNT_NAMES }));
+    await looksRight(context, expected({ names: ONE_ACCOUNT_NAMES, lists: [3], groups: [ODYSSEUS] }));
     const list = listIn(context.canvasElement);
     const row = (name: string) => within(list).getByRole("button", { name });
     const [archive, voyage, drafts] = ONE_ACCOUNT_NAMES as [string, string, string];
 
     await userEvent.tab();
     await expect(document.activeElement, "the first tab stop is the first row").toBe(row(archive));
+    // The ring is a row's, inside the row, and the first row's follows the card's corners.
+    await expect(ring(row(archive))).toEqual(ROW_RING);
+    const corner = getComputedStyle(row(archive).closest("ul")!).borderTopLeftRadius;
+    await expect(corner, "the card's corner reaches the list").not.toBe("0px");
+    await expect(getComputedStyle(row(archive)).borderTopLeftRadius, "the focused first row takes the card's corner").toBe(corner);
     await userEvent.tab();
     await expect(document.activeElement).toBe(row(voyage));
+    await expect(getComputedStyle(row(voyage)).borderTopLeftRadius, "a focused middle row stays square").toBe("0px");
     await userEvent.keyboard("{Enter}");
     await expect(context.args.onRevoke).toHaveBeenLastCalledWith("appr-voyage");
     await waitFor(() => expect(row(voyage).getAttribute("aria-disabled")).toBe("true"));
@@ -291,3 +316,46 @@ export const KeyboardRevoke = meta.story({
   },
 });
 export const KeyboardRevokeNarrow = KeyboardRevoke.extend({ ...narrow });
+
+/**
+ * The host's response replaces rows instead of only dropping the revoked one.
+ * When the focused row's old neighbours are gone too but the list still has
+ * rows, focus goes to the first row now shown, never to the heading:
+ * first `[a]` → `[b, c]`, then every old row replaced.
+ */
+export const KeyboardRevokeReplaced = meta.story({
+  ...desktop,
+  args: { accounts: [{ address: ODYSSEUS, approvals: [{ id: "appr-archive", action: { kind: "archive" }, since: SAT_11 }] }] },
+  render: (args) => (
+    <Host
+      {...args}
+      replies={[
+        [{ address: ODYSSEUS, approvals: [{ id: "appr-star", action: { kind: "star" }, since: FRI_10 }, { id: "appr-drafts", action: { kind: "drafts" }, since: FRI_10 }] }],
+        [{ address: PENELOPE, approvals: [{ id: "appr-suitors", action: { kind: "unlabel", labelId: "Label_7", labelName: "Suitors" }, since: SAT_11 }, { id: "appr-mark-read", action: { kind: "mark_read" }, since: FRI_10 }] }],
+      ]}
+    />
+  ),
+  play: async (context) => {
+    await looksRight(context, expected({ names: [`Revoke Archive for ${ODYSSEUS}`], lists: [1], groups: [ODYSSEUS] }));
+    const list = listIn(context.canvasElement);
+    const row = (name: string) => within(list).getByRole("button", { name });
+
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(row(`Revoke Archive for ${ODYSSEUS}`));
+    await userEvent.keyboard("{Enter}");
+    await expect(context.args.onRevoke).toHaveBeenLastCalledWith("appr-archive");
+    finishRevoke();
+    await waitFor(() => expect(within(list).queryByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` })).toBeNull());
+    await expect(document.activeElement, "[a] → [b, c]: the first row now shown").toBe(row(`Revoke Star for ${ODYSSEUS}`));
+
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(row(`Revoke Save drafts for ${ODYSSEUS}`));
+    await userEvent.keyboard("{Enter}");
+    await expect(context.args.onRevoke).toHaveBeenLastCalledWith("appr-drafts");
+    finishRevoke();
+    await waitFor(() => expect(within(list).queryByRole("button", { name: `Revoke Save drafts for ${ODYSSEUS}` })).toBeNull());
+    await expect(document.activeElement, "every old row replaced: the first row now shown").toBe(row(`Revoke Remove label “Suitors” for ${PENELOPE}`));
+    await expect(within(list).getByRole("group", { name: PENELOPE })).toBeTruthy();
+  },
+});
+export const KeyboardRevokeReplacedNarrow = KeyboardRevokeReplaced.extend({ ...narrow });

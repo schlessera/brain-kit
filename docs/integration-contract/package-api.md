@@ -613,12 +613,15 @@ stories; no tool, wire or payload contract changes here.
 - `GoogleStandingAction` is `{ kind: "archive" | "unarchive" | "mark_read" |
   "mark_unread" | "star" | "unstar" | "drafts" }` or `{ kind: "label" |
   "unlabel", labelId, labelName: string | null }`. `GoogleHostTime` is
-  `{ short, full }`. `googleActionWords(action)` returns the action's words,
-  with the label id in mono when the host withheld the name.
+  `{ short, full }`. `googleActionWords(action)` returns the action's words.
+  A label name is set apart in curly quotes (Add label “Voyage”), in the
+  visible words and in the Revoke's accessible name; when the host withheld
+  the name, the words end with the label id in mono, unquoted.
 
-When the host drops a revoked row, focus moves to the next row, else the
-previous one, else the list's heading. No existing export, key, glyph or prop
-changes. This ships in a minor.
+When the host drops a revoked row, focus moves to the next row still shown,
+else the previous one, else, when the host's response replaced the rows, the
+first row now shown; only an empty list sends focus to its heading. No
+existing export, key, glyph or prop changes. This ships in a minor.
 
 ## UI-kit enlarge icon (additive #3397)
 

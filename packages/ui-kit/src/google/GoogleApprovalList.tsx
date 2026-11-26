@@ -41,7 +41,9 @@ import {
  * the heading.
  *
  * Every account group shows its address, even when there is only one, so the
- * list reads the same at one account and at two. An account with no
+ * list reads the same at one account and at two. Each group is a named group
+ * (its name is its address) holding a real list, one item per approval, so a
+ * screen reader hears the account and the count. An account with no
  * approvals draws no group.
  */
 export interface GoogleApprovalListProps {
@@ -81,23 +83,7 @@ export function GoogleApprovalList(p: GoogleApprovalListProps) {
       {groups.length > 0 ? (
         <div className="bk-google-rows" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {groups.map((account) => (
-            <div key={account.address} data-google-account="" style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-              <span style={ADDRESS}>{account.address}</span>
-              <Surface pad={0}>
-                {account.approvals.map((approval, i) => (
-                  <ApprovalRow
-                    key={approval.id}
-                    id={approval.id}
-                    action={approval.action}
-                    since={approval.since}
-                    address={account.address}
-                    busy={p.busy === approval.id}
-                    last={i === account.approvals.length - 1}
-                    onRevoke={p.onRevoke}
-                  />
-                ))}
-              </Surface>
-            </div>
+            <AccountGroup key={account.address} account={account} busy={p.busy ?? null} onRevoke={p.onRevoke} />
           ))}
         </div>
       ) : null}
@@ -106,6 +92,39 @@ export function GoogleApprovalList(p: GoogleApprovalListProps) {
           <Callout tone="red" variant="banner" icon="failed" mono text={p.error} />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+interface AccountGroupProps {
+  account: GoogleApprovalListProps["accounts"][number];
+  busy: string | null;
+  onRevoke(id: string): void;
+}
+
+function AccountGroup({ account, busy, onRevoke }: AccountGroupProps) {
+  const addressId = useId();
+  return (
+    <div role="group" aria-labelledby={addressId} data-google-account="" style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+      <span id={addressId} style={ADDRESS} data-google-address="">{account.address}</span>
+      <Surface pad={0}>
+        {/* `role="list"` restates the list a `list-style: none` can strip in WebKit. */}
+        <ul className="bk-google-list" role="list">
+          {account.approvals.map((approval, i) => (
+            <li key={approval.id}>
+              <ApprovalRow
+                id={approval.id}
+                action={approval.action}
+                since={approval.since}
+                address={account.address}
+                busy={busy === approval.id}
+                last={i === account.approvals.length - 1}
+                onRevoke={onRevoke}
+              />
+            </li>
+          ))}
+        </ul>
+      </Surface>
     </div>
   );
 }
@@ -156,7 +175,7 @@ function ApprovalRow(p: ApprovalRowProps) {
       <span className="bk-google-row-icon">
         <Icon icon="capability" size={17} color={accent.amber.ink} />
       </span>
-      <span className="bk-google-row-title" style={titleStyle(p.busy)}>
+      <span className="bk-google-row-title" style={titleStyle(p.busy)} data-google-title="">
         <ActionWords action={p.action} />
       </span>
       <span className="bk-google-row-since" style={SUB}>since {p.since.short}</span>

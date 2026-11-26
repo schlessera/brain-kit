@@ -34,7 +34,11 @@ import {
  * Ten changes left or fewer turns the count amber; the count itself says it,
  * so the colour is never the only signal. A used-up allowance says so, dims,
  * and can still be revoked. When the grants span two or more accounts, each
- * row also names its account, in its text and in its Revoke's name.
+ * row also names its account, in its text and in its Revoke's name. The
+ * rows are a real list, one item per card.
+ *
+ * With nothing to list (loading, empty or unavailable) the explainer keeps
+ * only its first sentence: the rest describes rows that are not there.
  *
  * When the host drops a revoked row, focus goes to the next row's Revoke,
  * else the previous one, else the heading.
@@ -50,8 +54,8 @@ export interface GoogleAllowanceListProps {
 }
 
 const HEADING_TEXT = "Allowed in this chat";
-const EXPLAINER_TEXT =
-  "This chat is restricted, so remembered approvals are off. You allowed these on a card here. They end at the time shown, when the chat returns to normal, when the policy changes or when Brain restarts.";
+const EXPLAINER_LEAD = "This chat is restricted, so remembered approvals are off.";
+const EXPLAINER_TEXT = `${EXPLAINER_LEAD} You allowed these on a card here. They end at the time shown, when the chat returns to normal, when the policy changes or when Brain restarts.`;
 const EMPTY_TEXT = "Nothing is allowed in this chat. Each Gmail change asks.";
 const UNAVAILABLE_TEXT = "Allowances for this chat can't be read right now, so each Gmail change asks until they can.";
 
@@ -71,22 +75,25 @@ export function GoogleAllowanceList(p: GoogleAllowanceListProps) {
       <div ref={heading} role="heading" aria-level={3} tabIndex={-1} style={HEADING}>
         <Label text={HEADING_TEXT} icon="capability" />
       </div>
-      <p style={EXPLAINER}>{EXPLAINER_TEXT}</p>
+      <p style={EXPLAINER}>{grants.length > 0 ? EXPLAINER_TEXT : EXPLAINER_LEAD}</p>
       {p.state === "loading" ? <Placeholder variant="loading" lines={2} /> : null}
       {p.state === "unavailable" ? <Callout tone="amber" variant="boxed" icon="unverified" text={UNAVAILABLE_TEXT} /> : null}
       {p.state === "ready" && grants.length === 0 ? <Placeholder variant="empty" message={EMPTY_TEXT} /> : null}
       {grants.length > 0 ? (
         <Surface pad={0}>
-          {grants.map((grant, i) => (
-            <GrantRow
-              key={grant.id}
-              grant={grant}
-              showAddress={accounts > 1}
-              busy={p.busy === grant.id}
-              last={i === grants.length - 1}
-              onRevoke={p.onRevoke}
-            />
-          ))}
+          {/* `role="list"` restates the list a `list-style: none` can strip in WebKit. */}
+          <ul className="bk-google-list" role="list">
+            {grants.map((grant, i) => (
+              <GrantRow
+                key={grant.id}
+                grant={grant}
+                showAddress={accounts > 1}
+                busy={p.busy === grant.id}
+                last={i === grants.length - 1}
+                onRevoke={p.onRevoke}
+              />
+            ))}
+          </ul>
         </Surface>
       ) : null}
       {p.error ? (
@@ -129,9 +136,9 @@ function GrantRow({ grant, showAddress, busy, last, onRevoke }: GrantRowProps) {
     color: low ? accent.amber.ink : color.inkMute,
   };
   return (
-    <div {...{ [TARGET_ATTR]: grant.id }} data-google-grant={used ? "used" : low ? "low" : "open"} data-busy={busy ? "" : undefined} style={box}>
+    <li {...{ [TARGET_ATTR]: grant.id }} data-google-grant={used ? "used" : low ? "low" : "open"} data-busy={busy ? "" : undefined} style={box}>
       <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-        <span style={titleStyle(busy || used)}>
+        <span style={titleStyle(busy || used)} data-google-title="">
           {grant.actions.map((action, i) => (
             <Fragment key={i}>
               {i > 0 ? " · " : null}
@@ -139,7 +146,7 @@ function GrantRow({ grant, showAddress, busy, last, onRevoke }: GrantRowProps) {
             </Fragment>
           ))}
         </span>
-        {showAddress ? <span style={ADDRESS}>{grant.address}</span> : null}
+        {showAddress ? <span style={ADDRESS} data-google-address="">{grant.address}</span> : null}
         <span style={metaStyle} data-google-meta="">{meta}</span>
       </span>
       <span id={untilId} hidden>until {grant.until.full}</span>
@@ -156,6 +163,6 @@ function GrantRow({ grant, showAddress, busy, last, onRevoke }: GrantRowProps) {
           if (!busy) onRevoke(grant.id);
         }}
       />
-    </div>
+    </li>
   );
 }

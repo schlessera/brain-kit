@@ -40,8 +40,9 @@ describe("googleActionWords", () => {
     [{ kind: "star" }, "Star"],
     [{ kind: "unstar" }, "Remove star"],
     [{ kind: "drafts" }, "Save drafts"],
-    [{ kind: "label", labelId: "Label_12", labelName: "Voyage" }, "Add label Voyage"],
-    [{ kind: "unlabel", labelId: "Label_7", labelName: "Suitors" }, "Remove label Suitors"],
+    [{ kind: "label", labelId: "Label_12", labelName: "Voyage" }, "Add label “Voyage”"],
+    [{ kind: "unlabel", labelId: "Label_7", labelName: "Suitors" }, "Remove label “Suitors”"],
+    [{ kind: "label", labelId: "Label_31", labelName: "Estate · herds and orchards" }, "Add label “Estate · herds and orchards”"],
   ] as [GoogleStandingAction, string][])("%o reads %p", (action, text) => {
     expect(googleActionWords(action)).toEqual({ text });
   });
@@ -56,10 +57,14 @@ describe("googleActionWords", () => {
     const named = draw(<GoogleApprovalList state="ready" accounts={[{ address: ODYSSEUS, approvals: [{ id: "a", action: { kind: "label", labelId: "Label_12", labelName: "<b>Voyage</b>" }, since: SAT }] }]} onRevoke={noop} />);
     expect(named.querySelector("bdi")?.textContent, "the name is text, never markup").toBe("<b>Voyage</b>");
     expect(named.querySelector("b")).toBeNull();
+    expect(named.querySelector("[data-google-title]")?.textContent, "KIT_GOOGLE_QUOTED_NAME").toBe("Add label “<b>Voyage</b>”");
+    expect(named.querySelector("bdi")?.previousSibling?.textContent, "the quotes sit outside the isolated name").toMatch(/“$/);
+    expect(names(named)).toEqual([`Revoke Add label “<b>Voyage</b>” for ${ODYSSEUS}`]);
     const withheld = draw(<GoogleApprovalList state="ready" accounts={[{ address: ODYSSEUS, approvals: [{ id: "a", action: { kind: "label", labelId: "Label_7", labelName: null }, since: SAT }] }]} onRevoke={noop} />);
     expect(withheld.querySelector("bdi")).toBeNull();
     expect(withheld.querySelector("[data-google-label-id]")?.textContent).toBe("Label_7");
     expect(names(withheld)).toEqual([`Revoke Add label Label_7 for ${ODYSSEUS}`]);
+    expect(withheld.body.textContent, "a withheld name's id is never quoted").not.toMatch(/[“”]/);
   });
 });
 
@@ -79,6 +84,14 @@ describe("GoogleApprovalList", () => {
     const row = doc.querySelector("[role='button']")!;
     expect(doc.getElementById(row.getAttribute("aria-describedby")!)?.textContent, "the full time describes the row").toBe("since Saturday 11 July 2026 at 09:14");
     expect(row.textContent).toContain("since Sat 11 Jul");
+  });
+
+  test("each account is a group named by its address, holding a list with an item per approval", () => {
+    const doc = draw(<GoogleApprovalList state="ready" accounts={twoAccounts()} onRevoke={noop} />);
+    const groups = [...doc.querySelectorAll("[role='group']")];
+    expect(groups.map((group) => doc.getElementById(group.getAttribute("aria-labelledby")!)?.textContent), "KIT_GOOGLE_GROUP_NAMES").toEqual([ODYSSEUS, PENELOPE]);
+    expect(groups.map((group) => [...group.querySelectorAll("ul[role='list'] > li")].length)).toEqual([2, 1]);
+    expect(doc.querySelectorAll("li [role='button']"), "every row control sits in a list item").toHaveLength(3);
   });
 
   test("one account still shows its address", () => {
@@ -110,6 +123,7 @@ describe("GoogleApprovalList", () => {
 
     const loading = draw(<GoogleApprovalList state="loading" accounts={twoAccounts()} onRevoke={noop} />);
     expect(loading.querySelector("[aria-busy='true']")).not.toBeNull();
+    expect(loading.querySelectorAll("[aria-busy='true'] .bk-ghost"), "two ghost lines").toHaveLength(2);
     expect(loading.querySelectorAll("[role='button']")).toHaveLength(0);
 
     const error = draw(<GoogleApprovalList state="ready" accounts={twoAccounts()} error="Couldn't revoke Archive." onRevoke={noop} />);
@@ -147,8 +161,8 @@ describe("GoogleAllowanceList", () => {
   test("actions join with · and names with and; the address shows only across accounts", () => {
     const actions: GoogleStandingAction[] = [{ kind: "archive" }, { kind: "mark_read" }, { kind: "label", labelId: "Label_12", labelName: "Voyage" }];
     const one = draw(<GoogleAllowanceList state="ready" grants={[grant("a", 84, ODYSSEUS, actions)]} onRevoke={noop} />);
-    expect(one.querySelector("[data-google-grant]")?.textContent).toContain("Archive · Mark as read · Add label Voyage");
-    expect(names(one)).toEqual(["Revoke Archive, Mark as read and Add label Voyage"]);
+    expect(one.querySelector("[data-google-grant]")?.textContent).toContain("Archive · Mark as read · Add label “Voyage”");
+    expect(names(one)).toEqual(["Revoke Archive, Mark as read and Add label “Voyage”"]);
     expect(one.body.textContent, "one account: no address").not.toContain(ODYSSEUS);
     const button = one.querySelector("[role='button']")!;
     expect(one.getElementById(button.getAttribute("aria-describedby")!)?.textContent).toBe("until Sunday 12 July 2026 at 18:02");
@@ -157,6 +171,30 @@ describe("GoogleAllowanceList", () => {
     expect(two.body.textContent).toContain(ODYSSEUS);
     expect(two.body.textContent).toContain(PENELOPE);
     expect(names(two)).toEqual([`Revoke Archive and Mark as read for ${ODYSSEUS}`, `Revoke Save drafts for ${PENELOPE}`]);
+  });
+
+  test("the grants are a list, one item per card", () => {
+    const doc = draw(<GoogleAllowanceList state="ready" grants={[grant("a", 84), grant("b", 3), grant("c", 0)]} onRevoke={noop} />);
+    expect(doc.querySelectorAll("ul[role='list']")).toHaveLength(1);
+    expect([...doc.querySelectorAll("ul[role='list'] > li")].map((item) => item.getAttribute("data-google-target"))).toEqual(["a", "b", "c"]);
+    expect(doc.querySelectorAll("[role='group']"), "allowances have no account groups").toHaveLength(0);
+  });
+
+  test("loading draws the busy placeholder with two ghost lines, and no rows", () => {
+    const loading = draw(<GoogleAllowanceList state="loading" grants={[grant("a", 84)]} onRevoke={noop} />);
+    expect(loading.querySelector("[aria-busy='true']"), "KIT_GOOGLE_LOADING_BUSY").not.toBeNull();
+    expect(loading.querySelectorAll("[aria-busy='true'] .bk-ghost"), "KIT_GOOGLE_LOADING_LINES").toHaveLength(2);
+    expect(loading.querySelectorAll("[role='button'], ul")).toHaveLength(0);
+  });
+
+  test("with nothing to list, the explainer is its first sentence; with grants, all of it", () => {
+    const lead = "This chat is restricted, so remembered approvals are off.";
+    const full = `${lead} You allowed these on a card here. They end at the time shown, when the chat returns to normal, when the policy changes or when Brain restarts.`;
+    const explainer = (element: ReactElement) => draw(element).querySelector("p")?.textContent;
+    expect(explainer(<GoogleAllowanceList state="ready" grants={[]} onRevoke={noop} />), "KIT_GOOGLE_EXPLAINER_LEAD").toBe(lead);
+    expect(explainer(<GoogleAllowanceList state="loading" grants={[grant("a", 84)]} onRevoke={noop} />)).toBe(lead);
+    expect(explainer(<GoogleAllowanceList state="unavailable" grants={[grant("a", 84)]} onRevoke={noop} />)).toBe(lead);
+    expect(explainer(<GoogleAllowanceList state="ready" grants={[grant("a", 84)]} onRevoke={noop} />)).toBe(full);
   });
 
   test("busy, empty, unavailable and error states", () => {
@@ -254,6 +292,20 @@ for (const [list, draw] of [["approval list", approvals], ["allowance list", all
       expect(document.activeElement, "KIT_GOOGLE_FOCUS_HEADING").toBe(heading());
     });
 
+    test("a replaced list hands focus to its first row: [a] → [b]", async () => {
+      await render(draw(["a"]));
+      await focus(target("a"));
+      await render(draw(["b"]));
+      expect(document.activeElement, "KIT_GOOGLE_FOCUS_REPLACED").toBe(target("b"));
+    });
+
+    test("when every old row is replaced, focus goes to the first row now shown", async () => {
+      await render(draw(["a", "b", "c"]));
+      await focus(target("b"));
+      await render(draw(["x", "y"]));
+      expect(document.activeElement, "KIT_GOOGLE_FOCUS_REPLACED").toBe(target("x"));
+    });
+
     test("a row that drops while another holds focus moves nothing", async () => {
       await render(draw(["a", "b", "c"]));
       await focus(target("a"));
@@ -273,3 +325,41 @@ for (const [list, draw] of [["approval list", approvals], ["allowance list", all
     });
   });
 }
+
+/*
+ * A list rendered into a second document, as into a same-origin frame by a
+ * parent-realm root: its focus must be read from its own document. Here the
+ * module's document has an outside button focused (as a parent document has
+ * its frame focused), which a check on the wrong document would take for
+ * focus the user moved elsewhere.
+ */
+describe("a list in another document reads that document's focus", () => {
+  for (const [list, draw] of [["approval list", approvals], ["allowance list", allowances]] as const) {
+    test(`${list}: the next row takes focus in the list's own document`, async () => {
+      const frame = new Window();
+      const frameDoc = frame.document as unknown as Document;
+      const frameHost = frameDoc.createElement("div");
+      frameDoc.body.append(frameHost);
+      const frameRoot = createRoot(frameHost);
+      const outside = document.createElement("button");
+      document.body.append(outside);
+      try {
+        await act(async () => frameRoot.render(draw(["a", "b", "c"])));
+        await act(async () => outside.focus());
+        expect(document.activeElement, "the module's document holds focus elsewhere").toBe(outside);
+        const row = (id: string) => {
+          const host = frameDoc.querySelector<HTMLElement>(`[data-google-target="${id}"]`)!;
+          return host.getAttribute("role") === "button" ? host : host.querySelector<HTMLElement>("[role='button']")!;
+        };
+        await act(async () => row("b").focus());
+        expect(frameDoc.activeElement, "the frame's row holds the frame's focus").toBe(row("b"));
+        await act(async () => frameRoot.render(draw(["a", "c"])));
+        expect(frameDoc.activeElement, "KIT_GOOGLE_FOCUS_OWNER_DOCUMENT").toBe(row("c"));
+      } finally {
+        await act(async () => frameRoot.unmount());
+        outside.remove();
+        await frame.happyDOM.close();
+      }
+    });
+  }
+});

@@ -107,17 +107,20 @@ export function listIn(canvasElement: HTMLElement): List {
 }
 
 /**
- * Every visible way the list's content escapes the list, as sentences.
+ * Clipped element-box containment: every element box in the list, cut by its
+ * clipping ancestors, as sentences for each one that still sits outside the
+ * list.
  *
- * `overflowing()` from `_stage.tsx` measures each element's own box, which is
- * right for layout and wrong for a loading ghost: its sweep band travels
- * across a track wider than the ghost and is clipped by the ghost's own
- * viewport, so it is never seen outside it. Here each element's box is first
- * cut by every clipping ancestor inside the list; whatever is left must sit
- * inside the list on both axes. A box that paints nothing of its own (no
- * fill, border, shadow or text, like that viewport, drawn 8px taller than the
- * ghost as blur headroom) is skipped; what it holds is still measured. The
- * list's own scroll size is checked too.
+ * This measures element boxes, not ink: a shadow or a pseudo-element's paint
+ * outside a box is not seen, and text a clipping ancestor hides is not an
+ * escape. `clippedText()` covers the text. `overflowing()` from `_stage.tsx`
+ * measures each element's own box, which is right for layout and wrong for a
+ * loading ghost: its sweep band travels across a track wider than the ghost
+ * and is clipped by the ghost's own viewport, so it is never seen outside it.
+ * Here each box is first cut by every clipping ancestor inside the list. A box
+ * that paints nothing of its own (no fill, border, shadow or text, like that
+ * viewport, drawn 8px taller than the ghost as blur headroom) is skipped; what
+ * it holds is still measured. The list's own scroll size is checked too.
  */
 function paintsNothing(el: HTMLElement): boolean {
   if (/^(svg|img|canvas|video)$/i.test(el.tagName)) return false;
@@ -127,7 +130,7 @@ function paintsNothing(el: HTMLElement): boolean {
   return style.backgroundColor === "rgba(0, 0, 0, 0)" && style.backgroundImage === "none" && style.boxShadow === "none" && !borders && !text;
 }
 
-function escapes(list: List): string[] {
+function boxEscapes(list: List): string[] {
   const box = list.getBoundingClientRect();
   const out: string[] = [];
   if (list.scrollWidth > list.clientWidth + 1) out.push(`content is ${list.scrollWidth}px wide inside a ${list.clientWidth}px list`);
@@ -152,6 +155,45 @@ function escapes(list: List): string[] {
     if (top < box.top - 1) out.push(`${name} shows ${Math.round(box.top - top)}px past the top edge`);
   }
   return out;
+}
+
+/**
+ * Text the card would hide by clipping, as sentences. A `Surface` clips, so a
+ * label name, an address or an action title that outgrew its box would vanish
+ * rather than escape. Every title, address and count line is a block that
+ * must hold all of its text: no wider or taller content than its box, and no
+ * ellipsis.
+ */
+function clippedText(list: List): string[] {
+  const out: string[] = [];
+  for (const box of list.querySelectorAll<HTMLElement>("[data-google-title], [data-google-address], [data-google-meta]")) {
+    const name = `"${(box.textContent ?? "").trim().slice(0, 32)}"`;
+    if (box.clientWidth === 0) out.push(`${name} has no box to hold its text`);
+    if (box.scrollWidth > box.clientWidth) out.push(`${name} holds ${box.scrollWidth}px of text in ${box.clientWidth}px`);
+    if (box.scrollHeight > box.clientHeight) out.push(`${name} holds ${box.scrollHeight}px of text in ${box.clientHeight}px of height`);
+    if (getComputedStyle(box).textOverflow === "ellipsis") out.push(`${name} can end in an ellipsis`);
+  }
+  return out;
+}
+
+/**
+ * The loading placeholder's ghost lines: those of the `aria-busy` box, not
+ * the copies the sweep band clones into its own viewport.
+ */
+export function ghostLines(list: List): HTMLElement[] {
+  const busy = list.querySelector<HTMLElement>("[aria-busy='true']");
+  return busy ? [...busy.querySelectorAll<HTMLElement>(".bk-ghost")].filter((ghost) => !ghost.closest(".bk-ghost-viewport")) : [];
+}
+
+/** Loading draws the busy placeholder: exactly two ghost lines, each painted with real height. */
+export async function loadingRows(list: List) {
+  await expect(list.querySelector("[aria-busy='true']"), "the placeholder says it is loading").not.toBeNull();
+  const lines = ghostLines(list);
+  await expect(lines, "exactly two ghost lines").toHaveLength(2);
+  for (const [i, line] of lines.entries()) {
+    await expect(line.getBoundingClientRect().height, `ghost line ${i + 1} has height`).toBeGreaterThan(0);
+    await expect(line.checkVisibility({ visibilityProperty: true, opacityProperty: true }), `ghost line ${i + 1} is visible`).toBe(true);
+  }
 }
 
 /** The document point (x, y) brought on screen, and what is hit there. */
@@ -198,6 +240,10 @@ function geometry(control: HTMLElement) {
  * The touch floor is a coarse-pointer floor (#3252): under a fine pointer a
  * reaching control gains no reach, and the probe edges are its paint.
  */
+/** Slack for float arithmetic in a computed 44px, never a rounding: a 43.65px
+ * target is under the floor (#3252), and 44 - 0.01 still says so. */
+const FLOAT_SLACK = 0.01;
+
 async function targets(list: List) {
   const coarse = matchMedia("(any-pointer: coarse)").matches;
   const scroll = { left: scrollX, top: scrollY };
@@ -210,8 +256,8 @@ async function targets(list: List) {
     const width = reach.right - reach.left;
     const height = reach.bottom - reach.top;
     if (coarse || !control.classList.contains("bk-hit")) {
-      await expect(Math.round(width), `${label}: touch target width`).toBeGreaterThanOrEqual(44);
-      await expect(Math.round(height), `${label}: touch target height`).toBeGreaterThanOrEqual(44);
+      await expect(width, `${label}: touch target width (${width.toFixed(2)}px)`).toBeGreaterThanOrEqual(44 - FLOAT_SLACK);
+      await expect(height, `${label}: touch target height (${height.toFixed(2)}px)`).toBeGreaterThanOrEqual(44 - FLOAT_SLACK);
     } else {
       await expect(pseudo, `${label}: a fine pointer gains no reach`).toBe(false);
     }
@@ -236,6 +282,10 @@ export interface Expected {
   copy?: string[];
   /** The Revoke controls' accessible names, in order. */
   names: string[];
+  /** Each list's item count, in order: one list per card. */
+  lists: number[];
+  /** The named groups' names, in order: one per approval account. */
+  groups: string[];
 }
 
 /** What every story's play asserts about the rendered list. */
@@ -244,7 +294,9 @@ export async function looksRight(context: { canvasElement: HTMLElement; paramete
   const list = listIn(canvasElement);
   await expect((parameters.a11y as { test?: string } | undefined)?.test, "the a11y gate is at error").toBe("error");
   await expect(list.getBoundingClientRect().width, "drew at its width").toBe(parameters.googleWidth);
-  await expect(escapes(list), "nothing visible escapes the card").toEqual([]);
+  await expect(boxEscapes(list), "no element box escapes the card (clipped containment)").toEqual([]);
+  await expect(list.querySelectorAll("[data-google-title]").length, "one action title per row").toBe(expected.names.length);
+  await expect(clippedText(list), "no title, address or count is clipped").toEqual([]);
 
   const heading = within(list).getByRole("heading");
   await expect(heading.textContent).toBe(expected.heading);
@@ -257,6 +309,13 @@ export async function looksRight(context: { canvasElement: HTMLElement; paramete
   await expect(buttons.length, "one Revoke control per row").toBe(expected.names.length);
   for (const [i, name] of expected.names.entries()) {
     await expect(within(list).getByRole("button", { name }), `Revoke control ${i + 1}'s accessible name`).toBe(buttons[i]);
+  }
+  const lists = within(list).queryAllByRole("list");
+  await expect(lists.map((ul) => within(ul).queryAllByRole("listitem").length), "a list per card, an item per row").toEqual(expected.lists);
+  const groups = within(list).queryAllByRole("group");
+  await expect(groups.length, "one named group per account").toBe(expected.groups.length);
+  for (const [i, name] of expected.groups.entries()) {
+    await expect(within(list).getByRole("group", { name }), `group ${i + 1} is named by its address`).toBe(groups[i]);
   }
   await targets(list);
 }

@@ -35,15 +35,15 @@ const WORDS = {
 const LABEL_WORDS = { label: "Add label", unlabel: "Remove label" } as const;
 
 /**
- * The words for one standing action. A label action names its label when the
- * host supplied the name; when the name was withheld (`null`, or empty) the
- * words stop at the verb and `mono` carries the label id, which is drawn in
- * mono: "Add label `Label_7`".
+ * The words for one standing action. A label action names its label in curly
+ * quotes when the host supplied the name: Add label “Voyage”. When the name
+ * was withheld (`null`, or empty) the words stop at the verb and `mono`
+ * carries the label id, drawn in mono and never quoted: "Add label `Label_7`".
  */
 export function googleActionWords(action: GoogleStandingAction): { text: string; mono?: string } {
   if (action.kind === "label" || action.kind === "unlabel") {
     const verb = LABEL_WORDS[action.kind];
-    return action.labelName ? { text: `${verb} ${action.labelName}` } : { text: verb, mono: action.labelId };
+    return action.labelName ? { text: `${verb} “${action.labelName}”` } : { text: verb, mono: action.labelId };
   }
   return { text: WORDS[action.kind] };
 }
@@ -65,9 +65,9 @@ const MONO_ID: CSSProperties = { font: `500 11.5px/1.35 ${font.mono}`, overflowW
 /**
  * The action as drawn. A label name is owner configuration the host escaped,
  * not sender text, so it is plain text, isolated in `<bdi>` so a
- * right-to-left name cannot reorder the words around it, and it wraps
- * anywhere: Gmail allows a name of 225 code points, which the host's escaping
- * can stretch to 2,250 characters with no break opportunity.
+ * right-to-left name cannot reorder the words or the quotes around it, and it
+ * wraps anywhere: Gmail allows a name of 225 code points, which the host's
+ * escaping can stretch to 2,250 characters with no break opportunity.
  */
 export function ActionWords({ action }: { action: GoogleStandingAction }) {
   const words = googleActionWords(action);
@@ -81,7 +81,7 @@ export function ActionWords({ action }: { action: GoogleStandingAction }) {
   if (action.kind === "label" || action.kind === "unlabel") {
     return (
       <>
-        {LABEL_WORDS[action.kind]} <bdi style={{ overflowWrap: "anywhere" }}>{action.labelName}</bdi>
+        {LABEL_WORDS[action.kind]} “<bdi style={{ overflowWrap: "anywhere" }}>{action.labelName}</bdi>”
       </>
     );
   }
@@ -153,8 +153,11 @@ function idOf(root: HTMLElement | null, node: EventTarget | null): string | null
 
 /**
  * When a revoke removes the row that holds focus, focus goes to the next
- * row's target; for the last row, the previous one; when none is left, the
- * heading. Focus that has left the list is never pulled back.
+ * surviving row's target; for the last row, the previous surviving one. When
+ * no earlier row survives but the list still has rows (the host's response
+ * replaced them), focus goes to the first row now shown. Only an empty list
+ * sends focus to the heading. Focus that has left the list is never pulled
+ * back.
  *
  * The list remembers which target last held focus. A blur whose element is
  * still in the document is the user moving away, so it forgets; a blur fired
@@ -176,12 +179,17 @@ export function useFocusAfterRemoval(
     const id = focused.current;
     if (id === null || ids.includes(id)) return;
     focused.current = null;
-    const active = document.activeElement;
-    if (active && active !== document.body && active.isConnected) return;
+    // The list's own document, not this module's: a list rendered into
+    // another document (a same-origin frame) must read that frame's focus.
+    const doc = root.current?.ownerDocument;
+    if (!doc) return;
+    const active = doc.activeElement;
+    if (active && active !== doc.body && active.isConnected) return;
     const at = before.indexOf(id);
     const next =
       before.slice(at + 1).find((other) => ids.includes(other)) ??
-      before.slice(0, Math.max(0, at)).reverse().find((other) => ids.includes(other));
+      before.slice(0, Math.max(0, at)).reverse().find((other) => ids.includes(other)) ??
+      ids[0];
     const target = next === undefined ? heading.current : targetOf(root.current, next);
     target?.focus();
   });

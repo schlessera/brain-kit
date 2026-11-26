@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import preview from "#.storybook/preview";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 
@@ -22,6 +22,7 @@ import {
   looksRight,
   narrow,
   nearlyUsed,
+  loadingRows,
   spokenText,
   type Expected,
 } from "./_google.js";
@@ -46,12 +47,15 @@ const meta = preview.meta({
 });
 
 const HEADING = "Allowed in this chat";
-const EXPLAINER =
-  "This chat is restricted, so remembered approvals are off. You allowed these on a card here. They end at the time shown, when the chat returns to normal, when the policy changes or when Brain restarts.";
+/** With nothing to list, the explainer is its first sentence alone. */
+const EXPLAINER_LEAD = "This chat is restricted, so remembered approvals are off.";
+const EXPLAINER = `${EXPLAINER_LEAD} You allowed these on a card here. They end at the time shown, when the chat returns to normal, when the policy changes or when Brain restarts.`;
 const EMPTY = "Nothing is allowed in this chat. Each Gmail change asks.";
 const UNAVAILABLE = "Allowances for this chat can't be read right now, so each Gmail change asks until they can.";
 
-const expected = (rest: Omit<Expected, "heading" | "explainer">): Expected => ({ heading: HEADING, explainer: EXPLAINER, ...rest });
+/** Allowances have no account groups; the full explainer unless a story says otherwise. */
+const expected = ({ explainer = EXPLAINER, ...rest }: Omit<Expected, "heading" | "explainer" | "groups"> & { explainer?: string }): Expected =>
+  ({ heading: HEADING, explainer, groups: [], ...rest });
 
 /** Each row's count line, in order. */
 const metas = (canvasElement: HTMLElement) => [...listIn(canvasElement).querySelectorAll<HTMLElement>("[data-google-meta]")];
@@ -62,7 +66,7 @@ const NEARLY_USED_NAMES = ["Revoke Archive and Mark as read", "Revoke Save draft
 export const OneGrant = meta.story({
   ...desktop,
   play: async (context) => {
-    await looksRight(context, expected({ copy: ["Archive", "84 of 100 changes left · until 18:02"], names: ["Revoke Archive"] }));
+    await looksRight(context, expected({ copy: ["Archive", "84 of 100 changes left · until 18:02"], names: ["Revoke Archive"], lists: [1] }));
     const revoke = within(listIn(context.canvasElement)).getByRole("button", { name: "Revoke Archive" });
     await expect(revoke, "until has the host's full time as its description").toHaveAccessibleDescription("until Sunday 12 July 2026 at 18:02");
     await expect(revoke.classList.contains("bk-hit"), "the Revoke reaches under a coarse pointer").toBe(true);
@@ -80,8 +84,9 @@ export const MultiActionGrant = meta.story({
   args: { grants: [{ id: "card-voyage", address: ODYSSEUS, actions: [ARCHIVE, MARK_READ, VOYAGE], remaining: 84, limit: 100, until: UNTIL_1802 }] },
   play: async (context) => {
     await looksRight(context, expected({
-      copy: ["Archive · Mark as read · Add label Voyage", "84 of 100 changes left · until 18:02"],
-      names: ["Revoke Archive, Mark as read and Add label Voyage"],
+      copy: ["Archive · Mark as read · Add label “Voyage”", "84 of 100 changes left · until 18:02"],
+      names: ["Revoke Archive, Mark as read and Add label “Voyage”"],
+      lists: [1],
     }));
   },
 });
@@ -98,8 +103,9 @@ export const TwoAccounts = meta.story({
   },
   play: async (context) => {
     await looksRight(context, expected({
-      copy: [ODYSSEUS, PENELOPE, "Remove label Suitors", "40 of 100 changes left · until 21:40"],
-      names: [`Revoke Archive and Mark as read for ${ODYSSEUS}`, `Revoke Remove label Suitors for ${PENELOPE}`],
+      copy: [ODYSSEUS, PENELOPE, "Remove label “Suitors”", "40 of 100 changes left · until 21:40"],
+      names: [`Revoke Archive and Mark as read for ${ODYSSEUS}`, `Revoke Remove label “Suitors” for ${PENELOPE}`],
+      lists: [2],
     }));
     for (const address of [ODYSSEUS, PENELOPE]) {
       const line = within(listIn(context.canvasElement)).getByText(address);
@@ -117,6 +123,7 @@ export const NearlyUsed = meta.story({
     await looksRight(context, expected({
       copy: ["Archive · Mark as read", "84 of 100 changes left · until 18:02", "Save drafts", "3 of 100 changes left · until 21:40"],
       names: NEARLY_USED_NAMES,
+      lists: [2],
     }));
     const [open, low] = metas(context.canvasElement) as [HTMLElement, HTMLElement];
     await expect(getComputedStyle(low).color, "3 left is amber").toBe(amberInk());
@@ -139,6 +146,7 @@ export const UsedUp = meta.story({
     await looksRight(context, expected({
       copy: ["All 100 used · each change asks again", "12 of 100 changes left · until 21:40"],
       names: NEARLY_USED_NAMES,
+      lists: [2],
     }));
     const list = listIn(context.canvasElement);
     const [used, open] = metas(context.canvasElement) as [HTMLElement, HTMLElement];
@@ -163,7 +171,7 @@ export const Revoking = meta.story({
   ...desktop,
   args: { grants: nearlyUsed(), busy: "card-ithaca" },
   play: async (context) => {
-    await looksRight(context, expected({ copy: ["Revoking…"], names: NEARLY_USED_NAMES }));
+    await looksRight(context, expected({ copy: ["Revoking…"], names: NEARLY_USED_NAMES, lists: [2] }));
     const [busy, other] = within(listIn(context.canvasElement)).getAllByRole("button") as [HTMLElement, HTMLElement];
     await expect(busy.textContent).toBe("Revoking…");
     await expect(busy.getAttribute("aria-disabled")).toBe("true");
@@ -183,7 +191,7 @@ export const RevokeError = meta.story({
   ...desktop,
   args: { grants: nearlyUsed(), error: ERROR },
   play: async (context) => {
-    await looksRight(context, expected({ copy: [ERROR], names: NEARLY_USED_NAMES }));
+    await looksRight(context, expected({ copy: [ERROR], names: NEARLY_USED_NAMES, lists: [2] }));
     await expect(within(listIn(context.canvasElement)).getByRole("alert").textContent).toBe(ERROR);
   },
 });
@@ -194,7 +202,7 @@ export const Empty = meta.story({
   ...desktop,
   args: { grants: [] },
   play: async (context) => {
-    await looksRight(context, expected({ copy: [EMPTY], names: [] }));
+    await looksRight(context, expected({ explainer: EXPLAINER_LEAD, copy: [EMPTY], names: [], lists: [] }));
   },
 });
 export const EmptyNarrow = Empty.extend({ ...narrow });
@@ -204,8 +212,9 @@ export const Loading = meta.story({
   ...desktop,
   args: { state: "loading" },
   play: async (context) => {
-    await looksRight(context, expected({ names: [] }));
-    await expect(spokenText(listIn(context.canvasElement)), "loading claims nothing").toBe(HEADING + EXPLAINER);
+    await looksRight(context, expected({ explainer: EXPLAINER_LEAD, names: [], lists: [] }));
+    await loadingRows(listIn(context.canvasElement));
+    await expect(spokenText(listIn(context.canvasElement)), "the placeholder claims nothing").toBe(HEADING + EXPLAINER_LEAD);
   },
 });
 export const LoadingNarrow = Loading.extend({ ...narrow });
@@ -215,7 +224,7 @@ export const Unavailable = meta.story({
   ...desktop,
   args: { state: "unavailable" },
   play: async (context) => {
-    await looksRight(context, expected({ copy: [UNAVAILABLE], names: [] }));
+    await looksRight(context, expected({ explainer: EXPLAINER_LEAD, copy: [UNAVAILABLE], names: [], lists: [] }));
   },
 });
 export const UnavailableNarrow = Unavailable.extend({ ...narrow });
@@ -226,13 +235,20 @@ export const UnavailableNarrow = Unavailable.extend({ ...narrow });
 const pending: (() => void)[] = [];
 const finishRevoke = () => pending.shift()?.();
 
-/** The host's side: a revoke goes busy, then the row drops when it is done. */
-function Host(p: GoogleAllowanceListProps) {
+type Grants = GoogleAllowanceListProps["grants"];
+
+/**
+ * The host's side: a revoke goes busy, then, when the play lets it finish,
+ * the row drops, or the host's refreshed list (the next of `replies`)
+ * replaces the rows, as a response carrying changes made elsewhere would.
+ */
+function Host({ replies = [], ...p }: GoogleAllowanceListProps & { replies?: Grants[] }) {
   const [grants, setGrants] = useState(() => {
     pending.length = 0;
     return p.grants;
   });
   const [busy, setBusy] = useState<string | null>(null);
+  const queue = useRef(replies.slice());
   return (
     <GoogleAllowanceList
       {...p}
@@ -242,7 +258,8 @@ function Host(p: GoogleAllowanceListProps) {
         p.onRevoke(id);
         setBusy(id);
         pending.push(() => {
-          setGrants((all) => all.filter((grant) => grant.id !== id));
+          const reply = queue.current.shift();
+          setGrants(reply ?? ((all) => all.filter((grant) => grant.id !== id)));
           setBusy(null);
         });
       }}
@@ -262,7 +279,7 @@ export const KeyboardRevoke = meta.story({
   args: { grants: [...nearlyUsed(), { id: "card-star", address: ODYSSEUS, actions: [STAR], remaining: 51, limit: 100, until: UNTIL_2140 }] },
   render: (args) => <Host {...args} />,
   play: async (context) => {
-    await looksRight(context, expected({ names: [...KEYBOARD_NAMES] }));
+    await looksRight(context, expected({ names: [...KEYBOARD_NAMES], lists: [3] }));
     const list = listIn(context.canvasElement);
     const revoke = (name: string) => within(list).getByRole("button", { name });
     const [ithaca, drafts, star] = KEYBOARD_NAMES;
@@ -291,7 +308,56 @@ export const KeyboardRevoke = meta.story({
     await waitFor(() => expect(within(list).queryAllByRole("button")).toHaveLength(0));
     await expect(document.activeElement, "the only row's revoke focuses the heading").toBe(within(list).getByRole("heading"));
     await expect(list.textContent).toContain(EMPTY);
+    await expect(list.querySelector("p")?.textContent, "with nothing left, the explainer is its first sentence").toBe(EXPLAINER_LEAD);
     await expect(context.args.onRevoke).toHaveBeenCalledTimes(3);
   },
 });
 export const KeyboardRevokeNarrow = KeyboardRevoke.extend({ ...narrow });
+
+/**
+ * The host's response replaces rows instead of only dropping the revoked one.
+ * When the focused row's old neighbours are gone too but the list still has
+ * rows, focus goes to the first Revoke now shown, never to the heading:
+ * first `[a]` → `[b, c]`, then every old row replaced.
+ */
+export const KeyboardRevokeReplaced = meta.story({
+  ...desktop,
+  args: { grants: [{ id: "card-ithaca", address: ODYSSEUS, actions: [ARCHIVE, MARK_READ], remaining: 84, limit: 100, until: UNTIL_1802 }] },
+  render: (args) => (
+    <Host
+      {...args}
+      replies={[
+        [
+          { id: "card-star", address: ODYSSEUS, actions: [STAR], remaining: 51, limit: 100, until: UNTIL_2140 },
+          { id: "card-drafts", address: ODYSSEUS, actions: [DRAFTS], remaining: 3, limit: 100, until: UNTIL_2140 },
+        ],
+        [
+          { id: "card-voyage", address: ODYSSEUS, actions: [VOYAGE], remaining: 90, limit: 100, until: UNTIL_1802 },
+          { id: "card-mark-read", address: ODYSSEUS, actions: [MARK_READ], remaining: 20, limit: 100, until: UNTIL_2140 },
+        ],
+      ]}
+    />
+  ),
+  play: async (context) => {
+    await looksRight(context, expected({ names: ["Revoke Archive and Mark as read"], lists: [1] }));
+    const list = listIn(context.canvasElement);
+    const revoke = (name: string) => within(list).getByRole("button", { name });
+
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(revoke("Revoke Archive and Mark as read"));
+    await userEvent.keyboard("{Enter}");
+    await expect(context.args.onRevoke).toHaveBeenLastCalledWith("card-ithaca");
+    finishRevoke();
+    await waitFor(() => expect(within(list).queryByRole("button", { name: "Revoke Archive and Mark as read" })).toBeNull());
+    await expect(document.activeElement, "[a] → [b, c]: the first Revoke now shown").toBe(revoke("Revoke Star"));
+
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(revoke("Revoke Save drafts"));
+    await userEvent.keyboard("{Enter}");
+    await expect(context.args.onRevoke).toHaveBeenLastCalledWith("card-drafts");
+    finishRevoke();
+    await waitFor(() => expect(within(list).queryByRole("button", { name: "Revoke Save drafts" })).toBeNull());
+    await expect(document.activeElement, "every old row replaced: the first Revoke now shown").toBe(revoke("Revoke Add label “Voyage”"));
+  },
+});
+export const KeyboardRevokeReplacedNarrow = KeyboardRevokeReplaced.extend({ ...narrow });

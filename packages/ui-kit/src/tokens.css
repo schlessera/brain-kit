@@ -3268,3 +3268,19 @@ ol.bk-ut-list { list-style: decimal outside; }
     grid-template-areas: "icon title since action";
   }
 }
+
+/* Both lists' rows are a real list (`ul`/`li`) inside the card's flush body,
+ * so `.bk-focus-clip > .bk-row` cannot reach a row. These rules carry the
+ * card's corners down the same way: the list and each item inherit the body's
+ * radius (they paint nothing, so it shows nowhere), and a focused edge row
+ * takes it, so its inset ring follows the card's curve as `ListRow`'s does. */
+.bk-google-list { margin: 0; padding: 0; list-style: none; border-radius: inherit; }
+.bk-google-list > li { border-radius: inherit; }
+.bk-google-list > li:first-child > .bk-row:focus-visible {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+.bk-google-list > li:last-child > .bk-row:focus-visible {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
