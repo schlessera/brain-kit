@@ -579,6 +579,39 @@ test("Hard-link alias stays named in the list without acquiring map area", async
     "Troy-charts.PDF"
   );
 });
+// #4549 review F3: a folded database keeps a map tile per member, so the
+// list reaches each member as well, with the member's own action.
+test("A folded database's members are reachable from the list, as from the map", async () => {
+  const fixture = storageViewFixture("dense");
+  const wal = "f".repeat(31) + "1";
+  const request: Fixture["request"] = async (url, init) => {
+    const response = await fixture.request(url, init);
+    const query = new URL(url, "http://fixture.invalid");
+    if (!query.pathname.endsWith("/tree") || query.searchParams.get("parentId")) return response;
+    const page = await response.json();
+    const base = page.nodes.find((node: { name: string }) => node.name === "App state");
+    const size = { logical: 1_500_000_000, allocated: 1_500_000_000, coverage: "complete" };
+    page.nodes.push({ ...base, id: wal, rootId: wal, name: "App state-wal", totals: size, area: size });
+    page.totals.allocated += size.allocated;
+    page.totals.logical += size.logical;
+    page.matched += 1;
+    return Response.json(page);
+  };
+  await scene("dense", 1280, "dark", 1, { request });
+  const map = () => page.getByRole("group", { name: /Storage map/ }).element();
+  await expect.poll(() => map().querySelector('[aria-label^="App state-wal, "]')).not.toBeNull();
+  const list = () => page.getByRole("table", { name: /^Contents of / }).element();
+  await expect.poll(() => list().textContent).toContain("with -wal");
+  await expect
+    .poll(() => row("App state-wal").elements().length, { message: "STORAGE_FOLDED_MEMBER_IN_LIST" })
+    .toBe(1);
+  await row("App state-wal").click();
+  await expect
+    .poll(() => fixture.requests.some((value) => value.path.endsWith("/tree") && value.query.parentId === wal), {
+      message: "STORAGE_FOLDED_MEMBER_DRILLS",
+    })
+    .toBe(true);
+});
 test("Unsupported removal still permits copying the visible filtered list", async () => {
   await scene("unsupported");
   await files();
