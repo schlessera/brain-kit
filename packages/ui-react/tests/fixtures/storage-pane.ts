@@ -324,7 +324,7 @@ export function storagePaneFixture({
     }
     const recovery = share(severity === "critical" ? STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT : STORAGE_PRESSURE_LOW_RECOVERY_PERCENT);
     streak = severity !== "observed" && space > recovery ? streak + 1 : 0;
-    const next =
+    const next: StoragePressureView["severity"] =
       severity === "observed" && space <= share(STORAGE_PRESSURE_LOW_PERCENT)
         ? "low"
         : severity === "low" && space <= share(STORAGE_PRESSURE_CRITICAL_PERCENT)
