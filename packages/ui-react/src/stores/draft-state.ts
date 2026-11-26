@@ -429,8 +429,10 @@ export interface DraftStoreState {
   /**
    * The host refused to delete this draft because a message of it still waits there (#4567): its
    * revision and snapshot list come back, so the message is shown with its own actions again.
+   * `sameEdit`: a re-read after a refused list (#4566) keeps the edit it was for, so the
+   * save it owes stays under that edit's refusal bound instead of starting a new one.
    */
-  adoptHostSnapshots(draftId: string, draft: Draft): void;
+  adoptHostSnapshots(draftId: string, draft: Draft, options?: { sameEdit?: boolean }): void;
   /** @internal A delete of this draft went out (true) or was answered (false). */
   deleting(draftId: string, on: boolean): void;
   /** The host no longer stores these originals for this draft (#4566): they read as needing to be chosen again. */
@@ -1138,12 +1140,14 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         put(on ? { ...rest, deleting: true } : rest);
       },
 
-      adoptHostSnapshots(draftId, draft) {
+      adoptHostSnapshots(draftId, draft, options = {}) {
         const d = get().drafts[draftId];
         if (!d) return;
         // A Send made meanwhile, which the host never saw, stays after the host's own.
         const fresh = draftSnapshots(d).filter((x) => !(draft.snapshots ?? []).some((h) => h.snapshotId === x.snapshotId) && !d.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId));
-        put({ ...d, host: hostCopy(draft, -1), snapshots: [...mergeSnapshots(d.snapshots, draft.snapshots), ...fresh], uncertain: false, edit: d.edit + 1, editedAt: now() });
+        const snapshots = [...mergeSnapshots(d.snapshots, draft.snapshots), ...fresh];
+        put(options.sameEdit ? { ...d, host: hostCopy(draft, -1), snapshots, uncertain: false }
+          : { ...d, host: hostCopy(draft, -1), snapshots, uncertain: false, edit: d.edit + 1, editedAt: now() });
       },
 
       filesGone(draftId, fileIds) {

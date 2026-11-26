@@ -544,8 +544,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (!now?.host) { backoff(draftId); return false; }
     // Saved again over the host's revision, with the host's list as acknowledged, and a snapshot only
     // the host holds (one a reload did not keep here) shown again with its own actions (#4566).
+    // Still the refused edit: a new one would lift its bound, and the same list would go again and again.
     bumpHost(draftId);
-    drafts.getState().adoptHostSnapshots(draftId, read.value);
+    drafts.getState().adoptHostSnapshots(draftId, read.value, { sameEdit: true });
     backoff(draftId);
     return false;
   }
