@@ -435,7 +435,8 @@ function governanceCause(event: GovernanceEvent): { cause: Cause; tool: string |
       return { cause: { category: "policy_block", detail: `commands.deny ${(p.rule as { index?: number })?.index ?? "?"}` },
         tool, family: toolFamily ?? "policy", attach: true };
     case "policy_confirm":
-      if (p.decision === "approved") return null;
+      // A host stop is no one's refusal (#4565): it is not a permission roadblock.
+      if (p.decision === "approved" || p.decision === "host_stopped") return null;
       return { cause: { category: "permission_denied", detail: `confirm ${String(p.decision)}` }, tool, family: toolFamily ?? "policy", attach: true };
     case "outward_action":
       if (p.decision !== "declined" && p.decision !== "refused") return null;

@@ -247,7 +247,8 @@ export function snapshotHost(options: { limit?: number } = {}) {
     accept, seed, storeFile,
     /** Live snapshots of the chat, across its drafts. */
     count: (sessionId = SESSION) => chatSnapshots(sessionId, ""),
-    snapshotsOf: (draftId: string) => rows.get(draftId)?.snapshots ?? [],
+    /** A deleted draft holds none: deleting it deletes its returned snapshots, as the host does. */
+    snapshotsOf: (draftId: string) => (rows.get(draftId)?.deleted ? [] : rows.get(draftId)?.snapshots ?? []),
     setRecovery(next: { revision: number; latestRequestId: string | null }) { recovery = next; },
     /** Hold every upload's answer until released. */
     holdUploads(): () => void {

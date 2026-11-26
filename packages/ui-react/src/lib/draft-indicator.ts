@@ -31,6 +31,8 @@ type DraftIndicatorKey =
   | "detached"
   | "too_large"
   | "full"
+  /** The brain refused this edit and would again (#4566): not sent again until it changes. */
+  | "refused"
   | "unavailable"
   | "conflict"
   | "device_conflict";
@@ -52,6 +54,14 @@ export type DraftIndicatorView =
     action?: DraftIndicatorAction;
   };
 
+/** Why Open other version did not open it (#4567), in the indicator's words. */
+export const VERSION_SWITCH_COPY = {
+  cancelled: "Other version not opened: you moved away first",
+  failed: "Couldn't open the other version",
+  missing: "The other version isn't on this device any more",
+  chat_gone: "The other version's chat is gone; its unsent messages stay there",
+} as const;
+
 export interface DraftIndicatorInput {
   draft: ComposerDraft | undefined;
   store: Pick<DraftStoreState, "supported" | "limits">;
@@ -63,6 +73,8 @@ export interface DraftIndicatorInput {
   localFailed?: boolean;
   /** Formats a timestamp as the reader's clock; injectable for tests. */
   clock?: (ms: number) => string;
+  /** How the last Open other version from this draft ended, when it did not open it (#4567). */
+  switchNote?: keyof typeof VERSION_SWITCH_COPY | null;
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -102,16 +114,33 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
   const own = input.queued;
   const files = draftFiles(d);
 
+  const note = input.switchNote ? VERSION_SWITCH_COPY[input.switchNote] : null;
+  // A branch's refused save is said beside the other version, not hidden by it (#4566).
+  const refusedHere = d?.failure?.kind === "refused" && d.failure.edit === d.edit ? d.failure.reason : null;
   if (d?.deviceConflict && !d.conflict && !input.localFailed) {
-    return { key: "device_conflict", state: "attention", stateLabel: "Another tab changed this draft",
-      summary: "Another tab changed this draft. Both versions are kept.", facts: [], action: "other_version" };
+    return { key: "device_conflict", state: refusedHere ? "refused" : "attention", stateLabel: "Another tab changed this draft",
+      summary: `Another tab changed this draft. Both versions are kept.${refusedHere ? " This one isn't saved: the brain refused it." : ""}${note ? ` ${note}.` : ""}`,
+      facts: [...(refusedHere ? [{ key: "Brain said", value: refusedHere }] : []), ...(note ? [{ key: "Other version", value: note }] : [])], action: "other_version" };
+  }
+  // A failed device write takes back "both versions are kept", not the switch's outcome (#4567).
+  if (d?.deviceConflict && !d.conflict && note) {
+    return { key: "device_conflict", state: "attention", stateLabel: note, summary: `${note}.`,
+      facts: [{ key: "Other version", value: note }], action: "other_version" };
   }
   // Shown even over an emptied composer: the other version still waits.
   if (d?.conflict) {
     return { key: "conflict", state: "attention", stateLabel: "Draft changed on another device",
-      summary: "Draft changed on another device. Compare to choose which to keep.",
-      facts: [{ key: "This device", value: `edited ${clock(d.editedAt)}` }, { key: "Other device", value: `edited ${clock(d.conflict.other.updatedAt)}` }],
+      summary: `Draft changed on another device. Compare to choose which to keep.${note ? ` ${note}.` : ""}`,
+      facts: [{ key: "This device", value: `edited ${clock(d.editedAt)}` }, { key: "Other device", value: `edited ${clock(d.conflict.other.updatedAt)}` },
+        ...(note ? [{ key: "Other version", value: note }] : [])],
       action: "compare" };
+  }
+  // Shown even over an emptied composer: a Send's refused snapshot list is this draft's too (#4566).
+  if (d?.failure?.kind === "refused" && d.failure.edit === d.edit) {
+    return { key: "refused", state: "refused", stateLabel: "Draft not saved: the brain refused it",
+      summary: `Draft not saved: the brain refused it.${kept}`,
+      explanation: "This tab stopped sending it. Change the draft to try again.",
+      facts: [{ key: "Brain said", value: d.failure.reason }] };
   }
   const content = !!d && (d.text.length > 0 || d.attachments.length > 0 || files.length > 0);
   if (!content && own.length === 0) return { key: "none" };

@@ -21,6 +21,7 @@ import type {
   StateRoomObservation,
   TurnJournalSummary,
   ApprovalDisplay,
+  HostStopCause,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../lib/stats/compose-stats.js";
@@ -170,6 +171,11 @@ export interface ToolCall {
   inputJson: string;
   output?: string;
   isError?: boolean;
+  /**
+   * The host stopped the turn before this tool finished (#4565); `output`
+   * then holds the host's account, not the runtime's refusal text.
+   */
+  hostStop?: HostStopCause;
   status: "streaming" | "pending_approval" | "approved" | "denied" | "complete";
   /**
    * What the pending approval is for: "tool" may be remembered via "Always
@@ -225,9 +231,14 @@ export interface ToolCall {
   endedAt?: number;
 }
 
-/** Why a turn stopped, as `ChatMessage.runtimeNotice` records it (#3356). */
+/**
+ * Why a turn stopped, as `ChatMessage.runtimeNotice` records it (#3356).
+ * `host_stop` is the host itself stopping the turn (#4565), with `hostStop`
+ * its cause, `null` when this client does not know that cause.
+ */
 export interface TurnNotice {
-  cause: "timeout" | "aborted" | "unspecified";
+  cause: "timeout" | "aborted" | "unspecified" | "host_stop";
+  hostStop?: HostStopCause | null;
 }
 
 export interface AskUserExchange {
@@ -235,10 +246,11 @@ export interface AskUserExchange {
   /** Host terminal state ended the unanswered exchange. */
   terminal?: true;
   /**
-   * The host's turn limit is what ended it (#3356), from the terminal frame;
-   * absent when the host did not say why the turn ended.
+   * What ended it, from the terminal frame: the host's turn limit (#3356)
+   * or the host itself stopping the turn (#4565); absent when the host did
+   * not say why the turn ended.
    */
-  endedBy?: "timeout";
+  endedBy?: "timeout" | "host_stop";
   /**
    * The host turn that raised the request, from the request frame. A card
    * rebuilt from history has none until the host re-delivers the request.
@@ -499,7 +511,7 @@ export interface ChatState {
   revokeRestoredApprovals: () => void;
   /** An envelope that counts lists these again: an `unlisted` card takes a decision again. */
   reopenRestoredApprovals: (key: ChatKey, toolUseIds: readonly string[]) => void;
-  setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean, policyChange?: PolicyChangeReview) => void;
+  setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean, policyChange?: PolicyChangeReview, hostStop?: HostStopCause) => void;
   setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[], turnId?: string) => void;
   /** An `ask_user_list` request: the same exchange slot, holding a list. */
   setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec, turnId?: string) => void;
@@ -534,7 +546,7 @@ export interface ChatState {
    * `endedBy` records the host's stated reason on them, including on
    * questions an earlier terminal frame of the same turn already ended.
    */
-  endTurnQuestions: (key: ChatKey, turnId?: string, endedBy?: "timeout") => void;
+  endTurnQuestions: (key: ChatKey, turnId?: string, endedBy?: "timeout" | "host_stop") => void;
   /**
    * Record how a turn stopped (#3356) on its assistant message, as
    * `failAssistantMessage` finds it. A turn that already shows a failure
@@ -585,6 +597,8 @@ export interface ChatState {
    * before any turn exists, so the id arrives with the deltas.
    */
   stampTurn: (key: ChatKey, turnId: string) => void;
+  /** Stamp `turnId` on the streaming reply holding `toolUseId`, when it has none yet. */
+  stampToolTurn: (key: ChatKey, toolUseId: string, turnId: string) => void;
   setStreaming: (key: ChatKey, streaming: boolean) => void;
   /** Replace a session's transcript (first replayed history chunk). Creates the buffer. */
   setMessages: (key: ChatKey, messages: ChatMessage[]) => void;

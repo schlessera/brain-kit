@@ -26,7 +26,7 @@ export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 
 import { z } from "zod";
 import { isMcpTimingServerName } from "./protocol-helpers.js";
-import { CONVERSATION_LIMITS, LIVE_PERSONA_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
+import { CONVERSATION_LIMITS, HOST_STOP_CAUSES, LIVE_PERSONA_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel, StateRoomObservation } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
@@ -1395,6 +1395,8 @@ export const serverToolResultSchema = z.looseObject({
   toolUseId: z.string().max(MAX_ID_CHARS),
   output: z.string(),
   isError: z.boolean(),
+  // Display-only (#4565): an unreadable cause drops, the result stays.
+  hostStop: z.enum(HOST_STOP_CAUSES).optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolResult>;
 

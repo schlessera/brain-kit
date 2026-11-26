@@ -162,7 +162,7 @@ signatures (every public export and the types it is made of)
     export interface AskUserExchange {
         requestId: string;
         terminal?: true;
-        endedBy?: "timeout";
+        endedBy?: "timeout" | "host_stop";
         turnId?: string;
         questions: AskUserQuestion[];
         list?: AskUserListSpec;
@@ -904,6 +904,7 @@ signatures (every public export and the types it is made of)
         inputJson: string;
         output?: string;
         isError?: boolean;
+        hostStop?: HostStopCause;
         status: "streaming" | "pending_approval" | "approved" | "denied" | "complete";
         approvalKind?: "tool" | "command" | "policy" | "actor";
         approvalRememberable?: false;
@@ -1005,7 +1006,8 @@ signatures (every public export and the types it is made of)
     }
   TurnNotice (packages/ui-react/src/stores/chat-state.ts)
     export interface TurnNotice {
-        cause: "timeout" | "aborted" | "unspecified";
+        cause: "timeout" | "aborted" | "unspecified" | "host_stop";
+        hostStop?: HostStopCause | null;
     }
   UIShellState (packages/ui-react/src/stores/shell-stores.ts)
     export interface UIShellState {

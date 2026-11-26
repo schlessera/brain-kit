@@ -64,7 +64,7 @@ export function trackStateWord(t: Pick<StagedTracks, "failed" | "pending">): str
 /** The save state D52 §5 names, in its order of precedence. */
 type DraftSaveView =
   | { state: "none" }
-  | { state: "saving" | "saved" | "unsaved" | "conflict" | "unavailable" | "too_large" | "full"; copy: string; word: string };
+  | { state: "saving" | "saved" | "unsaved" | "conflict" | "unavailable" | "too_large" | "full" | "refused"; copy: string; word: string };
 
 /** A saving state is printed only once a save has been out this long (D52 §5). */
 export const SAVING_SHOWN_AFTER_MS = 600;
@@ -103,6 +103,7 @@ export function draftSaveView(
       : `draft · ${bytesLabel(d.failure.limit)} of drafts saved · delete one to save this`;
     return { state: "full", copy, word: "host full" };
   }
+  if (d.failure?.kind === "refused" && d.failure.edit === d.edit) return { state: "refused", copy: `draft · not saved · refused by the brain${kept}`, word: "refused" };
   if (d.savingSince !== null && now - d.savingSince >= SAVING_SHOWN_AFTER_MS) return { state: "saving", copy: "draft · saving…", word: "saving" };
   if (d.failure?.kind === "unsaved" || store.supported === null) return { state: "unsaved", copy: "draft · not saved yet", word: "not saved yet" };
   // Dirty and on its way: nothing is claimed until the host answers.
