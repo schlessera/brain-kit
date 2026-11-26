@@ -110,6 +110,9 @@ export function StorageBreakdown({
   const rows = [...derived.rows, ...(showEmpty ? derived.empty : [])].filter(
     (row) => !view.smaller || !shown.has(row.nodeId)
   );
+  // A folded database's members follow it, each with its own action: the
+  // map has a tile for each, so the list reaches each (#4549 review).
+  const listed = rows.flatMap((row) => [row, ...(row.parts ?? []).filter((part) => !view.smaller || !shown.has(part.nodeId))]);
   // Focus after navigation lands once the requested page is the one shown.
   useEffect(() => {
     if (view.loading || !pendingFocus.current || view.tree?.parentId !== (view.parent ?? null)) return;
@@ -230,7 +233,7 @@ export function StorageBreakdown({
             </span>
           }
         >
-          {rows.map(({ id: key, nodeId, members: _members, bytes: _bytes, shared: _shared, ...row }) => (
+          {listed.map(({ id: key, nodeId, members: _members, bytes: _bytes, shared: _shared, parts: _parts, ...row }) => (
             <StorageConsumerRow
               key={key}
               {...row}

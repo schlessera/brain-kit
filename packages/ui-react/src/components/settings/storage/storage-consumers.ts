@@ -55,6 +55,12 @@ interface StorageConsumer extends Omit<StorageConsumerRowProps, "onActivate" | "
   members: StorageConsumerMember[];
   /** A hard-linked alias: its size is real, its area already counted in another row. */
   shared?: boolean;
+  /**
+   * The folded members other than the database, each a row of its own with
+   * its own action. The map keeps a tile per member, so the list reaches
+   * every member too; their bytes are already in this row's size.
+   */
+  parts?: StorageConsumer[];
 }
 
 interface StorageConsumerRows {
@@ -152,6 +158,25 @@ export function storageConsumerRows(
       bytes: value,
       members,
     };
+    if (nodes.length > 1)
+      row.parts = members.slice(1).map((member): StorageConsumer => {
+        const node = nodes.find((value) => value.id === member.id)!;
+        const part: StorageConsumer = {
+          id: node.id,
+          nodeId: node.id,
+          name: node.name,
+          owner: node.owner,
+          action: node.kind === "root" || node.kind === "directory" ? "drill" : "inspect",
+          kind: KIND[node.kind],
+          meta: `part of ${head.name}`,
+          size: member.bytes === null ? null : format(member.bytes),
+          bytes: member.bytes,
+          members: [member],
+        };
+        if (member.bytes !== null && member.coverage !== "complete") part.atLeast = true;
+        if (member.reason) part.reason = member.reason;
+        return part;
+      });
     if (meta) row.meta = meta;
     if (shared) row.shared = true;
     if (value !== null && !complete) row.atLeast = true;
@@ -165,7 +190,7 @@ export function storageConsumerRows(
     return row;
   });
   const largest = Math.max(0, ...all.map((row) => row.bytes ?? 0));
-  for (const row of all)
+  for (const row of all.flatMap((value) => [value, ...(value.parts ?? [])]))
     if (row.bytes !== null && largest > 0) {
       row.share = row.bytes / largest;
       row.shareLabel = `${Math.round(row.share * 100)}% of largest`;
