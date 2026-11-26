@@ -40,6 +40,30 @@ describe("sidecar folding", () => {
     ]);
   });
 
+  // #4549 review F3: the map keeps a tile per member, so the list
+  // must reach each member too, with the member's own action.
+  test("every folded member stays reachable from the list as its own part row", () => {
+    const stores = appRoots.map(node);
+    const { rows } = storageConsumerRows(page(stores), "allocated", { inventory: inventory([], appRoots) });
+    const database = rows.find((row) => row.name === "Operational database")!;
+    const id = (name: string) => stores.find((value) => value.name === name)!.id;
+    expect(
+      (database.parts ?? []).map((part) => [part.name, part.nodeId, part.action, part.size, part.meta, part.reason]),
+      "STORAGE_FOLDED_MEMBERS_REACHABLE"
+    ).toEqual([
+      ["Operational database-shm", id("Operational database-shm"), "drill", null, "part of Operational database", "couldn't read file details"],
+      ["Operational database-wal", id("Operational database-wal"), "drill", bytes(400_000_000), "part of Operational database", undefined],
+    ]);
+    const files = [
+      node({ id: 22, rootId: 6, name: "ledger.db", kind: "file", owner: "app", bytes: 2 * GB }),
+      node({ id: 23, rootId: 6, name: "ledger.db-wal", kind: "file", owner: "app", bytes: 1_000_000 }),
+    ];
+    const [ledger] = storageConsumerRows(page(files, appRoots[1]!.id), "allocated").rows;
+    expect(ledger!.parts?.map((part) => [part.name, part.nodeId, part.action])).toEqual([["ledger.db-wal", files[1]!.id, "inspect"]]);
+    // A row with nothing folded has no parts.
+    expect(rows.find((row) => row.name === "App journal")!.parts ?? []).toEqual([]);
+  });
+
   test("a folded member's reason survives, and the database's own reason comes first", () => {
     const nodes = [
       node({ id: 24, rootId: 6, name: "ledger.db", kind: "file", owner: "app", bytes: 2 * GB, coverage: "partial", reason: "cancelled" }),
