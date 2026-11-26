@@ -817,7 +817,8 @@ test("deleting a draft whose snapshots filled the chat clears the queue-full not
   s.drafts.setState((st) => ({ outgoingFull: { draftId: s.id, sessionId: SESSION, limit: 10 }, drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [{ ...old, files: [], createdAt: 1 }], editedAt: 1, edit: 2,
     host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [old], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
   s.drafts.getState().deleteSnapshot(s.id, "snap-old");
-  await run(LONG);
+  // Before the capacity poll (15 s) could clear it on its own: the acknowledged delete does.
+  await run(SAVE_DELAY + 1_000);
   expect(s.removes()).toBe(1);
   expect(s.drafts.getState().outgoingFull, "FULL_CLEARED_ON_DELETE").toBeNull();
 });
