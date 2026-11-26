@@ -18,6 +18,9 @@ import { GOOGLE_CARD, GOOGLE_MODIFY, GOOGLE_SEND, GOOGLE_SAFETY, googleModifyPre
 import { GOOGLE_APPROVAL_CARD_BYTES, type GoogleMailApproval } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { MAX_WS_MESSAGE_BYTES, jsonBytes, shrinkForReplication } from "../src/ws/shrink.js";
 import { initializeGoogleWrites } from "../src/google/startup.js";
+import { createEffectiveSafety } from "../src/governance/effective-safety.js";
+import { acknowledgeSafety, beginSafetyCollection, bindSafetyCollection, endSafetyCollection, latchSafety, recoverSafetyRecording,
+  safetyCatalogCreated } from "../src/governance/safety-store.js";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => { for (const close of cleanup.splice(0)) close(); });
@@ -423,6 +426,40 @@ for (const kind of ["policy", "principal", "normal"]) test(`google session allow
   expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(), "GOOGLE_ALLOWANCE_VOID").toEqual({ n: 0 });
   f.owner(true); f.tainted(true);
   expect(await f.call(GOOGLE_MODIFY, { ...f.turn, posture: "voice" })).toMatchObject({ ok: false });
+});
+
+test("google session allowance admits nothing after latch recovery while its chat's safety evidence is unreadable", async () => {
+  const f = fixture(); f.tainted(true); f.answer(async () => ({ behavior: "allow", forSession: true }));
+  // The production admission read: the chat's own safety projection, not a stub.
+  const live = createEffectiveSafety(f.db, { turnId: "turn-ithaca", sessionId: () => "ithaca", policyHash: JSON.stringify(googlePolicy()),
+    authority: () => ({ current: true, epoch: "0" }) });
+  const turn = (posture: GoogleToolsTurn["posture"]): GoogleToolsTurn => ({ ...f.turn, posture, write: { ...f.turn.write!, safety: () => live.read() } });
+  // A classified chat with complete coverage, restricted only by one unresolved occurrence.
+  beginSafetyCollection(f.db, { turnId: "ogygia", bindingId: "ogygia", sessionId: null, principalId: "odysseus", backendId: "claude", at: f.now(), policyHash: null });
+  safetyCatalogCreated(f.db, "ithaca", "odysseus", "ogygia");
+  bindSafetyCollection(f.db, "ogygia", "ithaca");
+  acknowledgeSafety(f.db, "ogygia", "claude", 1);
+  endSafetyCollection(f.db, "ogygia");
+  const occurrence = (id: string, sequence: string, payload: string) => f.db.run(`INSERT INTO safety_records(id,collection_id,sequence,observed_at,kind,occurrence_id,state,payload,bytes,reserved_rows,reserved_bytes)
+    SELECT ?,id,?,1,'occurrence',?,'finalized',?,1,1,1 FROM safety_collections WHERE turn_id='ogygia'`, [id, sequence, id, payload]);
+  occurrence("circe", "900000000002", '{"admission":{"trusted":false}}');
+  expect(live.read().restricted).toBe(true);
+  expect(await f.call(GOOGLE_MODIFY, turn("interactive"))).toMatchObject({ ok: true, admission: "card" });
+  expect(await f.call(GOOGLE_MODIFY, turn("voice")), "GOOGLE_LIVE_SAFETY_ALLOWANCE").toMatchObject({ ok: true, admission: "session_allowance" });
+  // Its sequence sorts first, so continuity reads it before the readable one.
+  occurrence("calypso", "900000000001", "not-json");
+  latchSafety(f.db, null, "recording_failed");
+  recoverSafetyRecording(f.db);
+  expect(f.db.query("SELECT failed FROM safety_meta").get(), "GOOGLE_UNREADABLE_LATCH_CLEARED").toEqual({ failed: 0 });
+  const remaining = f.db.query("SELECT remaining_items FROM google_session_allowances").get(), dispatched = f.dispatched();
+  expect(remaining, "GOOGLE_UNREADABLE_ALLOWANCE_KEPT").toEqual({ remaining_items: 99 });
+  expect(() => live.read(), "GOOGLE_UNREADABLE_PROJECTION_THROWS").toThrow("malformed JSON");
+  expect(await f.call(GOOGLE_MODIFY, turn("voice")), "GOOGLE_UNREADABLE_SAFETY_REFUSES").toMatchObject({ ok: false, error: { reason: "safety_changed" } });
+  expect(f.dispatched(), "GOOGLE_UNREADABLE_NO_DISPATCH").toBe(dispatched);
+  expect(f.db.query("SELECT remaining_items FROM google_session_allowances").get(), "GOOGLE_UNREADABLE_NOT_CHARGED").toEqual(remaining);
+  // Control: the unreadable record alone refused it. The chat stayed restricted, so the allowance still holds.
+  f.db.run("DELETE FROM safety_records WHERE id='calypso'");
+  expect(await f.call(GOOGLE_MODIFY, turn("voice")), "GOOGLE_READABLE_AGAIN_ADMITS").toMatchObject({ ok: true, admission: "session_allowance" });
 });
 
 test("google alias repoint inherits no approval and a change after the card refuses", async () => {

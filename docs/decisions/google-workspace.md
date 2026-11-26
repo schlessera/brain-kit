@@ -192,6 +192,15 @@ to the changed collection's session and canonical owner/generation group.
 Collection, record and pending lookups use persistent indexes. Old-epoch
 allowances are cleared at host startup, even when concrete writes are disabled.
 
+A check never throws on a safety value that is not valid JSON, a record
+payload or a detector acknowledgement. Each check runs inside the write it
+observes, so a throw would refuse that write, brain-wide recorder recovery at
+boot or by the owner included, while one corrupt row and one live grant
+existed (#4631). The check treats such a value as unreadable: its chat is not
+normal, whether or not the record was reviewed, and keeps its allowance. The
+safety projection throws for that chat, so every admission refuses until the
+value is readable again.
+
 A session restricted only by a pending reservation loses its allowance when
 that reservation commits: `safetyCommit` releases the reservation before
 inserting the occurrence, so the database briefly becomes normal inside the
