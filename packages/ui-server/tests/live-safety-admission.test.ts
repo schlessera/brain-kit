@@ -230,12 +230,13 @@ for (const method of ["permit", "fileObservation", "lock", "admission"] as const
     const f = await fixture();
     try {
       const reply = await raceSiblingWrite(f, async reserve => {
-        const toolName = method === "fileObservation" ? "read_file" : "bash";
-        const input = method === "fileObservation" ? { path: "harbour.md" } : { command: "git add raft.md" };
+        const toolName = method === "fileObservation" || method === "permit" ? "read_file" : "bash";
+        const input = method === "fileObservation" || method === "permit" ? { path: "harbour.md" } : { command: "git add raft.md" };
         const bridge: BackendBridge = { emit() {}, requestPermission: async () => ({ behavior: "allow" }),
-          admissionSafety: f.safety, inputSafety: { ...f.collector, async allowed(id) {
-            await f.collector.allowed?.(id);
+          admissionSafety: f.safety, inputSafety: { ...f.collector, async prepareDispatch(id) {
+            const ticket=await f.collector.prepareDispatch!(id);
             if (method === "permit") await reserve();
+            return ticket;
           } } };
         const context = {
           brainPath: f.root, turn: { ...createTurnContext(), bridge, signal: f.controller.signal }, live() {},

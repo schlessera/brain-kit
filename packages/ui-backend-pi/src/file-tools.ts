@@ -200,6 +200,7 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
           let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
           try {
             const validate=()=>{signal?.throwIfAborted();return revalidatePiAdmission(turn,"bash",_id,params);};
+            for (const pending of pendingPiAdmission(turn, "bash", _id)) await pending;
             const stale=validate();if(stale)throw new Error(stale);
             ticket=turn.bridge?.inputSafety?.prepareDispatch?await turn.bridge?.inputSafety.prepareDispatch(_id):undefined;
             if(!ticket)await turn.bridge?.inputSafety?.allowed?.(_id,validate);
