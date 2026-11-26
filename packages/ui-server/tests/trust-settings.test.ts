@@ -728,6 +728,8 @@ test("an out-of-band source removal during an active turn recovers automatically
     release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
     writeFileSync(f.path, `---\n${JSON.stringify({ schema_version: 1, taint: { trusted_sources: [kept] } })}\n---\nThe voyage policy.\n`);
     expect(() => f.settings.live.read(), "OUT_OF_BAND_EDIT_FENCES_LIVE_READS").toThrow("stale_revision");
+    // Every relay admission (`maySendNow`) reads this same effective safety.
+    expect(() => safety.read(), "RELAY_ADMISSION_FENCED_WHILE_UNCERTAIN").toThrow("stale_revision");
     const during = through(argo.server.url.href);
     expect(await ended(during.closed)).toBe(true);
     expect(argo.state.hits, "NO_DISPATCH_WHILE_TRUST_IS_UNCERTAIN").toBe(1);
@@ -741,6 +743,7 @@ test("an out-of-band source removal during an active turn recovers automatically
     expect(await Promise.race([b.saw("second").then(() => true), b.closed.then(() => false)]), "UNRELATED_SOURCE_SURVIVES_RECOVERY").toBe(true);
     const after = through(argo.server.url.href);
     expect(await Promise.race([after.saw("first").then(() => true), after.closed.then(() => false)]), "UNRELATED_SOURCE_ADMITS_AFTER_RECOVERY").toBe(true);
+    expect(safety.read().authorityCurrent, "RELAY_ADMISSION_RECOVERS").toBe(true);
     expect(controller.signal.aborted).toBe(false);
   } finally {
     release?.(); proxy.stop(); await Promise.all(connections); await proxy.settled(); ithaca.server.stop(true); argo.server.stop(true);
