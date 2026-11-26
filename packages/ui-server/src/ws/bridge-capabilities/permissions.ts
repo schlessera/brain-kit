@@ -1,7 +1,8 @@
 import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
-import { sameAuthority, sameSafetyAdmission, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
+import { sameAuthority, sameSafetyAdmission, toolAdmissionSafety, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
+
 import { approvalRequestFrame, withTurnScope } from "../frames.js";
 import type { BridgeContext, BridgeSlice } from "./context.js";
 import { waitWhile } from "../../brain/authority-hold.js";
@@ -31,14 +32,24 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
     // This is the common boundary for SDK tools AND host-internal callers
     // (applications, policy publication, compute and actors). Caller metadata
     // cannot opt a card out of withdrawal or supply its authority.
-    const safety = self().admissionSafety;
-    let snapshot: AdmissionSafetySnapshot | undefined;
+    const bridge=self();
+    let safety:ReturnType<typeof toolAdmissionSafety>,snapshot:AdmissionSafetySnapshot|undefined,hostSnapshot:AdmissionSafetySnapshot|undefined;
     try {
-      const before = safety?.read();
-      let waited = false;
-      for (const pending of safety?.pendingRecording?.(before, ctx.signal) ?? []) { waited = true; await pending; }
-      snapshot = waited || before?.recordingAvailable === false ? safety?.read() : before;
-      if (snapshot && !sameAuthority(snapshot, before)) return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+      hostSnapshot=bridge.admissionSafety?.read();
+      // Policy and actor cards represent host operations, not backend input.
+      safety=req.kind==='policy'||req.kind==='actor'?bridge.admissionSafety:toolAdmissionSafety(bridge,req.toolUseId,req.toolName);snapshot=safety?.read();
+      const before=snapshot;
+      let waited=false;
+      for(const pending of safety?.pendingRecording?.(before,ctx.signal)??[]){waited=true;await pending;}
+      snapshot=waited||before?.recordingAvailable===false?safety?.read():before;
+      if(snapshot&&!sameAuthority(snapshot,before))return {behavior:"deny",message:STALE_SAFETY_ADMISSION};
+      // A current root receipt from a compatible caller may be normalized,
+      // but stale caller metadata cannot replace host-owned authority.
+      if(snapshot&&req.admissionSnapshot&&!sameSafetyAdmission(req.admissionSnapshot,snapshot)){
+        const root=bridge.admissionSafety?.read();
+        if(!root||!sameSafetyAdmission(req.admissionSnapshot,root))return Promise.resolve({behavior:"deny",message:STALE_SAFETY_ADMISSION});
+      }
+
     }
     catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
     const revalidate = (): string | null => {
@@ -48,7 +59,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
       } catch { return STALE_SAFETY_ADMISSION; }
       return null;
     };
-    if (revalidate() || safety && snapshot && req.admissionSnapshot && !sameSafetyAdmission(req.admissionSnapshot, snapshot))
+    if (revalidate())
       return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
     if (snapshot) req = { ...req, admissionSnapshot: snapshot };
     // A native permission checkpoint delegates this particular operation to
@@ -138,8 +149,8 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
         // publishing the outcome or settling the backend wait.
         const committed = writes && snapshot ? Promise.resolve().then(() => writes.record({ kind: "safety_admission_expired", turnId,
           sessionId: sessionId ?? null, actor: "server", model: null, profile: null,
-          payload: { toolUseId: req.toolUseId, evidenceRevision: snapshot.evidenceRevision,
-            trustRevision: snapshot.trustRevision, authorityEpoch: snapshot.authorityEpoch, reason: cause } }))
+          payload: { toolUseId: req.toolUseId, evidenceRevision: hostSnapshot?.evidenceRevision ?? snapshot.evidenceRevision,
+            trustRevision: hostSnapshot?.trustRevision ?? snapshot.trustRevision, authorityEpoch: hostSnapshot?.authorityEpoch ?? snapshot.authorityEpoch, reason: cause } }))
           : snapshot ? Promise.reject(new Error("Safety withdrawal storage is unavailable")) : Promise.resolve();
         void committed.then(() => {
           coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, expiryCause: cause, reason });

@@ -6415,3 +6415,73 @@ Neither metadata nor completeness is
 encoded by changing result text, and
 neither changes prior provider history. The same-commit API report records
 the additive argument.
+
+## Causal tool admission view (additive, 0.45.0, #4271)
+
+`BackendBridge.inputSafety` accepts an optional `forAdmission` callback of
+exported type `InputSafetyAdmissionView` in `@schlessera/brain-ui-sdk/server`.
+It takes the exact tool-use ID, tool name and root admission safety facade,
+and returns a host-owned live facade. Backends cache that exact facade through
+approval, input collection, rewrite and lock waits, then compare evidence and
+trust revisions again in the final dispatch continuation. Under the 2026-11-26
+maintainer ruling on #4271, an explicit card may survive the exact independent
+sibling occurrences whose recording the host awaited and verified as committed.
+The final check still applies settled recording, authority, trust and recipient
+policy. Pending evidence at the existing deadline refuses; other independent
+revisions invalidate the card. This host-only settlement proof never enters
+provider history or grants a standing rule an own-input exemption.
+
+The host excludes only the exact logical call's immutable input occurrences
+and the pending reservations for those same input occurrences. This includes
+parallel hooks reading the shared view during input collection. Independent
+occurrences, reservations, results, decisions, collection/binding changes, lost
+evidence, trust revisions and authority changes remain visible. Reused, completed, refused or ambiguous identities cannot acquire an
+exclusion. The view derives restriction, pending state and revision after excluding that
+exact input; the ordinary chat projection still records and restricts it.
+The exclusion is usable at dispatch only to retain an exact owner-approved
+per-use outward card. Standing `outward.allow` authority always checks the full
+root safety state, including the current call's own tainting input; it cannot
+borrow this exclusion. This is neither permission nor an outward-authority exemption.
+Without the callback the backend uses the unfiltered root facade, preserving
+strict revision checks and granting no exclusion. Provider tool definitions,
+prompts and earlier conversation bytes are unchanged. The same-commit API
+report records the additive callback type.
+
+
+The optional `inputSafety.allowed(toolUseId, validate?)` argument uses exported
+`InputSafetyAdmissionCheck`, a synchronous host-only refusal check returning a
+reason or null. The collector invokes it inside the serialized allowance step,
+before marking a call allowed. A refusal leaves a unique never-dispatched call
+eligible for discharge instead of inventing a missing result. Omission preserves
+the existing allowance behavior. Backends also check before entering that step.
+Bash on Pi records allowance at its final execution admission after rewrites and
+locks; an earlier permission ticket alone is not evidence that Bash ran.
+
+
+`inputSafety.prepareDispatch(toolUseId)` is an additive optional asynchronous
+preparation method returning exported `InputSafetyDispatchTicket`. Preparation
+waits for admission recording but does not record dispatch. The backend checks
+all evidence, trust and cancellation state after that await, then invokes the
+host-owned ticket's synchronous `commit(validate?)` immediately before exposing
+allowance or spawning. No await follows commit on that dispatching path.
+Each ticket captures its immutable input generation synchronously when
+`prepareDispatch()` is invoked, before serialized preparation runs. Every later `begin()`
+invalidates it, even when its input bytes repeat; a queued begin invalidates
+the previous preparation before it can commit. Commit is single-use, rechecks
+the current operation and turn, and runs the
+optional final validator before marking dispatch. A repeat, cancelled, refused
+or stale commit refuses. `refused()` invalidates outstanding tickets
+synchronously, before its queued durable discharge settles. Host-routed calls may prepare before backend-local input collection because
+the host owns that later boundary. Their tickets still bind the captured
+operation absence and synchronous refusal state; a begin before commit
+invalidates the earlier preparation. A ticket itself grants no authority. `cancel()` closes an unused ticket and settles the
+backend refusal; a unique never-dispatched call discharges without a false
+missing-result gap. Cancel after successful dispatch does not erase its result
+obligation. Tickets stay on the host and never enter worker RPC or provider
+history.
+
+Compatibility: `allowed()` retains its existing conservative dispatch meaning
+for old backends. Updated backends prefer `prepareDispatch`; a genuinely old
+host without it uses `allowed()` plus a final backend check. If that old host
+records allowance before a late refusal, it may conservatively retain a gap;
+no compatibility fallback permits a stale dispatch or clears possible exposure.

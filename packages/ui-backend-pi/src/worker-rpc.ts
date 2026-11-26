@@ -14,8 +14,9 @@ import type { LaunchedWorker, NativeFileVersions, WorkerSandbox } from "@schless
 import type { SessionCaps } from "./backend-options.js";
 import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-tools.js";
 import { decidePiToolPermission } from "./permission-gate.js";
-import { pendingPiAdmission, revalidatePiAdmission } from "./tool-admission.js";
+import { pendingPiAdmission, revalidatePiAdmission, forgetPiAdmission } from "./tool-admission.js";
 import { workspaceWriteRefusal, safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
+
 import { syncPiAuth } from "./session-storage.js";
 import type { TurnContext } from "./turn-context.js";
 import { piOutputStatus, type PiWorkerMessage } from "./worker-protocol.js";
@@ -74,7 +75,7 @@ async function unlock(msg: PiWorkerRpc, _bridge: BackendBridge, { releases }: Pi
 }
 
 /** Takes the shared lock key a granted operation's exact input names. */
-async function lock(msg: PiWorkerRpc, _bridge: BackendBridge, context: PiWorkerRpcContext): Promise<unknown> {
+async function lock(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerRpcContext): Promise<unknown> {
   const { grants, workerLock, brainPath, turn: turnContext, live, releases, executed } = context;
   const grant = grants.get(msg.toolCallId);
   if (!workerLock || !grant || grant.name !== msg.toolName) throw new Error("Pi worker lock has no server permission grant");
@@ -86,14 +87,22 @@ async function lock(msg: PiWorkerRpc, _bridge: BackendBridge, context: PiWorkerR
   const key = msg.toolName === "bash" ? bashLockKey(input.command)
     : fileTool ? target && `path:${target}` : BRAIN_LOCK_KEY;
   if (typeof key !== "string" || msg.input.key !== key || Object.keys(msg.input).length !== 1) throw new Error("Pi worker lock does not match the authorized operation");
-  const release = await workerLock.acquire(key, { signal: turnContext.signal ?? undefined });
+  let release:(()=>void)|undefined,transferred=false;
   try {
+    release=await workerLock.acquire(key,{signal:turnContext.signal??undefined});
     for (const pending of pendingPiAdmission(turnContext, msg.toolName, msg.toolCallId)) await pending;
+
     live();
-    const stale = revalidatePiAdmission(turnContext, msg.toolName, msg.toolCallId, input);
-    if (stale) { grants.delete(msg.toolCallId); throw new Error(stale); }
-  } catch (error) { release(); throw error; }
-  const lockId = randomUUID(); releases.set(lockId, release); executed(msg).lock = true; return { lockId };
+    const stale=revalidatePiAdmission(turnContext,msg.toolName,msg.toolCallId,input);
+    if(stale)throw new Error(stale);
+    const lockId=randomUUID();releases.set(lockId,release);executed(msg).lock=true;transferred=true;
+    return {lockId};
+  }finally{
+    if(!transferred){
+      release?.();grants.delete(msg.toolCallId);
+      if(msg.toolName==="bash"){forgetPiAdmission(turnContext,msg.toolName,msg.toolCallId);await bridge.inputSafety?.refused?.(msg.toolCallId,true);}
+    }
+  }
 }
 
 /** Records one phase of a granted native file read or write against the worker's file view. */
@@ -161,25 +170,28 @@ async function permission(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWo
     { name: msg.toolName, input: JSON.stringify(input) });
 }
 
-/**
- * Lets one decided call run. The collector's last check comes first; the
- * turn's liveness and the call's standing admission are rechecked after it,
- * and the grant is published last, with no wait between it and the answer.
- * A grant is usable the moment it exists, by any concurrent RPC for the call
- * (a document-base read, a bridge call, a lock, a file observation or a
- * final admission), so one published before the collector's check could run
- * a call that check then refuses (#3812). A refused check denies the call,
- * a stopped turn rejects it, and neither publishes anything.
- */
+/** A permission ticket is not proof that Bash dispatched. Non-Bash routes
+ * perform their serialized final check here. Bash instead records allowance
+ * in its one-use final-admission RPC, after rewrite and lock waits. The grant
+ * is published with no await after its relevant check. */
 async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerRpcContext, decision: unknown,
   refusal: () => string | null, grant?: { name: string; input: string }): Promise<unknown> {
-  try { await bridge.inputSafety?.allowed?.(msg.toolCallId); }
-  catch (error) { return { behavior: "deny", message: error instanceof Error ? error.message : "Safety recording refused this call." }; }
-  for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
+  const validate=()=>{context.turn.signal?.throwIfAborted();context.live();return refusal();};
+  let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
+  try {
+    for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
+    const stale=validate();if(stale)throw new Error(stale);
+    // Bash cannot execute with this permission ticket: it must consume a
+    // separate final-admission RPC after its rewrite and lock waits.
+    ticket=msg.toolName!=="bash"&&bridge.inputSafety?.prepareDispatch?await bridge.inputSafety.prepareDispatch(msg.toolCallId):undefined;
+    if(msg.toolName!=="bash"&&!ticket)await bridge.inputSafety?.allowed?.(msg.toolCallId,validate);
+    for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
+    const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
+    ticket?.commit(validate);
+  }catch(error){try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}return {behavior:"deny",message:error instanceof Error?error.message:"Safety recording refused this call."};}
   context.live();
-  const refused = refusal();
-  if (refused) return { behavior: "deny", message: refused };
   if (grant) { context.grants.set(msg.toolCallId, grant); context.executed(msg).input = JSON.parse(grant.input); }
+
   return decision;
 }
 
@@ -274,15 +286,31 @@ async function apply(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerR
 /** One handler per worker RPC method. */
 export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorkerRpcHandler>> = {
   unlock, lock, fileObservation, syncAuth, permission, bridge: bridgeCall, readBase, apply,
-  admission: async (msg, _bridge, context) => {
+  admission: async (msg,bridge,context) => {
     for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
     context.live();
-    const grant = context.grants.get(msg.toolCallId);
-    if (msg.toolName !== "bash" || !grant || grant.name !== msg.toolName || grant.input !== JSON.stringify(msg.input)) throw new Error("Pi final admission has no exact permission grant");
-    const stale = revalidatePiAdmission(context.turn, msg.toolName, msg.toolCallId, msg.input, true);
-    if (stale) { context.grants.delete(msg.toolCallId); throw new Error(stale); }
+    const grant=context.grants.get(msg.toolCallId);
+    if(msg.toolName!=="bash"||!grant||grant.name!==msg.toolName||grant.input!==JSON.stringify(msg.input))throw new Error("Pi final admission has no exact permission grant");
+    // Consume the server ticket before any wait; no concurrent RPC can replay it.
+
     context.grants.delete(msg.toolCallId);
-    return { ok: true };
+    let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
+    try{
+      const validate=()=>{context.turn.signal?.throwIfAborted();context.live();return revalidatePiAdmission(context.turn,msg.toolName,msg.toolCallId,msg.input);};
+      const stale=validate();if(stale)throw new Error(stale);
+      ticket=bridge.inputSafety?.prepareDispatch?await bridge.inputSafety.prepareDispatch(msg.toolCallId):undefined;
+      if(!ticket)await bridge.inputSafety?.allowed?.(msg.toolCallId,validate);
+      for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
+    const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
+      ticket?.commit(validate);
+      forgetPiAdmission(context.turn,msg.toolName,msg.toolCallId);
+      return {ok:true};
+    }catch(error){
+      try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}
+      forgetPiAdmission(context.turn,msg.toolName,msg.toolCallId);
+      await bridge.inputSafety?.refused?.(msg.toolCallId,true);
+      throw error;
+    }
   },
   safetyUnavailable: async(msg,bridge)=>{
     if(msg.toolName||msg.toolCallId||Object.keys(msg.input).length)throw new Error("Malformed safety unavailable notice");
