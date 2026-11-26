@@ -26,3 +26,5 @@ export { GOG_ENVIRONMENT_NAMES, gogEnvironment, type GogEnvironment, type GogEnv
 export { GOG_EXIT_CODES, type GogExitClass } from "./errors.js";
 export { GOG_PIN_REFUSALS, GOG_PIN_TRANSIENT_REFUSALS, verifyGogBinary, type GogBinaryIdentity, type GogPinRefusal, type GogPinResult } from "./pin.js";
 export { GOG_PINS, GOG_PLATFORMS, gogPlatform, type GogPin, type GogPlatform } from "./pins.js";
+
+export { prepareGmailModify, prepareGmailDraft, GooglePreparationError, type GmailDraftProvenance } from "./reversible.js";

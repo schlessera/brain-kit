@@ -68,9 +68,11 @@ export function setup(db: Database) {
       const row = governanceEventRow(event);
       const inverse = rawInverse === null ? null : inverseSchema.parse(rawInverse);
       const required = event.kind === "google_reversible_action" && ["allowed", "approved"].includes(event.payload.decision);
-      if (required !== (inverse !== null)) throw new Error("Google decision inverse mismatch");
-      if (inverse && (inverse.sessionId !== event.sessionId || inverse.turnId !== event.turnId || event.kind !== "google_reversible_action" ||
-          inverse.callId !== event.payload.callId || inverse.inverseId !== event.payload.inverseId || inverse.operation !== event.payload.operation)) {
+      const draftSnapshot = event.kind === "outward_action" && event.payload.decision === "approved" && event.payload.google?.operation === "gmail.draft.save";
+      if ((required && !inverse) || (inverse && !required && !draftSnapshot)) throw new Error("Google decision inverse mismatch");
+      if (inverse && (inverse.sessionId !== event.sessionId || inverse.turnId !== event.turnId || (event.kind === "google_reversible_action"
+          ? inverse.callId !== event.payload.callId || inverse.inverseId !== event.payload.inverseId || inverse.operation !== event.payload.operation
+          : inverse.callId !== event.payload.google?.callId || inverse.operation !== event.payload.google?.operation))) {
         throw new Error("Google inverse attribution mismatch");
       }
       // Even a deduplicated event is not permission to repeat a dispatch.

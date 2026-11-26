@@ -6304,3 +6304,23 @@ the canonical brain root for consistent host/CLI scope; `googleLedgerPath`
 validates an absolute ledger location outside that root. Additive write receipts
 may contain `standingChoice: "not_kept"` when the exact approved call ran but
 its standing grant failed to persist.
+
+
+## Reversible Gmail implementation (additive, #4213)
+
+The host registers concrete `gmail.modify` and `gmail.draft.save` factories.
+No tools or input/result schemas change; the previously declared success
+shapes now have implementations. The internal `google-gog` transport accepts
+those operations with a host-resolved `accountIdentity` and synchronous
+`finalAdmission`, evaluated after its semaphore/pin waits immediately before
+spawn. Shared preparation reads labels, composes replies, classifies draft
+updates from current and recorded fingerprints, and prepares snapshots and
+inverses. Write codecs are source-derived from pinned gog 44364d31.
+
+`GoogleLedger` additively provides `prepareStandalone` and
+`settleStandalone` for body-free standalone inverses. The session store also
+records snapshots for approved irreversible draft updates in the same
+transaction as their outward-action decision; these do not become reversible
+journal receipts. Draft provenance is scoped to session, principal, brain and
+real account, and missing, expired or unknown records cannot admit an update
+without its card. These are internal concrete facilities, not extension seams.

@@ -18,13 +18,20 @@ const USAGE = `brain google <command> [--json]
                                                    One page of threads (at most 25)
   gmail read thread|message|draft <id> [--view V]  One thread, message or draft
   gmail labels                                     The account's labels
+  gmail modify <message-id…> [--add LABELS] [--remove LABELS]
+                                                   Comma-separated label ids, at most 25 messages
+  gmail draft create --to ADDRESSES --subject TEXT --body TEXT [--cc ADDRESSES] [--bcc ADDRESSES]
+                                                   Save a plain-text draft (never send)
+  gmail draft update <draft-id> --body TEXT          Refused: requires hosted approval
 
-The same Gmail reads as the hosted brain_google_* tools, under the governance
+Gmail reads and reversible writes use the hosted brain_google_* schemas, under the governance
 policy's google block, in the standalone posture: there is no session, so no
 taint, no remembered approval and no card, and nothing is ever asked. --view
 is content (the default: senders, subjects, snippets and bodies, marked
 untrusted) or structured (ids, labels, dates, counts and flags only). A local
 agent with shell access is inside this boundary; brain google status says so.
+Writes require standalone.reversible: allow, an effective allow mode, and
+BRAIN_GOOGLE_LEDGER outside the brain for the inverse. Draft updates cannot run here.
 
 The home is BRAIN_UI_GOOGLE_HOME when set (an operator connecting the host),
 else BRAIN_GOOGLE_HOME, else $XDG_DATA_HOME/brain/google, never inside a brain
@@ -103,7 +110,7 @@ function human(envelope: GoogleEnvelope): void {
 }
 
 export const googleCommand: CoreCommand = {
-  summary: "Connect a Google account and read Gmail under the governance policy",
+  summary: "Connect a Google account and manage Gmail under the governance policy",
   helpBlock: USAGE,
   async run(args, cli) {
     const { args: positional, flags } = parseArgs(args);
@@ -138,6 +145,27 @@ export const googleCommand: CoreCommand = {
       }
       case "gmail": {
         const [verb, ...words] = rest;
+        if (verb === "modify") {
+          only(flags, ["add", "remove"], "gmail modify");
+          if (!words.length) throw new UsageError("gmail modify needs message ids.");
+          const add = text(flags, "add"), remove = text(flags, "remove");
+          envelope = await service().write("gmail.modify", { message_ids: words,
+            ...(add !== undefined ? { add_label_ids: add.split(",") } : {}), ...(remove !== undefined ? { remove_label_ids: remove.split(",") } : {}) });
+          break;
+        }
+        if (verb === "draft") {
+          only(flags, ["to", "cc", "bcc", "subject", "body"], "gmail draft");
+          const [action, id, ...extra] = words;
+          if ((action !== "create" && action !== "update") || extra.length || (action === "create" ? id !== undefined : id === undefined))
+            throw new UsageError("Usage: brain google gmail draft create|update [draft-id] --to ADDRESS --subject TEXT --body TEXT");
+          const input: Record<string, unknown> = { action, ...(id ? { draft_id: id } : {}) };
+          for (const key of ["to", "cc", "bcc", "subject", "body"]) {
+            const value = text(flags, key);
+            if (value !== undefined) input[key] = ["to", "cc", "bcc"].includes(key) ? value.split(",") : value;
+          }
+          envelope = await service().write("gmail.draft.save", input);
+          break;
+        }
         let operation: GoogleReadCommand;
         let input: Record<string, unknown>;
         if (verb === "search") {

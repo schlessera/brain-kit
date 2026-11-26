@@ -181,6 +181,7 @@ export "./internal/google-gog" (./src/google/gog/index.ts)
   GOG_PIN_TRANSIENT_REFUSALS
   GOG_PLATFORMS
   GOG_READ_OPERATIONS
+  type GmailDraftProvenance
   type GogAvailability
   type GogBinary
   type GogBinaryIdentity
@@ -200,17 +201,21 @@ export "./internal/google-gog" (./src/google/gog/index.ts)
   type GogResult
   type GogTransport
   type GogTransportOptions
+  GooglePreparationError
   createGogTransport
   gogEnvironment
   gogPlatform
   isGogAccountAlias
   isTargetIndependentGogFailure
+  prepareGmailDraft
+  prepareGmailModify
   verifyGogBinary
 
 export "./internal/google-ledger" (./src/google/ledger.ts)
   type GoogleApproval
   type GoogleApprovalScope
   type GoogleLedger
+  type GoogleStandaloneInverse
   googleBrainId
   googleLedgerPath
   openGoogleLedger

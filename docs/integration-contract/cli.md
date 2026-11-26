@@ -5,7 +5,7 @@ Its [shared scope and versioning policy](../integration-contract.md) apply to ev
 
 ## Google commands (additive, 0.46.0, #4208)
 
-`brain google` runs the Gmail reads of the
+`brain google` runs the Gmail reads and selected reversible writes of the
 [Google operations](../plans/google-workspace.md#4-operation-catalog) in the
 standalone posture, and connects the account they read. Like `brain policy`,
 it reads the governance policy as data and never loads brain configuration or
@@ -1570,3 +1570,33 @@ creates approvals or manages hosted session allowances. Listing/revocation
 works even when Google is disconnected. Success exits 0; storage or home
 failure exits 1 with the existing `{ ok: false, operation, error: { code,
 reason, message } }` envelope (`unavailable / ledger_unavailable` for storage).
+
+
+### Reversible Gmail commands (additive, #4213)
+
+- `brain google gmail modify <message-id…> [--add LABELS] [--remove LABELS] --json`
+  takes at most 25 message ids and comma-separated label ids. INBOX, UNREAD,
+  STARRED and user labels are supported. Its operation is `gmail.modify` and
+  success data is `{ message_ids, add_label_ids, remove_label_ids }`; returned
+  message ids are only the targets whose labels changed.
+- `brain google gmail draft create --to ADDRESSES --subject TEXT --body TEXT
+  [--cc ADDRESSES] [--bcc ADDRESSES] --json` takes comma-separated bare
+  addresses. The transport receives the complete plain-text body through
+  stdin. Its operation is `gmail.draft.save`; success data is
+  `{ draft_id, fingerprint }`, with the SHA-256 of the confirmed raw draft.
+- `brain google gmail draft update <draft-id> --body TEXT --json` (also accepting
+  the other create fields) refuses before accessing the credential as
+  `policy_denied/standalone_update_requires_card`. Standalone has no update
+  snapshot store or approval card.
+
+Both implemented writes require `google.standalone.reversible: allow` and
+an effective operation mode of `allow`; default deny and ask refuse. They
+require `BRAIN_GOOGLE_LEDGER` outside the brain (`unavailable/ledger_unset`
+when absent). Each inverse commits before dispatch and contains no message
+body. The ledger holds the real account identity, the inverse, preconditions,
+state and seven-day expiry; draft creation adds the returned id/fingerprint
+on confirmation. It prunes expired standalone inverses on the next write.
+Concurrent standalone calls using the same ledger serialize through its
+adjacent `.write-lock.sqlite` mutex, which contains no data and releases on
+process exit. Ledger failure refuses just the call. Dispatch is never retried;
+an ambiguous result is `outcome_unknown`. No undo command is added here.

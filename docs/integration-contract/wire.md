@@ -3302,7 +3302,28 @@ metadata only. Card-owned send locks end with the card and are cleared at host
 startup. A failed startup cleanup restricts only Google writes and retries
 with bounded backoff; reads and chats remain available.
 
-Production operations still return `writes_unavailable` until #4213/#4214.
+Additively (#4213), production executes modify and draft save. Modify pre-reads
+labels under the account lock and records an opposite delta for each message
+that actually changes; already-satisfied targets are absent from the inverse
+and returned `message_ids`. At most 25 resolved message ids are admitted.
+Only INBOX, UNREAD, STARRED and user label ids are supported; other system
+labels refuse as `policy_denied/unsupported_label`. Hidden threads and hidden
+label deltas refuse as `not_found`.
+
+Draft create/reply cards carry the host-composed recipients, subject and full
+quoted plain text; gog never receives `--reply-all` or `--quote`. The card's
+message digest covers the composed fields, not a raw send. Update pre-reads
+raw bytes and asks unless this session's owner/account records prove a
+brain-created draft with an unchanged last confirmed fingerprint. The old
+raw snapshot commits before every admitted update, including an escalated
+update. Unreadable, HTML, attachment-bearing or unrepresentable sender/Reply-To
+snapshots refuse as `draft_not_displayable`. A post-save raw read must match
+the composed contents before its fingerprint is confirmed. Failure leaves an
+unknown inverse and returns `outcome_unknown`, without retrying the write.
+
+All write pre-reads and dispatches use the resolved account address, so a
+later alias change cannot redirect them. Trash, send and draft delete still
+return `writes_unavailable` until #4214.
 The engine's prepared-operation injection is internal test plumbing, absent
 from the public package API and configuration.
 

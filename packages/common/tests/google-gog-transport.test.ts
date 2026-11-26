@@ -330,9 +330,9 @@ describe("the operation boundary", () => {
     expect(fake.calls().map(call => call.command)).toEqual(["gmail.search"]);
   });
 
-  test("writes have no codec yet, invalid input never runs, and a bad option makes every call unavailable", async () => {
+  test("writes require final admission, invalid input never runs, and a bad option makes every call unavailable", async () => {
     const { fake, transport } = setup({ "gmail.labels.list": { stdout: LABELS } });
-    expect(errorOf(await transport.execute("gmail.modify" as never, { message_ids: [HALL], add_label_ids: ["STARRED"] } as never))).toEqual(["transport_incompatible", "no_codec"]);
+    expect(errorOf(await transport.execute("gmail.modify" as never, { message_ids: [HALL], add_label_ids: ["STARRED"] } as never))).toEqual(["invalid_input", "missing_admission"]);
     expect(errorOf(await transport.execute("gmail.thread.get", { thread_id: "not-a-thread" }))).toEqual(["invalid_input", "schema"]);
     expect(errorOf(await transport.execute("gmail.search", { query: "in:inbox\nlabel:TRASH" }))).toEqual(["invalid_input", "schema"]);
     expect(errorOf(await transport.execute("gmail.labels.list", { extra: true } as never))).toEqual(["invalid_input", "schema"]);

@@ -1,3 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
+import { googleBrainId, googleLedgerPath, openGoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
+import { prepareGmailModify, prepareGmailDraft, GooglePreparationError } from "@schlessera/brain-common/internal/google-gog";
+import { acquireLock } from "../compute/lock.js";
 /**
  * Google for a standalone `brain google` process (#4208, plan
  * [`docs/plans/google-workspace.md`](../../../../../docs/plans/google-workspace.md)
@@ -8,11 +13,12 @@
  * and `…/google-gog`), under the policy's `google` block and the standalone
  * posture:
  *
- * - Reads only, in this release: `gmail.search`, `gmail.thread.get`,
+ * - Reads: `gmail.search`, `gmail.thread.get`,
  *   `gmail.message.get`, `gmail.draft.get` and `gmail.labels.list`. The
  *   principal is the local operator, who is the owner. There is no session,
  *   so no taint and no remembered approval, and nobody to ask: nothing ever
- *   waits for a card.
+ *   waits for a card. Modify and draft create additionally require standalone
+ *   reversible allow and a committed body-free inverse in the private ledger.
  * - Routing: with no conversation to inspect, a policy whose provider rules
  *   restrict what reaches `google` refuses as `recipient_unproven`, as a
  *   standalone Apify process does.
@@ -54,7 +60,8 @@ import { checkGoogleHome, selectGoogleHome, type GoogleHomeSelection } from "./h
 export const GOOGLE_RECIPIENT = "google";
 
 export type GoogleReadCommand = "gmail.search" | "gmail.thread.get" | "gmail.message.get" | "gmail.draft.get" | "gmail.labels.list";
-export type GoogleCliOperation = "status" | "connect" | "approvals" | "revoke" | GoogleReadCommand;
+export type GoogleWriteCommand = "gmail.modify" | "gmail.draft.save";
+export type GoogleCliOperation = GoogleWriteCommand | "status" | "connect" | "approvals" | "revoke" | GoogleReadCommand;
 
 export type GoogleEnvelope =
   | { ok: true; operation: GoogleCliOperation; data: unknown }
@@ -108,6 +115,7 @@ export interface GoogleConnectInput {
 }
 
 export interface StandaloneGoogle {
+  write(operation: GoogleWriteCommand, input: unknown): Promise<GoogleEnvelope>;
   status(): Promise<GoogleEnvelope>;
   connect(input: GoogleConnectInput): Promise<GoogleEnvelope>;
   /** One Gmail read, from its tool's own input (`brain_google_gmail_search` or `brain_google_gmail_read`). */
@@ -600,5 +608,64 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
     }
   }
 
-  return { status, connect, read };
+  async function write(operation: GoogleWriteCommand, input: unknown): Promise<GoogleEnvelope> {
+    const call = parseGoogleToolCall(operation === "gmail.modify" ? GMAIL_TOOL_NAMES.modify : GMAIL_TOOL_NAMES.draft, input);
+    if (!call.ok) return refused(operation, call.error);
+    if (call.call.operation !== operation) return refused(operation, error("invalid_input", "operation_mismatch", "The command requires a reversible Gmail save or modify."));
+    // No snapshot store or card in standalone. Refuse before any credential access.
+    if (call.call.tool === GMAIL_TOOL_NAMES.draft && call.call.input.action !== "create")
+      return refused(operation, error("policy_denied", "standalone_update_requires_card", "Standalone supports draft create only; a draft update needs hosted approval and a snapshot."));
+    const { check, policy } = loadPolicy();
+    if (!check.ok) return refused(operation, error("unavailable", "policy_invalid", MESSAGES.policy_invalid!));
+    const facts: GoogleDecisionFacts = { principal: "owner", posture: "standalone", card_available: false, turn_reversible_items: 0,
+      routing: standaloneGoogleRouting(check.effective.providers), target_label_ids: [] };
+    const gate = decideGoogleCall(policy, { operation, input: call.call.input }, facts);
+    if (gate.outcome !== "admitted") return refused(operation, gate.outcome === "refused" ? gate.error : error("policy_denied", "needs_card", "Standalone cannot ask for approval."));
+    if (!coreEnv.googleLedger) return refused(operation, error("unavailable", "ledger_unset", "Set BRAIN_GOOGLE_LEDGER outside the brain to record the inverse before a write."));
+    const ready = prepare(policy.account);
+    if (!ready.ok) return refused(operation, ready.error);
+    if (!ready.prepared.exists) return refused(operation, error("unavailable", "not_connected", MESSAGES.not_connected!));
+    const { transport } = ready.prepared;
+    let release: (() => void) | undefined, ledger: ReturnType<typeof openGoogleLedger> | undefined;
+    let id: string | undefined, dispatched = false, settled = false;
+    try {
+      const path = googleLedgerPath(coreEnv.googleLedger, options.root);
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      const lock = await acquireLock(path + ".write-lock.sqlite", 30_000);
+      if (!lock) return refused(operation, error("unavailable", "write_busy", "Another standalone write is running; try again when it finishes."));
+      release = () => lock.release();
+      ledger = openGoogleLedger(path);
+      const identity = await transport.resolveAccount();
+      if (!identity.ok) return refused(operation, identity.error);
+      const context = { transport, accountIdentity: identity.value, hiddenLabels: policy.gmail.hidden_labels };
+      const prepared = call.call.tool === GMAIL_TOOL_NAMES.modify ? await prepareGmailModify(context, call.call.input)
+        : call.call.tool === GMAIL_TOOL_NAMES.draft ? await prepareGmailDraft(context, call.call.input, { createdByBrainKit: false, fingerprint: null }) : null;
+      if (!prepared) throw new Error("Unexpected write operation");
+      const decide = () => {
+        const current = loadPolicy();
+        if (!current.check.ok || JSON.stringify(current.policy) !== JSON.stringify(policy)) return error("policy_denied", "policy_changed", "The policy changed before dispatch; nothing was sent.");
+        const decision = decideGoogleCall(current.policy, { operation, input: call.call.input, facts: prepared.classificationFacts },
+          { ...facts, ...prepared.facts, routing: standaloneGoogleRouting(current.check.effective.providers) });
+        return decision.outcome === "admitted" ? null : decision.outcome === "refused" ? decision.error : error("policy_denied", "needs_card", "Standalone cannot ask for approval.");
+      };
+      const refusal = decide(); if (refusal) return refused(operation, refusal);
+      id = randomUUID(); const at = now();
+      ledger.prepareStandalone({ id, brain_id: googleBrainId(options.root), account_identity: identity.value, operation,
+        inverse: prepared.inverse.inverse, precondition: prepared.inverse.precondition, created_at: at, expires_at: at + 604_800_000 });
+      const result = await prepared.execute(() => {
+        if (dispatched || settled) return error("policy_denied", "admission_closed", "This write's admission is closed.");
+        const failure = decide(); if (failure) return failure;
+        dispatched = true; return null;
+      });
+      settled = true;
+      if (!result.ok) { ledger.settleStandalone(id, dispatched ? "unknown" : "withdrawn"); return refused(operation, result.error); }
+      ledger.settleStandalone(id, "confirmed", "inverseResult" in result ? result.inverseResult : undefined);
+      return { ok: true, operation, data: result.result };
+    } catch (cause) {
+      if (id && ledger) { try { ledger.settleStandalone(id, dispatched ? "unknown" : "withdrawn"); } catch { /* Retained prepared is never executable. */ } }
+      return refused(operation, dispatched ? error("outcome_unknown", "write_unconfirmed", "The write may have happened; check before trying again.")
+        : cause instanceof GooglePreparationError ? cause.error : error("unavailable", "recording_unavailable", "The write could not be prepared or recorded; nothing was sent."));
+    } finally { settled = true; ledger?.close(); release?.(); }
+  }
+  return { status, connect, read, write };
 }
