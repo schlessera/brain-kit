@@ -132,7 +132,9 @@ export interface EgressProxyOptions {
    * asks before refusing a narrowed destination (#3430); absent, or resolving
    * anything but `true`, refuses.
    */
-  taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean; contacted(host: string): boolean;
+  taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean;
+    /** `destination`: the connection asking, so a host grant scoped to one origin or connection can tell (#3595). */
+    contacted(host: string, destination?: { port: number; method: string; protocol: string; connectionId: string }): boolean;
     /** Immutable evidence/authority marker; excludes inputs admitted under this exact shared card. */
     approvalRevision?(connectionId?: string, kind?: "network" | "outward"): string;
     recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean | Extract<EgressRecipientAuthority,{kind:"rule"}>["admission"];
@@ -428,7 +430,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!granted && !outwardApproved) return true;
       try {
         // After handoff, an explicit Network answer is the standing session grant.
-        const sessionGrant=granted&&lifecycle.dispatched()&&options.taint?.contacted(host);
+        const sessionGrant=granted&&lifecycle.dispatched()&&options.taint?.contacted(host,asking);
         return (!granted||sessionGrant||grantRevision===approvalRevision(own))&&(!outwardApproved||outwardRevision===approvalRevision(own,true));
       } catch { return false; }
     };
@@ -439,6 +441,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       catch { finish("denied","egress_unavailable"); }
     };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
+    const asking = { port, method, protocol: url.protocol, connectionId };
     // Checked again after an approval wait, during which another connection may taint the session.
     // Inference/provider relays retain G5. Managed references retain ordinary
     // G6 recipient narrowing; repository trust never grants outbound authority.
@@ -447,7 +450,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if(inference||provider)return {kind:"allowance"};
       const rule=options.taint?.recipient?.(recipient);
       if(rule)return typeof rule === "object" ? {kind:"rule",admission:rule} : {kind:"allowance"};
-      if(!options.taint?.tainted(final?connectionId:undefined)||matches(host,options.taint.allow)||options.taint.contacted(host))return {kind:"allowance"};
+      if(!options.taint?.tainted(final?connectionId:undefined)||matches(host,options.taint.allow)||options.taint.contacted(host,asking))return {kind:"allowance"};
       return null;
     };
     const narrowed = (final = false) => recipientDecision(final) === null;

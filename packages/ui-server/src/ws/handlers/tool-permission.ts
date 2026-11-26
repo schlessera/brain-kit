@@ -23,6 +23,7 @@ function replyResolution(
       turnId: record.turnId,
       ...(record.channel ? { channel: record.channel } : {}),
       ...(record.reason ? { reason: record.reason } : {}),
+      ...(record.networkScope ? { networkScope: record.networkScope } : {}),
     });
     return;
   }
@@ -120,12 +121,22 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
       },
     });
   }
+  // A tainted Network card's scope (#3595). Only one the request offered
+  // reaches the decision; any other narrows to this one connection, so a
+  // client cannot reach further than the card it was shown.
+  const offered = pending.request.network?.scopes;
+  let networkScope = offered && msg.networkScope !== undefined ? msg.networkScope : undefined;
+  if (networkScope !== undefined && !offered!.includes(networkScope)) {
+    host.log.emit({ severityText: "WARN", body: "unoffered network scope narrowed to once",
+      attributes: { "tool.name": pending.request.toolName, "toolUse.id": msg.toolUseId, scope: networkScope } });
+    networkScope = "once";
+  }
   coordinator.settleApproval(
     msg.toolUseId,
     pending,
     msg.updatedInput
-      ? { behavior: "allow", updatedInput: msg.updatedInput }
-      : { behavior: "allow", ...(actorAlways ? { always: true } : {}) },
+      ? { behavior: "allow", updatedInput: msg.updatedInput, ...(networkScope ? { networkScope } : {}) }
+      : { behavior: "allow", ...(actorAlways ? { always: true } : {}), ...(networkScope ? { networkScope } : {}) },
     {
       principalId: connection.authorization.principalId,
       ...(msg.always && (remembers || actorAlways) ? { always: true } : {}),

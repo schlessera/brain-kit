@@ -110,7 +110,9 @@ export interface BackendCapabilities {
 }
 
 export type PermissionDecision =
-  | { behavior: "allow"; updatedInput?: Record<string, unknown>; always?: boolean }
+  | { behavior: "allow"; updatedInput?: Record<string, unknown>; always?: boolean;
+    /** The scope the user chose on a request offering `network` (#3595); absent keeps the legacy answer. */
+    networkScope?: import("../protocol.js").NetworkApprovalScope }
   | { behavior: "deny"; message: string };
 
 export interface PermissionRequest {
@@ -145,6 +147,12 @@ export interface PermissionRequest {
    * never authority.
    */
   display?: import("../protocol.js").ApprovalDisplay;
+  /**
+   * A tainted Network approval's destination and offered scopes (#3595),
+   * sent with the approval frame. Only a scope offered here can come back
+   * as the decision's `networkScope`.
+   */
+  network?: import("../protocol.js").NetworkApprovalOffer;
 }
 
 export interface AskUserResult {

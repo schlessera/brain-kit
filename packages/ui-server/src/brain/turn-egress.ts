@@ -3,10 +3,11 @@ import { originTrustMatchSnapshot, type OriginTrust, type OriginDestination } fr
 import type { EffectiveGovernancePolicy, TrustMatch } from "@schlessera/brain-common/internal/governance-policy";
 import { startEgressProxy, canonicalEgressHost, validatedEgressProvenance, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
+import type { NetworkApprovalOffer, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
-import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
+import { contactedHosts, networkGrants, networkOriginKey, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
 import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
 import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
@@ -143,6 +144,18 @@ export async function prepareTurnEgress(options: {
   const recording = new Set<Promise<unknown>>();
   // Hosts earlier turns of the session reached, then every host this turn admits.
   const contacted = new Set(db ? contactedHosts(db, options.sessionId()) : []);
+  // The session's explicit wider Network grants (#3595), then each one this
+  // turn commits. `scoped`: the scope that admitted a connection, which
+  // keeps its host out of `contacted` and names the scope on its record.
+  const grants = db ? networkGrants(db, options.sessionId()) : { session: false, origins: new Set<string>() };
+  const scoped = new Map<string, NetworkApprovalScope>();
+  const networkOrigin = (destination: { host: string; port: number; method: string }) =>
+    ({ transport: destination.method === "CONNECT" ? "connect" as const : "http" as const, host: destination.host, port: destination.port });
+  /** The wider grant that covers this destination, if any. A one-time answer covers its own connection only. */
+  const grantScope = (destination: { host: string; port: number; method: string }, connectionId?: string): NetworkApprovalScope | undefined => {
+    if (connectionId && scoped.get(connectionId) === "once") return "once";
+    return grants.session ? "session" : grants.origins.has(networkOriginKey(networkOrigin(destination))) ? "origin" : undefined;
+  };
   const collectionEpoch = (db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId) as {id:string}|null)?.id??crypto.randomUUID();
   const exposures = new Map<string, Occurrence>();
   const ownCollectionStarts = new Map<string,string>();
@@ -201,7 +214,7 @@ export async function prepareTurnEgress(options: {
   };
   const releaseConnection = (connectionId?: string) => {
     if (!connectionId) return;
-    trustedInputs.delete(connectionId);standingRecipients.delete(connectionId);
+    trustedInputs.delete(connectionId);standingRecipients.delete(connectionId);scoped.delete(connectionId);
     exposures.delete(connectionId);ownCollectionStarts.delete(connectionId);exposureCommits.delete(connectionId);normalBefore.delete(connectionId);
     approvalGroups.get(connectionId)?.members.delete(connectionId);approvalGroups.delete(connectionId);
     approvalMarkers.delete(`${connectionId}:network`);approvalMarkers.delete(`${connectionId}:outward`);
@@ -210,7 +223,8 @@ export async function prepareTurnEgress(options: {
     try {
       if (!options.record) return;
       const trustedSource = record.connectionId ? trustedInputs.has(record.connectionId) : false;
-      track(options.record({ ...base(), kind: "egress_connection", payload: { ...record, ...(trustedSource ? { trustedSource: true } : {}), ...(record.connectionId && standingRecipients.has(record.connectionId) ? { standingRecipient: true, recipientAdmission: standingRecipients.get(record.connectionId) } : {}) } }));
+      const networkScope = record.connectionId ? scoped.get(record.connectionId) : undefined;
+      track(options.record({ ...base(), kind: "egress_connection", payload: { ...record, ...(trustedSource ? { trustedSource: true } : {}), ...(record.connectionId && standingRecipients.has(record.connectionId) ? { standingRecipient: true, recipientAdmission: standingRecipients.get(record.connectionId) } : {}), ...(networkScope ? { networkScope } : {}) } }));
       const exposure = record.connectionId ? exposures.get(record.connectionId) : undefined;
       if (exposure) {
         // A clean HTTP completion proves bounded input ended. A tunnel close
@@ -283,21 +297,50 @@ export async function prepareTurnEgress(options: {
       approvalMarkers.set(key,{version,marker}); return marker;
     };
   type NetworkAnswer = boolean | "superseded" | "expired" | "unconfirmed";
-  const asking = new Map<string, {decision:Promise<NetworkAnswer>;group:ApprovalGroup}>();
+  type NetworkDecision = { answer: NetworkAnswer; scope?: NetworkApprovalScope };
+  const asking = new Map<string, {decision:Promise<NetworkDecision>;group:ApprovalGroup;owner?:string}>();
+  /**
+   * Commits an origin or session grant before any connection uses it
+   * (#3595). Without a durable record it grants nothing.
+   */
+  const commitGrant = async (scope: "origin" | "session", origin: ReturnType<typeof networkOrigin>, toolUseId: string): Promise<boolean> => {
+    if (!options.record || options.controller.signal.aborted) return false;
+    try {
+      const result = await options.record({ ...base(), kind: "network_grant", payload: scope === "session" ? { scope, toolUseId } : { scope, toolUseId, ...origin } });
+      if (result === false || result && typeof result === "object" && "recorded" in result && result.recorded === false
+        && !("id" in result && typeof result.id === "number" && result.id > 0)) return false;
+    } catch { return false; }
+    if (scope === "session") grants.session = true; else grants.origins.add(networkOriginKey(origin));
+    return true;
+  };
   const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?:string, replacement=false): Promise<NetworkAnswer> => {
     const key = JSON.stringify([destination.host, destination.port, destination.method, destination.protocol, destination.managedReference, approvalRevision()]);
     let pending = asking.get(key);
     if (!pending) {
+      const origin = networkOrigin(destination);
+      const network: NetworkApprovalOffer = { ...origin, scopes: ["once", "origin", "session"] };
       const toolUseId = crypto.randomUUID();
       const decision = requestToolPermission(options.bridge, { toolUseId, toolName: "Network", kind: "command",
-        input: { ...destination, target: networkAuthority(destination) },
+        input: { ...destination, target: networkAuthority(destination) }, network,
         description: (replacement ? "New safety evidence arrived while the previous request was waiting. " : "") + taintedDestinationDescription(destination, firstTaint()?.source ?? null),
-      }).then(decision => decision.behavior === "allow" ? true : options.networkRefusal?.(toolUseId) ?? false, () => "unconfirmed" as const).finally(() => asking.delete(key));
-      pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set()}};
+      }).then(async (decision): Promise<NetworkDecision> => {
+        if (decision.behavior !== "allow") return { answer: options.networkRefusal?.(toolUseId) ?? false };
+        // A wider grant commits before any connection relies on it.
+        const scope = decision.networkScope;
+        if ((scope === "origin" || scope === "session") && !await commitGrant(scope, origin, toolUseId)) return { answer: "unconfirmed" };
+        return { answer: true, ...(scope ? { scope } : {}) };
+      }, () => ({ answer: "unconfirmed" as const })).finally(() => asking.delete(key));
+      pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set()},...(connectionId?{owner:connectionId}:{})};
       asking.set(key, pending);
     }
     if(connectionId){pending.group.members.add(connectionId);approvalGroups.set(connectionId,pending.group);}
-    const allowed = await pending.decision;
+    const settledDecision = await pending.decision;
+    // A one-time answer allows only the connection whose card it was; a
+    // concurrent one for the same destination asks for itself.
+    if (settledDecision.answer === true && settledDecision.scope === "once" && pending.owner !== connectionId)
+      return signal.aborted ? false : approveTainted(destination, signal, connectionId, replacement);
+    if (settledDecision.answer === true && settledDecision.scope && connectionId) scoped.set(connectionId, settledDecision.scope);
+    const allowed = settledDecision.answer;
     const safety = options.bridge.admissionSafety;
     if (allowed === "superseded" && db && safety && !signal.aborted && currentProjection().pendingCount > 0) {
       // A new input withdraws the old card before its write commits. Wait only
@@ -355,8 +398,14 @@ export async function prepareTurnEgress(options: {
       return firstTaint() !== null;
     },
     // An `allow` from the extraction classifier relaxes this check, and only
-    // this one, while the readable call naming the host is in progress.
-    contacted: (host: string) => contacted.has(host) || extraction?.relaxes(host) === true,
+    // this one, while the readable call naming the host is in progress. An
+    // explicit wider Network grant covers its destinations (#3595).
+    contacted: (host: string, destination?: { port: number; method: string; protocol: string; connectionId: string }) => {
+      if (contacted.has(host) || extraction?.relaxes(host) === true) return true;
+      const scope = destination ? grantScope({ host, ...destination }, destination.connectionId) : undefined;
+      if (scope && !scoped.has(destination!.connectionId)) scoped.set(destination!.connectionId, scope);
+      return scope !== undefined;
+    },
     // A refusal names what tainted the session, as the card does (#3431).
     cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
     // Voice has no grant surface; it keeps refusing without a card (#3430).
@@ -430,7 +479,8 @@ export async function prepareTurnEgress(options: {
     committed:destination=>{
       if(destination.inference||destination.provider)return;
       if(destination.recipientAuthority.kind === "rule")standingRecipients.set(destination.connectionId,destination.recipientAuthority.admission);
-      if (!destination.managedReference && (destination.recipientApproved || !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId))) contacted.add(destination.host);
+      // A scoped Network answer is its own grant; it never widens to the host (#3595).
+      if (!destination.managedReference && !scoped.has(destination.connectionId) && (destination.recipientApproved || !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId))) contacted.add(destination.host);
     }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;

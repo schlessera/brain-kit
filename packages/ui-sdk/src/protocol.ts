@@ -878,6 +878,39 @@ export interface ClientToolApproval {
   channel?: ApprovalChannel;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
   turnId?: string;
+  /**
+   * How far a tainted Network approval reaches (additive, #3595): one of the
+   * request's `network.scopes`. Absent keeps the legacy answer, which lets
+   * the request's host through for the rest of the session. A scope the
+   * request did not offer creates no grant: the host allows only this
+   * connection, as for `"once"`. Ignored on any other request.
+   */
+  networkScope?: NetworkApprovalScope;
+}
+
+/**
+ * How far a tainted Network approval reaches (#3595). `once`: this one
+ * connection, asking again for the next. `origin`: this transport, host and
+ * port for the rest of this chat session. `session`: every destination for
+ * the rest of this chat session. A wider grant only skips the taint-specific
+ * Network question; deny and allow lists, byte limits and outward-action
+ * approvals still apply.
+ */
+export type NetworkApprovalScope = "once" | "origin" | "session";
+
+/**
+ * The destination a tainted Network approval names and the scopes the host
+ * offers for it (#3595). `transport` `http` is a cleartext HTTP request;
+ * `connect` is an opaque CONNECT tunnel, whose payload the host cannot see.
+ * `port` is the effective port. The same host on another port or transport
+ * is another origin.
+ */
+export interface NetworkApprovalOffer {
+  transport: "http" | "connect";
+  host: string;
+  port: number;
+  /** Narrowest first; a reply's `networkScope` must be one of them. */
+  scopes: NetworkApprovalScope[];
 }
 
 export interface ClientToolDenial {
@@ -1333,6 +1366,12 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * card shows its neutral state instead and the approval works as before.
    */
   display?: ApprovalDisplay;
+  /**
+   * A tainted Network approval's destination and the scopes it offers
+   * (additive, #3595). Absent on every other request, and from hosts that
+   * offer no scope: a client then keeps its single Allow.
+   */
+  network?: NetworkApprovalOffer;
 }
 
 /** Host-verified facts an approval card may show (#4154). Display only. */
@@ -2834,6 +2873,8 @@ export interface ServerToolResolution extends SessionScoped {
   /** Channel of the decision that settled it, when one did. */
   channel?: ApprovalChannel;
   reason?: string;
+  /** The scope a granted tainted Network approval took (additive, #3595). */
+  networkScope?: NetworkApprovalScope;
 }
 
 /**

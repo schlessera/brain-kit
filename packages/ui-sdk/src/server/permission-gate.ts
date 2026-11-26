@@ -3,6 +3,7 @@ import type {
   PermissionDecision,
   PermissionRequest,
 } from "./backend.js";
+import type { NetworkApprovalScope } from "../protocol.js";
 import { sameSafetyAdmission, safetySnapshotRefusal, STALE_SAFETY_ADMISSION } from "./admission-safety.js";
 import {
   ARCHIVING_UPDATE_REASON,
@@ -334,8 +335,14 @@ function snapshotEdit(request: PermissionRequest, decision: PermissionDecision):
     const message = (decision as { message?: unknown }).message;
     return { behavior: "deny", message: typeof message === "string" ? message : "Denied." };
   }
+  // A tainted Network scope survives only as one the request offered; any
+  // other value narrows to this one connection (#3595).
+  const scope = (decision as { networkScope?: unknown }).networkScope;
+  const offered: readonly string[] | undefined = request.network?.scopes;
+  const network = scope === undefined || !offered ? {}
+    : { networkScope: typeof scope === "string" && offered.includes(scope) ? scope as NetworkApprovalScope : "once" as const };
   const updatedInput = (decision as { updatedInput?: unknown }).updatedInput;
-  if (updatedInput === undefined) return { behavior: "allow" };
+  if (updatedInput === undefined) return { behavior: "allow", ...network };
   let snapshot: unknown;
   try {
     snapshot = JSON.parse(JSON.stringify(updatedInput));
@@ -348,5 +355,5 @@ function snapshotEdit(request: PermissionRequest, decision: PermissionDecision):
       message: `The approval for ${request.toolName} came back with an input that cannot be applied, so it did not run. Re-issue the call as you want it.`,
     };
   }
-  return { behavior: "allow", updatedInput: snapshot as Record<string, unknown> };
+  return { behavior: "allow", updatedInput: snapshot as Record<string, unknown>, ...network };
 }

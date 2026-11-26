@@ -4632,6 +4632,38 @@ a card as before; deny and `allowlist` mode still refuse first. Maintainer
 ruling A on #3430; B (ask only for reads) and C (keep refusing with an
 after-the-fact notice) were rejected.
 
+<a id="tainted-network-scopes"></a>
+
+**Scoped tainted Network approvals — 2026-11-05
+([#3595](https://github.com/schlessera/brain-kit/issues/3595)).** The
+single hostname-wide Allow above was too coarse in both directions: one
+connection could only be granted by trusting the host for the rest of the
+session, and a grant for one port or transport covered every other. The
+maintainer authorized four choices on the card: **Allow once**, **Allow this
+origin for this session**, **Allow all origins for this session** and
+**Deny**. The host advertises the destination's origin and the scopes it
+offers on the request (`NetworkApprovalOffer`,
+`packages/ui-sdk/src/protocol.ts:908-913`), and a reply names one of them.
+An origin is the transport, host and effective port: cleartext HTTP and an
+opaque CONNECT tunnel are distinct, and the host claims no visibility into a
+tunnel's payload. A scope the card did not offer narrows to once
+(`handleToolApproval`, `packages/ui-server/src/ws/handlers/tool-permission.ts:127-133`).
+A missing scope keeps the legacy hostname/session answer, so old clients are
+unchanged. An origin or session grant commits as the session's own
+`network_grant` record before the connection is admitted, and grants nothing
+when that write fails or the turn has stopped (`const commitGrant`,
+`packages/ui-server/src/brain/turn-egress.ts:306-315`). Later turns of the
+same chat session read it back (`networkGrants`,
+`packages/ui-server/src/governance/session-taint.ts:61-70`). A one-time
+answer allows only the connection whose card it was; a concurrent connection
+to the same destination asks for itself (`const approveTainted`,
+`packages/ui-server/src/brain/turn-egress.ts:316-343`). No scoped connection
+becomes a contacted host, in this turn or from its record, so neither once
+nor an origin grant widens to the host. Wider grants skip only the
+taint-specific question; deny, `allowlist` mode, the byte ceiling, outward
+approvals, voice and autonomous turns are unchanged. Keyboard allow is the
+narrowest choice. No permanent policy write is implied.
+
 <a id="extraction-heuristics"></a>
 
 **Extraction heuristics at admission — 2026-11-16

@@ -498,3 +498,21 @@ describe("a caller-supplied stateful RegExp", () => {
   });
 });
 
+
+describe("a tainted Network scope, as the backends receive it (#3595)", () => {
+  const network = { transport: "http" as const, host: "aeaea.invalid", port: 8080, scopes: ["once" as const, "origin" as const] };
+  const request = { toolUseId: "t-aeaea", toolName: "Network", input: { host: "aeaea.invalid", port: 8080 }, kind: "command" as const };
+  const via = (decision: unknown, offered = true) =>
+    requestToolPermission({ requestPermission: async () => decision as never }, { ...request, ...(offered ? { network } : {}) });
+
+  test("an offered scope survives the rebuilt decision", async () => {
+    expect(await via({ behavior: "allow", networkScope: "origin" }), "OFFERED_SCOPE_SURVIVES_GATE").toEqual({ behavior: "allow", networkScope: "origin" });
+  });
+  test("a scope the request did not offer narrows to once", async () => {
+    expect(await via({ behavior: "allow", networkScope: "session" }), "UNOFFERED_SCOPE_NARROWS_AT_GATE").toEqual({ behavior: "allow", networkScope: "once" });
+  });
+  test("a scope on a request that offers none is dropped, and an unscoped answer stays unscoped", async () => {
+    expect(await via({ behavior: "allow", networkScope: "session" }, false), "SCOPE_WITHOUT_OFFER_DROPPED").toEqual({ behavior: "allow" });
+    expect(await via({ behavior: "allow" })).toEqual({ behavior: "allow" });
+  });
+});

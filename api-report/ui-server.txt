@@ -716,6 +716,11 @@ signatures (every public export and the types it is made of)
                 loopLagMaxMs: z.ZodOptional<z.ZodNumber>;
                 managedReference: z.ZodOptional<z.ZodLiteral<true>>;
                 method: z.ZodString;
+                networkScope: z.ZodOptional<z.ZodEnum<{
+                    once: "once";
+                    origin: "origin";
+                    session: "session";
+                }>>;
                 outcome: z.ZodEnum<{
                     cancelled: "cancelled";
                     completed: "completed";
@@ -751,6 +756,22 @@ signatures (every public export and the types it is made of)
                     not_allowlisted: "not_allowlisted";
                     taint_allowlist: "taint_allowlist";
                 }>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly network_grant: {
+            payload: z.ZodObject<{
+                host: z.ZodOptional<z.ZodString>;
+                port: z.ZodOptional<z.ZodNumber>;
+                scope: z.ZodEnum<{
+                    origin: "origin";
+                    session: "session";
+                }>;
+                toolUseId: z.ZodString;
+                transport: z.ZodOptional<z.ZodEnum<{
+                    connect: "connect";
+                    http: "http";
+                }>>;
             }, z.core.$strict>;
             version: number;
         };

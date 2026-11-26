@@ -11,6 +11,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import type {
   ApprovalChannel,
+  NetworkApprovalScope,
   AskUserListSpec,
   AskUserRankSpec,
   AskUserFormSpec,
@@ -323,6 +324,8 @@ interface ToolResolutionRecord {
   sessionId: string | null;
   channel?: ApprovalChannel;
   reason?: string;
+  /** The scope a granted tainted Network approval took (#3595). */
+  networkScope?: NetworkApprovalScope;
 }
 
 /** Settled outcomes retained for late replies; the oldest is evicted first. */
@@ -870,6 +873,7 @@ export class TurnCoordinator {
       turnId: claimed.turnId,
       sessionId: claimed.turn.sessionId,
       ...(response.channel ? { channel: response.channel } : {}),
+      ...(decision.behavior === "allow" && decision.networkScope ? { networkScope: decision.networkScope } : {}),
     });
     claimed.resolve(decision, response);
   }

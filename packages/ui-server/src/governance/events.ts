@@ -55,6 +55,9 @@ const roadblockCall = z.strictObject({
   signature: z.string().min(1).max(1000),
 });
 
+const networkScope = z.enum(["once", "origin", "session"]);
+const networkOrigin = { transport: z.enum(["http", "connect"]), host: z.string().min(1).max(255), port: z.number().int().min(1).max(65535) };
+
 function kind<T extends z.ZodType>(version: number, payload: T) {
   return { version, payload };
 }
@@ -83,7 +86,20 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     headersMs: amount.optional(), firstChunkMs: amount.optional(), loopLagMaxMs: amount.optional(),
     outcome: z.enum(["completed", "denied", "failed", "cancelled"]),
     inference: z.literal(true).optional(), provider: z.literal(true).optional(), managedReference: z.literal(true).optional(), trustedSource: z.literal(true).optional(), recipientApproved: z.literal(true).optional(), dispatched: z.boolean().optional(), failureReason: z.enum(["budget","safety_changed","policy_denied","unavailable","cancelled"]).optional(), standingRecipient: z.literal(true).optional(), recipientAdmission: safetyAdmissionSchema.options[1].omit({trusted:true}).extend({instance:safetyAdmissionSchema.options[1].shape.trustRevision.optional()}).optional(), reason: z.string().max(200).optional(),
+    /** The tainted Network scope that admitted it (#3595); such a record never reads back as a contacted host. */
+    networkScope: networkScope.optional(),
   })),
+  /**
+   * A tainted Network approval that reaches past its own connection (#3595),
+   * committed before that connection is admitted. It lets the chat session's
+   * later connections skip the taint-specific Network question: `origin` for
+   * the same transport, host and effective port, `session` for every one.
+   */
+  network_grant: kind(1, z.strictObject({ scope: z.enum(["origin", "session"]), toolUseId: z.string().min(1).max(200),
+    transport: networkOrigin.transport.optional(), host: networkOrigin.host.optional(), port: networkOrigin.port.optional() })
+    // An origin grant names its whole origin; a session grant names none.
+    .refine(grant => grant.scope === "origin" ? grant.transport !== undefined && grant.host !== undefined && grant.port !== undefined
+      : grant.transport === undefined && grant.host === undefined && grant.port === undefined, { message: "network_grant origin does not match its scope" })),
   steering_change: kind(1, z.strictObject({ path, sequence: count,
     tainted: z.literal(true).optional(),
     beforeHash: policyHash, afterHash: policyHash, taintSourceEventId: z.number().int().positive().nullable(),

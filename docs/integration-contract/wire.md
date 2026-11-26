@@ -2923,6 +2923,34 @@ number, with its `html_url` validated by the contract or `null`.
 How the host resolves the facts, and when each is `null`, is in
 [the MCP component](mcp.md#github-writes-additive-0450-3798).
 
+<a id="network-approval-scopes-additive-0450-3595"></a>
+
+### Network approval scopes (additive, 0.45.0, #3595)
+
+A tainted destination's `tool_approval_request` (`toolName: "Network"`,
+`kind: "command"`) optionally carries `network: NetworkApprovalOffer`,
+`{ transport: "http" | "connect", host, port, scopes }`: the destination's
+origin and the scopes the host offers for it, narrowest first. `transport`
+`http` is a cleartext HTTP request and `connect` an opaque CONNECT tunnel;
+`port` is the effective port. A `tool_approval` reply to it may carry
+`networkScope`, one of `"once"`, `"origin"` or `"session"`:
+
+- `once` allows this connection only and asks again for the next one, in this
+  turn and later ones.
+- `origin` also allows later connections of this chat session to the same
+  transport, host and port, in any turn.
+- `session` also allows every later destination of this chat session.
+
+A wider scope skips only the taint-specific Network question. A reply without
+`networkScope` keeps the legacy answer, which lets the host through for the
+rest of the session. A scope the request did not offer narrows to `once`, and
+`networkScope` on any other request is ignored. A client that offers scopes
+answers its plain Allow, and a keyboard allow, with the narrowest one. A
+re-delivered card carries the same offer. `tool_resolution` and the
+`approval_decision` activity event carry the granted `networkScope`.
+Clients validate the offer (`serverToolApprovalRequestSchema`); one that fails
+it is dropped, and the card keeps its single Allow.
+
 ### Claude title-helper accounting (#2052)
 
 No WebSocket field changes. Root result/live usage remains completed main/child
