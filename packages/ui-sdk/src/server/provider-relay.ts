@@ -533,16 +533,19 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const dispatchDecision = operation?.prepare();
     if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
     const attemptId = crypto.randomUUID();
-    let reported = false;
+    let reported = false, started = false, dispatched = false;
     let upstreamStatus=0;
     const observe = (outcome: ProviderRelayReceipt["outcome"], usage: ProviderUsage | null): void => {
+      if (outcome === "dispatched") { if (dispatched) return; dispatched = true; }
       try { options.observe?.({ attemptId, family, operation: route.operation, origin, key, model, outcome, status:upstreamStatus, usage, inlineMedia }); }
       catch { /* The host's own accounting reports its failure; the worker's answer is unaffected. */ }
     };
+    // Receipts belong to attempts that left the host (#4370): one refused
+    // before its upstream request started has only the caller's refusal.
     const report = (outcome: Exclude<ProviderRelayReceipt["outcome"], "dispatched">, usage: ProviderUsage | null): void => {
       if (reported) return;
       reported = true;
-      observe(outcome, usage);
+      if (started) { observe("dispatched", null); observe(outcome, usage); }
       done();
     };
     try{options.preparing?.({attemptId,family,operation:route.operation,origin,key,model,status:0,usage:null,inlineMedia});}catch{/* Diagnostics do not authorize a send. */}
@@ -553,7 +556,9 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       const finalFailure=chargeFailure(0) ?? captureEgressFailure(signal).failure;
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       let pending!:Promise<Response>;
-      const send=()=>{pending=fetch(target,{method:request.method,headers,...(request.method==="POST"?{body}:{}),redirect:"manual",signal});};
+      // A dispatch that fails after the send aborts this request unawaited;
+      // its rejection is the attempt's failure, reported below, not a crash.
+      const send=()=>{pending=fetch(target,{method:request.method,headers,...(request.method==="POST"?{body}:{}),redirect:"manual",signal});pending.catch(()=>{});started=true;};
       const decision=operation?operation.dispatch(send):(send(),{ok:true as const});
       if(!decision.ok){report("cancelled",null);return chargeDenied(decision);}
       observe("dispatched",null);
@@ -707,8 +712,13 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const operation = options.egress?.relayed("DELETE", target, timeout);
     const signal=operation?AbortSignal.any([timeout,operation.signal]):timeout;
     const attemptId = crypto.randomUUID();
-    let upstreamStatus=0;
+    let upstreamStatus=0, started=false, dispatched=false;
+    // As for a worker's attempt (#4370): a DELETE refused before its request
+    // started leaves no receipt; one that started reports once it settles.
     const observe = (outcome: ProviderRelayReceipt["outcome"]): void => {
+      if (!started) return;
+      if (outcome === "dispatched") { if (dispatched) return; dispatched = true; }
+      else if (!dispatched) observe("dispatched");
       try { options.observe?.({ attemptId, family: "gemini", operation: "files", origin: entry.origin, key: entry.key, model: null, outcome, status:upstreamStatus, usage: null, inlineMedia: false }); }
       catch { /* The host's own accounting reports its failure. */ }
     };
@@ -728,7 +738,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       const finalFailure=allowance.charge(0)??captureEgressFailure(signal).failure;
       if(finalFailure){observe("cancelled");return;}
       let pending!:Promise<Response>;
-      const send=()=>{pending=fetch(target,{method:"DELETE",headers,redirect:"manual",signal});};
+      const send=()=>{pending=fetch(target,{method:"DELETE",headers,redirect:"manual",signal});pending.catch(()=>{});started=true;};
       const decision=operation?operation.dispatch(send):(send(),{ok:true as const});
       if(!decision.ok){observe("cancelled");return;}
       observe("dispatched");

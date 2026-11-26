@@ -6303,6 +6303,15 @@ relay uploads/responses share the same saturating allowance accounting.
 Preparation and exposure notifications are separate: proxy `preparing` and
 provider relay `preparing` run before the last send fence; `committed` and
 provider `observe({outcome:"dispatched",...})` report an actual transport start.
+A provider attempt receipt of any outcome follows only such a start (#4370):
+an ordinary relay, Files or Files-cleanup attempt refused at preparation, at
+the final charge/egress fence, at `dispatch(send)` or by a synchronous request
+constructor throw publishes no `dispatched` and no terminal receipt, so the
+host books no usage for it. Its caller refusal and `refused` diagnostic are
+unchanged. A started attempt still reports `dispatched` and exactly one
+terminal outcome under its `attemptId`, including when the dispatch fails after
+its request started. Observers that counted those pre-dispatch `cancelled`
+receipts now see none.
 Relayed operations expose `prepare()` and `dispatch(send)` in place of this
 change's provisional `commit()` method. A pending terminal decision during a
 synchronous transport handoff joins its final dispatched fact before audit only
