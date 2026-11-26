@@ -3271,11 +3271,14 @@ ol.bk-ut-list { list-style: decimal outside; }
 
 /* Both lists' rows are a real list (`ul`/`li`) inside the card's flush body,
  * so `.bk-focus-clip > .bk-row` cannot reach a row. These rules carry the
- * card's corners down the same way: the list and each item inherit the body's
- * radius (they paint nothing, so it shows nowhere), and a focused edge row
- * takes it, so its inset ring follows the card's curve as `ListRow`'s does. */
+ * card's corners down the same way: the list inherits the body's radius, and
+ * only an edge item inherits the corners on its edge, so a focused edge row's
+ * inset ring follows the card's curve as `ListRow`'s does. A middle item stays
+ * square: an allowance item paints its own divider, whose ends must stay
+ * straight (#4212 re-review R1). */
 .bk-google-list { margin: 0; padding: 0; list-style: none; border-radius: inherit; }
-.bk-google-list > li { border-radius: inherit; }
+.bk-google-list > li:first-child { border-top-left-radius: inherit; border-top-right-radius: inherit; }
+.bk-google-list > li:last-child { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
 .bk-google-list > li:first-child > .bk-row:focus-visible {
   border-top-left-radius: inherit;
   border-top-right-radius: inherit;

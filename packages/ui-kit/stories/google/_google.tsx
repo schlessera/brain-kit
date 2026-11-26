@@ -161,8 +161,8 @@ function boxEscapes(list: List): string[] {
  * Text the card would hide by clipping, as sentences. A `Surface` clips, so a
  * label name, an address or an action title that outgrew its box would vanish
  * rather than escape. Every title, address and count line is a block that
- * must hold all of its text: no wider or taller content than its box, and no
- * ellipsis.
+ * must hold all of its text: no wider or taller content than its box, no
+ * ellipsis, and no clipping ancestor cutting it off.
  */
 function clippedText(list: List): string[] {
   const out: string[] = [];
@@ -172,6 +172,19 @@ function clippedText(list: List): string[] {
     if (box.scrollWidth > box.clientWidth) out.push(`${name} holds ${box.scrollWidth}px of text in ${box.clientWidth}px`);
     if (box.scrollHeight > box.clientHeight) out.push(`${name} holds ${box.scrollHeight}px of text in ${box.clientHeight}px of height`);
     if (getComputedStyle(box).textOverflow === "ellipsis") out.push(`${name} can end in an ellipsis`);
+    // An enclosing box that clips can hide a fully sized text box (#4212 re-review R2):
+    // the text must lie inside every clipping ancestor's client box, up to the list root.
+    const own = box.getBoundingClientRect();
+    for (let el = box.parentElement; el && list.contains(el); el = el.parentElement) {
+      const style = getComputedStyle(el);
+      if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+      const r = el.getBoundingClientRect();
+      const left = r.left + el.clientLeft, top = r.top + el.clientTop;
+      if (own.left < left - 0.5 || own.top < top - 0.5 || own.right > left + el.clientWidth + 0.5 || own.bottom > top + el.clientHeight + 0.5) {
+        out.push(`${name} is cut off by an enclosing box that clips`);
+        break;
+      }
+    }
   }
   return out;
 }

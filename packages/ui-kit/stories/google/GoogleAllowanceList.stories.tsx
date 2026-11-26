@@ -129,6 +129,10 @@ export const NearlyUsed = meta.story({
     await expect(getComputedStyle(low).color, "3 left is amber").toBe(amberInk());
     await expect(getComputedStyle(open).color, "84 left is not").not.toBe(amberInk());
     await expect(low.textContent, "the words carry it, not the colour alone").toBe("3 of 100 changes left · until 21:40");
+    // The first row paints the divider; its ends stay straight (#4212 re-review R1).
+    const first = context.canvasElement.querySelector<HTMLElement>("[data-google-grant]")!;
+    await expect(getComputedStyle(first).borderBottomWidth, "the first row draws a divider").not.toBe("0px");
+    await expect([getComputedStyle(first).borderBottomLeftRadius, getComputedStyle(first).borderBottomRightRadius], "the divider's ends are square").toEqual(["0px", "0px"]);
   },
 });
 export const NearlyUsedNarrow = NearlyUsed.extend({ ...narrow });
