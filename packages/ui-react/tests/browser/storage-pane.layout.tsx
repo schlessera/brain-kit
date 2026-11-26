@@ -974,13 +974,14 @@ const MATRIX: MatrixScenario[] = [
     cells: ALL,
     kind: "dense",
     dialog: true,
-    act: async (fixture) => {
+    act: async () => {
       await files();
       await select("Ithaca-harbor.pdf");
       await select("Troy-charts.PDF");
-      fixture.changeVersion();
       await button("Review removal").click();
-      await expect.poll(() => page.getByRole("dialog").element().textContent).toContain("A selected version changed");
+      await expect.poll(() => button("Remove 2 files").elements().length).toBe(1);
+      // The owner removes one file and finds the other changed since review.
+      await button("Remove 2 files").click();
       // #4549 review F4: the matrix row is the mixed removal result itself.
       await expect
         .poll(() => page.getByRole("dialog").element().textContent, { message: "STORAGE_MIXED_RESULT_SHOWN" })
