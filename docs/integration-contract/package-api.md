@@ -6282,7 +6282,7 @@ it, so replication never shrinks an approval.
 ## Google standing stores (additive, #4212)
 
 The internal common subpath `@schlessera/brain-common/internal/google-ledger`
-exports `openGoogleLedger`, `GoogleLedger`, `GoogleApproval` and
+exports `openGoogleLedger`, `googleBrainId`, `googleLedgerPath`, `GoogleLedger`, `GoogleApproval` and
 `GoogleApprovalScope`. The concrete ledger lists, remembers and revokes
 principal/brain/account/operation/entity approvals. It is private host state,
 not an extension seam or brain index. `GogTransport.resolveAccount()` is an
@@ -6290,7 +6290,17 @@ internal host-only read returning `GogResult<string>` from the validated alias
 list; the returned lowercased address never enters a model-facing result.
 
 UI-server's internal allowance writer uses migration 099's session-owned
-rows; migration 100 adds authority/policy invalidation triggers. Reservations
-are serialized through the SQLite writer. The existing Google card and result
-schemas retain their shapes; standing offers and admission variants now have
+rows; migration 100 adds authority/policy invalidation triggers and migration
+101 clears grants on durable normal transitions. Reservations are serialized
+through the SQLite writer. Google cards retain their shapes; result receipts
+add only the optional standing-choice notice. Standing offers and admission variants now have
 runtime behavior described in [the wire contract](wire.md#google-standing-admission-additive-4212).
+
+
+The Google ledger opener returns a handle that reopens and validates the private
+file per operation. Missing-file reads are empty; only a grant creates it.
+Schema version 1 is checked before accessing authority. `googleBrainId` hashes
+the canonical brain root for consistent host/CLI scope; `googleLedgerPath`
+validates an absolute ledger location outside that root. Additive write receipts
+may contain `standingChoice: "not_kept"` when the exact approved call ran but
+its standing grant failed to persist.

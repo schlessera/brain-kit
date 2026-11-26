@@ -121,6 +121,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
     const alias = policy?.account ?? "";
     let account = "", resolved = false, releaseAlias: (() => void) | undefined;
     let grant: "always" | "session" | undefined;
+    let standingChoiceNotKept = false;
     let reserved: GoogleAllowanceRow[] | undefined;
     const fullPolicyHash = before.policyHash ?? "missing";
     const allowanceContext = (): GoogleAllowanceContext => ({ sessionId, principalId: turn.principalId, brainId: options.brainId,
@@ -128,11 +129,11 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       tainted: turn.tainted() || ctx.safety().restricted, authorized: principal(turn.principalId) === "owner" });
     const approvalScope = () => ({ principal_id: turn.principalId, brain_id: options.brainId, account_identity: account });
     const storageFailure = (store: "remembered_approvals" | "session_allowances", site: "read" | "reconcile" | "grant" | "reserve", cause: unknown) => {
-      const diagnostic = { store, site, errorClass: (cause instanceof Error ? cause.name : typeof cause).slice(0, 128),
-        message: redactCredentials(cause instanceof Error ? cause.message : String(cause)).slice(0, 500) };
+      const diagnostic = { store, site, errorClass: cause instanceof Error && /^[A-Za-z][A-Za-z0-9_]{0,127}$/.test(cause.name) ? cause.name : "Error",
+        message: site === "grant" ? "The standing choice was not kept; this call uses its exact approval." : "Google standing approval storage is unavailable." };
       const failures = audit.standingFailures ??= [];
       if (failures.length < 4 && !failures.some(item => item.store === store && item.site === site)) failures.push(diagnostic);
-      report(`Google standing storage unavailable: ${JSON.stringify(diagnostic)}`);
+      report(`Google standing storage unavailable: ${JSON.stringify(diagnostic)}; ${redactCredentials(cause instanceof Error ? cause.message : String(cause))}`);
     };
     const grants = (tainted: boolean) => {
       if (!resolved) return { remembered_approvals: [], session_allowances: [] };
@@ -319,18 +320,31 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       // Persist only a checked, unedited screen answer, after the decision committed.
       failure = live();
       if (failure) return await withdraw(failure);
-      try {
-        if (grant === "always") options.ledger().remember(approvalScope(), operation, decision.entities, now());
-        if (grant === "session") await options.allowances.grant(allowanceContext(), operation, decision.entities, cardId);
-        if (admission === "session_allowance") reserved = await options.allowances.reserve(allowanceContext(), operation, decision.entities, decision.items!);
-      } catch (cause) {
-        storageFailure(grant === "always" ? "remembered_approvals" : "session_allowances", grant ? "grant" : "reserve", cause);
-        throw cause;
+      if (admission === "session_allowance") {
+        try { reserved = await options.allowances.reserve(allowanceContext(), operation, decision.entities, decision.items!); }
+        catch (cause) { storageFailure("session_allowances", "reserve", cause); throw cause; }
       }
-      // Last await before execute. The owner can still repoint the alias between this read and gog's spawn (#4213).
+      // Re-read under the account lock before keeping any standing choice.
       const latestIdentity = await options.resolveAccount(alias);
       if (!latestIdentity.ok) return await withdraw(latestIdentity.error);
       if (latestIdentity.value !== account) return await withdraw(error("account_changed", "The Google account changed; call again for a fresh decision.", "unavailable"));
+      failure = live();
+      if (failure) return await withdraw(failure);
+      try {
+        if (grant === "always") options.ledger().remember(approvalScope(), operation, decision.entities, now());
+        if (grant === "session") await options.allowances.grant(allowanceContext(), operation, decision.entities, cardId);
+      } catch (cause) {
+        storageFailure(grant === "always" ? "remembered_approvals" : "session_allowances", "grant", cause);
+        standingChoiceNotKept = true; // The exact card still authorizes this one call.
+      }
+      // Session grants await the writer; close that wait with another identity read.
+      if (grant === "session") {
+        const confirmed = await options.resolveAccount(alias);
+        if (!confirmed.ok || confirmed.value !== account) {
+          await options.allowances.revoke(sessionId, turn.principalId, options.brainId, cardId);
+          return await withdraw(confirmed.ok ? error("account_changed", "The Google account changed; call again for a fresh decision.", "unavailable") : confirmed.error);
+        }
+      }
       let finalError: GoogleError | null = null, settled = false;
       const finalAdmission = (): GoogleError | null => {
         if (dispatched) return error("already_dispatched", "This Google change already used its admission.");
@@ -341,6 +355,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         if (!finalError && admission !== "card") {
           const current = decide(ctx.routingNow());
           if (current.outcome !== "admitted") finalError = current.outcome === "refused" ? current.error : stale;
+          else if (current.admission !== admission) finalError = stale;
         }
         if (finalError) return finalError;
         if (admission !== "card") counts.set(ctx, (counts.get(ctx) ?? 0) + (decision?.items ?? 0));
@@ -357,7 +372,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         const ambiguous = outcome.error.code === "outcome_unknown" || outcome.error.code === "upstream_error" || ctx.signal.aborted;
         return refuse(ambiguous ? gogError("outcome_unknown", outcome.error.reason ?? "dispatch_failed") : outcome.error);
       }
-      const result = GOOGLE_WRITE_SUCCESS_SCHEMA.parse({ ok: true, tool: call.tool, operation, effect: decision.effect, admission, result: outcome.result });
+      const result = GOOGLE_WRITE_SUCCESS_SCHEMA.parse({ ok: true, tool: call.tool, operation, effect: decision.effect, admission, result: outcome.result, ...(standingChoiceNotKept ? { standingChoice: "not_kept" } : {}) });
       if (inverseId) await options.state.confirmInverse(sessionId, inverseId, outcome.inverseResult);
       return result;
     } catch (cause) {

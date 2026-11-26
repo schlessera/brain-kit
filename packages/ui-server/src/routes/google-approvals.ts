@@ -41,9 +41,6 @@ export function createGoogleApprovalRoutes(deps: Deps): Hono<AppEnv> {
   });
   routes.get("/sessions/:id/google/allowances", async c => {
     const principalId = c.get("principal")!.id, sessionId = c.req.param("id");
-    const context = { sessionId, principalId, brainId: deps.brainId, accountIdentity: "unresolved", hostEpoch: deps.hostEpoch,
-      policyHash: deps.policyHash(), now: Date.now(), authorized: deps.authorized(principalId), tainted: deps.tainted(sessionId) };
-    await deps.allowances.reconcile(context);
     if (!deps.authorized(principalId) || !deps.owns(principalId, sessionId)) return c.json({ error: "Session unavailable." }, 404);
     return c.json({ allowances: deps.tainted(sessionId) ? deps.allowances.list(sessionId, principalId, deps.brainId, deps.hostEpoch, deps.policyHash(), Date.now()) : [] });
   });

@@ -211,6 +211,8 @@ export "./internal/google-ledger" (./src/google/ledger.ts)
   type GoogleApproval
   type GoogleApprovalScope
   type GoogleLedger
+  googleBrainId
+  googleLedgerPath
   openGoogleLedger
 
 export "./internal/google-operations" (./src/google/index.ts)

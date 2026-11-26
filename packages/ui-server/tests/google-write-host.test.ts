@@ -382,8 +382,9 @@ test("google remembered approvals are inert when tainted and deny wins", async (
   expect(await f.call(), "GOOGLE_TAINT_IGNORES_MEMORY").toMatchObject({ ok: true, admission: "card" });
   expect(f.cards.at(-1)!.input).toMatchObject({ offers: { allow_always: false, allow_for_session: true } });
   f.tainted(false);
-  const denied = { ...f.turn, policy: () => ({ ...googlePolicy(), operations: { "gmail.modify": "deny" as const } }) };
-  expect(await f.call(GOOGLE_MODIFY, denied), "GOOGLE_DENY_ABOVE_MEMORY").toMatchObject({ ok: false });
+  const deniedPolicy = { ...googlePolicy(), operations: { "gmail.modify": "deny" as const } }; f.setPolicy(deniedPolicy);
+  const denied = { ...f.turn, policy: () => deniedPolicy };
+  expect(await f.call(GOOGLE_MODIFY, denied), "GOOGLE_DENY_ABOVE_MEMORY").toMatchObject({ ok: false, error: { reason: "operation_denied" } });
 });
 
 test("google session allowance admits voice only for its operation and entity", async () => {
@@ -392,7 +393,8 @@ test("google session allowance admits voice only for its operation and entity", 
   expect(await f.call(GOOGLE_MODIFY, { ...f.turn, posture: "voice" }), "GOOGLE_SESSION_VOICE").toMatchObject({ ok: true, admission: "session_allowance" });
   const other: GoogleToolCall = { tool: "brain_google_gmail_modify", input: { message_ids: ["19a0c3d2e4f50601"], add_label_ids: ["STARRED"] } };
   expect(await f.call(other, { ...f.turn, posture: "voice" }), "GOOGLE_ENTITY_BOUND").toMatchObject({ ok: false, error: { reason: "voice_posture" } });
-  expect(await f.call(GOOGLE_SEND, { ...f.turn, posture: "voice" }), "GOOGLE_OPERATION_BOUND").toMatchObject({ ok: false });
+  f.db.query("UPDATE google_session_allowances SET operation='gmail.draft.save'").run();
+  expect(await f.call(GOOGLE_MODIFY, { ...f.turn, posture: "voice" }), "GOOGLE_OPERATION_BOUND").toMatchObject({ ok: false, error: { reason: "voice_posture" } });
   expect(f.cards).toHaveLength(1);
 });
 
@@ -491,7 +493,63 @@ test("google ledger failure asks once, records its cause, and recovers on the ne
   f.answer(async () => ({ behavior: "allow" }));
   expect(await f.call(), "GOOGLE_LEDGER_CARD_FALLBACK").toMatchObject({ ok: true, admission: "card" });
   expect(f.db.query("SELECT json_extract(payload,'$.standingFailures[0].message') AS message FROM governance_events WHERE kind='google_call'").get(),
-    "GOOGLE_LEDGER_FAILURE_DURABLE").toEqual({ message: "injected ledger read failure" });
+    "GOOGLE_LEDGER_FAILURE_DURABLE").toEqual({ message: "Google standing approval storage is unavailable." });
   f.ledger.approvals = read;
   expect(await f.call()).toMatchObject({ ok: true, admission: "remembered_approval" });
+});
+
+for (const kind of ["always", "session"]) test(`google changed identity leaves no ${kind} grant`, async () => {
+  const f = fixture(); f.tainted(kind === "session");
+  f.answer(async () => { f.identity("penelope@example.com"); return { behavior: "allow", ...(kind === "always" ? { always: true } : { forSession: true }) }; });
+  expect(await f.call()).toMatchObject({ ok: false, error: { reason: "account_changed" } });
+  expect(f.ledger.list("brain"), "GOOGLE_CHANGED_IDENTITY_NO_GRANT").toEqual([]);
+  expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(), "GOOGLE_CHANGED_IDENTITY_NO_GRANT").toEqual({ n: 0 });
+  expect(f.dispatched()).toBe(0);
+});
+for (const kind of ["always", "session"]) test(`google failed ${kind} grant keeps the once-only card`, async () => {
+  const f = fixture(); f.tainted(kind === "session");
+  if (kind === "always") f.ledger.remember = () => { throw new Error("EACCES opening /srv/private-google/ledger.sqlite token=secret"); };
+  else f.allowances.grant = async () => { throw new Error("EACCES opening /srv/private-google/ui.db"); };
+  f.answer(async () => ({ behavior: "allow", ...(kind === "always" ? { always: true } : { forSession: true }) }));
+  expect(await f.call(), "GOOGLE_GRANT_FAILURE_ONCE_ONLY").toMatchObject({ ok: true, admission: "card", standingChoice: "not_kept" });
+  expect(f.dispatched()).toBe(1);
+  const events = f.db.query("SELECT payload FROM governance_events WHERE kind='google_call'").all();
+  expect(events, "GOOGLE_GRANT_FAILURE_AUDITED").toHaveLength(1);
+  expect(JSON.stringify(events), "GOOGLE_AUDIT_NO_HOST_PATH").not.toContain("/srv/");
+  expect(JSON.stringify(events)).toContain("The standing choice was not kept; this call uses its exact approval.");
+  expect(f.ledger.list("brain")).toEqual([]);
+  expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get()).toEqual({ n: 0 });
+});
+test("google engine never reads remembered authority for a tainted decision", async () => {
+  const f = fixture(); f.tainted(true);
+  let reads = 0; const read = f.ledger.approvals;
+  f.ledger.approvals = scope => { reads++; return read(scope); };
+  await f.call();
+  expect(reads, "GOOGLE_ENGINE_TAINT_GUARD").toBe(0);
+});
+test("google final admission cannot switch to an unreserved allowance", async () => {
+  const f = fixture(); f.answer(async () => ({ behavior: "allow", always: true })); await f.call();
+  f.prepare(async call => {
+    const prepared = googleModifyPrepared(call, () => { throw new Error("GOOGLE_UNRESERVED_DISPATCH"); }), execute = prepared.execute;
+    prepared.execute = async final => {
+      await f.allowances.grant({ sessionId: "ithaca", principalId: "odysseus", brainId: "brain", accountIdentity: "odysseus@example.com",
+        hostEpoch: "ithaca-epoch", policyHash: JSON.stringify(googlePolicy()), now: f.now(), tainted: true, authorized: true },
+        "gmail.modify", ["archive"], "other-card");
+      f.tainted(true);
+      return execute(final);
+    };
+    return prepared;
+  });
+  expect(await f.call(), "GOOGLE_FINAL_ADMISSION_KIND").toMatchObject({ ok: false, error: { reason: "safety_changed" } });
+  expect(f.db.query("SELECT remaining_items FROM google_session_allowances").get()).toEqual({ remaining_items: 100 });
+});
+
+test("google identity changed during session grant withdraws that new authority", async () => {
+  const f = fixture(); f.tainted(true);
+  const grant = f.allowances.grant;
+  f.allowances.grant = async (...args) => { await grant(...args); f.identity("penelope@example.com"); };
+  f.answer(async () => ({ behavior: "allow", forSession: true }));
+  expect(await f.call()).toMatchObject({ ok: false, error: { reason: "account_changed" } });
+  expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(), "GOOGLE_POST_WRITER_IDENTITY_NO_GRANT").toEqual({ n: 0 });
+  expect(f.dispatched()).toBe(0);
 });

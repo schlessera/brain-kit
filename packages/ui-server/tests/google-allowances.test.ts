@@ -1,3 +1,5 @@
+import { beginSafetyCollection, safetyCatalogCreated, bindSafetyCollection, acknowledgeSafety, endSafetyCollection,
+  latchSafety, recoverSafetyRecording, reserveSafetyWrite, releaseSafetyWrite, safetyProjection } from "../src/governance/safety-store.js";
 import { createGovernanceWrites } from "../src/governance/event-writes.js";
 import { expectRejection } from "./helpers/expect-rejection.js";
 import { afterEach, expect, test } from "bun:test";
@@ -59,15 +61,57 @@ test("Google allowance writer rechecks principal after a queued grant's authorit
 
 test("Google policy hash invalidation happens on an unrelated turn and cannot revive", async () => {
   const { store, c, db, writer } = fixture();
+  c.policyHash = "a".repeat(64);
   await store.grant(c, "gmail.modify", ["archive"], "card");
   const writes = createGovernanceWrites(db, writer);
   await writes.safetyBegin({ turnId: "aeaea-new-policy", bindingId: "aeaea-new-policy", sessionId: null,
     principalId: c.principalId, backendId: "claude", at: Date.now(), policyHash: "b".repeat(64) });
   expect(store.read(c), "GOOGLE_OTHER_TURN_POLICY_VOIDS").toEqual([]);
+  await writes.safetyBegin({ turnId: "aeaea-old-policy", bindingId: "aeaea-old-policy", sessionId: null,
+    principalId: c.principalId, backendId: "claude", at: Date.now(), policyHash: "a".repeat(64) });
+  expect(store.read(c), "GOOGLE_POLICY_RESTORE_NO_REVIVAL").toEqual([]);
 });
 
 test("Google allowance reservation never borrows another operation's grant", async () => {
   const { store, c } = fixture(); await store.grant(c, "gmail.modify", ["archive"], "card");
   await expectRejection(store.reserve(c, "gmail.draft.save", ["archive"], 1), "expired, revoked or exhausted", "GOOGLE_ALLOWANCE_OPERATION_BOUND");
   expect(store.read(c)[0]!.remaining_items).toBe(100);
+});
+
+
+test("Google null policy collection invalidates only its own session", async () => {
+  const { store, c, db, writer } = fixture();
+  await store.grant(c, "gmail.modify", ["archive"], "card");
+  await store.grant({ ...c, sessionId: "aeaea" }, "gmail.modify", ["archive"], "other-card");
+  await createGovernanceWrites(db, writer).safetyBegin({ turnId: "aeaea-unknown", bindingId: "aeaea-unknown", sessionId: "aeaea",
+    principalId: c.principalId, backendId: "claude", at: Date.now(), policyHash: null });
+  expect(store.read(c), "GOOGLE_NULL_POLICY_OTHER_SESSION").toHaveLength(1);
+  expect(store.read({ ...c, sessionId: "aeaea" }), "GOOGLE_NULL_POLICY_OWN_SESSION").toEqual([]);
+});
+test("Google allowance store does not expose rows outside restricted authority", async () => {
+  const { store, c } = fixture(); await store.grant(c, "gmail.modify", ["archive"], "card");
+  expect(store.read({ ...c, tainted: false }), "GOOGLE_ALLOWANCE_READ_TAINT_GUARD").toEqual([]);
+  expect(store.read({ ...c, authorized: false })).toEqual([]);
+});
+for (const transition of ["latch recovery", "reservation release"]) test(`Google restriction continuity survives ${transition} without a Google observer`, async () => {
+  const { store, c, db } = fixture();
+  beginSafetyCollection(db, { turnId: "normal-ithaca", bindingId: "normal-ithaca", sessionId: null,
+    principalId: c.principalId, backendId: "claude", at: Date.now(), policyHash: "a".repeat(64) });
+  safetyCatalogCreated(db, "ithaca", c.principalId, "normal-ithaca");
+  bindSafetyCollection(db, "normal-ithaca", "ithaca");
+  acknowledgeSafety(db, "normal-ithaca", "claude", 1);
+  expect(safetyProjection(db, null, "ithaca").restriction).toBe("normal");
+  if (transition === "latch recovery") {
+    endSafetyCollection(db, "normal-ithaca");
+    latchSafety(db, null, "recording_failed");
+  } else reserveSafetyWrite(db, "normal-ithaca", "pending-ithaca", 100);
+  expect(safetyProjection(db, null, "ithaca").restriction).toBe("restricted");
+  await store.grant(c, "gmail.modify", ["archive"], "card");
+  if (transition === "latch recovery") recoverSafetyRecording(db);
+  else releaseSafetyWrite(db, "pending-ithaca");
+  expect(safetyProjection(db, null, "ithaca").restriction, "GOOGLE_NORMAL_INTERVAL").toBe("normal");
+  // Re-restrict before any allowance read/reconcile.
+  if (transition === "latch recovery") latchSafety(db, null, "recording_failed");
+  else reserveSafetyWrite(db, "normal-ithaca", "new-pending-ithaca", 100);
+  expect(store.read(c), "GOOGLE_RESTRICTION_NO_REVIVAL").toEqual([]);
 });

@@ -151,7 +151,7 @@ export interface GoogleCallAudit {
   decision?: "allowed" | "approved" | "declined" | "refused";
   admission?: "policy" | "remembered_approval" | "session_allowance" | null;
   decisionEventId?: number | null;
-  /** Owner diagnostics only; never provider-facing tool output. */
+  /** Fixed diagnostics for authenticated audit readers; host-only detail stays in logs. */
   standingFailures?: Array<{ store: "remembered_approvals" | "session_allowances"; site: "read" | "reconcile" | "grant" | "reserve"; errorClass: string; message: string }>;
 }
 

@@ -3572,8 +3572,12 @@ handoff, fork or imported session, and chat deletion scrubs them. Final
 admission rereads grant liveness, policy, safety, authority and routing;
 revocation applies to the next call, including an awaiting dispatch.
 
-The host resolves the alias using `auth alias list --json` before preparing
-an approval and as the last await before execution, under its write lock.
+The host first resolves the alias using `auth alias list --json` under the
+alias lock, before preparing an approval, then acquires the resolved account
+lock. It re-reads under that account lock before storing a standing choice.
+A session grant awaits the writer and is followed by one final identity read;
+if that read changes or fails, the new session grant is revoked and the call
+refuses. The last identity read is the last await before execution.
 The lowercased address keys grants, inverses and locks; an alias never does.
 A different address refuses that call as `unavailable / account_changed`.
 Missing aliases refuse as `unavailable / account_unresolved`, and malformed
@@ -3587,11 +3591,30 @@ this window, but its pinned-gog behavior has not been verified; #4213 must
 resolve it before changing the alias-only argv contract. No provider-facing
 tool, prompt or earlier message changes with a grant.
 
-A `google_call` audit may add `standingFailures`, at most four owner-only
+A `google_call` audit may add `standingFailures`, at most four authenticated-audit-reader
 storage diagnostics with `store` (`remembered_approvals` or
 `session_allowances`), `site` (`read`, `reconcile`, `grant` or `reserve`),
-`errorClass` (128 characters) and credential-redacted `message` (500 characters).
-The event supplies session, turn and time. This preserves why a call needed a
-card even when that card succeeded. These diagnostics never enter tool output
+`errorClass` (128 characters) and fixed `message` (500 characters maximum; no host paths or raw errors).
+The event supplies session, turn and time. A `grant` failure records that the standing choice was not kept. The detailed credential-redacted error is logged only on the host. These diagnostics never enter tool output
 or safety evidence. A database-wide recording failure can also prevent this
 audit; the structured host log remains the fallback in that case.
+
+
+If a standing grant cannot be stored, the exact approved call still runs once
+and its successful write receipt adds `standingChoice: "not_kept"`. A failed
+allowance reservation still refuses before dispatch. Final admission must retain
+the same admission kind, preventing a switch to an unreserved allowance.
+
+The shared ledger uses `BRAIN_GOOGLE_LEDGER` (server default:
+`DB_PATH.google-ledger.sqlite`; standalone requires an explicit absolute path),
+outside the brain and masked from workers. Brain identities are opaque hashes of
+canonical brain paths, shared by host and CLI. Operations reopen the ledger,
+so deletion reads empty and replacement cannot leave old approvals live.
+
+Durable normal transitions clear allowances at the underlying safety tables,
+including recorder-latch recovery and reservation release, even with no Google
+call between normal and restricted states. A grant requires durable restriction;
+in-process-only restriction receives once-only approval if it cannot be kept.
+A null policy hash invalidates only its collection's session. A known differing
+full policy hash invalidates all allowances. An entirely unobserved policy
+A→B→A file edit, with no intervening turn or Google call, cannot be detected.

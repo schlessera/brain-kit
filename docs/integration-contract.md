@@ -59,7 +59,12 @@ autonomous roster lists the tools. See
 and [the HTTP API](http-api.md#gmail-message-body-internal-0460-4207).
 This ships in a minor.
 
-## Google commands (additive, 0.46.0, #4208)
+## Google commands (additive, #4208, #4212)
+
+Google standing approvals (#4212) add shared canonical ledger scope,
+`BRAIN_GOOGLE_LEDGER` for standalone management, and optional
+`standingChoice: "not_kept"` on successful write receipts. Their storage and
+wire behavior is specified in the CLI, package API and wire components.
 
 `brain google status`, `connect`, `approvals`, `revoke <approval-id>` and
 `gmail search|read|labels` print the

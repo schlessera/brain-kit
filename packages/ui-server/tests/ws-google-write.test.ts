@@ -1,3 +1,7 @@
+import { existsSync } from "node:fs";
+import { generateSignedCookie } from "hono/cookie";
+import { runCli } from "../../core/tests/cli-harness.js";
+import { googleBrainId } from "@schlessera/brain-common/internal/google-ledger";
 import { createFakeGog } from "../../common/tests/support/fake-gog.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 /** Both first-party simulated backends through the real WebSocket bridge. No
@@ -5,7 +9,7 @@ import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile, symlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Database } from "bun:sqlite";
 import { handleGoogleTool, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
@@ -39,6 +43,8 @@ interface Options {
   seed?: (db: Database) => Promise<void>;
   script?: (bridge: BackendBridge) => Promise<GoogleToolResult>;
   startupFailure?: boolean;
+  linkedBrain?: boolean;
+  explicitLedger?: boolean;
 }
 async function hosted(backendId: "pi" | "claude", options: Options = {}) {
   await mkdir(resolve("tmp"), { recursive: true });
@@ -60,8 +66,14 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
   process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD = fake.environment.keyringPassword;
   cleanups.push(() => { if (password === undefined) delete process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD; else process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD = password; });
   cleanups.push(() => { if (previous === undefined) delete process.env.BRAIN_UI_GOOGLE_HOME; else process.env.BRAIN_UI_GOOGLE_HOME = previous; });
-  await mkdir(resolve(root, "data"));
+  await mkdir(resolve(root, "data"), { mode: 0o700 });
   const dbPath = resolve(root, "data/ui.db");
+  const savedLedger = process.env.BRAIN_GOOGLE_LEDGER;
+  const ledgerPath = options.explicitLedger ? resolve(root, "shared-ledger.sqlite") : dbPath + ".google-ledger.sqlite";
+  if (options.explicitLedger) process.env.BRAIN_GOOGLE_LEDGER = ledgerPath; else delete process.env.BRAIN_GOOGLE_LEDGER;
+  cleanups.push(() => { if (savedLedger === undefined) delete process.env.BRAIN_GOOGLE_LEDGER; else process.env.BRAIN_GOOGLE_LEDGER = savedLedger; });
+  if (options.linkedBrain) await symlink(brain, resolve(root, "brain-link"));
+  const brainPath = options.linkedBrain ? resolve(root, "brain-link") + "/" : brain;
   if (options.seed || options.startupFailure) {
     const db = createUiDb(dbPath);
     try {
@@ -87,7 +99,7 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
     finally { bridge.emit({ type: "result", sessionId: SESSION, outcome: "success", durationMs: 1, numTurns: 1, isError: false }); finished = true; }
   } });
   const native = createNativeJournalFixture(brain, root), broker = native.serve();
-  app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brain, DB_PATH: dbPath,
+  app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brainPath, DB_PATH: dbPath,
     HOST: "127.0.0.1", AUTH_MODE: "password", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash("Odysseus strings the bow"),
     COOKIE_SECRET: "odysseus-google-write-cookie-secret", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
     googleBinary: fake.binary, registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(),
@@ -140,7 +152,7 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
     expect(dispatches, "GOOGLE_LATE_APPROVAL_AFTER_STOP_CANNOT_DISPATCH").toBe(0);
   }
   if (scriptError) throw scriptError;
-  return { app, result, cards, dispatches, prepares, sent };
+  return { app, result, cards, dispatches, prepares, sent, brain, brainPath, dbPath, ledgerPath, owner };
 }
 for (const backend of ["claude", "pi"] as const) {
   test(`google ${backend} WebSocket exact card commits decision and inverse before one invocation`, async () => {
@@ -209,4 +221,36 @@ test("google real app startup failure contains writes, leaves reads usable, and 
 for (const backend of ["pi", "claude"] as const) test(`google ${backend} voice-attributed standing choice never grants`, async () => {
   const f = await hosted(backend, { answer: "voice-grant" });
   expect(f.result).toMatchObject({ ok: false, error: { reason: "declined" } });
+});
+
+test("google symlinked host grant is listed and revoked by the CLI", async () => {
+  const f = await hosted("pi", { answer: "always", linkedBrain: true, explicitLedger: true });
+  expect(f.result).toMatchObject({ ok: true, admission: "card" });
+  expect(existsSync(f.ledgerPath), "GOOGLE_CONFIGURED_LEDGER_USED").toBe(true);
+  const env = { HOME: process.env.HOME!, BRAIN_GOOGLE_LEDGER: f.ledgerPath };
+  const listed = await runCli(f.brain, ["google", "approvals", "--json"], env);
+  expect(listed.code, listed.stderr).toBe(0);
+  const approvals = JSON.parse(listed.stdout).data.approvals;
+  expect(approvals, "GOOGLE_HOST_CLI_CANONICAL_ID").toHaveLength(1);
+  expect(approvals[0].brain_id).toBe(googleBrainId(f.brain));
+  const revoked = await runCli(f.brain, ["google", "revoke", approvals[0].id, "--json"], env);
+  expect(revoked.code, revoked.stderr).toBe(0);
+  expect(JSON.parse(revoked.stdout).data.revoked, "GOOGLE_HOST_CLI_REVOKE").toBe(true);
+  const cookie = (await generateSignedCookie("brain_ui_session", f.owner.id, "odysseus-google-write-cookie-secret")).split(";")[0]!;
+  const response = await f.app.fetch(new Request("http://localhost/api/google/approvals", { headers: { cookie } }));
+  expect(await response.json()).toEqual({ approvals: [] });
+});
+test("google real app HTTP ownership refuses agents and other session owners", async () => {
+  const f = await hosted("pi");
+  const other = createPrincipal(f.app.db, { authMethod: "password", label: "Penelope", ttlSeconds: 60 });
+  const agent = createPrincipal(f.app.db, { authMethod: "delegated", label: "Eurylochus", ttlSeconds: 60, createdBy: f.owner.id });
+  f.app.db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES('aeaea-agent',1,1)").run();
+  f.app.db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('aeaea-agent',?,1)").run(agent.id);
+  const get = async (id: string, path: string) => {
+    const cookie = (await generateSignedCookie("brain_ui_session", id, "odysseus-google-write-cookie-secret")).split(";")[0]!;
+    return f.app.fetch(new Request("http://localhost" + path, { headers: { cookie } }));
+  };
+  expect((await get(agent.id, "/api/google/approvals")).status, "GOOGLE_REAL_HTTP_NON_OWNER").toBe(403);
+  expect((await get(other.id, "/api/sessions/aeaea-agent/google/allowances")).status, "GOOGLE_REAL_HTTP_OTHER_SESSION").toBe(404);
+  expect((await get(f.owner.id, `/api/sessions/${SESSION}/google/allowances`)).status).toBe(200);
 });

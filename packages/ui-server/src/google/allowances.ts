@@ -1,3 +1,4 @@
+import { safetyProjection } from "../governance/safety-store.js";
 /** Session authority only. Never copied by catalog handoff/fork/import. */
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
@@ -32,7 +33,7 @@ export const url = import.meta.url;
 export function setup(db: Database) {
   const reconcile = (raw: GoogleAllowanceContext) => {
     const c = contextSchema.parse(raw);
-    // Remove rather than hide: restoration of a previous policy/taint state cannot revive a grant.
+    // Remove invalid authority; migration 101 also catches unobserved durable normal intervals.
     db.query(`DELETE FROM google_session_allowances WHERE brain_id=? AND (host_epoch<>? OR policy_hash<>? OR expires_at<=?
       OR (principal_id=? AND ?=0) OR (session_id=? AND ?=0))`)
       .run(c.brainId, c.hostEpoch, c.policyHash, c.now, c.principalId, +c.authorized, c.sessionId, +c.tainted);
@@ -42,7 +43,7 @@ export function setup(db: Database) {
     grant: (raw: GoogleAllowanceContext, operation: GoogleOperation, entities: string[], cardId: string): void => db.transaction(() => {
       const c = contextSchema.parse(raw); z.enum(GOOGLE_OPERATIONS).parse(operation); z.array(id).min(1).max(100).parse(entities); id.parse(cardId);
       reconcile(c);
-      if (!currentPrincipal(db, c) || !c.tainted) throw new Error("Google allowance requires current tainted owner authority");
+      if (!currentPrincipal(db, c) || !c.tainted || safetyProjection(db, null, c.sessionId).restriction === "normal") throw new Error("Google allowance requires current tainted owner authority");
       assertLive(db, [["session", c.sessionId]]);
       for (const entity of new Set(entities)) db.query(`INSERT INTO google_session_allowances
         (session_id,principal_id,brain_id,account_identity,operation,entity,host_epoch,policy_hash,granted_card_id,granted_at,expires_at,remaining_items)
