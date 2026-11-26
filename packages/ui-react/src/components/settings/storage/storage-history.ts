@@ -300,8 +300,9 @@ const isRun = (state: StorageMaintenanceReceipt["state"]) => state === "waiting"
  *   for is drawn on every volume, as the timeline returns it for every one;
  * - a client refusal is dropped when the timeline's latest event for its
  *   target and resource opened it or resolved it later;
- * - a series scope change is dropped when a timeline scope change falls in
- *   the bucket it is drawn at.
+ * - a series scope change is dropped when a timeline scope change falls
+ *   after the last observation that held the old scope, up to the one that
+ *   holds the new scope.
  *
  * Without a timeline (an older host's 404, or any failure) the markers are
  * the client's alone. Only markers inside the series' span (to `now`) are
@@ -330,8 +331,11 @@ export function storageMarkers(input: {
 
   const scopes = timeline.filter((event) => event.kind === "scope");
   // Scope transitions are tracked apart from measured points: the observation
-  // that sees a new scope is itself a gap.
-  let scope: string | null = null;
+  // that sees a new scope is itself a gap. A change happened after the last
+  // observation that held the old scope, so a timeline scope change since
+  // then is the same one.
+  let scope: string | null = null,
+    scopeAt = -Infinity;
   series.forEach((value, index) => {
     const previous = series[index - 1];
     if (value.gap && !previous?.gap) add(value.at, "neutral", "Collection gap");
@@ -339,10 +343,11 @@ export function storageMarkers(input: {
     if (
       scope !== null &&
       value.scopeKey !== scope &&
-      !(previous && scopes.some((event) => event.at > previous.at && event.at <= value.at))
+      !scopes.some((event) => event.at > scopeAt && event.at <= value.at)
     )
       add(value.at, "purple", "Scope changed");
     scope = value.scopeKey;
+    scopeAt = value.at;
   });
 
   for (const refusal of input.pressure?.causes.refusals ?? []) {

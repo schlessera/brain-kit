@@ -214,6 +214,31 @@ describe("timeline markers (#4548)", () => {
     ]);
   });
 
+  test("a recorded scope change replaces the series' own across an observation that does not hold the volume", () => {
+    // The series compares scopes past an observation without the volume, so
+    // the change it marks at sixHour(6) happened after sixHour(12).
+    const scoped = storageSeries(
+      historyOf([
+        observation("six-hour", sixHour(12), [{ identity: ITHACA, rootScope: "1".repeat(32), available: 30 * GB, app: 1 }]),
+        observation("six-hour", sixHour(9), [{ identity: SCHERIA, available: 40 * GB, app: 1 }]),
+        observation("six-hour", sixHour(6), [{ identity: ITHACA, available: 20 * GB, app: 1 }]),
+        observation("six-hour", sixHour(0), [{ identity: ITHACA, available: 19 * GB, app: 1 }]),
+      ]),
+      ITHACA,
+      "six-hour",
+      worldTime
+    );
+    expect(storageMarkers({ series: scoped, identity: ITHACA, now: worldTime, format }).map((m) => [m.at, m.label])).toEqual([
+      [sixHour(9), "Collection gap"],
+      [sixHour(6), "Scope changed"],
+    ]);
+    const change: StorageEvent = { seq: 1, at: sixHour(10), kind: "scope", identity: ITHACA, phase: "changed", rootScope: "b".repeat(32), previousRootScope: "1".repeat(32) };
+    expect(storageMarkers({ series: scoped, identity: ITHACA, timeline: timeline([change]), now: worldTime, format }).map((m) => [m.at, m.label])).toEqual([
+      [sixHour(10), "Scope changed"],
+      [sixHour(9), "Collection gap"],
+    ]);
+  });
+
   test("without a timeline the markers are the client's alone", () => {
     const pack = onIthaca({ completedAt: sixHour(2) });
     const refused = pressure(ITHACA, "critical", null, {
