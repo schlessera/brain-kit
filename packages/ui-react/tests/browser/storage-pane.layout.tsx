@@ -505,6 +505,59 @@ test("Maintenance lost response keeps its identity and cancellation reads the ow
   expect(host.textContent).toContain("Other writes may change these values");
 });
 
+// #4549 review F2: a control that changes or leaves while focused never drops
+// focus to the body. The tool row keeps its action button through Run,
+// Check receipt and Cancel; a control that does leave hands focus on.
+test("Free up space and the status alert keep focus while their controls change or leave", async () => {
+  await scene("maintenance");
+  const list = () => host.querySelector("[data-tool-list]")!;
+  const inList = () => document.activeElement !== document.body && list().contains(document.activeElement);
+  const press = async (name: string) => {
+    (button(name).element() as HTMLElement).focus();
+    await userEvent.keyboard("{Enter}");
+  };
+  await press("Run Pack Git objects");
+  await expect.poll(() => list().textContent).toContain("response unconfirmed");
+  expect(inList(), "STORAGE_RUN_KEEPS_FOCUS").toBe(true);
+  // The error's own button leaves with the error it checks.
+  await press("Check measurement status");
+  await expect.poll(() => host.querySelector('[role="alert"]')).toBeNull();
+  expect(document.activeElement, "STORAGE_CHECK_STATUS_KEEPS_FOCUS").toBe(
+    page.getByRole("heading", { name: "Storage", exact: true, level: 2 }).element()
+  );
+  await press("Check maintenance receipt");
+  await expect.poll(() => button("Cancel Pack Git objects").elements().length).toBe(1);
+  expect(inList(), "STORAGE_CHECK_RECEIPT_KEEPS_FOCUS").toBe(true);
+  // Check receipt leaves once the run is over: focus stays in its row.
+  (button("Check maintenance receipt").element() as HTMLElement).focus();
+  (button("Cancel Pack Git objects").element() as HTMLElement).click();
+  await expect.poll(() => list().textContent).toContain("Cancelled");
+  await expect.poll(() => button("Check maintenance receipt").elements().length).toBe(0);
+  expect(inList(), "STORAGE_LEAVING_CHECK_RECEIPT_KEEPS_FOCUS").toBe(true);
+  // Cancel pressed from the keyboard, in a second run.
+  await press("Try again Pack Git objects");
+  await expect.poll(() => list().textContent).toContain("response unconfirmed");
+  await press("Check maintenance receipt");
+  await expect.poll(() => button("Cancel Pack Git objects").elements().length).toBe(1);
+  await press("Cancel Pack Git objects");
+  await expect.poll(() => list().textContent).toContain("Cancelled");
+  expect(inList(), "STORAGE_CANCEL_KEEPS_FOCUS").toBe(true);
+});
+test("Show all children leaves with the smaller items, and focus stays on the list", async () => {
+  await scene("paged", 1280);
+  for (const name of ["Brain files", "attachments", "papers"]) {
+    await row(name).click();
+    await expect.poll(() => document.activeElement?.textContent).toBe(name);
+  }
+  const smaller = () => host.querySelector<HTMLElement>('[aria-label$="Open list."]');
+  await expect.poll(smaller).not.toBeNull();
+  smaller()!.click();
+  await expect.poll(() => page.getByRole("button", { name: "Show all children" }).elements().length).toBe(1);
+  (page.getByRole("button", { name: "Show all children" }).element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(() => page.getByRole("button", { name: "Show all children" }).elements().length).toBe(0);
+  expect(document.activeElement, "STORAGE_SHOW_ALL_KEEPS_FOCUS").toBe(host.querySelector("[data-storage-list-heading]"));
+});
 test("Cancellation keeps acknowledged removal and stops the remaining selection", async () => {
   const fixture = await scene();
   await files();
