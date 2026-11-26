@@ -473,7 +473,7 @@ for (const encoding of ["json5", "jsonb"] as const) test(`google session allowan
     let supported = true; try { f.db.query("SELECT jsonb('{}')").get(); } catch { supported = false; }
     const [major = 0, minor = 0] = version.split(".").map(Number);
     expect(supported, "GOOGLE_JSONB_COVERAGE " + version).toBe(major > 3 || (major === 3 && minor >= 45));
-    // Below 3.45 SQLite cannot store or read JSONB, so this encoding cannot occur.
+    // Below 3.45 SQLite cannot construct JSONB, so this fixture cannot be built here.
     if (!supported) return;
   }
   const live = createEffectiveSafety(f.db, { turnId: "turn-ithaca", sessionId: () => "ithaca", policyHash: JSON.stringify(googlePolicy()),

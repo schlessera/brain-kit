@@ -30,8 +30,9 @@ function fixture() {
   return { db, collection, record, allowance, detectors, decide };
 }
 type Fixture = ReturnType<typeof fixture>;
-// JSONB exists from SQLite 3.45. Below that no stored value can be JSONB; the
-// coverage test records which applies, so its cases never vanish silently.
+// SQLite builds JSONB from 3.45. Below that this test cannot construct JSONB
+// fixtures; the coverage test records which applies, so its cases never vanish
+// silently. The production guard rejects any bytes json_valid does not accept.
 const SQLITE = (() => { const db = new Database(":memory:");
   try {
     const version = (db.query("SELECT sqlite_version() v").get() as { v: string }).v;
