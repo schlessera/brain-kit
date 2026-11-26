@@ -9,6 +9,7 @@ import { createUiDb } from "../src/db/client.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
 import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
 import { createGoogleAllowances, type GoogleAllowanceContext } from "../src/google/allowances.js";
+import type { Logger } from "@opentelemetry/api-logs";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
@@ -93,6 +94,34 @@ test("Google allowance store does not expose rows outside restricted authority",
   expect(store.read({ ...c, tainted: false }), "GOOGLE_ALLOWANCE_READ_TAINT_GUARD").toEqual([]);
   expect(store.read({ ...c, authorized: false })).toEqual([]);
 });
+// Boot recovers the latch before the app purges the previous epoch's
+// allowances, so those take part in the continuity check (#4631).
+for (const corrupt of ["payload", "acknowledged"] as const) test(`Google continuity lets boot recover the latch past an invalid ${corrupt} in a previous epoch's granted chat`, () => {
+  mkdirSync(resolve("tmp"), { recursive: true });
+  const root = mkdtempSync(resolve("tmp/google-continuity-boot-")), path = resolve(root, "ui.db");
+  cleanups.push(async () => { rmSync(root, { recursive: true, force: true }); });
+  const db = createUiDb(path);
+  db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',1,1)").run();
+  db.query("UPDATE safety_sessions SET classification='new',history_owner_id='owner-ithaca',generation='1' WHERE session_id='ithaca'").run();
+  // Complete coverage, so continuity reads every value it would for a normal chat.
+  db.query("INSERT INTO safety_collections(id,turn_id,session_id,backend_id,started_at,start_revision) VALUES('ogygia','ogygia','ithaca','claude',1,'1')").run();
+  acknowledgeSafety(db, "ogygia", "claude", 1);
+  endSafetyCollection(db, "ogygia");
+  if (corrupt === "acknowledged") db.query("UPDATE safety_collections SET acknowledged='not-json' WHERE id='ogygia'").run();
+  if (corrupt === "payload") db.query(`INSERT INTO safety_records(id,collection_id,sequence,observed_at,kind,occurrence_id,state,payload,bytes,reserved_rows,reserved_bytes)
+    VALUES('calypso','ogygia','calypso',1,'occurrence','calypso','finalized','not-json',1,1,1)`).run();
+  db.query("INSERT INTO google_session_allowances VALUES('ithaca','odysseus','brain','odysseus@example.com','gmail.modify','archive','previous-epoch','policy','card',1,86400001,100)").run();
+  latchSafety(db, null, "recording_failed");
+  db.close();
+  const warnings: string[] = [];
+  const log = { emit: (record: { severityText?: string; body?: unknown; attributes?: Record<string, unknown> }) => {
+    if (record.severityText === "WARN") warnings.push(`${String(record.body)}: ${String(record.attributes?.["error.message"])}`); } } as unknown as Logger;
+  const booted = createUiDb(path, { log });
+  cleanups.push(async () => { booted.close(); });
+  expect(warnings.filter(body => body.includes("could not be recovered at boot")), "GOOGLE_CONTINUITY_BOOT_RECOVERY_" + corrupt).toEqual([]);
+  expect(booted.query("SELECT failed,reason FROM safety_meta").get(), "GOOGLE_CONTINUITY_BOOT_CLEARED_" + corrupt).toEqual({ failed: 0, reason: null });
+});
+
 for (const transition of ["latch recovery", "reservation release"]) test(`Google restriction continuity survives ${transition} without a Google observer`, async () => {
   const { store, c, db } = fixture();
   beginSafetyCollection(db, { turnId: "normal-ithaca", bindingId: "normal-ithaca", sessionId: null,

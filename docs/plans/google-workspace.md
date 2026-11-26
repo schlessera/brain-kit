@@ -92,7 +92,7 @@ grants authority nor guarantees every effect can be undone).
   deferral was measured to cost more than it saves.
 - **Session-safety coverage** ([session-safety-reviews.md](../decisions/session-safety-reviews.md)):
   coverage is per-epoch detector acknowledgement, and every safety occurrence
-  without a verdict restricts (`const aggregate=one`, `packages/ui-server/src/governance/safety-store.ts:477-484`).
+  without a verdict restricts (`const aggregate=one`, `packages/ui-server/src/governance/safety-store.ts:490-496`).
   So a structured read records no occurrence: the collector's obligation for
   the call is discharged with nothing to record, as for any result with nothing
   to record. A content read records `google_result` taint (§6).
