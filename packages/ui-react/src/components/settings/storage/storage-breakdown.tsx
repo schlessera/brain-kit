@@ -7,12 +7,11 @@ import {
   StorageMap,
   StorageMapLegend,
   TextButton,
-  type StorageMapLegendOwner,
   type StorageOwner,
 } from "@schlessera/brain-ui-kit";
 import type { StorageFileEntry, StorageSnapshot } from "@schlessera/brain-ui-sdk/protocol";
 import { bytes, mapItems } from "./storage-model.js";
-import { storageConsumerRows, storageListing } from "./storage-consumers.js";
+import { storageConsumerRows, storageLegend, storageListing } from "./storage-consumers.js";
 import { StorageSegmented } from "./storage-segmented.js";
 import type { useStorage } from "./use-storage.js";
 import { usePageFocus } from "./storage-page-focus.js";
@@ -137,19 +136,15 @@ export function StorageBreakdown({
     if (node?.kind === "root" || node?.kind === "directory") drill(nodeId);
     else if (node?.entry) onInspect(node.entry);
   }
-  const legend = useMemo(() => {
-    const owners: StorageMapLegendOwner[] = (["brain", "app", "operator"] as const)
-      .filter((owner) => rows.some((row) => row.owner === owner))
-      .map((owner) => {
-        const mine = rows.filter((row) => row.owner === owner);
-        const sum = mine.reduce((total, row) => total + (row.bytes ?? 0), 0);
-        const partial = mine.some((row) => row.bytes === null || row.atLeast);
-        // A measured zero is "none"; an owner with unknown stores has only a lower bound, or none.
-        const total = sum > 0 ? `${partial ? "≥ " : ""}${bytes(sum)}` : partial ? undefined : "none";
-        return { owner, total };
-      });
-    return { owners, unknown: rows.filter((row) => row.bytes === null) };
-  }, [rows]);
+  // The cursor the shown page was fetched with: `view.cursor` moves first, while the next page loads.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const pageCursor = useMemo(() => view.cursor, [tree]);
+  const legend = storageLegend(derived, {
+    cursor: pageCursor,
+    nextCursor: tree?.nextCursor ?? null,
+    shown: view.smaller ? shown : null,
+    showEmpty,
+  });
   const trail = (tree?.breadcrumbs ?? [{ id: null, name: "All stores" }]).map((crumb) => ({
     id: crumb.id ?? ROOT,
     label: crumb.name,
