@@ -7,6 +7,7 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { activeChat, useChatStore } from "../../stores/chat-store.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
+import { GoogleAllowancesPanel } from "./google-allowances.js";
 
 const formatAuthority = ({host,port}:{host:string;port:number}) => `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
 
@@ -52,6 +53,8 @@ export function SessionSafety() {
     {unknown&&<p>Coverage is incomplete or unavailable. Reviewing known triggers cannot establish complete history.</p>}
     {!!p?.pendingCount&&<p>Input is being recorded; new actions remain restricted.</p>}
     {p?.reasons.includes("recording_failed")&&<p>Recording is unavailable. Restrictions remain in effect.</p>}
+    {/* A restricted chat's Gmail allowances (#4212), remounted per chat, owner and restricted interval. */}
+    {sessionId&&p?.restriction==="restricted"&&<GoogleAllowancesPanel key={scope} sessionId={sessionId}/>}
     <details><summary className="min-h-11 cursor-pointer py-3">What this evidence covers</summary><p>Coverage describes the host's supported detectors. It does not verify content safety. Proxied shell local reads and opaque transport may have no tool attribution.</p></details>
     {shownGroups.slice(0,shown).map(([turn,entries])=><div key={turn} data-safety-turn-event={turn} className="flex min-w-0 items-center gap-2">
       <SafetyIndicator entries={entries}/><span>Turn event · {entries.some(e=>e.occurrence.source==="egress_connection")?"Network input; tool attribution unavailable":"Input safety evidence"}</span>
