@@ -9,7 +9,7 @@ import {
   type StorageGitFacet,
 } from "@schlessera/brain-ui-kit";
 import type { StorageFileEntry } from "@schlessera/brain-ui-sdk/protocol";
-import { bytes, humanReason } from "./storage-model.js";
+import { bytes, humanReason, knownLinks } from "./storage-model.js";
 import { LARGER_PRESETS } from "./storage-pane-model.js";
 import { running, type useStorage } from "./use-storage.js";
 import { usePageFocus } from "./storage-page-focus.js";
@@ -100,7 +100,7 @@ export function StorageLargeFiles({
         folder={folderOf(entry.path)}
         size={size}
         git={facts ? GIT[facts.git] : "unknown"}
-        links={facts ? facts.references.length : null}
+        links={knownLinks(view.evidence[entry.id])}
         eligibility={mark.value}
         why={mark.why}
         selected={!!view.selected[entry.id]}

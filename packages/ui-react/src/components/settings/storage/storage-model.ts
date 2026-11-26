@@ -1,5 +1,6 @@
 import type {
   StorageFileEntry,
+  StorageRemovalFile,
   StorageRoot,
   StorageTreePage,
 } from "@schlessera/brain-ui-sdk/protocol";
@@ -29,6 +30,10 @@ const percent = (value: number | null, total: number | null) =>
 export const time = (value: number) => new Date(value).toLocaleString();
 export const humanReason = (reason: string | null) =>
   reason ? reason.replaceAll("_", " ").replaceAll("-", " ") : "Unavailable";
+/** The links a file's removal inspection found, for its Find large files row. */
+export const knownLinks = (
+  inspected: { facts: StorageRemovalFile | null; complete: boolean } | undefined
+): number | null => (inspected?.facts ? inspected.facts.references.length : null);
 export const canonicalPath = (
   entry: StorageFileEntry,
   roots: readonly StorageRoot[]

@@ -22,6 +22,8 @@ interface InspectedFile {
   entry: StorageFileEntry;
   path: string | null;
   facts: StorageRemovalFile | null;
+  /** The inspection's own coverage: `false` when references were not all checked. */
+  complete: boolean;
   references: StorageReferenceEvidence | null;
   unchecked: string[];
   observedAt: number | null;
@@ -277,6 +279,7 @@ export function useStorage(root: BrainUiRoot) {
         entry,
         path,
         facts: null,
+        complete: false,
         references: null,
         unchecked: [],
         observedAt: null,
@@ -296,6 +299,7 @@ export function useStorage(root: BrainUiRoot) {
         ...base,
         references: links.status === "fulfilled" ? links.value : null,
         facts: record?.files[0] ?? null,
+        complete: record?.complete ?? false,
         unchecked: record?.unchecked ?? [],
         observedAt: record?.observedAt ?? null,
         error:
