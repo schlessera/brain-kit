@@ -796,8 +796,9 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
         }
       }
       const outwardInput="hookSpecificOutput" in output&&output.hookSpecificOutput?.hookEventName==="PreToolUse"?output.hookSpecificOutput.updatedInput:undefined;
+      const finalOutward=args[0].hook_event_name==="PreToolUse"?outward(args[0].tool_name,outwardInput??args[0].tool_input):undefined;
       const refusal = safetyAdmissionRefusal(safety, snapshot)
-        ?? (args[0].hook_event_name==="PreToolUse"&&(ctx.shownOutward.has(args[0].tool_use_id)||ctx.outwardAdmissions.has(args[0].tool_use_id))&&outward(args[0].tool_name,outwardInput??args[0].tool_input).classification.actions.length?outwardAdmissionRefusal(safety,snapshot):null)
+        ?? (args[0].hook_event_name==="PreToolUse"&&(ctx.shownOutward.has(args[0].tool_use_id)||ctx.outwardAdmissions.has(args[0].tool_use_id))&&finalOutward?.classification.actions.length?outwardAdmissionRefusal(safety,snapshot):null)
         ?? (req.signal.aborted || args[2].signal.aborted ? "Turn cancelled before tool admission." : null);
       if (refusal) {
         if (args[0].hook_event_name === "PreToolUse") turnLock.releaseForTool(args[0].tool_use_id);
