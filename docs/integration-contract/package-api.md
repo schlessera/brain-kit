@@ -1232,7 +1232,7 @@ The additive server-only `BackendActivityEvent` variants `policy_block` and
 `policy_confirm` (#1661) contain `{ toolUseId, payload }`. The payload names the
 Bash tool/input, truncation, original policy-file rule index/pattern/reason and
 captured policy hash; confirmation also records its approved, declined,
-cancelled or timed-out decision. Both adapters report these through the existing
+cancelled, timed-out or host-stopped (#4565) decision. Both adapters report these through the existing
 Activity callback. The host supplies turn/session/actor/profile attribution and
 keeps the validated governance receipt after Activity detail pruning. They add
 no client frame and confer no execution authority.

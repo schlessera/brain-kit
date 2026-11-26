@@ -9,6 +9,7 @@ import type { ChatMessage, ChatState } from "../chat-state.js";
 import type { ChatSliceContext } from "./buffers.js";
 import { withoutRetry } from "./buffers.js";
 import { textsOf } from "./transcript.js";
+import { unownedReplyIndex } from "./turn-reply.js";
 
 type StreamingSliceSlice = Pick<ChatState,
   | "finishAssistantMessage"
@@ -19,11 +20,12 @@ type StreamingSliceSlice = Pick<ChatState,
   | "setTurnJournal"
   | "rewriteMessageLinks"
   | "stampTurn"
+  | "stampToolTurn"
   | "setStreaming"
 >;
 
 export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice {
-  const { nextId, mutateBuffer, mutateLastAssistant } = ctx;
+  const { nextId, mutateBuffer, mutateLastAssistant, mutateToolHolder } = ctx;
   return {
     finishAssistantMessage: (key) =>
       mutateLastAssistant(
@@ -41,14 +43,8 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
           if (turnId) {
             index = msgs.findLastIndex((m) => m.role === "assistant" && m.turnId === turnId);
           }
-          if (index === -1) {
-            // The composer opens the turn's message before the turn has an
-            // id, and a failure with no deltas never stamps one — so the
-            // last assistant message, unless another turn owns it.
-            const last = msgs.findLastIndex((m) => m.role === "assistant");
-            const owner = last === -1 ? undefined : msgs[last].turnId;
-            if (last !== -1 && (owner === undefined || owner === turnId)) index = last;
-          }
+          // The composer opens the turn's message before the turn has an id.
+          if (index === -1) index = unownedReplyIndex(msgs, turnId, (m) => m.turnId);
           if (index === -1) {
             msgs.push({
               id: nextId(),
@@ -82,14 +78,11 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
       mutateBuffer(key, (chat) => {
         const msgs = [...chat.messages];
         let index = turnId ? msgs.findLastIndex((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === turnId) : -1;
-        if (index === -1) {
-          // As failAssistantMessage: the last assistant message, unless
-          // another turn owns it.
-          const last = msgs.findLastIndex((m) => m.role === "assistant");
-          const owner = last === -1 ? undefined : msgs[last].turnId ?? msgs[last].streamTurnId;
-          if (last !== -1 && (owner === undefined || owner === turnId)) index = last;
-        }
-        if (index !== -1 && (msgs[index].failure || msgs[index].runtimeNotice?.cause === notice.cause)) return {};
+        // As failAssistantMessage.
+        if (index === -1) index = unownedReplyIndex(msgs, turnId);
+        // A failure is the one account of a stop, except the host's own stop
+        // (#4565): the diagnostic error it raised does not say why it stopped.
+        if (index !== -1 && ((msgs[index].failure && notice.cause !== "host_stop") || msgs[index].runtimeNotice?.cause === notice.cause)) return {};
         if (index === -1) {
           msgs.push({
             id: nextId(),
@@ -189,6 +182,11 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
     stampTurn: (key, turnId) =>
       mutateLastAssistant(key, (last) =>
         last.isStreaming && !last.turnId ? { ...last, turnId } : last
+      ),
+
+    stampToolTurn: (key, toolUseId, turnId) =>
+      mutateToolHolder(key, toolUseId, (holder) =>
+        holder.isStreaming && !holder.turnId && holder.toolCalls.some((t) => t.id === toolUseId) ? { ...holder, turnId } : holder
       ),
 
     setStreaming: (key, streaming) => mutateBuffer(key, () => ({ isStreaming: streaming })),

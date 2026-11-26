@@ -221,8 +221,11 @@ export "." (./src/index.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_STOP_CAUSES
+  HOST_STOP_OUTCOME_DETAIL_PREFIX
   HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
+  type HostStopCause
   type HygieneAction
   type HygieneDiff
   type HygieneEffect
@@ -534,6 +537,8 @@ export "." (./src/index.ts)
   type WorkerLimitSource
   type WorkerLimitsStatus
   composeHandoffText
+  hostStopFromOutcomeDetail
+  hostStopOutcomeDetail
   isBillingMode
   isFailureOutcome
   isPricingRoute
@@ -942,9 +947,12 @@ export "./client" (./src/client/index.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_STOP_CAUSES
+  HOST_STOP_OUTCOME_DETAIL_PREFIX
   HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HelloState
+  type HostStopCause
   type HygieneAction
   type HygieneDiff
   type HygieneEffect
@@ -1388,6 +1396,8 @@ export "./client" (./src/client/index.ts)
   githubBoundedList
   githubDirectUrl
   githubSearchUrl
+  hostStopFromOutcomeDetail
+  hostStopOutcomeDetail
   isBillingMode
   isFailureOutcome
   isGithubDetailPart
@@ -1926,8 +1936,11 @@ export "./protocol" (./src/protocol.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_STOP_CAUSES
+  HOST_STOP_OUTCOME_DETAIL_PREFIX
   HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
+  type HostStopCause
   type HygieneAction
   type HygieneDiff
   type HygieneEffect
@@ -2234,6 +2247,8 @@ export "./protocol" (./src/protocol.ts)
   type WorkerLimitSource
   type WorkerLimitsStatus
   composeHandoffText
+  hostStopFromOutcomeDetail
+  hostStopOutcomeDetail
   isBillingMode
   isFailureOutcome
   isPricingRoute
@@ -2925,11 +2940,14 @@ export "./server" (./src/server/index.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_STOP_CAUSES
+  HOST_STOP_OUTCOME_DETAIL_PREFIX
   HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HistoricalItem
   type HistoricalResultRef
   type HistoryGapReason
+  type HostStopCause
   type HygieneAction
   type HygieneDiff
   type HygieneEffect
@@ -3452,6 +3470,8 @@ export "./server" (./src/server/index.ts)
   handleShowBlock
   handleTurnTemp
   handleWebTool
+  hostStopFromOutcomeDetail
+  hostStopOutcomeDetail
   isBillingMode
   isCompletedAutonomousToolCall
   isFailureOutcome
@@ -6709,7 +6729,7 @@ signatures (every public export and the types it is made of)
         kind: "policy_confirm";
         toolUseId: string;
         payload: PolicyCommandRecord<"commands.confirm"> & {
-            decision: "approved" | "declined" | "timed_out" | "cancelled";
+            decision: "approved" | "declined" | "timed_out" | "cancelled" | "host_stopped";
         };
     } | {
         kind: "runtime_observed";
@@ -10376,6 +10396,10 @@ signatures (every public export and the types it is made of)
     const HANDOFF_MAX_REFERENCES: 8;
   HANDOFF_REFERENCES_HEADING (packages/ui-sdk/src/protocol.ts)
     const HANDOFF_REFERENCES_HEADING: "References:";
+  HOST_STOP_CAUSES (packages/ui-sdk/src/protocol.ts)
+    const HOST_STOP_CAUSES: readonly ["safety_recording", "change_journal", "approval_record", "inbox_share", "egress_record"];
+  HOST_STOP_OUTCOME_DETAIL_PREFIX (packages/ui-sdk/src/protocol.ts)
+    const HOST_STOP_OUTCOME_DETAIL_PREFIX: "host_stop:";
   HOST_TIMEOUT_OUTCOME_DETAIL (packages/ui-sdk/src/protocol.ts)
     const HOST_TIMEOUT_OUTCOME_DETAIL: "host_timeout";
   HandoffRequest (packages/ui-sdk/src/protocol.ts)
@@ -10430,6 +10454,8 @@ signatures (every public export and the types it is made of)
     }
   HistoryGapReason (packages/ui-sdk/src/server/conversation.ts)
     export type HistoryGapReason = "older_omitted" | "pre_upgrade" | "write_gap" | "source_unavailable" | "ambiguous_order";
+  HostStopCause (packages/ui-sdk/src/protocol.ts)
+    export type HostStopCause = (typeof HOST_STOP_CAUSES)[number];
   HygieneAction (packages/ui-sdk/src/protocol.ts)
     export interface HygieneAction {
         findingId: string;
@@ -14132,6 +14158,7 @@ signatures (every public export and the types it is made of)
         toolUseId: string;
         output: string;
         isError: boolean;
+        hostStop?: HostStopCause;
     }
   ServerToolUseComplete (packages/ui-sdk/src/protocol.ts)
     export interface ServerToolUseComplete extends SessionScoped {
@@ -17461,6 +17488,10 @@ signatures (every public export and the types it is made of)
         references: z.ZodArray<z.ZodString>;
         sourceSessionId: z.ZodString;
     }, z.core.$loose>;
+  hostStopFromOutcomeDetail (packages/ui-sdk/src/protocol.ts)
+    export function hostStopFromOutcomeDetail(detail: string | undefined): HostStopCause | null | undefined;
+  hostStopOutcomeDetail (packages/ui-sdk/src/protocol.ts)
+    export function hostStopOutcomeDetail(cause: HostStopCause): string;
   hygieneActionSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneActionSchema: z.ZodObject<{
         finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
@@ -25184,6 +25215,13 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_use_complete">;
     }, z.core.$loose>, z.ZodObject<{
+        hostStop: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            approval_record: "approval_record";
+            change_journal: "change_journal";
+            egress_record: "egress_record";
+            inbox_share: "inbox_share";
+            safety_recording: "safety_recording";
+        }>>>;
         isError: z.ZodBoolean;
         output: z.ZodString;
         policyChange: z.ZodOptional<z.ZodObject<{
@@ -30083,6 +30121,13 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   serverToolResultSchema (packages/ui-sdk/src/schemas.ts)
     const serverToolResultSchema: z.ZodObject<{
+        hostStop: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            approval_record: "approval_record";
+            change_journal: "change_journal";
+            egress_record: "egress_record";
+            inbox_share: "inbox_share";
+            safety_recording: "safety_recording";
+        }>>>;
         isError: z.ZodBoolean;
         output: z.ZodString;
         policyChange: z.ZodOptional<z.ZodObject<{

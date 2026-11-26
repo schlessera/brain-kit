@@ -11,6 +11,7 @@ import type {
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { WSContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
+import { HOST_STOP_REASONS, hostStopOf } from "./host-stop.js";
 import { withLocalContext } from "./local-exchanges.js";
 import { acceptDraft } from "./drafts.js";
 import { acceptRequest } from "./recovery.js";
@@ -161,8 +162,10 @@ async function runRetainedSession(
       if (!turn.cancelled) next = dequeueRequest(turn);
     }
   } catch (error) {
-    activeLifecycle?.finish(turn.cancelled ? "cancelled" : turn.abortController?.signal.aborted ? "timeout" : "error",
-      error instanceof Error ? error.message : String(error));
+    // A host stop is recorded before any cancel and is never a timeout (#4565).
+    const stopped = hostStopOf(turn);
+    activeLifecycle?.finish(stopped ? "error" : turn.cancelled ? "cancelled" : turn.abortController?.signal.aborted ? "timeout" : "error",
+      stopped ? HOST_STOP_REASONS[stopped] : error instanceof Error ? error.message : String(error));
     throw error;
   } finally {
     closeSessionSlot(slot, next);
