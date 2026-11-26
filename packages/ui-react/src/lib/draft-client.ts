@@ -315,7 +315,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         return;
       }
       if (read.ok) {
-        const result = await api.remove(d.draftId, read.value.revision);
+        // Send waits while this is out, as for any delete of a draft (#4567).
+        drafts.getState().deleting(d.draftId, true);
+        const result = await api.remove(d.draftId, read.value.revision).finally(() => drafts.getState().deleting(d.draftId, false));
         if (!current()) return;
         if (!result.ok && pendingOnHost(d, result)) return;
         if (!result.ok && result.status !== 404 && result.status !== 410) { failed(d.draftId, result, d.edit); return; }
