@@ -9,9 +9,9 @@
  * - nothing in a rendered message or result list loads anything: hostile
  *   mail carrying an HTML image, a Markdown remote image, a CSS `url(…)`
  *   and attachment-like URLs, aimed at another origin and at this one,
- *   stays mounted until the network is idle and requests nothing. Every
- *   request the browser context makes is recorded and compared by parsed
- *   origin; a positive control proves the log sees a request;
+ *   stays mounted and makes no request at all, on any origin. Every request
+ *   the browser context makes is recorded and read without waiting for the
+ *   network to go idle; a positive control proves the log sees a request;
  * - a link in a mail body cannot navigate before the interstitial, which
  *   says where the link was written and names no author: no anchor click,
  *   no `window.open`, no navigation and no request for the link's origin.
@@ -72,8 +72,17 @@ async function requests(): Promise<{ url: string; origin: string }[]> {
   });
 }
 
-/** Requests for another origin than the page's. */
-const foreign = (log: { url: string; origin: string }[]) => log.filter((r) => r.origin !== location.origin).map((r) => r.url);
+/**
+ * Every request recorded since the log started, read at once: no wait for the
+ * network to go idle, because an offending request may never finish and the
+ * test must fail on its assertion, not on its timeout (#4209 re-review RF1).
+ * Fonts are data URLs (`design-font-setup.ts`), so nothing here is harness
+ * traffic; only `data:` URLs are dropped.
+ */
+async function recordedNow(): Promise<string[]> {
+  return (await commands.requestLog()).filter((raw) => !raw.startsWith("data:"));
+}
+
 
 /** Where the hostile mail points: a foreign host, this page's origin, and a URL that starts with this origin's text but is another origin. */
 const HOSTILE = "https://cdn.ithaca-steward.example";
@@ -202,11 +211,12 @@ describe("nothing loads", () => {
       expect(shown, "the hostile image tag is on screen, as text").toContain("<img src=");
       expect(shown, "the CSS url() is on screen, as text").toContain("background-image:url(");
       expect(shown, "the attachment-like URL is on screen, as text").toContain(`${HOSTILE}/attachments/invoice.pdf`);
+      // Read twice without waiting for idle: rendering mail may make no request at all, on any origin,
+      // including this page's own host endpoints, whether or not the request ever completes.
       await settle(500);
-      const log = await requests();
-      expect(foreign(log), "no request left the page's origin").toEqual([]);
-      const hostile = log.filter((r) => hostileUrls().some((u) => r.url === u || r.url.includes("gmail-hostile") || r.url.includes("ithaca-steward")));
-      expect(hostile, "no request for anything the mail named, on any origin").toEqual([]);
+      expect(await recordedNow(), "rendering hostile mail made no request, 500 ms after mounting").toEqual([]);
+      await settle(1000);
+      expect(await recordedNow(), "rendering hostile mail made no request, 1.5 s after mounting").toEqual([]);
       expect(document.body.dataset.pwned, "no handler in the mail ran").toBeUndefined();
     } finally {
       for (const r of roots) flushSync(() => r.unmount());
@@ -258,9 +268,11 @@ describe("links in a body ask first", () => {
       await userEvent.keyboard("{Escape}");
       await expect.poll(() => document.activeElement).toBe(link);
       expect([seen, opened, navigations], "nothing navigated or opened after closing either").toEqual([[], [], []]);
-      const log = await requests();
-      expect(log.filter((r) => r.origin === linkOrigin).map((r) => r.url), "no request, in this page or a new one, for the link's origin").toEqual([]);
-      expect(foreign(log), "nothing left the page's origin").toEqual([]);
+      // Read without waiting for idle (RF1): a request the link started must fail the assertion, not stall it.
+      await settle(500);
+      const log = await recordedNow();
+      expect(log.filter((raw) => new URL(raw).origin === linkOrigin), "no request, in this page or a new one, for the link's origin").toEqual([]);
+      expect(log, "opening and closing the interstitial made no request at all").toEqual([]);
     } finally {
       document.removeEventListener("click", stop, true);
       navigation?.removeEventListener("navigate", onNavigate);
