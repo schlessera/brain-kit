@@ -207,3 +207,27 @@ export function storageConsumerRows(
   const isEmpty = (row: StorageConsumer) => row.bytes === 0 && !row.atLeast && !row.reason && !row.shared;
   return { rows: ranked.filter((row) => !isEmpty(row)), empty: ranked.filter(isEmpty) };
 }
+
+/** What the list draws, and what the legend counts. */
+interface StorageListed {
+  /** The rows to draw, a folded database's parts after it. */
+  listed: StorageConsumer[];
+  /** The rows the legend counts, each once. */
+  counted: StorageConsumer[];
+}
+
+/**
+ * The list for one page. With `shown`, the ids the map draws as tiles of
+ * their own, only what the map gathers into "N smaller items" is listed.
+ */
+export function storageListing(
+  derived: StorageConsumerRows,
+  options: { shown?: ReadonlySet<string> | null; showEmpty?: boolean } = {}
+): StorageListed {
+  const drawn = (nodeId: string) => !!options.shown?.has(nodeId);
+  const rows = [...derived.rows, ...(options.showEmpty ? derived.empty : [])].filter((row) => !drawn(row.nodeId));
+  // A folded database's members follow it, each with its own action: the
+  // map has a tile for each, so the list reaches each (#4549 review).
+  const listed = rows.flatMap((row) => [row, ...(row.parts ?? []).filter((part) => !drawn(part.nodeId))]);
+  return { listed, counted: rows };
+}

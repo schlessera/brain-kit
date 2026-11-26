@@ -12,7 +12,7 @@ import {
 } from "@schlessera/brain-ui-kit";
 import type { StorageFileEntry, StorageSnapshot } from "@schlessera/brain-ui-sdk/protocol";
 import { bytes, mapItems } from "./storage-model.js";
-import { storageConsumerRows } from "./storage-consumers.js";
+import { storageConsumerRows, storageListing } from "./storage-consumers.js";
 import { StorageSegmented } from "./storage-segmented.js";
 import type { useStorage } from "./use-storage.js";
 import { usePageFocus } from "./storage-page-focus.js";
@@ -107,12 +107,7 @@ export function StorageBreakdown({
         : { rows: [], empty: [] },
     [tree, view.metric, view.sort, view.direction, snapshot]
   );
-  const rows = [...derived.rows, ...(showEmpty ? derived.empty : [])].filter(
-    (row) => !view.smaller || !shown.has(row.nodeId)
-  );
-  // A folded database's members follow it, each with its own action: the
-  // map has a tile for each, so the list reaches each (#4549 review).
-  const listed = rows.flatMap((row) => [row, ...(row.parts ?? []).filter((part) => !view.smaller || !shown.has(part.nodeId))]);
+  const { listed, counted: rows } = storageListing(derived, { shown: view.smaller ? shown : null, showEmpty });
   // Focus after navigation lands once the requested page is the one shown.
   useEffect(() => {
     if (view.loading || !pendingFocus.current || view.tree?.parentId !== (view.parent ?? null)) return;
