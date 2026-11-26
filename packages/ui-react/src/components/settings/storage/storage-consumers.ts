@@ -14,13 +14,9 @@ import {
   type StorageSortDirection,
   type StorageSortKey,
 } from "@schlessera/brain-ui-kit";
-import { bytes, type StorageMetric } from "./storage-model.js";
+import { bytes, foldSidecars, sidecarBase, type StorageMetric } from "./storage-model.js";
 
-const SIDECAR = /-(wal|shm|journal)$/;
-/** The database a sidecar name belongs to, or `null` for any other name. */
-export function sidecarBase(name: string): string | null {
-  return SIDECAR.test(name) ? name.replace(SIDECAR, "") : null;
-}
+export { sidecarBase };
 /** Labels with each sidecar folded into its database, when the database is listed. */
 export function foldSidecarLabels(labels: readonly string[]): string[] {
   const present = new Set(labels);
@@ -102,23 +98,7 @@ export function storageConsumerRows(
 ): StorageConsumerRows {
   const format = options.format ?? ((value: number) => bytes(value));
   const sort = options.sort ?? { key: "size", direction: "descending" };
-  const folded = new Map<string, StorageTreeNode[]>();
-  // A store's sidecar is its own root with the same owner; a file's is a file
-  // beside it in the same root. A folder or link with a sidecar name is not one.
-  const database = (node: StorageTreeNode, base: string) =>
-    page.nodes.find(
-      (value) =>
-        value.name === base &&
-        (node.kind === "root"
-          ? value.kind === "root" && value.owner === node.owner
-          : node.kind === "file" && value.kind === "file" && value.rootId === node.rootId)
-    );
-  for (const node of page.nodes) {
-    const base = sidecarBase(node.name);
-    const owner = base === null ? undefined : database(node, base);
-    const key = owner?.id ?? node.id;
-    folded.set(key, [...(folded.get(key) ?? []), node]);
-  }
+  const folded = foldSidecars(page.nodes);
   const category = (node: StorageTreeNode) =>
     node.kind === "root" ? options.inventory?.roots.find((root) => root.id === node.rootId)?.category : undefined;
   const all = [...folded.entries()].map(([id, nodes]): StorageConsumer => {
