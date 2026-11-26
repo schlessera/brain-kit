@@ -667,6 +667,36 @@ test("A folded database's members are reachable from the list, as from the map",
     })
     .toBe(true);
 });
+// #4549 review F1 (third round): inventory expires after ten minutes while
+// removal receipts persist, so the last removal's receipt and its Undo stay
+// reachable when no measurement is current, as they were before the overhaul.
+test("The last removal's receipt and Undo stay reachable without a current measurement", async () => {
+  const fixture = storageViewFixture("never");
+  const id = "f".repeat(31) + "2";
+  await fixture.request("/api/storage/removals/reviews", {
+    method: "POST",
+    body: JSON.stringify({ id, paths: ["attachments/Ithaca-harbor.pdf"] }),
+  });
+  await fixture.request("/api/storage/removals", {
+    method: "POST",
+    body: JSON.stringify({ id, fingerprint: "a".repeat(64) }),
+  });
+  expect(fixture.receipt?.items.map((item) => item.undoAvailable)).toEqual([true]);
+  await scene("never", 320, "dark", 1, { request: fixture.request });
+  await expect
+    .poll(() => host.querySelector("[data-storage-status]")?.getAttribute("data-storage-status"))
+    .toBe("never");
+  await expect
+    .poll(() => button("View removal receipt").elements().length, { message: "STORAGE_RECEIPT_WITHOUT_SNAPSHOT" })
+    .toBe(1);
+  expect(host.querySelector("[data-storage-last-removal]")?.textContent).toContain("Last removal: partial");
+  await button("View removal receipt").click();
+  await expect
+    .poll(() => button("Undo removal of attachments/Ithaca-harbor.pdf").elements().length)
+    .toBe(1);
+  await button("Undo removal of attachments/Ithaca-harbor.pdf").click();
+  await expect.poll(() => button("Restore 1 file").elements().length, { message: "STORAGE_UNDO_WITHOUT_SNAPSHOT" }).toBe(1);
+});
 test("Unsupported removal still permits copying the visible filtered list", async () => {
   await scene("unsupported");
   await files();
