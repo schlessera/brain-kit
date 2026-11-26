@@ -717,6 +717,29 @@ test("The last removal's receipt and Undo stay reachable without a current measu
   await button("Undo removal of attachments/Ithaca-harbor.pdf").click();
   await expect.poll(() => button("Restore 1 file").elements().length, { message: "STORAGE_UNDO_WITHOUT_SNAPSHOT" }).toBe(1);
 });
+// #4549 review (fourth round): the server can report removal unavailable
+// while it still holds the last receipt. Receipt access does not depend on
+// removal capability, so Find large files still offers it.
+test("The last removal's receipt stays reachable when removal becomes unavailable", async () => {
+  const fixture = storageViewFixture("unsupported");
+  const id = "f".repeat(31) + "3";
+  await fixture.request("/api/storage/removals/reviews", {
+    method: "POST",
+    body: JSON.stringify({ id, paths: ["attachments/Ithaca-harbor.pdf"] }),
+  });
+  await fixture.request("/api/storage/removals", {
+    method: "POST",
+    body: JSON.stringify({ id, fingerprint: "a".repeat(64) }),
+  });
+  expect(fixture.receipt?.state).toBeTruthy();
+  await scene("unsupported", 1280, "dark", 1, { request: fixture.request });
+  await files();
+  await expect.poll(() => host.textContent).toContain("Removal isn't available on this host");
+  await expect
+    .poll(() => button("View removal receipt").elements().length, { message: "STORAGE_RECEIPT_WHEN_REMOVAL_UNAVAILABLE" })
+    .toBe(1);
+  expect(host.querySelectorAll('[data-storage-large-files] input[type="checkbox"]')).toHaveLength(0);
+});
 test("Unsupported removal still permits copying the visible filtered list", async () => {
   await scene("unsupported");
   await files();
