@@ -30,10 +30,19 @@ const percent = (value: number | null, total: number | null) =>
 export const time = (value: number) => new Date(value).toLocaleString();
 export const humanReason = (reason: string | null) =>
   reason ? reason.replaceAll("_", " ").replaceAll("-", " ") : "Unavailable";
-/** The links a file's removal inspection found, for its Find large files row. */
+/**
+ * The links a file's removal inspection found, for its Find large files row,
+ * or `null` when its reference coverage is unknown. The server marks the
+ * whole inspection incomplete when its reference scan fails, hits a bound or
+ * truncates a file's list, and refuses such a file as
+ * `consequences_incomplete`; either way an empty list is not "no links".
+ */
 export const knownLinks = (
   inspected: { facts: StorageRemovalFile | null; complete: boolean } | undefined
-): number | null => (inspected?.facts ? inspected.facts.references.length : null);
+): number | null =>
+  inspected?.facts && inspected.complete && inspected.facts.reason !== "consequences_incomplete"
+    ? inspected.facts.references.length
+    : null;
 export const canonicalPath = (
   entry: StorageFileEntry,
   roots: readonly StorageRoot[]
