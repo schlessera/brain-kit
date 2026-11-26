@@ -131,6 +131,25 @@ export const NeverRun = meta.story({
 });
 export const NeverRunDesktop = NeverRun.extend({ parameters: desktop });
 
+/**
+ * The caller has another request in flight (#4549): Run stays in place,
+ * inert, so a focused Run keeps focus instead of vanishing under it.
+ */
+export const ActionHeld = meta.story({
+  args: { actionDisabled: true },
+  play: async ({ canvasElement, args }) => {
+    await laidOut(canvasElement);
+    const run = within(canvasElement).getByRole("button", { name: "Run Pack Git objects" });
+    await expect(run, "held, not removed").toBeVisible();
+    await expect(run).toHaveAttribute("aria-disabled", "true");
+    run.focus();
+    await expect(run, "a held action can still hold focus").toHaveFocus();
+    run.click();
+    await expect(args.onRun, "a held Run is inert").not.toHaveBeenCalled();
+  },
+});
+export const ActionHeldDesktop = ActionHeld.extend({ parameters: desktop });
+
 /** Queued behind another job: Cancel is offered, and the headroom stays in view. */
 export const Waiting = meta.story({
   args: { state: "waiting", at: "12 Jul 03:08" },
