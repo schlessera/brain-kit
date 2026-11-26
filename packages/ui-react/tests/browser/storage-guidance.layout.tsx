@@ -633,6 +633,27 @@ test("A failed history read beside current guidance says history is unavailable,
   await expect.poll(section, { ...reread, message: "STORAGE_HISTORY_FAILURE_SETTLES" }).toContain("Observation history is unavailable");
   expect(section()).not.toContain("Loading history");
 });
+// #4549 review F1: an active refusal is retained evidence, not only a chart
+// marker. With no history, or a refusal older than every tier, the Very low
+// volume still says why, in words.
+for (const variant of ["no history", "older than every tier"] as const)
+  test(`An active refusal stays stated beside its volume with ${variant}`, async () => {
+    const f = storagePaneFixture({ state: "very-low" });
+    const refusal = f.guidance.capacities[0]!.causes.refusals[0]!;
+    refusal.resource = "quota";
+    if (variant === "no history") f.history.observations = [];
+    else refusal.at = Date.UTC(2026, 0, 3, 7, 15);
+    await scene({ width: 320, fixture: f as never, now: paneTime });
+    const volumes = () => host.querySelector<HTMLElement>("[data-storage-volumes]")?.textContent ?? "";
+    await expect.poll(volumes).toContain("Very low");
+    const section = () => host.querySelector<HTMLElement>("[data-storage-history-section]")?.textContent ?? "";
+    await expect.poll(section).not.toContain("Loading history");
+    // The chart cannot show it: no marker in range.
+    expect(section()).not.toContain("Owner refused a write");
+    await expect
+      .poll(volumes, { message: "STORAGE_REFUSAL_RETAINED_BESIDE_VOLUME" })
+      .toMatch(/Very low · Owner refused a write · quota reached · \d+ \w+ \d\d:\d\d · no matching write has succeeded since/);
+  });
 // The chart states (#4549): real-browser baselines of the history section.
 const CHART_STATES: ChartState[] = ["full", "gap", "no-projection", "one-window", "two-windows", "scope-change"];
 for (const chart of CHART_STATES)
