@@ -34,7 +34,9 @@ export interface GoogleWriteTurn {
  * preconditions, so an approval cannot silently change targets.
  * execute MUST call finalAdmission synchronously immediately before its SINGLE
  * dispatch, after all transport waits, and MUST NOT dispatch on an error.
- * The gog transport invokes this callback at its final spawn boundary. */
+ * The gog transport invokes this callback at its final spawn boundary.
+ * A confirmed raw send alone may use cleanupAdmission for one draft deletion,
+ * after recording its digest; cleanup cannot authorize another send. */
 export interface PreparedGoogleWrite {
   operation: Operation;
   input: WriteCall["input"];
@@ -43,7 +45,7 @@ export interface PreparedGoogleWrite {
   card: GoogleMailApproval;
   inverse?: Omit<GoogleInversePrepared, "sessionId" | "turnId" | "principalId" | "brainId" | "callId" | "inverseId" | "operation" | "accountIdentity">;
   sendLock?: string;
-  execute(finalAdmission: () => GoogleError | null): Promise<
+  execute(finalAdmission: () => GoogleError | null, cleanupAdmission: () => GoogleError | null): Promise<
     { ok: true; result: GoogleWriteSuccess["result"]; inverseResult?: GoogleInverseResult } | { ok: false; error: GoogleError }>;
 }
 export type GoogleWriteFactories = Partial<Record<Operation,
@@ -274,7 +276,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
             description: `Approve this ${decision.effect} Google change exactly as shown, once.` });
         } finally {
           if (sendLocked) {
-            try { await options.state.releaseSendLock(sessionId, cardId); }
+            try { await options.state.releaseSendLock(sessionId, cardId, true); }
             catch (cause) {
               report(`Google card lock release failed: ${String(cause)}`); releaseFailed = true;
               retryCleanup("Google card lock release", () => options.state.releaseSendLock(sessionId, cardId));
@@ -369,7 +371,16 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       };
       // No retries. The concrete operation owns the last synchronous spawn check.
       let outcome: Awaited<ReturnType<PreparedGoogleWrite["execute"]>>;
-      try { outcome = await prepared.execute(finalAdmission); } finally { settled = true; }
+      let cleaned = false;
+      const cleanupAdmission = (): GoogleError | null => {
+        if (operation !== "gmail.draft.send" || !dispatched || cleaned || settled)
+          return error("cleanup_not_admitted", "The send cleanup is not admitted.");
+        const failure = live() ?? (!sameSafetyAdmission(dispatchSafety, ctx.safety()) ? stale : null);
+        if (failure) return failure;
+        cleaned = true;
+        return null;
+      };
+      try { outcome = await prepared.execute(finalAdmission, cleanupAdmission); } finally { settled = true; }
       if (finalError) return await withdraw(finalError);
       if (!dispatched) return await withdraw(error("missing_admission", "The prepared write did not reach final admission."));
       if (!outcome.ok) {
@@ -378,6 +389,10 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         return refuse(ambiguous ? gogError("outcome_unknown", outcome.error.reason ?? "dispatch_failed") : outcome.error);
       }
       const result = GOOGLE_WRITE_SUCCESS_SCHEMA.parse({ ok: true, tool: call.tool, operation, effect: decision.effect, admission, result: outcome.result, ...(standingChoiceNotKept ? { standingChoice: "not_kept" } : {}) });
+      if (result.operation === "gmail.draft.send" && result.result.draft_deleted === false) {
+        audit.reason = "draft_cleanup_incomplete";
+        report("Google send confirmed; draft cleanup incomplete. The recorded digest prevents resend.");
+      }
       if (inverseId) await options.state.confirmInverse(sessionId, inverseId, outcome.inverseResult);
       return result;
     } catch (cause) {

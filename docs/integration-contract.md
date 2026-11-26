@@ -30,14 +30,16 @@ tools in their fixed roster, always loaded: `brain_google_gmail_search`,
 roster never depends on configuration; each read is decided by the host under
 the turn's frozen `google` policy block (the owner account only, Google enabled,
 routing as the provider-policy recipient `google`). Additively (#4213), modify and draft save (create, reply, update) execute
-through recorded inverses and host-composed payloads. Trash, send and draft
-delete still answer `unavailable` (`writes_unavailable`) until #4214. The #4211 engine provides exact Google permission cards, a strict structured
+through recorded inverses and host-composed payloads. Additively (#4214), send, draft delete and trash execute only after an exact
+card. Send binds the full parsed preview to retained raw bytes and a durable
+account-scoped digest; cleanup failure cannot authorize a resend. See
+[irreversible Gmail writes](integration-contract/wire.md#irreversible-gmail-writes-4214). The #4211 engine provides exact Google permission cards, a strict structured
 write-success envelope, commit-confirmed decision/inverse storage and journal
 receipts. It rechecks live authority, safety and the current Google block;
 card-less writes re-evaluate admission and G2 routing to recipient `google`
 at dispatch. Additively (#4212), reversible cards offer remembered approval in
 untainted sessions or a bounded session allowance in tainted sessions. Startup cleanup failure contains only writes and recovers
-automatically. Production registers the concrete reversible Gmail factories. See
+automatically. Production registers concrete Gmail write factories. See
 [write admission and results](integration-contract/wire.md#google-write-results-and-admission-additive-4211). Results are typed
 payloads in two views: `structured`, only host-validated ids, label ids and
 names, timestamps, counts, size buckets and flags, which taints nothing; and

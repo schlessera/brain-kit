@@ -1,4 +1,4 @@
-import { writesScenario, FIRST, SECOND } from "../../common/tests/support/gmail-write-fixtures.js";
+import { writesScenario, FIRST, SECOND, DRAFT } from "../../common/tests/support/gmail-write-fixtures.js";
 import { existsSync } from "node:fs";
 import { generateSignedCookie } from "hono/cookie";
 import { runCli } from "../../core/tests/cli-harness.js";
@@ -329,3 +329,18 @@ test("google concrete WebSocket hidden targets and item limits refuse, turn limi
   } });
   expect(f.result, "WS_CONCRETE_TURN_LIMIT").toMatchObject({ ok: true, admission: "card" }); expect(f.cards).toHaveLength(1);
 }, 60_000);
+
+for (const backend of ["pi", "claude"] as const) test(`google ${backend} concrete send crosses the WebSocket approval once`, async () => {
+  const f = await hosted(backend, { concrete: true, googlePolicy: '  gmail: { send_to: ["*@example.com"] }\n',
+    script: async bridge => {
+      const tool = "brain_google_gmail_send", input = { draft_id: DRAFT }, safety = bridge.inputSafety!, id = "toolu_ithaca_send";
+      safety.admitting?.(id, tool); await safety.begin(id, tool, input); await safety.allowed?.(id);
+      const answer = await handleGoogleTool(tool, input, bridge);
+      await safety.result(id, tool, answer.text, true);
+      return JSON.parse(answer.text);
+    } });
+  expect(f.result, "GOOGLE_WS_SEND_SUCCESS").toMatchObject({ ok: true, operation: "gmail.draft.send", admission: "card", result: { message_id: SECOND, draft_deleted: true } });
+  expect(f.cards, "GOOGLE_WS_ONE_SEND_CARD").toHaveLength(1);
+  expect(f.fake.callsOf("gmail.send"), "GOOGLE_WS_ONE_SEND").toHaveLength(1);
+  expect(f.fake.callsOf("gmail.drafts.delete")).toHaveLength(1);
+});

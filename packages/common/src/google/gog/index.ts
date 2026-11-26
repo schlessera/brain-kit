@@ -28,3 +28,5 @@ export { GOG_PIN_REFUSALS, GOG_PIN_TRANSIENT_REFUSALS, verifyGogBinary, type Gog
 export { GOG_PINS, GOG_PLATFORMS, gogPlatform, type GogPin, type GogPlatform } from "./pins.js";
 
 export { prepareGmailModify, prepareGmailDraft, GooglePreparationError, type GmailDraftProvenance } from "./reversible.js";
+
+export { prepareGmailSend, prepareGmailDelete, prepareGmailTrash } from "./irreversible.js";

@@ -89,3 +89,30 @@ test("Google ledger persists in a 0755 directory and refuses writable parents", 
   chmodSync(root, 0o775);
   expect(() => ledger.approvals(scope), "GOOGLE_LEDGER_WRITABLE_PARENT").toThrow("not writable by others");
 });
+
+test("Google send digest is durable, account scoped and atomically reserved", () => {
+  const path = resolve(scratch(), "ledger.sqlite"), first = openGoogleLedger(path), second = openGoogleLedger(path), digest = "a".repeat(64);
+  cleanups.push(() => first.close(), () => second.close());
+  expect(first.sentDigest("odysseus@example.com", digest)).toBeNull();
+  expect(first.reserveSentDigest("odysseus@example.com", digest, 1), "DIGEST_FIRST_RESERVATION").toBe(true);
+  expect(second.reserveSentDigest("odysseus@example.com", digest, 2), "DIGEST_ATOMIC_DUPLICATE").toBe(false);
+  expect(second.sentDigest("odysseus@example.com", digest), "DIGEST_PENDING_DURABLE").toBe("pending");
+  expect(second.sentDigest("penelope@example.com", digest), "DIGEST_ACCOUNT_SCOPE").toBeNull();
+  second.confirmSentDigest("odysseus@example.com", digest);
+  expect(first.sentDigest("odysseus@example.com", digest), "DIGEST_CONFIRMED_DURABLE").toBe("sent");
+  expect(first.reserveSentDigest("odysseus@example.com", digest, 3), "DIGEST_SENT_NO_REPLAY").toBe(false);
+  expect(() => first.confirmSentDigest("penelope@example.com", digest), "DIGEST_CONFIRM_REQUIRES_PENDING").toThrow();
+  const absent = openGoogleLedger(resolve(scratch(), "missing.sqlite"));
+  try { expect(() => absent.confirmSentDigest("odysseus@example.com", digest), "DIGEST_CONFIRM_REQUIRES_STORE").toThrow(); } finally { absent.close(); }
+});
+
+test("Google send digest unreadable state refuses without blocking unrelated approvals", () => {
+  const path = resolve(scratch(), "ledger.sqlite"), ledger = openGoogleLedger(path), digest = "b".repeat(64);
+  cleanups.push(() => ledger.close());
+  ledger.reserveSentDigest("odysseus@example.com", digest, 1);
+  const db = new Database(path);
+  try { db.exec("PRAGMA ignore_check_constraints=ON"); db.query("UPDATE sent_digests SET state='unknown-corrupt'").run(); } finally { db.close(); }
+  expect(() => ledger.sentDigest("odysseus@example.com", digest), "DIGEST_CORRUPT_FAIL_CLOSED").toThrow("Unreadable");
+  expect(ledger.sentDigest("penelope@example.com", digest), "DIGEST_CORRUPT_OTHER_ACCOUNT").toBeNull();
+  expect(ledger.list("ithaca")).toEqual([]);
+});

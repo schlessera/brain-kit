@@ -39,7 +39,7 @@ export type GmailComposedMessage = Pick<GmailRawDraft, "digest" | "bytes" | "to"
   from: GoogleMailbox; body_text: string;
 };
 
-function reader(ctx: GmailWritePreparationContext) {
+export function gmailWriteReader(ctx: GmailWritePreparationContext) {
   const execution = { accountIdentity: ctx.accountIdentity };
   const hidden = (labels: readonly string[]) => { if (labels.some(id => ctx.hiddenLabels.includes(id))) missing(); };
   const value = <T>(answer: GogResult<T>): T => {
@@ -71,7 +71,7 @@ function reader(ctx: GmailWritePreparationContext) {
 }
 
 export async function prepareGmailModify(ctx: GmailWritePreparationContext, input: GmailModifyInput) {
-  const read = reader(ctx);
+  const read = gmailWriteReader(ctx);
   const add = input.add_label_ids ?? [], remove = input.remove_label_ids ?? [];
   if ([...add, ...remove].some(id => gmailLabelKind(id) !== "user" && !(GMAIL_REVERSIBLE_SYSTEM_LABELS as readonly string[]).includes(id)))
     fail("policy_denied", "unsupported_label", "Only INBOX, UNREAD, STARRED and user label ids can be modified.");
@@ -139,7 +139,7 @@ function displayable(parsed: GmailRawDraft | null): asserts parsed is GmailRawDr
 
 export interface GmailDraftProvenance { createdByBrainKit: boolean; fingerprint: string | null }
 export async function prepareGmailDraft(ctx: GmailWritePreparationContext, input: GmailDraftInput, provenance: GmailDraftProvenance) {
-  const read = reader(ctx);
+  const read = gmailWriteReader(ctx);
   let to = (input.to ?? []).map(mailbox), cc = (input.cc ?? []).map(mailbox), bcc = (input.bcc ?? []).map(mailbox);
   let subject = input.subject ?? "", body = input.body ?? "", threadId: string | null = null;
   let snapshot: Uint8Array | null = null, previous: GmailRawDraft | null = null;

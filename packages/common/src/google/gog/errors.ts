@@ -27,6 +27,7 @@ const MESSAGES: Readonly<Record<GoogleErrorCode, string>> = Object.freeze({
   rate_limited: "Google is rate limiting the connected account; try again later.",
   upstream_error: "Google did not answer this read; try again later.",
   draft_not_displayable: "This draft cannot be shown in full, so it cannot be sent from here.",
+  already_sent: "These exact draft bytes have already been sent.",
   draft_locked: "This draft is waiting on an open send card.",
   recording_unavailable: "The decision could not be recorded, so nothing ran.",
   transport_incompatible: "The Google transport is not the pinned gog release or answered in a shape brain-kit does not read.",

@@ -60,7 +60,7 @@ import { checkGoogleHome, selectGoogleHome, type GoogleHomeSelection } from "./h
 export const GOOGLE_RECIPIENT = "google";
 
 export type GoogleReadCommand = "gmail.search" | "gmail.thread.get" | "gmail.message.get" | "gmail.draft.get" | "gmail.labels.list";
-export type GoogleWriteCommand = "gmail.modify" | "gmail.draft.save";
+export type GoogleWriteCommand = "gmail.modify" | "gmail.draft.save" | "gmail.draft.send" | "gmail.draft.delete" | "gmail.trash";
 export type GoogleCliOperation = GoogleWriteCommand | "status" | "connect" | "approvals" | "revoke" | GoogleReadCommand;
 
 export type GoogleEnvelope =
@@ -629,6 +629,8 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
   }
 
   async function write(operation: GoogleWriteCommand, input: unknown): Promise<GoogleEnvelope> {
+    if (operation === "gmail.draft.send" || operation === "gmail.draft.delete" || operation === "gmail.trash")
+      return refused(operation, error("policy_denied", "standalone_irreversible", "Standalone cannot approve irreversible Google calls; use a hosted conversation."));
     const call = parseGoogleToolCall(operation === "gmail.modify" ? GMAIL_TOOL_NAMES.modify : GMAIL_TOOL_NAMES.draft, input);
     if (!call.ok) return refused(operation, call.error);
     if (call.call.operation !== operation) return refused(operation, error("invalid_input", "operation_mismatch", "The command requires a reversible Gmail save or modify."));

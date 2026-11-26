@@ -207,8 +207,11 @@ export "./internal/google-gog" (./src/google/gog/index.ts)
   gogPlatform
   isGogAccountAlias
   isTargetIndependentGogFailure
+  prepareGmailDelete
   prepareGmailDraft
   prepareGmailModify
+  prepareGmailSend
+  prepareGmailTrash
   verifyGogBinary
 
 export "./internal/google-ledger" (./src/google/ledger.ts)

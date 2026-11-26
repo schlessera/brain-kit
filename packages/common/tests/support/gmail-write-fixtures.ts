@@ -22,6 +22,9 @@ export function writesScenario(): FakeGogScenario {
     "gmail.search": { stdout: { threads: [{ id: FIRST }], nextPageToken: "", count: 1, has_more: false } },
     "gmail.labels.list": { stdout: fixture("labels-list") },
     "gmail.batch.modify": { stdout: fixture("modify") },
+    "gmail.send": { stdout: { from: "odysseus@example.com", messageId: SECOND, threadId: FIRST } },
+    "gmail.drafts.delete": { stdout: { deleted: true, draftId: DRAFT } },
+    "gmail.trash": { stdout: { action: "trashed", count: 2, addedLabels: ["TRASH"], removedLabels: ["INBOX"] } },
     "gmail.drafts.create": { stdout: fixture("draft-save") }, "gmail.drafts.update": { stdout: fixture("draft-save") },
     [`gmail.drafts.get ${DRAFT}`]: { stdout: rawDraft() } };
 }

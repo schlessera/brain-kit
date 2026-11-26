@@ -1,0 +1,69 @@
+/** Card-only sends, draft deletion and trash. No standing grants or inverses. */
+import { prepareGmailSend, prepareGmailDelete, prepareGmailTrash, GooglePreparationError } from "@schlessera/brain-common/internal/google-gog";
+import { matchGoogleAllowList } from "@schlessera/brain-common/internal/google-operations";
+import type { GoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
+import { GOOGLE_APPROVAL_CARD_BYTES, GOOGLE_MAIL_APPROVAL_SCHEMA, type GoogleMailApproval } from "@schlessera/brain-ui-sdk/tool-contracts";
+import type { GoogleCredential } from "./credential.js";
+import type { GoogleWriteFactories } from "./write-engine.js";
+
+const storeError = () => new GooglePreparationError({ code: "unavailable", reason: "digest_store_unavailable", message: "Send replay protection is unavailable; nothing was sent." });
+const replayError = (state: "pending" | "sent") => new GooglePreparationError(state === "sent"
+  ? { code: "already_sent", reason: "digest_recorded", message: "These exact draft bytes have already been sent. They will not be sent again." }
+  : { code: "outcome_unknown", reason: "digest_pending", message: "These exact draft bytes may already have been sent. They will not be sent again." });
+function card(operation: GoogleMailApproval["operation"], payload: unknown) {
+  const result = GOOGLE_MAIL_APPROVAL_SCHEMA.safeParse({ operation, effect: "irreversible", tainted: false, entities: [],
+    offers: { allow_always: false, allow_for_session: false }, payload });
+  if (!result.success || new TextEncoder().encode(JSON.stringify(result.data)).length > GOOGLE_APPROVAL_CARD_BYTES)
+    throw new GooglePreparationError({ code: "draft_not_displayable", reason: "card_too_large", message: "This change cannot be shown completely on one approval card." });
+  return result.data;
+}
+export function createGmailIrreversibleFactories(options: { credential: Pick<GoogleCredential, "transport">; ledger?: () => GoogleLedger }): GoogleWriteFactories {
+  const factory: NonNullable<GoogleWriteFactories["gmail.draft.send"]> = async (turn, call, accountIdentity) => {
+    const policy = turn.policy()!;
+    const opened = options.credential.transport(policy.account!);
+    if (!opened.ok) throw new GooglePreparationError({ code: "unavailable", reason: opened.status.reason, message: opened.status.detail });
+    const context = { transport: opened.transport, accountIdentity, hiddenLabels: policy.gmail.hidden_labels };
+    if (call.tool === "brain_google_gmail_trash") {
+      const prepared = await prepareGmailTrash(context, call.input);
+      return { ...prepared, operation: "gmail.trash", input: call.input, card: card("gmail.trash", prepared.payload) };
+    }
+    if (call.tool === "brain_google_gmail_draft" && call.input.action === "delete") {
+      const prepared = await prepareGmailDelete(context, call.input.draft_id!);
+      return { ...prepared, operation: "gmail.draft.delete", input: call.input, card: card("gmail.draft.delete", prepared.payload) };
+    }
+    if (call.tool !== "brain_google_gmail_send") throw new Error("Unexpected irreversible Gmail operation");
+    const prepared = await prepareGmailSend(context, call.input.draft_id);
+    const payload = { ...prepared.payload, account_alias: policy.account!,
+      recipient_matches: (["to", "cc", "bcc"] as const).flatMap(field => matchGoogleAllowList(
+        prepared.payload.message[field].map(m => m.address), policy.gmail.send_to, prepared.facts.self_addresses)
+        .map(match => ({ field, address: match.input, entry: match.entry }))) };
+    const digest = prepared.payload.message.digest;
+    const ledger = () => { if (!options.ledger) throw storeError(); return options.ledger(); };
+    let previous: "pending" | "sent" | null;
+    try { previous = ledger().sentDigest(accountIdentity, digest); } catch { throw storeError(); }
+    if (previous) throw replayError(previous);
+    return { operation: "gmail.draft.send", input: call.input, facts: prepared.facts, classificationFacts: prepared.classificationFacts,
+      card: card("gmail.draft.send", payload), sendLock: prepared.sendLock,
+      async execute(finalAdmission, cleanupAdmission) {
+        const answer = await prepared.send(() => {
+          const denied = finalAdmission();
+          if (denied) return denied;
+          // Synchronous and durable at the final spawn boundary. An ambiguous
+          // dispatch retains pending forever; no retry can turn unknown clean.
+          try {
+            if (!ledger().reserveSentDigest(accountIdentity, digest, Date.now()))
+              return replayError(ledger().sentDigest(accountIdentity, digest) ?? "pending").error;
+          } catch { return storeError().error; }
+          return null;
+        });
+        if (!answer.ok) return answer;
+        // Pending already blocks replay, including a crash or failure here.
+        try { ledger().confirmSentDigest(accountIdentity, digest); }
+        catch { return { ok: false, error: { code: "outcome_unknown", reason: "digest_confirmation_failed", message: "Google confirmed the send, but its receipt could not be finalized. These bytes will not be resent." } }; }
+        let deleted = false;
+        try { deleted = await prepared.deleteSentDraft(cleanupAdmission); } catch { /* A confirmed send never becomes retryable on cleanup failure. */ }
+        return { ok: true, result: { draft_id: call.input.draft_id, ...answer.value, draft_deleted: deleted } };
+      } };
+  };
+  return { "gmail.draft.send": factory, "gmail.draft.delete": factory, "gmail.trash": factory };
+}

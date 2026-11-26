@@ -18,6 +18,10 @@ export interface GoogleStandaloneInverse {
   inverse: Record<string, unknown>; precondition: Record<string, unknown>; created_at: number; expires_at: number;
 }
 export interface GoogleLedger {
+  /** Account-wide replay protection. Pending means the send may have happened. */
+  sentDigest(account: string, digest: string): "pending" | "sent" | null;
+  reserveSentDigest(account: string, digest: string, at: number): boolean;
+  confirmSentDigest(account: string, digest: string): void;
   prepareStandalone(inverse: GoogleStandaloneInverse): void;
   settleStandalone(id: string, state: "confirmed" | "unknown" | "withdrawn", result?: { id: string; fingerprint: string }): void;
   list(brainId: string, principalId?: string): GoogleApproval[];
@@ -91,13 +95,41 @@ export function openGoogleLedger(path: string): GoogleLedger {
           id TEXT PRIMARY KEY, principal_id TEXT NOT NULL, brain_id TEXT NOT NULL, account_identity TEXT NOT NULL,
           operation TEXT NOT NULL, entity TEXT NOT NULL, approved_at INTEGER NOT NULL,
           UNIQUE(principal_id,brain_id,account_identity,operation,entity));
+        CREATE TABLE IF NOT EXISTS sent_digests (
+          account_identity TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','sent')),
+          created_at INTEGER NOT NULL, PRIMARY KEY(account_identity,digest));
         CREATE TABLE IF NOT EXISTS standalone_inverses (
           id TEXT PRIMARY KEY, brain_id TEXT NOT NULL, account_identity TEXT NOT NULL, operation TEXT NOT NULL,
           state TEXT NOT NULL, inverse_json TEXT NOT NULL, precondition_json TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);`);
       return work(db);
     } finally { db.close(); }
   }
+  const digestKey = (account: string, digest: string) => { key.parse(account); z.string().regex(/^[a-f0-9]{64}$/).parse(digest); };
   return {
+    sentDigest: (account, digest) => {
+      digestKey(account, digest);
+      return use(false, null, db => {
+        // Schema-v1 ledgers predate sends. No table means no earlier send support.
+        if (!db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sent_digests'").get()) return null;
+        const row = db.query<{ state: string }, [string, string]>("SELECT state FROM sent_digests WHERE account_identity=? AND digest=?").get(account, digest);
+        if (!row) return null;
+        if (row.state !== "pending" && row.state !== "sent") throw new Error("Unreadable Google send digest");
+        return row.state;
+      });
+    },
+    reserveSentDigest: (account, digest, at) => use(true, false, db => {
+      digestKey(account, digest); z.number().int().nonnegative().parse(at);
+      return db.query("INSERT OR IGNORE INTO sent_digests VALUES(?,?,'pending',?)").run(account, digest, at).changes === 1;
+    }),
+    confirmSentDigest: (account, digest) => {
+      const confirmed = use(false, false, db => {
+        digestKey(account, digest);
+        if (db.query("UPDATE sent_digests SET state='sent' WHERE account_identity=? AND digest=? AND state='pending'").run(account, digest).changes !== 1)
+          throw new Error("Google send digest is not pending");
+        return true;
+      });
+      if (!confirmed) throw new Error("Google send digest store is missing");
+    },
     prepareStandalone: inverse => use(true, undefined, db => db.transaction(() => {
       key.parse(inverse.id); key.parse(inverse.brain_id); key.parse(inverse.account_identity);
       z.enum(["gmail.modify", "gmail.draft.save"]).parse(inverse.operation);

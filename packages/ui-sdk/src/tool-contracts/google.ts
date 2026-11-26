@@ -28,7 +28,7 @@ import {
   GMAIL_DRAFT_INPUT, GMAIL_LABEL_NAME_ESCAPED_MAX, GMAIL_LABEL_TYPES, GMAIL_LIMITS, GMAIL_MODIFY_INPUT, GMAIL_READ_INPUT,
   GMAIL_SEARCH_INPUT, GMAIL_SEND_INPUT, GMAIL_SIZE_BUCKETS, GMAIL_SYSTEM_LABELS, GMAIL_TOOL_NAMES, GMAIL_TRASH_INPUT, GMAIL_USER_LABEL_ID_PATTERN,
   GMAIL_DRAFT_ID_PATTERN, GMAIL_MESSAGE_ID_PATTERN, GMAIL_THREAD_ID_PATTERN, GOOGLE_ERROR_CODES, GOOGLE_HOST_CURSOR_PATTERN, GOOGLE_TOOL_NAMES,
-  isRfc3339Timestamp, parseGoogleMailbox, type GmailRawDraft,
+  isRfc3339Timestamp, parseGoogleMailbox, GOOGLE_ACCOUNT_ALIAS_PATTERN, type GmailRawDraft,
   type GmailDraftInput, type GmailModifyInput, type GmailReadInput, type GmailSearchInput, type GmailSendInput, type GmailToolName,
   type GmailTrashInput,
 } from "@schlessera/brain-common/internal/google-operations";
@@ -45,7 +45,7 @@ export type {
 
 /** The two read tools. Their results taint in the `content` view only. */
 export type GmailReadToolName = typeof GMAIL_TOOL_NAMES.search | typeof GMAIL_TOOL_NAMES.read;
-/** The four write tools. They answer `unavailable` until concrete Gmail writes land (#4213/#4214). */
+/** The four write tools, executed by the host under exact or standing admission. */
 export type GmailWriteToolName = Exclude<GmailToolName, GmailReadToolName>;
 export const GMAIL_READ_TOOL_NAMES: readonly GmailReadToolName[] = Object.freeze([GMAIL_TOOL_NAMES.search, GMAIL_TOOL_NAMES.read]);
 export const GMAIL_WRITE_TOOL_NAMES: readonly GmailWriteToolName[] = Object.freeze([
@@ -201,7 +201,7 @@ const draftSaveSuccess = z.strictObject({ ...writeBase, tool: z.literal(GMAIL_TO
 const draftDeleteSuccess = z.strictObject({ ...writeBase, effect: z.literal("irreversible"), tool: z.literal(GMAIL_TOOL_NAMES.draft), operation: z.literal("gmail.draft.delete"),
   result: z.strictObject({ draft_id: draftId }) });
 const sendSuccess = z.strictObject({ ...writeBase, effect: z.literal("irreversible"), tool: z.literal(GMAIL_TOOL_NAMES.send), operation: z.literal("gmail.draft.send"),
-  result: z.strictObject({ draft_id: draftId, message_id: messageId, thread_id: threadId.nullable() }) });
+  result: z.strictObject({ draft_id: draftId, message_id: messageId, thread_id: threadId.nullable(), draft_deleted: z.boolean().optional() }) });
 export const GOOGLE_WRITE_SUCCESS_SCHEMA = z.union([modifySuccess, trashSuccess, draftSaveSuccess, draftDeleteSuccess, sendSuccess]);
 export type GoogleWriteSuccess = z.infer<typeof GOOGLE_WRITE_SUCCESS_SCHEMA>;
 
@@ -365,6 +365,12 @@ export const GOOGLE_MAIL_APPROVAL_SCHEMA = z.discriminatedUnion("operation", [
     payload: z.strictObject({ draft_id: draftId, digest }) }),
   z.strictObject({ ...approvalBase, operation: z.literal("gmail.draft.send"), effect: z.literal("irreversible"), payload: z.strictObject({
     draft_id: draftId, thread_id: threadId.nullable(), send_as: mailbox, message: GOOGLE_APPROVAL_MESSAGE_SCHEMA,
+    /** Display-only host metadata; optional for earlier card producers. */
+    account_alias: z.string().regex(GOOGLE_ACCOUNT_ALIAS_PATTERN).optional(),
+    recipient_matches: z.array(z.strictObject({
+      field: z.enum(["to", "cc", "bcc"]), address: z.string().min(1).max(GMAIL_LIMITS.mailboxChars),
+      entry: z.string().min(1).max(GMAIL_LIMITS.mailboxChars).nullable(),
+    })).max(3 * GMAIL_LIMITS.recipientsPerField).optional(),
   }).refine(p => p.send_as.address === p.message.from.address, "sender must match verified send-as") }),
 ]).superRefine((card, ctx) => {
   if ((card.effect === "irreversible" && (card.offers.allow_always || card.offers.allow_for_session)) ||

@@ -6324,3 +6324,15 @@ transaction as their outward-action decision; these do not become reversible
 journal receipts. Draft provenance is scoped to session, principal, brain and
 real account, and missing, expired or unknown records cannot admit an update
 without its card. These are internal concrete facilities, not extension seams.
+
+
+## Irreversible Gmail receipts (#4214)
+
+`GoogleErrorCode` and `GOOGLE_ERROR_CODES` add `already_sent`.
+`GOOGLE_WRITE_SUCCESS_SCHEMA` and its inferred send result add optional
+`draft_deleted: boolean`; the concrete host supplies it on every successful
+send. The send approval payload adds optional `account_alias` and `recipient_matches`
+(`{ field, address, entry }[]`); production supplies both for the card renderer.
+Raw bytes remain host-only.
+Internal gog exports add irreversible preparation and transport codecs;
+internal ledger methods reserve and confirm account-scoped send digests.
