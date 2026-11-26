@@ -59,19 +59,6 @@ afterEach(async () => {
   await commands.dictationMotion("no-preference");
 });
 
-/** The probe `requestLog({ settle: true })` fetches to find the network idle: the only request it adds. */
-const isSettleProbe = (url: URL) => url.origin === location.origin && url.searchParams.has("request-log-boundary");
-
-/** Every request the context made since the log started, read by parsed origin, the settle probe aside. */
-async function requests(): Promise<{ url: string; origin: string }[]> {
-  const log = await commands.requestLog({ settle: true });
-  return log.flatMap((raw) => {
-    if (raw.startsWith("data:")) return [];
-    const url = new URL(raw);
-    return isSettleProbe(url) ? [] : [{ url: raw, origin: url.origin }];
-  });
-}
-
 /**
  * Every request recorded since the log started, read at once: no wait for the
  * network to go idle, because an offending request may never finish and the
@@ -171,9 +158,11 @@ describe("nothing loads", () => {
     control.src = `${location.origin}/gmail-positive-control.png?${crypto.randomUUID()}`;
     document.body.append(control);
     try {
-      const log = await requests();
-      expect(log.map((r) => r.url), "the log records a same-origin image").toContain(control.src);
-      expect(log.find((r) => r.url === control.src)!.origin).toBe(location.origin);
+      // Polled without waiting for idle, like every read in this file: the control's own request need not
+      // finish, only be issued. A wait for network idle hung past 30 s under CPU load (#4616 browser_determinism).
+      // The poll's timeout is a watchdog, sized well above the request's start.
+      await expect.poll(recordedNow, { timeout: 15_000, message: "the log records a same-origin image" }).toContain(control.src);
+      expect(new URL(control.src).origin, "the control is this page's origin").toBe(location.origin);
     } finally {
       control.remove();
     }
