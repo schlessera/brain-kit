@@ -376,3 +376,8 @@ export { GitHubMergeEvent, type GitHubMergeEventProps } from "./github/GitHubMer
 export { GitHubResultList, type GitHubResult, type GitHubResultListProps } from "./github/GitHubResultList.js";
 export { GitHubDetailSection, type GitHubDetailSectionProps, type GitHubDetailState } from "./github/GitHubDetailSection.js";
 export { githubHref, type GitHubPerson, type GitHubState } from "./github/shared.js";
+
+/* Gmail standing permissions: presentational, props and callbacks only (#4212). */
+export { GoogleApprovalList, type GoogleApprovalListProps } from "./google/GoogleApprovalList.js";
+export { GoogleAllowanceList, type GoogleAllowanceListProps } from "./google/GoogleAllowanceList.js";
+export { googleActionWords, type GoogleHostTime, type GoogleStandingAction } from "./google/shared.js";

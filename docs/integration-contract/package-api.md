@@ -594,6 +594,35 @@ The CLI's PNG, JPEG and WebP header reader moves to
 `ImageHeader`), which has no compatibility promise. The images module
 re-exports it under its existing names, so its behaviour is unchanged.
 
+## UI-kit Google approval lists (additive, 0.46.0, #4212)
+
+`@schlessera/brain-ui-kit` exports two presentational lists for revoking
+standing Gmail permissions. They take props and callbacks only: no client,
+fetch or store, and the host formats every time. ui-react wires them to the
+owner-only HTTP pair (`docs/http-api.md`) after the maintainer signs off the
+stories; no tool, wire or payload contract changes here.
+
+- `GoogleApprovalList` (`GoogleApprovalListProps`: `state`
+  `"ready" | "loading" | "unavailable"`, `accounts` of `{ address, approvals:
+  { id, action, since }[] }`, optional `busy`, `error`, and `onRevoke(id)`)
+  lists remembered approvals for Settings, grouped under each account address.
+- `GoogleAllowanceList` (`GoogleAllowanceListProps`: `state`, `grants` of
+  `{ id, address, actions, remaining, limit, until }`, optional `busy`,
+  `error`, and `onRevoke(id)`) lists a restricted chat's allowances, one row
+  per granting card, with what is left of its budget and when it ends.
+- `GoogleStandingAction` is `{ kind: "archive" | "unarchive" | "mark_read" |
+  "mark_unread" | "star" | "unstar" | "drafts" }` or `{ kind: "label" |
+  "unlabel", labelId, labelName: string | null }`. `GoogleHostTime` is
+  `{ short, full }`. `googleActionWords(action)` returns the action's words.
+  A label name is set apart in curly quotes (Add label “Voyage”), in the
+  visible words and in the Revoke's accessible name; when the host withheld
+  the name, the words end with the label id in mono, unquoted.
+
+When the host drops a revoked row, focus moves to the next row still shown,
+else the previous one, else, when the host's response replaced the rows, the
+first row now shown; only an empty list sends focus to its heading. No
+existing export, key, glyph or prop changes. This ships in a minor.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated

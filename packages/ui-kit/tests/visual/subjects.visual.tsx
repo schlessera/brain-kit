@@ -113,6 +113,8 @@ import * as ghCommit from "../../stories/github/GitHubCommitRow.stories.js";
 import * as ghResults from "../../stories/github/GitHubResultList.stories.js";
 import * as ghDetail from "../../stories/github/GitHubDetailSection.stories.js";
 import * as ghWrite from "../../stories/github/GitHubWrite.stories.js";
+import * as googleApprovals from "../../stories/google/GoogleApprovalList.stories.js";
+import * as googleAllowances from "../../stories/google/GoogleAllowanceList.stories.js";
 import * as commandPalette from "../../stories/desktop/CommandPalette.stories.js";
 import * as sideRail from "../../stories/desktop/SideRail.stories.js";
 import * as iconButton from "../../stories/primitives/IconButton.stories.js";
@@ -609,6 +611,31 @@ for (const light of [false, true]) {
       await inTallViewport(width, height, async () => {
         await (light ? looksRightOnPaper(story, name) : looksRight(story, name));
         expect(document.body.getBoundingClientRect().width, `${name}: captured at its viewport width`).toBe(width);
+      });
+    });
+  }
+}
+
+// The Gmail standing-permission lists (#4212): remembered approvals at the
+// 680px desktop column and on a phone, a chat's allowances on a phone, and a
+// used-up allowance. Each list is drawn in a column of exactly its story's
+// width, so the phone cases fill the 320px viewport. Targets, focus and copy
+// are asserted by the stories' plays and `google-targets.visual.tsx`; these
+// catch a lost hairline, a moved "since" line or an amber count gone grey.
+const GOOGLE: [story: unknown, name: string, width: 320 | 760, height: number][] = [
+  [googleApprovals.TwoAccounts, "google-approvals", 760, 420],
+  [googleApprovals.OneAccountNarrow, "google-approvals-phone", 320, 520],
+  [googleAllowances.NearlyUsedNarrow, "google-allowances-phone", 320, 480],
+  [googleAllowances.UsedUpNarrow, "google-allowances-used-phone", 320, 480],
+];
+for (const light of [false, true]) {
+  for (const [story, name, width, height] of GOOGLE) {
+    test(`${name}${light ? ", on paper" : ""}`, async () => {
+      await inTallViewport(width, height, async () => {
+        await (light ? looksRightOnPaper(story, name) : looksRight(story, name));
+        expect(document.body.getBoundingClientRect().width, `${name}: captured at its viewport width`).toBe(width);
+        const list = document.querySelector("[data-google-approvals], [data-google-allowances]")!;
+        expect(list.getBoundingClientRect().width, `${name}: the list drew at its column`).toBe(width === 320 ? 320 : 680);
       });
     });
   }

@@ -3242,3 +3242,48 @@ ol.bk-ut-list { list-style: decimal outside; }
 @container (min-width: 520px) {
   .bk-gh-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ── Google components (#4212) ───────────────────────────────────────────
+ * A remembered approval's row. On a phone the "since" line sits under the
+ * action words and Revoke stays level with them; once the list is 480px or
+ * wider, "since" moves onto the same line, before Revoke. The query container
+ * is the rows' own frame, not the list, so the heading and explainer still
+ * give the list an intrinsic width inside a shrink-to-fit parent. */
+.bk-google-rows { container-type: inline-size; }
+.bk-google-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "icon title action" ". since .";
+  column-gap: 11px;
+  row-gap: 2px;
+  align-items: center;
+}
+.bk-google-row-icon { grid-area: icon; display: inline-flex; }
+.bk-google-row-title { grid-area: title; }
+.bk-google-row-since { grid-area: since; }
+.bk-google-row-action { grid-area: action; display: inline-flex; }
+@container (min-width: 480px) {
+  .bk-google-row {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "icon title since action";
+  }
+}
+
+/* Both lists' rows are a real list (`ul`/`li`) inside the card's flush body,
+ * so `.bk-focus-clip > .bk-row` cannot reach a row. These rules carry the
+ * card's corners down the same way: the list inherits the body's radius, and
+ * only an edge item inherits the corners on its edge, so a focused edge row's
+ * inset ring follows the card's curve as `ListRow`'s does. A middle item stays
+ * square: an allowance item paints its own divider, whose ends must stay
+ * straight (#4212 re-review R1). */
+.bk-google-list { margin: 0; padding: 0; list-style: none; border-radius: inherit; }
+.bk-google-list > li:first-child { border-top-left-radius: inherit; border-top-right-radius: inherit; }
+.bk-google-list > li:last-child { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
+.bk-google-list > li:first-child > .bk-row:focus-visible {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+.bk-google-list > li:last-child > .bk-row:focus-visible {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
