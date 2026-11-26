@@ -941,3 +941,18 @@ test("a re-read keeps the host's order: a message found only there stays after t
   expect(d.snapshots?.map((x) => x.createdAt), "HOST_TIMESTAMP_ADOPTED").toEqual([4, 6]);
   expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.snapshotId), "HOST_ORDER_SAVED").toEqual(["snap-oars", "snap-sail"]);
 });
+
+test("a re-read takes a return made elsewhere: a message another device returned is not sent back as held", async () => {
+  const returned = { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", fileIds: [], state: "returned" as const, createdAt: 5 };
+  // The host has it returned now; a list naming it held again is refused (returned never becomes held).
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.some((x) => x.snapshotId === returned.snapshotId && x.state === "held") ? { status: 400, body: { error: "DRAFT_INVALID", message: "A returned snapshot cannot become held." } } : null) });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [], snapshots: [returned] });
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "Muster the crew", attachments: [], files: [], editedAt: 1, edit: 3,
+    snapshots: [{ snapshotId: returned.snapshotId, requestId: returned.requestId, text: returned.text, files: [], state: "held", createdAt: 5, paused: true }],
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ ...returned, state: "held" as const }].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.snapshots?.map((x) => `${x.snapshotId}:${x.state}`), "RETURN_ELSEWHERE_ADOPTED").toEqual(["snap-raft:returned"]);
+  expect(d.failure, "NOT_LEFT_REFUSED").toBeNull();
+  expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.state), "SAVED_AS_RETURNED").toEqual(["returned"]);
+});
