@@ -1,4 +1,7 @@
-import { createPrincipal } from "../src/db/principals.js";
+import { Hono } from "hono";
+import { createGoogleApprovalRoutes } from "../src/routes/google-approvals.js";
+import type { AppEnv } from "../src/app-env.js";
+import { createPrincipal, type Principal } from "../src/db/principals.js";
 import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { openGoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
@@ -574,6 +577,15 @@ for (const fault of ["changed identity", "lost reply"] as const) test(`google se
     ? { ok: false, error: { reason: "account_changed" } }
     : { ok: true, admission: "card", standingChoice: "not_kept" });
   expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get()).toEqual({ n: 1 });
+  const app = new Hono<AppEnv>();
+  const owner = f.db.query<Principal, []>("SELECT * FROM principals WHERE id='odysseus'").get()!;
+  app.use("*", async (c, next) => { c.set("principal", owner); await next(); });
+  app.route("/api", createGoogleApprovalRoutes({ brainId: "brain", hostEpoch: "ithaca-epoch", ledger: () => f.ledger,
+    allowances: f.allowances, authorized: id => id === owner.id, owns: (id, session) => id === owner.id && session === "ithaca",
+    tainted: () => true, policyHash: () => JSON.stringify(googlePolicy()) }));
+  const response = await app.request("/api/sessions/ithaca/google/allowances");
+  expect(response.status).toBe(200);
+  expect(await response.json(), "GOOGLE_HTTP_WITHDRAWN_GRANT_HIDDEN").toEqual({ allowances: [] });
   f.identity("odysseus@example.com");
   expect(await f.call(GOOGLE_MODIFY, { ...f.turn, posture: "voice" }),
     "GOOGLE_WITHDRAWN_GRANT_UNUSABLE").toMatchObject({ ok: false });

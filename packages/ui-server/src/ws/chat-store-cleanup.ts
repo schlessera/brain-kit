@@ -48,6 +48,9 @@ function scrub(db: Database, lifecycleId: string, store: HostChatStore, at: numb
       run(db, "UPDATE conversation_tasks SET receipt=NULL,result_facts=NULL WHERE conversation_id IN (?)", ids.conversations);
       return count(db, "SELECT COUNT(*) AS n FROM conversation_tasks WHERE conversation_id IN (?) AND (receipt IS NOT NULL OR result_facts IS NOT NULL)", ids.conversations);
     case "projections": {
+      // Retired authority is void. Remove it before row-wise safety cleanup so
+      // continuity triggers never rescan this chat's remaining history per row.
+      run(db, "DELETE FROM google_session_allowances WHERE session_id IN (?)", ids.sessions);
       // Safety display/provenance is chat-owned evidence. Negative turn fences
       // and the existing independently owned governance audit remain.
       for(const [column,values] of [["session_id",ids.sessions],["history_owner_id",ids.dialogueOwners]] as const){

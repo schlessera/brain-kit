@@ -76,15 +76,19 @@ export function setup(db: Database) {
 }
 export function createGoogleAllowances(db: Database, writer?: SqliteWriter) {
   const call = procedureCaller(db, { url, setup }, undefined, writer);
+  // Shared by admission and owner HTTP listing while durable withdrawal retries.
+  const withdrawnCards = new Set<string>();
+  const visible = (rows: GoogleAllowanceRow[]) => rows.filter(row => !withdrawnCards.has(row.granted_card_id));
   return {
-    read: (c: GoogleAllowanceContext) => read(db, c),
+    read: (c: GoogleAllowanceContext) => visible(read(db, c)),
+    withdraw: (cardId: string) => { id.parse(cardId); withdrawnCards.add(cardId); return () => { withdrawnCards.delete(cardId); }; },
     clearOldEpochs: (epoch: string) => call<void>("clearOldEpochs", epoch),
     reconcile: (c: GoogleAllowanceContext) => call<void>("reconcile", c),
     grant: (c: GoogleAllowanceContext, operation: GoogleOperation, entities: string[], cardId: string) => call<void>("grant", c, operation, entities, cardId),
     reserve: (c: GoogleAllowanceContext, operation: GoogleOperation, entities: string[], items: number) => call<GoogleAllowanceRow[]>("reserve", c, operation, entities, items),
     revoke: (sessionId: string, principalId: string, brainId: string, cardId: string) => call<boolean>("revoke", sessionId, principalId, brainId, cardId),
     list: (sessionId: string, principalId: string, brainId: string, hostEpoch: string, policyHash: string, now: number) =>
-      db.query<GoogleAllowanceRow, (string | number)[]>(`SELECT * FROM google_session_allowances WHERE session_id=? AND principal_id=? AND brain_id=?
-        AND host_epoch=? AND policy_hash=? AND expires_at>? ORDER BY granted_at,entity`).all(sessionId, principalId, brainId, hostEpoch, policyHash, now),
+      visible(db.query<GoogleAllowanceRow, (string | number)[]>(`SELECT * FROM google_session_allowances WHERE session_id=? AND principal_id=? AND brain_id=?
+        AND host_epoch=? AND policy_hash=? AND expires_at>? ORDER BY granted_at,entity`).all(sessionId, principalId, brainId, hostEpoch, policyHash, now)),
   };
 }

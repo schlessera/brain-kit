@@ -1,6 +1,9 @@
 /** Real SQLite plans and projection parity; no clocks, network or Google transport. */
 import { afterEach, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { createPrincipal } from "../src/db/principals.js";
+import { cleanChatStore } from "../src/ws/chat-store-cleanup.js";
+import { retireChat, resolveChat } from "../src/ws/chat-lifecycle.js";
 import { createUiDb } from "../src/db/client.js";
 import { acknowledgeSafety, safetyProjection } from "../src/governance/safety-store.js";
 
@@ -49,6 +52,15 @@ const cases: Array<[string, (f: Fixture) => void]> = [
   ["decided untrusted", f => { f.record(); f.decide(); }],
   ["decided trusted", f => { f.record("r0", "c0", '{"admission":{"trusted":true}}'); f.decide(); }],
   ["shared owner", f => { f.collection("shared", "aeaea"); f.record("shared-record", "shared"); }],
+  ["foreign owner untrusted", f => { f.collection("foreign", "aeaea", "owner-aeaea"); f.record("foreign-record", "foreign"); }],
+  ["foreign pending", f => {
+    f.collection("foreign", "aeaea", "owner-aeaea");
+    f.db.run("INSERT INTO safety_pending VALUES('foreign-pending','foreign',1,1,1)");
+  }],
+  ["foreign gap", f => {
+    f.collection("foreign", "aeaea", "owner-aeaea");
+    f.db.run("UPDATE safety_collections SET gap='missing_history' WHERE id='foreign'");
+  }],
   ["foreign generation", f => { f.collection("shared", "aeaea", "owner-ithaca", "2"); f.record("shared-record", "shared"); }],
   ["target alias", f => {
     f.db.run("INSERT INTO dialogue_aliases VALUES('alias-ithaca','owner-ithaca')");
@@ -90,7 +102,11 @@ test("Google continuity trigger plans never scan history or build automatic inde
     const when = trigger.sql.slice(trigger.sql.indexOf("WHEN")+4, trigger.sql.indexOf("BEGIN"));
     for (const sql of [body, "SELECT " + when]) {
       const plan = f.db.query<{detail:string}, []>("EXPLAIN QUERY PLAN " + substitute(sql)).all();
-      expect(plan.filter(p => /AUTOMATIC|SCAN (?:c|r|safety_collections|safety_records)\b/i.test(p.detail)),
+      // Alias a is allowed only with the allowance table's exact covering index.
+      expect(plan.filter(p => /AUTOMATIC/i.test(p.detail)
+        || (/\bSCAN\b/i.test(p.detail)
+          && p.detail !== "SCAN a USING COVERING INDEX sqlite_autoindex_google_session_allowances_1"
+          && !/^SCAN (?:google_session_allowances|t|affected|CONSTANT ROW)(?:$| USING )/.test(p.detail))),
         "GOOGLE_CONTINUITY_INDEXED_PLAN " + trigger.name).toEqual([]);
     }
   }
@@ -133,4 +149,28 @@ test("Google continuity follows canonical owners on pending release and alias ch
   f.collection("shared", "aeaea", "alias-ithaca"); f.record("r1", "shared"); f.allowance();
   f.db.run("DELETE FROM dialogue_aliases WHERE id='alias-ithaca'");
   expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(), "GOOGLE_ALIAS_CONTINUITY").toEqual({ n: 0 });
+});
+
+test("Google granted chat scrub never evaluates continuity per deleted occurrence", () => {
+  const f = fixture();
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
+  f.db.query("UPDATE principals SET id='odysseus' WHERE id=?").run(principal.id);
+  f.db.run("UPDATE dialogue_owners SET session_id='ithaca' WHERE id='owner-ithaca'");
+  f.db.transaction(() => {
+    for (let i=0;i<1000;i++) f.record(String(i).padStart(6, "0"), "c0", '{"admission":{"trusted":true}}');
+    // A sentinel before the final untrusted row throws if cleanup evaluates the view.
+    f.record("999998", "c0", "not-json");
+    f.record("999999");
+  })();
+  f.allowance();
+  const chat = resolveChat(f.db, { sessionId: "ithaca" });
+  if ("refused" in chat) throw new Error("Fixture chat unavailable");
+  const retired = retireChat(f.db, { operationId: "delete-ithaca", principalId: "odysseus", target: { sessionId: "ithaca" },
+    expected: { backendId: chat.backendId, generation: chat.generation }, removableBackends: ["claude", "pi"], at: Date.now() });
+  if (retired.status !== "retired") throw new Error("Fixture retirement refused");
+  cleanChatStore(f.db, retired.lifecycleId, "projections", Date.now());
+  expect(f.db.query("SELECT outcome FROM chat_retirement_stores WHERE store='projections'").get(),
+    "GOOGLE_GRANTED_SCRUB_NO_EVALUATION").toEqual({ outcome: "removed" });
+  expect(f.db.query("SELECT COUNT(*) n FROM safety_records").get()).toEqual({ n: 0 });
+  expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get()).toEqual({ n: 0 });
 });

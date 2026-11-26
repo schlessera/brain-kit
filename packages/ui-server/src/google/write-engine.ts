@@ -84,8 +84,6 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
   const counts = new WeakMap<GoogleWriteTurn, number>();
   let closed = false;
   const retries = new Set<ReturnType<typeof setTimeout>>();
-  // A lost reply or failed withdrawal never leaves consumable authority while cleanup retries.
-  const withdrawnCards = new Set<string>();
   /** Idempotent host-state cleanup only (never a Google call): retried with capped backoff until it lands or the host closes. */
   const retryCleanup = (label: string, work: () => unknown, delay = 1_000) => {
     if (closed) return;
@@ -141,7 +139,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       if (!resolved) return { remembered_approvals: [], session_allowances: [] };
       try {
         if (tainted) {
-          const rows = options.allowances.read(allowanceContext()).filter(row => !withdrawnCards.has(row.granted_card_id));
+          const rows = options.allowances.read(allowanceContext());
           // The reservation already charged this call; only the identical live grant can redeem it.
           const allowances = reserved ? rows.filter(row => reserved!.some(r => r.operation === row.operation && r.entity === row.entity && r.granted_card_id === row.granted_card_id))
             .map(row => ({ ...row, remaining_items: 100 })) : rows;
@@ -338,8 +336,8 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       } catch (cause) {
         storageFailure(grant === "always" ? "remembered_approvals" : "session_allowances", "grant", cause);
         if (grant === "session") {
-          withdrawnCards.add(cardId);
-          await cleanup("Google unkept session grant withdrawal", async () => { await options.allowances.revoke(sessionId, turn.principalId, options.brainId, cardId); withdrawnCards.delete(cardId); });
+          const finishWithdrawal = options.allowances.withdraw(cardId);
+          await cleanup("Google unkept session grant withdrawal", async () => { await options.allowances.revoke(sessionId, turn.principalId, options.brainId, cardId); finishWithdrawal(); });
         }
         standingChoiceNotKept = true; // The exact card still authorizes this one call.
       }
@@ -347,8 +345,8 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       if (grant === "session") {
         const confirmed = await options.resolveAccount(alias);
         if (!confirmed.ok || confirmed.value !== account) {
-          withdrawnCards.add(cardId);
-          await cleanup("Google changed-account session grant withdrawal", async () => { await options.allowances.revoke(sessionId, turn.principalId, options.brainId, cardId); withdrawnCards.delete(cardId); });
+          const finishWithdrawal = options.allowances.withdraw(cardId);
+          await cleanup("Google changed-account session grant withdrawal", async () => { await options.allowances.revoke(sessionId, turn.principalId, options.brainId, cardId); finishWithdrawal(); });
           return await withdraw(confirmed.ok ? error("account_changed", "The Google account changed; call again for a fresh decision.", "unavailable") : confirmed.error);
         }
       }
