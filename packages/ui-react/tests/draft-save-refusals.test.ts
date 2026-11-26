@@ -923,3 +923,18 @@ test("a delete refused for a message cancelled and deleted here brings it back r
   expect(s.saves.some((x) => x.body.snapshots?.some((w) => w.snapshotId === held.snapshotId && w.state === "held")), "CANCELLED_NOT_SAVED_HELD").toBe(false);
   expect(s.sent.filter((m) => m.type === "chat_message"), "NOTHING_SENT").toEqual([]);
 });
+
+test("a re-read keeps the host's order: a message found only there stays after the older one kept here", async () => {
+  const older = { snapshotId: "snap-oars", requestId: "req-oars", text: "Ship the oars", fileIds: [], state: "held" as const, createdAt: 4 };
+  const newer = { snapshotId: "snap-sail", requestId: "req-sail", text: "Raise the sail", fileIds: [], state: "held" as const, createdAt: 6 };
+  // The host refuses a list that leaves out the newer held message, which another tab sent.
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots && !body.snapshots.some((x) => x.snapshotId === newer.snapshotId) ? { status: 400, body: { error: "DRAFT_INVALID", message: "A held snapshot is not deleted; return it first." } } : null) });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 2, updatedAt: 9, text: "", attachments: [], snapshots: [older, newer] });
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "Muster the crew", attachments: [], files: [], editedAt: 1, edit: 3,
+    snapshots: [{ snapshotId: older.snapshotId, requestId: older.requestId, text: older.text, files: [], state: "held", createdAt: 4, paused: true }],
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [older].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.snapshots?.map((x) => x.snapshotId), "HOST_ORDER_KEPT").toEqual(["snap-oars", "snap-sail"]);
+  expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.snapshotId), "HOST_ORDER_SAVED").toEqual(["snap-oars", "snap-sail"]);
+});
