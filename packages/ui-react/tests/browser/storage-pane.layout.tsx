@@ -722,6 +722,56 @@ for (const complete of [false, true])
       complete ? ["2 links", "no links"] : ["? links unknown", "? links unknown"]
     );
   });
+// #4601: the inspect sheet and the review dialog read a file's links by the
+// rows' rule. An empty list from an inspection that did not check every
+// reference, or from a file refused as consequences_incomplete, is unknown
+// coverage, never "No references found".
+for (const coverage of ["incomplete", "refused", "complete"] as const)
+  test(`The inspect sheet and review read a link-free file from ${coverage === "complete" ? "a complete" : coverage === "refused" ? "a consequences_incomplete" : "an incomplete"} inspection`, async () => {
+    const fixture = storageViewFixture("dense");
+    const complete = coverage !== "incomplete";
+    const request: Fixture["request"] = async (url, init) => {
+      const response = await fixture.request(url, init);
+      const path = new URL(url, "http://fixture.invalid").pathname;
+      if (path.endsWith("/inspection")) {
+        const body = await response.json();
+        const files = body.files.map((file: { reason: string | null; eligible: boolean }) =>
+          coverage === "refused" ? { ...file, eligible: false, reason: "consequences_incomplete" } : file
+        );
+        return Response.json({ ...body, complete, files });
+      }
+      if (!path.startsWith("/api/storage/removals")) return response;
+      // A review's coverage, wherever its receipt is returned.
+      const body = await response.clone().json().catch(() => null);
+      if (!body || typeof body !== "object") return response;
+      const covered =(receipt: { review?: object } | null | undefined) =>
+        receipt?.review ? { ...receipt, review: { ...receipt.review, complete } } : receipt;
+      return Response.json("latest" in body ? { ...body, latest: covered(body.latest) } : covered(body), { status: response.status });
+    };
+    await scene("dense", 1280, "dark", 1, { request });
+    await files();
+    await inspect("Troy-charts.PDF").click();
+    const sheet = () => page.getByRole("dialog").element().textContent ?? "";
+    await expect.poll(sheet).toContain("Current source review:");
+    if (coverage === "complete") {
+      expect(sheet(), "STORAGE_SHEET_NONE_FOUND").toContain("No references found in the checked scope.");
+    } else {
+      expect(sheet(), "STORAGE_SHEET_LINKS_UNKNOWN").not.toContain("No references found");
+      expect(sheet(), "STORAGE_SHEET_LINKS_UNKNOWN").toContain("Links unknown: not every reference was checked.");
+    }
+    if (coverage === "refused") return;
+    await button("Select file").click();
+    await expect.poll(() => page.getByRole("dialog").elements().length).toBe(0);
+    await button("Review removal").click();
+    const review = () => page.getByRole("dialog").element().textContent ?? "";
+    await expect.poll(review).toContain("Troy-charts.PDF");
+    if (complete) {
+      expect(review(), "STORAGE_REVIEW_NONE_FOUND").toContain("No references found in checked scope; other consumers remain unknown.");
+    } else {
+      expect(review(), "STORAGE_REVIEW_LINKS_UNKNOWN").not.toContain("No references found");
+      expect(review(), "STORAGE_REVIEW_LINKS_UNKNOWN").toContain("Links unknown: not every reference was checked; other consumers remain unknown.");
+    }
+  });
 // #4549 review F1 (third round): inventory expires after ten minutes while
 // removal receipts persist, so the last removal's receipt and its Undo stay
 // reachable when no measurement is current, as they were before the overhaul.
