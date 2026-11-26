@@ -1,4 +1,46 @@
 import type { StorageCoverage, StorageOwner } from "./storage.js";
+/*
+ * Storage pressure policy, as set in docs/decisions/storage-guidance.md. The
+ * server's severity computation reads these values, so a client drawing
+ * threshold ticks, bands or recovery copy from them stays in step with the
+ * severity it is shown. They are policy constants, not wire fields.
+ *
+ * Capacity percentages compare caller-available bytes with the capacity total.
+ * Entry is inclusive (available at or below the percentage); recovery is strict
+ * (available above it). Forecast days compare a qualified scenario's days to
+ * exhaustion: entry is inclusive (at or within), recovery strict (beyond, or a
+ * non-depleting scenario).
+ */
+/** Low is entered when available space is at or below this percentage of total. */
+export const STORAGE_PRESSURE_LOW_PERCENT = 10;
+/** Critical is entered when available space is at or below this percentage of total. */
+export const STORAGE_PRESSURE_CRITICAL_PERCENT = 5;
+/** A Low capacity cause recovers only when available space is above this percentage of total. */
+export const STORAGE_PRESSURE_LOW_RECOVERY_PERCENT = 12;
+/** A Critical capacity cause recovers (to Low) only when available space is above this percentage of total. */
+export const STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT = 7;
+/** Low is entered when either qualified scenario (7-day or 30-day window) reaches exhaustion within this many days. */
+export const STORAGE_PRESSURE_LOW_FORECAST_DAYS = 30;
+/** Critical is entered when both qualified scenarios reach exhaustion within this many days. */
+export const STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS = 7;
+/** A Low forecast cause recovers only when both scenarios are beyond this many days. */
+export const STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS = 45;
+/** A Critical forecast cause recovers (to Low) when either scenario is beyond this many days. */
+export const STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS = 10;
+/**
+ * Recovery needs this many consecutive qualifying fresh observations, with every
+ * active cause recovered in each. The first starts `recoveryAt`; the last downgrades.
+ */
+export const STORAGE_PRESSURE_RECOVERY_OBSERVATIONS = 2;
+/** Minimum time between the first and last qualifying recovery observations, in milliseconds. */
+export const STORAGE_PRESSURE_RECOVERY_SPACING_MS = 60_000;
+/**
+ * Capacity evidence and owner refusals older than this many milliseconds are not
+ * current: stale evidence cannot raise, support or recover pressure, and resets a
+ * recovery in progress.
+ */
+export const STORAGE_PRESSURE_EVIDENCE_WINDOW_MS = 6 * 60 * 60 * 1000;
+
 /** Versioned named projection of bounded operational evidence; never raw persistence tuples. */
 export type StorageHistoryTier = "six-hour" | "daily" | "weekly";
 export type StorageSeverity = "observed" | "low" | "critical";

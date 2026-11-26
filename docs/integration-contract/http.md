@@ -1369,6 +1369,28 @@ identities to charged retained originals. Unknown outcomes never authorize
 replay. Undo is separately reviewed, cannot overwrite a replacement, and expires
 with actual journal detail. Existing Markdown application semantics are unchanged.
 
+### Storage maintenance pack headroom (additive, #4540)
+
+On `GET /api/storage/maintenance` rows and on every SDK `StorageMaintenanceReceipt`
+of the [maintenance operations](../http-api.md#storage-maintenance-additive-2011),
+`headroom` gains `packingRequiredBytes: number | null`. `headroom.requiredBytes`
+keeps its historical `null` on every kind; nothing in this contract makes it
+non-null, and nothing is reserved.
+
+`packingRequiredBytes` mirrors the CLI pack result's
+[`headroom.packingRequiredBytes`](cli.md#storage-packing-additive-0440-2011) (#4287/#4288): core's conservative
+preflight need for packing, in bytes, measured by core against the brain's
+current Git objects. It is non-null only on a `pack-git` receipt whose own core
+run reported a figure, which it carries unchanged. It is `null`, never `0`, for
+`prune-scratch` and `cleanup-staging`, before core reports, when core reported no
+headroom or a malformed one, and on a receipt recorded before this field existed.
+A row's own `headroom` is the operation's static disclosure and always carries
+`null`; the figure from the most recent run is on the row's `latest` receipt, so
+before any run there is none. The figure describes that run, not a current
+preflight. Each kind has its own `note`; only `pack-git`'s describes packs. A
+`note` describes the kind, not the run: every receipt of another kind, including
+one recorded before #4540, reads back with that kind's current note.
+
 ### Storage history and pressure guidance (additive, #2058)
 
 The two [history/guidance operations](../http-api.md#storage-history-and-pressure-guidance)
@@ -1380,6 +1402,24 @@ uncertainty. Public types do not expose compact persistence tuples or host paths
 The next compatible server/SDK minor includes these endpoints; clients must
 retain an unavailable state when an older host does not provide them. No core
 CLI, MCP, frontmatter, config or content-index contract changes.
+
+### Storage events timeline (additive, 0.45.0, #4541)
+
+The [storage events operation](../http-api.md#storage-events-timeline),
+`GET /api/storage/events?identity=&since=`, and SDK `StorageEventsResponse`,
+`StorageEvent`, `StorageEventKind` and the four `Storage*Event` types are
+version 1 additive contracts. They keep current human-owner authorization and
+the per-principal boundary of maintenance receipts. Events carry the time of
+the evidence, report or receipt that caused them; `seq` is the recording order
+and the `since` continuation, so equal `at` values stay distinct. A maintenance
+event matches its receipt by `receipt` and `phase`, never by time. Each kind is
+bounded (256 pressure, 128 refusal, 64 scope, 512 maintenance) so the worst case
+fits the 262,144-byte cap; a full kind, or one paused because more than 512
+owner reports reached one history write, reports `paused` and keeps every earlier
+event. Episodes, refusals and receipts open before recording began are omitted,
+and no event closes one whose opening was not recorded. `StorageHistoryResponse`
+and the other storage shapes are unchanged; a client keeps an unavailable state
+when an older host returns 404.
 
 ### Activity host timing envelopes (additive)
 

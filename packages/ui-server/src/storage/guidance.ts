@@ -1,10 +1,11 @@
 import type { Database } from "bun:sqlite";
-import type { StorageCoverage, StorageGuidanceResponse, StorageHistoryResponse } from "@schlessera/brain-ui-sdk/protocol";
+import type { StorageCoverage, StorageEventsResponse, StorageGuidanceResponse, StorageHistoryResponse } from "@schlessera/brain-ui-sdk/protocol";
 import type { StorageHistory } from "./history-store.js";
 import { capacityEvidence } from "./history-evidence.js";
 import { StorageUnavailable, type StorageCoordinator } from "./coordinator.js";
 import { localHour, noticeTimeZone } from "../inbox/notify.js";
 import type { StorageNotifier } from "./notify.js";
+import { readStorageEvents } from "./events.js";
 const coverages: StorageCoverage[] = ["complete", "partial", "unknown"];
 /** Read-only, owner-scoped views. Opening either endpoint never starts a scan. */
 export function createStorageGuidance(db: Database, history: StorageHistory, storage: StorageCoordinator, notices: StorageNotifier) {
@@ -46,6 +47,13 @@ export function createStorageGuidance(db: Database, history: StorageHistory, sto
         untracked: snapshot?.capacities.filter(value => !capacities.some(row => row.identity === value.id)).map(value => value.id) ?? [],
         notifications: { permission: "browser-managed", quietHours: { start: 22, end: 8, unknownZone: "defer" }, subscriptionsTruncated: subscriptions.length > 100, receiptsTruncated: receipts.length > 200, subscriptions: subscriptions.slice(0, 100).map(value => { const zone = noticeTimeZone(value.time_zone); const hour = zone ? localHour(zone, now) : null; return { zoneKnown: !!zone, quiet: hour === null ? null : hour >= 22 || hour < 8 }; }), receipts: receipts.slice(0, 200) } };
       // Recheck the same authority immediately before publishing operational data.
+      try { storage.status(principal); } catch { throw new StorageUnavailable(403, "Storage requires current human-owner access."); }
+      return result;
+    },
+    /** Maintenance events stay within the principal's own receipts (#4541). */
+    events(principal: string, query: { identity?: string; since?: number } = {}): StorageEventsResponse {
+      storage.status(principal);
+      const result = readStorageEvents(db, history.brain, principal, query);
       try { storage.status(principal); } catch { throw new StorageUnavailable(403, "Storage requires current human-owner access."); }
       return result;
     },

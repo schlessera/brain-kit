@@ -24,15 +24,23 @@ const SkillsTab = lazyChunk(() => import("./skills-tab.js").then((m) => ({ defau
 const ModulesTab = lazyChunk(() => import("./modules-tab.js").then((m) => ({ default: m.ModulesTab })));
 const StorageTab = lazyChunk(() => import("./storage-tab.js").then((m) => ({ default: m.StorageTab })));
 
+/**
+ * A standard pane keeps the 720px column, header included. A wide pane spans
+ * the window beside the section column; its header row spans with it and only
+ * its content caps at 1200px (`WIDE_CONTENT`), for grids, tables and charts
+ * (#4538). Its prose keeps the 68ch measure.
+ */
+type SettingsPaneWidth = "standard" | "wide";
+
 /** One logical inventory at every width; the groups label the desktop column. */
-const SECTIONS: Array<{ id: SettingsTab; label: string; meta: string; group: string; icon: IconName; glyph: typeof KeyRound }> = [
+const SECTIONS: Array<{ id: SettingsTab; label: string; meta: string; group: string; icon: IconName; glyph: typeof KeyRound; width?: SettingsPaneWidth }> = [
   { id: "appearance", label: "Appearance & input", meta: "this device", group: "This device", icon: "settings", glyph: SlidersHorizontal },
-  { id: "models", label: "Models", meta: "picker", group: "This brain", icon: "model", glyph: SlidersHorizontal },
+  { id: "models", label: "Models", meta: "picker", group: "This brain", icon: "model", glyph: SlidersHorizontal, width: "wide" },
   { id: "voice", label: "Voice", meta: "dictation", group: "This brain", icon: "mic", glyph: Mic },
   { id: "accounts", label: "Accounts", meta: "providers", group: "This brain", icon: "wallet", glyph: UserRound },
-  { id: "skills", label: "Skills", meta: "catalog", group: "This brain", icon: "capability", glyph: Puzzle },
-  { id: "modules", label: "Modules", meta: "workflows", group: "This brain", icon: "steps", glyph: Workflow },
-  { id: "storage", label: "Storage", meta: "capacity", group: "This brain", icon: "ledger", glyph: HardDrive },
+  { id: "skills", label: "Skills", meta: "catalog", group: "This brain", icon: "capability", glyph: Puzzle, width: "wide" },
+  { id: "modules", label: "Modules", meta: "workflows", group: "This brain", icon: "steps", glyph: Workflow, width: "wide" },
+  { id: "storage", label: "Storage", meta: "capacity", group: "This brain", icon: "ledger", glyph: HardDrive, width: "wide" },
   { id: "security", label: "Security", meta: "passkeys", group: "Access", icon: "passkey", glyph: KeyRound },
   { id: "devices", label: "Devices & agents", meta: "credentials", group: "Access", icon: "agent", glyph: Laptop },
 ];
@@ -139,7 +147,9 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
       </button>
     </Fragment>
   ));
-  const body = <div key={tab} id={`${id}-panel-${tab}`} role="tabpanel" aria-labelledby={`${id}-tab-${tab}`} className="flex min-h-0 min-w-0 flex-1 flex-col">
+  const width = SECTIONS.find(section => section.id === tab)?.width ?? "standard";
+  // Grids inside the pane stack by this container's width, never the window's.
+  const body = <div key={tab} id={`${id}-panel-${tab}`} role="tabpanel" aria-labelledby={`${id}-tab-${tab}`} data-settings-width={width} className="@container/settings-pane flex min-h-0 min-w-0 flex-1 flex-col">
     <SectionBody tab={tab} open={open} moduleSession={moduleSession} />
   </div>;
   return <><SettingsFocusReturn open={open} /><SlidePanel open={open} onClose={onClose} title="Settings" wide mode={pane ? "pane" : "drawer"} closedBy={closedBy} destination panelRef={panelRef} returnFocus={false}>
@@ -156,7 +166,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
           <div ref={stripRef} role="tablist" aria-label="Settings sections" aria-orientation="horizontal" className="flex gap-1 overflow-x-auto pl-2 pt-2">{tabs}<span aria-hidden className="w-6 shrink-0" /></div>
           {overflow && <span aria-hidden className="pointer-events-none absolute bottom-0 right-0 top-0 flex w-6 items-center justify-center bg-surface"><ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /></span>}
         </div>}
-        {pane ? <div className="flex min-h-0 min-w-0 flex-1 flex-col"><div className="flex min-h-0 w-full max-w-[720px] flex-1 flex-col">{body}</div></div> : body}
+        {pane ? <div data-settings-pane="" className="flex min-h-0 min-w-0 flex-1 flex-col"><div className={cn("flex min-h-0 w-full flex-1 flex-col", width === "standard" && "max-w-[720px]")}>{body}</div></div> : body}
       </div>
     </div>
   </SlidePanel></>;
