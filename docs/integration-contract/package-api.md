@@ -6382,7 +6382,13 @@ exported type `InputSafetyAdmissionView` in `@schlessera/brain-ui-sdk/server`.
 It takes the exact tool-use ID, tool name and root admission safety facade,
 and returns a host-owned live facade. Backends cache that exact facade through
 approval, input collection, rewrite and lock waits, then compare evidence and
-trust revisions again in the final dispatch continuation.
+trust revisions again in the final dispatch continuation. Under the 2026-11-26
+maintainer ruling on #4271, an explicit card may survive the exact independent
+sibling occurrences whose recording the host awaited and verified as committed.
+The final check still applies settled recording, authority, trust and recipient
+policy. Pending evidence at the existing deadline refuses; other independent
+revisions invalidate the card. This host-only settlement proof never enters
+provider history or grants a standing rule an own-input exemption.
 
 The host excludes only the exact logical call's immutable input occurrences
 and the pending reservations for those same input occurrences. This includes

@@ -1646,6 +1646,7 @@ export "./internal" (./src/internal.ts)
   resolveWorkerStateLimits
   resolveWorkspacesMount
   restrictedReadPaths
+  retainSettledAdmission
   retainWorkerStartupView
   rewriteWorkerRtk
   runMaintenanceWorker
@@ -4736,7 +4737,8 @@ signatures (every public export and the types it is made of)
     export type ActivityView = "index" | "session" | "run";
   AdmissionSafety (packages/ui-sdk/src/server/admission-safety.ts)
     export interface AdmissionSafety {
-        read(): AdmissionSafetySnapshot;
+        read(excludedPending?: readonly string[]): AdmissionSafetySnapshot;
+        pendingRecording?(before: AdmissionSafetySnapshot | undefined, signal: AbortSignal | undefined, excludedPending?: () => readonly string[] | undefined): Iterable<Promise<void>>;
         subscribe(changed: () => void): () => void;
     }
   AdmissionSafetySnapshot (packages/ui-sdk/src/server/admission-safety.ts)
@@ -4748,6 +4750,8 @@ signatures (every public export and the types it is made of)
         readonly policyHash: string | null;
         readonly restricted: boolean;
         readonly recordingAvailable: boolean;
+        readonly recordingPending?: boolean;
+        readonly operationRecordingAvailable?: boolean;
         readonly authorityCurrent: boolean;
     }
   AgentBackend (packages/ui-sdk/src/server/backend.ts)
