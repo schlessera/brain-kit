@@ -112,6 +112,7 @@ import {
   MicOff,
   Newspaper,
   Paperclip,
+  Star,
   Pause,
   Play,
   Plus,
@@ -184,6 +185,8 @@ export const ICONS = {
   more: Ellipsis,  // lucide renames `more-horizontal`; the semantic key is the kit's vocabulary
   menu: EllipsisVertical,
   attach: Paperclip,
+  /** Gmail's starred flag (#4209). */
+  star: Star,
   mic: Mic,
   send: ArrowUp,
   /** The scroll disc's glyph: back down to the newest message (D52 §7). */
