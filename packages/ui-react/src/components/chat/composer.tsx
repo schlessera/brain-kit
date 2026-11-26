@@ -36,7 +36,7 @@ import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
 import { filesFor } from "../../lib/draft-files.js";
 import { ensureFrame, frameOf, framesFor, isFramedImage, placeFrames, subscribeFrames } from "../../lib/image-frames.js";
 import { queuedBlocking, queuedPending } from "../../lib/attachment-queue.js";
-import { bindableFiles, draftFiles as draftFilesOf, draftSnapshots, type ComposerSnapshot, type DraftFile } from "../../stores/draft-state.js";
+import { bindableFiles, draftFiles as draftFilesOf, draftSnapshots, type ComposerDraft, type ComposerSnapshot, type DraftFile } from "../../stores/draft-state.js";
 import { focusOldestSnapshot } from "./outgoing-snapshots.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
@@ -607,6 +607,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       return;
     }
 
+    // The direct path too (#4567): its message must not reach the chat ahead of one still being saved.
+    if (currentDraft && waitsForLastMessage(currentDraft)) {
+      setHeldSend(false);
+      setEffortNotice("Your draft is kept. Send waits until your last message is saved.");
+      return;
+    }
     if (currentTracks.some(track => track.state === "failed")) {
       setHeldSend(false);
       setEffortNotice("Your draft is kept. Retry or remove the failed track before sending.");
@@ -762,6 +768,15 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
    * host acknowledges the save that creates it: that save is the slot's
    * reservation, and a full chat refuses it with nothing sent.
    */
+  /**
+   * A Send's snapshot the host has not acknowledged yet, a Send again replacement among them, or a
+   * delete of the draft still out: the next message waits, whichever path would send it (#4567).
+   */
+  function waitsForLastMessage(d: ComposerDraft): boolean {
+    return root.stores.drafts.getState().deletingDrafts[d.draftId] === true
+      || draftSnapshots(d).some((x) => !d.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId));
+  }
+
   function submitSnapshot(text: string, hasAttachments: boolean, sentAt: number) {
     const store = root.stores.drafts.getState();
     if (outgoingFull) {
@@ -778,7 +793,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     // one's save is out stays here until the host has it, then sends.
     // Whatever the last save's answer, a second snapshot never goes out beside it (#4567).
     // A Send again replacement counts too, and so does a delete of the draft still out.
-    if (current && (current.deleting || draftSnapshots(current).some((x) => !current.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId)))) {
+    if (current && waitsForLastMessage(current)) {
       setEffortNotice("Your draft is kept. Send waits until your last message is saved."); return;
     }
     // A refused save does not hold Send: the send is the next edit, saved again (#4566).

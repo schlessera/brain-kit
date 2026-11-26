@@ -787,10 +787,10 @@ test("a draft's delete marks it deleting until answered, so Send waits", async (
   await run(SAVE_DELAY + 100);
   s.drafts.getState().edit(s.id, SESSION, { text: "" });
   await run(SAVE_DELAY + 100);
-  expect(s.drafts.getState().drafts[s.id]?.deleting, "DELETING_WHILE_OUT").toBe(true);
+  expect(s.drafts.getState().deletingDrafts[s.id], "DELETING_WHILE_OUT").toBe(true);
   answer({ ok: false, status: 503, body: {} });
   await run(100);
-  expect(s.drafts.getState().drafts[s.id]?.deleting).toBeUndefined();
+  expect(s.drafts.getState().deletingDrafts[s.id]).toBeUndefined();
 });
 
 test("a reconciliation read shows a held snapshot only the host holds, and saves list it", async () => {
@@ -821,4 +821,56 @@ test("deleting a draft whose snapshots filled the chat clears the queue-full not
   await run(SAVE_DELAY + 1_000);
   expect(s.removes()).toBe(1);
   expect(s.drafts.getState().outgoingFull, "FULL_CLEARED_ON_DELETE").toBeNull();
+});
+
+/** A delete of this draft is out, as Send reads it (#4567). */
+const deletingNow = (s: ReturnType<typeof scene>, draftId: string) => s.drafts.getState().deletingDrafts[draftId] === true;
+
+test("a refused list's re-read keeps the messages cancelled and deleted here, and sends none of them", async () => {
+  const held = (id: string, text: string) => ({ snapshotId: `snap-${id}`, requestId: `req-${id}`, text, fileIds: [], state: "held" as const, createdAt: 5 });
+  const a = held("raft", "Lash the raft");
+  const b = held("oars", "Ship the oars");
+  // The host still holds both; it refuses a list that leaves out a held message.
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots && !body.snapshots.some((x) => x.snapshotId === a.snapshotId) ? { status: 400, body: { error: "DRAFT_INVALID", message: "A held snapshot is not deleted; return it first." } } : null) });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 2, updatedAt: 9, text: "", attachments: [], snapshots: [a, b] });
+  // Both cancelled here, and the first deleted, before the save went out.
+  const cancelled = { kind: "cancelled" as const };
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], editedAt: 1, edit: 3,
+    snapshots: [{ snapshotId: b.snapshotId, requestId: b.requestId, text: b.text, files: [], state: "returned", createdAt: 5, why: cancelled }],
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [a, b].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(s.saves.filter((x) => x.body.snapshots?.length).length, "the re-read happened").toBeGreaterThanOrEqual(1);
+  expect(d.snapshots?.map((x) => `${x.snapshotId}:${x.state}`), "CANCELLED_KEPT_ON_REREAD").toEqual(["snap-oars:returned"]);
+  expect(Object.values(s.drafts.getState().sends).filter((x) => x.requestId === a.requestId || x.requestId === b.requestId), "NO_CANCELLED_MESSAGE_SENT").toEqual([]);
+});
+
+test("the delete after a lost first save marks the draft deleting until answered", async () => {
+  let answer!: (r: DraftCallResult<null>) => void;
+  const s = scene({ snapshots: true, remove: () => new Promise((resolve) => { answer = resolve; }) });
+  s.loseSaves(1);
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  expect(s.drafts.getState().drafts[s.id]?.uncertain, "the first save's answer was lost").toBe(true);
+  s.drafts.getState().edit(s.id, SESSION, { text: "" });
+  await run(SAVE_DELAY + 100);
+  expect(deletingNow(s, s.id), "LOST_SAVE_DELETE_MARKED").toBe(true);
+  answer({ ok: true, value: null });
+  await run(100);
+  expect(deletingNow(s, s.id)).toBe(false);
+});
+
+test("a device branch forked while a delete is out does not wait for that delete", async () => {
+  let answer!: (r: DraftCallResult<null>) => void;
+  const s = scene({ snapshots: true, remove: () => new Promise((resolve) => { answer = resolve; }) });
+  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
+  await run(SAVE_DELAY + 100);
+  s.drafts.getState().edit(s.id, SESSION, { text: "" });
+  await run(SAVE_DELAY + 100);
+  expect(deletingNow(s, s.id)).toBe(true);
+  s.drafts.getState().keepDeviceBranch(s.id, "draft-branch-raft", null, SESSION);
+  answer({ ok: true, value: null });
+  await run(100);
+  expect(deletingNow(s, s.id)).toBe(false);
+  expect(deletingNow(s, "draft-branch-raft"), "BRANCH_NOT_DELETING").toBe(false);
 });

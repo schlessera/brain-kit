@@ -222,8 +222,6 @@ export interface ComposerDraft {
   uncertain: boolean;
   /** The accepted request that started this draft's session, to bind it on the host. */
   bind: { sessionId: string; requestId: string } | null;
-  /** Local: a delete of this draft is out (#4567). Send waits until it answers. */
-  deleting?: true;
 }
 
 type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
@@ -322,6 +320,11 @@ export interface DraftStoreState {
    * notice until this tab frees a slot.
    */
   outgoingFull: { draftId: string; sessionId: string | null; limit: number } | null;
+  /**
+   * Local: drafts whose delete is out (#4567), by id. Send waits until it answers. Kept beside the
+   * drafts, not on one, so a fork or a rotation that copies a draft never copies its delete.
+   */
+  deletingDrafts: Readonly<Record<string, true>>;
   /** How the last Open other version ended (#4567), until the next one. */
   versionSwitch: VersionSwitchNote | null;
 
@@ -683,6 +686,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       orphans: [],
       snapshotsOn: false,
       outgoingFull: null,
+      deletingDrafts: {},
       versionSwitch: null,
 
       idFor(sessionId) {
@@ -1134,10 +1138,10 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       deleting(draftId, on) {
-        const d = get().drafts[draftId];
-        if (!d || !!d.deleting === on) return;
-        const { deleting: _was, ...rest } = d;
-        put(on ? { ...rest, deleting: true } : rest);
+        const was = get().deletingDrafts;
+        if ((was[draftId] === true) === on) return;
+        const { [draftId]: _was, ...rest } = was;
+        set({ deletingDrafts: on ? { ...rest, [draftId]: true } : rest });
       },
 
       adoptHostSnapshots(draftId, draft, options = {}) {
@@ -1145,9 +1149,17 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!d) return;
         // A Send made meanwhile, which the host never saw, stays after the host's own.
         const fresh = draftSnapshots(d).filter((x) => !(draft.snapshots ?? []).some((h) => h.snapshotId === x.snapshotId) && !d.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId));
+        if (options.sameEdit) {
+          // A re-read of the refused edit: what changed here since (a cancel, a delete) is that edit, and
+          // stays. Only a message neither this tab nor its last host copy knew (one a reload did not keep
+          // here) joins it, paused (#4566).
+          const known = new Set([...draftSnapshots(d), ...(d.host?.snapshots ?? [])].map((x) => x.snapshotId));
+          const hostOnly = (draft.snapshots ?? []).filter((h) => !known.has(h.snapshotId));
+          put({ ...d, host: hostCopy(draft, -1), snapshots: [...mergeSnapshots(undefined, hostOnly), ...draftSnapshots(d)], uncertain: false });
+          return;
+        }
         const snapshots = [...mergeSnapshots(d.snapshots, draft.snapshots), ...fresh];
-        put(options.sameEdit ? { ...d, host: hostCopy(draft, -1), snapshots, uncertain: false }
-          : { ...d, host: hostCopy(draft, -1), snapshots, uncertain: false, edit: d.edit + 1, editedAt: now() });
+        put({ ...d, host: hostCopy(draft, -1), snapshots, uncertain: false, edit: d.edit + 1, editedAt: now() });
       },
 
       filesGone(draftId, fileIds) {
