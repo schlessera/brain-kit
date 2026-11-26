@@ -43,9 +43,16 @@ export function useSlotFocus<T extends HTMLElement>() {
       last.current = slot && element.contains(slot) ? { control, slot } : null;
     };
     const leave = (event: FocusEvent) => {
-      // Focus moved on by itself: nothing to keep. A removed control's
-      // focusout (where a browser fires one) leaves the record in place.
-      if ((event.target as Element).isConnected && !element.contains(event.relatedTarget as Node | null)) last.current = null;
+      const next = event.relatedTarget as Node | null;
+      if (next && element.contains(next)) return;
+      const control = event.target as Element;
+      // Focus moved on by itself: nothing to keep. Chrome fires focusout
+      // while removing a focused control, still connected, so a focusout to
+      // nowhere is judged once the removal has finished.
+      if (next) last.current = null;
+      else queueMicrotask(() => {
+        if (control.isConnected && last.current?.control === control) last.current = null;
+      });
     };
     element.addEventListener("focusin", enter);
     element.addEventListener("focusout", leave);
