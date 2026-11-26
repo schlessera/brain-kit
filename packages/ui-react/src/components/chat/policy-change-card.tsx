@@ -56,16 +56,22 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
     if (explicit.current && (busy || review.state !== "pending")) { explicit.current = false; receipt.current?.focus({ preventScroll: true }); }
   }, [busy, review.state]);
   const voiceLocked = toolCall.voicePermission && toolCall.voicePermission.phase !== "pending";
-  // Once the card has its own outcome (a decision in flight or the host's
-  // recorded state), that outcome is the receipt for an on-screen decision
-  // and for this card's own answer that the turn's end closed without a
-  // resolution: neither may replace "Nothing was written" (#4629). A voice
-  // refusal, a posture denial or the host's expiry reason still says what
-  // happened, as before.
+  // The card's own receipt outranks a permission receipt that says less than
+  // it (#4629); every other receipt still says what happened: a voice refusal,
+  // a posture denial, the host's expiry reason, a grant that overtook a
+  // spoken stop. The host's settled review outranks an on-screen decision;
+  // until it arrives, the decision is newer than an answer still in flight.
+  // The client's turn-end guess ("no answer before the turn ended") is wrong
+  // once this card answered, or once the host's review proves an answer:
+  // only "declined" can also mean nobody answered.
   const permission = toolCall.voicePermission;
-  const superseded = !!permission && (permission.phase === "granted" || permission.phase === "denied" && !permission.byVoice && !permission.postureDenied
-    || permission.phase === "expired" && sent.current && TURN_END_WORDS.includes(permission.word));
-  const voiceReceipt = voiceLocked && !(superseded && (busy || review.state !== "pending"));
+  const settled = ["updated", "declined", "stale", "invalid", "refused"].includes(review.state);
+  const screenDecision = !!permission && (permission.phase === "granted" && !permission.heardAt
+    || permission.phase === "denied" && !permission.byVoice && !permission.postureDenied);
+  const turnEndGuess = !!permission && permission.phase === "expired" && TURN_END_WORDS.includes(permission.word);
+  const superseded = screenDecision && settled
+    || turnEndGuess && (sent.current ? busy || review.state !== "pending" : settled && review.state !== "declined");
+  const voiceReceipt = voiceLocked && !superseded;
   function decide(approved: boolean) {
     if (voiceLocked || !verified || !current() || busy || sent.current || review.state !== "pending" || !onApproval) return;
     sent.current = true;

@@ -19,6 +19,7 @@ import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { useStore } from "zustand";
 import { ToolCallTimeline } from "../../src/components/chat/tool-call-timeline.js";
+import { PolicyChangeCard } from "../../src/components/chat/policy-change-card.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider, useBrainUiRoot } from "../../src/root-context.js";
 
@@ -32,6 +33,7 @@ const PENDING: PolicyChangeReview = {
 };
 const EXPIRY_REASON = "Safety or authority changed before admission. Nothing ran; a fresh attempt needs a fresh decision.";
 const DECLINED: PolicyChangeReview = { ...PENDING, state: "declined", message: "Policy change declined. Nothing was written." };
+const UPDATED: PolicyChangeReview = { ...PENDING, state: "updated", proposedHash: "b".repeat(64), message: "Policy updated. Applies from the next turn." };
 
 let root: BrainUiRoot;
 /** What the host's receipt route answers; the card reads it on mount. */
@@ -140,4 +142,52 @@ test("an answered proposal the host expired before admitting the answer keeps th
   send({ type: "result", durationMs: 1, numTurns: 1, isError: false });
   await settle();
   expect(receiptText(view), "ANSWERED_HOST_EXPIRY_REASON_KEPT").toBe(EXPIRY_REASON);
+});
+
+test("an unanswered proposal is locked once its request expires, while its review is still pending", async () => {
+  const { view } = await proposed(false);
+  // The turn ended before the host's policy result: the review is still pending.
+  send({ type: "result", durationMs: 1, numTurns: 1, isError: false });
+  await settle();
+  expect(view.container.querySelector('[data-policy-state="pending"]'), "REVIEW_STILL_PENDING").not.toBeNull();
+  expect(view.container.querySelector("[data-kit-approval-actions]"), "EXPIRED_PENDING_CARD_LOCKED").toBeNull();
+  expect(receiptText(view)).toBe("Expired · denied · no answer before the turn ended");
+});
+
+test("an approved write keeps its own receipt after the card is drawn again", async () => {
+  const { view } = await proposed(false);
+  const approve = [...view.container.querySelectorAll<HTMLElement>('[data-kit-approval-actions] [role="button"]')].find((b) => b.textContent?.includes("Approve and write"))!;
+  act(() => { fireEvent.click(approve); });
+  served = UPDATED;
+  send({ type: "tool_result", toolUseId: REQUEST, output: JSON.stringify(UPDATED), isError: false, policyChange: UPDATED });
+  send({ type: "result", durationMs: 1, numTurns: 1, isError: false });
+  await settle();
+  expect(receiptText(view)).toBe(UPDATED.message);
+  // The transcript is drawn again: the new card never sent the answer itself.
+  view.unmount();
+  const again = renderDom(<BrainUiProvider root={root}><Live /></BrainUiProvider>);
+  await settle();
+  expect(tool().voicePermission?.phase).toBe("expired");
+  expect(receiptText(again), "REMOUNTED_WRITE_KEEPS_RECEIPT").toBe(UPDATED.message);
+});
+
+test("a decline in flight yields to another screen's approval the host settled first", async () => {
+  const { view, decline } = await proposed(true);
+  act(() => { fireEvent.click(decline); });
+  expect(receiptText(view)).toBe("Recording the decline…");
+  send({ type: "tool_resolution", toolUseId: REQUEST, outcome: "granted", channel: "card" });
+  await settle();
+  expect(receiptText(view), "SETTLED_GRANT_OVER_DECLINE_IN_FLIGHT").toBe("Approved on screen");
+});
+
+test("a screen grant that overtook a spoken stop keeps its acknowledgement after the write", async () => {
+  root.stores.chat.getState().setActiveSession("s1");
+  served = UPDATED;
+  const grant = { sessionId: "s1", turnId: scoped.turnId, toolUseId: REQUEST, phase: "granted" as const, announced: false, ambiguous: false,
+    byVoice: false, heardAt: 1, script: "", word: "The screen decision was already accepted." };
+  const view = renderDom(<BrainUiProvider root={root}><PolicyChangeCard toolCall={{ id: REQUEST, name: "mcp__brain-ui__propose_policy_change", input: {},
+    inputJson: "{}", status: "complete", policyChange: UPDATED, voicePermission: grant }} onApproval={() => true} /></BrainUiProvider>);
+  await settle();
+  expect(view.container.querySelector('[data-policy-state="updated"]')).not.toBeNull();
+  expect(receiptText(view), "OVERTAKING_GRANT_ACKNOWLEDGED").toBe(grant.word);
 });
