@@ -449,6 +449,10 @@ test("Dense folder pages preserve the full measured subtotal and query before pa
   await button("Next 200 items").click();
   await expect.poll(rows).toBe(5);
   expect(host.textContent).toContain("205 items");
+  // The last page has no Next: focus moves to First, never to the body (#4549 review F5).
+  await expect
+    .poll(() => document.activeElement, { message: "STORAGE_BREAKDOWN_NEXT_KEEPS_FOCUS" })
+    .toBe(button("First 200 items").element());
   await page
     .getByRole("textbox", { name: "Search this folder" })
     .fill("chart-204");
@@ -501,6 +505,61 @@ test("Maintenance lost response keeps its identity and cancellation reads the ow
   expect(host.textContent).toContain("Other writes may change these values");
 });
 
+// #4549 review F2: a control that changes or leaves while focused never drops
+// focus to the body. The tool row keeps its action button through Run,
+// Check receipt and Cancel; a control that does leave hands focus on.
+test("Free up space and the status alert keep focus while their controls change or leave", async () => {
+  await scene("maintenance");
+  const list = () => host.querySelector("[data-tool-list]")!;
+  const inList = () => document.activeElement !== document.body && list().contains(document.activeElement);
+  const press = async (name: string) => {
+    (button(name).element() as HTMLElement).focus();
+    await userEvent.keyboard("{Enter}");
+  };
+  await press("Run Pack Git objects");
+  await expect.poll(() => list().textContent).toContain("response unconfirmed");
+  // The row's own button stays, held, and keeps focus: not a neighbour.
+  const action = () => document.activeElement?.getAttribute("aria-label");
+  expect(action(), "STORAGE_RUN_KEEPS_FOCUS").toBe("Try again Pack Git objects");
+  // The error's own button leaves with the error it checks.
+  await press("Check measurement status");
+  await expect.poll(() => host.querySelector('[role="alert"]')).toBeNull();
+  expect(document.activeElement, "STORAGE_CHECK_STATUS_KEEPS_FOCUS").toBe(
+    page.getByRole("heading", { name: "Storage", exact: true, level: 2 }).element()
+  );
+  await press("Check maintenance receipt");
+  await expect.poll(() => button("Cancel Pack Git objects").elements().length).toBe(1);
+  expect(inList(), "STORAGE_CHECK_RECEIPT_KEEPS_FOCUS").toBe(true);
+  // Check receipt leaves once the run is over: focus stays in its row.
+  (button("Check maintenance receipt").element() as HTMLElement).focus();
+  (button("Cancel Pack Git objects").element() as HTMLElement).click();
+  await expect.poll(() => list().textContent).toContain("Cancelled");
+  await expect.poll(() => button("Check maintenance receipt").elements().length).toBe(0);
+  expect(inList(), "STORAGE_LEAVING_CHECK_RECEIPT_KEEPS_FOCUS").toBe(true);
+  // Cancel pressed from the keyboard, in a second run.
+  await press("Try again Pack Git objects");
+  await expect.poll(() => list().textContent).toContain("response unconfirmed");
+  await press("Check maintenance receipt");
+  await expect.poll(() => button("Cancel Pack Git objects").elements().length).toBe(1);
+  await press("Cancel Pack Git objects");
+  await expect.poll(() => list().textContent).toContain("Cancelled");
+  expect(action(), "STORAGE_CANCEL_KEEPS_FOCUS").toBe("Try again Pack Git objects");
+});
+test("Show all children leaves with the smaller items, and focus stays on the list", async () => {
+  await scene("paged", 1280);
+  for (const name of ["Brain files", "attachments", "papers"]) {
+    await row(name).click();
+    await expect.poll(() => document.activeElement?.textContent).toBe(name);
+  }
+  const smaller = () => host.querySelector<HTMLElement>('[aria-label$="Open list."]');
+  await expect.poll(smaller).not.toBeNull();
+  smaller()!.click();
+  await expect.poll(() => page.getByRole("button", { name: "Show all children" }).elements().length).toBe(1);
+  (page.getByRole("button", { name: "Show all children" }).element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(() => page.getByRole("button", { name: "Show all children" }).elements().length).toBe(0);
+  expect(document.activeElement, "STORAGE_SHOW_ALL_KEEPS_FOCUS").toBe(host.querySelector("[data-storage-list-heading]"));
+});
 test("Cancellation keeps acknowledged removal and stops the remaining selection", async () => {
   const fixture = await scene();
   await files();
@@ -521,6 +580,48 @@ test("Cancellation keeps acknowledged removal and stops the remaining selection"
     "not-started",
   ]);
   expect(fixture.confirms).toBe(1);
+});
+// #4549 review (sixth round): a removal still running keeps its selection,
+// and Review removal is held while it runs. Closing its dialog must leave the
+// receipt reachable, for status and Cancel, without clearing the selection.
+test("A running removal's receipt stays reachable beside its retained selection", async () => {
+  const fixture = await scene();
+  await files();
+  await select("Ithaca-harbor.pdf");
+  await select("Troy-charts.PDF");
+  fixture.holdNextConfirmation();
+  await button("Review removal").click();
+  await button("Remove 2 files").click();
+  await expect.poll(() => button("Cancel remaining files").elements().length).toBe(1);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => page.getByRole("dialog").elements().length).toBe(0);
+  expect(host.textContent).toContain("2 selected");
+  await expect
+    .poll(() => button("View removal receipt").elements().length, { message: "STORAGE_RUNNING_RECEIPT_WITH_SELECTION" })
+    .toBe(1);
+  await button("View removal receipt").click();
+  await expect.poll(() => button("Cancel remaining files").elements().length).toBe(1);
+});
+// #4549 review (seventh round): when that removal finishes, its receipt line
+// leaves the selection bar. Focus on it moves to a surviving control there.
+test("A finishing removal hands focus from its receipt line to the selection bar", async () => {
+  const fixture = await scene();
+  await files();
+  await select("Ithaca-harbor.pdf");
+  await select("Troy-charts.PDF");
+  fixture.holdNextConfirmation();
+  await button("Review removal").click();
+  await button("Remove 2 files").click();
+  await expect.poll(() => button("Cancel remaining files").elements().length).toBe(1);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => page.getByRole("dialog").elements().length).toBe(0);
+  await expect.poll(() => button("View removal receipt").elements().length).toBe(1);
+  (button("View removal receipt").element() as HTMLElement).focus();
+  fixture.finishHeldRemoval();
+  await expect.poll(() => button("View removal receipt").elements().length).toBe(0);
+  const active = document.activeElement;
+  expect(active === document.body ? "body" : "control", "STORAGE_FINISHED_RECEIPT_KEEPS_FOCUS").toBe("control");
+  expect(host.querySelector("[data-storage-large-files]")?.contains(active)).toBe(true);
 });
 test("A late old-root inspection cannot populate the replacement root", async () => {
   const oldFixture = await scene();
@@ -574,6 +675,105 @@ test("Hard-link alias stays named in the list without acquiring map area", async
   expect(page.getByRole("table", { name: /^Contents of / }).element().textContent).toContain(
     "Troy-charts.PDF"
   );
+});
+// A database and its sidecars are one item (#4546, maintainer 2026-11-26):
+// one map tile and one list row at the combined size, no sidecar of its own.
+test("A folded database is one tile and one row in the real pane", async () => {
+  const fixture = storageViewFixture("dense");
+  const wal = "f".repeat(31) + "1";
+  const request: Fixture["request"] = async (url, init) => {
+    const response = await fixture.request(url, init);
+    const query = new URL(url, "http://fixture.invalid");
+    if (!query.pathname.endsWith("/tree") || query.searchParams.get("parentId")) return response;
+    const page = await response.json();
+    const base = page.nodes.find((node: { name: string }) => node.name === "App state");
+    const size = { logical: 1_500_000_000, allocated: 1_500_000_000, coverage: "complete" };
+    page.nodes.push({ ...base, id: wal, rootId: wal, name: "App state-wal", totals: size, area: size });
+    page.totals.allocated += size.allocated;
+    page.totals.logical += size.logical;
+    page.matched += 1;
+    return Response.json(page);
+  };
+  await scene("dense", 1280, "dark", 1, { request });
+  const map = () => page.getByRole("group", { name: /Storage map/ }).element();
+  await expect.poll(() => map().querySelector('[aria-label^="App state, "]')).not.toBeNull();
+  expect(map().querySelector('[aria-label^="App state-wal, "]'), "STORAGE_SIDECAR_NO_TILE").toBeNull();
+  const list = () => page.getByRole("table", { name: /^Contents of / }).element();
+  await expect.poll(() => list().textContent).toContain("with -wal");
+  expect(row("App state-wal").elements(), "STORAGE_SIDECAR_NO_ROW").toHaveLength(0);
+});
+// #4549 review F2 (third round): a row's links come from its removal
+// inspection. An inspection that did not check every reference leaves the
+// count unknown, never "no links"; a complete one states its count.
+for (const complete of [false, true])
+  test(`A row reads its links from ${complete ? "a complete" : "an incomplete"} inspection`, async () => {
+    const fixture = storageViewFixture("dense");
+    const request: Fixture["request"] = async (url, init) => {
+      const response = await fixture.request(url, init);
+      if (!new URL(url, "http://fixture.invalid").pathname.endsWith("/inspection")) return response;
+      return Response.json({ ...(await response.json()), complete });
+    };
+    await scene("dense", 1280, "dark", 1, { request });
+    await files();
+    await select("Ithaca-harbor.pdf");
+    await select("Troy-charts.PDF");
+    const links = (name: string) => inspect(name).element().textContent ?? "";
+    expect([links("Ithaca-harbor.pdf"), links("Troy-charts.PDF")].map((text) => /\? links unknown|no links|\d+ links?/.exec(text)?.[0]), "STORAGE_ROW_LINKS").toEqual(
+      complete ? ["2 links", "no links"] : ["? links unknown", "? links unknown"]
+    );
+  });
+// #4549 review F1 (third round): inventory expires after ten minutes while
+// removal receipts persist, so the last removal's receipt and its Undo stay
+// reachable when no measurement is current, as they were before the overhaul.
+test("The last removal's receipt and Undo stay reachable without a current measurement", async () => {
+  const fixture = storageViewFixture("never");
+  const id = "f".repeat(31) + "2";
+  await fixture.request("/api/storage/removals/reviews", {
+    method: "POST",
+    body: JSON.stringify({ id, paths: ["attachments/Ithaca-harbor.pdf"] }),
+  });
+  await fixture.request("/api/storage/removals", {
+    method: "POST",
+    body: JSON.stringify({ id, fingerprint: "a".repeat(64) }),
+  });
+  expect(fixture.receipt?.items.map((item) => item.undoAvailable)).toEqual([true]);
+  await scene("never", 320, "dark", 1, { request: fixture.request });
+  await expect
+    .poll(() => host.querySelector("[data-storage-status]")?.getAttribute("data-storage-status"))
+    .toBe("never");
+  await expect
+    .poll(() => button("View removal receipt").elements().length, { message: "STORAGE_RECEIPT_WITHOUT_SNAPSHOT" })
+    .toBe(1);
+  expect(host.querySelector("[data-storage-last-removal]")?.textContent).toContain("Last removal: partial");
+  await button("View removal receipt").click();
+  await expect
+    .poll(() => button("Undo removal of attachments/Ithaca-harbor.pdf").elements().length)
+    .toBe(1);
+  await button("Undo removal of attachments/Ithaca-harbor.pdf").click();
+  await expect.poll(() => button("Restore 1 file").elements().length, { message: "STORAGE_UNDO_WITHOUT_SNAPSHOT" }).toBe(1);
+});
+// #4549 review (fourth round): the server can report removal unavailable
+// while it still holds the last receipt. Receipt access does not depend on
+// removal capability, so Find large files still offers it.
+test("The last removal's receipt stays reachable when removal becomes unavailable", async () => {
+  const fixture = storageViewFixture("unsupported");
+  const id = "f".repeat(31) + "3";
+  await fixture.request("/api/storage/removals/reviews", {
+    method: "POST",
+    body: JSON.stringify({ id, paths: ["attachments/Ithaca-harbor.pdf"] }),
+  });
+  await fixture.request("/api/storage/removals", {
+    method: "POST",
+    body: JSON.stringify({ id, fingerprint: "a".repeat(64) }),
+  });
+  expect(fixture.receipt?.state).toBeTruthy();
+  await scene("unsupported", 1280, "dark", 1, { request: fixture.request });
+  await files();
+  await expect.poll(() => host.textContent).toContain("Removal isn't available on this host");
+  await expect
+    .poll(() => button("View removal receipt").elements().length, { message: "STORAGE_RECEIPT_WHEN_REMOVAL_UNAVAILABLE" })
+    .toBe(1);
+  expect(host.querySelectorAll('[data-storage-large-files] input[type="checkbox"]')).toHaveLength(0);
 });
 test("Unsupported removal still permits copying the visible filtered list", async () => {
   await scene("unsupported");
@@ -660,6 +860,81 @@ test("Back to overview with a selection asks before discarding it", async () => 
   await button("Find large files").click();
   await expect.poll(() => matches().elements().length).toBe(1);
   expect(host.textContent, "STORAGE_DISCARD_CLEARS_SELECTION").not.toContain("1 selected");
+});
+// #4549 review F1: the mode lists files by file size, its own basis, in its
+// own order; the overview's sort, direction and basis never leak into it.
+test("Find large files asks for its own file-size order, not the overview's", async () => {
+  const fixture = await scene("dense", 1280);
+  const contents = page.getByRole("table", { name: /^Contents of / });
+  await contents.getByRole("button", { name: "Name", exact: true }).click();
+  await expect
+    .poll(() => contents.getByRole("columnheader", { name: /^Name/ }).element().getAttribute("aria-sort"))
+    .toBe("ascending");
+  await files();
+  const asked = () => fixture.requests.filter((value) => value.path.endsWith("/entries")).at(-1)?.query;
+  expect(asked(), "STORAGE_FIND_OWN_ORDER").toMatchObject({ sort: "size", direction: "desc", metric: "logical" });
+  const size = () => matches().getByRole("columnheader", { name: /^Size/ }).element().getAttribute("aria-sort");
+  expect(size()).toBe("descending");
+  // The header stays a sortable control, and what it shows is what was asked.
+  await matches().getByRole("button", { name: "Size", exact: true }).click();
+  await expect.poll(() => asked()?.direction, { message: "STORAGE_FIND_SORTABLE" }).toBe("asc");
+  expect(asked()).toMatchObject({ sort: "size", metric: "logical" });
+  await expect.poll(size).toBe("ascending");
+  await expect
+    .poll(() => matches().element().querySelector('.bk-storage-body > [role="row"]')?.textContent ?? "")
+    .toContain("Sirens-score.pdf");
+});
+// #4549 review F4: an inspection asked for while another action is pending
+// opens nothing, and a late response never reopens or replaces a sheet.
+test("Inspecting while an inspection is pending opens no sheet, and a closed sheet stays closed", async () => {
+  const fixture = await scene();
+  await files();
+  const release = fixture.deferInspection();
+  await inspect("Ithaca-harbor.pdf").click();
+  await expect.poll(() => page.getByRole("dialog").elements().length).toBe(1);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => page.getByRole("dialog").elements().length).toBe(0);
+  await inspect("Troy-charts.PDF").click();
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(page.getByRole("dialog").elements(), "STORAGE_BUSY_INSPECTION_OPENS_NOTHING").toHaveLength(0);
+  const verified = () => page.getByRole("checkbox", { name: /^Select Ithaca-harbor\.pdf, / }).element().getAttribute("aria-label");
+  const before = verified();
+  release();
+  await expect.poll(verified).not.toBe(before);
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(page.getByRole("dialog").elements(), "STORAGE_LATE_INSPECTION_STAYS_CLOSED").toHaveLength(0);
+  // Once nothing is pending, inspection opens and settles as before.
+  await inspect("Troy-charts.PDF").click();
+  await expect.poll(() => disabled(button("Select file").element())).toBe(false);
+});
+// #4549 review F5: an action that removes its own focused control moves
+// focus to a surviving one, never to the document body.
+test("Clear, Show new measurement and paging keep focus on the pane", async () => {
+  const fixture = await scene("paged", 1280);
+  await button("Find large files").click();
+  await expect.poll(() => matches().elements()[0]?.textContent ?? "").toContain("Ithaca-chart-");
+  (button("Next 200 items").element() as HTMLElement).focus();
+  await button("Next 200 items").click();
+  await expect
+    .poll(() => document.activeElement?.getAttribute("role") === "button" && document.activeElement.textContent, { message: "STORAGE_NEXT_KEEPS_FOCUS" })
+    .toBe("First 200 items");
+  await button("First 200 items").click();
+  await expect
+    .poll(() => document.activeElement?.getAttribute("role") === "button" && document.activeElement.textContent, { message: "STORAGE_FIRST_KEEPS_FOCUS" })
+    .toBe("Next 200 items");
+  await select("Ithaca-chart-204.pdf");
+  await button("Clear").click();
+  await expect.poll(() => host.textContent).not.toContain("1 selected");
+  await expect
+    .poll(() => document.activeElement, { message: "STORAGE_CLEAR_KEEPS_FOCUS" })
+    .toBe(page.getByRole("heading", { name: "Find large files", exact: true }).element());
+  await button("Measure again").click();
+  await expect.poll(() => button("Show new measurement").elements().length, { timeout: 4000 }).toBe(1);
+  await button("Show new measurement").click();
+  await expect
+    .poll(() => document.activeElement, { message: "STORAGE_SHOW_KEEPS_FOCUS" })
+    .toBe(page.getByRole("heading", { name: "Storage", exact: true, level: 2 }).element());
+  expect(fixture.requests.some((value) => value.path === "/api/storage/scans")).toBe(true);
 });
 test("The default state has exactly one primary-tone button", async () => {
   const fixture = storagePaneFixture({ state: "low" });
@@ -809,13 +1084,20 @@ const MATRIX: MatrixScenario[] = [
     cells: ALL,
     kind: "dense",
     dialog: true,
-    act: async (fixture) => {
+    act: async () => {
       await files();
       await select("Ithaca-harbor.pdf");
       await select("Troy-charts.PDF");
-      fixture.changeVersion();
       await button("Review removal").click();
-      await expect.poll(() => page.getByRole("dialog").element().textContent).toContain("A selected version changed");
+      await expect.poll(() => button("Remove 2 files").elements().length).toBe(1);
+      // The owner removes one file and finds the other changed since review.
+      await button("Remove 2 files").click();
+      // #4549 review F4: the matrix row is the mixed removal result itself.
+      await expect
+        .poll(() => page.getByRole("dialog").element().textContent, { message: "STORAGE_MIXED_RESULT_SHOWN" })
+        .toContain("1 removed · 0 restored · 1 other outcomes");
+      expect(page.getByRole("dialog").element().textContent).toContain("changed since review");
+      expect(button("Undo removal of attachments/Ithaca-harbor.pdf").elements(), "STORAGE_MIXED_RESULT_OFFERS_UNDO").toHaveLength(1);
     },
   },
   { name: "unsupported", cells: ["320-dark", "1280-dark"], kind: "unsupported", act: files },

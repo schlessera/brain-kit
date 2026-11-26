@@ -13,7 +13,7 @@ const lines = (path: string): any[] => readFileSync(path, "utf8").trim().split("
 export function verifyIndexReleaseReproduction(directory: string, exitCode: number) {
   requireFact(exitCode === 1, "EXPECTED_EXIT_ONE");
   const fixture: any[] = read(join(directory, "native-fixture.json"));
-  const test = fixture.find(row => row.kind === "command" && row.argv?.[1] === "run" && row.argv?.[2] === "test");
+  const test = fixture.find(row => row.kind === "command" && JSON.stringify(row.argv?.slice(0, 5)) === JSON.stringify(["/usr/local/bin/bun", "--no-env-file", "test", "--timeout", "30000"]) && row.argv?.[5] === "/repo/scripts/native-proof/hosted-app.test.ts");
   requireFact(test?.code === 1 && test.stderr.includes("error: NATIVE_AUTOMATIC_INDEX_COMPLETED: NativeBrainManagerError: Native manager outcome is unknown"), "EXACT_HOSTED_ASSERTION");
   // Every control case must pass; the original hosted case is the only failure.
   const outcomes = [...test.stderr.matchAll(/^\((pass|fail)\) (.+?) \[[\d.]+ms\]$/gm)].map(match => ({ passed: match[1] === "pass", name: match[2]! }));

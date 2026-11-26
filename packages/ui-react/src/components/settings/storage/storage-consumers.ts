@@ -11,16 +11,13 @@ import type { StorageSnapshot, StorageTreeNode, StorageTreePage } from "@schless
 import {
   storageUnknownReason,
   type StorageConsumerRowProps,
+  type StorageMapLegendOwner,
   type StorageSortDirection,
   type StorageSortKey,
 } from "@schlessera/brain-ui-kit";
-import { bytes, type StorageMetric } from "./storage-model.js";
+import { bytes, foldSidecars, sidecarBase, type StorageMetric } from "./storage-model.js";
 
-const SIDECAR = /-(wal|shm|journal)$/;
-/** The database a sidecar name belongs to, or `null` for any other name. */
-export function sidecarBase(name: string): string | null {
-  return SIDECAR.test(name) ? name.replace(SIDECAR, "") : null;
-}
+export { sidecarBase };
 /** Labels with each sidecar folded into its database, when the database is listed. */
 export function foldSidecarLabels(labels: readonly string[]): string[] {
   const present = new Set(labels);
@@ -40,6 +37,8 @@ interface StorageConsumerMember {
   /** `null` when this member's size was not measured. */
   bytes: number | null;
   coverage: StorageTreeNode["area"]["coverage"];
+  /** Why this member's size is unknown or a lower bound; absent when it is complete. */
+  reason?: string;
 }
 
 /** One row: the kit's props without callbacks, plus what the pane keys on. */
@@ -79,11 +78,10 @@ function sizeOf(members: readonly StorageConsumerMember[]) {
   return { value, complete };
 }
 
-function reasonFor(node: StorageTreeNode, inventory: StorageSnapshot | null | undefined, complete: boolean, known: boolean) {
-  if (complete) return undefined;
+/** A node's own reason, or for a store the scan's error for its root. */
+function causeOf(node: StorageTreeNode, inventory: StorageSnapshot | null | undefined): string | null {
   const error = node.kind === "root" ? inventory?.errors.find((value) => value.rootId === node.rootId)?.reason : undefined;
-  const reason = node.reason ?? error ?? (known ? "partial" : null);
-  return storageUnknownReason(reason);
+  return node.reason ?? error ?? null;
 }
 
 /**
@@ -101,23 +99,7 @@ export function storageConsumerRows(
 ): StorageConsumerRows {
   const format = options.format ?? ((value: number) => bytes(value));
   const sort = options.sort ?? { key: "size", direction: "descending" };
-  const folded = new Map<string, StorageTreeNode[]>();
-  // A store's sidecar is its own root with the same owner; a file's sits
-  // beside it in the same root.
-  const database = (node: StorageTreeNode, base: string) =>
-    page.nodes.find(
-      (value) =>
-        value.name === base &&
-        (node.kind === "root"
-          ? value.kind === "root" && value.owner === node.owner
-          : value.kind === "file" && value.rootId === node.rootId)
-    );
-  for (const node of page.nodes) {
-    const base = sidecarBase(node.name);
-    const owner = base === null ? undefined : database(node, base);
-    const key = owner?.id ?? node.id;
-    folded.set(key, [...(folded.get(key) ?? []), node]);
-  }
+  const folded = foldSidecars(page.nodes);
   const category = (node: StorageTreeNode) =>
     node.kind === "root" ? options.inventory?.roots.find((root) => root.id === node.rootId)?.category : undefined;
   const all = [...folded.entries()].map(([id, nodes]): StorageConsumer => {
@@ -125,7 +107,12 @@ export function storageConsumerRows(
     const members = nodes
       .slice()
       .sort((a, b) => (a.id === id ? -1 : b.id === id ? 1 : a.name.localeCompare(b.name)))
-      .map((node) => ({ id: node.id, name: node.name, bytes: node.area[metric], coverage: node.area.coverage }));
+      .map((node) => {
+        const member: StorageConsumerMember = { id: node.id, name: node.name, bytes: node.area[metric], coverage: node.area.coverage };
+        if (member.bytes === null || member.coverage !== "complete")
+          member.reason = storageUnknownReason(causeOf(node, options.inventory) ?? (member.bytes !== null ? "partial" : null));
+        return member;
+      });
     const { value, complete } = sizeOf(members);
     const sidecars = members.slice(1).map((member) => member.name.slice(head.name.length));
     // A hard-linked alias: its object is already counted in another row's
@@ -140,7 +127,8 @@ export function storageConsumerRows(
       nodeId: head.id,
       name: head.name,
       owner: head.owner,
-      action: head.kind === "root" || head.kind === "directory" ? "drill" : "inspect",
+      // A folder's own metadata has no entry to inspect: its row is text.
+      action: head.kind === "root" || head.kind === "directory" ? "drill" : head.kind === "metadata" ? "none" : "inspect",
       kind: KIND[head.kind],
       size: value === null ? null : format(shared ? own! : value),
       bytes: value,
@@ -149,8 +137,13 @@ export function storageConsumerRows(
     if (meta) row.meta = meta;
     if (shared) row.shared = true;
     if (value !== null && !complete) row.atLeast = true;
-    const reason = reasonFor(head, options.inventory, complete, value !== null);
-    if (reason) row.reason = reason;
+    if (!complete) {
+      // The database's own reason first, then the first folded member's: an
+      // unreadable sidecar is why a readable database's row is incomplete.
+      const byId = new Map(nodes.map((node) => [node.id, node]));
+      const cause = members.map((member) => causeOf(byId.get(member.id)!, options.inventory)).find((value) => value !== null);
+      row.reason = storageUnknownReason(cause ?? (value !== null ? "partial" : null));
+    }
     return row;
   });
   const largest = Math.max(0, ...all.map((row) => row.bytes ?? 0));
@@ -170,4 +163,48 @@ export function storageConsumerRows(
   });
   const isEmpty = (row: StorageConsumer) => row.bytes === 0 && !row.atLeast && !row.reason && !row.shared;
   return { rows: ranked.filter((row) => !isEmpty(row)), empty: ranked.filter(isEmpty) };
+}
+
+/**
+ * The rows the list draws and the legend counts, for one page. With `shown`,
+ * the ids the map draws as tiles of their own, only what the map gathers
+ * into "N smaller items" is listed.
+ */
+export function storageListing(
+  derived: StorageConsumerRows,
+  options: { shown?: ReadonlySet<string> | null; showEmpty?: boolean } = {}
+): StorageConsumer[] {
+  const drawn = (nodeId: string) => !!options.shown?.has(nodeId);
+  return [...derived.rows, ...(options.showEmpty ? derived.empty : [])].filter((row) => !drawn(row.nodeId));
+}
+
+/**
+ * The ownership legend for one page: the owners present with their totals,
+ * and the unknown rows the legend's `?` chip counts and jumps to. `cursor` is
+ * the cursor the page was fetched with; `nextCursor` is the page's own.
+ *
+ * An owner's total counts the page's every row, never the "smaller items"
+ * subset `shown` leaves listed, and only when the page is the whole folder.
+ * A folder of more pages has no complete per-owner evidence on any one of
+ * them, so its owners print without a total.
+ */
+export function storageLegend(
+  derived: StorageConsumerRows,
+  options: { cursor?: string; nextCursor: string | null; shown?: ReadonlySet<string> | null; showEmpty?: boolean }
+): { owners: StorageMapLegendOwner[]; unknown: StorageConsumer[] } {
+  const all = storageListing(derived, { showEmpty: options.showEmpty ?? false });
+  const whole = !options.cursor && options.nextCursor === null;
+  const owners = (["brain", "app", "operator"] as const)
+    .filter((owner) => all.some((row) => row.owner === owner))
+    .map((owner): StorageMapLegendOwner => {
+      if (!whole) return { owner, total: undefined };
+      const mine = all.filter((row) => row.owner === owner);
+      const sum = mine.reduce((total, row) => total + (row.bytes ?? 0), 0);
+      const partial = mine.some((row) => row.bytes === null || row.atLeast);
+      // A measured zero is "none"; an owner with unknown stores has only a lower bound, or none.
+      const total = sum > 0 ? `${partial ? "≥ " : ""}${bytes(sum)}` : partial ? undefined : "none";
+      return { owner, total };
+    });
+  const listed = storageListing(derived, { shown: options.shown ?? null, showEmpty: options.showEmpty ?? false });
+  return { owners, unknown: listed.filter((row) => row.bytes === null) };
 }

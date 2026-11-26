@@ -4,6 +4,12 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startEgressProxy } from "../../ui-sdk/src/server/egress-proxy";
+import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { createEffectiveSafety } from "../src/governance/effective-safety";
+import { createGovernanceWrites } from "../src/governance/event-writes";
+import { prepareRelayedEgress } from "../src/ws/session-run/backend-entry";
+import type { TurnRun } from "../src/ws/session-run/types";
+import { holdSiblingEvidence } from "./helpers/pending-sibling-evidence";
 import { createGitHubReferenceAccess } from "../src/brain/github-reference-access";
 import { githubReferenceRepository } from "../src/brain/github-reference-identity";
 import { createReferenceSources } from "../src/brain/reference-source";
@@ -297,6 +303,65 @@ test("the host tool attaches only its admitted turn's budget and expires it at t
     tools.end("odysseus-tool-turn");
     expect(await tools.call("odysseus-tool-turn", f.owner.id, call)).toMatchObject({ ok: false, code: "unavailable" });
   } finally { tools.end("odysseus-tool-turn"); await f.close(); }
+});
+
+for (const phase of ["entry", "resolve", "revocation"] as const) test(`managed source waits for a sibling reservation on the host turn at ${phase}`, async () => {
+  const f = await fixture(), writer = openSqliteWriter(f.db), writes = createGovernanceWrites(f.db, writer);
+  const tools = createReferenceTools({ sources: f.sources }), controller = new AbortController();
+  const turnId = "odysseus-tool-turn", bindingId = crypto.randomUUID(), observed = Promise.withResolvers<void>();
+  const firstTunnelClosed = Promise.withResolvers<void>();
+  const recording = { ...writes, async record(...args: Parameters<typeof writes.record>) {
+    const result = await writes.record(...args);
+    if (args[0].kind === "egress_connection") firstTunnelClosed.resolve();
+    return result;
+  }, recordingAvailable(...args: Parameters<typeof writes.recordingAvailable>) {
+    const available = writes.recordingAvailable(...args);
+    if (!available) observed.resolve();
+    return available;
+  } };
+  let epoch = "1";
+  const safety = createEffectiveSafety(f.db, { turnId, sessionId: () => null, policyHash: null, writes: recording,
+    authority: () => ({ current: !controller.signal.aborted, epoch }) });
+  const policy = resolveGovernancePolicy({ schema_version: 1, taint: { egress: { allow: ["github.com", "api.github.com"] } } });
+  const run = { host: { referenceTools: tools, activity: { governanceWrites: recording, governanceDb: f.db },
+    coordinator: { networkRefusal() {} } }, turn: { turnId, principalId: f.owner.id }, backend: { id: "claude" },
+    abortController: controller, stops: {}, origin: "interactive", mainModel: null,
+    held: { referenceTurn: true, governedHold: { sandbox: { profile: "governed" }, policy: { hash: null, policy } } },
+  } as unknown as TurnRun;
+  let settle: (() => Promise<void>) | undefined;
+  try {
+    await writes.safetyBegin({ turnId, bindingId, principalId: f.owner.id, backendId: "claude", sessionId: null, at: 0 });
+    await writes.safetyReady(turnId, "claude", 1);
+    await tools.begin(turnId, { principalId: f.owner.id, posture: "interactive", generation: null });
+    await prepareRelayedEgress(run, { emit() {}, requestPermission: async () => ({ behavior: "allow" }), admissionSafety: safety }, undefined);
+    if (phase === "resolve") {
+      const resolve = f.transport.resolve;
+      f.transport.resolve = async input => {
+        const result = await resolve(input);
+        // The metadata tunnel has its own explicit Network approval. Finish
+        // that operation before interleaving a new occurrence at Git resolution.
+        await firstTunnelClosed.promise;
+        settle = await holdSiblingEvidence(writer, writes, turnId, bindingId);
+        return result;
+      };
+    } else settle = await holdSiblingEvidence(writer, writes, turnId, bindingId);
+    const request = tools.call(turnId, f.owner.id, { tool: "reference_source", input: { repository, revision: "main" } });
+    await Promise.race([observed.promise, request]);
+    expect(f.metadata).toEqual(phase === "resolve" ? ["anonymous"] : []);
+    if (phase === "revocation") epoch = "2";
+    await settle!();
+    if (phase === "revocation") {
+      expect(await request).toMatchObject({ ok: false, code: "unavailable" });
+      expect(f.metadata).toEqual([]);
+      return;
+    }
+    expect(await request, "SETTLED_SIBLING_AT_REFERENCE_ENTRY").toMatchObject({ ok: true, source: { domain: "public", commit } });
+    expect(f.metadata).toEqual(["anonymous", "anonymous"]);
+  } finally {
+    await settle?.(); tools.end(turnId);
+    await run.held.providerRelay?.stop(); run.held.turnEgress?.stop(); await run.held.turnEgress?.settled();
+    await writer.close(); await f.close();
+  }
 });
 
 test("worker-owned publication persists acquisition facts across a fresh database connection and service restart", async () => {

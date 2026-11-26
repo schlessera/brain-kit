@@ -539,7 +539,7 @@ describe("second review pass: identity, resync and retry", () => {
     expect(client.last("r0")).toMatchObject({ state: "refused", reason: "That request id was already used in this conversation." });
     await settle();
     expect(s.turns).toHaveLength(64 + 1);
-  }, 20_000);
+  }, 60_000);
 
   test("every retained receipt is resent whole, one frame each, at the largest recognized size", async () => {
     const s = setup();

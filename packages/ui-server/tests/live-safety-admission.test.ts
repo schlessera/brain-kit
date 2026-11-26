@@ -1,5 +1,8 @@
 /** Real FULL SQLite writers, loopback transport and backend permission bindings. */
 import { expect, test } from "bun:test";
+import { watchdogMs } from "../../../scripts/test-deadlines";
+import { holdSiblingEvidence } from "./helpers/pending-sibling-evidence";
+import * as pendingWriter from "./fixtures/pending-safety-writer";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
@@ -172,6 +175,94 @@ for (const mode of ["in-process-lock", "rpc-lock", "rpc-final"] as const) for (c
   });
 }
 
+/** Start a real reservation at the indicated tool boundary. Release the writer when the
+ * tool subscribes, or after its decision if a missing wait let it finish early. */
+async function raceSiblingWrite<T>(f: Fixture, run: (reserve: () => Promise<void>) => Promise<T>): Promise<T> {
+  const waiting = Promise.withResolvers<void>();
+  let settle: (() => Promise<void>) | undefined;
+  const subscribe = f.safety.subscribe;
+  f.safety.subscribe = changed => {
+    const release = subscribe(changed);
+    if (settle) waiting.resolve();
+    return release;
+  };
+  try {
+    const result = run(async () => {
+      settle = await holdSiblingEvidence(f.writer, f.writes, "voyage", f.bindingId, "ithaca");
+      expect(f.state().reasons).toContain("recording_pending");
+    });
+    try {
+      await Promise.race([result, waiting.promise]);
+      expect(settle, "A sibling reserved evidence at the tested boundary").toBeDefined();
+    } finally { await settle?.(); }
+    return await result;
+  } finally { f.safety.subscribe = subscribe; }
+}
+
+test("Claude canUseTool allows the approved call after a sibling write at its final input check", async () => {
+  const f = await fixture();
+  try {
+    const result = await raceSiblingWrite(f, reserve => execute(f, "claude-callback", {
+      phase: "input", explicit: true, interleave: reserve,
+    }));
+    expect(result.interleaved).toBe(true);
+    expect(result.executed, "CLAUDE_CALLBACK_SETTLED_ADMISSION").toBe(true);
+  } finally { await f.close(); }
+});
+
+for (const method of ["permit", "fileObservation", "lock", "admission"] as const) {
+  test(`Pi worker ${method} admits a granted call after a sibling write at dispatch`, async () => {
+    const f = await fixture();
+    try {
+      const reply = await raceSiblingWrite(f, async reserve => {
+        const toolName = method === "fileObservation" ? "read_file" : "bash";
+        const input = method === "fileObservation" ? { path: "harbour.md" } : { command: "git add raft.md" };
+        const bridge: BackendBridge = { emit() {}, requestPermission: async () => ({ behavior: "allow" }),
+          admissionSafety: f.safety, inputSafety: { ...f.collector, async allowed(id) {
+            await f.collector.allowed?.(id);
+            if (method === "permit") await reserve();
+          } } };
+        const context = {
+          brainPath: f.root, turn: { ...createTurnContext(), bridge, signal: f.controller.signal }, live() {},
+          grants: new Map(), releases: new Map(), admitTool() {}, allowedTools: new Set([toolName]), confirmPatterns: [],
+          sandbox: { profile: "governed" }, workerLock: { async acquire() { await reserve(); return () => {}; } },
+          observeFile: () => ({ key: "harbour.md", version: "1" }), nativeVersions: { beginRead: reserve },
+          executed: () => ({ name: toolName, lock: false, host: false, phases: new Set() }),
+        } as unknown as PiWorkerRpcContext;
+        const dispatch = createPiWorkerRpcDispatcher(context);
+        const call = { type: "rpc" as const, toolName, toolCallId: "harbour-call" };
+        try {
+          const permission = await dispatch({ ...call, id: 1, method: "permission", input });
+          if (method === "permit") return permission;
+          expect(permission).toMatchObject({ behavior: "allow" });
+          if (method === "admission") await reserve();
+          const args = method === "fileObservation" ? { path: "harbour.md", phase: "read_start" }
+            : method === "lock" ? { key: bashLockKey("git add raft.md") } : input;
+          return await dispatch({ ...call, id: 2, method, input: args });
+        } finally { for (const release of context.releases.values()) release(); }
+      }).then(result => result, error => ({ refusal: String(error) }));
+      expect(reply, `PI_SETTLED_WORKER_${method}`).toMatchObject(
+        method === "permit" ? { behavior: "allow" } : method === "lock" ? { lockId: expect.any(String) } : { ok: true });
+    } finally { await f.close(); }
+  });
+}
+
+test("Pi in-process Bash runs after a sibling write starts under its execution lock", async () => {
+  const f = await fixture(), input = { command: "printf Ithaca" }, id = "harbour-call";
+  try {
+    const bridge: BackendBridge = { emit() {}, requestPermission: async () => ({ behavior: "allow" }), admissionSafety: f.safety };
+    const turn = { ...createTurnContext(), bridge, signal: f.controller.signal };
+    const decision = await decidePiToolPermission({ turn, allowedTools: new Set(["bash"]), confirmPatterns: [] }, "bash", input, id);
+    expect(decision.behavior).toBe("allow");
+    const reply = await raceSiblingWrite(f, reserve => {
+      const tool = bashTool(createBrainToolKit({ brain: createBrainAccess(f.root), turn, exec: {},
+        lock: { async withKey(_key, body) { await reserve(); return body(); } } }));
+      return tool.execute(id, input, f.controller.signal, undefined, {} as never);
+    }).then(result => result, error => ({ refusal: String(error) }));
+    expect(reply, "PI_SETTLED_IN_PROCESS_BASH").toMatchObject({ content: [{ type: "text", text: "Ithaca" }] });
+  } finally { await f.close(); }
+});
+
 for (const binding of ["claude-hook", "claude-callback", "pi"] as const) {
   test(`${binding}: A/B/C individual verdicts change later admissions without rewriting prior facts`, async () => {
     const f = await fixture(); try {
@@ -228,6 +319,117 @@ for (const binding of ["claude-hook", "claude-callback", "pi"] as const) {
 const get = (socketPath: string, target: string) => new Promise<number>((resolve, reject) => {
   const req = request({ socketPath, path: target }, res => { res.resume(); res.once("end", () => resolve(res.statusCode!)); res.once("error", reject); });
   req.once("error", reject); req.end();
+});
+
+for (const mode of ["allowed", "tainted", "lost", "tool", "pi-tool"] as const) {
+  test(`sibling evidence settlement during ${mode} admission`, async () => {
+    const f = await fixture();
+    const hits: string[] = [];
+    const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) {
+      hits.push(new URL(req.url).pathname);
+      return new Response("Ithaca");
+    } });
+    const read = f.safety.read.bind(f.safety);
+    let pendingRead: (() => void) | undefined;
+    f.safety.read = (...args) => {
+      const snapshot = read(...args);
+      if (!snapshot.recordingAvailable) pendingRead?.();
+      return snapshot;
+    };
+    const submitted = Promise.withResolvers<void>();
+    const bridge: BackendBridge = { emit() {}, admissionSafety: f.safety,
+      requestPermission: async () => ({ behavior: "deny", message: "Odysseus declines" }) };
+    const proxy = await prepareTurnEgress({
+      policy: resolveGovernancePolicy({ schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }),
+      bridge, controller: f.controller, turnId: "voyage", sessionId: () => "ithaca", model: () => null,
+      profile: "governed", origin: "voice", governanceDb: f.db, record: f.writes.record,
+      governanceWrites: { ...f.writes, firstTaint: (...args) => {
+        const pending = f.writes.firstTaint(...args);
+        submitted.resolve();
+        return pending;
+      } },
+    });
+    const channel = f.writer.channel(pendingWriter, undefined);
+    const entered = new Int32Array(new SharedArrayBuffer(4)), gate = new Int32Array(new SharedArrayBuffer(4));
+    const release = () => { Atomics.store(gate, 0, 1); Atomics.notify(gate, 0); };
+    const requests: Promise<number>[] = [];
+    let hold: Promise<unknown> | undefined;
+    try {
+      if (mode === "lost") f.db.exec("CREATE TRIGGER lost_notice BEFORE INSERT ON governance_events WHEN NEW.kind='taint' BEGIN SELECT RAISE(FAIL,'Harbour notice unavailable'); END");
+      await channel.ready;
+      hold = channel.call("hold", entered, gate, watchdogMs(15000));
+      requests.push(get(proxy.socketPath, new URL("/first", origin.url).href));
+      await submitted.promise;
+      expect(f.state().reasons).toContain("recording_pending");
+      let tool: Promise<unknown> | undefined;
+      if (mode === "pi-tool") {
+        tool = decidePiToolPermission({ turn: { ...createTurnContext(), bridge, signal: f.controller.signal },
+          allowedTools: new Set(["read_file"]), confirmPatterns: [] }, "read_file", { path: "harbour.md" }, "notice");
+      } else if (mode === "tool") {
+        const wiring = createPermissionWiring({ req: { prompt: "Read the harbour notice", bridge, signal: f.controller.signal },
+          allowedTools: ["Read"], confirmPatterns: [], brainPath: f.root, turnLock: { releaseForTool() {} } as never, childEnv: {}, log() {} });
+        const hook = wiring.hooks!.PreToolUse!.find(group => !group.matcher)!.hooks[0]!;
+        tool = hook({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "harbour.md" },
+          tool_use_id: "notice" } as never, "notice", { signal: f.controller.signal });
+      } else {
+        for (let sibling = 0; sibling < 3; sibling++) {
+          const seen = Promise.withResolvers<void>();
+          pendingRead = seen.resolve;
+          const target = new URL(`/sibling-${sibling}`, origin.url);
+          if (mode === "tainted") target.hostname = "localhost";
+          requests.push(get(proxy.socketPath, target.href));
+          await seen.promise;
+          pendingRead = undefined;
+        }
+      }
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(hits).toEqual([]);
+      release();
+      if (tool) expect(await tool, "SETTLED_TOOL_ADMISSION").toEqual(mode === "pi-tool" ? { behavior: "allow" } : { continue: true });
+      const statuses = await Promise.all(requests);
+      await proxy.settled();
+      const siblings = queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })
+        .map(row => row.payload).filter(row => typeof row.path === "string" && row.path.startsWith("/sibling"));
+      if (!tool) {
+        expect(siblings.map(row => row.reason ?? row.outcome), "SIBLING_EGRESS_CAUSE")
+          .toEqual(Array(3).fill(mode === "allowed" ? "completed" : mode === "tainted" ? "taint_not_allowed" : "egress_unavailable"));
+        expect(statuses.slice(1)).toEqual(Array(3).fill(mode === "allowed" ? 200 : mode === "tainted" ? 403 : 503));
+      }
+      expect(statuses[0]).toBe(mode === "lost" ? 503 : 200);
+      expect(hits.length).toBe(mode === "allowed" ? 4 : mode === "lost" ? 0 : 1);
+    } finally {
+      release(); await hold; await Promise.allSettled(requests); proxy.stop(); await proxy.settled(); origin.stop(true); await f.close();
+    }
+  });
+}
+
+test("a parallel PreToolUse rewrite leaves the outward decision to its command card after evidence settles", async () => {
+  const f = await fixture();
+  const cards: PermissionRequest[] = [], writes: Promise<boolean>[] = [];
+  const original = f.safety.pendingRecording!.bind(f.safety);
+  const bridge: BackendBridge = { emit() {}, admissionSafety: f.safety,
+    async requestPermission(card) { cards.push(card); return { behavior: "deny", message: "Odysseus declines the push" }; } };
+  const input = { command }, args = { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: input, tool_use_id: "voyage-push" } as const;
+  const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca", bridge, signal: f.controller.signal },
+    allowedTools: ["Bash"], confirmPatterns: [], brainPath: f.root, turnLock: { releaseForTool() {} } as never, childEnv: {}, log() {} });
+  const hooks = wiring.hooks!.PreToolUse!;
+  try {
+    // Submit an independent write as each rewrite gate reads. The real FULL
+    // writer and subscription decide when the gate can continue.
+    f.safety.pendingRecording = function* (...params) {
+      writes.push(f.writes.firstTaint({ kind: "taint", turnId: "voyage", sessionId: "ithaca",
+        actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: null } }));
+      yield* original(...params);
+    };
+    const invoke = (matcher: string) => hooks.find(group => group.matcher === matcher)!.hooks[0]!(args as never, args.tool_use_id, { signal: f.controller.signal });
+    const rewrite = await invoke("^Bash$");
+    expect(writes.length).toBeGreaterThan(0);
+    expect(rewrite, "PARALLEL_REWRITE_LEAVES_OUTWARD_CARD_REACHABLE").toEqual({ continue: true });
+    f.safety.pendingRecording = original;
+    const result = await invoke(MUTATING_TOOL_MATCHER);
+    expect(cards.map(card => card.kind)).toEqual(["command"]);
+    expect(result).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "Odysseus declines the push" } });
+  } finally { f.safety.pendingRecording = original; await Promise.allSettled(writes); await f.close(); }
 });
 
 test("an independent connection cannot borrow another request's own-input authority; dispatched legacy grants still work", async () => {

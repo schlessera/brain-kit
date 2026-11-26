@@ -44,7 +44,7 @@ test("both controller call sites require shared cleanup validation", () => {
       + "(fail) native hosted pi uid 0 first/warm admission, health, WebSocket, Stop and cancellation [1ms]\n"
       + ["descriptor records", "cwd records", "descriptor released just after its delete"].map(name => `(pass) ${name} [1ms]`).join("\n") + "\n1 fail\n";
     for (const cleanup of [{ ...clean, removeReceipt: undefined }, { ...clean, errors: ["bad"] }]) {
-      writeFileSync(join(directory, "native-fixture.json"), JSON.stringify([{ kind: "command", argv: ["bun", "run", "test"], code: 1, stderr }, cleanup]));
+      writeFileSync(join(directory, "native-fixture.json"), JSON.stringify([{ kind: "command", argv: ["/usr/local/bin/bun", "--no-env-file", "test", "--timeout", "30000", "/repo/scripts/native-proof/hosted-app.test.ts"], code: 1, stderr }, cleanup]));
       expect(() => requireNativeHostCleanup(cleanup)).toThrow("Native hosted proof did not provide complete owned-resource cleanup evidence.");
       expect(() => verifyIndexReleaseReproduction(directory, 1)).toThrow("NATIVE_INDEX_RELEASE_REPRO_OWNED_CLEANUP");
     }

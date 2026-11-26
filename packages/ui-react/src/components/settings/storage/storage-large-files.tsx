@@ -8,10 +8,11 @@ import {
   type StorageEligibility,
   type StorageGitFacet,
 } from "@schlessera/brain-ui-kit";
-import type { StorageFileEntry } from "@schlessera/brain-ui-sdk/protocol";
-import { bytes, humanReason } from "./storage-model.js";
+import type { StorageFileEntry, StorageRemovalReceipt } from "@schlessera/brain-ui-sdk/protocol";
+import { bytes, humanReason, knownLinks } from "./storage-model.js";
 import { LARGER_PRESETS } from "./storage-pane-model.js";
 import { running, type useStorage } from "./use-storage.js";
+import { usePageFocus, useSlotFocus } from "./storage-page-focus.js";
 
 type StorageView = ReturnType<typeof useStorage>;
 type Facts = NonNullable<StorageView["evidence"][string]["facts"]>;
@@ -32,6 +33,28 @@ const folderOf = (path: string) => {
 const CUSTOM = "custom";
 
 /**
+ * The last removal's state and the way back to its receipt, where Undo
+ * lives. Receipts outlive the inventory, so the pane shows this line with
+ * or without a current measurement.
+ */
+export function LastRemoval({ receipt, onReceipt }: { receipt: StorageRemovalReceipt; onReceipt: () => void }) {
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 text-xs" data-storage-last-removal="">
+      <span>Last removal: {humanReason(receipt.state)}</span>
+      <Button
+        label={receipt.state === "review" ? "Resume recorded review" : "View receipt"}
+        ariaLabel={receipt.state === "review" ? "Resume recorded review" : "View removal receipt"}
+        tone="quiet"
+        size="sm"
+        reach
+        block={false}
+        onClick={onReceipt}
+      />
+    </p>
+  );
+}
+
+/**
  * "What's using space" in Find large files mode (#4537 D11): Type, Larger
  * than, Where and search replace the owner switch, basis, legend, map and
  * list. The basis is file size, because removal is per file. The rows, the
@@ -43,13 +66,17 @@ export function StorageLargeFiles({
   onInspect,
   onReview,
   onReceipt,
+  onClear,
 }: {
   view: StorageView;
   onInspect: (entry: StorageFileEntry) => void;
   onReview: () => void;
   onReceipt: () => void;
+  /** Clears the selection and moves focus off the Clear button it removes. */
+  onClear: () => void;
 }) {
   const id = useId();
+  const { pager, paging } = usePageFocus(view.loading, view.files);
   const [custom, setCustom] = useState(() => !LARGER_PRESETS.some((preset) => preset.value === view.larger));
   const unavailable = !view.capability?.available;
   const operationPending = running(view.receipt?.state) || view.receipt?.state === "unknown";
@@ -95,7 +122,7 @@ export function StorageLargeFiles({
         folder={folderOf(entry.path)}
         size={size}
         git={facts ? GIT[facts.git] : "unknown"}
-        links={facts ? facts.references.length : null}
+        links={knownLinks(view.evidence[entry.id])}
         eligibility={mark.value}
         why={mark.why}
         selected={!!view.selected[entry.id]}
@@ -105,29 +132,34 @@ export function StorageLargeFiles({
     );
   });
   const blocked = view.busy || operationPending || view.overSelectionLimit;
-  const footer = unavailable ? null : view.selection.length > 0 ? (
+  // Receipt access never depends on removal capability (#4549 review): the
+  // server can report removal unavailable while it still holds the last
+  // receipt, and that receipt is the only way back to its outcome and Undo.
+  const lastRemoval = view.receipt ? <LastRemoval receipt={view.receipt} onReceipt={onReceipt} /> : null;
+  const slot = useSlotFocus<HTMLDivElement>();
+  const bar = (
     <StorageSelectionBar
       count={view.selection.length}
       size={bytes(view.selectedBytes)}
       basis="file size · not space freed"
-      onClear={view.clearSelection}
+      onClear={onClear}
       onReview={() => {
         if (!blocked) onReview();
       }}
     />
-  ) : view.receipt ? (
-    <p className="flex flex-wrap items-center gap-x-3 text-xs" data-storage-last-removal="">
-      <span>Last removal: {humanReason(view.receipt.state)}</span>
-      <Button
-        label={view.receipt.state === "review" ? "Resume recorded review" : "View receipt"}
-        ariaLabel={view.receipt.state === "review" ? "Resume recorded review" : "View removal receipt"}
-        tone="quiet"
-        size="sm"
-        reach
-        block={false}
-        onClick={onReceipt}
-      />
-    </p>
+  );
+  // A removal still running or unconfirmed keeps its selection and holds
+  // Review removal, so its receipt stays beside the bar (#4549 review).
+  const footer = unavailable ? lastRemoval : view.selection.length > 0 ? (
+    // One box-less slot keeps the bar at one tree position, so a focused
+    // Review removal survives the receipt line appearing; when the line
+    // leaves while focused, the bar's first control takes focus.
+    <div ref={slot} className="contents" data-focus-slot="">
+      {operationPending ? lastRemoval : null}
+      {bar}
+    </div>
+  ) : lastRemoval ? (
+    lastRemoval
   ) : (
     <StorageSelectionBar count={0} size="" basis="" onClear={view.clearSelection} onReview={onReview} />
   );
@@ -221,7 +253,14 @@ export function StorageLargeFiles({
         <StorageConsumerList
           label={`Matching PDFs larger than ${view.larger} MB`}
           mode={unavailable ? "browse" : "filter"}
-          sort={{ key: "size", direction: "descending" }}
+          sort={{ key: view.fileSort, direction: view.fileDirection === "asc" ? "ascending" : "descending" }}
+          onSort={(key) => {
+            if (view.fileSort === key) view.setFileDirection(view.fileDirection === "asc" ? "desc" : "asc");
+            else {
+              view.setFileSort(key);
+              view.setFileDirection(key === "name" ? "asc" : "desc");
+            }
+          }}
           footer={footer}
           empty={
             <span className="text-xs">
@@ -247,20 +286,36 @@ export function StorageLargeFiles({
           disabled={view.loading || !entries.length}
           onClick={() => void view.copyList()}
         />
-        {view.cursor && (
-          <Button label="First 200 items" tone="quiet" size="sm" reach block={false} disabled={view.loading} onClick={() => view.setCursor(undefined)} />
-        )}
-        {view.files?.nextCursor && (
-          <Button
-            label="Next 200 items"
-            tone="quiet"
-            size="sm"
-            reach
-            block={false}
-            disabled={view.loading}
-            onClick={() => view.setCursor(view.files?.nextCursor ?? undefined)}
-          />
-        )}
+        <div ref={pager} className="contents">
+          {view.cursor && (
+            <Button
+              label="First 200 items"
+              tone="quiet"
+              size="sm"
+              reach
+              block={false}
+              disabled={view.loading}
+              onClick={() => {
+                paging();
+                view.setCursor(undefined);
+              }}
+            />
+          )}
+          {view.files?.nextCursor && (
+            <Button
+              label="Next 200 items"
+              tone="quiet"
+              size="sm"
+              reach
+              block={false}
+              disabled={view.loading}
+              onClick={() => {
+                paging();
+                view.setCursor(view.files?.nextCursor ?? undefined);
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

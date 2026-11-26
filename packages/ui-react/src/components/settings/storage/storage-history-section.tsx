@@ -19,20 +19,13 @@ import type { StorageTimeline } from "./storage-timeline.js";
 import { StorageHistoryTable } from "./storage-history-table.js";
 import { StorageSegmented } from "./storage-segmented.js";
 import { humanReason } from "./storage-model.js";
-import type { StorageFormat, StorageVolume } from "./storage-volumes.js";
+import { VOLUME_STATUS_WORD, type StorageFormat, type StorageVolume } from "./storage-volumes.js";
 
 const STORAGE_TIERS: ReadonlyArray<{ value: StorageHistoryTier; label: string }> = [
   { value: "six-hour", label: "Recent" },
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
 ];
-
-const STATE_WORD: Record<StorageVolume["status"], string> = {
-  ok: "OK",
-  low: "Low",
-  "very-low": "Very low",
-  "not-measured": "Not measured",
-};
 
 /**
  * Available space over time for the selected volume (#4537 D3): the tier
@@ -47,6 +40,7 @@ export function StorageHistorySection({
   maintenance,
   timeline = null,
   unavailable,
+  historyUnavailable = false,
   now,
   format,
 }: {
@@ -57,6 +51,8 @@ export function StorageHistorySection({
   /** The server's events timeline (#4548); without it the markers are derived here alone. */
   timeline?: StorageTimeline | null;
   unavailable: boolean;
+  /** The history read settled without a history, as opposed to still loading. */
+  historyUnavailable?: boolean;
   now: number;
   format: StorageFormat;
 }) {
@@ -92,6 +88,8 @@ export function StorageHistorySection({
             ? "? History and guidance are unavailable on this host · inventory and recovery actions remain separate"
             : !volume
             ? "? No volume measured yet · Measure to see available space over time"
+            : historyUnavailable
+            ? "? Observation history is unavailable · read again on the next refresh"
             : "Loading history…"}
         </p>
       ) : (
@@ -105,7 +103,7 @@ export function StorageHistorySection({
             thresholds={historyThresholds(volume.capacity?.total ?? null)}
             scenarios={storageScenarios(pressure, format)}
             markers={storageMarkers({ series, identity: volume.id, pressure, maintenance, timeline, now, format })}
-            nowState={STATE_WORD[volume.status]}
+            nowState={VOLUME_STATUS_WORD[volume.status]}
             notes={notes}
             unmeasuredReason={series.length ? undefined : "no retained observation of this volume in this tier"}
             valueHeading="Available"

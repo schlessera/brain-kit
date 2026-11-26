@@ -140,7 +140,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         // Bun treats `bun --preload FILE test` as a package script. Keep the
         // builtin/subcommand first so child tests remain child tests.
         const index = ["test", "run"].includes(cmd[1] ?? "") ? 2 : 1;
-        const guarded = [...cmd.slice(0, index), "--preload", childPreload, ...cmd.slice(index)];
+        const guarded = [...cmd.slice(0, index), "--no-env-file", "--preload", childPreload, ...cmd.slice(index)];
         args[0] = Array.isArray(first) ? guarded : { ...first, cmd: guarded };
       }
       // Resource ownership follows children even when a test replaces env or

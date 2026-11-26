@@ -46,15 +46,15 @@ describe("series per identity and tier", () => {
   test("points follow the identity and the tier, oldest first", () => {
     const series = storageSeries(history, ITHACA, "six-hour", worldTime);
     expect(series.map((value) => value.at)).toEqual([sixHour(18), sixHour(12), sixHour(6), sixHour(0)]);
-    expect(series[0]).toEqual({ at: sixHour(18), available: 20 * GB, appAllocated: 30 * GB, gap: false, provisional: false, otherScope: false });
+    expect(series[0]).toEqual({ at: sixHour(18), available: 20 * GB, appAllocated: 30 * GB, appLogical: 30 * GB, gap: false, provisional: false, otherScope: false, rootScope: `${ITHACA.slice(0, 8)}${"e".repeat(24)}`, scopeKey: JSON.stringify(["d".repeat(32), `${ITHACA.slice(0, 8)}${"e".repeat(24)}`]) });
     expect(storageSeries(history, ITHACA, "daily", worldTime).map((value) => value.available)).toEqual([25 * GB]);
     expect(storageSeries(history, SCHERIA, "six-hour", worldTime).map((value) => value.available)).toEqual([50 * GB, null, 49 * GB, 48 * GB]);
   });
 
   test("a gap, or an observation without this volume, is null and never 0", () => {
     const series = storageSeries(history, ITHACA, "six-hour", worldTime);
-    expect(series[1]).toMatchObject({ gap: true, available: null, appAllocated: null });
-    expect(series[2]).toMatchObject({ gap: true, available: null, appAllocated: null });
+    expect(series[1]).toMatchObject({ gap: true, available: null, appAllocated: null, appLogical: null });
+    expect(series[2]).toMatchObject({ gap: true, available: null, appAllocated: null, appLogical: null });
     expect(availablePoints(series)[1]!.value).toBeNull();
     expect(availablePoints(series)[2]!.value).toBeNull();
   });
@@ -116,6 +116,15 @@ describe("scenario lines (D9)", () => {
     ]);
   });
 
+  test("a finite forecast beyond any date still derives, without an unformattable date", () => {
+    // 1 TB declining by 8192 bytes a day: about 122 million days to empty.
+    const value = pressure(ITHACA, "observed", evidence(ITHACA, 2_000_000_000_000, 1_000_000_000_000, { short: finite(122_070_312, 7) }));
+    const [short] = storageScenarios(value, format);
+    expect(short!.detail, "STORAGE_FAR_FORECAST_NO_DATE").toBe("empty in over 100 years");
+    expect(Number.isFinite(new Date(short!.to!.at).getTime())).toBe(true);
+    expect(short!.to!.value).toBeGreaterThan(0);
+  });
+
   test("a non-depleting window runs flat across its own span", () => {
     const value = pressure(ITHACA, "observed", evidence(ITHACA, 161 * GB, 48 * GB, { short: flat(7), long: unavailable("insufficient-span") }));
     expect(storageScenarios(value, format)[0]).toEqual({
@@ -169,11 +178,11 @@ describe("client-side markers", () => {
     observation("six-hour", sixHour(0), [{ identity: ITHACA, available: 16 * GB, app: 1 }]),
   ]);
   const series = storageSeries(history, ITHACA, "six-hour", worldTime);
-  const brain = capacity(ITHACA, brainRoots.map((root) => root.id), 161 * GB, 16 * GB);
+  const brainDisk = capacity(ITHACA, brainRoots.map((root) => root.id), 161 * GB, 16 * GB);
   const refused = pressure(ITHACA, "critical", null, {
     causes: { capacity: true, forecast: false, refusals: [{ target: "c".repeat(32), resource: "bytes", at: sixHour(3), successAt: null }] },
   });
-  const pack = packRow(receipt({ before: observe([brain], [brainRoots[1]!]), after: observe([brain], [brainRoots[1]!]), completedAt: sixHour(2) }));
+  const pack = packRow(receipt({ before: observe([brainDisk], [brainRoots[1]!]), after: observe([brainDisk], [brainRoots[1]!]), completedAt: sixHour(2) }));
 
   test("gaps, scope changes, refusals and each operation's latest run, numbered in time order", () => {
     const markers = storageMarkers({ series, identity: ITHACA, pressure: refused, maintenance: [pack], now: worldTime, format });
@@ -185,10 +194,79 @@ describe("client-side markers", () => {
     ]);
   });
 
+  // A collection-scope change (owner or category) can leave the root scope
+  // unchanged; the series must still break there.
+  test("a collection-scope change with the same root scope still breaks the series", () => {
+    const before = observation("six-hour", sixHour(18), [{ identity: ITHACA, available: 30 * GB, app: 1 }]);
+    before.scope = "a".repeat(32);
+    const changed = observation("six-hour", sixHour(12), [{ identity: ITHACA, available: 20 * GB, app: 1 }], true);
+    changed.reason = "changed";
+    changed.scope = "b".repeat(32);
+    const after = observation("six-hour", sixHour(6), [{ identity: ITHACA, available: 18 * GB, app: 1 }]);
+    after.scope = "b".repeat(32);
+    const series = storageSeries(historyOf([before, changed, after]), ITHACA, "six-hour", worldTime);
+    expect(series.map((value) => value.otherScope), "STORAGE_COLLECTION_SCOPE_BREAKS").toEqual([true, false, false]);
+    expect(storageMarkers({ series, identity: ITHACA, now: worldTime, format }).map((marker) => marker.label)).toEqual([
+      "Collection gap",
+      "Scope changed",
+    ]);
+  });
+
+  // The server records the observation that sees a new root scope as a gap
+  // (reason "changed"), carrying the new scope: the transition still marks.
+  test("a scope change recorded as a gap still marks the change", () => {
+    const changed = observation("six-hour", sixHour(12), [{ identity: ITHACA, available: 20 * GB, app: 1 }], true);
+    changed.reason = "changed";
+    const crossing = storageSeries(
+      historyOf([
+        observation("six-hour", sixHour(18), [{ identity: ITHACA, rootScope: "1".repeat(32), available: 30 * GB, app: 1 }]),
+        changed,
+        observation("six-hour", sixHour(6), [{ identity: ITHACA, available: 18 * GB, app: 1 }]),
+      ]),
+      ITHACA,
+      "six-hour",
+      worldTime
+    );
+    expect(crossing.map((value) => value.otherScope)).toEqual([true, false, false]);
+    expect(storageMarkers({ series: crossing, identity: ITHACA, now: worldTime, format })).toEqual([
+      { at: sixHour(12), n: 1, tone: "neutral", time: "11 Jul 21:41", label: "Collection gap" },
+      { at: sixHour(12), n: 2, tone: "purple", time: "11 Jul 21:41", label: "Scope changed" },
+    ]);
+    // The changed observation is the newest: the older scope is still the other one.
+    const latest = storageSeries(
+      historyOf([
+        observation("six-hour", sixHour(18), [{ identity: ITHACA, rootScope: "1".repeat(32), available: 30 * GB, app: 1 }]),
+        changed,
+      ]),
+      ITHACA,
+      "six-hour",
+      worldTime
+    );
+    expect(latest.map((value) => value.otherScope)).toEqual([true, false]);
+    expect(storageMarkers({ series: latest, identity: ITHACA, now: worldTime, format }).map((marker) => marker.label)).toEqual([
+      "Collection gap",
+      "Scope changed",
+    ]);
+    // A gap that holds no capacity for the volume says nothing about its scope.
+    const silent = storageSeries(
+      historyOf([
+        observation("six-hour", sixHour(18), [{ identity: ITHACA, available: 30 * GB, app: 1 }]),
+        observation("six-hour", sixHour(12), [], true),
+        observation("six-hour", sixHour(6), [{ identity: ITHACA, available: 18 * GB, app: 1 }]),
+      ]),
+      ITHACA,
+      "six-hour",
+      worldTime
+    );
+    expect(storageMarkers({ series: silent, identity: ITHACA, now: worldTime, format }).map((marker) => marker.label)).toEqual([
+      "Collection gap",
+    ]);
+  });
+
   test("a run on another volume, or outside the chart's span, is not marked", () => {
     const other = capacity(SCHERIA, [], 250 * GB, 48 * GB);
     const elsewhere = packRow(receipt({ before: observe([other], []), after: observe([other], []) }));
-    const early = packRow(receipt({ before: observe([brain], []), completedAt: sixHour(40) }));
+    const early = packRow(receipt({ before: observe([brainDisk], []), completedAt: sixHour(40) }));
     expect(storageMarkers({ series, identity: ITHACA, maintenance: [elsewhere, early], now: worldTime, format })).toEqual([
       expect.objectContaining({ label: "Scope changed" }),
       expect.objectContaining({ label: "Collection gap" }),

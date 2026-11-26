@@ -28,16 +28,15 @@ import {
   storageFormat,
   storageVolumes,
 } from "./storage/storage-volumes.js";
-import { appPoints, storageSeries } from "./storage/storage-history.js";
 import {
-  appAddedSummary,
+  appUsage,
   storageBanner,
   storageStatusLine,
 } from "./storage/storage-pane-model.js";
 import { StorageAlertsRow } from "./storage/storage-alerts.js";
 import { StorageHistorySection } from "./storage/storage-history-section.js";
 import { StorageBreakdown } from "./storage/storage-breakdown.js";
-import { StorageLargeFiles } from "./storage/storage-large-files.js";
+import { LastRemoval, StorageLargeFiles } from "./storage/storage-large-files.js";
 import { StorageFreeUp } from "./storage/storage-free-up.js";
 import { StorageAbout } from "./storage/storage-about.js";
 /** Account and root changes discard pending selections and local response ownership synchronously. */
@@ -87,6 +86,10 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
     );
     return () => clearTimeout(timer);
   }, [view.snapshot]);
+  // The chart's now and the status line's age follow the evidence: a
+  // measurement received after opening is the current point, never a future
+  // one that would suppress its scenario lines.
+  useEffect(() => setNow(Date.now()), [guidance.guidance, guidance.history, view.status]);
   const refreshGuidance = guidance.refresh;
   const observed = Math.max(view.status?.snapshot?.observedAt ?? 0, view.status?.previous?.observedAt ?? 0, view.status?.lastFailure?.at ?? 0);
   useEffect(() => { if (observed) void refreshGuidance(); }, [observed, refreshGuidance]);
@@ -103,11 +106,12 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
   const banner = storageBanner(volumes, guidance.guidance, format);
   const status = storageStatusLine({ status: view.status, snapshot, now, format, unavailable: !!view.error });
   const pressure = volume ? guidance.guidance?.capacities.find((value) => value.identity === volume.id) ?? null : null;
-  const appRate = view.metric === "allocated" ? pressure?.evidence?.appAllocated : pressure?.evidence?.appLogical;
-  const added = appAddedSummary(pressure?.scopeChanged ? null : appRate, format);
-  const appSeries = useMemo(
-    () => (volume && guidance.history ? appPoints(storageSeries(guidance.history, volume.id, "six-hour", now)) : []),
-    [volume, guidance.history, now]
+  const usage = useMemo(
+    () =>
+      volume
+        ? appUsage({ pressure, history: guidance.history, identity: volume.id, metric: view.metric, now, format })
+        : null,
+    [volume, pressure, guidance.history, view.metric, now, format]
   );
 
   // Find large files: focus the mode's heading on entry, announce its count once loaded.
@@ -130,6 +134,8 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
 
   function enterFind() {
     entering.current = true;
+    view.setFileSort("size");
+    view.setFileDirection("desc");
     view.setFiltering(true);
     view.setSearch("");
     view.setCursor(undefined);
@@ -221,7 +227,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   size="sm"
                   reach
                   block={false}
-                  onClick={view.adopt}
+                  onClick={() => {
+                    // Show removes itself; the pane's heading keeps focus.
+                    view.adopt();
+                    heading.current?.focus();
+                  }}
                 />
               </>
             )}
@@ -240,7 +250,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                 reach
                 block={false}
                 disabled={view.busy}
-                onClick={() => void view.checkStatus()}
+                onClick={() => {
+                  // The alert leaves with the error it checks; the pane's heading keeps focus.
+                  heading.current?.focus();
+                  void view.checkStatus();
+                }}
               />
             </div>
           )}
@@ -280,6 +294,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
           maintenance={view.maintenance}
           timeline={guidance.timeline}
           unavailable={guidance.error !== null}
+          historyUnavailable={guidance.historyError}
           now={now}
           format={format}
         />
@@ -333,6 +348,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   trigger.current = document.activeElement as HTMLElement;
                   view.setReviewOpen(true);
                 }}
+                onClear={() => {
+                  // Clear removes itself with the selection; the mode's heading keeps focus.
+                  view.clearSelection();
+                  findHeading.current?.focus();
+                }}
               />
             ) : (
               <StorageBreakdown
@@ -340,11 +360,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                 snapshot={snapshot}
                 onInspect={open}
                 summary={
-                  volume ? (
+                  volume && usage ? (
                     <StorageSummaryRow
-                      chart={<Sparkline points={appSeries} label={`${added.spoken} on ${volume.name}`} showValue={false} />}
-                      value={added.value}
-                      window={added.window}
+                      chart={<Sparkline points={usage.points} label={`${usage.spoken} on ${volume.name}`} showValue={false} />}
+                      value={usage.value}
+                      window={usage.window}
                     />
                   ) : undefined
                 }
@@ -352,11 +372,26 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
             )}
           </section>
         )}
+        {/* Receipts outlive the inventory (#4549 review): with no current
+            measurement there is no Find large files mode to hold the last
+            removal, so its receipt and Undo stay reachable here. */}
+        {!snapshot && view.receipt && (
+          <LastRemoval
+            receipt={view.receipt}
+            onReceipt={() => {
+              trigger.current = document.activeElement as HTMLElement;
+              view.setReviewOpen(true);
+            }}
+          />
+        )}
         <div ref={freeUp} data-storage-free-up="">
           <StorageFreeUp
             view={view}
             guidance={guidance.guidance}
             format={format}
+            inventory={inventory}
+            volumes={volumes}
+            selected={volume?.id ?? null}
           />
         </div>
         <StorageAbout

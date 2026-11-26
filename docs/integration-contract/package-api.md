@@ -5122,6 +5122,10 @@ callbacks and perform no I/O. A row with a `null` size is the unknown row: a
 `?` mark, `? not measured` and its reason, never a bar or a zero. Rows have no
 Open action; the caller places Open in its inspect panel and the breadcrumb's
 `actions` slot.
+- `StorageConsumerRow` takes `action: "none"` (additive, #4549) for a row with
+  nothing to open, such as a folder's own metadata. It renders as text, with
+  no button, no glyph and no tab stop, in an interactive row's columns, and
+  `onActivate` is optional for it.
 
 ### Storage volumes, history and tools (additive, #4542, #4543, #4545)
 
@@ -5154,6 +5158,9 @@ It exports `ToolRow` and `ToolList` with their props types and the types
   "unknown → unknown".
 - A missing headroom estimate shows a `?` mark, never a bar.
 - Short headroom never disables Run, because the server decides admission.
+- `actionDisabled` (additive, #4549) holds the action button in place, inert,
+  while the caller has another request in flight, so a focused Run or Cancel
+  keeps focus. It reflects the caller's busy state, not headroom.
 
 All of these take pre-formatted strings, numbers and callbacks, and perform no I/O.
 
@@ -6356,8 +6363,14 @@ changes still invalidate the decision. An unknown collection does not become
 clean through this exclusion.
 
 An operation-specific recorder failure is 503 egress_unavailable. A different
-recorder’s loss or an independent pending input changes the safety context and
-refuses with 403 safety_changed. The internal optional
+recorder’s loss changes the safety context and refuses with 403 safety_changed.
+When an independent evidence reservation is the only recording block, the
+proxy, managed references, inference and paid-provider relays, and Claude and
+Pi tool admissions wait up to two seconds and check the settled evidence and
+current authority before proceeding. The paid-provider host checks recording
+both before and after budget admission. Managed acquisition checks it at entry,
+after metadata and Git waits, and before publishing the result. A reservation
+still pending at the deadline retains the stale-safety refusal. The internal optional
 AdmissionSafetySnapshot.operationRecordingAvailable distinguishes the two;
 legacy snapshots without that detail retain conservative unavailable behavior.
 

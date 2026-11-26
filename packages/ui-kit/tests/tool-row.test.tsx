@@ -231,3 +231,12 @@ describe("motion", () => {
     expect(css).toMatch(/\.bk-tool-stripe \{[^}]*animation: bk-tool-stripe/);
   });
 });
+
+describe("held action", () => {
+  test("actionDisabled keeps the button in place, inert", () => {
+    const html = row({ state: "running", actionDisabled: true });
+    expect(html).toContain('aria-label="Cancel Pack Git objects"');
+    expect(html).toContain('aria-disabled="true"');
+    expect(row({ state: "running" })).not.toContain('aria-disabled="true"');
+  });
+});

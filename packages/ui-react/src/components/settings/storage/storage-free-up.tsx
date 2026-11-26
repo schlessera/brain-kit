@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Button, Disclosure, ToolList, ToolRow } from "@schlessera/brain-ui-kit";
-import type { StorageGuidanceResponse, StorageMaintenanceRow } from "@schlessera/brain-ui-sdk/protocol";
+import type { StorageGuidanceResponse, StorageMaintenanceRow, StorageSnapshot } from "@schlessera/brain-ui-sdk/protocol";
 import { StorageDelta } from "./storage-observations.js";
 import { humanReason } from "./storage-model.js";
 import { toolRowView } from "./storage-tools.js";
 import { running, type useStorage } from "./use-storage.js";
-import type { StorageFormat } from "./storage-volumes.js";
+import type { StorageFormat, StorageVolume } from "./storage-volumes.js";
+import { relevantTools } from "./storage-pane-model.js";
+import { useSlotFocus } from "./storage-page-focus.js";
 
 type StorageView = ReturnType<typeof useStorage>;
 
@@ -24,18 +26,28 @@ export function StorageFreeUp({
   view,
   guidance,
   format,
+  inventory,
+  volumes,
+  selected,
   onFindLargeFiles,
 }: {
   view: StorageView;
   guidance: StorageGuidanceResponse | null;
   format: StorageFormat;
+  /** The inventory that maps each volume to its stores; `null` keeps every tool listed. */
+  inventory: StorageSnapshot | null;
+  volumes: readonly StorageVolume[];
+  /** The volume the cards select. */
+  selected: string | null;
   onFindLargeFiles?: () => void;
 }) {
   const [started, setStarted] = useState<StorageMaintenanceRow["id"] | null>(null);
+  const slots = useSlotFocus<HTMLDivElement>();
   const live = view.maintenanceReceipt;
   const pendingId = view.maintenanceId ? live?.operation ?? started : null;
   const inFlight = !!view.maintenanceId && (!live || running(live.state) || live.state === "unknown");
-  const rows = view.maintenance.map((row) => {
+  const relevant = relevantTools(view.maintenance, { inventory, volumes, selected, keep: pendingId });
+  const rows = relevant.tools.map((row) => {
     const mine = row.id === pendingId;
     const latest = mine && live ? live : row.latest;
     const props = toolRowView({ ...row, latest }, guidance, format);
@@ -52,21 +64,30 @@ export function StorageFreeUp({
     ? `${view.maintenance.find((row) => row.id === pendingId)?.label ?? "Maintenance"}: ${humanReason(live.state)}`
     : "";
   return (
-    <div className="grid min-w-0 gap-2">
+    <div ref={slots} className="grid min-w-0 gap-2">
       <ToolList heading="Free up space" headingLevel={3} onFindLargeFiles={onFindLargeFiles} announcement={announcement}>
+        {relevant.empty ? (
+          <p className="text-xs text-muted-foreground" data-storage-no-tools="">
+            {relevant.empty}
+          </p>
+        ) : null}
         {rows.map(({ row, props, mine, unconfirmed }) => (
-          <div key={row.id} className="grid gap-2">
+          <div key={row.id} className="grid gap-2" data-focus-slot="">
             <ToolRow
               {...props}
+              // The row's own action never leaves while its run starts,
+              // settles or is cancelled: it is held instead, so a focused
+              // button keeps focus (#4549). Another row's run still hides Run.
               onRun={
-                inFlight || view.busy
+                inFlight && !mine
                   ? undefined
                   : () => {
                       setStarted(row.id);
                       void view.maintain(row.id);
                     }
               }
-              onCancel={mine && !view.busy ? () => void view.cancelMaintenance() : undefined}
+              onCancel={mine ? () => void view.cancelMaintenance() : undefined}
+              actionDisabled={view.busy || (inFlight && !(mine && live && running(live.state)))}
             />
             {mine && (
               <div className="flex flex-wrap items-center gap-3">

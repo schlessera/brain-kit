@@ -22,6 +22,8 @@ interface InspectedFile {
   entry: StorageFileEntry;
   path: string | null;
   facts: StorageRemovalFile | null;
+  /** The inspection's own coverage: `false` when references were not all checked. */
+  complete: boolean;
   references: StorageReferenceEvidence | null;
   unchecked: string[];
   observedAt: number | null;
@@ -46,6 +48,10 @@ export function useStorage(root: BrainUiRoot) {
   const [sort, setSort] = useState<"size" | "name">("size"),
     [direction, setDirection] = useState<"asc" | "desc">("desc"),
     [cursor, setCursor] = useState<string | undefined>();
+  // Find large files keeps its own order: file size, largest first, unless
+  // its own header changes it. The overview's sort and basis never reach it.
+  const [fileSort, setFileSort] = useState<"size" | "name">("size"),
+    [fileDirection, setFileDirection] = useState<"asc" | "desc">("desc");
   const [filtering, setFiltering] = useState(false),
     [larger, setLarger] = useState("5"),
     [where, setWhere] = useState("content"),
@@ -143,6 +149,8 @@ export function useStorage(root: BrainUiRoot) {
     search,
     sort,
     direction,
+    fileSort,
+    fileDirection,
     filtering,
     larger,
     where,
@@ -167,9 +175,10 @@ export function useStorage(root: BrainUiRoot) {
             type: "pdf",
             largerThan: threshold,
             search,
-            sort,
-            metric,
-            direction,
+            // Removal is per file, so the mode's basis is file size (D11).
+            sort: fileSort,
+            metric: "logical",
+            direction: fileDirection,
             cursor,
           },
           controller.signal
@@ -226,6 +235,8 @@ export function useStorage(root: BrainUiRoot) {
     search,
     sort,
     direction,
+    fileSort,
+    fileDirection,
     cursor,
     filtering,
     threshold,
@@ -257,11 +268,18 @@ export function useStorage(root: BrainUiRoot) {
     !signal.aborted && root.authLock.epoch() === epoch;
   async function inspect(entry: StorageFileEntry) {
     if (!snapshot) return;
+    // One request at a time: action() would refuse this inspection, leaving
+    // its sheet open and unverified, so no sheet opens while one is pending.
+    if (posting.current) {
+      setAnnouncement("Another Storage action is still running. Inspect again when it finishes.");
+      return;
+    }
     const path = canonicalPath(entry, snapshot.roots),
       base: InspectedFile = {
         entry,
         path,
         facts: null,
+        complete: false,
         references: null,
         unchecked: [],
         observedAt: null,
@@ -281,6 +299,7 @@ export function useStorage(root: BrainUiRoot) {
         ...base,
         references: links.status === "fulfilled" ? links.value : null,
         facts: record?.files[0] ?? null,
+        complete: record?.complete ?? false,
         unchecked: record?.unchecked ?? [],
         observedAt: record?.observedAt ?? null,
         error:
@@ -289,7 +308,9 @@ export function useStorage(root: BrainUiRoot) {
             : null,
       };
       setEvidence((previous) => ({ ...previous, [entry.id]: result }));
-      setInspected(result);
+      // Only the sheet this inspection opened takes its result: a sheet
+      // closed meanwhile stays closed, and a newer one is never replaced.
+      setInspected((shown) => (shown === base ? result : shown));
     });
   }
   function toggle(file: InspectedFile) {
@@ -548,6 +569,10 @@ export function useStorage(root: BrainUiRoot) {
     setSort,
     direction,
     setDirection,
+    fileSort,
+    setFileSort,
+    fileDirection,
+    setFileDirection,
     cursor,
     setCursor,
     filtering,

@@ -3,6 +3,8 @@ import type { StorageGuidanceResponse, StorageStatus } from "@schlessera/brain-u
 import {
   LARGER_PRESETS,
   appAddedSummary,
+  appUsage,
+  relevantTools,
   storageAlertsLine,
   storageBanner,
   storageStatusLine,
@@ -12,16 +14,21 @@ import { storageFormat, storageVolumes } from "../src/components/settings/storag
 import {
   DAY,
   GB,
+  HOUR,
   ITHACA,
+  SCHERIA,
   brainRoots,
   capacity,
   evidence,
   finite,
   guidance,
+  historyOf,
   inventory,
   node,
+  observation,
   page,
   pressure,
+  root,
   unavailable,
   worldTime,
 } from "./fixtures/storage-volumes.js";
@@ -186,4 +193,80 @@ test("a repeated capacity id is one volume, never two to add", () => {
   const twice = inventory([capacity(ITHACA, roots, 161 * GB, 16.4 * GB), capacity(ITHACA, roots, 161 * GB, 16.4 * GB)], brainRoots);
   const volumes = storageVolumes({ guidance: null, inventory: twice, format });
   expect(volumes.map((volume) => volume.name)).toEqual(["Disk"]);
+});
+
+// #4549 review F6: Free up space lists the tools for the selected volume and
+// for every Low or Very low one, by the stores each tool's scope reaches.
+describe("Free up space relevance", () => {
+  const backups = root(11, "Backups", "backup", "operator", 40 * GB);
+  const roots = [...brainRoots, root(12, "Scratch", "scratch", "app", 1 * GB), backups];
+  const brain = capacity(ITHACA, [...brainRoots.map((value) => value.id), roots[4]!.id], 161 * GB, 48 * GB);
+  const disk = capacity(SCHERIA, [backups.id], 250 * GB, 48 * GB);
+  const snapshot = inventory([brain, disk], roots);
+  const tools = [
+    { id: "pack-git" as const, scope: ["git" as const] },
+    { id: "prune-scratch" as const, scope: ["scratch" as const] },
+    { id: "cleanup-staging" as const, scope: ["staging" as const] },
+  ];
+  const volumesAt = (brainSeverity: "observed" | "low" | "critical") =>
+    storageVolumes({
+      guidance: guidance([
+        pressure(ITHACA, brainSeverity, evidence(ITHACA, brain.total, brain.available)),
+        pressure(SCHERIA, "observed", evidence(SCHERIA, disk.total, disk.available)),
+      ]),
+      inventory: snapshot,
+      format,
+    });
+  const ids = (value: { tools: ReadonlyArray<{ id: string }> }) => value.tools.map((tool) => tool.id);
+  test("a healthy host lists only the tools whose stores sit on the selected volume", () => {
+    const volumes = volumesAt("observed");
+    expect(ids(relevantTools(tools, { inventory: snapshot, volumes, selected: ITHACA })), "STORAGE_TOOLS_FOR_SELECTED").toEqual([
+      "pack-git",
+      "prune-scratch",
+    ]);
+  });
+  test("selecting a volume no tool reaches says so in one line instead of an empty list", () => {
+    const result = relevantTools(tools, { inventory: snapshot, volumes: volumesAt("observed"), selected: SCHERIA });
+    expect(ids(result), "STORAGE_TOOLS_NONE_FOR_BACKUPS").toEqual([]);
+    expect(result.empty).toBe("No owner-supported tool frees space on Backups.");
+  });
+  test("a Low or Very low volume keeps its tools listed while another volume is selected", () => {
+    for (const severity of ["low", "critical"] as const) {
+      const result = relevantTools(tools, { inventory: snapshot, volumes: volumesAt(severity), selected: SCHERIA });
+      expect(ids(result), `STORAGE_TOOLS_FOR_PRESSURED ${severity}`).toEqual(["pack-git", "prune-scratch"]);
+      expect(result.empty).toBeNull();
+    }
+  });
+  test("an unknown mapping is never 'not relevant': without inventory, or for an unmapped volume, every tool stays", () => {
+    const volumes = volumesAt("observed");
+    expect(ids(relevantTools(tools, { inventory: null, volumes, selected: SCHERIA })), "STORAGE_TOOLS_UNKNOWN_KEPT").toEqual(ids({ tools }));
+    expect(ids(relevantTools(tools, { inventory: snapshot, volumes, selected: "f".repeat(32) }))).toEqual(ids({ tools }));
+  });
+  test("a tool whose run the pane holds stays listed on any volume", () => {
+    const result = relevantTools(tools, { inventory: snapshot, volumes: volumesAt("observed"), selected: SCHERIA, keep: "pack-git" });
+    expect(ids(result), "STORAGE_TOOLS_KEEP_RUNNING").toEqual(["pack-git"]);
+    expect(result.empty).toBeNull();
+  });
+});
+
+// #4549 review F7: the usage sparkline, its value and its description follow
+// one size basis.
+describe("usage sparkline basis", () => {
+  const history = historyOf([0, 1, 2].map((step) => {
+    const row = observation("six-hour", worldTime - (2 - step) * 6 * HOUR, [{ identity: ITHACA, available: 48 * GB, app: 24 * GB + step * GB }]);
+    row.capacities[0]!.owners.app.logical = 20 * GB + step * GB;
+    return row;
+  }));
+  const rated = pressure(ITHACA, "observed", evidence(ITHACA, 161 * GB, 48 * GB, {
+    appAllocated: { start: worldTime - 7 * DAY, end: worldTime, samples: 28, bytesPerDay: 0.49 * GB },
+    appLogical: { start: worldTime - 7 * DAY, end: worldTime, samples: 28, bytesPerDay: 0.47 * GB },
+  }));
+  test("File size draws, values and describes logical bytes; On disk draws allocated bytes", () => {
+    const logical = appUsage({ pressure: rated, history, identity: ITHACA, metric: "logical", now: worldTime, format });
+    expect(logical.points.map((point) => point.value), "STORAGE_SPARKLINE_FOLLOWS_BASIS").toEqual([20 * GB, 21 * GB, 22 * GB]);
+    expect(logical.value).toBe("+3.29 GB");
+    const allocated = appUsage({ pressure: rated, history, identity: ITHACA, metric: "allocated", now: worldTime, format });
+    expect(allocated.points.map((point) => point.value)).toEqual([24 * GB, 25 * GB, 26 * GB]);
+    expect(allocated.value).toBe("+3.43 GB");
+  });
 });

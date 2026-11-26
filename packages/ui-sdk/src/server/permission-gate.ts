@@ -289,24 +289,30 @@ export function requestToolPermission(
       message: `No active turn to approve ${request.toolName}.`,
     });
   }
+  return requestGuardedPermission(bridge, request);
+}
+
+async function requestGuardedPermission(bridge: Pick<BackendBridge, "requestPermission" | "admissionSafety">,
+  request: PermissionRequest): Promise<PermissionDecision> {
   let guarded = request;
   try {
     if (bridge.admissionSafety) {
-      const snapshot = bridge.admissionSafety.read();
-      if (safetySnapshotRefusal(snapshot)) return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
+      const before = bridge.admissionSafety.read();
+      for (const pending of bridge.admissionSafety.pendingRecording?.(before, undefined) ?? []) await pending;
+      const snapshot = before.recordingAvailable ? before : bridge.admissionSafety.read();
+      if (safetySnapshotRefusal(snapshot, before)) return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
       guarded = { ...request, admissionSnapshot: snapshot };
     }
   } catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
-  return bridge.requestPermission(guarded).then((decision) => {
-    try {
-      if (bridge.admissionSafety && guarded.admissionSnapshot) {
-        const current = bridge.admissionSafety.read();
-        if (safetySnapshotRefusal(current) || !sameSafetyAdmission(guarded.admissionSnapshot, current))
-          return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
-      }
-    } catch { return { behavior: "deny", message: STALE_SAFETY_ADMISSION }; }
-    return snapshotEdit(request, decision);
-  });
+  const decision = await bridge.requestPermission(guarded);
+  try {
+    if (bridge.admissionSafety && guarded.admissionSnapshot) {
+      const current = bridge.admissionSafety.read();
+      if (safetySnapshotRefusal(current) || !sameSafetyAdmission(guarded.admissionSnapshot, current))
+        return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+    }
+  } catch { return { behavior: "deny", message: STALE_SAFETY_ADMISSION }; }
+  return snapshotEdit(request, decision);
 }
 
 /**

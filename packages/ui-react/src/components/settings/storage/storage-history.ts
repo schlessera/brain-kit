@@ -12,6 +12,8 @@ import type {
   StorageEvent,
   StorageEventKind,
   StorageEvidenceReason,
+  StorageHistoryCapacity,
+  StorageHistoryObservation,
   StorageHistoryResponse,
   StorageHistoryTier,
   StorageMaintenanceReceipt,
@@ -28,7 +30,15 @@ import {
   type HistoryThresholds,
 } from "@schlessera/brain-ui-kit";
 import type { StorageTimeline } from "./storage-timeline.js";
-import { DAY_MS, storageFormat, thresholdBytes, type StorageFormat } from "./storage-volumes.js";
+import {
+  DAY_MS,
+  NOMINAL_WINDOW_DAYS as NOMINAL_DAYS,
+  REFUSAL_RESOURCE,
+  scenarioWindowName,
+  storageFormat,
+  thresholdBytes,
+  type StorageFormat,
+} from "./storage-volumes.js";
 
 const HOUR_MS = 3_600_000;
 /**
@@ -52,12 +62,25 @@ interface StorageSeriesPoint {
   available: number | null;
   /** App stores' on-disk bytes; `null` when not measured. */
   appAllocated: number | null;
+  /** App stores' file-size bytes; `null` when not measured. */
+  appLogical: number | null;
   /** The tier recorded no comparable observation of this volume for the bucket. */
   gap: boolean;
   /** The current bucket, still filling. */
   provisional: boolean;
   /** Measured under another root scope than the latest point. */
   otherScope: boolean;
+  /**
+   * The root scope the observation records for this volume, also on a gap:
+   * the server records the observation that sees a new scope as a gap.
+   * `null` when the observation holds no capacity for the volume.
+   */
+  rootScope: string | null;
+  /**
+   * The collection scope and the root scope together: either changing is a
+   * different volume history. `null` when the observation holds no capacity.
+   */
+  scopeKey: string | null;
 }
 
 /**
@@ -75,17 +98,23 @@ export function storageSeries(
     row,
     capacity: row.capacities.find((value) => value.identity === identity) ?? null,
   }));
-  const latestScope =
-    held.filter((value) => value.capacity && !value.row.gap).at(-1)?.capacity?.rootScope ?? null;
+  // A scope is known from any observation holding the volume, measured or not.
+  const keyOf = (row: StorageHistoryObservation, capacity: StorageHistoryCapacity | null) =>
+    capacity ? JSON.stringify([row.scope, capacity.rootScope]) : null;
+  const latest = held.filter((value) => value.capacity).at(-1);
+  const latestScope = latest ? keyOf(latest.row, latest.capacity) : null;
   return held.map(({ row, capacity }, index) => {
     const measured = !row.gap && capacity ? capacity : null;
     return {
       at: row.at,
       available: measured ? measured.available : null,
       appAllocated: measured ? measured.owners.app.allocated : null,
+      appLogical: measured ? measured.owners.app.logical : null,
       gap: !measured,
       provisional: index === held.length - 1 && bucketOf(tier, row.at) === bucketOf(tier, now),
-      otherScope: !!measured && latestScope !== null && measured.rootScope !== latestScope,
+      otherScope: !!measured && latestScope !== null && keyOf(row, measured) !== latestScope,
+      rootScope: capacity?.rootScope ?? null,
+      scopeKey: keyOf(row, capacity),
     };
   });
 }
@@ -100,9 +129,9 @@ const point = (value: StorageSeriesPoint, of: number | null): HistoryPoint => {
 export function availablePoints(series: readonly StorageSeriesPoint[]): HistoryPoint[] {
   return series.map((value) => point(value, value.available));
 }
-/** The "What this app added" sparkline's points. */
-export function appPoints(series: readonly StorageSeriesPoint[]): HistoryPoint[] {
-  return series.map((value) => point(value, value.appAllocated));
+/** The "What this app added" sparkline's points, in the pane's size basis. */
+export function appPoints(series: readonly StorageSeriesPoint[], metric: "allocated" | "logical" = "allocated"): HistoryPoint[] {
+  return series.map((value) => point(value, metric === "allocated" ? value.appAllocated : value.appLogical));
 }
 
 /** The chart's Low and Very-low bands, in this volume's bytes; empty when its total is unknown. */
@@ -115,7 +144,8 @@ export function historyThresholds(total: number | null): HistoryThresholds {
  * (`capacityEvidence`, `packages/ui-server/src/storage/history-evidence.ts:79-91`).
  * Only an unavailable window, which has no real span, is named by these.
  */
-const NOMINAL_DAYS = { short: 7, long: 30 } as const;
+/** A forecast beyond this many days is named, not dated (100 years). */
+const FAR_DAYS = 36_500;
 function reasonText(reason: StorageEvidenceReason | null, window: "short" | "long"): string {
   if (!reason) return "no projection";
   return projectionReasonText(
@@ -146,10 +176,16 @@ export function storageScenarios(
       return { window, name: nominal, reason: reasonText(scenario.reason, window) };
     if (evidence.available === null)
       return { window, name: nominal, reason: reasonText("incomplete", window) };
-    const span = Math.max(1, Math.round((scenario.end - scenario.start) / DAY_MS));
-    const name = `${span}-day`;
+    const name = scenarioWindowName(window, scenario);
     if (scenario.state === "finite") {
       if (scenario.days === null) return { window, name, reason: reasonText("arithmetic", window) };
+      // A finite but far rate can project past the Date range; past a
+      // century, draw the line across the window's own span at its rate.
+      if (scenario.days > FAR_DAYS) {
+        const spanMs = scenario.end - scenario.start;
+        const value = evidence.available * (1 - spanMs / DAY_MS / scenario.days);
+        return { window, name, detail: "empty in over 100 years", to: { at: evidence.at + spanMs, value } };
+      }
       const at = evidence.at + scenario.days * DAY_MS;
       return { window, name, detail: `empty ~${format.day(at)}`, to: { at, value: 0 } };
     }
@@ -179,12 +215,6 @@ const RUN_TONE: Record<StorageMaintenanceReceipt["state"], NonNullable<HistoryMa
   refused: "red",
   cancelled: "neutral",
   unknown: "gold",
-};
-const RESOURCE: Record<StoragePressureView["causes"]["refusals"][number]["resource"], string> = {
-  bytes: "no space",
-  quota: "quota reached",
-  inodes: "no file slots",
-  unknown: "resource unknown",
 };
 
 /** Whether a maintenance run observed this volume. */
@@ -231,8 +261,8 @@ export function storageEventText(
     }
     case "refusal":
       return event.phase === "refused"
-        ? { label: `Owner refused a write: ${RESOURCE[event.resource]}`, tone: "red" }
-        : { label: `Owner write succeeded after a refusal: ${RESOURCE[event.resource]}`, tone: "teal" };
+        ? { label: `Owner refused a write: ${REFUSAL_RESOURCE[event.resource]}`, tone: "red" }
+        : { label: `Owner write succeeded after a refusal: ${REFUSAL_RESOURCE[event.resource]}`, tone: "teal" };
     case "scope":
       return { label: "Scope changed", tone: "purple" };
     case "maintenance": {
@@ -299,17 +329,20 @@ export function storageMarkers(input: {
     found.push({ at, tone, time: format.time(at), label, ...(seq === undefined ? {} : { seq }) });
 
   const scopes = timeline.filter((event) => event.kind === "scope");
+  // Scope transitions are tracked apart from measured points: the observation
+  // that sees a new scope is itself a gap.
+  let scope: string | null = null;
   series.forEach((value, index) => {
     const previous = series[index - 1];
     if (value.gap && !previous?.gap) add(value.at, "neutral", "Collection gap");
+    if (value.scopeKey === null) return;
     if (
-      previous &&
-      !value.gap &&
-      previous.otherScope &&
-      !value.otherScope &&
-      !scopes.some((event) => event.at > previous.at && event.at <= value.at)
+      scope !== null &&
+      value.scopeKey !== scope &&
+      !(previous && scopes.some((event) => event.at > previous.at && event.at <= value.at))
     )
       add(value.at, "purple", "Scope changed");
+    scope = value.scopeKey;
   });
 
   for (const refusal of input.pressure?.causes.refusals ?? []) {
@@ -317,7 +350,7 @@ export function storageMarkers(input: {
       .filter((event) => event.kind === "refusal" && event.target === refusal.target && event.resource === refusal.resource)
       .at(-1);
     if (latest && !(latest.phase === "succeeded" && refusal.at > latest.at)) continue;
-    add(refusal.at, "red", `Owner refused a write: ${RESOURCE[refusal.resource]}`);
+    add(refusal.at, "red", `Owner refused a write: ${REFUSAL_RESOURCE[refusal.resource]}`);
   }
 
   // One run per receipt; each phase from the timeline when it has it.

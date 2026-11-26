@@ -7,14 +7,14 @@ import {
   StorageMap,
   StorageMapLegend,
   TextButton,
-  type StorageMapLegendOwner,
   type StorageOwner,
 } from "@schlessera/brain-ui-kit";
 import type { StorageFileEntry, StorageSnapshot } from "@schlessera/brain-ui-sdk/protocol";
 import { bytes, mapItems } from "./storage-model.js";
-import { storageConsumerRows } from "./storage-consumers.js";
+import { storageConsumerRows, storageLegend, storageListing } from "./storage-consumers.js";
 import { StorageSegmented } from "./storage-segmented.js";
 import type { useStorage } from "./use-storage.js";
+import { usePageFocus } from "./storage-page-focus.js";
 
 type StorageView = ReturnType<typeof useStorage>;
 
@@ -88,6 +88,7 @@ export function StorageBreakdown({
     [showEmpty, setShowEmpty] = useState(false);
   const pendingFocus = useRef<string | null>(null);
   const tree = view.tree;
+  const { pager, paging } = usePageFocus(view.loading, tree);
   const side = width >= SIDE_BY_SIDE,
     strip = width > 0 && width < STRIP;
   const mapWidth = side ? Math.floor((width - 24) / 2) : width;
@@ -105,9 +106,7 @@ export function StorageBreakdown({
         : { rows: [], empty: [] },
     [tree, view.metric, view.sort, view.direction, snapshot]
   );
-  const rows = [...derived.rows, ...(showEmpty ? derived.empty : [])].filter(
-    (row) => !view.smaller || !shown.has(row.nodeId)
-  );
+  const rows = storageListing(derived, { shown: view.smaller ? shown : null, showEmpty });
   // Focus after navigation lands once the requested page is the one shown.
   useEffect(() => {
     if (view.loading || !pendingFocus.current || view.tree?.parentId !== (view.parent ?? null)) return;
@@ -137,19 +136,17 @@ export function StorageBreakdown({
     if (node?.kind === "root" || node?.kind === "directory") drill(nodeId);
     else if (node?.entry) onInspect(node.entry);
   }
-  const legend = useMemo(() => {
-    const owners: StorageMapLegendOwner[] = (["brain", "app", "operator"] as const)
-      .filter((owner) => rows.some((row) => row.owner === owner))
-      .map((owner) => {
-        const mine = rows.filter((row) => row.owner === owner);
-        const sum = mine.reduce((total, row) => total + (row.bytes ?? 0), 0);
-        const partial = mine.some((row) => row.bytes === null || row.atLeast);
-        // A measured zero is "none"; an owner with unknown stores has only a lower bound, or none.
-        const total = sum > 0 ? `${partial ? "≥ " : ""}${bytes(sum)}` : partial ? undefined : "none";
-        return { owner, total };
-      });
-    return { owners, unknown: rows.filter((row) => row.bytes === null) };
-  }, [rows]);
+  // The cursor the shown page was fetched with: `view.cursor` moves first, while the next page loads.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const pageCursor = useMemo(() => view.cursor, [tree]);
+  const legend = storageLegend(derived, {
+    cursor: pageCursor,
+    nextCursor: tree?.nextCursor ?? null,
+    shown: view.smaller ? shown : null,
+    showEmpty,
+  });
+  // The chip jumps to the first `?` row that can take focus; a metadata row is text.
+  const unknownTarget = legend.unknown.find((row) => row.action !== "none");
   const trail = (tree?.breadcrumbs ?? [{ id: null, name: "All stores" }]).map((crumb) => ({
     id: crumb.id ?? ROOT,
     label: crumb.name,
@@ -201,7 +198,17 @@ export function StorageBreakdown({
         {here} · {partial ? "≥ " : ""}
         {tree?.matched ?? "?"} items · {total === null ? "? size" : `${partial ? "≥ " : ""}${bytes(total)}`} {basis}
       </h4>
-      {view.smaller && <TextButton inline label="Show all children" onClick={() => view.setSmaller(false)} />}
+      {view.smaller && (
+        <TextButton
+          inline
+          label="Show all children"
+          onClick={() => {
+            // The button leaves with the smaller items; the list heading keeps focus.
+            view.setSmaller(false);
+            frame.current?.querySelector<HTMLElement>("[data-storage-list-heading]")?.focus();
+          }}
+        />
+      )}
       {view.loading && (
         <p role="status" className="text-xs text-muted-foreground">
           Loading observed entries…
@@ -233,7 +240,7 @@ export function StorageBreakdown({
               key={key}
               {...row}
               id={rowId(nodeId)}
-              onActivate={() => activate(nodeId)}
+              onActivate={row.action === "none" ? undefined : () => activate(nodeId)}
               highlighted={highlight === nodeId}
               onHighlight={(active) => setHighlight(active ? nodeId : null)}
             />
@@ -248,20 +255,36 @@ export function StorageBreakdown({
             onClick={() => setShowEmpty((value) => !value)}
           />
         )}
-        {view.cursor && (
-          <Button label="First 200 items" tone="quiet" size="sm" reach block={false} disabled={view.loading} onClick={() => view.setCursor(undefined)} />
-        )}
-        {tree?.nextCursor && (
-          <Button
-            label="Next 200 items"
-            tone="quiet"
-            size="sm"
-            reach
-            block={false}
-            disabled={view.loading}
-            onClick={() => view.setCursor(tree.nextCursor ?? undefined)}
-          />
-        )}
+        <div ref={pager} className="contents">
+          {view.cursor && (
+            <Button
+              label="First 200 items"
+              tone="quiet"
+              size="sm"
+              reach
+              block={false}
+              disabled={view.loading}
+              onClick={() => {
+                paging();
+                view.setCursor(undefined);
+              }}
+            />
+          )}
+          {tree?.nextCursor && (
+            <Button
+              label="Next 200 items"
+              tone="quiet"
+              size="sm"
+              reach
+              block={false}
+              disabled={view.loading}
+              onClick={() => {
+                paging();
+                view.setCursor(tree.nextCursor ?? undefined);
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -294,11 +317,7 @@ export function StorageBreakdown({
       <StorageMapLegend
         owners={legend.owners}
         unknownCount={legend.unknown.length}
-        onShowUnknown={
-          legend.unknown[0]
-            ? () => document.getElementById(rowId(legend.unknown[0]!.nodeId))?.querySelector<HTMLElement>("button")?.focus()
-            : undefined
-        }
+        onShowUnknown={unknownTarget ? () => document.getElementById(rowId(unknownTarget.nodeId))?.querySelector<HTMLElement>("button")?.focus() : undefined}
       />
       {width > 0 ? (
         <div className={side ? "grid grid-cols-2 items-start gap-6" : "grid grid-cols-1 gap-3"}>

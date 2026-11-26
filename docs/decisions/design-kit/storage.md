@@ -536,9 +536,9 @@ components are the kit's (#4542–#4545); the derivations are ui-react's
 | D4 | One attention banner, only when a volume is Low or Very low: one sentence and one link, **Free up space ↓**. | Cleanup prose above the fold |
 | D5 | The wording is **available**, never "free": "16.4 GB available of 161 GB". | — |
 | D6 | Storage is a wide Settings pane (#4538); the pane has no width cap of its own. Prose keeps the 68ch measure. | The 720px column |
-| D7 | Volumes are named from their contents on the client (Brain disk, App data disk, Memory (tmpfs), Unidentified volume), never after the loudest store. | "Disk · data volume" for every card |
+| D7 | Volumes are named from their contents on the client (Brain disk, App data disk, Backups for a volume holding only Operator backups, Memory (tmpfs), Unidentified volume), never after the loudest store. A sole volume is Disk. | "Disk · data volume" for every card |
 | D8 | Ownership is tint, edge and label: Brain solid, App dotted, Operator dashed, the smaller aggregate a neutral outline, an owner letter on tiles large enough to carry it. No hatching. | "App uses hatching" (Exploration and selection) |
-| D9 | One dashed line per qualified window, labelled with its window; see [storage guidance](../storage-guidance.md#2026-11-25--scenario-drawing-and-shared-constants-4537-4539-4549). | — |
+| D9 | One dashed line per qualified window, labelled with its window. The volume card's Runway names the window it comes from the same way (`~40 days · 30-day rate`); see [storage guidance](../storage-guidance.md#2026-11-25--scenario-drawing-and-shared-constants-4537-4539-4549). | — |
 | D10 | The UI derives names, threshold bytes, series, markers, unmeasured rows and before → after deltas. The chart ships with derived markers, before the events timeline (#4541, #4548). | — |
 | D11 | **Find large files** is a mode of the breakdown and the pane's single primary button. | Find large files in the pane heading |
 | D12 | The chart is hand-rolled SVG in ui-kit with pure, unit-tested geometry. | — |
@@ -552,6 +552,19 @@ one radiogroup (`auto-fit, minmax(260px, 1fr)`); the selected card drives the
 chart, and with more than one volume the section says they are never added
 together. Tool rows reflow inside `ToolList`. No element sums capacities,
 draws a gap as zero or prints an unknown as `0`.
+
+**Free up space** lists a tool when its operation's scope categories overlap
+the stores on the selected volume or on any Low or Very low volume. A tool
+with a run in progress stays listed. Without inventory, or for a volume whose
+stores are unknown, every tool stays listed: an unknown never hides a tool.
+When none applies, one line says so: "No owner-supported tool frees space on
+{volume}."
+
+An active write refusal is shown by the refused tool row and the chart's
+markers, with no separate line (maintainer, 2026-11-26).
+
+Sidecars (`-wal`, `-shm`, `-journal`) fold into their database's single row
+and tile, never listed separately (#4546, maintainer 2026-11-26).
 
 The status line's glyph carries its state: `●` complete, `◑` partial (`≥`
 entries, stores not measured), `◷` out of date (from `staleAfter`), `◐`

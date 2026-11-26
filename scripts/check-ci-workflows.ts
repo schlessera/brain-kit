@@ -85,7 +85,7 @@ export function workflowProblems(text: string, file: string): string[] {
       const job = workflow.jobs?.[name];
       const setup = job?.steps?.find(step => step.run === `bash scripts/ci-runtime-setup.sh${name === "unit" || name === "determinism" ? "" : " --native"}`);
       const command = `bun scripts/ci-proof.ts ${name}`;
-      const proof = job?.steps?.find(step => step.run === command || step.run?.startsWith(`${command} `));
+      const proof = job?.steps?.find(step => (step.run === command || step.run?.startsWith(`${command} `)) && !step.run?.includes("--docker-drivers"));
       if (setup?.["timeout-minutes"] !== 12) fail(`${name}: environment setup must have its separate 12-minute limit`);
       if (proof?.["timeout-minutes"] !== proofMinutes) fail(`${name}: proof must retain its ${proofMinutes}-minute limit`);
       const limit = job?.["timeout-minutes"];
@@ -100,7 +100,7 @@ export function workflowProblems(text: string, file: string): string[] {
     // The unit partition count has one owner, UNIT_PARTITIONS, read by the planner per cadence (#4108).
     // A literal matrix, a second matrix dimension or a literal divisor would disagree with it.
     const unit = workflow.jobs?.unit as any, changeset = workflow.jobs?.changeset as any;
-    const unitProof = unit?.steps?.find((step: Step) => step.run?.startsWith("bun scripts/ci-proof.ts unit"));
+    const unitProof = unit?.steps?.find((step: Step) => step.id === "runtime_proof");
     if (changeset?.outputs?.unit_shards !== "${{ steps.plan.outputs.unit_shards }}" ||
         changeset?.steps?.find((step: Step) => step.id === "plan")?.run !== "bun scripts/ci-plan.ts" ||
         JSON.stringify(unit?.strategy?.matrix) !== JSON.stringify({ shard: "${{ fromJSON(needs.changeset.outputs.unit_shards) }}" }) ||
@@ -109,7 +109,7 @@ export function workflowProblems(text: string, file: string): string[] {
     // The determinism partition set has one owner too, DETERMINISM_PARTITIONS, read by the planner (#4117).
     // A literal matrix or divisor would run a partition of some split the planner did not make.
     const determinism = workflow.jobs?.determinism as any;
-    const determinismProof = determinism?.steps?.find((step: Step) => step.run?.startsWith("bun scripts/ci-proof.ts determinism"));
+    const determinismProof = determinism?.steps?.find((step: Step) => step.id === "runtime_proof");
     if (changeset?.outputs?.determinism_shards !== "${{ steps.plan.outputs.determinism_shards }}" ||
         JSON.stringify(determinism?.strategy?.matrix) !== JSON.stringify({ shard: "${{ fromJSON(needs.changeset.outputs.determinism_shards) }}" }) ||
         determinismProof?.run !== 'bun scripts/ci-proof.ts determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"' ||
@@ -133,7 +133,7 @@ export function workflowProblems(text: string, file: string): string[] {
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
     if (proof?.if !== "${{ always() && !cancelled() }}") fail("proof: aggregate must observe failures/skips and reject cancellation");
     for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"]) {
-      if (!workflow.jobs?.[category]?.steps?.some(step => step.run === `bun scripts/ci-proof.ts ${category}` || step.run?.startsWith(`bun scripts/ci-proof.ts ${category} `))) fail(`${category}: complete proof command is missing`);
+      if (!workflow.jobs?.[category]?.steps?.some(step => (step.run === `bun scripts/ci-proof.ts ${category}` || step.run?.startsWith(`bun scripts/ci-proof.ts ${category} `)) && !step.run?.includes("--docker-drivers"))) fail(`${category}: complete proof command is missing`);
     }
     if (!proof?.steps?.some(step => step.run === "bun scripts/ci-proof.ts aggregate")) fail("proof: executable aggregate is missing");
     const metadata = workflow.jobs?.changeset?.steps ?? [];

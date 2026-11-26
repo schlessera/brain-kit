@@ -24,9 +24,9 @@ export function scopeFixture(overrides: { max_tool_calls?: number; max_files_cha
   }
   const receipt = (): ScopeCapReceipt => journal.summary("voyage").scope!.receipts.at(-1)!;
   const message = (action: ClientScopeDecision["action"], submissionId = "athena-decision"): ClientScopeDecision => ({ type: "scope_decision", turnId: "voyage", sessionId: "ithaca", eventId: receipt().eventId, submissionId, action });
-  function worker(command: string) {
+  function worker(command: string | readonly string[]) {
     const child = launchAgentWorker({ brainPath: brain, sandbox: prepareWorkerSandbox(brain, { profile: "governed", areas: ["workspaces"], codeChanges: true }),
-      command: ["/bin/sh", "-c", command], env: { PATH: "/usr/bin:/bin" } });
+      command: typeof command === "string" ? ["/bin/sh", "-c", command] : [...command], env: { PATH: "/usr/bin:/bin" } });
     child.stdout.resume(); child.stderr.resume(); child.stdin.end(); scope.workerStarted("voyage", child); return child;
   }
   return { root, brain, db, native, journal, scope, begin, receipt, message, worker, policy, get stopped() { return stopped; }, disconnect() { connected = false; }, reconnect() { connected = true; },

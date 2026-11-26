@@ -184,7 +184,7 @@ if (source === "mcp") process.execve(${JSON.stringify(process.execPath)}, [${JSO
   try {
     const child = Bun.spawn([process.execPath, "--preload", join(REPO, "scripts/test-network-child-preload.ts"), import.meta.path,
       "server", adapter, scenario, root, String(donorState.pid), SERVER_MARKER], {
-      cwd: REPO, env: { PATH: process.env.PATH!, LANG: "C.UTF-8" }, stdio: ["ignore", stdoutFd, "pipe", inheritedFd] });
+      cwd: REPO, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", HOME: join(root, "home") }, stdio: ["ignore", stdoutFd, "pipe", inheritedFd] });
     [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr as ReadableStream).text()]);
   } finally { closeSync(stdoutFd); closeSync(inheritedFd); donor.kill("SIGKILL"); await donor.exited; }
   // A broken boundary may have removed what it attacked: observe, never throw.
