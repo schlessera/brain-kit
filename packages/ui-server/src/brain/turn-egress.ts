@@ -181,10 +181,19 @@ export async function prepareTurnEgress(options: {
     recordingFailure ??= new EgressAdmissionRefused("Turn egress recording is unavailable","egress_unavailable");
     if (options.stop) options.stop(recordingFailure); else options.controller.abort(recordingFailure);
   };
-  const track = (committed: unknown) => {
+  // A turn whose collection began restricted carries a permanent gap before
+  // any delivery (`covered` in governance/event-writes.ts). Its writer
+  // tolerates a lost taint record there with `{id:0,recorded:false}`: the
+  // gap already shows the loss, and it never clears (#4351).
+  const gapped = () => { try { return !!db?.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(options.turnId); } catch { return false; } };
+  /** `tolerable`: a taint record, whose tolerated loss on a gapped turn is not an audit failure. */
+  const track = (committed: unknown, tolerable = false) => {
     const confirm=(result:unknown)=>{
       // A positive existing id is a durable replay, not a lost write.
-      if(result===false||result&&typeof result === "object"&&"recorded" in result&&result.recorded===false&&(!("id" in result)||typeof result.id !== "number"||result.id<=0))throw new Error("Egress audit was not durably recorded");
+      if(result===false||result&&typeof result === "object"&&"recorded" in result&&result.recorded===false&&(!("id" in result)||typeof result.id !== "number"||result.id<=0)){
+        if(tolerable&&typeof result === "object"&&gapped())return;
+        throw new Error("Egress audit was not durably recorded");
+      }
     };
     if (!(committed instanceof Promise)) {try{confirm(committed);}catch{fail();}return;}
     const pending = committed.then(confirm).catch(fail).finally(() => recording.delete(pending));
@@ -211,7 +220,7 @@ export async function prepareTurnEgress(options: {
         // Removal can close the transport while its initial occurrence is
         // still committing. Terminal evidence must join that exact write.
         const initial = exposureCommits.get(record.connectionId!);
-        track(initial ? initial.then(recorded=>recorded===true?terminal():undefined,()=>undefined) : terminal());
+        track(initial ? initial.then(recorded=>recorded===true?terminal():undefined,()=>undefined) : terminal(), true);
       }
       const denied = options.policy.egress.deny.some(pattern => {
         const normalized = canonicalEgressHost(pattern);
@@ -383,17 +392,24 @@ export async function prepareTurnEgress(options: {
     const group=approvalGroups.get(destination.connectionId);
     if(group){group.occurrences.add(exposure.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}
     const hadCollection=db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId);
+    let durable = false;
     try {
       const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
         detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } });
       exposureCommits.set(destination.connectionId, initial);
-      if(await initial !== true)throw new EgressAdmissionRefused("Input occurrence was not durably recorded","egress_unavailable");
-    } catch {
+      durable = await initial === true;
+    } catch { durable = false; }
+    finally { exposureCommits.delete(destination.connectionId); }
+    if (!durable) {
       // No occurrence means no trusted fact and no terminal exposure to append.
       exposures.delete(destination.connectionId);
-      throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
+      // A tolerated loss on a permanently gapped turn changes nothing for
+      // ordinary traffic: it already passed the restricted recipient policy,
+      // which every later check keeps applying. Source trust still needs its
+      // durable occurrence (#4351).
+      if (match || !gapped()) throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
+      return;
     }
-    finally { exposureCommits.delete(destination.connectionId); }
     if(db&&!hadCollection){
       const created=db.query("SELECT c.id FROM safety_collections c WHERE c.turn_id=? AND (SELECT r.id FROM safety_records r WHERE r.collection_id=c.id AND r.kind='occurrence' ORDER BY length(r.sequence),r.sequence LIMIT 1)=?").get(options.turnId,exposure.id) as {id:string}|null;
       if(created){ownCollectionStarts.set(destination.connectionId,created.id);if(group){group.starts.add(created.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}}

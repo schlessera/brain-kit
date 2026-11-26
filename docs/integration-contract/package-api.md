@@ -6356,6 +6356,18 @@ available. No trusted source fact or terminal exposure is published for a
 missing occurrence. Legacy recorder adapters await their write result; an
 otherwise unacknowledged trusted write must be present in the safety ledger.
 
+On a turn whose collection began restricted, the occurrence writer tolerates
+a lost occurrence or terminal exposure with `{id:0, recorded:false}`: that
+permanent gap already records the loss, and it stays visible (#4351). There
+an ordinary untrusted proxy input proceeds under the restricted recipient
+policy it already passed, without source trust. A tolerated terminal-exposure
+loss stops neither its operation nor the turn. A source-trusted input still
+needs its durable occurrence, and any other lost write, including a lost
+connection audit or any loss outside a permanent gap, keeps its containment.
+A first loss that fails the collection after the operation's own Network card
+was answered is new safety evidence for that card: that operation alone
+refuses with 403 safety_changed, and a new card reviews the gap as it stands.
+
 Network approval markers exclude only the approved operation’s own occurrence
 and, when it creates the turn’s first collection, that same collection-start
 metadata. Independent inputs, pending writes, failures, bindings and authority

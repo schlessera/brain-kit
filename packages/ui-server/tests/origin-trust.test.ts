@@ -336,3 +336,115 @@ for(const outcome of ['missing','rejected','replay'] as const)test(`review31: eg
  const f=await fixture(true,{schema_version:1},undefined,false,'127.0.0.1',true);const original=f.writes.record;
  try{f.writes.record=async(...args)=>{if(args[0].kind==='egress_connection'){if(outcome==='missing')return {id:0,recorded:false};if(outcome==='rejected')throw new Error('Odysseus audit unavailable');const result=await original(...args);return {...result,recorded:false};}return original(...args);};await get(f.proxy.socketPath,f.origin.url.href).catch(()=>0);await f.proxy.settled();expect(f.controller.signal.aborted,'AUDIT_NEGATIVE_RESULTS_ARE_NOT_SUCCESSFUL_COMMITS').toBe(outcome!=='replay');expect(Boolean(f.proxy.recordingFailure())).toBe(outcome!=='replay');}finally{await f.close();}
 });
+
+// #4351: on a turn that began restricted, the writer tolerates a lost
+// occurrence or terminal exposure ({id:0,recorded:false}): the permanent gap
+// already covers it. Ordinary traffic keeps its restricted recipient policy;
+// source trust still needs a durable occurrence.
+const permanentGap = (db: Database, failing: "source" | "exposure" | "audit") => {
+  db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();
+  const when = failing === "source" ? "NEW.kind='taint' AND json_extract(NEW.payload,'$.source')='egress_connection'"
+    : failing === "exposure" ? "NEW.kind='taint_exposure'" : "NEW.kind='egress_connection'";
+  db.exec(`CREATE TRIGGER ithaca_permanent_gap BEFORE INSERT ON governance_events WHEN ${when} BEGIN SELECT RAISE(FAIL,'Odysseus store unavailable'); END`);
+};
+for (const recipient of ["allowlisted", "approved", "declined"] as const) test(`#4351: a tolerated occurrence loss on a gapped turn admits ${recipient} untrusted traffic only under its recipient policy`, async () => {
+  const f = await fixture(false, recipient === "allowlisted" ? { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } } : { schema_version: 1 }, undefined, true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  const outcomes: boolean[] = [];
+  const original = f.writes.firstTaint;
+  try {
+    permanentGap(f.db, "source");
+    f.writes.firstTaint = async (...args) => { const result = await original(...args); outcomes.push(result); return result; };
+    f.decide(async () => recipient === "declined" ? { behavior: "deny", message: "Penelope declines" } : { behavior: "allow" });
+    let status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    if (recipient === "approved") {
+      // The first loss fails the collection after the card was answered: new
+      // safety evidence for that card, which refuses only this connection.
+      expect(status, "OWN_FIRST_LOSS_IS_NEW_EVIDENCE_FOR_ITS_CARD").toBe(403);
+      expect(queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })[0]?.payload).toMatchObject({ reason: "safety_changed", dispatched: false });
+      expect(untrustedHits).toBe(0);
+      expect(f.controller.signal.aborted).toBe(false);
+      // A new card reviews the gap as it now stands and is honoured.
+      status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+      await f.proxy.settled();
+    }
+    expect(status, "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_ITS_RECIPIENT_POLICY").toBe(recipient === "declined" ? 403 : 200);
+    expect(untrustedHits).toBe(recipient === "declined" ? 0 : 1);
+    expect(f.asks()).toBe(recipient === "allowlisted" ? 0 : recipient === "approved" ? 2 : 1);
+    expect(outcomes).toEqual(recipient === "declined" ? [] : recipient === "approved" ? [false, false] : [false]);
+    expect(f.controller.signal.aborted, "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_THE_TURN").toBe(false);
+    expect(f.proxy.recordingFailure()).toBeUndefined();
+    const connections = queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 });
+    for (const connection of connections) expect(connection.payload).not.toHaveProperty("trustedSource");
+    expect(queryGovernanceEvents(f.db, { kinds: ["taint_exposure"], limit: 10 })).toHaveLength(0);
+    const projection = safetyProjection(f.db, "turn-voyage", "voyage");
+    expect(projection.restriction, "PERMANENT_GAP_STAYS_VISIBLE").toBe("restricted");
+    expect(projection.coverage.state).toBe("incomplete");
+    // The same lost write never stands in for a trusted source's occurrence.
+    if (recipient !== "declined") {
+      expect(await get(f.proxy.socketPath, f.origin.url.href).catch(() => 0), "GAPPED_TRUSTED_SOURCE_STILL_503").toBe(503);
+      expect(f.hits()).toBe(0);
+      await f.proxy.settled();
+      expect(f.controller.signal.aborted).toBe(false);
+    }
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); untrusted.stop(true); await f.close(); }
+});
+test("#4351: a tolerated terminal-exposure loss on a gapped turn stops neither the turn nor later traffic", async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  try {
+    permanentGap(f.db, "exposure");
+    expect(await get(f.proxy.socketPath, untrusted.url.href)).toBe(200);
+    await f.proxy.settled();
+    expect(f.controller.signal.aborted, "TOLERATED_TERMINAL_LOSS_KEEPS_THE_TURN").toBe(false);
+    expect(f.proxy.recordingFailure()).toBeUndefined();
+    expect(await get(f.proxy.socketPath, untrusted.url.href), "TOLERATED_TERMINAL_LOSS_KEEPS_LATER_TRAFFIC").toBe(200);
+    await f.proxy.settled();
+    expect(untrustedHits).toBe(2);
+    expect(f.controller.signal.aborted).toBe(false);
+    // The first source occurrence stays durable and immutable. Its lost
+    // terminal exposure fails the collection, so the second connection's
+    // occurrence is a tolerated loss as well, and it still proceeds.
+    const sources = queryGovernanceEvents(f.db, { kinds: ["taint"], limit: 10 }).filter(event => (event.payload as { source?: string }).source === "egress_connection");
+    expect(sources).toHaveLength(1);
+    expect((sources[0]!.payload as { occurrence: { exposure: string } }).occurrence.exposure).toBe("open");
+    expect(queryGovernanceEvents(f.db, { kinds: ["taint_exposure"], limit: 10 })).toHaveLength(0);
+    const projection = safetyProjection(f.db, "turn-voyage", "voyage");
+    expect(projection.restriction, "PERMANENT_GAP_STAYS_VISIBLE").toBe("restricted");
+    expect(projection.coverage.state).toBe("incomplete");
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); untrusted.stop(true); await f.close(); }
+});
+test("#4351: a lost connection audit on a gapped turn keeps its existing containment", async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true);
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Troy") });
+  try {
+    permanentGap(f.db, "audit");
+    await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    expect(f.controller.signal.aborted, "UNTOLERATED_AUDIT_LOSS_STILL_STOPS_THE_TURN").toBe(true);
+    expect(f.proxy.recordingFailure()).toBeDefined();
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); untrusted.stop(true); await f.close(); }
+});
+for (const lost of ["taint", "taint_exposure"] as const) test(`#4351: outside a permanent gap a lost untrusted ${lost} keeps its existing containment`, async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  const original = f.writes.record;
+  try {
+    f.writes.record = async (...args) => args[0].kind === lost ? { id: 0, recorded: false } : original(...args);
+    const status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    if (lost === "taint") {
+      expect(status, "UNGAPPED_LOST_OCCURRENCE_STILL_503").toBe(503);
+      expect(untrustedHits).toBe(0);
+      expect(f.controller.signal.aborted).toBe(false);
+    } else {
+      expect(status).toBe(200);
+      expect(f.controller.signal.aborted, "UNGAPPED_LOST_TERMINAL_EXPOSURE_STILL_STOPS_THE_TURN").toBe(true);
+      expect(f.proxy.recordingFailure()).toBeDefined();
+    }
+  } finally { untrusted.stop(true); await f.close(); }
+});
