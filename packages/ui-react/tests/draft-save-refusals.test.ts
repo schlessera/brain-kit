@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "bun:test";
-import type { AttachmentFile, Draft, DraftSaveRequest, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { AttachmentFile, ClientMessage, Draft, DraftSaveRequest, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.ts";
 import { createDraftClient } from "../src/lib/draft-client.ts";
 import type { DraftApi, DraftCallResult } from "../src/lib/draft-api.ts";
@@ -100,7 +100,9 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   // so only this scene's client (and its fixture host) writes save outcomes.
   const ui = createBrainUiRoot({ storage: null, request: () => new Promise<Response>(() => {}) });
   roots.push(ui);
-  const client = createDraftClient(ui, { send: () => true, api });
+  /** What the client sent over the socket. */
+  const sent: ClientMessage[] = [];
+  const client = createDraftClient(ui, { send: (message) => { sent.push(message); return true; }, api });
   clients.push(client);
   const hello = { type: "server_hello", protocolRev: 5, capabilities: { sessionDrafts: true, chatRequestAck: true, composerFiles: true },
     attachmentLimits: { maxFiles: 10, maxFileBytes: 25_000_000, maxTotalBytes: 50_000_000, poolBytes: 1_073_741_824 },
@@ -110,7 +112,7 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
   const drafts = ui.stores.drafts;
   const id = drafts.getState().idFor(SESSION);
   const indicator = (draftId: string) => draftIndicatorView({ draft: drafts.getState().drafts[draftId], store: drafts.getState(), queued: [], online: true });
-  return { ui, client, drafts, id, saves, rows, swept, indicator, reconnect: () => client.hello(hello), withoutDrafts: () => client.hello({ ...hello, capabilities: { ...hello.capabilities, sessionDrafts: false } }), silenceGets: (n: number) => { silentGets = n; getStatus = 503; },
+  return { ui, client, drafts, id, saves, rows, swept, sent, indicator, reconnect: () => client.hello(hello), withoutDrafts: () => client.hello({ ...hello, capabilities: { ...hello.capabilities, sessionDrafts: false } }), silenceGets: (n: number) => { silentGets = n; getStatus = 503; },
     failGets: (status: number, n: number) => { silentGets = n; getStatus = status; }, gets: () => getCount, removes: () => removes, loseSaves: (n: number) => { lostSaves = n; },
     holdSaves: () => { let open!: () => void; saveGate = new Promise<void>((resolve) => { open = resolve; }); return () => { saveGate = null; open(); }; },
     holdGets: () => { let open!: () => void; getGate = new Promise<void>((resolve) => { open = resolve; }); return () => { getGate = null; open(); }; } };
@@ -838,16 +840,33 @@ test("a refused list's re-read keeps the messages cancelled and deleted here, an
   s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], editedAt: 1, edit: 3,
     snapshots: [{ snapshotId: b.snapshotId, requestId: b.requestId, text: b.text, files: [], state: "returned", createdAt: 5, why: cancelled }],
     host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [a, b].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  // Connected, so a held message the re-read brought back would go out.
+  s.ui.stores.connection.getState().setWsStatus("connected");
   const readsBefore = s.gets();
   await run(LONG);
   const d = s.drafts.getState().drafts[s.id]!;
+  expect(s.sent.filter((m) => m.type === "chat_message" && (m.requestId === a.requestId || m.requestId === b.requestId)), "NO_CANCELLED_MESSAGE_SENT").toEqual([]);
   expect(s.gets() - readsBefore, "REREAD_HAPPENED").toBeGreaterThanOrEqual(1);
   // The one deleted here before the host had its return comes back returned, so it can be deleted again;
   // the host takes that list, and the draft is not left refused with nothing to act on.
   expect(d.snapshots?.map((x) => `${x.snapshotId}:${x.state}`).sort(), "CANCELLED_KEPT_ON_REREAD").toEqual(["snap-oars:returned", "snap-raft:returned"]);
   expect(s.saves.at(-1)!.body.snapshots?.map((x) => `${x.snapshotId}:${x.state}`).sort(), "UNRETURNED_DELETE_SAVED_RETURNED").toEqual(["snap-oars:returned", "snap-raft:returned"]);
   expect(d.failure, "NOT_LEFT_REFUSED").toBeNull();
-  expect(Object.values(s.drafts.getState().sends).filter((x) => x.requestId === a.requestId || x.requestId === b.requestId), "NO_CANCELLED_MESSAGE_SENT").toEqual([]);
+});
+
+test("a refused message taken back by Edit before the host had its return comes back returned on a re-read", async () => {
+  const dispatched = { snapshotId: "snap-oars", requestId: "req-oars", text: "Ship the oars", fileIds: [], state: "dispatched" as const, createdAt: 5 };
+  // The host still holds it dispatched; it refuses a list that leaves it out.
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots === undefined || !body.snapshots.some((x) => x.snapshotId === dispatched.snapshotId) ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot is not deleted; return it first." } } : null) });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 2, updatedAt: 9, text: "", attachments: [], snapshots: [dispatched] });
+  // Refused here, then Edit put its text back in the composer, before any save.
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "Ship the oars", attachments: [], files: [], editedAt: 1, edit: 3, snapshots: [],
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [dispatched].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.snapshots?.map((x) => `${x.snapshotId}:${x.state}`), "EDITED_DISPATCHED_BACK_RETURNED").toEqual(["snap-oars:returned"]);
+  expect(d.failure, "NOT_LEFT_REFUSED").toBeNull();
+  expect(d.text).toBe("Ship the oars");
 });
 
 test("the delete after a lost first save marks the draft deleting until answered", async () => {

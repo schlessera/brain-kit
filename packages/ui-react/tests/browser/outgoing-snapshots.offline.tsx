@@ -178,6 +178,23 @@ test("case 22: at ten snapshots Send is refused with nothing sent and the text k
   expect(s.sendButton().getAttribute("aria-disabled")).toBeNull();
 });
 
+test("a typed answer to an open question goes while a Send's snapshot is unacknowledged (#4567)", async () => {
+  const fixture = snapshotHost();
+  const s = await mount(fixture);
+  await typed(s, "Muster the crew at dawn.");
+  await expect.poll(() => saved(s), { timeout: 5_000 }).toBe(true);
+  const release = fixture.holdSaves();
+  s.sendButton().click();
+  await expect.poll(() => s.field().value).toBe("");
+  s.socket.deliver({ type: "ask_user_request", requestId: "ask-harbour", turnId: "turn-harbour", sessionId: SESSION,
+    questions: [{ question: "Which harbour first?", header: "Harbour", multiSelect: false, options: [{ label: "Ithaca", description: "Home" }, { label: "Pylos", description: "Nestor" }] }] });
+  await typed(s, "Ithaca");
+  s.sendButton().click();
+  // An answer goes on its own queue: no draft save holds it.
+  await expect.poll(() => s.root.stores.chat.getState().deliveries["ask-harbour"], { message: "TYPED_ANSWER_NOT_HELD", timeout: 5_000 }).toBeDefined();
+  release();
+});
+
 test("text pasted while a Send's snapshot is unacknowledged is shown in the field and kept once the host holds the send (#4567)", async () => {
   const fixture = snapshotHost();
   const s = await mount(fixture);
