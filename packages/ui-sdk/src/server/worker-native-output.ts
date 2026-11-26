@@ -9,6 +9,7 @@ import { hostOutputStagingLimits } from "./worker-state-limits.js";
 import { WorkerStateError, processStateLedger } from "./worker-state-budget.js";
 import { nativeWorkerStartupInput, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
+import { ProtectedMaintenanceOutputError } from "./protected-output-error.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import type { KeyedLock } from "./keyed-lock.js";
 import { NativeBrainManagerError, type NativeStage } from "./native-brain-manager-protocol.js";
@@ -29,6 +30,7 @@ export interface PreparedWorkerOutput {
   /** Exactly one owned checkpoint reference. Consumed by launchAgentWorker. */
   readonly view: WorkerStartupView;
   readonly output: { source: string; storage: WorkerOutputStorage };
+  discardGit(): void;
   publish(): Promise<void>;
   publishLocked(lock: KeyedLock): Promise<void>;
   /** Await stage deletion, then release the owned checkpoint reference. Idempotent. */
@@ -248,7 +250,8 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(rel) || rel.split("/").some(part => !part || part === "." || part === "..")))
     throw Error("Invalid retained provider folder path");
   const native = nativeWorkerStartupInput(options.startupView), view = retainWorkerStartupView(options.startupView);
-  const limits = hostOutputStagingLimits(); let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
+  let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
+  let discardGit = false;
   let prepared: PreparedWorkerOutput | undefined, stageRequested = false;
   const id = randomUUID(); let stage: NativeStage | undefined, fd: number | undefined, cleanupPromise: Promise<void> | undefined;
   let identityTicket: { fd: number; close(): void } | undefined;
@@ -272,6 +275,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     })().catch((error: unknown) => { cleanupFailed = true; throw error; });
   };
   try {
+    const limits = hostOutputStagingLimits();
     reservation = processStateLedger().reserve(undefined, undefined, limits);
     stageRequested = true;
     stage = await native.manager.prepareStage(id, native.checkpoint.id, reservation.outputStagingBytes, options.signal);
@@ -337,6 +341,34 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       if ((await privateStat(stageInput, rel))?.stamp !== info.stamp) throw Error("Native private output changed while hashing");
       return { entry: { type: "file", mode: info.mode, hash: hash.digest("hex") }, stamp: version };
     }
+    /** One refused output file's bytes for the host, bounded; null when absent or not a regular file. */
+    async function readRefused(rel: string, bound: number): Promise<Uint8Array | null> {
+      if ((await inspectInput(true, rel)).entry?.type !== "file") return null;
+      const direct = async () => {
+        const chunks: Buffer[] = []; let total = 0;
+        const handle = parent(output.source, rel);
+        try {
+          const file = await open(at(handle.fd, handle.name), FILE);
+          try {
+            const buffer = Buffer.alloc(64 * 1024);
+            for (;;) {
+              const { bytesRead } = await file.read(buffer); if (!bytesRead) break;
+              total += bytesRead; if (total > bound) throw Error(`Refused output ${rel} exceeds ${bound} bytes`);
+              chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+            }
+          } finally { await file.close(); }
+        } finally { closeSync(handle.fd); }
+        return Buffer.concat(chunks);
+      };
+      try { return await direct(); }
+      catch (error) { if (!identityTicket || !permissionDenied(error)) throw error; }
+      const chunks: Buffer[] = []; let total = 0;
+      await privateBytes(true, rel, async bytes => {
+        total += bytes.byteLength; if (total > bound) throw Error(`Refused output ${rel} exceeds ${bound} bytes`);
+        chunks.push(Buffer.from(bytes));
+      }, bound + 1);
+      return Buffer.concat(chunks);
+    }
     async function walIndexInput(stageInput: boolean): Promise<Captured> {
       try { return { entry: walIndexEntry(stageInput ? output.source : view.root, WAL_INDEX), stamp: undefined }; }
       catch (error) { if (!identityTicket || !permissionDenied(error)) throw error; }
@@ -382,7 +414,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       const isGitControl = (rel: string) => [...gitControls.keys()].some(root => isWithin(root, rel));
       function add(rel: string) { if (isGitControl(rel)) return; if (++count > 200_000) throw Error("Native output exceeds existing 200000 entry bound"); candidates.add(rel); }
       for await (const change of receipt.changes) {
-        const rel = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(change.pathHex, "hex"));
+        const raw=Buffer.from(change.pathHex,"hex");
+        if(discardGit&&(raw.equals(Buffer.from(".git"))||raw.subarray(0,5).equals(Buffer.from(".git/"))))continue;
+        const rel = new TextDecoder("utf-8", { fatal: true }).decode(raw);
         if (isGitControl(rel)) continue;
         if ([...gitScaffolds.keys()].some(name => rel === `.git/${name}`)) continue;
         // Validate components before any host path walk.
@@ -391,7 +425,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       }
       await receipt.completed;
       if (receipt.checkpointId !== native.checkpoint.id || receipt.checkpointUuid !== native.checkpoint.uuid) throw Error("Native output inspection changed its lower identity");
-      const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
+      const selected = (rel: string) => !(discardGit && isWithin(".git",rel)) && (!options.areas || options.areas.some(area => isWithin(area, rel)));
       const before = new Map<string, Captured>(), after = new Map<string, Captured>();
       for (const rel of [...candidates].filter(rel => selected(rel) && rel !== WAL_INDEX).sort()) {
         const next = await inspectInput(true, rel); after.set(rel, next);
@@ -402,6 +436,14 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         before.set(WAL_INDEX, await walIndexInput(false)); after.set(WAL_INDEX, await walIndexInput(true));
         changed.push(WAL_INDEX); changed.sort();
       }
+      // Every refused tier A change, named before any lock or write (#4256).
+      const refused = changed.filter(rel => {
+        const previous = before.get(rel)!.entry, next = after.get(rel)!.entry;
+        const removesProtectedAncestor = previous?.type === "directory" && !next
+          && PROTECTED_TIER_A.some(p => isWithin(rel, p, { includeRoot: false }));
+        return removesProtectedAncestor || isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(p => isWithin(p, rel));
+      });
+      if (refused.length) throw new ProtectedMaintenanceOutputError(refused, (rel, bound) => readRefused(rel, bound));
       const releases: (() => void)[] = [];
       try {
         if (lock) for (const rel of [...new Set([...changed, ...[...gitScaffolds.keys()].map(name => `.git/${name}`)])].sort())
@@ -550,7 +592,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         if (publicationError) throw publicationError;
       } finally { for (const release of releases.reverse()) release(); }
     }
-    prepared = { view, output, publish: () => publish(), publishLocked: publish, cleanup };
+    prepared = { view, output, discardGit() { discardGit = true; }, publish: () => publish(), publishLocked: publish, cleanup };
     const maintenanceOwner: NativeMaintenanceOwner = {
       protected: Boolean(identityTicket), generation: 0,
       async index(input) {

@@ -31,7 +31,7 @@
  * models only the facts in {@link ApifyRunView}.
  */
 import { checkGovernancePolicy, type ApifyLimits } from "../governance-policy.js";
-import { ApifyAuthorityError, type ApifyAuthority, type ApifyBinding } from "./authority.js";
+import { ApifyAuthorityError, ApifyResponseTooLarge, type ApifyAuthority, type ApifyBinding } from "./authority.js";
 import { sha256 } from "./canonical.js";
 import { APIFY_DISCOVERY_LIMITS, ApifyInputError, type ApifyCallContext, type ApifyConsent, type ApifyRequestMeter, type ApifyRunTicket } from "./consent.js";
 import {
@@ -57,6 +57,7 @@ export class ApifyRunError extends Error {
 /** Host bounds a caller cannot enlarge. */
 export const APIFY_RUN_LIMITS = Object.freeze({
   default_result_page: 25,
+  result_page_bytes: 24_000,
   max_result_page: 100,
   /** How long the run operation waits for a finished run before returning a running handle. */
   wait_seconds: 30,
@@ -133,7 +134,7 @@ export interface ApifyRunView {
   /** Opaque, bound to this brain, principal and session. */
   run: string;
   state: ApifyRunState;
-  results: { available: boolean; partial: boolean; expires_at: string | null };
+  results: { available: boolean; partial: boolean; expires_at: string | null; bounded_cursor?: string };
   abort: "requested" | "confirmed" | "unresolved" | null;
   /** True while BrainKit cannot tell whether the start reached Apify. */
   remote_outcome_unknown: boolean;
@@ -143,6 +144,7 @@ export interface ApifyResultsPage {
   run: string;
   items: unknown[];
   next_cursor: string | null;
+  item_fragment?: {offset:number; start_byte:number; total_bytes:number; json_text:string};
   truncated: boolean;
   partial: boolean;
   warnings: string[];
@@ -221,6 +223,8 @@ interface RemoteRun {
 
 const REMOTE_ID = /^[A-Za-z0-9]{1,64}$/u;
 const HANDLE = /^[A-Za-z0-9_-]{43}$/u;
+// Ordinary cursors start with a base-36 offset and a dot.
+const BOUNDED_CURSOR_PREFIX = "B:";
 const STATES: Record<string, ApifyRunState> = {
   READY: "running", RUNNING: "running", "TIMING-OUT": "aborting", ABORTING: "aborting",
   SUCCEEDED: "succeeded", FAILED: "failed", "TIMED-OUT": "timed_out", ABORTED: "aborted",
@@ -353,7 +357,7 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
     if (row.state === "unknown") notes.push("BrainKit cannot tell whether this run started. Its reserved cost is kept until an operator resolves it; it will not be started again.");
     if (row.abort_state) notes.push(NOT_ZERO);
     return { run: row.handle, state: row.state, abort: row.abort_state, remote_outcome_unknown: row.state === "unknown",
-      results: { available: readable, partial: readable && row.state !== "succeeded", expires_at: expires === null ? null : new Date(expires).toISOString() },
+      results: { available: readable, ...(readable ? {bounded_cursor: BOUNDED_CURSOR_PREFIX + book(store=>store.cursor(row.handle,0))} : {}), partial: readable && row.state !== "succeeded", expires_at: expires === null ? null : new Date(expires).toISOString() },
       warnings: notes };
   }
 
@@ -509,7 +513,9 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
     }
     if (response.status >= 400 && response.status < 500) {
       book(store => store.update(row.handle, () => ({ state: "refused", settled: 1, final_micro: 0, cost_basis: "none", note: `start_rejected:${response.status}` }), now()));
-      throw refuse(response.status === 402 ? "budget_exceeded" : "upstream_incompatible", `start_rejected_${response.status}`, "Apify refused to start the run; nothing was started.");
+      throw refuse(response.status === 402 ? "budget_exceeded" : "upstream_incompatible", `start_rejected_${response.status}`, response.status === 400 || response.status === 422
+        ? "Apify rejected the start request. No run started. Inspect this candidate’s input_shape, input_types and required_fields, and consult the Actor README for any missing constraints before preparing a revised proposal."
+        : "Apify refused to start the run; nothing was started.");
     }
     const run = response.status === 200 || response.status === 201 ? remoteRun(response.data) : null;
     if (!run) {
@@ -597,11 +603,17 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
         throw new ApifyInputError(`limit is an integer from 1 to ${APIFY_RUN_LIMITS.max_result_page}.`);
       let row = owned(context, raw.run);
       let offset = 0;
+      let fragment: ReturnType<ApifyLedger["fragmentPosition"]> = null;
+      const bounded = typeof raw.cursor === "string" && raw.cursor.startsWith(BOUNDED_CURSOR_PREFIX);
       if (raw.cursor !== undefined) {
-        const parsed = typeof raw.cursor === "string" ? book(store => store.offset(row.handle, raw.cursor as string)) : null;
-        if (parsed === null) throw new ApifyInputError("That cursor does not belong to this run.");
-        offset = parsed;
+        if (typeof raw.cursor !== "string") throw new ApifyInputError("Expected a result cursor.");
+        const token = bounded ? raw.cursor.slice(BOUNDED_CURSOR_PREFIX.length) : raw.cursor;
+        const parsed = book(store => store.offset(row.handle, token));
+        if (bounded && parsed === null) fragment=book(store=>store.fragmentPosition(row.handle,token));
+        if (parsed === null && !fragment) throw new ApifyInputError("That cursor does not belong to this run.");
+        offset = parsed ?? fragment!.offset;
       }
+      const cursorAt = (next:number) => (bounded ? BOUNDED_CURSOR_PREFIX : "") + book(store=>store.cursor(row.handle,next));
       if (row.state === "unknown" || row.state === "dispatching")
         throw refuse("remote_outcome_unknown", "start_unconfirmed", "BrainKit cannot tell whether this run started, so it has no results.");
       if (row.state === "refused" || row.validated !== 1 || !row.dataset_id)
@@ -618,32 +630,96 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       book(store => store.countRequests({ brain_id: options.brain_id, session_id: context.session_id, turn_id: context.turn_id }, 1,
         limits?.max_requests_per_turn ?? APIFY_DISCOVERY_LIMITS.requests_per_turn));
       row = book(store => store.lifecycleRequest(row.handle, "result", now()));
-      const asked = Math.min(limit, itemsLeft);
+      const asked = fragment ? 1 : Math.min(limit, itemsLeft);
       // A JSON body from the fixed API origin; a redirect or signed download URL is refused, never followed.
       const response = await options.authority.request(binding(row), { method: "GET", path: `/v2/datasets/${row.dataset_id}/items`,
-        query: { offset, limit: asked, clean: true, format: "json" }, ...(context.signal ? { signal: context.signal } : {}) });
+        query: { offset, limit: asked, skipHidden: true, skipEmpty: false, format: "json" }, ...(context.signal ? { signal: context.signal } : {}) }).catch(error => {
+          if (!(error instanceof ApifyResponseTooLarge) || !error.datasetPage) throw error;
+          if (asked === 1 && bounded) return null;
+          throw refuse("upstream_incompatible", "dataset_response_too_large",
+            "The dataset page exceeded the host read limit. Use the bounded_cursor from this run’s status to inspect bounded results, or retry a bounded page at the same cursor with limit 1. Each read uses a result request.");
+        });
+      if (!response) {
+        await context.untrusted({operation:"results",detail:"apify result exceeded the transport limit"});
+        return {run:row.handle,items:[],next_cursor:offset+1 < row.max_result_items ? cursorAt(offset+1) : null,
+          truncated:true,partial:row.state!=="succeeded",untrusted:true,
+          warnings:[`The dataset response for offset ${offset} exceeded the transport limit. No content was inspected. The next cursor skips that offset.`]};
+      }
       if (response.status !== 200 || !Array.isArray(response.data))
         throw refuse("upstream_incompatible", "dataset_items", "Apify returned dataset items this host does not recognise.");
       if (options.authority.credentialRisk(response.data)) throw refuse("policy_denied", "credential_extraction", "Actor output attempts to extract or disclose credentials; no result content was returned.");
+      // Read a large but transport-readable item as JSON text in UTF-8 order.
+      // A fragment cursor pins its content so pages from different revisions
+      // cannot be joined. Inspect the full item for credential risk above.
+      const first = bounded && response.data.length ? Buffer.from(JSON.stringify(response.data[0]) ?? "null") : null;
+      const digest = first ? sha256(first.toString("utf8")).slice(0,20) : null;
+      const start = fragment?.byte ?? 0;
+      if (fragment && (!first || fragment.digest!==digest || start>=first.length))
+        throw refuse("upstream_incompatible","dataset_item_changed","This dataset item changed between fragments. Read the item again before combining its text.");
+      let fragmentEnd: number | undefined;
+      let byteCap = false;
       const items: unknown[] = [];
       let bytes = 0;
       let truncated = false;
+      let pageFull = false;
       const warnings: string[] = [];
-      for (const item of response.data.slice(0, asked)) {
-        const size = Buffer.byteLength(JSON.stringify(item) ?? "null");
-        if (bytes + size > bytesLeft) { truncated = true; break; }
-        bytes += size;
-        items.push(item);
+      // The API paginates before it removes empty items. Keep their raw
+      // positions for the next cursor, then omit them from the client page.
+      const candidates = response.data.slice(0, asked).map(item => {
+        const object=record(item);
+        const empty=item===null || object!==null && !Object.keys(object).length;
+        return {item:empty ? null : item, size:empty ? 0 : Buffer.byteLength(JSON.stringify(item) ?? "null")};
+      });
+      book(store => store.update(row.handle, current => {
+        const available = current.max_result_bytes - current.result_bytes;
+        if (first && (fragment || candidates[0]!.size > 0 && (first.length>available || first.length+2>APIFY_RUN_LIMITS.result_page_bytes))) {
+          // Quoting this JSON text in the result envelope can double its size.
+          const limit=Math.min(available,Math.floor(APIFY_RUN_LIMITS.result_page_bytes/2));
+          let end=Math.min(first.length,start+limit);
+          byteCap=end-start>=available;
+          while (end>start && end<first.length && (first[end]! & 0xc0)===0x80) end--;
+          fragmentEnd=end;
+          return { result_bytes:current.result_bytes+end-start, result_items:Math.max(current.result_items,offset+Number(end===first.length)) };
+        }
+        for (const {item, size} of candidates) {
+          if (bounded && bytes < available && bytes + items.length + size + 2 > APIFY_RUN_LIMITS.result_page_bytes) {
+            pageFull = true;
+            break;
+          }
+          if (bytes + size > available) {
+            if (bounded && bytes < available) pageFull=true;
+            else truncated=true;
+            break;
+          }
+          bytes += size;
+          items.push(item);
+        }
+        return { result_items: Math.max(current.result_items, offset + items.length), result_bytes: current.result_bytes + bytes };
+      }, now()));
+      if (first && digest && fragmentEnd!==undefined) {
+        const complete=fragmentEnd===first.length;
+        const itemCap=complete && offset+1>=row.max_result_items;
+        const next = byteCap || itemCap ? null : complete ? cursorAt(offset+1)
+          : BOUNDED_CURSOR_PREFIX+book(store=>store.fragmentCursor(row.handle,offset,fragmentEnd!,digest));
+        await context.untrusted({operation:"results",detail:"apify dataset item fragment"});
+        return {run:row.handle,items:[],item_fragment:{offset,start_byte:start,total_bytes:first.length,json_text:first.toString("utf8",start,fragmentEnd)},
+          next_cursor:next,truncated:byteCap || itemCap,partial:row.state!=="succeeded",untrusted:true,
+          warnings:[byteCap?"The run reached its result byte limit.":itemCap?"The run reached its result item limit. More dataset items may exist.":"Join the item’s JSON text fragments in order. Each read uses a result request."]};
       }
       const read = items.length;
-      book(store => store.update(row.handle, current => ({ result_items: Math.max(current.result_items, offset + read), result_bytes: current.result_bytes + bytes }), now()));
-      const more = !truncated && response.data.length >= asked && offset + read < row.max_result_items;
+      const nextOffset = offset + read;
+      const more = !truncated && (response.data.length >= asked || nextOffset < offset + response.data.length) && nextOffset < row.max_result_items;
+      if (pageFull && more) warnings.push("Continue with next_cursor on this run. Each page uses a result request.");
+      if (row.state === "succeeded" && !truncated && !items.some(item=>item!==null)) {
+        const outcome=!offset&&!response.data.length?"The run succeeded and the dataset returned no items.":"The run succeeded and this page contained no visible items.";
+        warnings.push(outcome+" This does not establish whether the target was valid. Run charges may still apply.");
+      }
       if (truncated) warnings.push("Results were cut at the policy's byte limit for this run.");
       if (row.state !== "succeeded") warnings.push("The run has not succeeded; these results may be incomplete.");
       await context.untrusted({ operation: "results", detail: `apify run results: ${read} items` });
       // Reaching the run's item bound with a full page means more items may exist than the policy lets this host read.
-      const capped = offset + read >= row.max_result_items && response.data.length >= asked;
-      return { run: row.handle, items: items.filter(item => item !== null), next_cursor: more ? book(store => store.cursor(row.handle, offset + read)) : null,
+      const capped = nextOffset >= row.max_result_items && response.data.length >= asked;
+      return { run: row.handle, items: items.filter(item => item !== null), next_cursor: more ? cursorAt(nextOffset) : null,
         truncated: truncated || capped, partial: row.state !== "succeeded",
         warnings: [...new Set(warnings)], untrusted: true };
     },

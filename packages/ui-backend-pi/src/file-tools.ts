@@ -16,7 +16,8 @@ import { RTK_WORKER_ENV, execWrapperSpawnOptions, WORKER_DATA_ROOT, WORKER_EGRES
 
 import { resolveEnabledWebSearchEnvNames, ambientExecConfig, subprocessEnv } from "./config/env.js";
 import { clip, MAX_READ_BYTES, textResult, type BrainToolKit } from "./tool-kit.js";
-import { revalidatePiAdmission, forgetPiAdmission } from "./tool-admission.js";
+import { pendingPiAdmission, revalidatePiAdmission, forgetPiAdmission } from "./tool-admission.js";
+
 
 /** `read_file`: one repo-contained UTF-8 file, remembered as a same-turn base. */
 export function readFileTool(kit: BrainToolKit): ToolDefinition {
@@ -211,6 +212,7 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
             await turn.bridge?.inputSafety?.refused?.(_id,true);
             throw error;
           }
+
         }
         signal?.throwIfAborted();
         const exec = deps.exec ?? ambientExecConfig();

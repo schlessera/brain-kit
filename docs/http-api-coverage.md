@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:191-210`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:220-238`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -48,6 +48,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `DELETE /api/storage/maintenance/:id` | `mounted supported handler: DELETE /api/storage/maintenance/:id` | SM |
 | `GET /api/storage/history` | `mounted supported handler: GET /api/storage/history` | SG |
 | `GET /api/storage/guidance` | `mounted supported handler: GET /api/storage/guidance` | SG |
+| `GET /api/storage/events` | `mounted supported handler: GET /api/storage/events` | SE |
 | `GET /api/storage` | `mounted supported handler: GET /api/storage` | ST |
 | `POST /api/storage/scans` | `mounted supported handler: POST /api/storage/scans` | ST |
 | `DELETE /api/storage/scans/:id` | `mounted supported handler: DELETE /api/storage/scans/:id` | ST |
@@ -58,6 +59,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/activity/runs` | `mounted supported handler: GET /api/activity/runs` | R |
 | `GET /api/activity/runs/:runId` | `mounted supported handler: GET /api/activity/runs/:runId` | R |
 | `GET /api/activity/stats` | `mounted supported handler: GET /api/activity/stats` | R |
+| `GET /api/activity/turn-timings/summary` | `mounted supported handler: GET /api/activity/turn-timings/summary` | R |
 | `GET /api/attachments/:fileId` | `mounted supported handler: GET /api/attachments/:fileId` | X |
 | `POST /api/auth/login` | `mounted supported handler: POST /api/auth/login` | A, P, Z |
 | `POST /api/auth/logout` | `mounted supported handler: POST /api/auth/logout` | A, P |
@@ -84,6 +86,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/brain/stats/history` | `mounted supported handler: GET /api/brain/stats/history` | B |
 | `POST /api/brain/sync` | `mounted supported handler: POST /api/brain/sync` | B, Y |
 | `GET /api/drafts` | `mounted supported handler: GET /api/drafts` | X |
+| `GET /api/drafts/:id/code-changes` | `mounted supported handler: GET /api/drafts/:id/code-changes` | S |
+| `PUT /api/drafts/:id/code-changes` | `mounted supported handler: PUT /api/drafts/:id/code-changes` | S |
 | `GET /api/drafts/:id/profile` | `mounted supported handler: GET /api/drafts/:id/profile` | X |
 | `PUT /api/drafts/:id/profile` | `mounted supported handler: PUT /api/drafts/:id/profile` | X |
 | `GET /api/drafts/:draftId` | `mounted supported handler: GET /api/drafts/:draftId` | X |
@@ -113,6 +117,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/push/unsubscribe` | `mounted supported handler: POST /api/push/unsubscribe` | U |
 | `POST /api/render` | `mounted supported handler: POST /api/render` | E |
 | `GET /api/sessions` | `mounted supported handler: GET /api/sessions` | S |
+| `GET /api/sessions/:id/code-changes` | `mounted supported handler: GET /api/sessions/:id/code-changes` | S |
+| `PUT /api/sessions/:id/code-changes` | `mounted supported handler: PUT /api/sessions/:id/code-changes` | S |
 | `GET /api/sessions/:id/profile` | `mounted supported handler: GET /api/sessions/:id/profile` | S |
 | `PUT /api/sessions/:id/profile` | `mounted supported handler: PUT /api/sessions/:id/profile` | S |
 | `GET /api/sessions/:id` | `mounted supported handler: GET /api/sessions/:id` | S |
@@ -125,10 +131,16 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
+| `GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview` | J |
+| `POST /api/sessions/:sessionId/turns/:turnId/journal/code/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/journal/code/revert` | J |
+| `GET /api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id` | J |
 | `GET /api/journal/configuration-coverage` | `mounted supported handler: GET /api/journal/configuration-coverage` | J |
 | `GET /api/sessions/:id/safety` | `mounted supported handler: GET /api/sessions/:id/safety` | S |
 | `POST /api/sessions/:id/safety/reviews/prepare` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/prepare` | SR |
 | `POST /api/sessions/:id/safety/reviews/:requestId/commit` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/:requestId/commit` | SR |
+| `POST /api/sessions/:id/safety/reviews/future/prepare` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/future/prepare` | SR |
+| `POST /api/sessions/:id/safety/reviews/future/commit` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/future/commit` | SR |
+| `POST /api/sessions/:id/safety/reviews/future/status` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/future/status` | SR |
 | `GET /api/sessions/:id/attachment-reads` | `mounted supported handler: GET /api/sessions/:id/attachment-reads` | X |
 | `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
@@ -280,6 +292,8 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 - `a HEAD request ignores Range, which applies to GET only` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`a HEAD request ignores Range, which applies to GET only`, `packages/ui-server/tests/files-raw-range.test.ts:102-107`)
 
 **R — Activity reads and accounting.**
+
+- `owner timing summary separates builds, open and absent steps, and caps the record window` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`owner timing summary separates builds, open and absent steps, and caps the record window`, `packages/ui-server/tests/routes-activity.test.ts:670-739`)
 
 - `runs list splits live and history, newest first, with filters` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`runs list splits live and history, newest first, with filters`, `packages/ui-server/tests/routes-activity.test.ts:76-99`)
 - `run detail omits tool payload events unless ?include=payloads asks` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`run detail omits tool payload events unless ?include=payloads asks`, `packages/ui-server/tests/routes-activity.test.ts:113-143`)
@@ -469,8 +483,8 @@ transport; they never call a speech service.
 - `conditional SPA fallback serves deep links, preserves API precedence and reports a missing index` ([source](../packages/ui-server/tests/http-inventory.test.ts)), (`conditional SPA fallback serves deep links, preserves API precedence and reports a missing index`, `packages/ui-server/tests/http-inventory.test.ts:69-83`)
 - `conditional static middleware serves existing assets before the SPA fallback` ([source](../packages/ui-server/tests/http-inventory.test.ts)), (`conditional static middleware serves existing assets before the SPA fallback`, `packages/ui-server/tests/http-inventory.test.ts:85-93`)
 
-The classified table contains 97 declared endpoints (49 supported and 48
-internal) and one conditional internal SPA fallback. Exact runtime equality
+The [classified inventory](http-api.md#inventory-and-selection) includes the
+supported and internal endpoints and the conditional internal SPA fallback. Exact runtime equality
 rejects an undocumented handler. Wildcard middleware is counted separately:
 global security/observability, `/api` origin/CORS/authentication, owner guards,
 poke method refusal and conditional static assets. HEAD dispatch suppresses
@@ -558,6 +572,12 @@ exercise two processes, cancellation, cache failure and parent SIGKILL.
 existing injected transport, including concurrent native senders and SIGKILL
 after dispatch entry; they never contact a push provider.
 
+SE: [Storage events](../packages/ui-server/tests/storage-events.test.ts) checks
+the mounted absent, delegated and revoked callers, invalid queries, per-principal
+maintenance receipts, identity filtering and `since` paging, and drives real
+history flushes and maintenance runs for episode times, restart durability,
+per-kind limits and the worst-case response size.
+
 CD: [Chat deletion on a real file-backed writer](../packages/ui-server/tests/chat-deletion.test.ts)
 covers per-store removal against a whole-database marker scan, unrelated chat and
 unbound draft controls, replay refusal, honest partial/unknown outcomes, restart
@@ -574,3 +594,11 @@ the owner, foreign, agent and unknown answers through `createApp` and cookies.
 The safety read additionally runs real password-authenticated loopback HTTP/WS
 fixtures in `packages/ui-server/tests/safety-history.test.ts`, including stale
 cursors, revocation/retirement after a held read and independent A/B/C records.
+
+Checkout receipt behavior is covered by `code-change-receipt.test.ts` (real Git,
+owned endpoints, sandbox denial, crash recovery),
+`code-change-history-runtime.test.ts` (mounted owner effects, idempotent
+reconciliation and conflicts), and the code-history case in
+`turn-journal-runtime.test.ts` (real browser history controls, confirmation and
+conflict endpoints). Native UID qualification is in
+`scripts/native-proof/code-change-receipts.ts`.

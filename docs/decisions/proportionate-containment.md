@@ -12,10 +12,10 @@ Ruled by the maintainer on 2026-11-09 (#3812). Tracked under #3813.
 A hosted instance refused every turn in every chat. One turn's safety-recording
 write had failed, and the guard reacted by setting one durable flag for the
 whole brain (`latchSafety`,
-`packages/ui-server/src/governance/safety-store.ts:115-125`). From then on, turn
+`packages/ui-server/src/governance/safety-store.ts:118-128`). From then on, turn
 admission threw for every chat, including new chats that had never seen
 untrusted input (`beginSafetyCollection`,
-`packages/ui-server/src/governance/safety-store.ts:193-202`). The error that
+`packages/ui-server/src/governance/safety-store.ts:196-205`). The error that
 set the flag was recorded as "capacity" while the store was at a fraction of a
 percent of its limits, and its real cause was never stored. The only way back
 was to stop the server and run `recoverSafetyRecording` from a script, a
@@ -65,7 +65,7 @@ design, not an afterthought.
      non-restorable.
    - Disproportionate: one corrupt undo object stops the server from starting
      (`recover(objects)`,
-     `packages/ui-server/src/brain/journal-accounting.ts:232-246`).
+     `packages/ui-server/src/brain/journal-accounting.ts:272-286`).
 5. **Diagnosable.** Every latch, give-up, quarantine or restricted boot records
    its cause durably (error class, message, call site, scope, time), writes one
    structured log line, and is visible to the owner. A cause that is only in a
@@ -138,11 +138,11 @@ whole operational database and staging tree, including principals, schedules,
 retained dialogue authority and budget reservations. It is not a single inbox
 item. Resume accepts only the original snapshot checksum and root and an
 unchanged logical database
-(`restoreInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:428-445`).
+(`restoreInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:439-456`).
 Even ordinary authentication writes would make that target fail the equality
 check. The final transaction settles reservations conservatively, pauses
 schedules and invalidates old dialogue authority before marking it ready
-(`const recovered`, `packages/ui-server/src/inbox/snapshot.ts:463-480`).
+(`const recovered`, `packages/ui-server/src/inbox/snapshot.ts:474-491`).
 Starting the regular authenticated app over the pending database cannot
 preserve this recovery contract, so its refusal remains. The existing local
 `brain-ui-inbox restore --db <database> --brain-root <brain> --file <snapshot>

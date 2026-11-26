@@ -27,7 +27,7 @@ interface Double {
 function double(
   init: () => Promise<{ account: AccountInfo }>,
   after: unknown[],
-  settings: (() => Promise<unknown>) | null = async () => ({ effective: {}, sources: [] })
+  settings: (() => Promise<unknown>) | null = async () => ({ effective: { env: { ENABLE_TOOL_SEARCH: "false" } }, sources: [] })
 ): Double {
   const released: SDKUserMessage[] = [];
   const queryFn = ((params: { prompt: string | AsyncIterable<SDKUserMessage> }) => ({
@@ -47,7 +47,8 @@ function double(
 async function turn(
   d: Double,
   signal = new AbortController().signal,
-  sessionId?: string
+  sessionId?: string,
+  api = false
 ): Promise<ServerMessage[]> {
   const frames: ServerMessage[] = [];
   const bridge: BackendBridge = {
@@ -57,6 +58,7 @@ async function turn(
   const backend = createClaudeBackend({
     brainPath: "/brain",
     queryFn: d.queryFn,
+    ...(api ? { profiles: [{ id: "api", label: "API", model: "claude-opus-5-5", billing: "api" as const, requiredEnvKeys: [], buildEnv: () => ({}) }] } : {}),
     log: () => {},
   });
   await backend.startTurn({ prompt: "hi", signal, bridge, ...(sessionId ? { sessionId } : {}) });
@@ -146,7 +148,7 @@ describe("the subscription gate", () => {
       async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }),
       [],
       async () => ({
-        effective: { apiKeyHelper: "" },
+        effective: { apiKeyHelper: "", env: { ENABLE_TOOL_SEARCH: "false" } },
         sources: [{ source: "policySettings", settings: { apiKeyHelper: "sleep 1; echo key" } }],
       })
     );
@@ -165,7 +167,7 @@ describe("the subscription gate", () => {
     const frames = await turn(d);
 
     expect(d.released).toEqual([]);
-    expect(frames.at(-1)).toMatchObject({ type: "error", code: "CLAUDE_AUTH" });
+    expect(frames.at(-1)).toMatchObject({ type: "error", code: "CLAUDE_ERROR", failure: { errorClass: "settings_conflict" } });
   });
 
   test("a handshake that fails on its own is a CLAUDE_ERROR, and nothing is released", async () => {
@@ -180,3 +182,17 @@ describe("the subscription gate", () => {
 });
 
 mockWorkerHostForSdkStream();
+
+test("direct API runner with no runtime floor verifies the effective off pin before releasing a prompt", async () => {
+  for (const effective of ["true", undefined, "false"]) {
+    let settingsRead = 0;
+    const d = double(async () => ({ account: { apiProvider: "firstParty", apiKeySource: "ANTHROPIC_API_KEY" } }), [], async () => {
+      settingsRead++;
+      return { effective: { env: { ENABLE_TOOL_SEARCH: effective } }, sources: [] };
+    });
+    const frames = await turn(d, new AbortController().signal, undefined, true);
+    expect(settingsRead, "DIRECT_API_RUNNER_READS_SETTINGS").toBe(1);
+    expect(d.released.length, "DIRECT_API_RUNNER_WITHHOLDS_UNQUALIFIED_INPUT").toBe(effective === "false" ? 1 : 0);
+    if (effective !== "false") expect(frames.find(frame => frame.type === "error" && frame.message.includes("retained tool-search selection"))).toMatchObject({ failure: { errorClass: "settings_conflict" } });
+  }
+});

@@ -1,3 +1,4 @@
+import { clientTurnServer } from "../ui-react/tests/browser/client-turn-server-command.ts";
 import { recordingProof } from "../ui-react/tests/browser/offline/recording-proof.ts";
 import { conversationServer } from "../ui-react/tests/browser/conversation-server-command.ts";
 import { diagramArtifact, diagramFontStyles, diagramRasterComparison, diagramRepaintParity, fullRasterChromiumArgs } from "../ui-react/tests/browser/diagram-export-command.ts";
@@ -74,7 +75,7 @@ const storyProject = (name: string, theme: string) => ({
   test: {
     name,
     provide: { storyTheme: theme },
-    setupFiles: ["./tests/visual/story-theme-setup.ts"],
+    setupFiles: ["./tests/visual/story-theme-setup.ts", "./tests/visual/story-isolation-setup.ts"],
     browser: {
       enabled: true,
       commands: { consumerParityViewport, artifactParityRoute },
@@ -175,7 +176,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { safetyServer, recordingProof, rankTap, conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, safetyGapChats, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { clientTurnServer, safetyServer, recordingProof, rankTap, conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, safetyGapChats, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.

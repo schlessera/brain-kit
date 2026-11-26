@@ -3,6 +3,7 @@ import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { WorkerNoteFacts } from "@schlessera/brain-ui-sdk/internal";
 import { requireWorkerHostRecorded } from "../../agent/worker-host.js";
 import { createTurnRecorder, type TurnRecorder } from "../../activity/recorder.js";
+import { restrictFailedCheckouts } from "../../brain/checkout-restrictions.js";
 import { BudgetExceeded, BudgetUnavailable } from "../../brain/turn-budgets.js";
 import { withTurnScope } from "../frames.js";
 import type { WsHost } from "../host.js";
@@ -53,8 +54,8 @@ export function armTurnTimeout(host: WsHost, turn: RunningTurn, abortController:
       attributes: { ...turnLogAttributes(turn), "timeout.ms": host.turnTimeoutMs },
     });
     turn.timedOutTurnId = turn.turnId;
-    abortController.abort();
     host.coordinator.drainPendingForTurn(turn, "Turn timed out");
+    abortController.abort();
   }, host.turnTimeoutMs);
   turn.timeoutHandle = timeoutHandle;
   return timeoutHandle;
@@ -148,6 +149,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
     throw new Error("A draft profile requires the matching first-send identity and correlation.");
   const preference = origin === "interactive"
     ? host.sessionProfiles?.preference(turn.principalId, resumeId, resumeId ? undefined : initial.profileDraftId) : undefined;
+  const codeChanges = host.sessionProfiles?.codeChanges(turn.principalId, resumeId, resumeId ? undefined : initial.profileDraftId) ?? false;
   if (host.governedTurns) lifecycle?.mark("governedStartedAt");
   else lifecycle?.skip("governed");
   // Only a backend whose turn runs on the host inference relay can name
@@ -162,7 +164,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
   abortController.signal.throwIfAborted();
   const handoffSource = !resumeId && turn.turnId === slot.firstTurnId ? initial.handoffHooks?.sourceSessionId : undefined;
   held.governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference, {
-    ...(inferenceOrigin ? { inferenceOrigin } : {}), ...(resumeId ? { sessionId: resumeId } : {}), ...(handoffSource ? { inherit: [handoffSource] } : {}) }, governedTimer);
+    codeChanges, ...(inferenceOrigin ? { inferenceOrigin } : {}), ...(resumeId ? { sessionId: resumeId } : {}), ...(handoffSource ? { inherit: [handoffSource] } : {}) }, governedTimer);
   const governedHold = held.governedHold;
   if (governedHold) lifecycle?.mark("governedAcquiredAt");
   if (!governedHold || !host.budgets) lifecycle?.skip("budget");
@@ -179,10 +181,11 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
   } catch { throw new BudgetUnavailable(); }
   if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
   if (governedHold && host.journal) {
+    host.journal.evidence?.(turn.turnId, lifecycle?.hold, () => run.held.turnEgress?.inferenceInFlight() ?? false);
     lifecycle?.mark("journalStartedAt");
     await host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
       actor: origin, model: run.mainModel,
-      profile: heldProfile(run), policyHash: governedHold.policy.hash },
+      profile: heldProfile(run), workspacesWritable: codeChanges && governedHold.sandbox.areas.some(area => area.name === "workspaces" && area.mount.writable), workspaceMissing: governedHold.sandbox.areas.some(area => area.name === "workspaces" && !area.mount.writable && area.mount.missing), workspaceReadOnly: governedHold.sandbox.areas.some(area => area.name === "workspaces" && !area.mount.writable && !area.mount.missing), policyHash: governedHold.policy.hash },
     error => {
       // A real timeout/cancel already won; never relabel that terminal.
       if (abortController.signal.aborted || turn.cancelled) return;
@@ -190,6 +193,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
       abortController.abort(error);
       host.coordinator.drainPendingForTurn(turn, error.message);
     }, abortController.signal, journalTimer);
+    restrictFailedCheckouts(governedHold.sandbox, host.journal.restrictedCheckouts(turn.turnId));
     lifecycle?.mark("journalBeganAt");
   }
   abortController.signal.throwIfAborted();
@@ -244,6 +248,7 @@ async function beginTurnScope(run: TurnRun): Promise<void> {
   const governedHold = run.held.governedHold!;
   const work = current.work;
   await host.scope!.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
+    liveIndexWritable: heldProfile(run) === "governed" && !governedHold.sandbox.providerMasks?.index && !governedHold.sandbox.dataTree,
     origin, model: () => run.mainModel, profile: heldProfile(run), policy: governedHold.policy.policy,
     source: governedHold.policy.source === "default" ? "default" : "policy", hardTimeoutMs: host.turnTimeoutMs,
     current: () => turn.turnId === scopeTurnId && !abortController.signal.aborted && current.authorization.valid && current.authorization.expiresAt > Date.now() && host.isPrincipalAuthorized(current.principalId),

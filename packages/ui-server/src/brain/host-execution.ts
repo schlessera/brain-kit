@@ -13,7 +13,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import type { WorkerHostProbe, WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { assertOperationalStateOutsideBrain, type OperationalStateLayout } from "./operational-state.js";
-import { createUiDb } from "../db/client.js";
+import { openSharedUiDb } from "../db/client.js";
 import { createHostBoundary, type HostBoundary } from "./host-boundary.js";
 import { assertReconciled, createGovernedManifests, type GovernedManifests, type Reconciliation } from "./governed-manifest.js";
 import { createWriterGate, type WriterGate } from "./writer-gate.js";
@@ -99,7 +99,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
     quarantinePath: () => quarantineDir,
     reconcileExisting() {
       if (options.dbPath === ":memory:" || !existsSync(options.dbPath)) return [];
-      const db = createUiDb(options.dbPath);
+      const db = openSharedUiDb(options.dbPath);
       try {
         const opened = open(db);
         const results = opened.reconcileAbandoned();

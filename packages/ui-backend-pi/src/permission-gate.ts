@@ -151,8 +151,10 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         // The server route rechecks the exact operation, live principal,
         // membership and approval. Avoid a second runtime approval card.
         if (turn.bridge?.applyBrain && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].includes(event.toolName)) {
+          const safety = turn.bridge.admissionSafety, before = safety?.read();
           await turn.bridge.inputSafety?.begin(event.toolCallId,event.toolName,event.input??{});
-          const unavailable = safetyAdmissionRefusal(turn.bridge.admissionSafety);
+          for (const pending of safety?.pendingRecording?.(before, turn.signal ?? undefined) ?? []) await pending;
+          const unavailable = safetyAdmissionRefusal(safety, before);
           return unavailable ? { block: true, reason: unavailable } : undefined;
         }
         const decision = await decidePiToolPermission(options, event.toolName, (event.input ?? {}) as Record<string, unknown>, event.toolCallId);
@@ -194,8 +196,14 @@ async function decidePiToolPermissionUnchecked(options: PermissionGateOptions, t
   const denied = denyWorkerCommand(policy, { bridge: turn.bridge, toolName, shellToolName: "bash", input, toolUseId });
   if (denied) { observeOutwardPlan(prepareOutwardPlan({ toolName, shellToolName: "bash", input, taint: turn.commandPolicy?.taint, autonomous: Boolean(turn.autonomous) }), { bridge: turn.bridge, toolName, input, toolUseId, decision: "refused" }); return { behavior: "deny", message: denied }; }
   if (turn.signal?.aborted) return { behavior: "deny", message: "Turn cancelled before tool admission." };
-  const outwardPlan = outward(input);
   const snapshot = safety?.read();
+  for (const pending of safety?.pendingRecording?.(snapshot, turn.signal ?? undefined) ?? []) await pending;
+  if (snapshot && !snapshot.recordingAvailable) {
+    const refusal = safetyAdmissionRefusal(safety, snapshot);
+    if (refusal) return { behavior: "deny", message: refusal };
+  }
+  const outwardPlan = outward(input);
+
   let outwardApproved = false;
   const confirmPatterns = [...options.confirmPatterns, ...policy.confirm, ...(outwardPlan.pattern ? [outwardPlan.pattern] : [])];
   if (outwardPlan.voiceRefusal) { observe(input, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
@@ -238,6 +246,7 @@ async function decidePiToolPermissionUnchecked(options: PermissionGateOptions, t
   }
   try{await turn.bridge?.inputSafety?.begin(toolUseId,toolName,effective);}
   catch(error){return {behavior:"deny",message:error instanceof Error?error.message:"Safety collection unavailable"};}
+  for (const pending of safety?.pendingRecording?.(snapshot, turn.signal ?? undefined) ?? []) await pending;
   const finalPlan = outward(effective);
   const stale = commitOutwardPlan(finalPlan, { bridge: turn.bridge, safety, before: snapshot, approved: outwardApproved, signal: turn.signal });
   observeOutwardPlan(finalPlan, { bridge: turn.bridge, toolName, input: effective, toolUseId, decision: stale ? "refused" : { behavior: "allow" } });

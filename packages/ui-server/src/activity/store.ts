@@ -1,5 +1,7 @@
+import { stoppedTime } from "./stopped-time.js";
+import { clientTurnTimingSchema, MAX_CLIENT_TURN_RECEIPT_BYTES } from "@schlessera/brain-ui-sdk/schemas";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
-import { lifecycleTiming } from "./turn-lifecycle.js";
+import { lastLifecycleObservation, lifecycleTiming } from "./turn-lifecycle.js";
 import { settleInboxBudgetRun } from "../inbox/budget.js";
 /**
  * The activity store: the canonical record of agent activity (migration 007).
@@ -33,7 +35,7 @@ import { settleInboxBudgetRun } from "../inbox/budget.js";
  * on programmer error, because a silent half-written record is worse than a
  * loud one.
  */
-import type { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import {
   isBillingMode,
   isFailureOutcome,
@@ -263,8 +265,7 @@ export interface RunSnapshot {
   runId: string;
   spans: SpanRow[];
   events: SpanEventRow[];
-  /** Per-run high-water seq at the moment of the read, in the SAME
-   *  transaction as the reads — the poller/subscriber baseline. */
+  /** Full per-run high-water sequence from the same read transaction. */
   highWaterSeq: number;
   /** Global cursor at the same moment, for pinning a poller baseline. */
   changeCursor: number;
@@ -289,10 +290,17 @@ export interface PruneOptions {
 export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
 
 export interface ActivityStore {
-  writeLifecycle(record: ActivityTurnLifecycle): void;
+  writeLifecycle(record: ActivityTurnLifecycle, principalId?: string): void;
+  writeClientReceipt?(turnId: string, principalId: string, timing: import("@schlessera/brain-ui-sdk/protocol").ClientTurnTiming): boolean;
   lifecycleChangesSince(cursor: number, limit?: number): Array<{ changeId: number; runId: string; seq: number; kind: "lifecycle"; lifecycle: ActivityTurnLifecycle }>;
   lifecycle(turnId: string): ActivityTurnLifecycle | null;
+  /** A lifecycle and its snapshot floor from one SQLite read transaction. */
+  lifecycleSnapshot?(turnId: string): { lifecycle: ActivityTurnLifecycle; highWaterSeq: number } | null;
   lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
+  /** Joined lifecycle data and its sequence from one read transaction. */
+  snapshotLifecycles?(scope: { turnId?: string; sessionId?: string; limit?: number }): {
+    lifecycles: ActivityTurnLifecycle[]; highWaterSeq: Record<string, number>;
+  };
 
   readonly writer: string;
   startSpan(input: StartSpanInput): SpanRow;
@@ -349,7 +357,7 @@ export interface ActivityStore {
     limit?: number
   ): Array<{ changeId: number; span: SpanRow }>;
   latestChangeCursor(): number;
-  snapshotRun(runId: string): RunSnapshot | null;
+  snapshotRun(runId: string, rootOnly?: boolean): RunSnapshot | null;
   /** The run's high-water seq — what a full snapshot carries, without the reads. */
   runHighWaterSeq(runId: string): number;
   getSpan(spanId: string): SpanRow | null;
@@ -368,7 +376,7 @@ export interface ActivityStore {
 
 type Awaitable<T> = T | Promise<T>;
 /** The writes a store may commit off the event loop (#2814). */
-export type ActivityWriteMethod = "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat"
+export type ActivityWriteMethod = "writeClientReceipt" | "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat"
   | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
 
 /**
@@ -380,7 +388,9 @@ export type ActivityWriteMethod = "writeLifecycle" | "startSpan" | "endSpan" | "
  * return.
  */
 export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
-  [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+  [K in Exclude<ActivityWriteMethod, "writeClientReceipt">]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+} & {
+  writeClientReceipt?: (...args: Parameters<NonNullable<ActivityStore["writeClientReceipt"]>>) => Awaitable<ReturnType<NonNullable<ActivityStore["writeClientReceipt"]>>>;
 };
 
 /**
@@ -406,6 +416,31 @@ export interface CreateActivityStoreOptions {
   pricing?: RollupPricing;
 }
 
+/** Closing steps whose work may confirm after the terminal (#4520). */
+const LATE_CLOSING_STEPS = new Set(["failure_recording"]);
+
+/**
+ * The stored closing steps with each unended late step's end filled from
+ * `record`, or undefined when nothing new ends. Nothing else may change.
+ */
+function lateClosingEnds(previous: ActivityTurnLifecycle, record: ActivityTurnLifecycle): ActivityTurnLifecycle["openSubPhases"] {
+  let filled = false;
+  // Repeated steps keep their order, so the nth stored occurrence pairs with
+  // the nth incoming one; one confirmation never ends a sibling's step.
+  const occurrence = (steps: ActivityTurnLifecycle["openSubPhases"], name: string) => (steps ?? []).filter(step => step.phase === "closing" && step.name === name);
+  const seen = new Map<string, number>();
+  const steps = previous.openSubPhases?.map(step => {
+    if (step.phase !== "closing" || !LATE_CLOSING_STEPS.has(step.name)) return step;
+    const index = seen.get(step.name) ?? 0; seen.set(step.name, index + 1);
+    if (step.endedAt !== null) return step;
+    const other = occurrence(record.openSubPhases, step.name)[index];
+    const ended = other?.startedAt === step.startedAt ? other.endedAt : undefined;
+    if (typeof ended !== "number" || !Number.isFinite(ended) || ended < step.startedAt) return step;
+    filled = true; return { ...step, endedAt: ended };
+  });
+  return filled ? steps : undefined;
+}
+
 export function createActivityStore(
   db: Database,
   options: CreateActivityStoreOptions = {}
@@ -425,6 +460,10 @@ export function createActivityStore(
   // bun:sqlite transactions: `.immediate` takes the write lock up front, so a
   // concurrent writer waits (busy_timeout) instead of failing mid-upgrade.
   const inWrite = <T>(fn: () => T): T => db.transaction(fn).immediate();
+  // Read-only WAL snapshots bypass the app writer turn. The instance's
+  // transaction wrapper serializes writes and can block in Atomics.wait.
+  const readSnapshot = <T>(read: () => T): T => db.inTransaction ? read()
+    : Database.prototype.transaction.call(db, read).deferred() as T;
 
   function nextSeq(runId: string): number {
     const row = db
@@ -636,9 +675,33 @@ export function createActivityStore(
     if (root.endedAt !== null) settleInboxBudgetRun(db, runId, "settled", Date.now(), getPricing());
   }
 
+  const joinClient = (record: ActivityTurnLifecycle): ActivityTurnLifecycle => {
+    const row = db.query("SELECT CAST(substr(CAST(receipt AS BLOB), 1, ?) AS TEXT) AS receipt, length(CAST(receipt AS BLOB)) AS receiptBytes FROM activity_turn_clients WHERE turn_id = ?").get(MAX_CLIENT_TURN_RECEIPT_BYTES + 1, record.turnId) as { receipt: string | null; receiptBytes: number | null } | null;
+    const { clientTiming: _timing, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
+    const host = lifecycleTiming(hostRecord);
+    if (!row || row.receipt === null) return host;
+    if (row.receiptBytes === null || row.receiptBytes > MAX_CLIENT_TURN_RECEIPT_BYTES) return { ...host, clientTimingUnavailable: "invalid_receipt" };
+    try {
+      const timing = clientTurnTimingSchema.safeParse(JSON.parse(row.receipt));
+      if (timing.success) return { ...host, clientTiming: timing.data };
+    } catch { /* Retain the corrupt row; only its optional measurement is unavailable. */ }
+    return { ...host, clientTimingUnavailable: "invalid_receipt" };
+  };
   const lifecycle = (id: string): ActivityTurnLifecycle | null => {
-    const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
-    return row ? lifecycleTiming(JSON.parse(row.record)) : null;
+    const read = () => {
+      const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
+      return row ? joinClient(JSON.parse(row.record)) : null;
+    };
+    return readSnapshot(read);
+  };
+  const lifecycles = (sessionId?: string, limit = 100): ActivityTurnLifecycle[] => {
+    const read = () => {
+      const rows = sessionId === undefined
+        ? db.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at DESC LIMIT ?").all(limit)
+        : db.query("SELECT record FROM activity_turn_lifecycles WHERE session_id = ? ORDER BY accepted_at DESC LIMIT ?").all(sessionId, limit);
+      return (rows as { record: string }[]).map(row => joinClient(JSON.parse(row.record)));
+    };
+    return readSnapshot(read);
   };
   return {
     writer,
@@ -656,26 +719,71 @@ export function createActivityStore(
       return gap ? null : prior;
     },
     lifecycle,
-    lifecycles(sessionId, limit = 100) {
-      const rows = sessionId === undefined
-        ? db.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at DESC LIMIT ?").all(limit)
-        : db.query("SELECT record FROM activity_turn_lifecycles WHERE session_id = ? ORDER BY accepted_at DESC LIMIT ?").all(sessionId, limit);
-      return (rows as { record: string }[]).map(row => lifecycleTiming(JSON.parse(row.record)));
+    lifecycleSnapshot(turnId) {
+      return readSnapshot(() => {
+        const record = lifecycle(turnId);
+        return record ? { lifecycle: record, highWaterSeq: runHighWaterSeqRaw(record.lifecycleId) } : null;
+      });
+    },
+    lifecycles,
+    snapshotLifecycles(scope) {
+      return readSnapshot(() => {
+        const records = scope.turnId ? [lifecycle(scope.turnId)].filter((record): record is ActivityTurnLifecycle => record !== null)
+          : lifecycles(scope.sessionId, scope.limit);
+        return { lifecycles: records, highWaterSeq: Object.fromEntries(records.map(record => [record.lifecycleId, runHighWaterSeqRaw(record.lifecycleId)])) };
+      });
     },
     lifecycleChangesSince(cursor, limit = 500) {
-      const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record FROM activity_changes c
-        JOIN activity_turn_lifecycles l ON l.turn_id = substr(c.run_id, 11) AND c.span_id = c.run_id
-        WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(cursor, limit) as any[];
-      return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:lifecycleTiming(JSON.parse(r.record))}));
+      return readSnapshot(() => {
+        const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record FROM activity_changes c
+          JOIN activity_turn_lifecycles l ON l.turn_id = substr(c.run_id, 11) AND c.span_id = c.run_id
+          WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(cursor, limit) as any[];
+        return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:joinClient(JSON.parse(r.record))}));
+      });
     },
-    writeLifecycle(record) {
+    writeClientReceipt(turnId, principalId, timing) {
+      // Strict projection at the storage boundary too: callers cannot smuggle
+      // host fields through a cast. First accepted report wins atomically.
+      const parsed = clientTurnTimingSchema.safeParse(timing);
+      if (!parsed.success) return false;
+      return inWrite(() => {
+        const changed = db.query(`UPDATE activity_turn_clients SET receipt = ?
+          WHERE turn_id = ? AND principal_id = ? AND receipt IS NULL
+          AND EXISTS (SELECT 1 FROM activity_turn_lifecycles WHERE turn_id = ? AND ended_at IS NOT NULL)`)
+          .run(JSON.stringify(parsed.data), turnId, principalId, turnId).changes;
+        if (!changed) return false;
+        const id = `lifecycle:${turnId}`;
+        logChange(id, nextSeq(id), id);
+        return true;
+      });
+    },
+    writeLifecycle(record, principalId) {
       inWrite(() => {
         const previous = lifecycle(record.turnId);
-        if (previous?.endedAt !== null && previous !== null) return;
-        const value = lifecycleTiming(record);
+        // A terminal stays immutable. Only its two trailing host receipts and
+        // a late-confirmed closing step (#4520) may fill an unknown timestamp;
+        // an orphan sweep cannot be reopened.
+        if (previous?.endedAt != null) {
+          if (previous.outcome === "interrupted" || previous.endedAt !== record.endedAt || previous.outcome !== record.outcome) return;
+          const lateEnds = lateClosingEnds(previous, record);
+          if (!(previous.recorderSettledAt == null && record.recorderSettledAt != null)
+            && !(previous.idleEmittedAt == null && record.idleEmittedAt != null) && !lateEnds) return;
+          // Fill only what is new; a stored receipt keeps its value and presence.
+          record = { ...previous,
+            ...(previous.recorderSettledAt == null && record.recorderSettledAt != null ? { recorderSettledAt: record.recorderSettledAt } : {}),
+            ...(previous.idleEmittedAt == null && record.idleEmittedAt != null ? { idleEmittedAt: record.idleEmittedAt } : {}),
+            ...(lateEnds ? { openSubPhases: lateEnds } : {}) };
+        }
+        // Client data is never part of the completed host envelope.
+        const { clientTiming: _clientTiming, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
+        if (hostRecord.endedAt !== null && previous?.endedAt == null && hostRecord.holds) {
+          hostRecord.stoppedTime = stoppedTime(hostRecord.holds);
+        }
+        const value = lifecycleTiming(hostRecord);
         db.query(`INSERT INTO activity_turn_lifecycles VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(turn_id) DO UPDATE SET session_id=excluded.session_id, ended_at=excluded.ended_at, record=excluded.record`)
           .run(value.turnId, value.sessionId, value.acceptedAt, value.endedAt, JSON.stringify(value));
+        if (principalId) db.query("INSERT INTO activity_turn_clients (turn_id, principal_id) VALUES (?, ?) ON CONFLICT DO NOTHING").run(value.turnId, principalId);
         logChange(value.lifecycleId, nextSeq(value.lifecycleId), value.lifecycleId);
       });
     },
@@ -802,7 +910,7 @@ export function createActivityStore(
       const envelopes = db.query("SELECT record FROM activity_turn_lifecycles WHERE ended_at IS NULL").all() as { record: string }[];
       for (const row of envelopes) {
         const record: ActivityTurnLifecycle = JSON.parse(row.record);
-        this.writeLifecycle({ ...record, endedAt: Date.now(), outcome: "interrupted", reason: "server restarted" });
+        this.writeLifecycle({ ...record, endedAt: lastLifecycleObservation(record), outcome: "interrupted", reason: "server restarted" });
       }
       if (open.length === 0) return envelopes.length;
       getPricing(); // construct outside the write lock; rollup reuses it
@@ -891,18 +999,18 @@ export function createActivityStore(
       return row.hi;
     },
 
-    snapshotRun(runId) {
+    snapshotRun(runId, rootOnly = false) {
       // A read transaction so spans, events, high-water seq, and the global
       // cursor are one consistent picture — the poller baseline is pinned to
       // exactly this moment (no gap between snapshot and first delta).
-      return db.transaction(() => {
+      return readSnapshot(() => {
         const spans = (
           db
-            .query(ACTIVITY_SQL.spansByRun)
+            .query(rootOnly ? "SELECT * FROM activity_spans WHERE run_id = ? AND parent_span_id IS NULL AND outcome IS NULL" : ACTIVITY_SQL.spansByRun)
             .all(runId) as any[]
         ).map(rowToSpan);
         if (spans.length === 0) return null;
-        const events = (
+        const events = rootOnly ? [] : (
           db
             .query(ACTIVITY_SQL.eventsByRun)
             .all(runId) as any[]
@@ -917,7 +1025,7 @@ export function createActivityStore(
           highWaterSeq: runHighWaterSeqRaw(runId),
           changeCursor: cursor.hi,
         };
-      })();
+      });
     },
 
     runHighWaterSeq: runHighWaterSeqRaw,

@@ -135,6 +135,14 @@ running under the tainted policy, not refusing.
   discharge commit together. A collection that ends owing one, however it
   ended, and an obligation still open at boot, leave the same permanent
   gap.
+- For a refused web fetch, the collector may prove non-delivery when the
+  backend denied the sole admission before allowing execution. The host
+  appends that fact to the exact fetch inputs and discharges the obligation
+  in one transaction. The attempts remain in history, contribute zero
+  unresolved inputs, and receive no owner verdict. A later result supersedes
+  that fact. A proxy refusal, interrupted connection, timeout, error message
+  or missing result alone cannot prove whether the fetch delivered input.
+  Independent proxy observations retain their own disposition.
 - **Evidence store unwritable** (the chat fact cannot commit): the brain
   latches through the emergency reserve, or, when even that fails, in the
   host process. New turns still begin, each with a permanent

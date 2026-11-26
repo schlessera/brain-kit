@@ -2,7 +2,7 @@ import { sessionPromptContext, describeClient, NativeFileVersions, workerExecHel
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getAgentDir, SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { BackendRequestError, compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, BackendRequestError, compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 
 import { piRelayOrigin } from "./host-inference.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
@@ -21,7 +21,7 @@ import { discoversPiExtensions } from "./extension-inspection.js";
 export { savedModel } from "./worker-launch.js";
 
 /** What the host saw one call do: the RPCs it made, under the name it ran as (#2834). */
-export type CallExecution = { name: string; host: boolean; lock: boolean; phases: Set<string> };
+export type CallExecution = { name: string; host: boolean; lock: boolean; phases: Set<string>; input?: Record<string, unknown> };
 /**
  * The execution path one completed call proved, from the host's own record of
  * its RPCs. Only an extension-free worker's calls are ever passed here: its
@@ -59,6 +59,8 @@ export async function piInferenceOrigin(backend: CreatePiBackendOptions, session
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string, nativeSessions = new Map<string, NativeFileVersions>()) {
   const startupStarted = performance.now();
+  env = { ...env, startupTiming: safeStartupTiming(env.startupTiming) };
+  const prepared = env.startupTiming?.start("preparation");
   env.workerSignal?.throwIfAborted();
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
   const restricted = env.autonomous?.containment === "restricted";
@@ -115,7 +117,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   if (admission.webModel) turnContext.webModel = admission.webModel;
   const { workerSandbox, workerLock, workerSignal, toolExecution } = admission.hostEnv;
   const { child, sandbox, sandboxNote, turnTemp } = await launchPiWorker({ backend, env, admission, restricted, resumeId, execHelpers, confirmPatterns,
-    startupStarted, turnContext });
+    startupStarted, turnContext, prepared });
   const { closeTurnTemp, releases, claimTurnTempClose, teardown, diagnostic, reportLimitHits, limitEnded, send, stdioReleased } = superviseWorker({ child, reservation,
     turnTemp, env, turnContext, admission, answerText: () => receipts.answerText() });
   function live(): void {
@@ -147,7 +149,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     observeFile: path => child.observeFile?.(path), nativeVersions, relayed: Boolean(hostInference), agentDir, agentFiles, allowedTools,
     confirmPatterns, bridgeTools, capabilities: env.caps, receipts });
   const received = readPiWorkerProtocol({ child, state, ready, done, sessionId, backend, startupStarted, promptContext,
-    sessionBudgetLimits: env.sessionBudgetLimits, autonomous: Boolean(env.autonomous), resumed: Boolean(resumeId), turnContext, nativeVersions,
+    startupTiming: env.startupTiming, sessionBudgetLimits: env.sessionBudgetLimits, autonomous: Boolean(env.autonomous), resumed: Boolean(resumeId), turnContext, nativeVersions,
     receipts, resumedIds, listeners, proof, toolExecution, dispatch, send, fail, reportLimitHits, limitEnded, diagnostic }).catch(async error => {
     // A worker a limit killed mid-message ends the protocol with a partial
     // message: if the worker is gone, settle the limit before blaming the

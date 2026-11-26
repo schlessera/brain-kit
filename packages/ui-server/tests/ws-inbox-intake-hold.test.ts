@@ -38,7 +38,7 @@ test.each(["journal", "scope"] as const)("a %s hold that begins at inbox_add's r
     idle: async () => { if (kind === "journal" && state.held) await new Promise<void>(resolve => { settle = resolve; }); },
     observe: async () => {}, toolStarted() {}, toolEnded: async () => {}, summary: () => ({ state: "unknown" }), bindSession: async () => {}, finish: async () => {},
   } as unknown as TurnJournal;
-  const scope = { isPaused: () => { if (kind === "scope") raise(); return kind === "scope" && state.held; }, toolCall() {}, bindSession() {}, finish() {}, close() {} } as unknown as TurnScope;
+  const scope = { isPaused: () => { if (kind === "scope") raise(); return kind === "scope" && state.held; }, toolCall() {}, bindSession() {}, async finish() { return true; }, close() {} } as unknown as TurnScope;
   let failure: unknown, proven = false;
   let host!: WsHost;
   const backend = makeFakeBackend({ id: "pi", startTurn: async req => {

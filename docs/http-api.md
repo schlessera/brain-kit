@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload and human trust Settings routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 195 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings, sync policy-review and storage-events routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 208 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -39,6 +39,7 @@ client code has a gap. Source owners are listed after the table.
 | DELETE | `/api/storage/maintenance/:id` | S | Request cancellation of remaining work | Existing committed effects remain in the receipt. |
 | GET | `/api/storage/history` | S | Read bounded aggregate history | Current human-owner access; no scan on read. |
 | GET | `/api/storage/guidance` | S | Read pressure, scenarios and delivery evidence | Current human-owner access; no scan on read. |
+| GET | `/api/storage/events` | S | Read the bounded storage events timeline | Current human-owner access; maintenance events of the caller's own receipts only. |
 | GET | `/api/storage` | S | Read current bounded inventory state | Human-owner Storage inspection; no delegated or worker access. |
 | POST | `/api/storage/scans` | S | Refresh configured stores | Human-owner Storage inspection; no delegated or worker access. |
 | DELETE | `/api/storage/scans/:id` | S | Cancel an active scan | Human-owner Storage inspection; no delegated or worker access. |
@@ -55,6 +56,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/activity/runs` | S | List live roots and paginated history | Independent monitoring; preserve activity README, SDK wire shapes and detailed stats contract. |
 | GET | `/api/activity/runs/:runId` | S | Read retained run detail or pruned rollup | Independent monitoring; preserve activity README, SDK wire shapes and detailed stats contract. |
 | GET | `/api/activity/stats` | S | Read labeled runtime statistics and coverage | Independent monitoring; preserve activity README, SDK wire shapes and detailed stats contract. |
+| GET | `/api/activity/turn-timings/summary` | S | Compare turn timings by build | Owner diagnostics for the documented lifecycle timing contract. |
 | POST | `/api/auth/login` | S | Verify password and issue owner cookie | Independent client access; preserve principal README and SDK PasskeySummary promises. |
 | POST | `/api/auth/logout` | S | Revoke cookie session(s) and clear cookie | Independent client access; preserve principal README and SDK PasskeySummary promises. |
 | GET | `/api/auth/methods` | S | Report available login methods | Independent client access; preserve principal README and SDK PasskeySummary promises. |
@@ -80,6 +82,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/brain/stats/history` | S | Read recorded corpus-stat series | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | POST | `/api/brain/sync` | S | Stream a serialized repository sync | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | GET | `/api/drafts` | S | List live session drafts | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| GET | `/api/drafts/:id/code-changes` | S | Read the durable next-admission workspace write preference | Authenticated session clients; defaults off, principal-scoped drafts (#4295). |
+| PUT | `/api/drafts/:id/code-changes` | S | Save `{ enabled: boolean }` for workspace changes | Durable before acknowledgement; no active-turn effect; preserves profile restrictions (#4295). |
 | GET | `/api/drafts/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/drafts/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/drafts/:draftId` | S | Read a draft's text and images | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
@@ -143,6 +147,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/push/unsubscribe` | S | Remove caller-owned subscription | SDK push renewal and custom PWA clients; preserve principal ownership and private-key exclusion. |
 | POST | `/api/render` | S | Render supplied document to PNG or PDF | Independent share/render clients; preserve RenderRequest, renderer seam and 501 without renderer. |
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
+| GET | `/api/sessions/:id/code-changes` | S | Read the durable next-admission workspace write preference | Authenticated session clients; defaults off, principal-scoped drafts (#4295). |
+| PUT | `/api/sessions/:id/code-changes` | S | Save `{ enabled: boolean }` for workspace changes | Durable before acknowledgement; no active-turn effect; preserves profile restrictions (#4295). |
 | GET | `/api/sessions/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/sessions/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
@@ -155,16 +161,22 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | S | Download a retained raw version | Before/after only; durable read lease, no direct hash access. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/journal/code/preview` | S | Preview one checkout's owned endpoint diff | Exact session/turn/checkout; no source object-store dependency. |
+| POST | `/api/sessions/:sessionId/turns/:turnId/journal/code/revert` | S | Confirm a checkout revert | Current owner, stable operation identity and fresh matching endpoint; otherwise conflict. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id` | S | Reconcile a checkout history action | Principal/session/turn-bound read; never repeats effects. |
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
-| GET | `/api/trust-settings` | I | Read trust policy data and publication availability | Paired Security settings transport (#3608); live password-mode human owners only; runtime trust remains disabled. |
+| GET | `/api/trust-settings` | I | Read trust policy data and publication availability | Paired Security settings transport; authenticated sanitized reads expose mutationAllowed, while only live password/passkey owners mutate; origin/tunnel enforcement is independent from unavailable repository enforcement. |
 | GET | `/api/trust-settings/:request` | I | Read one owner-bound trust publication receipt and review | Same-request reconciliation only; never republishes or resolves a taint trigger. |
 | POST | `/api/trust-settings/prepare` | I | Prepare one exact-base trust change | Paired Security settings transport; same-origin JSON and live owner authority; repository create/edit independently verifies host metadata. |
-| POST | `/api/trust-settings/commit` | I | Publish the exact owner-reviewed trust change | Shared descriptor-bound publisher; bounded durable receipt; saved policy does not imply runtime enforcement. |
+| POST | `/api/trust-settings/commit` | I | Publish the exact owner-reviewed trust change | Shared descriptor-bound publisher; bounded durable receipt; enforced origin/tunnel publication joins live admission fences, while repository publication remains unavailable. |
 | GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Authenticated principal of the history owner's account (#3952); immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | POST | `/api/sessions/:id/safety/reviews/prepare` | S | Prepare review of one finalized safety occurrence | Live password-mode human owner, exact Origin and bounded JSON; host-issued body/brain/principal/generation-bound handle (#3603). |
 | POST | `/api/sessions/:id/safety/reviews/:requestId/commit` | S | Commit or read back one individual safe verdict | Live owner rechecked on the acquired FULL transaction and final response; immutable receipt plus fresh aggregate, no bulk clear or standing rule (#3603). |
+| POST | `/api/sessions/:id/safety/reviews/future/prepare` | S | Prepare one selected verdict and optional future source rule | Live password-mode human owner, exact Origin and bounded JSON; host-attested origin/tunnel and exact evidence revision; no publication or verdict yet (#3611). |
+| POST | `/api/sessions/:id/safety/reviews/future/commit` | S | Publish the reviewed rule then commit its original selected verdict | Same live owner/session authority; exact review ID and reviewed-bytes hash; durable publication proof precedes verdict; retries never republish (#3611). |
+| POST | `/api/sessions/:id/safety/reviews/future/status` | S | Read retained combined completion and current rule presence | Same live owner, exact Origin and bounded JSON session/occurrence; read-only, redacted uncommitted verdict handles, JSON null for unretained receipts (#3611). |
 | GET | `/api/sessions/:id/github/:owner/:repo/:number/:part` | I | Page one part of a GitHub object a session's GitHub tool result returned | Chat GitHub components (#3796, #3795); owner account only, display data never provider context, no compatibility guarantee. |
 | GET | `/api/sessions/:id/github/avatars/:login` | I | Serve the avatar of a login in a session's GitHub results from this origin | Chat GitHub components (#3796, #3795); owner account only, magic-byte image check, bounded in-memory cache, every failure 404. |
 | GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
@@ -219,6 +231,7 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/apify/account` | I | Confirm the token's changed Apify account | Settings UI (#3159); live human owners only. Starts a new authority generation; accepts no token. |
 | POST | `/api/apify/policy` | I | Propose one Apify setting through the policy-change review | Settings UI (#3163); live human owners only. `{ change, base_hash }` names exactly one of `enabled`, `discovery`, `actors` or `remove_grant` and the policy version it changes. Returns `{ turn_id, request_id, review }` with a pending `PolicyChangeReview` of the complete proposed `governance.md`; writes nothing. 409 when the policy changed since it was read; 422 when the file cannot be rewritten exactly. |
 | POST | `/api/apify/policy/:turnId/:requestId` | I | Answer that exact review | Settings UI (#3163); only the proposing owner. `{ approve }`; an approval lets the existing policy writer publish it inside a user journal window. A repeated or late answer returns the recorded receipt and never writes again; a lost answer is reconciled through `GET /api/policy-proposals/:turnId/:requestId`. |
+| POST | `/api/brain/sync/policy/:turnId/:requestId` | I | Answer a sync's incoming policy review | Sync panel (#4256); only the owner whose sync opened it. `{ approve }`; an approval lets the existing policy writer publish the incoming bytes inside a user journal window, and the owner syncs again. A repeated or late answer returns the recorded receipt and never writes again; a review of another family is never read here. |
 | POST | `/share-target` | S | Explain missing service worker without reading body | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
 | GET | `/ws` | S | Authenticate and admit WebSocket upgrade | SDK BrainUiClient; supported HTTP upgrade boundary, followed by the existing wire contract. |
 | GET | `/*` (conditional) | I | Serve configured SPA deep links | Custom shell with `staticRoot`; deployment asset transport, not an independent JSON API. |
@@ -228,7 +241,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 195 declared endpoints are mounted regardless of backend, renderer or
+All 208 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -627,7 +640,12 @@ concurrent attempts get 409 `{ error, heldMs }` before SSE starts, where
 the error text names it in seconds. The route invokes
 `brain sync --human`. Disconnecting the reader stops delivery but **does not
 cancel sync or release its reservation**; output continues draining until the
-child exits.
+child exits. Successful sync attempts voice keyterm rebuild; a rebuild failure
+is progress text and does not turn successful sync into failure. A degraded
+rebuild (no usable core peer, or an index core cannot read) is reported as
+progress text and not cached. A canonical
+root-resolution failure before admission can use the common 500. No idempotency
+key or SSE resumption promise exists.
 
 **Bounded start (additive, #4257).** Everything between admission and the
 sync's first worker starting (the CLI version probe, the writer gate, the
@@ -642,12 +660,27 @@ kind and origin `cron`, `jobName: "ui-sync"`, attributed to the requesting
 principal) whose terminal outcome carries the exit status and the last
 non-empty output lines, with the combined output tail as its `job_output`
 event, so a result survives a disconnected reader. A failure also logs
-`ui sync failed` with the same text on the `brain` logger. Successful sync attempts voice keyterm rebuild; a rebuild failure
-is progress text and does not turn successful sync into failure. A degraded
-rebuild (no usable core peer, or an index core cannot read) is reported as
-progress text and not cached. A canonical
-root-resolution failure before admission can use the common 500. No idempotency
-key or SSE resumption promise exists.
+`ui sync failed` with the same text on the `brain` logger.
+
+**Incoming policy change (additive, #4256).** On a hosted install, a pull
+whose only tier A change is `context/policies/governance.md` publishes
+nothing. When the requesting principal is a current owner, the stream sends
+`{ type: "policy_review", turn_id, request_id, review }`, where `review` is the
+same `PolicyChangeReview` a chat policy card shows (base hash, frontmatter
+diff, changed sections, body diff, and a fixed host rationale saying the
+brain's remote has this version at the named upstream commit), and ends with `{ type: "done", success: false, reason:
+"policy_review", text }`. The owner answers it through
+`POST /api/brain/sync/policy/:turnId/:requestId`. Approval writes exactly the
+incoming bytes through the existing policy writer (journal actor `user`, class
+`policy`, a `policy_change` governance event); the next admitted turn reads
+it, and the next sync completes. Decline writes nothing, and the next sync
+opens the review again. An incoming policy that is not UTF-8, exceeds 1 MiB or does not validate
+opens no review: the sync fails, and its text names the next step. A scheduled sync opens no review; it fails naming the waiting change.
+Any other refused tier A change keeps its refusal, and its text says what to do
+next: revert the upstream commit, or remove a change the brain itself made
+(and, under `context/policies/`, change the policy in chat with
+`propose_policy_change`). A refused sync's human report is replaced by that
+reason, since nothing was published or pushed.
 
 ## Sessions and execution records
 
@@ -687,6 +720,13 @@ owner/session boundary. GET `/api/sessions/:sessionId/turns/:turnId/journal`
 returns `TurnJournalDetails`: summary, ordered observations, overlapping turn
 IDs and missing-detail reasons. No retained turn in that session is JSON 404.
 An expired summary is still readable, with no raw detail or review actions.
+
+Journal details additionally expose optional `codeChanges` checkout receipts
+(#4297). The receipt fields and preview/revert/status routes are defined in the
+[checkout receipt contract](integration-contract/http.md#checkout-change-receipts-4297).
+For covered checkouts, this replaces new turns' per-file change rows; retained
+legacy rows remain readable. Notes keep their before-images. Each entry offers
+a bounded endpoint diff and an owner-confirmed revert that refuses later work.
 
 Journal details additionally expose outward admission receipts (#1664) through
 optional `outwardActions` and `outwardActionsTruncated`. Rows include event
@@ -766,6 +806,7 @@ empty directory metadata is not invented.
 | GET `/api/activity/runs/:runId` | Run ID; `include=payloads` opts into tool_input/tool_output events; a `compute:` run needs `activityCompute=1` and is an unknown run without it (#3108) | `ActivityRunDetail`: retained `{ runId, detailPruned:false, spans, events, highWaterSeq, rollup? }`; after pruning `{ runId, detailPruned:true, rollup }`. Same wire mappers and accounting semantics as activity WS frames. | Never-existed run 404 `{ error: "Unknown run" }`; read failures 500 `{ error }`. Pruned detail is a successful resolution, not a missing run. |
 | GET `/api/activity/rollups` | days: truncate Number, zero/NaN/absent → 7, clamp 1–90 | `ActivityRollups`: `{ timeZone, days, jobs, sessions }`, aggregates over runs started at/after now−days. Days newest-first, in configured timezone (default UTC); invalid timezone grouping degrades to UTC. Root-only sums; unknown list cost is a floor, unknown effective cost is counted by unpricedRuns. | Read failures 500 `{ error }`. No upper bound is applied by this older aggregate route. Both cost axes round each completed group sum to four decimals at the response boundary; stored costs retain their original precision. |
 | GET `/api/activity/stats` | days: truncate Number, zero/NaN/absent → 30, clamp 1–90 | Full `ActivityRuntimeStats`, specified in the [runtime-stats contract](integration-contract/http.md#runtime-stats-get-apiactivitystats-additive-in-0370). Closed window, labeled coverage, raw sums, independent unpriced counters and nullable incomplete averages. | Read/computation failures 500 `{ error }`. Does not read brain.db. |
+| GET `/api/activity/turn-timings/summary` | Positive integer `limit` (default 100, capped at 200), epoch-millisecond bounds `since` and `before`, optional `origin` and `outcome` | Returns `{ limit, groups }` with per-build timings and counts of open and absent observations. See the [turn timing summary contract](integration-contract/wire.md#turn-timing-summary). | Invalid limit or window returns 400. Requires owner authorization. |
 
 For fractional/negative finite values these rules produce whole-day windows;
 query conversion does not produce a validation 400. Aggregate arrays and
@@ -1907,7 +1948,8 @@ read by any authenticated principal.
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
 | `safety_admission_expired` | 1 | `toolUseId`, `evidenceRevision`, `trustRevision`, `authorityEpoch`, `reason` | A waiting or claimed safety-bound approval was withdrawn before dispatch. The server commits this terminal fact before settling the backend wait or publishing the coordinator's `expired` result. Revisions describe the card's original root host snapshot (never the causal view's local revision); `reason` is `safety_changed`, `turn_ended` or `grant_storage_failed`. Storage failure stops the turn with an explicit failed terminal outcome, without claiming durable withdrawal. This grants no replay and changes no historical approval. |
-| `egress_connection` | 1 | `connectionId` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
+| `egress_connection` | 1 | `connectionId` (optional), `dispatched` (optional), `failureReason` (optional), `recipientAdmission` (optional), `recipientApproved` (optional), `standingRecipient` (optional), `trustedSource` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, optional inference clocks (`admitMs`, `bodyMs`, `credentialMs`, `dispatchMs`, `headersMs`, `firstChunkMs`, `loopLagMaxMs`), optional provider usage (`inputTokens`, `cacheReadTokens`, `cacheCreationTokens`), `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
+
 | `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds`, `tainted` (optional) | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is the current unresolved taint event or `null`. New observations may carry `tainted: true` for effective restriction, including unknown coverage without an attributable source. Historical rows retain their original attribution. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
@@ -1923,7 +1965,7 @@ read by any authenticated principal.
 | `budget_warning` | 1 | `scope`, `unit`, `limit`, `observed`, `source` | A warn limit was crossed. `scope` is `turn`, `session` or `day`; `unit` is `usd` or `tokens`. |
 | `state_room_warning` | 1 | `usedBytes`, `allowanceBytes`, `observedAt` | A resumed conversation's measured state reached its existing 75% warning threshold. The numbers and Unix-millisecond timestamp are the same observation sent with its result and history. One quiet event per session, backend and allowance; it does not change admission or start a continuation. |
 | `budget_block` | 1 | `scope`, `unit`, `limit`, `observed`, `source`, `stage` | A block limit was reached. `stage` is `admission`, `mid_turn` or `sdk_backstop`. |
-| `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source` | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `paused`, `continued`, `stopped`, `voice_stopped` or `turn_ended`. `paused` records the confirmed freeze before the user decides; retained turn scope receipts record its eventual decision or interruption. A free-space overshoot is the measured deficit below its floor. |
+| `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source`, `measurement` (optional), `result` (optional) | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `paused`, `continued`, `stopped`, `voice_stopped` or `turn_ended`. `paused` records the confirmed freeze before the user decides; retained turn scope receipts record its eventual decision or interruption. A free-space overshoot is the measured deficit below its floor. Optional `result: "index_capacity"` identifies the independent host-default index ceiling, with `source: "default"`; the existing `cap` enum stays unchanged. Optional `measurement: "unknown"` identifies an unreadable index size; `observed` and `overshoot` are then zero compatibility placeholders, not measurements. |
 | `egress_denial` | 1 | `host`, `port`, `method`, `reason`, `bytes` | The egress proxy refused a connection. `method` is set for plain HTTP; `reason` is `denied_host`, `not_allowlisted`, `byte_cap` or `taint_allowlist`; `taint_allowlist` includes a tainted destination the user declined (#3430). |
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
@@ -2107,7 +2149,10 @@ Before/after observations separately retain affected stores and capacities,
 coverage and basis. They explicitly permit concurrent writers. File counts and
 packed-object counts are never converted into reclaimed bytes. Unknown headroom
 is null; old/new Git packs may coexist and required temporary bytes are workload
-dependent. Existing worker admission controls its temporary space. A known zero
+dependent. `headroom.requiredBytes` is always null. A `pack-git` receipt adds
+core's conservative preflight need as `headroom.packingRequiredBytes`, reported
+by that run; every other case, including a row's own headroom, carries null
+([pack headroom](integration-contract/http.md#storage-maintenance-pack-headroom-additive-4540)). Existing worker admission controls its temporary space. A known zero
 capacity refuses packing, and receipt admission failure starts no owner action.
 No other recovery store is purged to make room.
 
@@ -2268,6 +2313,70 @@ are the maximum, with one/five-minute delays only after known non-delivery.
 Restored episodes never regain notification authority. See
 [Storage history](storage-history.md) for sampling, recovery and physical costs.
 
+## Storage events timeline
+
+`GET /api/storage/events?identity=&since=` returns SDK `StorageEventsResponse`,
+version 1: a bounded timeline of storage events for the chart's markers. It
+requires the same current human-owner authority as history, uses
+`Cache-Control: private, no-store` and never collects inventory. Unauthenticated
+callers receive 401 and delegated principals 403. The only options are
+`identity`, a 32-character lowercase capacity identity, and `since`, a
+non-negative integer; anything else is 400.
+
+Each event has `seq`, `at`, `kind` and `phase`:
+
+- `pressure` (`start`, `step`, `recovery-started`, `end`): a warning episode on
+  one capacity, with the severity after the event and `episode`, the `seq` of
+  its `start`. `recovery-started` is the first recovery attempt after a start
+  or step.
+- `refusal` (`refused`, `succeeded`): an owning operation's write refusal on a
+  capacity, recorded once until a matching successful write resolves it.
+- `scope` (`changed`): the capacity's opaque store scope and the scope it was
+  last observed with, whether or not that observation was fresh evidence.
+- `maintenance` (`requested`, `finished`): one of the caller's own maintenance
+  receipts. `finished` carries the receipt's terminal `state` and `reason`.
+
+`at` is the time of the observation, owner report or receipt that caused the
+event, not the time it was stored, so an episode's start stays its real start.
+Owner reports that wait for the same history write are replayed for the
+timeline one by one in time order: a refusal opens its target's refusal, a
+later success resolves it, and a warning they start begins at the first
+refusal on the capacity. A success that arrives before its target has any
+refusal is not evidence. A report older than a refusal already committed for
+its target, such as another writer's late flush, changes nothing, so a
+resolution always follows the refusal it closes, and a resolution the
+pressure state does not hold after the write is not emitted. When one write receives more than 512 owner reports,
+refusal and pressure events are paused instead of timed from partial evidence.
+Events are recorded when they happen. An episode already open before the host
+recorded events is not emitted, and no start time is invented for it. The
+same holds for anything else open by then: a refusal is never resolved and a
+maintenance receipt never finished without its recorded opening event, and a
+capacity's first scope observed afterwards is its starting point, not a change.
+
+`seq` is the recording order. Responses list every retained event with `seq`
+greater than `since` (default 0) in `seq` order, and `next` is the greatest
+`seq` returned, or `since` when none is. Pass `next` as the following `since`;
+an event recorded later with an earlier `at` still arrives. With `identity`,
+the response holds that capacity's pressure, refusal and scope events plus all
+of the caller's maintenance events, which have no capacity. Sort by `at` to
+plot.
+
+Each kind keeps at most 256 pressure, 128 refusal, 64 scope and 512 maintenance
+events per brain (256 runs), chosen so the worst case, every kind full with
+16-digit numbers, a 96-character receipt identity and a 64-character reason,
+stays within the 262,144-byte payload cap. A kind at its limit, or paused for
+dropped owner evidence, stops recording: `paused` marks it true, every earlier
+event remains, and the other kinds, pressure policy and maintenance keep
+working. Nothing is deleted to make room.
+
+A maintenance run can appear in the timeline, in `GET /api/storage/maintenance`
+(the latest receipt per operation) and in `GET /api/storage/maintenance/:id`.
+Match them by the event's `receipt`, which is the receipt's `id`, and `phase`:
+`requested` is the receipt's `requestedAt` and `finished` its `completedAt`.
+Never match by time. Distinct events can share an `at` (an owner refusal and
+the warning it starts do, and two runs can), but never a `seq`, and a receipt
+has at most one event per phase.
+
 ### Session safety sidecars
 
 `GET /api/sessions/:id/safety?limit=50&cursor=...` is an authenticated,
@@ -2402,19 +2511,50 @@ separately. It is never part of public `/health`.
 The four `/api/trust-settings` operations are internal paired Security settings
 transport. Their exact review/receipt shapes and limits are described in the
 [publication contract](integration-contract/package-api.md#human-trust-settings-publication).
-They require a live password-mode human owner; mutation additionally requires a
-present exact same-origin Origin and bounded JSON. Principal, voice and channel
+The list GET exposes sanitized policy facts to authenticated callers, with
+`mutationAllowed` reporting live owner availability. Prepare, commit and
+per-request receipt reads require a live password/passkey owner; mutation also
+requires a present exact same-origin Origin and bounded JSON. Principal, voice and channel
 claims in a body supply no authority. Receipts are private, no-store, scoped to
 the served brain and requesting owner, and readback never repeats a write.
 
 Publication reuses the protected policy writer without an agent turn. Prepared
 state, reviewed bytes/base, publication proof and partial/unknown completion
-survive restart. Saved origin/tunnel rules do not enable unbuilt trust admission;
+survive restart. Saved rules alone do not establish runtime capability;
 repository create/edit independently verifies fixed-endpoint metadata at review
 and again inside the publication observation window. Browser IDs cannot
 self-verify; unknown or changed identity withholds the write. Approved owner
 boundaries derive from this operation's durable publication proof and are not
 inferred from matching policy bytes. Owner-scope review explicitly covers
-future repositories currently in that namespace. Runtime trust remains disabled.
+future repositories currently in that namespace. Repository runtime trust remains
+unavailable; origin/tunnel capabilities are independently advertised.
 Removal/readback remain available for existing rules. Revision exhaustion refuses
 before protected publication. No historical trigger is resolved by these routes.
+
+### Session code changes (#4295)
+
+The session/draft `code-changes` GET/PUT routes are specified in the
+[integration contract](integration-contract/http.md#default-workspace-inspection-and-code-changes-preference-4295).
+They use the same authenticated identity and principal-scoped draft binding as
+profile preferences. PUT accepts exactly `{ enabled: boolean }`; all replies
+are `Cache-Control: no-store`. Existing sessions default to false. Saves
+survive resume and apply only to the next admission; enabled sessions retain
+the existing writable-workspace protections. Ordinary workspace files keep
+per-file journaling; covered Git checkouts retain one endpoint receipt per
+checkout, as defined by the [history contract](integration-contract/http.md#checkout-change-receipts-4297).
+
+### Combined selected-trigger and future-source review
+
+The three supported POST endpoints under
+`/api/sessions/:id/safety/reviews/future/` use the individual review's live
+password-mode owner, exact Origin, JSON and session-generation fences.
+`prepare` binds one finalized host-attested origin or explicit tunnel to exact
+reviewed policy bytes and the original single-verdict request. `commit` requires
+the request ID, review ID and reviewed-bytes hash; publication proof precedes
+any verdict. `status` is a read-only POST accepting version, session and
+occurrence ID, not a GET endpoint. It returns retained operation completion,
+separate live restriction and current rule presence, or JSON null after receipt
+retention expires. Neither status nor retries republish a rule. Uncommitted
+verdict handles are redacted. The complete envelopes, partial/unknown semantics,
+legacy capability encoding and browser correlation requirements are specified in
+the [combined-review wire contract](integration-contract/wire.md#combined-single-trigger-and-future-source-review-3611).

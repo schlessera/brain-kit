@@ -14,8 +14,9 @@ import type { LaunchedWorker, NativeFileVersions, WorkerSandbox } from "@schless
 import type { SessionCaps } from "./backend-options.js";
 import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-tools.js";
 import { decidePiToolPermission } from "./permission-gate.js";
-import { revalidatePiAdmission, forgetPiAdmission } from "./tool-admission.js";
-import { safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
+import { pendingPiAdmission, revalidatePiAdmission, forgetPiAdmission } from "./tool-admission.js";
+import { workspaceWriteRefusal, safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
+
 import { syncPiAuth } from "./session-storage.js";
 import type { TurnContext } from "./turn-context.js";
 import type { PiWorkerMessage } from "./worker-protocol.js";
@@ -43,7 +44,7 @@ export interface PiWorkerRpcContext {
   autonomous: boolean;
   canFinalizeSafety?(toolName:string,toolId:string):boolean;
   /** The worker's resolved sandbox; native file observations require a governed one. */
-  sandbox: Pick<WorkerSandbox, "profile">;
+  sandbox: Pick<WorkerSandbox, "profile"> & Partial<WorkerSandbox>;
   /** The host-supplied sandbox, if any; a governed one keeps the native write and edit tools. */
   workerSandbox: WorkerSandbox | undefined;
   observeFile(path: string): ReturnType<NonNullable<LaunchedWorker["observeFile"]>>;
@@ -89,6 +90,8 @@ async function lock(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerRp
   let release:(()=>void)|undefined,transferred=false;
   try {
     release=await workerLock.acquire(key,{signal:turnContext.signal??undefined});
+    for (const pending of pendingPiAdmission(turnContext, msg.toolName, msg.toolCallId)) await pending;
+
     live();
     const stale=revalidatePiAdmission(turnContext,msg.toolName,msg.toolCallId,input);
     if(stale)throw new Error(stale);
@@ -114,6 +117,7 @@ async function fileObservation(msg: PiWorkerRpc, _bridge: BackendBridge, context
     || !(msg.toolName === "read_file" ? ["read_start", "read_end"] : ["write_check", "write_end"]).includes(phase as string)) {
     throw new Error("Native file observation has no matching granted operation");
   }
+  const safety = context.turn.bridge?.admissionSafety, before = safety?.read();
   const observed = observeFile(input.path);
   if (!observed) throw new Error("Native file observation is outside the worker file view");
   if (phase === "read_start") await nativeVersions.beginRead(msg.toolCallId, observed.key, observed.version);
@@ -124,7 +128,8 @@ async function fileObservation(msg: PiWorkerRpc, _bridge: BackendBridge, context
     await nativeVersions.beginWrite(observed.key);
   } else await nativeVersions.finishWrite(observed.key, observed.version);
   executed(msg).phases.add(phase as string);
-  const unavailable = safetyAdmissionRefusal(context.turn.bridge?.admissionSafety);
+  for (const pending of safety?.pendingRecording?.(before, context.turn.signal ?? undefined) ?? []) await pending;
+  const unavailable = safetyAdmissionRefusal(safety, before);
   if (unavailable) throw new Error(unavailable);
   return { ok: true };
 }
@@ -151,9 +156,10 @@ async function permission(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWo
   if (!turnContext.autonomous && application && !bridge.applyBrain) return { behavior: "deny", message: "No server application route is available in this turn." };
   if (application && bridge.applyBrain) {
     // Exact application authorization belongs to the server route.
+    const safety = bridge.admissionSafety, before = safety?.read();
     await bridge.inputSafety?.begin(msg.toolCallId,msg.toolName,msg.input);
     live();
-    return permit(msg, bridge, context, { behavior: "allow" }, () => safetyAdmissionRefusal(bridge.admissionSafety));
+    return permit(msg, bridge, context, { behavior: "allow" }, () => safetyAdmissionRefusal(safety, before));
   }
   grants.delete(msg.toolCallId);
   const decision = await decidePiToolPermission({ turn: turnContext, allowedTools, confirmPatterns }, msg.toolName, msg.input, msg.toolCallId);
@@ -173,6 +179,7 @@ async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorker
   const validate=()=>{context.turn.signal?.throwIfAborted();context.live();return refusal();};
   let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
   try {
+    for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
     const stale=validate();if(stale)throw new Error(stale);
     // Bash cannot execute with this permission ticket: it must consume a
     // separate final-admission RPC after its rewrite and lock waits.
@@ -182,7 +189,8 @@ async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorker
     ticket?.commit(validate);
   }catch(error){try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}return {behavior:"deny",message:error instanceof Error?error.message:"Safety recording refused this call."};}
   context.live();
-  if (grant) context.grants.set(msg.toolCallId, grant);
+  if (grant) { context.grants.set(msg.toolCallId, grant); context.executed(msg).input = JSON.parse(grant.input); }
+
   return decision;
 }
 
@@ -278,9 +286,12 @@ async function apply(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerR
 export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorkerRpcHandler>> = {
   unlock, lock, fileObservation, syncAuth, permission, bridge: bridgeCall, readBase, apply,
   admission: async (msg,bridge,context) => {
+    for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
+    context.live();
     const grant=context.grants.get(msg.toolCallId);
     if(msg.toolName!=="bash"||!grant||grant.name!==msg.toolName||grant.input!==JSON.stringify(msg.input))throw new Error("Pi final admission has no exact permission grant");
     // Consume the server ticket before any wait; no concurrent RPC can replay it.
+
     context.grants.delete(msg.toolCallId);
     let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
     try{
@@ -305,11 +316,15 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
     throw new Error("Unqualified Pi input transformations");
   },
   safetyResult: async(msg,bridge,context)=>{
-    if(Object.keys(msg.input).some(key=>!["output","segments"].includes(key))||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
+    if(Object.keys(msg.input).some(key=>!["output","segments","failed"].includes(key))||msg.input.failed!==undefined&&typeof msg.input.failed!=="boolean"||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
     const execution=context.executed(msg);
     const bounded=execution.name===msg.toolName&&context.canFinalizeSafety?.(msg.toolName,msg.toolCallId)===true;
-    await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,msg.input.output,bounded,msg.input.segments as string[]|undefined);
-    context.live();return {ok:true};
+    const workspaceNote = msg.input.failed === true && context.sandbox.brain && context.sandbox.areas
+      ? workspaceWriteRefusal(context.sandbox as WorkerSandbox, msg.toolName, execution.input, undefined, msg.input.output) : undefined;
+    const output = workspaceNote ? `${msg.input.output}\n\n${workspaceNote}` : msg.input.output;
+    const segments = msg.input.segments as string[] | undefined;
+    await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,output,bounded,workspaceNote && segments ? [...segments,workspaceNote] : segments);
+    context.live();return {ok:true,...(workspaceNote ? {workspaceNote} : {})};
   },
 };
 

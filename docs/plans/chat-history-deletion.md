@@ -297,7 +297,7 @@ Concrete entry points include `readSessionRecovery`
 and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:100-110`;
 `prepareHandoff`, `packages/ui-server/src/ws/handoff.ts:273-285`). Draft autosave
 belongs to `createDraftClient` (`createDraftClient`,
-`packages/ui-react/src/lib/draft-client.ts:54-66`); browser reloadable work belongs
+`packages/ui-react/src/lib/draft-client.ts:55-67`); browser reloadable work belongs
 to `createLocalWork` (`createLocalWork`, `packages/ui-react/src/lib/local-work.ts:227-245`).
 The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`, with one
 handler per frame under `ws/handlers/`; gating its resume handler alone would leave HTTP, background readers and provider startup open.
@@ -337,7 +337,7 @@ Preserve the existing bounded-wait ownership distinction during that drain.
 writers; rejection retains the original cleanup continuation, writer and reader
 until genuine settlement, rather than authorizing their replacement
 (`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
-`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1488-1538`).
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1509-1559`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
 `packages/ui-server/src/brain/native-brain-leases.ts:320-333`). A caller deadline
@@ -409,7 +409,7 @@ to `brain.db`, create a second operational authority, or reuse storage-maintenan
 removal as an arbitrary transcript-file eraser.
 
 Restore currently increments dialogue generations and closes native continuity
-(`restoreInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:427-482`). That
+(`restoreInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:439-494`). That
 invalidates cursors but does not know a deletion performed after the backup.
 A post-deletion export must carry its new ledger and scrubbed owned content;
 restoring it must preserve negative lookups and refuse old writes. An earlier

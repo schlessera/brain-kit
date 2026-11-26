@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as asyncFs from "node:fs/promises";
+import { expect, spyOn, test } from "bun:test";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNativeJournalCapture } from "../src/brain/native-journal-capture.js";
@@ -47,4 +48,150 @@ test("copied checkpoint deltas retain actual bytes across a live overwrite", asy
   } finally {
     await capture.close(); await native.close(); objects.close(); rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("an inspect-only capture never retains checkout bytes while notes keep exact before and after versions", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-inspect-capture-")), brain = join(root, "brain");
+  mkdirSync(join(brain, "notes"), { recursive: true }); mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
+  writeFileSync(join(brain, "notes/voyage.md"), "Odysseus");
+  writeFileSync(join(brain, "workspaces/ithaca/source.ts"), "checkout before");
+  const native = createNativeJournalFixture(brain, root);
+  const retained: string[] = [], afterRetained = Promise.withResolvers<void>();
+  const capture = createNativeJournalCapture(native.manager, async fd => {
+    const bytes = readFileSync(fd, "utf8");
+    // Retention is batched: force the after-version to finish first.
+    if (bytes === "Odysseus") await afterRetained.promise;
+    retained.push(bytes);
+    if (bytes === "Athena") afterRetained.resolve();
+    return bytes;
+  });
+  try {
+    await capture.initialize();
+    const policy = await capture.policy([], { workspaces: false });
+    writeFileSync(join(brain, "notes/voyage.md"), "Athena");
+    writeFileSync(join(brain, "workspaces/ithaca/source.ts"), "checkout after");
+    const observation = await capture.observe(new Map([["inspect", policy]]));
+    expect(observation.changes.get("inspect")!.map(change => change.path), "INSPECT_CAPTURE_HAS_NO_CHECKOUT_ROWS").toEqual(["notes/voyage.md"]);
+    expect(retained, "INSPECT_RETAINS_ONLY_EXACT_NOTE_BYTES").toEqual(["Athena", "Odysseus"]);
+    expect(observation.changes.get("inspect")![0], "INSPECT_VERSIONS_KEEP_THEIR_IDENTITY_WHEN_RETENTION_FINISHES_OUT_OF_ORDER")
+      .toMatchObject({ before: { hash: "Odysseus" }, after: { hash: "Athena" } });
+    await observation.commit();
+  } finally { afterRetained.resolve(); await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("an inspect overlap does not unignore a writer's checkout steering files", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-ignore-overlap-")), brain = join(root, "brain");
+  mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
+  writeFileSync(join(brain, "workspaces/ithaca/.gitignore"), "AGENTS.md\n");
+  writeFileSync(join(brain, "workspaces/ithaca/AGENTS.md"), "Before\n");
+  writeFileSync(join(brain, "workspaces/ithaca/guide.md"), "Athena guides the voyage.\n");
+  const native = createNativeJournalFixture(brain, root);
+  const captured: string[] = [];
+  const capture = createNativeJournalCapture(native.manager, async fd => { captured.push(readFileSync(fd, "utf8")); return String(captured.length); });
+  try {
+    await capture.initialize();
+    const writer = await capture.policy([], { workspaces: true }), inspect = await capture.policy([], { workspaces: false });
+    writeFileSync(join(brain, "workspaces/ithaca/AGENTS.md"), "@guide.md\n");
+    const alone = await capture.observe(new Map([["writer", writer]]));
+    expect(alone.steering.get("writer")!.paths.has("workspaces/ithaca/guide.md"), "WRITER_ALONE_DOES_NOT_FOLLOW_IGNORED_INPUT").toBe(false);
+    await alone.commit();
+    writeFileSync(join(brain, "workspaces/ithaca/AGENTS.md"), "@guide.md\nThe voyage continues.\n");
+    const observation = await capture.observe(new Map([["writer", writer], ["inspect", inspect]]));
+    expect(observation.steering.get("writer")!.unavailable, "INSPECT_DOES_NOT_OVERRIDE_WRITER_IGNORE").toContain("workspaces/ithaca/AGENTS.md");
+    expect(observation.steering.get("writer")!.paths.has("workspaces/ithaca/guide.md"), "INSPECT_DOES_NOT_FOLLOW_IGNORED_REFERENCE").toBe(false);
+    expect(observation.steering.get("writer")!.unavailable, "IGNORED_STEERING_REFERENCE_NOT_FOLLOWED").not.toContain("workspaces/ithaca/guide.md");
+    expect(captured).toEqual([]);
+    await observation.commit();
+  } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("mounted workspace inspection never inventories a deep checkout, including new subtrees", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-no-checkout-walk-")), brain = join(root, "brain");
+  mkdirSync(join(brain, "notes"), { recursive: true });
+  const deep = join(brain, "workspaces/ithaca", ...Array.from({length:260}, () => "x"));
+  mkdirSync(deep, { recursive: true }); writeFileSync(join(deep, "source.md"), "Odysseus");
+  writeFileSync(join(brain, "notes/voyage.md"), "Before");
+  const native = createNativeJournalFixture(brain, root);
+  const capture = createNativeJournalCapture(native.manager, async fd => readFileSync(fd, "utf8"));
+  try {
+    await capture.initialize(undefined, { workspaces: false });
+    const inspect = await capture.policy([], { workspaces: false });
+    mkdirSync(join(deep, "new")); writeFileSync(join(deep, "new/after.md"), "Athena");
+    writeFileSync(join(brain, "notes/voyage.md"), "After");
+    const result = await capture.observe(new Map([["inspect", inspect]]));
+    expect(result.changes.get("inspect")!.map(change => change.path), "DEEP_CHECKOUT_CANNOT_STOP_NOTE_OBSERVATION").toEqual(["notes/voyage.md"]);
+    expect(result.stats.walkedDirectories, "NO_NEW_CHECKOUT_SUBTREE_WALK").toBe(0);
+    // Delta paths may receive bounded inode probes to recover ordinary aliases;
+    // they must never expand into a checkout inventory.
+    await result.commit();
+    await expect(capture.policy([], { workspaces: true })).rejects.toThrow("depth");
+    const healthy = await capture.observe(new Map([["inspect", inspect]]));
+    expect(healthy.changes.get("inspect"), "FAILED_WRITER_BASELINE_LEAVES_INSPECT_USABLE").toEqual([]);
+    await healthy.commit();
+  } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("cancelled writer inventory releases inspection to observe its next note", async () => {
+  const root=mkdtempSync(join(tmpdir(),"odysseus-cancel-inventory-")),brain=join(root,"brain");
+  mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});
+  writeFileSync(join(brain,"notes/voyage.md"),"Before");writeFileSync(join(brain,"workspaces/ithaca/source.md"),"Source");
+  const native=createNativeJournalFixture(brain,root),capture=createNativeJournalCapture(native.manager,async fd=>readFileSync(fd,"utf8"));
+  const controller=new AbortController(),read=asyncFs.readdir;let entered=false;
+  try {
+    await capture.initialize(undefined,{workspaces:false});const inspect=await capture.policy([],{workspaces:false});
+    const spy=spyOn(asyncFs,"readdir").mockImplementation((async (...args: Parameters<typeof read>)=>{
+      const result=await Reflect.apply(read,asyncFs,args);
+      const match=String(args[0]).match(/^\/proc\/self\/fd\/(\d+)\/\.$/);
+      if(match&&readlinkSync(`/proc/self/fd/${match[1]}`).endsWith("/workspaces")){entered=true;controller.abort(new Error("Odysseus cancels inventory"));}
+      return result;
+    }) as typeof read);
+    try {await expect(capture.policy([],{workspaces:true},controller.signal)).rejects.toThrow("Odysseus cancels inventory");}
+    finally{spy.mockRestore();}
+    expect(entered,"WRITER_INVENTORY_REACHED_THE_REAL_DIRECTORY_READER").toBe(true);
+    writeFileSync(join(brain,"notes/voyage.md"),"After");const result=await capture.observe(new Map([["inspect",inspect]]));
+    expect(result.changes.get("inspect")!.map(change=>change.path),"CANCELLED_WRITER_DOES_NOT_BLOCK_INSPECTION").toEqual(["notes/voyage.md"]);await result.commit();
+  }finally{await capture.close();await native.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test("overlapping ordinary and checkout policies keep independent steering references",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-steering-owner-")),brain=join(root,"brain");mkdirSync(brain);writeFileSync(join(brain,".gitignore"),"AGENTS.md\n");
+ const native=createNativeJournalFixture(brain,root),capture=createNativeJournalCapture(native.manager,async()=>"retained");
+ try{
+  await capture.initialize();const ordinary=await capture.policy([],{ordinaryWorkspaces:true});
+  mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(brain,"workspaces/ithaca/AGENTS.md"),"@guide.md\n");writeFileSync(join(brain,"workspaces/ithaca/guide.md"),"Athena guides Ithaca.");
+  await (await capture.observe(new Map([["ordinary",ordinary]]))).commit();const writer=await capture.policy();
+  writeFileSync(join(brain,"workspaces/ithaca/AGENTS.md"),"@guide.md\nOdysseus follows.\n");const observation=await capture.observe(new Map([["ordinary",ordinary],["writer",writer]]));
+  expect(observation.steering.get("ordinary")!.paths.has("workspaces/ithaca/guide.md"),"PEER_CANNOT_PROMOTE_IGNORED_REFERENCE").toBe(false);
+  expect(observation.steering.get("ordinary")!.unavailable).toContain("workspaces/ithaca/AGENTS.md");
+  expect(observation.steering.get("writer")!.paths.has("workspaces/ithaca/guide.md"),"WRITER_KEEPS_OWN_REFERENCE_CLASSIFICATION").toBe(true);await observation.commit();
+ }finally{await capture.close();await native.close();rmSync(root,{recursive:true,force:true});}
+});
+
+
+test("absent-area content captures root scope and ordinary Git exclusions",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-ordinary-scope-")),brain=join(root,"brain");mkdirSync(brain);
+ const native=createNativeJournalFixture(brain,root),retained:string[]=[],capture=createNativeJournalCapture(native.manager,async fd=>{const bytes=readFileSync(fd,"utf8");retained.push(bytes);return "retained";});
+ try{
+  await capture.initialize(undefined,{workspaces:false});const ordinary=await capture.policy([],{ordinaryWorkspaces:true});
+  mkdirSync(join(brain,"workspaces/ithaca/.git"),{recursive:true});writeFileSync(join(brain,"workspaces/ithaca/.git/HEAD"),"ref: refs/heads/main\n");writeFileSync(join(brain,"workspaces/ithaca/source.md"),"Athena writes ordinary content.");
+  const observation=await capture.observe(new Map([["ordinary",ordinary]]));
+  const rows=observation.changes.get("ordinary")!;
+  expect(rows.map(row=>row.path),"ORDINARY_CHECKOUT_GIT_INTERNALS_ARE_EXCLUDED").toEqual(["workspaces/ithaca/source.md"]);
+  expect(rows[0]!.after?.scope,"ORDINARY_CHECKOUT_ROW_USES_ROOT_SCOPE").toBe("");expect(retained).toEqual(["Athena writes ordinary content."]);await observation.commit();
+ }finally{await capture.close();await native.close();rmSync(root,{recursive:true,force:true});}
+});
+
+
+test("overlapping frozen root ignore policies keep independent steering references",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-root-steering-owner-")),brain=join(root,"brain");mkdirSync(brain);writeFileSync(join(brain,".gitignore"),"AGENTS.md\n");writeFileSync(join(brain,"AGENTS.md"),"@guide.md\n");writeFileSync(join(brain,"guide.md"),"Athena guides Ithaca.");
+ const native=createNativeJournalFixture(brain,root),capture=createNativeJournalCapture(native.manager,async()=>"retained");
+ try{
+  await capture.initialize();const ordinary=await capture.policy();writeFileSync(join(brain,".gitignore"),"");await(await capture.observe(new Map([["ordinary",ordinary]]))).commit();const writer=await capture.policy();
+  writeFileSync(join(brain,"AGENTS.md"),"@guide.md\nOdysseus follows.\n");const observation=await capture.observe(new Map([["ordinary",ordinary],["writer",writer]]));
+  expect(observation.steering.get("ordinary")!.paths.has("guide.md"),"PEER_CANNOT_PROMOTE_IGNORED_ROOT_REFERENCE").toBe(false);
+  expect(observation.steering.get("ordinary")!.unavailable,"IGNORED_ROOT_REFERENCE_STAYS_UNAVAILABLE").toContain("AGENTS.md");
+  expect(observation.steering.get("writer")!.paths.has("guide.md"),"WRITER_KEEPS_OWN_ROOT_REFERENCE_CLASSIFICATION").toBe(true);await observation.commit();
+ }finally{await capture.close();await native.close();rmSync(root,{recursive:true,force:true});}
 });

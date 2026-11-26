@@ -95,11 +95,14 @@ export interface TurnBoundary {
   prefixDigest: string;
 }
 
-export function saveTurnBoundary(db: Database, sessionId: string, backendId: string, boundary: TurnBoundary): void {
+export function saveTurnBoundary(db: Database, sessionId: string, backendId: string, boundary: TurnBoundary): boolean {
   db.prepare(
     `INSERT INTO turn_boundaries (session_id, backend_id, assistant_ordinal, prefix_digest, turn_id)
      VALUES (?, ?, ?, ?, ?) ON CONFLICT(session_id, backend_id, assistant_ordinal, prefix_digest) DO NOTHING`
   ).run(sessionId, backendId, boundary.assistantOrdinal, boundary.prefixDigest, boundary.turnId);
+  const stored = db.query("SELECT turn_id FROM turn_boundaries WHERE session_id=? AND backend_id=? AND assistant_ordinal=? AND prefix_digest=?")
+    .get(sessionId, backendId, boundary.assistantOrdinal, boundary.prefixDigest) as { turn_id: string } | null;
+  return stored?.turn_id === boundary.turnId;
 }
 
 /**

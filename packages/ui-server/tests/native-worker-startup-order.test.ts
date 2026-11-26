@@ -15,7 +15,7 @@ test("a first strict admission refreshes sealed inputs only after trusted scratc
   // The fixture views stand in for manager-acquired ones; admission refuses any other (#3314).
   const managed=spyOn(startup,"assertManagedTurnStartupView").mockImplementation(view=>{if(view===undefined||!views.includes(view))throw new Error(startup.UNMANAGED_TURN_STORAGE);});
   let released=0;
-  const execution={boundary:{async prepare(){return {available:true};},maintenance:{}},gate(){return {async acquire(){return {release(){released++;}};}};},manifests(){return {};}};
+  const execution={boundary:{governed(){return {available:true};},async prepare(){return {available:true};},maintenance:{}},gate(){return {async acquire(){return {release(){released++;}};}};},manifests(){return {};}};
   const turns=createGovernedTurns({nativeManager:{} as never,brainPath:brain,execution:execution as never,profile:"strict",maskPaths:[],async index(){},report(){}});
   try {
     const hold=await turns.begin("odysseus-first-strict",new AbortController().signal);
@@ -25,6 +25,7 @@ test("a first strict admission refreshes sealed inputs only after trusted scratc
       expect(hold.startupView).toBe(views[1]);expect(existsSync(join(hold.startupView!.root,".brain/scratch"))).toBe(true);
       expect(existsSync(views[0]!.root),"REPLACED_ADMISSION_VIEW_RELEASE_IS_AWAITED").toBe(false);
     } finally {await hold.end();}
-    expect(released).toBe(1);expect(existsSync(views[1]!.root)).toBe(false);
+    // Refresh releases the initial gate before acquiring the newer checkpoint.
+    expect(released).toBe(2);expect(existsSync(views[1]!.root)).toBe(false);
   } finally {acquire.mockRestore();managed.mockRestore();for(const view of views)await view.cleanup();await turns.close();rmSync(brain,{recursive:true,force:true});}
 });

@@ -3,18 +3,21 @@ import type { Database } from "bun:sqlite";
 import { capacityEvidence } from "./history-evidence.js";
 import { newPressure, observePressure, ownerWrite } from "./pressure.js";
 import { HISTORY_LIMITS, bucket, retainAggregate, validateHistory } from "./history-model.js";
-import { readStoredHistory, stateSchema, type StoredHistory, type Pending, type StorageWriteReport } from "./history-data.js";
+import { readStoredHistory, stateSchema, type OwnerEvidence, type StoredHistory, type Pending, type StorageWriteReport } from "./history-data.js";
+import { pauseStorageEvents, recordOwnerEvidence, recordPressureChange, recordScopeChange } from "./events.js";
 
 export const url = import.meta.url;
 export interface HistoryFlush {
   candidate: Pending | null; writes: StorageWriteReport[]; time: number; at: number;
   interrupted: boolean; ownerOverflow: boolean;
+  /** Event-only: every accepted owner report since the last write, and whether any was dropped. */
+  evidence: OwnerEvidence[]; evidenceDropped: boolean;
 }
 export function setup(db: Database, { brain, initial }: { brain: string; initial: StoredHistory }) {
   const initialize = () => db.query("INSERT OR IGNORE INTO storage_history (brain, payload_json) VALUES (?, ?)").run(brain, JSON.stringify(initial));
   return {
     initialize,
-    flush({ candidate, writes, time, at, interrupted, ownerOverflow }: HistoryFlush) {
+    flush({ candidate, writes, time, at, interrupted, ownerOverflow, evidence = [], evidenceDropped = false }: HistoryFlush) {
       return db.transaction(() => {
         initialize();
         const previous = readStoredHistory(db, brain);
@@ -33,14 +36,18 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           const evaluation = retainAggregate({ ...structuredClone(next), samples: next.samples.filter(row => row[1] !== 0 || bucket(0, row[3]) !== bucket(0, at)) }, candidate.value);
           if (interrupted || state.paused) for (const sample of evaluation.samples) if (sample[3] === candidate.value.at) sample[2] = 1;
           const incoming = candidate.value.capacities.map(row => row.descriptor);
+          for (const [identity, rootScope] of incoming) recordScopeChange(db, brain, identity, rootScope, candidate.value.at);
           const pressures = state.pressures.filter(value => value.severity !== "observed" || incoming.some(([identity]) => identity === value.identity))
             .map(value => value.severity === "observed" ? newPressure(value.identity, incoming.find(([identity]) => identity === value.identity)![1]) : value);
           for (const [identity, rootScope] of incoming) if (!pressures.some(value => value.identity === identity) && pressures.length < 4) pressures.push(newPressure(identity, rootScope));
           next.metadata.state.pressures = pressures.map(value => {
-            const observed = observePressure(value, capacityEvidence(evaluation, value.identity, time), time);
+            const observation = capacityEvidence(evaluation, value.identity, time);
+            const observed = observePressure(value, observation, time);
             // Fresh direct observations can escalate pressure, but cannot prove
             // recovery of an owner refusal whose identity was not retained.
             if (ownerEvidenceLost) observed.recoveryAt = null;
+            // The transition happened at the observation, not at this flush.
+            if (observation) recordPressureChange(db, brain, value, observed, observation.at);
             return observed;
           });
           next.metadata.state.scopeLimit = candidate.value.reason === 3 || incoming.some(([identity]) => !pressures.some(value => value.identity === identity));
@@ -51,6 +58,9 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           next.metadata.state.pressures = state.pressures.map(value => observePressure(value, null, time));
           next.metadata.state.paused = "collection-unavailable";
         } else next = structuredClone(previous);
+        // Owner reports change pressure exactly as before #4541. The timeline
+        // replays the uncoalesced evidence instead, after the state they start from.
+        const beforeWrites = structuredClone(next.metadata.state.pressures);
         for (const report of writes) {
           let pressure = next.metadata.state.pressures.find(value => value.identity === report.identity);
           if (!pressure && report.outcome === "success") continue;
@@ -66,6 +76,8 @@ export function setup(db: Database, { brain, initial }: { brain: string; initial
           changed.at = Math.max(changed.at, pressure.at);
           next.metadata.state.pressures[index] = changed;
         }
+        if (evidenceDropped) pauseStorageEvents(db, brain, ["refusal", "pressure"], time, "owner-evidence-overflow");
+        else recordOwnerEvidence(db, brain, beforeWrites, next.metadata.state.pressures, evidence);
         if (ownerEvidenceLost) next.metadata.state.paused = "history-owner-evidence-budget";
         next.metadata.state.lastPersistedAt = time;
         if (candidate) {

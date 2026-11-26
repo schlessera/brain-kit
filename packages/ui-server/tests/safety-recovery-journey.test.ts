@@ -1,18 +1,20 @@
 /** Offline joined journey: detector + real streaming proxy + FULL writer + owner HTTP + two WS views. */
 import { expectRejection } from "./helpers/expect-rejection";
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createUiDb } from "../src/db/client";
 import { openSqliteWriter } from "../src/db/write-worker";
 import { SafetyHistory } from "../src/governance/safety-history";
 import { resolvePrincipal, isUsablePrincipal } from "../src/db/principals";
 import { join } from "node:path";
 import { createEffectiveSafety } from "../src/governance/effective-safety";
+import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { decidePiToolPermission } from "../../ui-backend-pi/src/permission-gate";
 import { createTurnContext } from "../../ui-backend-pi/src/turn-context";
 import { createGovernanceWrites } from "../src/governance/event-writes";
 import * as held from "./fixtures/held-publication-writer";
 import { request } from "node:http";
+import { untrustedMarkOperations } from "../src/files/untrusted-marks";
 import { createSafetyCollector } from "../src/governance/safety-collector";
 import { prepareTurnEgress } from "../src/brain/turn-egress";
 import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
@@ -262,4 +264,149 @@ for (const unfinished of [false, true]) test(`real database restart replays ${un
 
     } finally { history.close(); await writer.close(); db.close(); }
   } finally { if (!closed) await f.close(); else rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test("a maintenance process can reconcile while a live tool owes its result", async () => {
+  const f = await safetyHistoryFixture(true, true);
+  try {
+    const collector = createSafetyCollector(f.db, f.writes, {
+      turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal,
+    });
+    await collector.begin("search", "WebSearch", { query: "Ithaca" });
+    const brain = join(f.root, "ithaca");
+    mkdirSync(brain);
+    const child = Bun.spawn([process.execPath, "-e", `
+      import { createHostExecution } from ${JSON.stringify(import.meta.resolve("../src/brain/host-execution"))};
+      const execution = createHostExecution({ brainPath: process.argv[1], dbPath: process.argv[2], exec: {} });
+      try { execution.reconcileExisting(); } finally { execution.release(); }
+    `, brain, f.path], { stdout: "pipe", stderr: "pipe" });
+    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(code, stderr).toBe(0);
+    expect(f.db.query("SELECT ended FROM safety_collections WHERE turn_id = 'voyage'").get(),
+      "MAINTENANCE_PRESERVES_LIVE_COLLECTION").toEqual({ ended: 0 });
+    await collector.result("search", "WebSearch", "Ithaca", true);
+    await f.writes.safetyEnd("voyage");
+    expect(f.writes.safety(null, "ithaca").coverage.state).toBe("complete");
+  } finally { await f.close(); }
+});
+
+test("a numbered search is attributed only to its verified single note", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const snapshot = join(f.root, "checkpoint");
+    mkdirSync(snapshot);
+    writeFileSync(join(snapshot, "ithaca.md"), "\uFEFFThe crew assembled.\nThe sail was ready.\nThe ship departed.\n");
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", brainPath: f.root, grepCheckpoint: { root: snapshot, masked: [] },
+      shellProxied: () => true, signal: new AbortController().signal });
+    const bytes = "1-The crew assembled.\n2:The sail was ready.\n3-The ship departed.";
+    const response = { mode: "content", numFiles: 0, filenames: [], numLines: 3, totalLines: 3, content: bytes };
+    async function search(id: string, path: string, result: unknown, numbered=true) {
+      collector.admitting?.(id, "Grep");
+      await collector.begin(id, "Grep", { path, pattern: "sail", output_mode: "content", "-C": 1, "-n":numbered });
+      await collector.result(id, "Grep", JSON.stringify(result), true);
+      return f.writes.safety(null, "ithaca").unresolvedCount;
+    }
+    const path = join(f.root, "ithaca.md");
+    expect(await search("verified", path, response), "VERIFIED_SINGLE_NOTE_CONTEXT").toBe(0);
+    writeFileSync(join(snapshot, "pylos.md"), "sail\ncrew\nharbour\nraft\nsail\n");
+    expect(await search("separated", join(f.root,"pylos.md"), {...response,content:"1:sail\n2-crew\n--\n4-raft\n5:sail",numLines:5,totalLines:5})).toBe(0);
+    const contextLine = "raft/\u2028crew\u2029" + "ὦ".repeat(350);
+    writeFileSync(join(snapshot, "fleet.md"), contextLine + "\nsail\n");
+    expect(await search("long-context", join(f.root, "fleet.md"), {...response,
+      content: "1-" + contextLine + "\n2:sail", numLines: 2, totalLines: 2})).toBe(0);
+    expect(await search("directory-matches", f.root, {...response,
+      content:"notes/ithaca.md:2:sail\nnotes/pylos.md:1:sail",numLines:2,totalLines:2})).toBe(0);
+    expect(await search("mismatch", path, { ...response, content: bytes.replace("crew", "fleet") })).toBe(1);
+    expect(await search("paginated", path, { ...response, content:"1-notes/ithaca.md", numLines:1, appliedLimit:1, totalLines:3 })).toBe(2);
+    expect(await search("directory", f.root, response)).toBe(3);
+    expect(await search("unverified", join(f.root, "troy.md"), {...response, content:"notes/ithaca.md",numLines:1,totalLines:1})).toBe(4);
+    symlinkSync("ithaca.md", join(snapshot, "alias.md"));
+    expect(await search("alias", join(f.root, "alias.md"), response)).toBe(5);
+    const unnumbered={...response,content:"notes/ithaca.md:sail",numLines:1,totalLines:1};
+    expect(await search("directory-unnumbered",f.root,unnumbered,false)).toBe(5);
+    expect(await search("relative-unnumbered","ithaca.md",unnumbered,false)).toBe(6);
+    untrustedMarkOperations(f.db).mark("ithaca.md", f.principal.id, Date.now());
+    expect(await search("marked", path, response)).toBeGreaterThan(5);
+    expect(queryGovernanceEvents(f.db, { sessionId: "ithaca", kinds: ["taint"], limit: 100 })
+      .some(event => event.payload.source === "user_marked")).toBe(true);
+  } finally { await f.close(); }
+});
+
+test("pre-execution fetch denial retains the audited attempt without a verdict or unresolved input", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+    const independent = await f.add("connection", true);
+    collector.admitting?.("fetch", "WebFetch");
+    await collector.begin("fetch", "WebFetch", { url: "https://ithaca.example/harbour" });
+    expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(2);
+    await Promise.all([collector.refused?.("fetch", true), f.writes.safetyEnd("voyage")]);
+    expect(f.writes.safety(null, "ithaca").unresolvedCount, "REFUSED_FETCH_DELIVERED_NO_INPUT").toBe(1);
+    const http = await f.get("?nonDelivery=1");
+    expect(http.status).toBe(200);
+    expect((await http.json()).records).toContainEqual(expect.objectContaining({ kind: "exposure", state: "not_delivered" }));
+    const restarted = createUiDb(f.path);
+    try {
+      const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);
+      expect(page.projection.earliestUnresolvedId).toBe(independent.id);
+      expect(page.records.filter(record => record.kind === "occurrence")).toHaveLength(2);
+      expect(page.records.filter(record => record.kind === "exposure").map(record => record.state)).toEqual(["not_delivered"]);
+      expect(page.records.some(record => record.kind === "safe_decision")).toBe(false);
+      const legacy = await f.history.read(f.principal, { sessionId: "ithaca" });
+      expect(legacy.records.filter(record => record.kind === "exposure").map(record => record.state)).toEqual(["interrupted_unknown"]);
+    } finally { restarted.close(); }
+  } finally { await f.close(); }
+});
+
+test("ambiguous refusals and contradictory results stay unresolved", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+    for (const id of ["duplicate", "allowed", "cancelled", "late"]) {
+      collector.admitting?.(id, "WebFetch");
+      await collector.begin(id, "WebFetch", { url: "https://ithaca.example/harbour" });
+      if (id === "duplicate") collector.admitting?.(id, "WebFetch");
+      if (id === "allowed") await collector.allowed?.(id);
+      await collector.refused?.(id, id !== "cancelled");
+      if (id === "late") {
+        expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(3);
+        await collector.result(id, "WebFetch", "Interrupted after receiving harbour notes", false);
+      }
+    }
+    expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(4);
+    await f.writes.safetyEnd("voyage");
+    expect(f.writes.safety(null, "ithaca").restriction).toBe("restricted");
+  } finally { await f.close(); }
+});
+
+test("an interrupted Claude fetch retains unknown delivery after the failure hook", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const signal = new AbortController().signal;
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId,
+      backendId: "claude", sessionId: () => "ithaca", shellProxied: () => true, signal });
+    const { hooks } = createPermissionWiring({
+      req: { prompt: "Read the harbour report", signal, bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" }), inputSafety: collector } },
+      allowedTools: ["WebFetch"], confirmPatterns: [], brainPath: f.root,
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never,
+      childEnv: {}, log() {},
+    });
+    const input = { url: "https://ithaca.example/harbour" };
+    collector.admitting?.("fetch", "WebFetch");
+    await collector.begin("fetch", "WebFetch", input);
+    await collector.allowed?.("fetch");
+    const failure = hooks!.PostToolUseFailure!.find(group => !group.matcher)!.hooks[0]!;
+    await failure({ hook_event_name: "PostToolUseFailure", tool_name: "WebFetch", tool_use_id: "fetch",
+      tool_input: input, error: "Interrupted during the harbour report", is_interrupt: true,
+      cwd: f.root, session_id: "ithaca", transcript_path: "" }, undefined, { signal });
+    await f.writes.safetyEnd("voyage");
+    const history = await (await f.get("?nonDelivery=1")).json();
+    expect(history.records.filter((record: {kind:string}) => record.kind === "exposure"))
+      .toContainEqual(expect.objectContaining({ state: "interrupted_unknown" }));
+    expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(1);
+  } finally { await f.close(); }
 });

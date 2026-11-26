@@ -1,10 +1,10 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
 import { body, captureOffline, history, identical, main, messages, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
-import { LOG_FACT, PERMIT_FACT } from "../../ui-server/tests/fixtures/attachment-host-fixture.js";
+import { LOG_FACT, LONG_VOYAGE_LOG, PERMIT_FACT } from "../../ui-server/tests/fixtures/attachment-host-fixture.js";
 
 let captures: Captures & { attachmentOutcome?: { calls: string[][]; ids: string[] } };
-beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-attachment-probe.ts")) as typeof captures; }, 180_000);
+beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-attachment-probe.ts"), { isolateManagedSettings: true }) as typeof captures; }, 180_000);
 
 // #3154: the installed CLI reads attachments through read_attachment on its MCP
 // route; the host's production reader and PDF extractor answer. The fact only
@@ -16,9 +16,9 @@ test("Claude reads a PDF page and a text original on demand, with tools, system 
   const [permit, log] = outcome.ids;
   expect(capture.sessions).toHaveLength(3);
   expect(new Set(capture.sessions).size).toBe(1);
-  expect(main(capture).map(e => e.turn), "READ_ATTACHMENT_CLAUDE_EVERY_TURN_READS").toEqual([0, 0, 1, 1, 2, 2]);
-  expect(capture.calls, "READ_ATTACHMENT_CLAUDE_HOST_RECEIVES_PARSED_INPUT").toEqual([{ id: permit, pages: "2" }, { id: log }, { id: permit, pages: "2" }]);
-  expect(outcome.calls, "READ_ATTACHMENT_CLAUDE_HOST_RECORDS_READS").toEqual([[permit, "read"], [log, "read"], [permit, "read"]]);
+  expect(main(capture).map(e => e.turn), "READ_ATTACHMENT_CLAUDE_EVERY_TURN_READS").toEqual([0, 0, 1, 1, 1, 2, 2]);
+  expect(capture.calls, "READ_ATTACHMENT_CLAUDE_HOST_RECEIVES_PARSED_INPUT").toEqual([{ id: permit, pages: "2" }, { id: log }, { id: log, cursor: expect.stringMatching(/^t\./) }, { id: permit, pages: "2" }]);
+  expect(outcome.calls, "READ_ATTACHMENT_CLAUDE_HOST_RECORDS_READS").toEqual([[permit, "read"], [log, "partial"], [log, "read"], [permit, "read"]]);
   // The first message is references and metadata only.
   const first = JSON.stringify(messages(main(capture)[0]!));
   expect(first).toContain("<brain-attachments>");
@@ -27,14 +27,20 @@ test("Claude reads a PDF page and a text original on demand, with tools, system 
   expect(first, "READ_ATTACHMENT_CLAUDE_ABSENT_AT_SEND").not.toContain(PERMIT_FACT);
   expect(first).not.toContain(LOG_FACT);
   // Each read's content arrives in the newest message only, as its tool result.
-  const results = main(capture).filter((_, index) => index % 2 === 1);
+  const results = main(capture).filter((_, index) => [1, 3, 4, 6].includes(index));
   const latest = results.map(exchange => JSON.stringify(messages(exchange).at(-1)));
   const earlier = results.map(exchange => JSON.stringify(messages(exchange).slice(0, -1)));
-  expect(latest.map(text => text.includes('"is_error":true'))).toEqual([false, false, false]);
+  expect(latest.map(text => text.includes('"is_error":true'))).toEqual([false, false, false, false]);
   expect(latest[0], "READ_ATTACHMENT_CLAUDE_FACT_VIA_TOOL").toContain(PERMIT_FACT);
   expect(earlier[0]).not.toContain(PERMIT_FACT);
   expect(latest[1], "READ_ATTACHMENT_CLAUDE_TEXT_VIA_TOOL").toContain(LOG_FACT);
-  expect(latest[2], "READ_ATTACHMENT_CLAUDE_LATER_TURN_REREAD").toContain(PERMIT_FACT);
+  const pages = results.slice(1, 3).map(exchange => {
+    const result = messages(exchange).at(-1).content.find((block: { type: string }) => block.type === "tool_result");
+    const text = typeof result.content === "string" ? result.content : result.content[0].text;
+    return /<<<attachment-data-([^\n]+)\n([\s\S]*)\nattachment-data-\1>>>/.exec(text)?.[2];
+  });
+  expect(pages.join(""), "READ_ATTACHMENT_CLAUDE_INLINE_CONTINUATION").toBe(LONG_VOYAGE_LOG);
+  expect(latest[3], "READ_ATTACHMENT_CLAUDE_LATER_TURN_REREAD").toContain(PERMIT_FACT);
   expect(latest[0]).toContain("attachment-data-");
   expect(capture.rosters, "READ_ATTACHMENT_CLAUDE_ASSEMBLED_ROSTER_STABLE").toEqual([capture.rosters![0], capture.rosters![0], capture.rosters![0]]);
   for (const [a, b] of pairs(capture)) {

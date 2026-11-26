@@ -7,6 +7,29 @@ below. [#2418](https://github.com/schlessera/brain-kit/issues/2418) tracks this
 durable record. These are selected requirements; the rulings themselves supply
 no implementation, allocation measurement or runtime qualification.
 
+## Git receipt amendment, 2026-11-20 (#4297)
+
+Writable managed worktrees and opted-in in-brain checkouts retain a Git diff,
+including tracked and untracked non-ignored files. Ignored dependencies and
+build output are regenerable and are not kept. This supersedes the older
+per-file checkout journal guarantee; retained legacy rows remain readable.
+
+The evidence store beside the journal owns both endpoint trees and all their
+blobs, copied and pinned as self-contained Git packs for the receipt lifetime.
+It never borrows source alternates across operations. Stored bytes count toward
+the journal quota. Only credential-free maintenance workers run Git, without
+source configuration, hooks, filters or fsmonitor. Unsupported checkout forms
+remain restricted; unknown coverage never grants writes.
+
+Each checkout has one code-changes entry in its turn's existing history, with
+the receipt fields, preview and guarded revert specified in the
+[HTTP contract](../integration-contract/http.md#checkout-change-receipts-4297).
+The durable baseline precedes retirement of file coverage; turn end captures
+after workers exit and before their generation closes. Revert compares a fresh
+tree with the recorded endpoint, restores changed paths and removes additions;
+later changes instead show both endpoints for owner review. Commits and refs
+are not rewritten. Notes keep their existing before-images and revert rules.
+
 ## Why reference acquisition has a separate lifecycle
 
 The issue records a source-inspection checkout acquired under `workspaces/`
@@ -21,8 +44,29 @@ The [persistent-cache ruling](https://github.com/schlessera/brain-kit/issues/239
 places application-managed reference source outside brain content, indexing,
 capture and sync. Ordinary readers share source rather than receiving a full
 copy per agent or step. Reference source is read-only to agents. This creates
-no blanket `workspaces/` journal exemption and does not authorize changes to
-user-owned custom skills or automatic cleanup of arbitrary workspace repos.
+no exemption for writable workspaces. **Amended 2026-11-20 (#4295):**
+read-only inspection turns exclude `workspaces/` from their journal, policy
+freeze and observed-byte accounting; a concurrent opted-in writer retains its
+coverage. This does not authorize changes to user-owned custom skills or
+automatic cleanup of arbitrary workspace repos.
+
+**Install ruling, 2026-11-20 (#4298, Option A).** Inspecting source never
+writes. A turn that needs to install or build asks for a managed worktree, or
+for the session's code-changes switch. Under the approved Git receipt policy,
+tracked changes and untracked files Git does not ignore are protected; ignored
+install/build output is neither recorded nor restored because it can be
+regenerated. The workspace opt-in uses the Git receipt transition below for covered
+checkouts; ordinary workspace files retain their existing journal coverage. A default turn's read-only note names
+both routes to writable checkout access. Commands run against the read-only
+mount, so verification and dry runs that leave it unchanged remain usable. A
+read-only failure in a turn with an inspected workspace receives a fixed
+conditional remedy after execution; command names alone do not deny a call.
+The result makes no path attribution and may advise an outside write too:
+
+> If this write was under workspaces/, the checkout is read-only in this turn: switch on code changes for this session (applies from the next message) or use a managed worktree.
+
+Reading a source image
+for a scratch markup layer likewise requires no workspace write grant.
 
 ## Authority and credential isolation
 

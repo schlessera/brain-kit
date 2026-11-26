@@ -56,6 +56,7 @@ export type {
 export { BackendProfileConfigError, defineBackendModule } from "./backend-module.js";
 
 export type { ExecWrapperConfig, KillableProcess, WrappedKillOptions } from "./exec-wrapper.js";
+export { safeStartupTiming } from "./startup-timing.js";
 export { killWrapped } from "./exec-wrapper.js";
 
 export { probeVersionCommand } from "./version-probe.js";

@@ -159,7 +159,7 @@ try {
       unix: relay.socketPath,
     } as RequestInit);
     const body = await response.text();
-    assert.equal(response.status, 503);
+    assert.equal(response.status, 502);
     assert(!body.includes(errorSecret));
     assert(!body.includes("odysseus-refresh-cancel"));
     assert(body.includes("Inference credentials unavailable"));

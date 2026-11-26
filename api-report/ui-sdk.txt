@@ -34,7 +34,9 @@ export "." (./src/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnHold
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
@@ -146,6 +148,9 @@ export "." (./src/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
+  type CodeChangeReceipt
   type ConfigurationCoverageRead
   type ConfiguredModule
   type ConflictVersionSelection
@@ -334,9 +339,23 @@ export "." (./src/index.ts)
   SPAN_TOOL_NAME_PREFIX
   STANDARD_PERSONA_ID
   STANDARD_PERSONA_REVISION
+  STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS
+  STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS
+  STORAGE_PRESSURE_CRITICAL_PERCENT
+  STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT
+  STORAGE_PRESSURE_EVIDENCE_WINDOW_MS
+  STORAGE_PRESSURE_LOW_FORECAST_DAYS
+  STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS
+  STORAGE_PRESSURE_LOW_PERCENT
+  STORAGE_PRESSURE_LOW_RECOVERY_PERCENT
+  STORAGE_PRESSURE_RECOVERY_OBSERVATIONS
+  STORAGE_PRESSURE_RECOVERY_SPACING_MS
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
+  type SafetyFutureCommit
+  type SafetyFuturePrepare
+  type SafetyFuturePrepared
   type SafetyHistoryProjection
   type SafetyIdentity
   type SafetyPage
@@ -427,6 +446,9 @@ export "." (./src/index.ts)
   type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvent
+  type StorageEventKind
+  type StorageEventsResponse
   type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
@@ -435,6 +457,7 @@ export "." (./src/index.ts)
   type StorageHistoryObservation
   type StorageHistoryResponse
   type StorageHistoryTier
+  type StorageMaintenanceEvent
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
@@ -444,8 +467,10 @@ export "." (./src/index.ts)
   type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureEvent
   type StoragePressureView
   type StorageReferenceEvidence
+  type StorageRefusalEvent
   type StorageRemovalCapability
   type StorageRemovalFile
   type StorageRemovalInspection
@@ -457,6 +482,7 @@ export "." (./src/index.ts)
   type StorageRemovalUndoRequest
   type StorageRoot
   type StorageScenario
+  type StorageScopeEvent
   type StorageSeverity
   type StorageSnapshot
   type StorageStatus
@@ -580,7 +606,9 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnHold
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
@@ -738,6 +766,9 @@ export "./client" (./src/client/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
+  type CodeChangeReceipt
   type CompleteShareInput
   type CompleteShareResult
   type ComputeHealthToolInput
@@ -1112,9 +1143,23 @@ export "./client" (./src/client/index.ts)
   STALE_SOCKET_CLOSE_CODE
   STANDARD_PERSONA_ID
   STANDARD_PERSONA_REVISION
+  STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS
+  STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS
+  STORAGE_PRESSURE_CRITICAL_PERCENT
+  STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT
+  STORAGE_PRESSURE_EVIDENCE_WINDOW_MS
+  STORAGE_PRESSURE_LOW_FORECAST_DAYS
+  STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS
+  STORAGE_PRESSURE_LOW_PERCENT
+  STORAGE_PRESSURE_LOW_RECOVERY_PERCENT
+  STORAGE_PRESSURE_RECOVERY_OBSERVATIONS
+  STORAGE_PRESSURE_RECOVERY_SPACING_MS
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
+  type SafetyFutureCommit
+  type SafetyFuturePrepare
+  type SafetyFuturePrepared
   type SafetyHistoryProjection
   type SafetyIdentity
   type SafetyPage
@@ -1209,6 +1254,9 @@ export "./client" (./src/client/index.ts)
   type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvent
+  type StorageEventKind
+  type StorageEventsResponse
   type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
@@ -1217,6 +1265,7 @@ export "./client" (./src/client/index.ts)
   type StorageHistoryObservation
   type StorageHistoryResponse
   type StorageHistoryTier
+  type StorageMaintenanceEvent
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
@@ -1226,8 +1275,10 @@ export "./client" (./src/client/index.ts)
   type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureEvent
   type StoragePressureView
   type StorageReferenceEvidence
+  type StorageRefusalEvent
   type StorageRemovalCapability
   type StorageRemovalFile
   type StorageRemovalInspection
@@ -1239,6 +1290,7 @@ export "./client" (./src/client/index.ts)
   type StorageRemovalUndoRequest
   type StorageRoot
   type StorageScenario
+  type StorageScopeEvent
   type StorageSeverity
   type StorageSnapshot
   type StorageStatus
@@ -1384,7 +1436,10 @@ export "./internal" (./src/internal.ts)
   type CompiledWorkerCommandPolicy
   DEFAULT_TURN_TEMP_BYTES
   EgressAdmissionRefused
+  type EgressChargeFailure
+  type EgressChargeResult
   type EgressDestinationPolicy
+  type EgressFailureReason
   type EgressRecord
   type EgressRefusal
   FIRST_PARTY_PROVIDER_RECIPIENTS
@@ -1397,6 +1452,8 @@ export "./internal" (./src/internal.ts)
   INFERENCE_PLACEHOLDER
   type InferenceRelay
   type InferenceRelayEvent
+  type InferenceTimingMark
+  type InferenceUsage
   type LaunchedWorker
   MAINTENANCE_HOME
   type MaintenanceCommand
@@ -1425,6 +1482,7 @@ export "./internal" (./src/internal.ts)
   PROVIDER_RELAY_KEYS_NAME
   PROVIDER_RELAY_SOCKET_NAME
   type PreparedWorkerOutput
+  ProtectedMaintenanceOutputError
   type ProviderRelay
   type ProviderRelayOptions
   type ProviderRelayReceipt
@@ -1435,6 +1493,7 @@ export "./internal" (./src/internal.ts)
   type RemovalRun
   type Reservation
   type RetainedCleanup
+  SESSION_PROMPT_CONTEXT_MAX_BYTES
   STALE_SAFETY_ADMISSION
   SUBPROCESS_ENV
   type SessionPromptFacts
@@ -1490,6 +1549,7 @@ export "./internal" (./src/internal.ts)
   assertManagedTurnStartupView
   assertScratchMaskAsync
   bashCommand
+  canonicalEgressHost
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
@@ -1507,8 +1567,10 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   denyWorkerCommand
   describeClient
+  diagnosticInterval
   egressAddressRefusal
   egressBootstrapEntry
+  egressChargeRefusal
   envMaskedPaths
   execWrapperSpawnOptions
   handleTurnTemp
@@ -1521,6 +1583,7 @@ export "./internal" (./src/internal.ts)
   hostProviderCredential
   isEnvName
   isManagedWorkerStartupView
+  isMcpTimingServerName
   launchAgentWorker
   launchAgentWorkerAsync
   launchLimits
@@ -1537,6 +1600,7 @@ export "./internal" (./src/internal.ts)
   nativeTurnTreeManager
   nativeWorkerStartupInput
   observeClassification
+  observeDiagnostic
   observeOutwardPlan
   outputStagingLimit
   outwardAdmissionRefusal
@@ -1580,12 +1644,17 @@ export "./internal" (./src/internal.ts)
   resolveWebSearchConfigPath
   resolveWorkerProtection
   resolveWorkerStateLimits
+  resolveWorkspacesMount
   restrictedReadPaths
   retainWorkerStartupView
   rewriteWorkerRtk
   runMaintenanceWorker
   runMaintenanceWorkerSync
   safetyAdmissionRefusal
+  safetyAdmissionSchema
+  safetyOccurrenceAdmissionSchema
+  safetyRecordSchema
+  sameAuthority
   sameSafetyAdmission
   sessionPromptContext
   sessionPromptContextLocation
@@ -1598,6 +1667,7 @@ export "./internal" (./src/internal.ts)
   toolAdmissionSafety
   turnTempLimit
   turnTempSpace
+  validatedEgressProvenance
   verifiedWorkerIdentity
   webSearchBrief
   webSearchKeySource
@@ -1616,6 +1686,7 @@ export "./internal" (./src/internal.ts)
   workerProviderCredentials
   workerSandboxNote
   workerSandboxWarnings
+  workspaceWriteRefusal
 
 export "./internal/client" (./src/internal-client.ts)
   type FrontmatterBlock
@@ -1673,7 +1744,9 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnHold
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
@@ -1785,6 +1858,9 @@ export "./protocol" (./src/protocol.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
+  type CodeChangeReceipt
   type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConsumerServerMessage
@@ -1965,9 +2041,23 @@ export "./protocol" (./src/protocol.ts)
   SPAN_TOOL_NAME_PREFIX
   STANDARD_PERSONA_ID
   STANDARD_PERSONA_REVISION
+  STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS
+  STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS
+  STORAGE_PRESSURE_CRITICAL_PERCENT
+  STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT
+  STORAGE_PRESSURE_EVIDENCE_WINDOW_MS
+  STORAGE_PRESSURE_LOW_FORECAST_DAYS
+  STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS
+  STORAGE_PRESSURE_LOW_PERCENT
+  STORAGE_PRESSURE_LOW_RECOVERY_PERCENT
+  STORAGE_PRESSURE_RECOVERY_OBSERVATIONS
+  STORAGE_PRESSURE_RECOVERY_SPACING_MS
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
+  type SafetyFutureCommit
+  type SafetyFuturePrepare
+  type SafetyFuturePrepared
   type SafetyHistoryProjection
   type SafetyIdentity
   type SafetyPage
@@ -2058,6 +2148,9 @@ export "./protocol" (./src/protocol.ts)
   type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvent
+  type StorageEventKind
+  type StorageEventsResponse
   type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
@@ -2066,6 +2159,7 @@ export "./protocol" (./src/protocol.ts)
   type StorageHistoryObservation
   type StorageHistoryResponse
   type StorageHistoryTier
+  type StorageMaintenanceEvent
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
@@ -2075,8 +2169,10 @@ export "./protocol" (./src/protocol.ts)
   type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureEvent
   type StoragePressureView
   type StorageReferenceEvidence
+  type StorageRefusalEvent
   type StorageRemovalCapability
   type StorageRemovalFile
   type StorageRemovalInspection
@@ -2088,6 +2184,7 @@ export "./protocol" (./src/protocol.ts)
   type StorageRemovalUndoRequest
   type StorageRoot
   type StorageScenario
+  type StorageScopeEvent
   type StorageSeverity
   type StorageSnapshot
   type StorageStatus
@@ -2166,9 +2263,12 @@ export "./render" (./src/render.ts)
 
 export "./schemas" (./src/schemas.ts)
   MAX_CLIENT_FRAME_BYTES
+  MAX_CLIENT_TURN_RECEIPT_BYTES
   MAX_PROMPT_CHARS
   MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
+  TrustRuleSchema
+  TrustedSourcesSchema
   approvalDisplaySchema
   attachmentFileSchema
   attachmentLimitsSchema
@@ -2212,6 +2312,7 @@ export "./schemas" (./src/schemas.ts)
   clientSessionResumeSchema
   clientToolApprovalSchema
   clientToolDenialSchema
+  clientTurnTimingSchema
   conversationAudioFormatSchema
   conversationCapabilitiesSchema
   conversationDisclosureSchema
@@ -2278,11 +2379,19 @@ export "./schemas" (./src/schemas.ts)
   messageSourceSchema
   parseClientMessage
   parseServerMessage
+  parseTrustGithub
+  parseTrustOrigin
+  parseTrustTunnel
   queueAddRequestSchema
   queueAddResultSchema
   queuedFollowUpViewSchema
   resolutionEffectSchema
   safetyCapabilitiesSchema
+  safetyFutureCommitSchema
+  safetyFuturePrepareSchema
+  safetyFuturePreparedSchema
+  safetyFutureResultSchema
+  safetyFutureStatusSchema
   safetyPageSchema
   safetyProjectionSchema
   safetyReviewBodySchema
@@ -2413,7 +2522,9 @@ export "./server" (./src/server/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnHold
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentBackend
@@ -2618,9 +2729,12 @@ export "./server" (./src/server/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
   type CoastlineConfig
   type CoastlineRequest
   type CoastlineResult
+  type CodeChangeReceipt
   type CompiledConfirmPattern
   type CompleteShareInput
   type CompleteShareResult
@@ -3031,9 +3145,23 @@ export "./server" (./src/server/index.ts)
   SPAN_TOOL_NAME_PREFIX
   STANDARD_PERSONA_ID
   STANDARD_PERSONA_REVISION
+  STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS
+  STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS
+  STORAGE_PRESSURE_CRITICAL_PERCENT
+  STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT
+  STORAGE_PRESSURE_EVIDENCE_WINDOW_MS
+  STORAGE_PRESSURE_LOW_FORECAST_DAYS
+  STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS
+  STORAGE_PRESSURE_LOW_PERCENT
+  STORAGE_PRESSURE_LOW_RECOVERY_PERCENT
+  STORAGE_PRESSURE_RECOVERY_OBSERVATIONS
+  STORAGE_PRESSURE_RECOVERY_SPACING_MS
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
+  type SafetyFutureCommit
+  type SafetyFuturePrepare
+  type SafetyFuturePrepared
   type SafetyHistoryProjection
   type SafetyIdentity
   type SafetyPage
@@ -3135,6 +3263,9 @@ export "./server" (./src/server/index.ts)
   type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvent
+  type StorageEventKind
+  type StorageEventsResponse
   type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
@@ -3143,6 +3274,7 @@ export "./server" (./src/server/index.ts)
   type StorageHistoryObservation
   type StorageHistoryResponse
   type StorageHistoryTier
+  type StorageMaintenanceEvent
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
@@ -3152,8 +3284,10 @@ export "./server" (./src/server/index.ts)
   type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureEvent
   type StoragePressureView
   type StorageReferenceEvidence
+  type StorageRefusalEvent
   type StorageRemovalCapability
   type StorageRemovalFile
   type StorageRemovalInspection
@@ -3165,6 +3299,7 @@ export "./server" (./src/server/index.ts)
   type StorageRemovalUndoRequest
   type StorageRoot
   type StorageScenario
+  type StorageScopeEvent
   type StorageSeverity
   type StorageSnapshot
   type StorageStatus
@@ -3347,6 +3482,7 @@ export "./server" (./src/server/index.ts)
   resolveThinkingLevel
   reverseGeocode
   rtkRewriteCommand
+  safeStartupTiming
   signedArea
   simplify
   stateRoomCopy
@@ -4479,8 +4615,50 @@ signatures (every public export and the types it is made of)
     export type ActivitySpanOrigin = "session" | "cron" | "autonomous" | "compute";
   ActivitySpanOutcome (packages/ui-sdk/src/protocol.ts)
     export type ActivitySpanOutcome = "success" | "error" | "timeout" | "cancelled" | "denied" | "interrupted";
+  ActivityTurnHold (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityTurnHold {
+        holdId: string;
+        cause: "begin" | "finish" | "tool" | "periodic" | "scope";
+        causeTurnId: string | null;
+        toolUseId?: string;
+        requestedAt: number;
+        stoppedAt: number | null;
+        resumedAt: number | null;
+        changedPaths: number | null;
+        otherTurnsStopped: number;
+        inferenceInFlight: boolean | null;
+    }
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnLifecycle {
+        holds?: ActivityTurnHold[];
+        stoppedTime?: {
+            totalMs: number;
+            intervals: number;
+            sharedHolds: number;
+            openHolds: number;
+            inferenceMs: number;
+            noInferenceMs: number;
+            unknownMs: number;
+        };
+        admissionLoad?: {
+            atDequeue?: {
+                load1?: number;
+                cpuCount?: number;
+            };
+            atBackendStart?: {
+                load1?: number;
+                cpuCount?: number;
+            };
+            eventLoopMaxMs?: number;
+            eventLoopP99Ms?: number;
+        };
+        packageVersion?: string;
+        buildRevision?: string;
+        runtimeVersion?: string;
+        recorderSettledAt?: number | null;
+        idleEmittedAt?: number | null;
+        clientTiming?: ClientTurnTiming;
+        clientTimingUnavailable?: "invalid_receipt";
         hostEvents: Array<{
             principalId: string;
             kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up";
@@ -4492,6 +4670,7 @@ signatures (every public export and the types it is made of)
         sessionId: string | null;
         backendRunId: string | null;
         acceptedAt: number;
+        queuedAt?: number;
         dequeuedAt: number | null;
         governedStartedAt: number | null;
         governedAcquiredAt: number | null;
@@ -4500,6 +4679,14 @@ signatures (every public export and the types it is made of)
         journalStartedAt: number | null;
         journalBeganAt: number | null;
         backendInvokedAt: number | null;
+        firstRelayRequestAt?: number | null;
+        backendMissingEvidence?: string[];
+        backendMcpInit?: Array<{
+            name: string;
+            status: "connected" | "failed" | "needs-auth" | "pending" | "disabled" | "other";
+            source: "sdk" | "plugin" | "user" | "project" | "local" | "dynamic" | "managed" | "enterprise" | "claudeai" | "agent" | "other";
+        }>;
+        backendEvidenceOmitted?: number;
         firstFrameAt: number | null;
         failureObservedAt: number | null;
         endedAt: number | null;
@@ -4513,10 +4700,33 @@ signatures (every public export and the types it is made of)
         journalBeginMs: number | null;
         backendStartupMs: number | null;
         subPhases?: ActivityTurnSubPhase[];
+        openSubPhases?: ActivityTurnOpenSubPhase[];
+    }
+  ActivityTurnOpenSubPhase (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
+        phase: string;
+        pending?: boolean;
+        indexSettle?: {
+            queuedPaths: number;
+            updates: number;
+            firstAlreadyRunning: boolean;
+            updateMs: number;
+            lastOutcome: "complete" | "failed" | "index_capacity" | "cancelled" | null;
+        };
+        timeBase?: "worker";
+        workerElapsedMs?: number;
     }
   ActivityTurnSubPhase (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnSubPhase {
         phase: "governed" | "journal";
+        queueAhead?: {
+            count: number;
+            kinds: Array<ActivityTurnHold["cause"] | "refresh" | "worktree" | "memory">;
+        };
+        aliasScan?: {
+            scans: number;
+            entries: number;
+        };
         name: string;
         startedAt: number;
         endedAt: number | null;
@@ -7446,7 +7656,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientMessage (packages/ui-sdk/src/protocol.ts)
-    export type ClientMessage = ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe | ClientScopeDecision | ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientMarkupError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
+    export type ClientMessage = ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe | ClientScopeDecision | ClientHello | ClientTurnReceipt | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientMarkupError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
   ClientPing (packages/ui-sdk/src/protocol.ts)
     export interface ClientPing {
         type: "ping";
@@ -7502,9 +7712,45 @@ signatures (every public export and the types it is made of)
         channel?: ApprovalChannel;
         turnId?: string;
     }
+  ClientTurnReceipt (packages/ui-sdk/src/protocol.ts)
+    export interface ClientTurnReceipt {
+        type: "client_turn_receipt";
+        turnId: string;
+        timing: ClientTurnTiming;
+    }
+  ClientTurnTiming (packages/ui-sdk/src/protocol.ts)
+    export interface ClientTurnTiming {
+        sendToFirstHostFrameMs: number;
+        sendToFirstContentFrameMs?: number;
+        lastContentFrameToIdleMs?: number;
+        sendToFirstPhaseStatusFrameMs?: number;
+    }
   CoastlineConfig (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CoastlineRequest (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CoastlineResult (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  CodeChangeReceipt (packages/ui-sdk/src/turn-journal.ts)
+    export interface CodeChangeReceipt {
+        checkout: string;
+        state: "recording" | "complete" | "partial";
+        head_before: {
+            commit: string;
+            ref: string | null;
+        };
+        head_after: {
+            commit: string;
+            ref: string | null;
+        };
+        tree_before: string;
+        tree_after: string;
+        paths: {
+            path: string;
+            kind: "added" | "deleted" | "modified";
+            untracked: boolean;
+        }[];
+        bytes: number;
+        untracked: number;
+        ignore_changed: boolean;
+    }
   CompiledConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
     export type CompiledConfirmPattern = RegExp & {
         readonly effect?: string;
@@ -8233,7 +8479,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
         inputTokens: number | null;
@@ -10076,7 +10322,7 @@ signatures (every public export and the types it is made of)
         detail: string;
     });
   GovernedUnavailableReason (packages/ui-sdk/src/protocol.ts)
-    export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "worker_host_unavailable";
+    export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "private_state_unverified" | "worker_host_unavailable";
   GraphBrokenLink (packages/ui-sdk/src/protocol.ts)
     export interface GraphBrokenLink {
         sourcePath: string;
@@ -11066,6 +11312,8 @@ signatures (every public export and the types it is made of)
     }, z.core.$strip>;
   MAX_CLIENT_FRAME_BYTES (packages/ui-sdk/src/schemas.ts)
     const MAX_CLIENT_FRAME_BYTES: 12000000;
+  MAX_CLIENT_TURN_RECEIPT_BYTES (packages/ui-sdk/src/schemas.ts)
+    const MAX_CLIENT_TURN_RECEIPT_BYTES: 4096;
   MAX_IMAGES_PER_MESSAGE (packages/ui-sdk/src/protocol.ts)
     const MAX_IMAGES_PER_MESSAGE: 4;
   MAX_IMAGE_BYTES (packages/ui-sdk/src/protocol.ts)
@@ -11315,6 +11563,7 @@ signatures (every public export and the types it is made of)
     } | {
         ok: false;
         error: string;
+        frameType?: "client_turn_receipt";
     };
   PasskeySummary (packages/ui-sdk/src/protocol.ts)
     export interface PasskeySummary {
@@ -11980,10 +12229,10 @@ signatures (every public export and the types it is made of)
             reviewBodyBytes?: 16384 | undefined;
             reviewLifetimeMs?: 900000 | undefined;
         };
-        originRules: false;
+        originRules: boolean;
         read: true;
         readOnlyReason: "owner_required" | "review_unavailable" | null;
-        recipientRules: false;
+        recipientRules: boolean;
         repositoryRules: false;
         review: boolean;
         version: 1;
@@ -13462,12 +13711,40 @@ signatures (every public export and the types it is made of)
     const STANDARD_PERSONA_ID: "standard";
   STANDARD_PERSONA_REVISION (packages/ui-sdk/src/protocol.ts)
     const STANDARD_PERSONA_REVISION: "builtin";
+  STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS: 7;
+  STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS: 10;
+  STORAGE_PRESSURE_CRITICAL_PERCENT (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_CRITICAL_PERCENT: 5;
+  STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT: 7;
+  STORAGE_PRESSURE_EVIDENCE_WINDOW_MS (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_EVIDENCE_WINDOW_MS: number;
+  STORAGE_PRESSURE_LOW_FORECAST_DAYS (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_LOW_FORECAST_DAYS: 30;
+  STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS: 45;
+  STORAGE_PRESSURE_LOW_PERCENT (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_LOW_PERCENT: 10;
+  STORAGE_PRESSURE_LOW_RECOVERY_PERCENT (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_LOW_RECOVERY_PERCENT: 12;
+  STORAGE_PRESSURE_RECOVERY_OBSERVATIONS (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_RECOVERY_OBSERVATIONS: 2;
+  STORAGE_PRESSURE_RECOVERY_SPACING_MS (packages/ui-sdk/src/storage-guidance.ts)
+    const STORAGE_PRESSURE_RECOVERY_SPACING_MS: 60000;
   SUBSCRIPTION_AUTH_INSTRUCTIONS (packages/ui-sdk/src/protocol.ts)
     const SUBSCRIPTION_AUTH_INSTRUCTIONS: Readonly<Record<SubscriptionAuthAction, string>>;
   SUBSCRIPTION_RELOGIN_PROCEDURE (packages/ui-sdk/src/protocol.ts)
     const SUBSCRIPTION_RELOGIN_PROCEDURE: string;
   SafetyCapabilities (packages/ui-sdk/src/safety.ts)
     export type SafetyCapabilities = z.infer<typeof safetyCapabilitiesSchema>;
+  SafetyFutureCommit (packages/ui-sdk/src/safety.ts)
+    export type SafetyFutureCommit = z.infer<typeof safetyFutureCommitSchema>;
+  SafetyFuturePrepare (packages/ui-sdk/src/safety.ts)
+    export type SafetyFuturePrepare = z.infer<typeof safetyFuturePrepareSchema>;
+  SafetyFuturePrepared (packages/ui-sdk/src/safety.ts)
+    export type SafetyFuturePrepared = z.infer<typeof safetyFuturePreparedSchema>;
   SafetyHistoryProjection (packages/ui-sdk/src/safety.ts)
     export type SafetyHistoryProjection = z.infer<typeof safetyProjectionSchema>;
   SafetyIdentity (packages/ui-sdk/src/safety.ts)
@@ -13496,6 +13773,8 @@ signatures (every public export and the types it is made of)
     }
   ScopeCapReceipt (packages/ui-sdk/src/turn-journal.ts)
     export interface ScopeCapReceipt {
+        measurement?: "unknown";
+        result?: "index_capacity";
         eventId: string;
         dimension: ScopeDimension;
         count: number;
@@ -13831,6 +14110,7 @@ signatures (every public export and the types it is made of)
     }
   ServerStatus (packages/ui-sdk/src/protocol.ts)
     export interface ServerStatus extends SessionScoped {
+        hostTurnComplete?: true;
         type: "status";
         status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
         detail?: string;
@@ -14257,6 +14537,30 @@ signatures (every public export and the types it is made of)
     }
   StorageCoverage (packages/ui-sdk/src/storage.ts)
     export type StorageCoverage = "complete" | "partial" | "unknown";
+  StorageEvent (packages/ui-sdk/src/storage-events.ts)
+    export type StorageEvent = StoragePressureEvent | StorageRefusalEvent | StorageScopeEvent | StorageMaintenanceEvent;
+  StorageEventBase (packages/ui-sdk/src/storage-events.ts)
+    interface StorageEventBase {
+        seq: number;
+        at: number;
+    }
+  StorageEventKind (packages/ui-sdk/src/storage-events.ts)
+    export type StorageEventKind = "pressure" | "refusal" | "scope" | "maintenance";
+  StorageEventsResponse (packages/ui-sdk/src/storage-events.ts)
+    export interface StorageEventsResponse {
+        version: 1;
+        since: number;
+        next: number;
+        limits: {
+            pressure: 256;
+            refusal: 128;
+            scope: 64;
+            maintenance: 512;
+            payloadBytes: 262144;
+        };
+        paused: Record<StorageEventKind, boolean>;
+        events: StorageEvent[];
+    }
   StorageEvidenceReason (packages/ui-sdk/src/storage-guidance.ts)
     export type StorageEvidenceReason = "no-observation" | "stale" | "future" | "incomplete" | "changed-scope" | "changed-capacity" | "gap" | "ordering" | "insufficient-count" | "insufficient-span" | "mixed-direction" | "single-burst" | "arithmetic";
   StorageFileEntry (packages/ui-sdk/src/storage.ts)
@@ -14377,6 +14681,18 @@ signatures (every public export and the types it is made of)
     }
   StorageHistoryTier (packages/ui-sdk/src/storage-guidance.ts)
     export type StorageHistoryTier = "six-hour" | "daily" | "weekly";
+  StorageMaintenanceEvent (packages/ui-sdk/src/storage-events.ts)
+    export type StorageMaintenanceEvent = StorageEventBase & {
+        kind: "maintenance";
+        receipt: string;
+        operation: StorageMaintenanceKind;
+    } & ({
+        phase: "requested";
+    } | {
+        phase: "finished";
+        state: Exclude<StorageMaintenanceReceipt["state"], "waiting" | "running">;
+        reason: string | null;
+    });
   StorageMaintenanceItem (packages/ui-sdk/src/storage.ts)
     export interface StorageMaintenanceItem {
         id: string;
@@ -14407,6 +14723,7 @@ signatures (every public export and the types it is made of)
         reason: string | null;
         headroom: {
             requiredBytes: null;
+            packingRequiredBytes: number | null;
             reservation: false;
             note: string;
         };
@@ -14461,6 +14778,14 @@ signatures (every public export and the types it is made of)
         matched: number;
         totals: StorageBytes;
     }
+  StoragePressureEvent (packages/ui-sdk/src/storage-events.ts)
+    export interface StoragePressureEvent extends StorageEventBase {
+        kind: "pressure";
+        identity: string;
+        phase: "start" | "step" | "recovery-started" | "end";
+        severity: StorageSeverity;
+        episode: number;
+    }
   StoragePressureView (packages/ui-sdk/src/storage-guidance.ts)
     export interface StoragePressureView {
         identity: string;
@@ -14500,6 +14825,14 @@ signatures (every public export and the types it is made of)
         newestIndexedAt: string | null;
         freshness: "unchecked";
         unchecked: string[];
+    }
+  StorageRefusalEvent (packages/ui-sdk/src/storage-events.ts)
+    export interface StorageRefusalEvent extends StorageEventBase {
+        kind: "refusal";
+        identity: string;
+        phase: "refused" | "succeeded";
+        target: string;
+        resource: "bytes" | "quota" | "inodes" | "unknown";
     }
   StorageRemovalCapability (packages/ui-sdk/src/storage-removal.ts)
     export interface StorageRemovalCapability {
@@ -14612,6 +14945,14 @@ signatures (every public export and the types it is made of)
         samples: number;
         depletionPerDay: number | null;
         days: number | null;
+    }
+  StorageScopeEvent (packages/ui-sdk/src/storage-events.ts)
+    export interface StorageScopeEvent extends StorageEventBase {
+        kind: "scope";
+        identity: string;
+        phase: "changed";
+        rootScope: string;
+        previousRootScope: string;
     }
   StorageSeverity (packages/ui-sdk/src/storage-guidance.ts)
     export type StorageSeverity = "observed" | "low" | "critical";
@@ -14964,6 +15305,68 @@ signatures (every public export and the types it is made of)
     }
   TranscriptionFailureReason (packages/ui-sdk/src/protocol.ts)
     export type TranscriptionFailureReason = "provider_error" | "rate_limit" | "provider_timeout" | "media" | "parameters" | "validation" | "authentication" | "outcome_unknown";
+  TrustRuleSchema (packages/common/src/taint-trust.ts)
+    const TrustRuleSchema: z.ZodObject<{
+        id: z.ZodString;
+        incomingContent: z.ZodDefault<z.ZodBoolean>;
+        label: z.ZodString;
+        recipientWhileRestricted: z.ZodDefault<z.ZodBoolean>;
+        selector: z.ZodDiscriminatedUnion<[z.ZodObject<{
+            host: z.ZodString;
+            kind: z.ZodLiteral<"web_origin">;
+            port: z.ZodNumber;
+            scheme: z.ZodEnum<{
+                http: "http";
+                https: "https";
+            }>;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodString;
+            kind: z.ZodLiteral<"tunnel_authority">;
+            port: z.ZodNumber;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodLiteral<"github.com">;
+            kind: z.ZodLiteral<"github_repository">;
+            owner: z.ZodString;
+            repository: z.ZodString;
+            repositoryId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodLiteral<"github.com">;
+            kind: z.ZodLiteral<"github_owner">;
+            owner: z.ZodString;
+            ownerId: z.ZodString;
+        }, z.core.$strict>], "kind">;
+    }, z.core.$strict>;
+  TrustedSourcesSchema (packages/common/src/taint-trust.ts)
+    const TrustedSourcesSchema: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        incomingContent: z.ZodDefault<z.ZodBoolean>;
+        label: z.ZodString;
+        recipientWhileRestricted: z.ZodDefault<z.ZodBoolean>;
+        selector: z.ZodDiscriminatedUnion<[z.ZodObject<{
+            host: z.ZodString;
+            kind: z.ZodLiteral<"web_origin">;
+            port: z.ZodNumber;
+            scheme: z.ZodEnum<{
+                http: "http";
+                https: "https";
+            }>;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodString;
+            kind: z.ZodLiteral<"tunnel_authority">;
+            port: z.ZodNumber;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodLiteral<"github.com">;
+            kind: z.ZodLiteral<"github_repository">;
+            owner: z.ZodString;
+            repository: z.ZodString;
+            repositoryId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            host: z.ZodLiteral<"github.com">;
+            kind: z.ZodLiteral<"github_owner">;
+            owner: z.ZodString;
+            ownerId: z.ZodString;
+        }, z.core.$strict>], "kind">;
+    }, z.core.$strict>>;
   TurnBudgetCoverage (packages/ui-sdk/src/turn-budgets.ts)
     export type TurnBudgetCoverage = "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" | "Built-in inference only; provider and tool spend is not metered";
   TurnBudgetReceipt (packages/ui-sdk/src/turn-budgets.ts)
@@ -15006,6 +15409,7 @@ signatures (every public export and the types it is made of)
     }
   TurnJournalDetails (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalDetails {
+        codeChanges?: CodeChangeReceipt[];
         turnId: string;
         sessionId: string;
         summary: TurnJournalSummary;
@@ -15082,6 +15486,8 @@ signatures (every public export and the types it is made of)
     }
   TurnScopeSummary (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnScopeSummary {
+        indexBytes?: number | null;
+        indexLimitBytes?: number;
         policySource: "policy" | "default";
         limits: Record<Exclude<ScopeDimension, "free_space_floor">, number>;
         hardTimeoutMs: number;
@@ -15335,6 +15741,7 @@ signatures (every public export and the types it is made of)
     export interface WebModelEgress {
         dir: string;
         inference(method: string, target: URL, signal: AbortSignal): unknown;
+        remainingBytes?(): number;
     }
   WebModelGrant (packages/ui-sdk/src/tool-contracts/web.ts)
     export interface WebModelGrant {
@@ -16035,6 +16442,15 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodString;
         type: z.ZodLiteral<"scope_decision">;
     }, z.core.$strict>, z.ZodObject<{
+        timing: z.ZodObject<{
+            lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+            sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+            sendToFirstHostFrameMs: z.ZodNumber;
+            sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>;
+        turnId: z.ZodString;
+        type: z.ZodLiteral<"client_turn_receipt">;
+    }, z.core.$strict>, z.ZodObject<{
         failedTurnId: z.ZodString;
         requestId: z.ZodString;
         sessionId: z.ZodString;
@@ -16300,7 +16716,9 @@ signatures (every public export and the types it is made of)
         }>;
     }, z.core.$strict>, z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
+        includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
         target: z.ZodUnion<readonly [z.ZodObject<{
@@ -16466,7 +16884,9 @@ signatures (every public export and the types it is made of)
   clientSafetyReadSchema (packages/ui-sdk/src/safety.ts)
     const clientSafetyReadSchema: z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
+        includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
         target: z.ZodUnion<readonly [z.ZodObject<{
@@ -16527,6 +16947,13 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_denial">;
     }, z.core.$loose>;
+  clientTurnTimingSchema (packages/ui-sdk/src/schemas.ts)
+    const clientTurnTimingSchema: z.ZodObject<{
+        lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+        sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+        sendToFirstHostFrameMs: z.ZodNumber;
+        sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strict>;
   clipLine (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   closeAgainstViewport (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   closedRings (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
@@ -21103,6 +21530,16 @@ signatures (every public export and the types it is made of)
     export function parseSubprocessEnvExtra(value: string | undefined): string[];
   parseToolPayload (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function parseToolPayload<Contract extends ToolComponentContract>(contract: Contract, output: string | undefined): ToolPayload<Contract> | null;
+  parseTrustGithub (packages/common/src/taint-trust.ts)
+    export function parseTrustGithub(input: string): {
+        host: "github.com";
+        owner: string;
+        repository?: string;
+    };
+  parseTrustOrigin (packages/common/src/taint-trust.ts)
+    export function parseTrustOrigin(input: string): z.output<typeof web>;
+  parseTrustTunnel (packages/common/src/taint-trust.ts)
+    export function parseTrustTunnel(input: string): z.output<typeof tunnel>;
   parseWebToolInput (packages/ui-sdk/src/tool-contracts/web.ts)
     export function parseWebToolInput(name: WebToolName, input: unknown): WebToolParse;
   planPlaces (packages/ui-sdk/src/places.ts)
@@ -21239,6 +21676,8 @@ signatures (every public export and the types it is made of)
     export function runBackendModuleContract(harness: BackendModuleContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
   runSpeechProviderContract (packages/ui-sdk/src/testing/speech-contract.ts)
     export function runSpeechProviderContract(harness: SpeechProviderContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
+  safeStartupTiming (packages/ui-sdk/src/server/startup-timing.ts)
+    export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): StartTurnRequest["startupTiming"];
   safetyCapabilitiesSchema (packages/ui-sdk/src/safety.ts)
     const safetyCapabilitiesSchema: z.ZodObject<{
         detectorVersion: z.ZodLiteral<1>;
@@ -21251,15 +21690,305 @@ signatures (every public export and the types it is made of)
             reviewBodyBytes: z.ZodOptional<z.ZodLiteral<16384>>;
             reviewLifetimeMs: z.ZodOptional<z.ZodLiteral<900000>>;
         }, z.core.$strict>;
-        originRules: z.ZodLiteral<false>;
+        originRules: z.ZodBoolean;
         read: z.ZodLiteral<true>;
         readOnlyReason: z.ZodNullable<z.ZodEnum<{
             owner_required: "owner_required";
             review_unavailable: "review_unavailable";
         }>>;
-        recipientRules: z.ZodLiteral<false>;
+        recipientRules: z.ZodBoolean;
         repositoryRules: z.ZodLiteral<false>;
         review: z.ZodBoolean;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFutureCommitSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFutureCommitSchema: z.ZodObject<{
+        requestId: z.ZodString;
+        reviewId: z.ZodString;
+        reviewedBytesHash: z.ZodString;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFuturePrepareSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFuturePrepareSchema: z.ZodObject<{
+        expectedEvidenceRevision: z.ZodString;
+        future: z.ZodObject<{
+            incomingContent: z.ZodLiteral<true>;
+            recipientWhileRestricted: z.ZodBoolean;
+        }, z.core.$strict>;
+        occurrenceId: z.ZodString;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
+        verdict: z.ZodLiteral<"safe">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFuturePreparedSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFuturePreparedSchema: z.ZodObject<{
+        currentProjection: z.ZodNullable<z.ZodObject<{
+            coverage: z.ZodObject<{
+                detectorVersion: z.ZodLiteral<1>;
+                epochs: z.ZodArray<z.ZodObject<{
+                    acknowledged: z.ZodArray<z.ZodString>;
+                    backendId: z.ZodString;
+                    endSequence: z.ZodNullable<z.ZodString>;
+                    id: z.ZodString;
+                    mandatory: z.ZodArray<z.ZodString>;
+                    reason: z.ZodNullable<z.ZodString>;
+                    startSequence: z.ZodString;
+                    status: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>>;
+                exclusions: z.ZodArray<z.ZodString>;
+                state: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>;
+            earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+            evidenceRevision: z.ZodString;
+            pendingCount: z.ZodNumber;
+            reasons: z.ZodArray<z.ZodEnum<{
+                capacity: "capacity";
+                coverage_unknown: "coverage_unknown";
+                recording_failed: "recording_failed";
+                recording_pending: "recording_pending";
+                unresolved: "unresolved";
+            }>>;
+            restriction: z.ZodEnum<{
+                normal: "normal";
+                restricted: "restricted";
+            }>;
+            session: z.ZodNullable<z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>>;
+            unresolvedCount: z.ZodNumber;
+        }, z.core.$strict>>;
+        occurrenceId: z.ZodString;
+        requestId: z.ZodString;
+        review: z.ZodObject<{
+            base: z.ZodNullable<z.ZodString>;
+            diff: z.ZodString;
+            expiresAt: z.ZodNumber;
+            includesFutureRepositories: z.ZodBoolean;
+            proposed: z.ZodString;
+            repositoryIdentity: z.ZodNull;
+            reviewId: z.ZodString;
+            reviewedBytesHash: z.ZodString;
+        }, z.core.$strict>;
+        rule: z.ZodObject<{
+            currentRule: z.ZodEnum<{
+                changed: "changed";
+                present: "present";
+                removed: "removed";
+                unknown: "unknown";
+            }>;
+            enforcement: z.ZodEnum<{
+                enforced: "enforced";
+                unavailable: "unavailable";
+            }>;
+            operationId: z.ZodString;
+            publication: z.ZodEnum<{
+                not_published: "not_published";
+                proved: "proved";
+                unknown: "unknown";
+            }>;
+            publishedTrustRevision: z.ZodNullable<z.ZodString>;
+            reason: z.ZodNullable<z.ZodString>;
+            requestId: z.ZodString;
+            ruleId: z.ZodString;
+            stage: z.ZodEnum<{
+                committed: "committed";
+                file_published: "file_published";
+                partial: "partial";
+                prepared: "prepared";
+                refused: "refused";
+                unknown: "unknown";
+            }>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFutureResultSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFutureResultSchema: z.ZodObject<{
+        currentProjection: z.ZodObject<{
+            coverage: z.ZodObject<{
+                detectorVersion: z.ZodLiteral<1>;
+                epochs: z.ZodArray<z.ZodObject<{
+                    acknowledged: z.ZodArray<z.ZodString>;
+                    backendId: z.ZodString;
+                    endSequence: z.ZodNullable<z.ZodString>;
+                    id: z.ZodString;
+                    mandatory: z.ZodArray<z.ZodString>;
+                    reason: z.ZodNullable<z.ZodString>;
+                    startSequence: z.ZodString;
+                    status: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>>;
+                exclusions: z.ZodArray<z.ZodString>;
+                state: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>;
+            earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+            evidenceRevision: z.ZodString;
+            pendingCount: z.ZodNumber;
+            reasons: z.ZodArray<z.ZodEnum<{
+                capacity: "capacity";
+                coverage_unknown: "coverage_unknown";
+                recording_failed: "recording_failed";
+                recording_pending: "recording_pending";
+                unresolved: "unresolved";
+            }>>;
+            restriction: z.ZodEnum<{
+                normal: "normal";
+                restricted: "restricted";
+            }>;
+            session: z.ZodNullable<z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>>;
+            unresolvedCount: z.ZodNumber;
+        }, z.core.$strict>;
+        occurrenceId: z.ZodString;
+        requestId: z.ZodString;
+        rule: z.ZodObject<{
+            currentRule: z.ZodEnum<{
+                changed: "changed";
+                present: "present";
+                removed: "removed";
+                unknown: "unknown";
+            }>;
+            enforcement: z.ZodEnum<{
+                enforced: "enforced";
+                unavailable: "unavailable";
+            }>;
+            operationId: z.ZodString;
+            publication: z.ZodEnum<{
+                not_published: "not_published";
+                proved: "proved";
+                unknown: "unknown";
+            }>;
+            publishedTrustRevision: z.ZodNullable<z.ZodString>;
+            reason: z.ZodNullable<z.ZodString>;
+            requestId: z.ZodString;
+            ruleId: z.ZodString;
+            stage: z.ZodEnum<{
+                committed: "committed";
+                file_published: "file_published";
+                partial: "partial";
+                prepared: "prepared";
+                refused: "refused";
+                unknown: "unknown";
+            }>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
+        stage: z.ZodEnum<{
+            partial: "partial";
+            prepared: "prepared";
+            refused: "refused";
+            unknown: "unknown";
+            verdict_committed: "verdict_committed";
+        }>;
+        verdict: z.ZodNullable<z.ZodObject<{
+            occurrenceId: z.ZodString;
+            operationId: z.ZodNullable<z.ZodString>;
+            projection: z.ZodNullable<z.ZodObject<{
+                coverage: z.ZodObject<{
+                    detectorVersion: z.ZodLiteral<1>;
+                    epochs: z.ZodArray<z.ZodObject<{
+                        acknowledged: z.ZodArray<z.ZodString>;
+                        backendId: z.ZodString;
+                        endSequence: z.ZodNullable<z.ZodString>;
+                        id: z.ZodString;
+                        mandatory: z.ZodArray<z.ZodString>;
+                        reason: z.ZodNullable<z.ZodString>;
+                        startSequence: z.ZodString;
+                        status: z.ZodEnum<{
+                            complete: "complete";
+                            incomplete: "incomplete";
+                            unknown: "unknown";
+                        }>;
+                    }, z.core.$strict>>;
+                    exclusions: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>;
+                earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+                evidenceRevision: z.ZodString;
+                pendingCount: z.ZodNumber;
+                reasons: z.ZodArray<z.ZodEnum<{
+                    capacity: "capacity";
+                    coverage_unknown: "coverage_unknown";
+                    recording_failed: "recording_failed";
+                    recording_pending: "recording_pending";
+                    unresolved: "unresolved";
+                }>>;
+                restriction: z.ZodEnum<{
+                    normal: "normal";
+                    restricted: "restricted";
+                }>;
+                session: z.ZodNullable<z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>>;
+                unresolvedCount: z.ZodNumber;
+            }, z.core.$strict>>;
+            reason: z.ZodNullable<z.ZodString>;
+            requestId: z.ZodNullable<z.ZodString>;
+            session: z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>;
+            stage: z.ZodEnum<{
+                prepared: "prepared";
+                refused: "refused";
+                verdict_committed: "verdict_committed";
+            }>;
+            verdict: z.ZodEnum<{
+                committed: "committed";
+                unresolved: "unresolved";
+            }>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyFutureStatusSchema (packages/ui-sdk/src/safety.ts)
+    const safetyFutureStatusSchema: z.ZodObject<{
+        occurrenceId: z.ZodString;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
         version: z.ZodLiteral<1>;
     }, z.core.$strict>;
   safetyIdentitySchema (packages/ui-sdk/src/safety.ts)
@@ -21331,6 +22060,17 @@ signatures (every public export and the types it is made of)
             unresolvedCount: z.ZodNumber;
         }, z.core.$strict>;
         records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                policyHash: z.ZodNullable<z.ZodString>;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<false>;
+            }, z.core.$strict>, z.ZodObject<{
+                collectionRevision: z.ZodString;
+                policyHash: z.ZodString;
+                ruleId: z.ZodString;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<true>;
+            }, z.core.$strict>], "trusted">>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
             detector: z.ZodNullable<z.ZodString>;
@@ -21400,6 +22140,7 @@ signatures (every public export and the types it is made of)
             state: z.ZodEnum<{
                 finalized: "finalized";
                 interrupted_unknown: "interrupted_unknown";
+                not_delivered: "not_delivered";
                 open: "open";
             }>;
             turnId: z.ZodString;
@@ -21477,6 +22218,17 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   safetyRecordSchema (packages/ui-sdk/src/safety.ts)
     const safetyRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            policyHash: z.ZodNullable<z.ZodString>;
+            trustRevision: z.ZodString;
+            trusted: z.ZodLiteral<false>;
+        }, z.core.$strict>, z.ZodObject<{
+            collectionRevision: z.ZodString;
+            policyHash: z.ZodString;
+            ruleId: z.ZodString;
+            trustRevision: z.ZodString;
+            trusted: z.ZodLiteral<true>;
+        }, z.core.$strict>], "trusted">>;
         bindingId: z.ZodString;
         detailPruned: z.ZodBoolean;
         detector: z.ZodNullable<z.ZodString>;
@@ -21546,6 +22298,7 @@ signatures (every public export and the types it is made of)
         state: z.ZodEnum<{
             finalized: "finalized";
             interrupted_unknown: "interrupted_unknown";
+            not_delivered: "not_delivered";
             open: "open";
         }>;
         turnId: z.ZodString;
@@ -21974,6 +22727,17 @@ signatures (every public export and the types it is made of)
             unresolvedCount: z.ZodNumber;
         }, z.core.$strict>;
         records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                policyHash: z.ZodNullable<z.ZodString>;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<false>;
+            }, z.core.$strict>, z.ZodObject<{
+                collectionRevision: z.ZodString;
+                policyHash: z.ZodString;
+                ruleId: z.ZodString;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<true>;
+            }, z.core.$strict>], "trusted">>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
             detector: z.ZodNullable<z.ZodString>;
@@ -22043,6 +22807,7 @@ signatures (every public export and the types it is made of)
             state: z.ZodEnum<{
                 finalized: "finalized";
                 interrupted_unknown: "interrupted_unknown";
+                not_delivered: "not_delivered";
                 open: "open";
             }>;
             turnId: z.ZodString;
@@ -22083,19 +22848,84 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            buildRevision: z.ZodOptional<z.ZodString>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            holds: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    begin: "begin";
+                    finish: "finish";
+                    periodic: "periodic";
+                    scope: "scope";
+                    tool: "tool";
+                }>;
+                causeTurnId: z.ZodNullable<z.ZodString>;
+                changedPaths: z.ZodNullable<z.ZodNumber>;
+                holdId: z.ZodString;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
+                otherTurnsStopped: z.ZodNumber;
+                requestedAt: z.ZodNumber;
+                resumedAt: z.ZodNullable<z.ZodNumber>;
+                stoppedAt: z.ZodNullable<z.ZodNumber>;
+                toolUseId: z.ZodOptional<z.ZodString>;
+            }, z.core.$loose>>>;
             hostEvents: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
                     ask_user_cancelled: "ask_user_cancelled";
@@ -22106,10 +22936,50 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 principalId: z.ZodString;
             }, z.core.$loose>>;
+            idleEmittedAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
+                name: z.ZodString;
+                pending: z.ZodOptional<z.ZodBoolean>;
+                phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -22118,15 +22988,32 @@ signatures (every public export and the types it is made of)
                 success: "success";
                 timeout: "timeout";
             }>>;
+            packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
+            recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            runtimeVersion: z.ZodOptional<z.ZodString>;
             sessionId: z.ZodNullable<z.ZodString>;
             skippedPhases: z.ZodArray<z.ZodEnum<{
                 budget: "budget";
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -22134,6 +23021,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -22207,19 +23107,84 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            buildRevision: z.ZodOptional<z.ZodString>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            holds: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    begin: "begin";
+                    finish: "finish";
+                    periodic: "periodic";
+                    scope: "scope";
+                    tool: "tool";
+                }>;
+                causeTurnId: z.ZodNullable<z.ZodString>;
+                changedPaths: z.ZodNullable<z.ZodNumber>;
+                holdId: z.ZodString;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
+                otherTurnsStopped: z.ZodNumber;
+                requestedAt: z.ZodNumber;
+                resumedAt: z.ZodNullable<z.ZodNumber>;
+                stoppedAt: z.ZodNullable<z.ZodNumber>;
+                toolUseId: z.ZodOptional<z.ZodString>;
+            }, z.core.$loose>>>;
             hostEvents: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
                     ask_user_cancelled: "ask_user_cancelled";
@@ -22230,10 +23195,50 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 principalId: z.ZodString;
             }, z.core.$loose>>;
+            idleEmittedAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
+                name: z.ZodString;
+                pending: z.ZodOptional<z.ZodBoolean>;
+                phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -22242,15 +23247,32 @@ signatures (every public export and the types it is made of)
                 success: "success";
                 timeout: "timeout";
             }>>;
+            packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
+            recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            runtimeVersion: z.ZodOptional<z.ZodString>;
             sessionId: z.ZodNullable<z.ZodString>;
             skippedPhases: z.ZodArray<z.ZodEnum<{
                 budget: "budget";
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -22258,6 +23280,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -23161,13 +24196,13 @@ signatures (every public export and the types it is made of)
                 reviewBodyBytes: z.ZodOptional<z.ZodLiteral<16384>>;
                 reviewLifetimeMs: z.ZodOptional<z.ZodLiteral<900000>>;
             }, z.core.$strict>;
-            originRules: z.ZodLiteral<false>;
+            originRules: z.ZodBoolean;
             read: z.ZodLiteral<true>;
             readOnlyReason: z.ZodNullable<z.ZodEnum<{
                 owner_required: "owner_required";
                 review_unavailable: "review_unavailable";
             }>>;
-            recipientRules: z.ZodLiteral<false>;
+            recipientRules: z.ZodBoolean;
             repositoryRules: z.ZodLiteral<false>;
             review: z.ZodBoolean;
             version: z.ZodLiteral<1>;
@@ -23787,6 +24822,8 @@ signatures (every public export and the types it is made of)
                     partial: "partial";
                 }>;
                 hardTimeoutMs: z.ZodNumber;
+                indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                 limits: z.ZodObject<{
                     files_changed: z.ZodNumber;
                     minutes: z.ZodNumber;
@@ -23812,10 +24849,12 @@ signatures (every public export and the types it is made of)
                     }>;
                     eventId: z.ZodString;
                     frozen: z.ZodBoolean;
+                    measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                     newCap: z.ZodOptional<z.ZodNumber>;
                     observedAt: z.ZodNumber;
                     overshoot: z.ZodNumber;
                     reason: z.ZodOptional<z.ZodString>;
+                    result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                     state: z.ZodEnum<{
                         continued: "continued";
                         ended_before_answer: "ended_before_answer";
@@ -24121,13 +25160,13 @@ signatures (every public export and the types it is made of)
                 reviewBodyBytes: z.ZodOptional<z.ZodLiteral<16384>>;
                 reviewLifetimeMs: z.ZodOptional<z.ZodLiteral<900000>>;
             }, z.core.$strict>;
-            originRules: z.ZodLiteral<false>;
+            originRules: z.ZodBoolean;
             read: z.ZodLiteral<true>;
             readOnlyReason: z.ZodNullable<z.ZodEnum<{
                 owner_required: "owner_required";
                 review_unavailable: "review_unavailable";
             }>>;
-            recipientRules: z.ZodLiteral<false>;
+            recipientRules: z.ZodBoolean;
             repositoryRules: z.ZodLiteral<false>;
             review: z.ZodBoolean;
             version: z.ZodLiteral<1>;
@@ -24314,6 +25353,7 @@ signatures (every public export and the types it is made of)
         activeSessionId: z.ZodOptional<z.ZodString>;
         detail: z.ZodOptional<z.ZodString>;
         effectiveThinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
+        hostTurnComplete: z.ZodOptional<z.ZodLiteral<true>>;
         requestId: z.ZodOptional<z.ZodString>;
         retry: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             attempt: z.ZodNumber;
@@ -24809,6 +25849,8 @@ signatures (every public export and the types it is made of)
                         partial: "partial";
                     }>;
                     hardTimeoutMs: z.ZodNumber;
+                    indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                    indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                     limits: z.ZodObject<{
                         files_changed: z.ZodNumber;
                         minutes: z.ZodNumber;
@@ -24834,10 +25876,12 @@ signatures (every public export and the types it is made of)
                         }>;
                         eventId: z.ZodString;
                         frozen: z.ZodBoolean;
+                        measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                         newCap: z.ZodOptional<z.ZodNumber>;
                         observedAt: z.ZodNumber;
                         overshoot: z.ZodNumber;
                         reason: z.ZodOptional<z.ZodString>;
+                        result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                         state: z.ZodEnum<{
                             continued: "continued";
                             ended_before_answer: "ended_before_answer";
@@ -25211,19 +26255,84 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            buildRevision: z.ZodOptional<z.ZodString>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            holds: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    begin: "begin";
+                    finish: "finish";
+                    periodic: "periodic";
+                    scope: "scope";
+                    tool: "tool";
+                }>;
+                causeTurnId: z.ZodNullable<z.ZodString>;
+                changedPaths: z.ZodNullable<z.ZodNumber>;
+                holdId: z.ZodString;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
+                otherTurnsStopped: z.ZodNumber;
+                requestedAt: z.ZodNumber;
+                resumedAt: z.ZodNullable<z.ZodNumber>;
+                stoppedAt: z.ZodNullable<z.ZodNumber>;
+                toolUseId: z.ZodOptional<z.ZodString>;
+            }, z.core.$loose>>>;
             hostEvents: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
                     ask_user_cancelled: "ask_user_cancelled";
@@ -25234,10 +26343,50 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 principalId: z.ZodString;
             }, z.core.$loose>>;
+            idleEmittedAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
+                name: z.ZodString;
+                pending: z.ZodOptional<z.ZodBoolean>;
+                phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -25246,15 +26395,32 @@ signatures (every public export and the types it is made of)
                 success: "success";
                 timeout: "timeout";
             }>>;
+            packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
+            recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            runtimeVersion: z.ZodOptional<z.ZodString>;
             sessionId: z.ZodNullable<z.ZodString>;
             skippedPhases: z.ZodArray<z.ZodEnum<{
                 budget: "budget";
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -25262,6 +26428,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -25336,19 +26515,84 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            admissionLoad: z.ZodOptional<z.ZodObject<{
+                atBackendStart: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                atDequeue: z.ZodOptional<z.ZodObject<{
+                    cpuCount: z.ZodOptional<z.ZodNumber>;
+                    load1: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                eventLoopMaxMs: z.ZodOptional<z.ZodNumber>;
+                eventLoopP99Ms: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strip>>;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMcpInit: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                source: z.ZodEnum<{
+                    agent: "agent";
+                    claudeai: "claudeai";
+                    dynamic: "dynamic";
+                    enterprise: "enterprise";
+                    local: "local";
+                    managed: "managed";
+                    other: "other";
+                    plugin: "plugin";
+                    project: "project";
+                    sdk: "sdk";
+                    user: "user";
+                }>;
+                status: z.ZodEnum<{
+                    "needs-auth": "needs-auth";
+                    connected: "connected";
+                    disabled: "disabled";
+                    failed: "failed";
+                    other: "other";
+                    pending: "pending";
+                }>;
+            }, z.core.$strip>>>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            buildRevision: z.ZodOptional<z.ZodString>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            holds: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    begin: "begin";
+                    finish: "finish";
+                    periodic: "periodic";
+                    scope: "scope";
+                    tool: "tool";
+                }>;
+                causeTurnId: z.ZodNullable<z.ZodString>;
+                changedPaths: z.ZodNullable<z.ZodNumber>;
+                holdId: z.ZodString;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
+                otherTurnsStopped: z.ZodNumber;
+                requestedAt: z.ZodNumber;
+                resumedAt: z.ZodNullable<z.ZodNumber>;
+                stoppedAt: z.ZodNullable<z.ZodNumber>;
+                toolUseId: z.ZodOptional<z.ZodString>;
+            }, z.core.$loose>>>;
             hostEvents: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
                     ask_user_cancelled: "ask_user_cancelled";
@@ -25359,10 +26603,50 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 principalId: z.ZodString;
             }, z.core.$loose>>;
+            idleEmittedAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                indexSettle: z.ZodOptional<z.ZodObject<{
+                    firstAlreadyRunning: z.ZodBoolean;
+                    lastOutcome: z.ZodNullable<z.ZodEnum<{
+                        cancelled: "cancelled";
+                        complete: "complete";
+                        failed: "failed";
+                        index_capacity: "index_capacity";
+                    }>>;
+                    queuedPaths: z.ZodNumber;
+                    updateMs: z.ZodNumber;
+                    updates: z.ZodNumber;
+                }, z.core.$strip>>;
+                name: z.ZodString;
+                pending: z.ZodOptional<z.ZodBoolean>;
+                phase: z.ZodString;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -25371,15 +26655,32 @@ signatures (every public export and the types it is made of)
                 success: "success";
                 timeout: "timeout";
             }>>;
+            packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            queuedAt: z.ZodOptional<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
+            recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            runtimeVersion: z.ZodOptional<z.ZodString>;
             sessionId: z.ZodNullable<z.ZodString>;
             skippedPhases: z.ZodArray<z.ZodEnum<{
                 budget: "budget";
                 governed: "governed";
                 journal: "journal";
             }>>;
+            stoppedTime: z.ZodOptional<z.ZodObject<{
+                inferenceMs: z.ZodNumber;
+                intervals: z.ZodNumber;
+                noInferenceMs: z.ZodNumber;
+                openHolds: z.ZodNumber;
+                sharedHolds: z.ZodNumber;
+                totalMs: z.ZodNumber;
+                unknownMs: z.ZodNumber;
+            }, z.core.$strip>>;
             subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                aliasScan: z.ZodOptional<z.ZodObject<{
+                    entries: z.ZodNumber;
+                    scans: z.ZodNumber;
+                }, z.core.$strip>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -25387,6 +26688,19 @@ signatures (every public export and the types it is made of)
                     governed: "governed";
                     journal: "journal";
                 }>;
+                queueAhead: z.ZodOptional<z.ZodObject<{
+                    count: z.ZodNumber;
+                    kinds: z.ZodArray<z.ZodEnum<{
+                        begin: "begin";
+                        finish: "finish";
+                        memory: "memory";
+                        periodic: "periodic";
+                        refresh: "refresh";
+                        scope: "scope";
+                        tool: "tool";
+                        worktree: "worktree";
+                    }>>;
+                }, z.core.$strip>>;
                 startedAt: z.ZodNumber;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
@@ -26885,6 +28199,17 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -26954,6 +28279,7 @@ signatures (every public export and the types it is made of)
                 state: z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
+                    not_delivered: "not_delivered";
                     open: "open";
                 }>;
                 turnId: z.ZodString;
@@ -27043,6 +28369,17 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -27112,6 +28449,7 @@ signatures (every public export and the types it is made of)
                 state: z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
+                    not_delivered: "not_delivered";
                     open: "open";
                 }>;
                 turnId: z.ZodString;
@@ -27722,6 +29060,17 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -27791,6 +29140,7 @@ signatures (every public export and the types it is made of)
                 state: z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
+                    not_delivered: "not_delivered";
                     open: "open";
                 }>;
                 turnId: z.ZodString;
@@ -27896,6 +29246,17 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -27965,6 +29326,7 @@ signatures (every public export and the types it is made of)
                 state: z.ZodEnum<{
                     finalized: "finalized";
                     interrupted_unknown: "interrupted_unknown";
+                    not_delivered: "not_delivered";
                     open: "open";
                 }>;
                 turnId: z.ZodString;
@@ -28436,6 +29798,8 @@ signatures (every public export and the types it is made of)
                         partial: "partial";
                     }>;
                     hardTimeoutMs: z.ZodNumber;
+                    indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                    indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                     limits: z.ZodObject<{
                         files_changed: z.ZodNumber;
                         minutes: z.ZodNumber;
@@ -28461,10 +29825,12 @@ signatures (every public export and the types it is made of)
                         }>;
                         eventId: z.ZodString;
                         frozen: z.ZodBoolean;
+                        measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                         newCap: z.ZodOptional<z.ZodNumber>;
                         observedAt: z.ZodNumber;
                         overshoot: z.ZodNumber;
                         reason: z.ZodOptional<z.ZodString>;
+                        result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                         state: z.ZodEnum<{
                             continued: "continued";
                             ended_before_answer: "ended_before_answer";
@@ -28652,6 +30018,7 @@ signatures (every public export and the types it is made of)
         activeSessionId: z.ZodOptional<z.ZodString>;
         detail: z.ZodOptional<z.ZodString>;
         effectiveThinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
+        hostTurnComplete: z.ZodOptional<z.ZodLiteral<true>>;
         requestId: z.ZodOptional<z.ZodString>;
         retry: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             attempt: z.ZodNumber;
@@ -28864,6 +30231,8 @@ signatures (every public export and the types it is made of)
                     partial: "partial";
                 }>;
                 hardTimeoutMs: z.ZodNumber;
+                indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                 limits: z.ZodObject<{
                     files_changed: z.ZodNumber;
                     minutes: z.ZodNumber;
@@ -28889,10 +30258,12 @@ signatures (every public export and the types it is made of)
                     }>;
                     eventId: z.ZodString;
                     frozen: z.ZodBoolean;
+                    measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                     newCap: z.ZodOptional<z.ZodNumber>;
                     observedAt: z.ZodNumber;
                     overshoot: z.ZodNumber;
                     reason: z.ZodOptional<z.ZodString>;
+                    result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                     state: z.ZodEnum<{
                         continued: "continued";
                         ended_before_answer: "ended_before_answer";
@@ -29097,6 +30468,12 @@ signatures (every public export and the types it is made of)
     export function toolBriefLines(contracts: readonly ToolContract[], available: (contract: ToolContract) => string | false | undefined): string[];
   toolInputJsonSchema (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function toolInputJsonSchema(contract: ToolContract | z.ZodObject): Record<string, unknown>;
+  tunnel (packages/common/src/taint-trust.ts)
+    const tunnel: z.ZodObject<{
+        host: z.ZodString;
+        kind: z.ZodLiteral<"tunnel_authority">;
+        port: z.ZodNumber;
+    }, z.core.$strict>;
   turnBudgetReceiptSchema (packages/ui-sdk/src/schemas.ts)
     const turnBudgetReceiptSchema: z.ZodObject<{
         coverage: z.ZodEnum<{
@@ -29196,6 +30573,8 @@ signatures (every public export and the types it is made of)
                 partial: "partial";
             }>;
             hardTimeoutMs: z.ZodNumber;
+            indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            indexLimitBytes: z.ZodOptional<z.ZodNumber>;
             limits: z.ZodObject<{
                 files_changed: z.ZodNumber;
                 minutes: z.ZodNumber;
@@ -29221,10 +30600,12 @@ signatures (every public export and the types it is made of)
                 }>;
                 eventId: z.ZodString;
                 frozen: z.ZodBoolean;
+                measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                 newCap: z.ZodOptional<z.ZodNumber>;
                 observedAt: z.ZodNumber;
                 overshoot: z.ZodNumber;
                 reason: z.ZodOptional<z.ZodString>;
+                result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                 state: z.ZodEnum<{
                     continued: "continued";
                     ended_before_answer: "ended_before_answer";
@@ -29256,6 +30637,8 @@ signatures (every public export and the types it is made of)
             partial: "partial";
         }>;
         hardTimeoutMs: z.ZodNumber;
+        indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        indexLimitBytes: z.ZodOptional<z.ZodNumber>;
         limits: z.ZodObject<{
             files_changed: z.ZodNumber;
             minutes: z.ZodNumber;
@@ -29281,10 +30664,12 @@ signatures (every public export and the types it is made of)
             }>;
             eventId: z.ZodString;
             frozen: z.ZodBoolean;
+            measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
             newCap: z.ZodOptional<z.ZodNumber>;
             observedAt: z.ZodNumber;
             overshoot: z.ZodNumber;
             reason: z.ZodOptional<z.ZodString>;
+            result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
             state: z.ZodEnum<{
                 continued: "continued";
                 ended_before_answer: "ended_before_answer";
@@ -29402,6 +30787,16 @@ signatures (every public export and the types it is made of)
         }, z.core.$strip>;
         revision: z.ZodNumber;
     }, z.core.$loose>;
+  web (packages/common/src/taint-trust.ts)
+    const web: z.ZodObject<{
+        host: z.ZodString;
+        kind: z.ZodLiteral<"web_origin">;
+        port: z.ZodNumber;
+        scheme: z.ZodEnum<{
+            http: "http";
+            https: "https";
+        }>;
+    }, z.core.$strict>;
   webToolProviders (packages/ui-sdk/src/tool-contracts/web.ts)
     export function webToolProviders(input: Record<string, unknown>): readonly string[];
   wrapCommand (packages/ui-sdk/src/server/exec-wrapper.ts)

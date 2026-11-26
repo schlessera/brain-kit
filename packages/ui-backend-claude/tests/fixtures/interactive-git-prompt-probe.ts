@@ -6,6 +6,9 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { createClaudeSdkTurn } from "../../src/sdk-options.js";
 
 const scratch = process.argv[2]!;
+process.env.HOME = join(scratch, "host-home");
+process.env.CLAUDE_CONFIG_DIR = join(scratch, "host-claude");
+mkdirSync(process.env.HOME); mkdirSync(process.env.CLAUDE_CONFIG_DIR);
 const requests: Array<{ tools?: unknown[]; system?: unknown; messages?: unknown[] }> = [];
 const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   if (request.method !== "POST") return new Response("{}", { headers: { "content-type": "application/json" } });

@@ -1,3 +1,4 @@
+export { safetyFutureStatusSchema, safetyFuturePrepareSchema, safetyFutureCommitSchema, safetyFuturePreparedSchema, safetyFutureResultSchema } from "./safety.js";
 export { safetyProjectionSchema, safetyReviewBodySchema, safetyReviewReceiptSchema, safetyReviewResponseSchema, safetySessionKeySchema, safetyPageSchema, safetyUpdateSchema, safetyCapabilitiesSchema } from "./safety.js";
 import { clientSafetyReadSchema, clientSafetySubscribeSchema, clientSafetyUnsubscribeSchema, serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema, safetyCapabilitiesSchema } from "./safety.js";
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
@@ -24,6 +25,7 @@ export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 
 import { z } from "zod";
+import { isMcpTimingServerName } from "./protocol-helpers.js";
 import { CONVERSATION_LIMITS, LIVE_PERSONA_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel, StateRoomObservation } from "./protocol.js";
 
@@ -180,6 +182,8 @@ import {
 
 /** Cap on one client→server WS frame (must fit a max-attachment chat message). */
 export const MAX_CLIENT_FRAME_BYTES = 12_000_000;
+/** Receipt routing has a small bounded discriminator probe and an independent meter. */
+export const MAX_CLIENT_TURN_RECEIPT_BYTES = 4096;
 /** Cap on a chat message's text (characters). */
 export const MAX_PROMPT_CHARS = 200_000;
 /** Cap on any short id (sessionId, toolUseId, requestId, turnId, providerId). */
@@ -930,8 +934,18 @@ export const clientConversationStopSchema = z.looseObject({
 
 const clientScopeDecisionSchema = z.strictObject({ type: z.literal("scope_decision"), sessionId: id, turnId: id,
   eventId: id, submissionId: id, action: z.enum(["continue", "stop", "readback"]) }) satisfies z.ZodType<import("./protocol.js").ClientScopeDecision>;
+export const clientTurnTimingSchema = z.strictObject({
+  sendToFirstHostFrameMs: z.number().nonnegative(),
+  sendToFirstContentFrameMs: z.number().nonnegative().optional(),
+  lastContentFrameToIdleMs: z.number().nonnegative().optional(),
+  sendToFirstPhaseStatusFrameMs: z.number().nonnegative().optional(),
+}) satisfies z.ZodType<import("./protocol.js").ClientTurnTiming>;
+const clientTurnReceiptSchema = z.strictObject({
+  type: z.literal("client_turn_receipt"), turnId: id, timing: clientTurnTimingSchema,
+}) satisfies z.ZodType<import("./protocol.js").ClientTurnReceipt>;
 export const clientMessageSchema = z.discriminatedUnion("type", [
   clientScopeDecisionSchema,
+  clientTurnReceiptSchema,
   clientRetryTurnSchema,
   clientRetryStatusSchema,
   clientHelloSchema,
@@ -986,7 +1000,7 @@ function utf8ByteLength(text: string): number {
 
 export type ParseFrameResult<T> =
   | { ok: true; message: T }
-  | { ok: false; error: string };
+  | { ok: false; error: string; frameType?: "client_turn_receipt" };
 
 /**
  * Parse + validate one inbound client frame. The single entry point a server
@@ -1019,11 +1033,15 @@ export function parseClientMessage(
   } catch {
     return { ok: false, error: "Frame is not valid JSON" };
   }
+  const frameType = json && typeof json === "object" && (json as { type?: unknown }).type === "client_turn_receipt"
+    ? { frameType: "client_turn_receipt" as const } : {};
+  if (frameType.frameType && utf8ByteLength(text) > MAX_CLIENT_TURN_RECEIPT_BYTES)
+    return { ok: false, error: `Receipt exceeds ${MAX_CLIENT_TURN_RECEIPT_BYTES} bytes`, ...frameType };
   // Bun's JSON.parse is iterative, so a 500k-deep document parses fine and
   // only explodes later when something re-serializes it (unknown keys are
   // RETAINED by looseObject, so depth survives the boundary).
   if (exceedsDepth(json, MAX_JSON_DEPTH)) {
-    return { ok: false, error: `Frame nesting exceeds ${MAX_JSON_DEPTH} levels` };
+    return { ok: false, error: `Frame nesting exceeds ${MAX_JSON_DEPTH} levels`, ...frameType };
   }
   const parsed = clientMessageSchema.safeParse(json);
   if (!parsed.success) {
@@ -1034,6 +1052,7 @@ export function parseClientMessage(
     return {
       ok: false,
       error: `Invalid frame${first ? `: ${where} ${first.message}` : ""}`,
+      ...frameType,
     };
   }
   return { ok: true, message: parsed.data as ClientMessage };
@@ -1124,11 +1143,12 @@ export const turnBudgetReceiptSchema = z.looseObject({
 
 const scopeAmount = z.number().finite().nonnegative();
 export const turnScopeSummarySchema = z.looseObject({
+  indexBytes: scopeAmount.nullable().optional(), indexLimitBytes: scopeAmount.optional(),
   policySource: z.enum(["policy", "default"]),
   limits: z.looseObject({ files_changed: scopeAmount, minutes: scopeAmount, tool_calls: scopeAmount, turn_bytes: scopeAmount }),
   hardTimeoutMs: scopeAmount, calls: scopeAmount, minutes: scopeAmount, changedPaths: scopeAmount.nullable(), observedBytes: scopeAmount.nullable(),
   coverage: z.enum(["observed_versions", "partial"]), observedAt: scopeAmount,
-  receipts: z.array(z.looseObject({ eventId: id, dimension: z.enum(["files_changed", "minutes", "tool_calls", "turn_bytes", "free_space_floor"]),
+  receipts: z.array(z.looseObject({ measurement: z.literal("unknown").optional(), result: z.literal("index_capacity").optional(), eventId: id, dimension: z.enum(["files_changed", "minutes", "tool_calls", "turn_bytes", "free_space_floor"]),
     count: scopeAmount, cap: scopeAmount, overshoot: scopeAmount, newCap: scopeAmount.optional(), observedAt: scopeAmount, frozen: z.boolean(),
     state: z.enum(["paused", "continued", "stopped", "voice_stopped", "ended_before_answer"]), submissionId: id.optional(), reason: z.string().optional() })),
 }) satisfies z.ZodType<import("./protocol.js").TurnScopeSummary>;
@@ -1448,6 +1468,7 @@ export const serverErrorSchema = z.looseObject({
 }) satisfies z.ZodType<ServerError>;
 
 export const serverStatusSchema = z.looseObject({
+  hostTurnComplete: z.literal(true).optional(),
   type: z.literal("status"),
   status: z.enum(["thinking", "tool_executing", "idle", "cancelled", "queued"]),
   detail: z.string().optional(),
@@ -1569,6 +1590,10 @@ export const serverMaskRequestSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerMaskRequest>;
 
+const aliasScan = z.object({ scans: z.number().int().nonnegative(), entries: z.number().int().nonnegative() });
+const queueAhead = z.object({ count: z.number().int().nonnegative(), kinds: z.array(z.enum(["begin", "finish", "tool", "periodic", "scope", "refresh", "worktree", "memory"])).max(8) });
+const hostLoadSample = z.object({ load1: z.number().nonnegative().optional(), cpuCount: z.number().int().positive().optional() });
+
 export const serverMarkupRequestSchema = z.looseObject({
   type: z.literal("markup_request"),
   requestId: z.string().max(MAX_ID_CHARS),
@@ -1620,10 +1645,23 @@ const activitySpanEventSchema = z.looseObject({
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
 const activityTurnLifecycleSchema = z.looseObject({
+  stoppedTime: z.object({ totalMs: z.number().nonnegative(), intervals: z.number().int().nonnegative(),
+    sharedHolds: z.number().int().nonnegative(), openHolds: z.number().int().nonnegative(),
+    inferenceMs: z.number().nonnegative(), noInferenceMs: z.number().nonnegative(), unknownMs: z.number().nonnegative() }).optional(),
+  admissionLoad: z.object({ atDequeue: hostLoadSample.optional(), atBackendStart: hostLoadSample.optional(),
+    eventLoopMaxMs: z.number().nonnegative().optional(), eventLoopP99Ms: z.number().nonnegative().optional() }).optional(),
+  holds: z.array(z.looseObject({ holdId: id, cause: z.enum(["begin", "finish", "tool", "periodic", "scope"]), causeTurnId: id.nullable(),
+    toolUseId: id.optional(), requestedAt: z.number(), stoppedAt: z.number().nullable(), resumedAt: z.number().nullable(),
+    changedPaths: z.number().nonnegative().nullable(), otherTurnsStopped: z.number().nonnegative(), inferenceInFlight: z.boolean().nullable() })).optional(),
+  packageVersion: z.string().optional(), buildRevision: z.string().regex(/^[A-Za-z0-9._+-]{1,64}$/).optional(),
+  runtimeVersion: z.string().optional(), recorderSettledAt: z.number().nullable().optional(), idleEmittedAt: z.number().nullable().optional(),
+  clientTiming: z.looseObject(clientTurnTimingSchema.shape).optional(),
+  clientTimingUnavailable: z.literal("invalid_receipt").optional(),
   hostEvents: z.array(z.looseObject({principalId: id, kind: z.enum(["turn_cancelled", "ask_user_cancelled", "principal_revoked", "follow_up"]), observedAt: z.number()})),
   skippedPhases: z.array(z.enum(["governed", "budget", "journal"])),
   lifecycleId: id, turnId: id, sessionId: id.nullable(), backendRunId: id.nullable(),
   acceptedAt: z.number(),
+  queuedAt: z.number().optional(),
   dequeuedAt: z.number().nullable(),
   governedStartedAt: z.number().nullable(),
   governedAcquiredAt: z.number().nullable(),
@@ -1632,6 +1670,11 @@ const activityTurnLifecycleSchema = z.looseObject({
   journalStartedAt: z.number().nullable(),
   journalBeganAt: z.number().nullable(),
   backendInvokedAt: z.number().nullable(),
+  firstRelayRequestAt: z.number().nullable().optional(),
+  backendEvidenceOmitted: z.number().int().nonnegative().optional(),
+  backendMcpInit: z.array(z.object({ name: z.string().max(48), status: z.enum(["connected", "failed", "needs-auth", "pending", "disabled", "other"]),
+    source: z.enum(["sdk", "plugin", "user", "project", "local", "dynamic", "managed", "enterprise", "claudeai", "agent", "other"]) }).refine(entry => isMcpTimingServerName(entry.name, entry.source))).max(8).optional(),
+  backendMissingEvidence: z.array(z.string()).optional(),
   firstFrameAt: z.number().nullable(),
   failureObservedAt: z.number().nullable(),
   endedAt: z.number().nullable(),
@@ -1642,8 +1685,13 @@ const activityTurnLifecycleSchema = z.looseObject({
   budgetAdmissionMs: z.number().nullable(),
   journalBeginMs: z.number().nullable(),
   backendStartupMs: z.number().nullable(),
-  subPhases: z.array(z.looseObject({ phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
+  subPhases: z.array(z.looseObject({ queueAhead: queueAhead.optional(), aliasScan: aliasScan.optional(), phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
     endedAt: z.number().nullable(), elapsedMs: z.number().nullable() })).optional(),
+  openSubPhases: z.array(z.looseObject({ aliasScan: aliasScan.optional(), queueAhead: queueAhead.optional(), phase: z.string(), name: z.string(), startedAt: z.number(),
+    endedAt: z.number().nullable(), elapsedMs: z.number().nullable(), pending: z.boolean().optional(),
+    indexSettle: z.object({ queuedPaths: z.number().int().nonnegative(), updates: z.number().int().nonnegative(),
+      firstAlreadyRunning: z.boolean(), updateMs: z.number().nonnegative(), lastOutcome: z.enum(["complete", "failed", "index_capacity", "cancelled"]).nullable() }).optional(),
+    timeBase: z.literal("worker").optional(), workerElapsedMs: z.number().nonnegative().optional() })).optional(),
   outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(), reason: z.string().nullable(),
 });
 
@@ -2293,3 +2341,6 @@ export const queueAddRequestSchema = z.strictObject({
 export const queueAddResultSchema = z.looseObject({
   queued: z.literal(true), created: z.boolean(), threadId: id, itemId: id, stagingId: id,
 }) satisfies z.ZodType<QueueAddResult>;
+
+/** Canonical Settings inputs, shared with the protected policy writer. */
+export { parseTrustOrigin, parseTrustTunnel, parseTrustGithub, TrustRuleSchema, TrustedSourcesSchema } from "@schlessera/brain-common/internal/taint-trust";

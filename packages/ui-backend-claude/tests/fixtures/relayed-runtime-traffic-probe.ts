@@ -36,6 +36,8 @@ const relay = Bun.serve({ unix: join(WORKER_EGRESS_DIR, "inference.sock"), async
 } });
 const brainPath = join(scratch, "ithaca"), home = join(scratch, "home");
 mkdirSync(brainPath, { recursive: true }); mkdirSync(home);
+// SDK prompt storage belongs to this probe as well as its native child.
+process.env.HOME = home; process.env.CLAUDE_CONFIG_DIR = home;
 const abortController = new AbortController();
 const timer = setTimeout(() => abortController.abort(), 45_000);
 const turn = createClaudeSdkTurn({

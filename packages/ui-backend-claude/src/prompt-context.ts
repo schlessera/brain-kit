@@ -1,12 +1,48 @@
-import { existsSync, realpathSync } from "node:fs";
-import { regular } from "./worker-state.js";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { directory, regular } from "./worker-state.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
+import { sessionPromptContext, sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
 import { envSnapshot } from "./config/env.js";
+/** Content-free provenance survives loss of the append file or its directory. */
+export function claudePromptContextProvenanceLocation(brainPath: string, sessionId: string, env = envSnapshot()) {
+  const root = env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude");
+  const { dir, name } = sessionPromptContextLocation(root, brainPath, sessionId);
+  const provenance = `${dir}.required`, brain = realpathSync(brainPath);
+  if (isWithin(brain, provenance) || isWithin(provenance, brain))
+    throw new Error("Claude prompt provenance must be outside the authoritative brain");
+  return { dir: provenance, name };
+}
+const REQUIRED = "snapshot-required";
 /** Uses host native storage; profile overrides cannot change replay ownership. */
-export function claudePromptContext(brainPath: string, sessionId: string, env = envSnapshot()) {
-  return sessionPromptContext(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"), brainPath, sessionId);
+export function claudePromptContext(brainPath: string, sessionId: string, env = envSnapshot(), existing = false) {
+  const context = sessionPromptContext(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"), brainPath, sessionId);
+  const provenance = claudePromptContextProvenanceLocation(brainPath, sessionId, env);
+  const marker = join(provenance.dir, provenance.name);
+  let required = false;
+  try {
+    if (regular(marker, 64).toString() !== REQUIRED) throw new Error("Invalid Claude prompt-context provenance");
+    required = true;
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  if (existing) {
+    const append = context.append();
+    if (typeof append !== "string" && (required || append !== undefined))
+      throw new Error("Saved Claude session prompt context is missing or invalid; resume refused.");
+    // No context and no provenance means an older session with unknown origin.
+    // Retain the first observed append, as before host snapshots existed.
+  }
+  return { ...context, retainAppend(candidate: string, initialFacts: Record<string, string> = {}) {
+    const retained = context.retainAppend(candidate, initialFacts);
+    // Record provenance before returning any append to SDK assembly. A failed
+    // marker write releases no prompt; retry retains the already-saved append.
+    directory(provenance.dir);
+    try { writeFileSync(marker, REQUIRED, { flag: "wx", mode: 0o600 }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || regular(marker, 64).toString() !== REQUIRED) throw error;
+    }
+    return retained;
+  } };
 }
 
 /** A successful send becomes delivered only after its exact UUID/bytes survive native copy-out. */

@@ -92,9 +92,9 @@ providers refused rather than treated as first-party evidence.
 
 The current inference relay already strips inbound credentials, selects its
 fixed origin/routes and invokes host credentials for each dispatch
-(`startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:73-261`).
+(`startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:81-254`).
 Its event has outcome/status, not provider usage
-(`InferenceRelayEvent`, `packages/ui-sdk/src/server/inference-relay.ts:47-55`).
+(`InferenceRelayEvent`, `packages/ui-sdk/src/server/inference-relay.ts:55-63`).
 For these CLI consumers, the host would supply a non-secret transport projection
 and keep real keys outside the worker. A fixture key reaching a loopback upstream
 is not proof of that credential-free projection.
@@ -141,7 +141,7 @@ usage stay unknown; never infer tokens from payload bytes or vector length.
 The current shared inference/egress counter measures application or opaque
 transport bytes. These units stay separate from provider token, character,
 image or time units. Activity's current token pricing uses input/output/cache
-classes (`priceUsage`, `packages/ui-server/src/activity/store.ts:1075-1105`);
+classes (`priceUsage`, `packages/ui-server/src/activity/store.ts:1134-1164`);
 it cannot silently price image modalities or enterprise billable characters as
 ordinary tokens. Image model-table costs remain estimates; unknown model/rate
 combinations remain unknown. No live invoice or price validation is implied by

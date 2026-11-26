@@ -1,3 +1,4 @@
+export type { SafetyFuturePrepare, SafetyFutureCommit, SafetyFuturePrepared } from "./safety.js";
 export { SESSION_SAFETY_CAPABILITY, SAFETY_READ_CAPABILITIES } from "./safety.js";
 export type { SafetyReviewBody, SafetyReviewReceipt, SafetyReviewResponse, SafetySessionKey, SafetyTarget, SafetyIdentity, SafetyHistoryProjection, SafetyRecord, SafetyPage, SafetyUpdate, SafetyUnavailable, SafetyCapabilities, ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable } from "./safety.js";
 import type { ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable, SafetyCapabilities } from "./safety.js";
@@ -123,6 +124,7 @@ export type ClientMessage =
   | ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe
   | ClientScopeDecision
   | ClientHello
+  | ClientTurnReceipt
   | ClientRetryTurn
   | ClientRetryStatus
   | ClientChatMessage
@@ -159,6 +161,22 @@ export type ClientMessage =
   | ClientConversationCommit
   | ClientConversationPlayback
   | ClientConversationStop;
+
+/** Client-monotonic frame-arrival pairs, in milliseconds; never presentation timings. */
+export interface ClientTurnTiming {
+  sendToFirstHostFrameMs: number;
+  sendToFirstContentFrameMs?: number;
+  lastContentFrameToIdleMs?: number;
+  /** Absent until phase-specific status frames are supported. */
+  sendToFirstPhaseStatusFrameMs?: number;
+}
+
+/** Best-effort, once after idle; cannot update the host lifecycle. */
+export interface ClientTurnReceipt {
+  type: "client_turn_receipt";
+  turnId: string;
+  timing: ClientTurnTiming;
+}
 
 /**
  * Client → Server. First frame a client sends after the socket opens (rev 3,
@@ -1024,7 +1042,8 @@ export interface ServerHello {
    * advertises resumable stop plus start/open/close request identity echoes.
    * `sessionDrafts: true` means the `/api/drafts` routes store drafts;
    * `sessionDraftLimits` then carries their bounds. `sessionRecovery: true`
-   * means `GET /api/sessions/:id/recovery` answers (#964). */
+   * means `GET /api/sessions/:id/recovery` answers (#964).
+   * `clientTurnReceipts: true` accepts best-effort client frame-arrival reports. */
   capabilities?: Record<string, boolean>;
   /**
    * Draft storage bounds (additive; #979). Present exactly when
@@ -1418,10 +1437,10 @@ export interface TurnFailure {
 type FirstPartyFailureClass =
   | "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold"
   | "verification_required" | "billing_error" | "subscription_required"
-  | "host_refused" | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
+  | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
-  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
+  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1438,6 +1457,8 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   subscription_required: "subscription_required",
   host_refused: "host_refused",
   auth_failure: "auth_failure",
+  settings_conflict: "settings_conflict",
+  session_roster_incompatible: "session_roster_incompatible",
   rate_limit: "rate_limit",
   overloaded: "overloaded",
   server_error: "server_error",
@@ -1455,6 +1476,9 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   budget_unavailable:"budget_unavailable",
   journal_capacity: "journal_capacity",
   journal_unavailable: "journal_unavailable",
+  code_receipt_malformed: "code_receipt_malformed",
+  private_state_unverified: "private_state_unverified",
+  OperationalStateAliasVerificationUnavailable: "OperationalStateAliasVerificationUnavailable",
   input_safety_unavailable: "input_safety_unavailable",
   safety_recording_unavailable: "safety_recording_unavailable",
   safety_recording_paused: "safety_recording_paused",
@@ -1583,6 +1607,8 @@ export interface ServerError extends SessionScoped {
 }
 
 export interface ServerStatus extends SessionScoped {
+  /** Host-only final idle after cleanup; receipt persistence may finish later. Never a backend idle. */
+  hostTurnComplete?: true;
   type: "status";
   status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
   detail?: string;
@@ -1931,7 +1957,7 @@ export interface WorkerLimitsStatus {
 }
 
 /** Why `governed` cannot run on a server (#1648). */
-export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "worker_host_unavailable";
+export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "private_state_unverified" | "worker_host_unavailable";
 
 export type GovernedStatus = {
   hostExecution: "worker" | "host";
@@ -1952,14 +1978,15 @@ export type GovernedStatus = {
 }
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 
-/** Unresolved object verification at journal boot; charges remain reserved. */
+/** Unresolved journal reservations after startup or the latest idle recovery; charges remain reserved. */
 export interface JournalRecoveryStatus {
   unresolvedRecords: number;
+  /** Temporary reservations have no content identity and carry hash: "". */
   firstCause: { reservationId: string; hash: string; at: number; errorClass: string; message: string; site: string } | null;
 }
 
 export interface SystemStatus {
-  /** Journal I/O recovery at server boot; only on authenticated status. */
+  /** Journal I/O recovery refreshed at startup and by idle maintenance; only on authenticated status. */
   journalRecovery?: JournalRecoveryStatus;
   /** Native quarantine reported at server boot; only on authenticated status. */
   nativeRecovery?: { quarantinedIntents: number; stagingChargedBytes: number | null; stagingRefusal?: string; diagnosticsPath: string };
@@ -3883,11 +3910,13 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
 }
 
 /**
- * One timed step inside the governed-admission or journal-begin phase (#3355).
+ * One timed step inside the original governed or journal phases.
  * `name` is open vocabulary: consumers tolerate names they do not know.
  */
 export interface ActivityTurnSubPhase {
   phase: "governed" | "journal";
+  queueAhead?: { count: number; kinds: Array<ActivityTurnHold["cause"] | "refresh" | "worktree" | "memory"> };
+  aliasScan?: { scans: number; entries: number };
   name: string;
   startedAt: number;
   /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */
@@ -3895,8 +3924,52 @@ export interface ActivityTurnSubPhase {
   elapsedMs: number | null;
 }
 
+/** Additive phases use an open vocabulary so older SDKs can retain the frame. */
+export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
+  phase: string;
+  pending?: boolean;
+  indexSettle?: { queuedPaths: number; updates: number; firstAlreadyRunning: boolean; updateMs: number;
+    lastOutcome: "complete" | "failed" | "index_capacity" | "cancelled" | null };
+  /** Worker durations use an independent clock; timestamps are host receipt, not worker start/end. */
+  timeBase?: "worker";
+  workerElapsedMs?: number;
+}
+
+/** One observation hold as seen by this turn; other owners are counted, never identified. */
+export interface ActivityTurnHold {
+  holdId: string;
+  cause: "begin" | "finish" | "tool" | "periodic" | "scope";
+  causeTurnId: string | null;
+  toolUseId?: string;
+  requestedAt: number;
+  stoppedAt: number | null;
+  resumedAt: number | null;
+  changedPaths: number | null;
+  otherTurnsStopped: number;
+  inferenceInFlight: boolean | null;
+}
+
 /** Host-owned envelope; never contributes inference usage or cost. */
 export interface ActivityTurnLifecycle {
+  /** Running server identity; absent on historical records. */
+  holds?: ActivityTurnHold[];
+  stoppedTime?: { totalMs: number; intervals: number; sharedHolds: number; openHolds: number;
+    inferenceMs: number; noInferenceMs: number; unknownMs: number };
+  admissionLoad?: {
+    atDequeue?: { load1?: number; cpuCount?: number };
+    atBackendStart?: { load1?: number; cpuCount?: number };
+    eventLoopMaxMs?: number;
+    eventLoopP99Ms?: number;
+  };
+  packageVersion?: string;
+  buildRevision?: string;
+  runtimeVersion?: string;
+  recorderSettledAt?: number | null;
+  idleEmittedAt?: number | null;
+  /** Separate owner-bound receipt joined on read; absent when unobserved or lost. */
+  clientTiming?: ClientTurnTiming;
+  /** The separate receipt is retained but invalid; host lifecycle remains usable. */
+  clientTimingUnavailable?: "invalid_receipt";
   hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
   skippedPhases: Array<"governed" | "budget" | "journal">;
   lifecycleId: string;
@@ -3904,6 +3977,8 @@ export interface ActivityTurnLifecycle {
   sessionId: string | null;
   backendRunId: string | null;
   acceptedAt: number;
+  /** Present from enqueue, including when the follow-up never dequeues. */
+  queuedAt?: number;
   dequeuedAt: number | null;
   governedStartedAt: number | null;
   governedAcquiredAt: number | null;
@@ -3912,6 +3987,17 @@ export interface ActivityTurnLifecycle {
   journalStartedAt: number | null;
   journalBeganAt: number | null;
   backendInvokedAt: number | null;
+  /** Absent on historical records, null until the first inference relay request is observed. */
+  firstRelayRequestAt?: number | null;
+  /** SDK stages unavailable to the host; never inferred from another mark. */
+  backendMissingEvidence?: string[];
+  backendMcpInit?: Array<{
+    name: string;
+    status: "connected" | "failed" | "needs-auth" | "pending" | "disabled" | "other";
+    source: "sdk" | "plugin" | "user" | "project" | "local" | "dynamic" | "managed" | "enterprise" | "claudeai" | "agent" | "other";
+  }>;
+  /** Backend step/diagnostic observations omitted by count or encoded-byte limits. */
+  backendEvidenceOmitted?: number;
   firstFrameAt: number | null;
   failureObservedAt: number | null;
   endedAt: number | null;
@@ -3924,8 +4010,10 @@ export interface ActivityTurnLifecycle {
   budgetAdmissionMs: number | null;
   journalBeginMs: number | null;
   backendStartupMs: number | null;
-  /** Additive (#3355): steps of the governed and journal phases, in start order. Absent on older records. */
+  /** Original governed/journal steps, in start order. The closed phase enum is frozen. */
   subPhases?: ActivityTurnSubPhase[];
+  /** New phases, including backend startup, in start order; tolerate unknown phase names. */
+  openSubPhases?: ActivityTurnOpenSubPhase[];
 }
 
 export interface ActivityRunSummary {
@@ -4687,7 +4775,7 @@ export interface QueueStagingManifest extends ShareIntakeResult {
   source: "cli";
 }
 
-export type { JournalObservationReference, TurnHistoryAction, ConflictVersionSelection, TurnRevertRequest, JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction, ConfigurationCoverageRead } from "./turn-journal.js";
+export type { JournalObservationReference, TurnHistoryAction, ConflictVersionSelection, TurnRevertRequest, JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, CodeChangeReceipt, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction, ConfigurationCoverageRead } from "./turn-journal.js";
 
 /** Durable journal progress can arrive after the terminal result without reopening the turn. */
 export interface ServerTurnJournal extends SessionScoped {
@@ -4740,9 +4828,11 @@ export interface ServerScopeDecisionReceipt {
 }
 export type { ScopeCapReceipt, ScopeDimension, TurnScopeSummary } from "./turn-journal.js";
 
+export type { StorageEventKind, StoragePressureEvent, StorageRefusalEvent, StorageScopeEvent, StorageMaintenanceEvent, StorageEvent, StorageEventsResponse } from "./storage-events.js";
 export type { StorageCoverage, StorageOwner, StorageBytes, StorageRoot, StorageCapacityView, StorageFileEntry, StorageSnapshot, StorageStatus, StoragePage, StorageFilter, StorageReferenceEvidence, StorageMaintenanceKind, StorageMaintenanceRequest, StorageMaintenanceItem, StorageMaintenanceObservation, StorageMaintenanceReceipt, StorageMaintenanceRow, StorageTreeNode, StorageTreeFilter, StorageTreePage } from "./storage.js";
 export type { StorageRemovalInspection, StorageRemovalReviewRequest, StorageRemovalStartRequest, StorageRemovalUndoRequest, StorageRemovalFile, StorageRemovalReview, StorageRemovalItem, StorageRemovalReceipt, StorageRemovalCapability } from "./storage-removal.js";
 export type { StorageHistoryTier, StorageSeverity, StorageEvidenceReason, StorageObservedRate, StorageScenario, StorageCapacityEvidence, StorageHistoryCapacity, StorageHistoryObservation, StorageHistoryResponse, StoragePressureView, StorageGuidanceResponse } from "./storage-guidance.js";
+export { STORAGE_PRESSURE_LOW_PERCENT, STORAGE_PRESSURE_CRITICAL_PERCENT, STORAGE_PRESSURE_LOW_RECOVERY_PERCENT, STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT, STORAGE_PRESSURE_LOW_FORECAST_DAYS, STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS, STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS, STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS, STORAGE_PRESSURE_RECOVERY_OBSERVATIONS, STORAGE_PRESSURE_RECOVERY_SPACING_MS, STORAGE_PRESSURE_EVIDENCE_WINDOW_MS } from "./storage-guidance.js";
 
 /** Retained text evidence, never a provider-native transcript or replay instruction. */
 export type DialogueEvidence =

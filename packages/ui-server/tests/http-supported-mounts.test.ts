@@ -30,6 +30,7 @@ const unavailableSafetyReview: NonNullable<Check["verify"]> = async (response, t
 const checks: Record<string, Check> = {
   "GET /api/storage/history": { body: { version: 1, state: "available", observations: [] } },
   "GET /api/storage/guidance": { body: { version: 1, state: "unknown", severity: null, capacities: [] } },
+  "GET /api/storage/events": { body: { version: 1, since: 0, next: 0, events: [] } },
   "GET /api/storage/removals": { verify: async r => { const value = await r.json(); expect(value).toHaveProperty("available"); expect(value.limits.items).toBe(32); } },
   "POST /api/storage/removals/inspection": { init: json("POST", {paths: []}), status: 400, body: {error:"Select bounded attachment paths for inspection."} },
   "POST /api/storage/removals/reviews": { init: json("POST", { id: "odysseus-mounted-review", paths: [] }), status: 400, body: {error:"Select bounded attachment paths and a new review identity."} },
@@ -84,11 +85,16 @@ const checks: Record<string, Check> = {
   "GET /api/activity/runs/:runId": { path: "/api/activity/runs/fixture-run", body: { runId: "fixture-run", detailPruned: false, spans: [{ name: "Fixture turn", outcome: "success" }] } },
   "GET /api/activity/rollups": { verify: async (r) => { const b = await r.json(); expect(b.days.length).toBeGreaterThan(0); expect(b.days[0].costUsd).toBe(0.5); } },
   "GET /api/activity/stats": { verify: async (r) => { const b = await r.json(); expect(b).toHaveProperty("window"); expect(JSON.stringify(b)).toContain("0.5"); } },
+  "GET /api/activity/turn-timings/summary": { path: "/api/activity/turn-timings/summary?limit=2", verify: async response => { expect(await response.json()).toEqual({ limit: 2, groups: [] }); } },
   "POST /api/internal/inbox/poke": { init: { method: "POST" }, status: 503, body: { error: "inbox_poke_unconfigured" } },
   "GET /api/models": { body: { models: [{ id: "fixture", hidden: false }], discovery: { enabled: false } } },
   "PUT /api/models/hidden": { init: json("PUT", { hidden: ["fixture"] }), body: { models: [{ id: "fixture", hidden: true }] } },
   "POST /api/models/refresh": { init: { method: "POST" }, status: 409, verify: async (r) => { expect((await r.json()).error).toBeString(); } },
   "GET /api/providers": { body: { providers: [{ id: "fixture" }], backends: { fixture: { id: "fixture" } } } },
+  "GET /api/sessions/:id/code-changes": { path: "/api/sessions/fixture-session/code-changes", body: { enabled: false } },
+  "PUT /api/sessions/:id/code-changes": { path: "/api/sessions/fixture-session/code-changes", init: json("PUT", { enabled: true }), body: { enabled: true } },
+  "GET /api/drafts/:id/code-changes": { path: "/api/drafts/draft-ithaca/code-changes", body: { enabled: false } },
+  "PUT /api/drafts/:id/code-changes": { path: "/api/drafts/draft-ithaca/code-changes", init: json("PUT", { enabled: true }), body: { enabled: true } },
   "GET /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", body: { preference: "governed", origin: "interactive" } },
   "PUT /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", init: json("PUT", { preference: "strict" }), body: { preference: "strict" } },
   "GET /api/drafts/:id/profile": { path: "/api/drafts/draft-ithaca/profile", body: { preference: "governed", draftPreferenceStored: false } },
@@ -119,6 +125,9 @@ const checks: Record<string, Check> = {
   "GET /api/sessions/:sessionId/turns/:turnId/journal": { path: "/api/sessions/fixture-session/turns/unknown/journal", status: 404, body: { error: "No retained journal is available for this turn." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/preview", status: 404, body: { error: "Journal detail expired or unavailable." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/before", status: 404, body: { error: "Journal detail expired or unavailable." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/code/preview?checkout=workspaces/argo", status: 409, body: { error: "Code change evidence is unavailable." } },
+  "POST /api/sessions/:sessionId/turns/:turnId/journal/code/revert": { path: "/api/sessions/fixture-session/turns/unknown/journal/code/revert", init: json("POST", { id: "00000000-0000-4000-8000-000000004297", checkout: "workspaces/argo" }), status: 409, body: { error: "Code history is unavailable or no longer eligible; no effect was retried." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id": { path: "/api/sessions/fixture-session/turns/unknown/journal/code/revert/00000000-0000-4000-8000-000000004297", status: 404, body: { error: "No such code history operation." } },
   "GET /api/journal/configuration-coverage": { path: "/api/journal/configuration-coverage", status: 200, body: { state: "unknown" } },
   // Imported history: the session exists, and the host proves nothing about it.
   "GET /api/sessions/:id/safety": {path:"/api/sessions/fixture-session/safety",status:404,body:{version:1,reason:"unavailable"},verify:async r=>{expect(r.headers.get("cache-control")).toBe("no-store");}},
@@ -126,6 +135,12 @@ const checks: Record<string, Check> = {
     body: { code: "unavailable", reason: "unavailable", retryable: false }, verify: unavailableSafetyReview },
   "POST /api/sessions/:id/safety/reviews/:requestId/commit": { path: "/api/sessions/fixture-session/safety/reviews/missing-request/commit", init: json("POST", safetyReviewBody), status: 404,
     body: { code: "unavailable", reason: "unavailable", retryable: false }, verify: unavailableSafetyReview },
+  "POST /api/sessions/:id/safety/reviews/future/prepare": { path: "/api/sessions/fixture-session/safety/reviews/future/prepare", init: json("POST", {...safetyReviewBody,future:{incomingContent:true,recipientWhileRestricted:false}}), status: 403,
+    body: { code: "unavailable", reason: "invalid_request", retryable: false }, verify: unavailableSafetyReview },
+  "POST /api/sessions/:id/safety/reviews/future/commit": { path: "/api/sessions/fixture-session/safety/reviews/future/commit", init: json("POST", {version:1,requestId:"missing-request",reviewId:"missing-review",reviewedBytesHash:"a".repeat(64)}), status: 404,
+    body: { code: "unavailable", reason: "unavailable", retryable: false }, verify: unavailableSafetyReview },
+  "POST /api/sessions/:id/safety/reviews/future/status": { path: "/api/sessions/fixture-session/safety/reviews/future/status", init: json("POST", {version:1,session:safetyReviewBody.session,occurrenceId:safetyReviewBody.occurrenceId}), status: 404,
+    body: { code: "unavailable", retryable: false }, verify: unavailableSafetyReview },
   "GET /api/sessions/:id/attachment-reads": { path: "/api/sessions/fixture-session/attachment-reads", body: { sessionId: "fixture-session", reads: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/sessions/:id/recovery": { path: "/api/sessions/fixture-session/recovery", body: { sessionId: "fixture-session", revision: 0, latest: { requestId: null, turnId: null, state: "unknown", outcome: null }, pending: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/push/public-key": { verify: async (r) => { const b = await r.json(); expect(b.publicKey.length).toBeGreaterThan(0); expect(Object.keys(b)).toEqual(["publicKey"]); } },
@@ -185,8 +200,8 @@ async function prepare(operation: string, afterSeed?: (t: HttpContractApp) => vo
       t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES ('owner-to-revoke', 'owner', 'password', 'Other fixture device', 1, ?)").run(Date.now() + 3600_000);
     }
     if (operation.includes("/reference-grants")) t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_by, created_at, expires_at) VALUES ('odysseus-grantee', 'agent', 'delegated', 'Telemachus', NULL, 1, ?)").run(Date.now() + 3600_000);
-    if (operation.endsWith("/api/sessions/:id/profile")) {
-      createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture");
+    if ((operation.endsWith("/api/sessions/:id/profile") || operation.endsWith("/api/sessions/:id/code-changes"))) {
+      createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture", owner.id);
     }
     const store = createActivityStore(t.app.db, { writer: "http-contract" });
     store.startSpan({ spanId: "fixture-span", runId: "fixture-run", name: "Fixture turn", kind: "turn", origin: "session", sessionId: "fixture-session", principalId: owner.id, startedAt: Date.now() - 1000 });

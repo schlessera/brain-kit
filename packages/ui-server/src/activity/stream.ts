@@ -10,9 +10,10 @@
  * change log's and a delta can never precede its commit (persist-then-emit).
  *
  * The subscribe handler answers with a snapshot whose per-run high-water seq
- * and pump baseline come from ONE store read transaction — there is no gap
- * window between snapshot and first delta, and no duplication the client's
- * seq-discard rule cannot handle.
+ * and its consistent floor come from the store's read transaction. Floors
+ * account for pending pump changes. Clipped lifecycle records receive private
+ * repair deltas without changing the shared cursor. Legacy chunks retain
+ * their complete authoritative scope map.
  *
  * This is deliberately the only place broadcast is per-connection filtered;
  * every other frame keeps the host's broadcast-to-all semantics.
@@ -31,6 +32,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 
 import type { WSContext } from "../ws/clients.js";
 import { sendTo } from "../ws/clients.js";
+import { shrinkForReplication } from "../ws/shrink.js";
 import type {
   ActivityChange,
   AwaitableActivityStore,
@@ -269,7 +271,7 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
   function sendSnapshot(ws: WSContext, sub: Subscription, compute: boolean): void {
     let spans: SpanRow[] = [];
     let events: SpanEventRow[] = [];
-    const highWater: Record<string, number> = {};
+    const highWater: Record<string, number> = Object.create(null);
     const shown = (runId: string) => compute || !isComputeRun(runId);
 
     if (sub.view === "run" && sub.runId && shown(sub.runId)) {
@@ -293,21 +295,57 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
         highWater[snap.runId] = snap.highWaterSeq;
       }
     } else {
-      // Index view: open roots only — history is the REST activity API's job.
+      // Candidate discovery has no authority over a later row or floor.
+      const seen = new Set<string>();
       for (const root of store.openRootSpans()) {
-        if (!shown(root.runId)) continue;
-        spans.push(root);
-        highWater[root.runId] = store.runHighWaterSeq(root.runId);
+        if (!shown(root.runId) || seen.has(root.runId)) continue;
+        seen.add(root.runId);
+        const snap = store.snapshotRun(root.runId, true);
+        if (!snap) continue;
+        spans.push(...snap.spans.filter(span => span.parentSpanId === null && span.outcome === null));
+        highWater[snap.runId] = snap.highWaterSeq;
+      }
+      // Snapshot roots can cover changes already passed by the shared pump.
+      // Only its pending tail needs a lower floor, so cached live deltas do
+      // not make a reconnect reject the current root. Read after the roots
+      // to include writes that raced with their consistent snapshots.
+      const through = store.latestChangeCursor();
+      let after = cursor;
+      const pending = new Map<string, number>();
+      while (after < through) {
+        const changes = store.changesSince(after, 200);
+        if (!changes.length) break;
+        for (const change of changes) {
+          after = change.changeId;
+          if (change.changeId <= through) pending.set(change.runId, Math.min(pending.get(change.runId) ?? Infinity, change.seq));
+        }
+        if (changes.length < 200) break;
+      }
+      for (const [runId, seq] of pending) {
+        if (Object.hasOwn(highWater, runId)) highWater[runId] = Math.min(highWater[runId]!, seq - 1);
       }
     }
     for (const span of spans) noteSpan(span);
 
-    const lifecycles = sub.view === "run" && sub.runId
+    // Keep every lifecycle and floor in the scope in one database view.
+    const scoped = store.snapshotLifecycles?.(sub.view === "run" && sub.runId
+      ? { turnId: sub.runId } : sub.view === "session" ? { sessionId: sub.sessionId } : {});
+    const lifecycles = scoped ? [] : sub.view === "run" && sub.runId
       ? [store.lifecycle(sub.runId)].filter((x): x is NonNullable<typeof x> => x !== null)
       : store.lifecycles(sub.view === "session" ? sub.sessionId : undefined);
-    for (const lifecycle of lifecycles) highWater[lifecycle.lifecycleId] = store.runHighWaterSeq(lifecycle.lifecycleId);
+    if (scoped) Object.assign(highWater, scoped.highWaterSeq);
+    const consistent = scoped?.lifecycles ?? lifecycles.flatMap(record => {
+      const snapshot = store.lifecycleSnapshot?.(record.turnId);
+      // Legacy reads share no atomic pair: sequence first, then row. A
+      // concurrent write can make the row newer, never make its floor newer.
+      const seq = snapshot?.highWaterSeq ?? store.runHighWaterSeq(record.lifecycleId);
+      const lifecycle = snapshot?.lifecycle ?? store.lifecycle(record.turnId);
+      if (!lifecycle) return [];
+      highWater[lifecycle.lifecycleId] = seq;
+      return [lifecycle];
+    });
     const base: Omit<ServerActivitySnapshot, "spans" | "events"> = {
-      lifecycles,
+      lifecycles: consistent,
       type: "activity_snapshot",
       view: sub.view,
       ...(sub.sessionId ? { sessionId: sub.sessionId } : {}),
@@ -318,13 +356,12 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
     // Chunk: first span/event batch in the base frame, then append frames
     // for the rest (the client's applySnapshot merges append frames).
     const wireSpans = spans.map(toWireSpan);
-    sendTo(ws, {
-      ...base,
-      spans: wireSpans.slice(0, SNAPSHOT_SPAN_CHUNK),
+    const frames: ServerActivitySnapshot[] = [{
+      ...base, spans: wireSpans.slice(0, SNAPSHOT_SPAN_CHUNK),
       events: events.slice(0, SNAPSHOT_EVENT_CHUNK).map(toWireEvent),
-    });
+    }];
     for (let i = SNAPSHOT_SPAN_CHUNK; i < wireSpans.length; i += SNAPSHOT_SPAN_CHUNK) {
-      sendTo(ws, {
+      frames.push({
         ...base,
         spans: wireSpans.slice(i, i + SNAPSHOT_SPAN_CHUNK),
         events: [],
@@ -332,13 +369,26 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
       });
     }
     for (let i = SNAPSHOT_EVENT_CHUNK; i < events.length; i += SNAPSHOT_EVENT_CHUNK) {
-      sendTo(ws, {
+      frames.push({
         ...base,
         spans: [],
         events: events.slice(i, i + SNAPSHOT_EVENT_CHUNK).map(toWireEvent),
         append: true,
       });
     }
+    const sent = frames.map(frame => shrinkForReplication(frame));
+    if (sent.every((frame, index) => frame === frames[index])) {
+      for (const frame of sent) sendTo(ws, frame);
+      return;
+    }
+    // Retain main's display shrinking for spans/events. Lifecycle repair is
+    // private to this subscriber; the shared pump cursor never moves here.
+    const intact = new Set(sent.flatMap(frame => frame.lifecycles ?? []).map(record => JSON.stringify(record)));
+    const repairs = consistent.filter(record => !intact.has(JSON.stringify(record)))
+      .map(lifecycle => ({ lifecycle, seq: highWater[lifecycle.lifecycleId]! }));
+    for (const { lifecycle, seq } of repairs) highWater[lifecycle.lifecycleId] = Math.max(0, seq - 1);
+    for (const frame of sent) sendTo(ws, { ...frame, highWaterSeq: highWater });
+    for (const { lifecycle, seq } of repairs) sendTo(ws, { type: "activity_delta", runId: lifecycle.lifecycleId, seq, lifecycle });
   }
 
   return {

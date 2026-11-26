@@ -8,10 +8,17 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act } from "react";
 
-if (!GlobalRegistrator.isRegistered) {
-  GlobalRegistrator.register();
+/**
+ * Register the DOM. The module body does it once, for the component imports
+ * that follow; a repeated run of the file (`--rerun-each`, the determinism
+ * job) reuses the loaded modules, so the file registers again before its
+ * tests through this.
+ */
+export function registerSlidePanelDom(): void {
+  if (!GlobalRegistrator.isRegistered) GlobalRegistrator.register();
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 }
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+registerSlidePanelDom();
 
 export async function unregisterSlidePanelDom(): Promise<void> {
   if (GlobalRegistrator.isRegistered) {

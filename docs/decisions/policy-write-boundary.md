@@ -523,7 +523,7 @@ host (`function* launchAgentWorkerSteps`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:58`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:59`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
@@ -702,7 +702,7 @@ as fd 4 after the bootstrap's descriptor filter. bubblewrap passes it into the
 sandbox, where the trusted absolute `/bin/sh` reads one line from it, requires
 exactly `go`, closes fd 4 and only then execs the payload. EOF, a partial line
 or any other line ends the sandbox with exit 125. `release()` writes `go\n`
-(`const START_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:69`).
+(`const START_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:70`).
 
 **Why.** bubblewrap proceeds past `--block-fd` on EOF: its sandbox child reads
 one byte and ignores the result. That child arms `PR_SET_PDEATHSIG` only after
@@ -786,7 +786,7 @@ bubblewrap but not its sandbox child, as above.
 trusted absolute `/bin/sh` that reads one complete `go` line from stdin and
 refuses end-of-file or anything else with exit 125
 (`function identityStartGate`,
-`packages/ui-sdk/src/server/worker-launcher.ts:80`). That covers launches with
+`packages/ui-sdk/src/server/worker-launcher.ts:81`). That covers launches with
 and without runtime state. The server writes that line only after the
 coordinator has confirmed its release, and it holds stdin's only writer. So the
 payload starts only when both holders have authorised it. If either dies before

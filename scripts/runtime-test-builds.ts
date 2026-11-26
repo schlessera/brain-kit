@@ -13,9 +13,9 @@ const special: Readonly<Record<string, readonly string[]>> = {
 export const runtimeBuildInventory = { ...runtimeTestBuilds, ...special };
 
 /** Paths are already parsed by the wrapper's value-aware Bun argument parser. */
-export function runtimeBuildSelection(root: string, cwd: string, paths: readonly string[]): string[] {
+export function runtimeBrowserSelection(root: string, cwd: string, paths: readonly string[]): string[] {
   const selected = new Set<string>();
-  for (const [file, packages] of Object.entries(runtimeBuildInventory)) {
+  for (const file of [...Object.keys(runtimeBuildInventory), "packages/ui-react/tests/browser-rejection-runtime.test.ts"]) {
     if (!existsSync(join(root, file))) continue;
     const absolute = join(root, file);
     if (paths.some(path => {
@@ -24,7 +24,12 @@ export function runtimeBuildSelection(root: string, cwd: string, paths: readonly
         return absolute === target || absolute.startsWith(`${target}/`);
       }
       return absolute.includes(path);
-    })) for (const pkg of packages) selected.add(pkg);
+    })) selected.add(file);
   }
   return [...selected];
+}
+
+/** Browser protocol controls need an online indicator but no package build. */
+export function runtimeBuildSelection(root: string, cwd: string, paths: readonly string[]): string[] {
+  return [...new Set(runtimeBrowserSelection(root, cwd, paths).flatMap(file => runtimeBuildInventory[file] ?? []))];
 }

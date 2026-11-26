@@ -46,13 +46,14 @@ test("an old host receives no safety read or unsubscribe frames and remains expl
 });
 
 test('entry correlation is requested only after the independent host capability',()=>{
- for(const entries of [false,true]){
+ for(const entries of [false,true])for(const admissions of [false,true]){
   const chat=createStore<{activeSessionId:string|null}>(()=>({activeSessionId:'ithaca'})),safety=createSafetyStore(),sent:ClientMessage[]=[];
   const root={stores:{chat,safety}} as unknown as BrainUiServices,client=createSafetyClient(root,m=>{sent.push(m);return true;});
   try{
-   client.frame({type:'server_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,...(entries?{sessionSafetyEntryCorrelation:true}:{})},safetyCapabilities:{version:1,read:true,review:false,originRules:false,repositoryRules:false,recipientRules:false,readOnlyReason:'owner_required',detectorVersion:1,limits:{pageRecords:100,frameBytes:262144,cursorBytes:512,cursorLifetimeMs:300000}}});
+   client.frame({type:'server_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,...(entries?{sessionSafetyEntryCorrelation:true}:{}),...(admissions?{sessionSafetyAdmissionEvidence:true}:{})},safetyCapabilities:{version:1,read:true,review:false,originRules:false,repositoryRules:false,recipientRules:false,readOnlyReason:'owner_required',detectorVersion:1,limits:{pageRecords:100,frameBytes:262144,cursorBytes:512,cursorLifetimeMs:300000}}});
    const read=sent.find(m=>m.type==='safety_read');expect(read?.type).toBe('safety_read');
    if(entries)expect(read).toHaveProperty('includeEntries',true);else expect(read,'OLD_HOST_NEVER_RECEIVES_UNKNOWN_READ_FIELD').not.toHaveProperty('includeEntries');
+   if(admissions)expect(read).toHaveProperty("includeAdmissions",true);else expect(read,"OLD_HOST_NEVER_RECEIVES_ADMISSION_FIELD").not.toHaveProperty("includeAdmissions");
    expect(safety.getState().capabilities?.review).toBe(false);
    safety.getState().refresh();expect(sent.filter(m=>m.type==='safety_read')).toHaveLength(2);expect(sent.every(m=>!m.type.includes('review'))).toBe(true);
   }finally{client.dispose();}
@@ -287,5 +288,52 @@ test("a correlated capacity refusal terminates the active recovery page", () => 
     client.frame({ type: "safety_unavailable", version: 1, requestId: recovery.requestId, reason: "capacity" });
     expect(sent.length).toBe(before);
     expect(safety.getState(), "ACTIVE_READ_CAPACITY_REFUSAL_REMAINS_TERMINAL").toMatchObject({ status: "unavailable", requestId: null, reason: "capacity", normal: false });
+  } finally { client.dispose(); }
+});
+
+test('review F2: future rules require the additive boolean offer and live review capability',()=>{
+ for(const offered of [false,true])for(const review of [false,true]){
+ const f=supportedClient('ithaca');try{
+ f.client.frame({...hello,capabilities:{sessionSafetyHistory:true,sessionSafetyFutureRules:offered},safetyCapabilities:{...SAFETY_READ_CAPABILITIES,review,originRules:false,recipientRules:false}});
+ expect(f.safety.getState().supported).toBe(true);
+ expect(f.safety.getState().capabilities?.originRules,'F2_BOOLEAN_OFFER_CONTROLS_NEW_UI').toBe(offered&&review);
+ expect(f.safety.getState().capabilities?.recipientRules).toBe(offered&&review);
+ expect(f.sent.some(m=>m.type==='safety_read')).toBe(true);
+ }finally{f.client.dispose();}
+ }
+});
+
+test("a failed safety read stays disconnected until this client receives a new hello", () => {
+  const chat=createStore<{activeSessionId:string|null}>(()=>({activeSessionId:"ithaca"})), safety=createSafetyStore();
+  const root={stores:{chat,safety}} as unknown as BrainUiServices;
+  const sent:ClientMessage[]=[];
+  let online=false;
+  const client=createSafetyClient(root, message => { sent.push(message); return online; });
+  try {
+    client.frame(hello);
+    expect(safety.getState().reason).toBe("disconnected");
+    const attempts=sent.length;
+    online=true;
+    client.refresh();
+    expect(sent).toHaveLength(attempts);
+    client.frame(hello);
+    expect(sent.at(-1)?.type).toBe("safety_read");
+    expect(safety.getState().status).toBe("loading");
+  } finally { client.dispose(); }
+});
+
+test("switching chats offline clears the former chat's safety evidence", () => {
+  const {client,chat,safety,sent}=supportedClient("ithaca");
+  try {
+    client.frame(hello);
+    const read=sent.find(message=>message.type==="safety_read")!;
+    client.frame({type:"safety_history",requestId:read.requestId,page});
+    expect(safety.getState().identity).toEqual(page.identity);
+    client.disconnected();
+    expect(safety.getState().identity).toEqual(page.identity);
+    chat.setState({activeSessionId:"pylos"});
+    expect(safety.getState()).toMatchObject({reason:"disconnected",identity:null,projection:null,records:{}});
+    client.frame(hello);
+    expect(sent.at(-1)).toMatchObject({type:"safety_read",target:{sessionId:"pylos"}});
   } finally { client.dispose(); }
 });

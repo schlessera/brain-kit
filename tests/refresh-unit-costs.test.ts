@@ -69,3 +69,18 @@ test("missing-weight guard names the unweighted 120 second file and passes after
   expect(() => assertWeightedLongFiles(observations, {})).toThrow(`Missing unit weight above 30s: ${file}`);
   expect(() => assertWeightedLongFiles(observations, { [file]: 120 })).not.toThrow();
 });
+
+
+test("unit cost refresh requires the merged Docker file in canonical reports", async () => {
+  const f = fixture();
+  const driver = "tests/workspace-lease.test.ts", archive = f.archives[0]!.files;
+  const receipt = JSON.parse(archive["proof-checkout.json"]); receipt.files.push(driver);
+  archive["proof-checkout.json"] = JSON.stringify(receipt);
+  f.source.tree.push({ path: driver, type: "blob" });
+  archive["unit-report.xml"] = archive["unit-report.xml"].replace("</testsuites>", `<testsuite file="${driver}" failures="0"></testsuite></testsuites>`);
+  const timings = JSON.parse(archive["unit-timings.json"]); timings.files[driver] = 2500;
+  archive["unit-timings.json"] = JSON.stringify(timings);
+  expect((await f.refresh()).seconds[driver], "COST_REFRESH_COUNTS_DOCKER").toBe(2.5);
+  delete timings.files[driver]; archive["unit-timings.json"] = JSON.stringify(timings);
+  await expect(f.refresh()).rejects.toThrow("Incomplete completed-file timing partition");
+});

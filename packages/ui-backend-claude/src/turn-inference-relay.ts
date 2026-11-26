@@ -57,6 +57,7 @@ export class TurnInferenceRelay {
   #relay: InferenceRelay | undefined;
   #link: string | undefined;
   #authorized = false;
+  readonly #startupTiming: StartTurnRequest["startupTiming"];
   readonly #configDirectory: string;
   readonly #turnEnvironment: Environment | undefined;
   readonly #authorizedOrigins: ReturnType<typeof resolveEnv>["claudeOAuthOrigins"];
@@ -65,6 +66,7 @@ export class TurnInferenceRelay {
   /** Selects the route and credential; starts nothing (see `start`). */
   constructor(inputs: { req: StartTurnRequest; profile: InferenceProfile; turnEnvironment: Environment | undefined; brainPath: string }) {
     const { req, profile, turnEnvironment } = inputs;
+    this.#startupTiming = req.startupTiming;
     this.#turnEnvironment = turnEnvironment;
     this.egress = !req.autonomous ? req.workerSandbox?.egress : undefined;
     // Only what the profile itself declares: an ambient credential never rides along.
@@ -90,6 +92,7 @@ export class TurnInferenceRelay {
     const egress = this.egress;
     if (!egress) return;
     this.#relay = startInferenceRelay({ upstream: this.selectedUpstream, routes: ANTHROPIC_INFERENCE_ROUTES, egress,
+      received: path => { if (!path.endsWith("/count_tokens")) this.#startupTiming?.received(); },
       ...(this.#recipient ? { recipientOrigin: this.#recipient.origin } : {}),
       observe: event => { if (event.outcome === "refused") this.#refusalReasons.add(event.denialReason); },
       credentials: async (signal, target) => {
@@ -135,6 +138,9 @@ export class TurnInferenceRelay {
     if (settings?.effective?.env?.ANTHROPIC_BASE_URL !== this.baseUrl) {
       return "native settings refused the prepared inference transport";
     }
+    const discovery = pinnedSettingsEnv?.ENABLE_TOOL_SEARCH;
+    if (discovery !== undefined && settings?.effective?.env?.ENABLE_TOOL_SEARCH !== discovery)
+      return "native settings refused the retained tool-search selection";
     this.#authorized = true;
     return undefined;
   }

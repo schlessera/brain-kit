@@ -201,6 +201,15 @@ export interface ApifyPricingSummary {
   uncertainty: string[];
 }
 
+interface InputShape {
+  types: string[] | null;
+  properties?: Record<string,InputShape>;
+  required?: string[];
+  items?: InputShape;
+  oneOf?: InputShape[];
+  anyOf?: InputShape[];
+  allOf?: InputShape[];
+}
 export interface ApifyActorFacts {
   actor_id: string;
   actor: string;
@@ -215,6 +224,8 @@ export interface ApifyActorFacts {
   pricing: ApifyPricingSummary;
   memory_mbytes?: number;
   input_fields: string[];
+  input_types?: Record<string, string[] | null> | null;
+  input_shape?: {root:InputShape; limited:boolean} | null;
   secret_fields: string[];
   required_fields: string[];
   profile_id: string | null;
@@ -456,10 +467,74 @@ function pricingSummary(pricingInfos: unknown, now: number, tier: string | null 
   return { model, events, platform_usage_paid_by_user: paidByUser, minimal_max_total_charge_usd: minimal, uncertainty };
 }
 
+function declaredTypes(value:unknown): string[] | null {
+  const types = Array.isArray(value) ? value : [value];
+  const supported = ["array","boolean","integer","null","number","object","string"];
+  return types.length && types.every(type=>supported.includes(type)) ? [...new Set<string>(types)] : null;
+}
+
 function schemaFields(schema: Record<string, unknown> | null) {
   const properties = record(schema?.properties) ?? {};
+  let remaining=96, limited=false;
+  const shapeKeys=new Set(["type","properties","required","items","oneOf","anyOf","allOf"]);
+  const annotationKeys=new Set(["title","description","default","examples","$schema","$id","$comment","editor","isSecret"]);
+  // Project only names, types and requiredness. Never copy example values,
+  // defaults, arbitrary descriptions or remote references into the result.
+  function shape(value:unknown, depth:number):InputShape {
+    const field=record(value);
+    if (!field) {limited=true;return {types:null};}
+    const result:InputShape={types:declaredTypes(field.type)};
+    const children=record(field.properties);
+    const alternatives = ["oneOf", "anyOf", "allOf"] as const;
+    if (Object.keys(field).some(key=>!shapeKeys.has(key)&&!annotationKeys.has(key)) ||
+        ("type" in field && !result.types) || ("properties" in field && !children) ||
+        ("required" in field && !Array.isArray(field.required))) limited=true;
+    if (depth===6 || remaining===0) {
+      if (children || field.items || field.required || alternatives.some(key => key in field)) limited=true;
+      return result;
+    }
+    if (children) {
+      const entries:Array<[string,InputShape]>=[];
+      for(const [name,child] of Object.entries(children)) {
+        if (!remaining) {limited=true;break;}
+        if(name.length>128) {limited=true;continue;}
+        remaining--;
+        entries.push([name,shape(child,depth+1)]);
+      }
+      result.properties=Object.fromEntries(entries);
+    }
+    if (Array.isArray(field.required)) {
+      result.required=[];
+      for (const name of field.required) {
+        if (!remaining) {limited=true;break;}
+        if (typeof name!=="string" || name.length>128) {limited=true;continue;}
+        remaining--;
+        result.required.push(name);
+      }
+    }
+    for (const key of alternatives) {
+      const branches = field[key];
+      if (!Array.isArray(branches)) {if (key in field) limited=true;continue;}
+      const projected: InputShape[] = [];
+      for (const branch of branches) {
+        if (!remaining) { limited=true; break; }
+        const schema=record(branch);
+        if (!schema) { limited=true; continue; }
+        remaining--;
+        projected.push(shape(schema, depth+1));
+      }
+      result[key]=projected;
+    }
+    const item=record(field.items);
+    if(item && remaining) {remaining--;result.items=shape(item,depth+1);}
+    else if("items" in field) limited=true;
+    return result;
+  }
+  const root=schema ? shape(schema,0) : null;
   return {
     input_fields: Object.keys(properties).sort(),
+    input_types: !record(schema?.properties) ? null : Object.fromEntries(Object.entries(properties).map(([name, field]) => [name,declaredTypes(record(field)?.type)])),
+    input_shape:root ? {root,limited} : null,
     secret_fields: Object.entries(properties).filter(([, field]) => record(field)?.isSecret === true).map(([name]) => name).sort(),
     required_fields: Array.isArray(schema?.required) ? schema.required.filter((name): name is string => typeof name === "string").sort() : [],
   };

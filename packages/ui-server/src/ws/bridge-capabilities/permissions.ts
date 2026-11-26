@@ -1,7 +1,8 @@
 import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
-import { sameSafetyAdmission, toolAdmissionSafety, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
+import { sameAuthority, sameSafetyAdmission, toolAdmissionSafety, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
+
 import { approvalRequestFrame, withTurnScope } from "../frames.js";
 import type { BridgeContext, BridgeSlice } from "./context.js";
 import { waitWhile } from "../../brain/authority-hold.js";
@@ -16,7 +17,7 @@ import { STORAGE_SETTLEMENT_MS } from "../../db/settlement.js";
 export function createPermissions(ctx: BridgeContext, self: () => BackendBridge): BridgeSlice<"requestPermission"> {
   const { host, turn, turnId, recorder } = ctx;
   const { coordinator } = host;
-  const requestPermission: BackendBridge["requestPermission"] = (req) => {
+  const requestPermission: BackendBridge["requestPermission"] = async (req) => {
     // Retain the coordinator's original terminal reason for a late request;
     // cancellation must not replace it with a new safety diagnosis.
     const drained = coordinator.drainedReason(turn, turnId);
@@ -34,12 +35,18 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
       hostSnapshot=bridge.admissionSafety?.read();
       // Policy and actor cards represent host operations, not backend input.
       safety=req.kind==='policy'||req.kind==='actor'?bridge.admissionSafety:toolAdmissionSafety(bridge,req.toolUseId,req.toolName);snapshot=safety?.read();
+      const before=snapshot;
+      let waited=false;
+      for(const pending of safety?.pendingRecording?.(before,ctx.signal)??[]){waited=true;await pending;}
+      snapshot=waited||before?.recordingAvailable===false?safety?.read():before;
+      if(snapshot&&!sameAuthority(snapshot,before))return {behavior:"deny",message:STALE_SAFETY_ADMISSION};
       // A current root receipt from a compatible caller may be normalized,
       // but stale caller metadata cannot replace host-owned authority.
       if(snapshot&&req.admissionSnapshot&&!sameSafetyAdmission(req.admissionSnapshot,snapshot)){
         const root=bridge.admissionSafety?.read();
         if(!root||!sameSafetyAdmission(req.admissionSnapshot,root))return Promise.resolve({behavior:"deny",message:STALE_SAFETY_ADMISSION});
       }
+
     }
     catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
     const revalidate = (): string | null => {
@@ -143,13 +150,13 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
             trustRevision: hostSnapshot?.trustRevision ?? snapshot.trustRevision, authorityEpoch: hostSnapshot?.authorityEpoch ?? snapshot.authorityEpoch, reason: cause } }))
           : snapshot ? Promise.reject(new Error("Safety withdrawal storage is unavailable")) : Promise.resolve();
         void committed.then(() => {
-          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, reason });
+          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, expiryCause: cause, reason });
           recorded({ behavior: "deny", message: reason });
         }, error => {
           // No successful durable-withdrawal claim on storage failure, but
           // cleanup and the backend still receive one explicit terminal.
           const failed = "Safety withdrawal could not be retained; the turn was stopped.";
-          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, reason: failed });
+          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, expiryCause: "grant_storage_failed", reason: failed });
           recorded({ behavior: "deny", message: failed });
           turn.abortController.abort(error);
         });

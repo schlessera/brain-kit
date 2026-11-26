@@ -9,6 +9,7 @@ import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../
 
 const scratch = process.argv[2]!, brain = join(scratch, "brain"), home = join(scratch, "home");
 mkdirSync(join(brain, "notes"), { recursive: true }); mkdirSync(join(brain, ".claude")); mkdirSync(home);
+process.env.HOME = home; process.env.CLAUDE_CONFIG_DIR = home;
 writeFileSync(join(brain, "notes/raft.md"), "Odysseus repairs the raft.\n");
 writeFileSync(join(brain, "notes/loom.ipynb"), JSON.stringify({ cells: [{ cell_type: "code", id: "loom", source: ["Penelope weaves."], outputs: [], metadata: {}, execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
 // A remembered/settings allow and a project hook cannot overrule a host deny.

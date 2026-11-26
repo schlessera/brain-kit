@@ -3,11 +3,12 @@ import type { Database } from "bun:sqlite";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { coveringReferenceGrant, REFERENCE_METADATA_CREDENTIAL_RECIPIENT, referenceRepository, type ReferenceGrant } from "../db/reference-grants.js";
 import { parseGitHubOwnerMetadata, parseGitHubReferenceMetadata, sameGitHubReferenceIdentity, githubReferenceOwner, githubReferenceRepository, type GitHubReferenceIdentity, type GitHubReferenceOwner } from "./github-reference-identity.js";
+import { ReferenceRecordingError } from "./reference-acquisition.js";
 import { createGitHubReferenceWire } from "./github-reference-wire.js";
 import { referenceRevision, ReferenceTransportError, type ReferenceCheck, type ReferenceTransport } from "./reference-transport.js";
 
 type WireOptions = Parameters<typeof createGitHubReferenceWire>[0];
-type RequestBounds = Pick<WireOptions, "egress" | "maxBytes" | "timeoutMs" | "signal"> & { current?: () => boolean };
+type RequestBounds = Pick<WireOptions, "egress" | "maxBytes" | "timeoutMs" | "signal" | "pendingRecording"> & { current?: () => boolean };
 
 /** A failed identity observation makes existing cache authority uncertain too. */
 export class GitHubReferenceMetadataError extends ReferenceTransportError {
@@ -45,6 +46,7 @@ export function createGitHubReferenceAccess(options: {
       principal(principalId, ownerOnly);
     };
     const location = githubReferenceRepository(repositoryInput), repository = referenceRepository(location.cloneUrl);
+    for (const pending of bounds.pendingRecording?.(signal) ?? []) await pending;
     assertOperation();
     let grant: ReferenceGrant | null = null, credential: string | null = null;
     const authorize = (recipient: "git" | "metadata", credentialed: boolean) => {
@@ -69,6 +71,7 @@ export function createGitHubReferenceAccess(options: {
         // That observation is already contained. A missing private grant
         // is not a second metadata observation after the withdrawal waits.
         openingMetadata = false;
+        for (const pending of bounds.pendingRecording?.(signal) ?? []) await pending;
         assertOperation();
         grant = coveringReferenceGrant(options.db, { brain: options.brain, principalId, repository, now: now() });
         if (!grant?.credential || grant.metadataCredentialRecipient !== REFERENCE_METADATA_CREDENTIAL_RECIPIENT)
@@ -79,6 +82,7 @@ export function createGitHubReferenceAccess(options: {
         openingMetadata = true;
         result = await wire.metadata(credential);
       }
+      for (const pending of bounds.pendingRecording?.(signal) ?? []) await pending;
       authorize("metadata", credential !== null);
       if (result.status !== 200) throw new ReferenceTransportError([401, 403, 404].includes(result.status) ? "denied" : "unavailable", "GitHub repository identity is unavailable");
       const identity: GitHubReferenceIdentity = parseGitHubReferenceMetadata(location.cloneUrl, result.value);
@@ -96,8 +100,10 @@ export function createGitHubReferenceAccess(options: {
         /** A final fixed metadata observation must still describe this exact acquisition. */
         async revalidate() {
           try {
+            for (const pending of bounds.pendingRecording?.(signal) ?? []) await pending;
             assertCurrent();
             const result = await wire.metadata(credential);
+            for (const pending of bounds.pendingRecording?.(signal) ?? []) await pending;
             assertCurrent();
             if (result.status !== 200 || !sameGitHubReferenceIdentity(identity, parseGitHubReferenceMetadata(location.cloneUrl, result.value)))
               throw new ReferenceTransportError("denied", "GitHub repository identity changed during acquisition");
@@ -105,7 +111,7 @@ export function createGitHubReferenceAccess(options: {
           } catch (error) {
             const interrupted = signal?.aborted || (currentOperation && !currentOperation());
             await wire.close();
-            if (interrupted) throw error;
+            if (interrupted || error instanceof ReferenceRecordingError) throw error;
             throw new GitHubReferenceMetadataError(error);
           }
         },
@@ -113,7 +119,7 @@ export function createGitHubReferenceAccess(options: {
       });
     } catch (error) {
       // Retain an observed metadata failure before shutdown can outlive its turn.
-      const failure = openingMetadata && !signal?.aborted && (!currentOperation || currentOperation())
+      const failure = openingMetadata && !(error instanceof ReferenceRecordingError) && !signal?.aborted && (!currentOperation || currentOperation())
         ? new GitHubReferenceMetadataError(error) : error;
       await wire.close(); throw failure;
     }
@@ -161,13 +167,16 @@ export function createGitHubReferenceAccess(options: {
       /** The source host must hide prior public exposure before a credentialed retry can await. */
       withdrawPublic?: () => Promise<void> }) {
       const revision = referenceRevision(input.revision);
+      const { pendingRecording } = input;
       const access = await repositoryMetadata(input, false);
       const { identity, domain, grantId, wire, credential, repository, assertCurrent, assertAuthority, revalidate, close } = access;
       let resolved: Extract<ReferenceCheck, { ok: true }> | undefined;
       return Object.freeze({ identity, get identityObservedAt() { return access.identityObservedAt; }, domain, grantId, revision, signal: wire.signal, bytes: wire.bytes, assertCurrent, assertAuthority, revalidate, close,
         async resolve() {
+          for (const pending of pendingRecording?.(wire.signal) ?? []) await pending;
           assertCurrent();
           const result = await options.transport.resolve({ repository, revision, token: credential, wire, signal: wire.signal });
+          for (const pending of pendingRecording?.(wire.signal) ?? []) await pending;
           assertCurrent();
           if (resolved && (!result.ok || result.ref !== resolved.ref || result.commit !== resolved.commit)) {
             await close(); throw new ReferenceTransportError("invalid", "the selected Git reference changed during acquisition");
@@ -176,9 +185,11 @@ export function createGitHubReferenceAccess(options: {
           return result;
         },
         async fetch(root: string) {
+          for (const pending of pendingRecording?.(wire.signal) ?? []) await pending;
           assertCurrent();
           if (!resolved) throw new ReferenceTransportError("invalid", "reference fetch needs its resolved branch or tag");
           const result = await options.transport.fetch({ repository, ref: resolved.ref, root, token: credential, wire, signal: wire.signal });
+          for (const pending of pendingRecording?.(wire.signal) ?? []) await pending;
           assertCurrent();
           if (result.commit !== resolved.commit) {
             await close(); throw new ReferenceTransportError("invalid", "the fetched commit differs from the selected reference");

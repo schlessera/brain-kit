@@ -28,8 +28,8 @@ export function createCausalAdmissionSafety(db:Database,root:AdmissionSafety,opt
   // of this call's own input. The immutable filtered sequence fences all
   // independent evidence instead. Coverage and pending/loss overlays remain.
   const scopedLocal=[...safetyQueue(db).pending].filter(item=>item.turnId!==null&&turns.includes(item.turnId)||session!==null&&item.sessionId===session);
-  const ownLocal=scopedLocal.filter(item=>own.valid&&item.occurrenceId!==undefined&&own.ids.includes(item.occurrenceId));
-  const ownReservations=new Set(ownLocal.flatMap(item=>item.reservationId?[item.reservationId]:[]));
+  const ownLocal=scopedLocal.filter(item=>own.valid&&item.occurrenceId!==null&&own.ids.includes(item.occurrenceId));
+  const ownReservations=new Set(ownLocal.flatMap(item=>[item.id]));
   const pendingAll=db.query("SELECT p.id FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE c.turn_id IN (SELECT value FROM json_each(?)) ORDER BY p.id").all(JSON.stringify(turns)) as {id:string}[];
   const pending=pendingAll.filter(item=>!ownReservations.has(item.id));
   const independentLocal=scopedLocal.filter(item=>!ownLocal.includes(item));
@@ -50,5 +50,5 @@ export function createCausalAdmissionSafety(db:Database,root:AdmissionSafety,opt
   observed=marker;
   return {...state,restricted,evidenceRevision:revision.toString(),recordingAvailable:state.recordingAvailable&&own.valid};
  };
- return {read:()=>db.inTransaction?read():Database.prototype.transaction.call(db,read).deferred() as ReturnType<AdmissionSafety['read']>,subscribe:changed=>root.subscribe(changed)};
+ return {read:()=>db.inTransaction?read():Database.prototype.transaction.call(db,read).deferred() as ReturnType<AdmissionSafety['read']>,pendingRecording:(before,signal)=>root.pendingRecording?.(before,signal,()=>{const own=options.own();return [...safetyQueue(db).pending].filter(item=>own.valid&&item.occurrenceId!==null&&own.ids.includes(item.occurrenceId)).map(item=>item.id);})??[],subscribe:changed=>root.subscribe(changed)};
 }

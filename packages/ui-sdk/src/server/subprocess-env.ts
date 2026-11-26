@@ -24,7 +24,7 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
  * Host-only secrets no subprocess may receive (#3159; the host GitHub tools'
- * credential, #3797), and the shared Apify ledger's location (#3162): a
+ * credential, #3797; the module GitHub relay's credential, #4259), and the shared Apify ledger's location (#3162): a
  * worker's own `brain apify` must find neither
  * the credential nor the accounting it would spend against. Unlike a server-only
  * descriptor entry, neither the operator escape hatch nor a per-spawn
@@ -32,7 +32,7 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  *
  * @internal First-party implementation; no compatibility guarantee.
  */
-export const HOST_ONLY_SECRET_ENV: readonly string[] = Object.freeze(["APIFY_TOKEN", "BRAIN_APIFY_LEDGER", "BRAIN_UI_GITHUB_TOOLS_TOKEN"]);
+export const HOST_ONLY_SECRET_ENV: readonly string[] = Object.freeze(["APIFY_TOKEN", "BRAIN_APIFY_LEDGER", "BRAIN_UI_GITHUB_TOOLS_TOKEN", "BRAIN_UI_MODULE_GITHUB_TOKEN"]);
 const admissible = (name: string) =>
   ENV_NAME.test(name) && name !== SUBPROCESS_ENV_EXTRA_NAME && !HOST_ONLY_SECRET_ENV.includes(name);
 
@@ -251,4 +251,6 @@ export const HOST_GIT_CREDENTIAL_ENV: readonly string[] = Object.freeze([
   // The host GitHub tools' credential (#3797): stripped from every worker,
   // including credentialed maintenance.
   "BRAIN_UI_GITHUB_TOOLS_TOKEN",
+  // The module GitHub relay's credential (#4259): the cron runner's relay holds it, no worker does.
+  "BRAIN_UI_MODULE_GITHUB_TOKEN",
 ]);

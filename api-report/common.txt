@@ -74,6 +74,7 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyRequestMeter
   type ApifyReservation
   type ApifyResponse
+  ApifyResponseTooLarge
   type ApifyResultsPage
   type ApifyRunAccounting
   type ApifyRunCode
@@ -266,12 +267,33 @@ export "./internal/safe-path" (./src/safe-path.ts)
   resolveContained
   resolveContainedSync
 
+export "./internal/taint-trust" (./src/taint-trust.ts)
+  TRUST_LIMITS
+  TRUST_RUNTIME_CAPABILITIES
+  type TrustAdmission
+  type TrustMatch
+  type TrustProvenance
+  TrustProvenanceSchema
+  type TrustRule
+  TrustRuleSchema
+  type TrustSelector
+  TrustSelectorSchema
+  type TrustVerification
+  TrustedSourcesSchema
+  canonicalTrustHost
+  matchTrustRules
+  parseTrustGithub
+  parseTrustOrigin
+  parseTrustTunnel
+
 export "./internal/worker-areas" (./src/worker-areas.ts)
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR
   READ_ONLY_BRAIN_RULE
   TURN_TEMP_PLACES
   TURN_TEMP_RULE
+  WORKSPACES_READ_ONLY_REASON
+  WORKSPACES_WRITE_REFUSAL
   brainWorkerPath
   linkRule
   turnTempRule

@@ -1,3 +1,5 @@
+import { requireOwner } from "../middleware/require-owner.js";
+import { turnTimingSummary } from "../activity/turn-timing-summary.js";
 import { cacheDiagnostics } from "../activity/cache-diagnostics.js";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
@@ -151,6 +153,13 @@ export function createActivityRoutes(deps: {
         );
       }
     })
+    .get("/activity/turn-timings/summary", requireOwner(), c => {
+      const limit = Number(c.req.query("limit") ?? 100), since = Number(c.req.query("since") ?? 0);
+      const before = Number(c.req.query("before") ?? Number.MAX_SAFE_INTEGER);
+      if (!Number.isSafeInteger(limit) || limit < 1 || !Number.isFinite(since) || !Number.isFinite(before) || before <= since)
+        return c.json({ error: "Expected a positive integer limit and a nonempty epoch-millisecond window" }, 400);
+      return c.json(turnTimingSummary(db, Math.min(limit, 200), since, before, c.req.query("origin"), c.req.query("outcome")));
+    })
     .get("/activity/runs", (c) => {
       try {
         const limit = Math.min(Math.max(Number(c.req.query("limit") ?? 50) || 50, 1), 200);
@@ -252,8 +261,14 @@ export function createActivityRoutes(deps: {
         const row = db
           .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
           .get(runId) as any;
-        const lifecycle = store.lifecycle(runId) ?? undefined;
-        const lifecycleSeq = lifecycle ? store.runHighWaterSeq(lifecycle.lifecycleId) : undefined;
+        const lifecycleSnapshot = store.lifecycleSnapshot?.(runId);
+        const scoped = lifecycleSnapshot ? undefined : store.snapshotLifecycles?.({ turnId: runId });
+        // A legacy store may use another SQLite connection. Read its floor
+        // first, so a concurrent write can advance the row but never its floor.
+        const legacySeq = lifecycleSnapshot || scoped ? undefined : store.runHighWaterSeq(`lifecycle:${runId}`);
+        const lifecycle = lifecycleSnapshot ? lifecycleSnapshot.lifecycle
+          : scoped ? scoped.lifecycles[0] : store.lifecycle(runId) ?? undefined;
+        const lifecycleSeq = lifecycleSnapshot?.highWaterSeq ?? (lifecycle ? scoped?.highWaterSeq[lifecycle.lifecycleId] : undefined) ?? legacySeq;
         if (snapshot) {
           // Tool payload events (up to 16 KB each) dominate a run's byte
           // size, and the history list opens details eagerly — so the REST

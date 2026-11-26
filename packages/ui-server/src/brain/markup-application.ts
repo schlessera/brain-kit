@@ -8,6 +8,8 @@
  * the policy-protected targets, live turn authority and membership. A layer
  * never replaces an earlier one: each submission takes the first free name.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { WORKSPACES_WRITE_REFUSAL } from "@schlessera/brain-common/internal/worker-areas";
 import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import { join } from "node:path";
@@ -242,6 +244,7 @@ export function createMarkupApplication(options: {
   lock: Pick<KeyedLock, "withLock">;
   /** Immutable admitted host facts; not a browser or worker permission. */
   protectedPaths?: readonly string[];
+  workspaceReadOnly?: boolean;
   /** Whether the layer may commit now; false while a `hold` is active as well as once authority is gone. */
   isAuthorized(): boolean;
   hold?: AuthorityHold;
@@ -254,9 +257,10 @@ export function createMarkupApplication(options: {
 }) {
   const root = realpathSync(options.root);
   const protectedPaths = [...(options.protectedPaths ?? [])];
-  const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, protectedPaths, { links: "refused" }) : undefined;
+  const isProtected = (options.protectedPaths || options.workspaceReadOnly) ? createProtectedTargetCheck(root, protectedPaths, { links: "refused" }) : undefined;
   const validateTarget = (path: string, what: "image" | "layer"): void => {
     validatePath(path, what);
+    if (what === "layer" && options.workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_WRITE_REFUSAL);
     if (isProtected?.(path)) refuse("policy_denied", "This markup target is protected by the policy admitted for this turn; no change was applied.");
   };
   const authority = (principalId: string, turnId: string) => {
@@ -364,7 +368,7 @@ export function createMarkupApplication(options: {
             // The layer this operation just wrote is protected from its own
             // cleanup; later passes apply the usual scratch policy.
             const pruned = core.pruneScratch(root, Date.now(), { pinnedPaths: new Set([markupPath!]),
-              protectedPaths: options.protectedPaths ? protectedPlaces(root, protectedPaths) : protectedPaths });
+              protectedPaths: (options.protectedPaths || options.workspaceReadOnly) ? protectedPlaces(root, protectedPaths, options.workspaceReadOnly) : protectedPaths });
             for (const removal of pruned.removed) {
               changes.push({ path: removal.path, contentHash: null });
               effects.push({ path: removal.path, content: null, base: null });

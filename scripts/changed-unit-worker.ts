@@ -4,11 +4,21 @@ import { stripVTControlCharacters } from "node:util";
 
 export function changedSelection(output: string, shard: string) {
   output = stripVTControlCharacters(output);
-  const affected = /^--changed: \d+ changed files?, running (\d+)\/\d+ test files$/m.exec(output);
+  const starts = [...output.matchAll(/^\{"kind":"test-invocation","event":"batch-start","pid":(\d+),.*$/gm)];
+  // A single outer batch can itself run nested split invocations. Its own
+  // selection precedes those markers, so retain the original first-header rule.
+  const owner = starts[0] && starts[0].index! < (/^--changed:/m.exec(output)?.index ?? Infinity) ? starts[0][1] : undefined;
+  const positions = starts.filter(match => match[1] === owner).map(match => match.index!);
+  const batches = positions.length ? positions.map((start, index) => output.slice(start, positions[index + 1])) : [output];
+  return batches.map(batch => selectionForBatch(batch, shard)).reduce((sum, batch) => ({ selected: sum.selected + batch.selected, assigned: sum.assigned + batch.assigned }), { selected: 0, assigned: 0 });
+}
+
+function selectionForBatch(output: string, shard: string) {
+  const affected = /^--changed: \d+ changed files?, running (\d+)\/\d+ test files?$/m.exec(output);
   const empty = /^--changed: (?:no changed files, nothing to run|\d+ changed files?, but no test files are affected)\.?$/m.test(output);
   if (!affected && !empty) throw new Error("Bun did not report its changed-file selection");
   const selected = affected ? Number(affected[1]) : 0;
-  const assignment = new RegExp(`^--shard=${shard}: running (\\d+)\\/(\\d+) test files$`, "m").exec(output);
+  const assignment = new RegExp(`^--shard=${shard}: running (\\d+)\\/(\\d+) test files?$`, "m").exec(output);
   if (selected > 0 && (!assignment || Number(assignment[2]) !== selected)) throw new Error("Bun did not shard its complete changed-file selection");
   const assigned = assignment ? Number(assignment[1]) : 0;
   if (assigned > selected) throw new Error("Invalid Bun changed shard count");

@@ -184,7 +184,7 @@ if (source === "mcp") process.execve(${JSON.stringify(process.execPath)}, [${JSO
   try {
     const child = Bun.spawn([process.execPath, "--preload", join(REPO, "scripts/test-network-child-preload.ts"), import.meta.path,
       "server", adapter, scenario, root, String(donorState.pid), SERVER_MARKER], {
-      cwd: REPO, env: { PATH: process.env.PATH!, LANG: "C.UTF-8" }, stdio: ["ignore", stdoutFd, "pipe", inheritedFd] });
+      cwd: REPO, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", HOME: join(root, "home") }, stdio: ["ignore", stdoutFd, "pipe", inheritedFd] });
     [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr as ReadableStream).text()]);
   } finally { closeSync(stdoutFd); closeSync(inheritedFd); donor.kill("SIGKILL"); await donor.exited; }
   // A broken boundary may have removed what it attacked: observe, never throw.
@@ -471,6 +471,9 @@ async function server(): Promise<void> {
   const db = createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "policy-boundary-test" }), stream = createActivityStream(store);
   const nativeHost = createFixtureTurnHost(brainPath, db, scenario.startsWith("governed") ? "governed" : "strict");
+  const beginWriter = nativeHost.governedTurns.begin.bind(nativeHost.governedTurns);
+  nativeHost.governedTurns.begin = (id, signal, origin, preference, route, timing) =>
+    beginWriter(id, signal, origin, preference, { ...route, codeChanges: true }, timing);
   const { governedTurns, applicationPlanner } = nativeHost;
   const host = new WsHost({ ...nativeHost, governedTurns, applicationPlanner, brainPath, registry: createStaticBackendRegistry([selected as typeof backend], adapter),
     catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream, governance: event => recordGovernanceEvent(db, event) }, turnTimeoutMs: 90_000 });

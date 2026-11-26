@@ -64,7 +64,7 @@ export async function runSession(host: WsHost, initial: RunSessionInput): Promis
   const turnId = crypto.randomUUID();
   if(initial.historyOwnerId && initial.authorization.valid) host.dialogue.adoptTurn(turnId,initial.historyOwnerId,initial.authorization.principalId);
   const releaseAuthorization = initial.authorization.retain();
-  const lifecycle = host.activity ? createTurnLifecycle(host.activity.store, turnId, initial.sessionId ?? null, Date.now(), () => host.activity!.stream.pump()) : undefined;
+  const lifecycle = host.activity ? createTurnLifecycle(host.activity.store, turnId, initial.sessionId ?? null, Date.now(), () => host.activity!.stream.pump(), undefined, initial.authorization.principalId, { buildRevision: host.activity.buildRevision }) : undefined;
   const task = runRetainedSession(host, initial, turnId, lifecycle);
   host.turnTasks.add(task);
   try {
@@ -120,6 +120,7 @@ async function runRetainedSession(
       const lifecycle = requestLifecycle(slot, current, initialLifecycle);
       activeLifecycle = lifecycle;
       if (current.queuedAt !== undefined) lifecycle?.mark("dequeuedAt");
+      else lifecycle?.startAdmission();
       slot.releaseActive = current.releaseAuthorization;
       if (bindRequest(slot, current, lifecycle) === "revoked") {
         dropHandedOver(slot, current, REVOKED_REASON);
@@ -142,7 +143,8 @@ async function runRetainedSession(
         next = dequeueRequest(turn);
         continue;
       }
-      publishTurnStatus(slot, result.outcome);
+      publishTurnStatus({ ...slot, clientReceiptEligible: result.clientReceiptEligible }, result.outcome);
+      if (!result.outcome.cancelledBeforeStart && turn.sessionId) lifecycle?.mark("idleEmittedAt");
 
       // Subsequent (queued) turns resume the now-known session and keep its
       // pin. turn.providerId is the resolved profile (set from initial routing
@@ -253,7 +255,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   entry.queuedAt = Date.now();
   if (host.activity && !entry.lifecycle) {
     entry.lifecycleTurnId = crypto.randomUUID();
-    entry.lifecycle = createTurnLifecycle(host.activity.store, entry.lifecycleTurnId, sessionId, entry.queuedAt, () => host.activity!.stream.pump());
+    entry.lifecycle = createTurnLifecycle(host.activity.store, entry.lifecycleTurnId, sessionId, entry.queuedAt, () => host.activity!.stream.pump(), undefined, entry.principalId, { buildRevision: host.activity.buildRevision, queuedAt: entry.queuedAt });
     const release = entry.releaseAuthorization;
     entry.releaseAuthorization = () => { entry.lifecycle?.finish("cancelled", "Removed from the queue before completion"); release(); };
   }
@@ -494,7 +496,7 @@ export async function handleChatMessage(
     // Accepted for a known session: it takes the next revision now, before
     // routing, so anything sent after it orders after it (#964).
     revision = acceptRequest(host, sessionId, requestId, host.catalog.getStoredBackendId(sessionId));
-    host.sendToClients(withSessionId({ type: "status", status: "thinking" }, sessionId));
+    host.sendToClients(withSessionId({ type: "status", status: "thinking", ...(requestId ? { requestId } : {}) }, sessionId));
   }
   const running = runSession(host, {
     authorization,

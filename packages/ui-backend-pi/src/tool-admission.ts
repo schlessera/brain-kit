@@ -15,6 +15,13 @@ export function rememberPiAdmission(turn: TurnContext, tool: string, id: string,
   state.calls.set(identity, { input: JSON.stringify(input), before, approved, safety });
 }
 
+/** The dispatching continuation revalidates the original grant after settlement. */
+export function pendingPiAdmission(turn: TurnContext, tool: string, id: string): Iterable<Promise<void>> {
+  const state = admissions.get(turn);
+  const admitted = state?.bridge === turn.bridge ? state.calls.get(key(tool, id)) : undefined;
+  return (admitted?.safety??turn.bridge?.admissionSafety)?.pendingRecording?.(admitted?.before, turn.signal ?? undefined) ?? [];
+}
+
 /** No approval or replay: re-evaluate only the authority this exact call already obtained. */
 export function revalidatePiAdmission(turn: TurnContext, tool: string, id: string, input: unknown, consume = false): string | null {
   if(turn.signal?.aborted)return "Turn cancelled before tool admission.";

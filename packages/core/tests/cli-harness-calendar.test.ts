@@ -45,6 +45,8 @@ for (const { timezone, instant, expected } of [
         import { runCli } from ${JSON.stringify(join(ROOT, "packages/core/tests/cli-harness.ts"))};
         import { brainWithRemote, cleanupFixtures } from ${JSON.stringify(join(ROOT, "packages/core/tests/sync-fixture.ts"))};
         test("the actual CLI writes the parent's fixed calendar date", async () => {
+          // Install synthetic credentials after the command has discarded host credentials.
+          for (const key of ${JSON.stringify(PROVIDER_KEYS)}) process.env[key] = "fixture-bogus-key";
           setSystemTime(new Date(${JSON.stringify(instant)}));
           try {
             const { root } = brainWithRemote();
@@ -65,7 +67,6 @@ for (const { timezone, instant, expected } of [
         });
       `);
       const env: Record<string, string> = { PATH: process.env.PATH! };
-      for (const key of PROVIDER_KEYS) env[key] = "fixture-bogus-key";
       if (timezone !== undefined) env.TZ = timezone;
       const proc = Bun.spawn([process.execPath, "run", "test", file], { cwd: ROOT, env, stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr, code] = await Promise.all([

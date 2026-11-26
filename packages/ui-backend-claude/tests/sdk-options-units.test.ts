@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { assemblePromptContext, computeToolRoster, turnChildEnvironment } from "../src/sdk-options.js";
+import { assemblePromptContext, computeToolRoster, firstPartyInferenceUpstream, turnChildEnvironment } from "../src/sdk-options.js";
 
 const handler = async () => { throw new Error("PRIVILEGED_HANDLER_EXECUTED"); };
 const request = (extra: Record<string, unknown> = {}) => ({
@@ -56,9 +56,27 @@ describe("turnChildEnvironment", () => {
   test("an ordinary turn runs with its resolved environment unchanged", () => {
     const turnEnvironment = { ODYSSEUS_KEY: "k", CLAUDE_CODE_OAUTH_TOKEN: "fixture", HOME: "/home/penelope" };
     const env = turnChildEnvironment({ profile, turnEnvironment }, undefined);
-    expect(env.childEnv).toBe(turnEnvironment);
+    expect(env.childEnv).toEqual(turnEnvironment);
+    expect(env.childEnv).not.toBe(turnEnvironment);
     expect(env.inferenceEnv).toBeUndefined();
     expect(env.providerKeys).toEqual(["CLAUDE_CODE_OAUTH_TOKEN"]);
+  });
+
+  test("unqualified production tool search stays off on every selected origin", () => {
+    for (const route of [undefined, "https://api.anthropic.com", "https://api.anthropic.com/"]) {
+      const turnEnvironment = { ANTHROPIC_BASE_URL: route, ENABLE_TOOL_SEARCH: "false" };
+      expect(firstPartyInferenceUpstream(turnEnvironment)).toBe(true);
+      const env = turnChildEnvironment({ profile, turnEnvironment, hostInference: { proxyDir: "/run/relay" } }, undefined);
+      expect(env.inferenceEnv?.ENABLE_TOOL_SEARCH).toBe("false");
+      expect(env.childEnv.ENABLE_TOOL_SEARCH).toBe("false");
+    }
+    for (const route of ["https://gateway.example.com", "http://api.anthropic.com", "https://api.anthropic.com.example.com", "https://odysseus@api.anthropic.com", "https://api.anthropic.com?route=ithaca", "not a URL"]) {
+      const turnEnvironment = { ANTHROPIC_BASE_URL: route, ENABLE_TOOL_SEARCH: "true" };
+      expect(firstPartyInferenceUpstream(turnEnvironment)).toBe(false);
+      const env = turnChildEnvironment({ profile, turnEnvironment, hostInference: { proxyDir: "/run/relay" } }, undefined);
+      expect(env.inferenceEnv?.ENABLE_TOOL_SEARCH).toBe("false");
+      expect(env.childEnv.ENABLE_TOOL_SEARCH).toBe("false");
+    }
   });
 
   test("a relayed turn keeps the profile's credential on the host and points inference at the relay", () => {
@@ -86,8 +104,9 @@ describe("assemblePromptContext", () => {
       const b = assemblePromptContext({ brainPath: brain }, req, wide, sandbox, "SANDBOX NOTE");
       // The append is the same whatever the roster: it must not move the cached prefix.
       expect(a.append).toBe(b.append);
+      expect(a.append, "CLAUDE_FIXED_APPEND_BATCHES_INDEPENDENT_READS").toContain("Batch your");
       expect(a.append).not.toContain("SANDBOX NOTE");
-      expect(a.owned?.text).toContain("SANDBOX NOTE");
+      expect(a.prepare?.().text).toContain("SANDBOX NOTE");
       expect(a.context).toBeDefined();
     } finally { rmSync(brain, { recursive: true, force: true }); }
   });
@@ -110,7 +129,7 @@ describe("assemblePromptContext", () => {
       const req = request({ autonomous: { origin: "autonomous", allowedTools: [], systemPromptAppend: "Tally the herds." } });
       const prompt = assemblePromptContext({ brainPath: brain }, req, computeToolRoster(req, []), { brain } as never, "SANDBOX NOTE");
       expect(prompt.context).toBeUndefined();
-      expect(prompt.owned).toBeUndefined();
+      expect(prompt.prepare).toBeUndefined();
       expect(prompt.append).toBe("Tally the herds.\n\nSANDBOX NOTE");
     } finally { rmSync(brain, { recursive: true, force: true }); }
   });

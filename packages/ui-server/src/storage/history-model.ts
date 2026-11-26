@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { StorageCollection } from "./collect.js";
+import type { StorageOwner } from "@schlessera/brain-ui-sdk/protocol";
 import { storageTotals } from "./collect.js";
 
 export const HISTORY_LIMITS = Object.freeze({ slots: [64, 90, 32] as const, sampleBytes: 1152, metadataBytes: 40960, payloadBytes: 262144, capacities: 4, writeInterval: 60_000 });
@@ -64,12 +65,19 @@ export function aggregateCollection(value: StorageCollection, source: Source, co
   const { summary, entries } = value, owner = new Map(summary.roots.map(root => [root.id, root.owner]));
   const scope = summary.roots.map(root => [root.id, root.owner, root.category]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   const capacities = [...summary.capacities].sort((a, b) => a.id.localeCompare(b.id));
+  // A root that may hold bytes but has no resolved capacity could be on any
+  // disk, so its owner's per-disk total is unknown wherever the root is not
+  // listed (#3251). An absent optional root is a complete zero and places nothing.
+  const placed = new Map(summary.capacities.flatMap(capacity => capacity.rootIds.map(id => [id, capacity.identity] as const)));
+  const unplaced = summary.roots.filter(root => placed.get(root.id) !== "resolved" && !(root.coverage === "complete" && root.logical === 0 && root.allocated === 0));
   return { at: summary.observedAt, startedAt: summary.startedAt, source,
     descriptor: [collector, hashScope(scope), 1], coverage: capacities.length > 4 ? 1 : coverage(summary.coverage), reason: capacities.length > 4 ? 3 : summary.coverage === "complete" ? 0 : 1,
     capacities: capacities.slice(0, 4).map(capacity => {
       const rows = entries.filter(entry => entry.capacityId === capacity.id), roots = summary.roots.filter(root => capacity.rootIds.includes(root.id));
-      const complete = roots.length > 0 && roots.every(root => root.coverage === "complete") && !summary.errors.some(error => !error.rootId || capacity.rootIds.includes(error.rootId));
-      const owners = (["brain", "app", "operator"] as const).map(kind => storageTotals(rows.filter(entry => owner.get(entry.rootId) === kind), complete));
+      const measured = roots.length > 0 && roots.every(root => root.coverage === "complete") && !summary.errors.some(error => !error.rootId || capacity.rootIds.includes(error.rootId));
+      const elsewhere = (kind: StorageOwner) => unplaced.some(root => root.owner === kind && !capacity.rootIds.includes(root.id));
+      const owners = (["brain", "app", "operator"] as const).map(kind => storageTotals(rows.filter(entry => owner.get(entry.rootId) === kind), measured && !elsewhere(kind)));
+      const complete = measured && !(["brain", "app", "operator"] as const).some(elsewhere);
       const union = storageTotals(rows, complete);
       const known = capacity.identity === "resolved" && capacity.total !== null && capacity.total > 0 && capacity.available !== null && capacity.free !== null && capacity.used !== null && capacity.used + capacity.free === capacity.total && capacity.available <= capacity.free;
       return { descriptor: [capacity.id, hashScope([...capacity.rootIds].sort())], values: [capacity.total, capacity.used, capacity.free, capacity.available, known && complete ? 0 : known ? 1 : 2,

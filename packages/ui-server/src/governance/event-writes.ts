@@ -44,7 +44,7 @@ export function setup(db: Database): WriteProcedures {
     safetyBegin: (input:SafetyCollectionInput) => beginSafetyCollection(db,input),
     safetyReady: (turnId:string,backendId:string,version:number) => acknowledgeSafety(db,turnId,backendId,version),
     safetyOblige: (turnId:string,id:string,toolUseId:string,tool:string) => openSafetyObligation(db,turnId,id,toolUseId,tool),
-    safetyDischarge: (turnId:string,id:string) => dischargeSafetyObligation(db,turnId,id),
+    safetyDischarge: (turnId:string,id:string,neverDelivered?:readonly string[]) => dischargeSafetyObligation(db,turnId,id,neverDelivered),
     safetyEnd: (turnId:string,loss=false) => {
       // Never seal an apparently complete epoch if its loss notice rolled
       // back. A failed retry leaves it open for restart classification.
@@ -97,14 +97,15 @@ export interface GovernanceWrites {
   /** The call's result is durably recorded, or the backend's own denial of
    * the only admission under its id, never allowed, proves it never ran. A
    * failure leaves the obligation, and so the gap. */
-  safetyDischarge(turnId:string,obligationId:string):Promise<void>;
+  safetyDischarge(turnId:string,obligationId:string,neverDelivered?:readonly string[]):Promise<void>;
   /** Ends the turn's collection once its result records under way settle. */
   safetyEnd(turnId:string):Promise<void>;
   /** Marks the turn's chat failed (`cause` is error text only); the brain only when that cannot commit. */
   safetyFail(turnId:string,cause?:unknown):Promise<void>;
-  safety(turnId:string|null,sessionId:string|null):SafetyProjection;
+  safety(turnId:string|null,sessionId:string|null,excludedPending?:readonly string[]):SafetyProjection;
   /** Input recording must be settled and healthy before any provider delivery. */
-  recordingAvailable(turnId:string|null,sessionId:string|null,excludeOccurrences?:readonly string[]):boolean;
+  recordingAvailable(turnId:string|null,sessionId:string|null,excludedPending?:readonly string[]):boolean;
+
   /**
    * Validates now, throwing `GovernanceEventError` as the synchronous writer
    * did; the returned promise settles once the row commits, or with the
@@ -227,7 +228,9 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       throw new Error("Safety occurrence write capacity exceeded; ingestion must stop");
     }
     const reservation=crypto.randomUUID();
-    const pending = { reservationId:reservation,occurrenceId:input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.occurrence?.id:undefined,turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
+    const payload=JSON.parse(row.payload);
+    const pending = {id:reservation,occurrenceId:input.kind==="taint"?payload.occurrence?.id??null:payload.occurrenceId??null, turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
+
     pendingTaints.add(pending); shared.bytes += bytes;
     notifySafetyChanged(db);
     let reserved=false;
@@ -277,7 +280,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
         throw new SafetyRecordingUnavailable(brainFailed(),error);
       }
     },
-    safetyDischarge: (turnId,obligationId)=>call("safetyDischarge",turnId,obligationId),
+    safetyDischarge: (turnId,obligationId,neverDelivered)=>call("safetyDischarge",turnId,obligationId,neverDelivered),
     async safetyEnd(turnId){
       // A tool result's record already under way finishes first: stopping a
       // turn refuses new tools, never the record of one that ran (#3812).
@@ -292,24 +295,21 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       await call<void>("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId));
     },
     safetyFail,
-    safety: (turnId,sessionId)=>snapshot(()=>{
-      const projection=safetyProjection(db,turnId,sessionId);
-      const local=pendingInScope(turnId,sessionId).length,lost=shared.failed||lostInScope(turnId,sessionId);
+    safety: (turnId,sessionId,excludedPending=[])=>snapshot(()=>{
+      const projection=safetyProjection(db,turnId,sessionId,excludedPending);
+      const local=pendingInScope(turnId,sessionId).filter(p=>!excludedPending.includes(p.id)).length,lost=shared.failed||lostInScope(turnId,sessionId);
       if(local||lost){projection.restriction="restricted";projection.pendingCount=Math.max(local,projection.pendingCount);
         if(local&&!projection.reasons.includes("recording_pending"))projection.reasons.push("recording_pending");
         if(lost){projection.coverage.state="incomplete";if(!projection.reasons.includes("recording_failed"))projection.reasons.push("recording_failed");}}
       return projection;
     }),
-    recordingAvailable(turnId,sessionId,excludeOccurrences=[]){
+    recordingAvailable(turnId,sessionId,excludedPending=[]){
       return snapshot(()=>{
         if(covered(turnId))return true;
-        const own=new Set(excludeOccurrences),pending=pendingInScope(turnId,sessionId),ignored=pending.filter(item=>item.occurrenceId!==undefined&&own.has(item.occurrenceId));
-        if(shared.failed||lostInScope(turnId,sessionId)||pending.some(item=>!ignored.includes(item)))return false;
-        const state=safetyProjection(db,turnId,sessionId);
-        if(!ignored.length)return !state.reasons.some(reason=>["recording_failed","recording_pending","capacity"].includes(reason));
-        const reservations=ignored.flatMap(item=>item.reservationId?[item.reservationId]:[]);
-        const other=db.query(`SELECT 1 FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE c.turn_id IN (SELECT value FROM json_each(?)) AND p.id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`).get(JSON.stringify([...safetyScopeTurns(db,turnId,sessionId)]),JSON.stringify(reservations));
-        return !other&&!state.reasons.some(reason=>["recording_failed","capacity"].includes(reason));
+        if(shared.failed||lostInScope(turnId,sessionId)||pendingInScope(turnId,sessionId).some(p=>!excludedPending.includes(p.id)))return false;
+        const state=safetyProjection(db,turnId,sessionId,excludedPending);
+        return !state.reasons.some(reason=>["recording_failed","recording_pending","capacity"].includes(reason));
+
       });
     },
     firstTaint: (input, options) => record(input, options).then(result => result.recorded),

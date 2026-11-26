@@ -1,3 +1,5 @@
+export { diagnosticInterval, observeDiagnostic } from "./server/startup-timing.js";
+export { safetyRecordSchema, safetyOccurrenceAdmissionSchema, safetyAdmissionSchema } from "./safety.js";
 /** First-party implementation sharing. No compatibility guarantee; use the same lockstep version. */
 export { BRAIN_INTERACTION_GUIDANCE, projectConversationGuidance, conversationOrientation, ORIENTATION_MAX_BYTES } from "./server/interaction-guidance.js";
 export { prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "./server/worker-identity-reader.js";
@@ -16,19 +18,20 @@ export { GIT_LOCK_KEY } from "./server/lock-keys.js";
 export { VERSION_PROBE_TIMEOUT_MS } from "./server/version-probe.js";
 export type { WebToolUnavailableFeature } from "./server/web-search.js";
 export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS, WEB_TOOL_UNAVAILABLE_FEATURES, hasWebSearchCredential, webSearchKeySource, readWebSearchOverride, readWebSearchRouting, resolveWebSearchConfigPath, webSearchBrief, webSearchProvider } from "./server/web-search.js";
-export { canonicalModelId } from "./protocol-helpers.js";
+export { canonicalModelId, isMcpTimingServerName } from "./protocol-helpers.js";
 export { execWrapperSpawnOptions, workerExecHelpers } from "./server/exec-wrapper.js";
 
 export { assertScratchMaskAsync } from "./server/bridge-tools/mask.js";
 export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_SOCKET } from "./server/inference-relay.js";
 export type { InferenceRelay, InferenceRelayEvent } from "./server/inference-relay.js";
-export { startEgressProxy, egressAddressRefusal, egressBootstrapEntry, EgressAdmissionRefused, WORKER_EGRESS_DIR, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
+export { startEgressProxy, canonicalEgressHost, validatedEgressProvenance, egressChargeRefusal, egressAddressRefusal, egressBootstrapEntry, EgressAdmissionRefused, WORKER_EGRESS_DIR, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
 export { startProviderRelay, parseCliProviderOrigins, relayedProviderKeys, heldCustomProviderKeys, PROVIDER_RELAY_KEYS_NAME, FIRST_PARTY_PROVIDER_RECIPIENTS, PROVIDER_RELAY_SOCKET_NAME, type ProviderRelay, type ProviderRelayOptions, type ProviderRelayReceipt, type ProviderRelayRefusal } from "./server/provider-relay.js";
 export { hostProviderCredential, hostComputeCredential } from "./config/env.js";
-export type { EgressDestinationPolicy, EgressRecord, EgressRefusal } from "./server/egress-proxy.js";
+export type { EgressDestinationPolicy, EgressRecord, EgressRefusal, EgressChargeResult, EgressChargeFailure, EgressFailureReason, InferenceTimingMark } from "./server/egress-proxy.js";
+export type { InferenceUsage } from "./server/inference-usage.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "./server/worker-launcher.js";
-export { workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
+export { resolveWorkspacesMount, workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
 export type { WorkerSandbox, WorkerNoteFacts, WorkerNoteLimit, WorkerProviderMasks, WorkerDataTree } from "./server/worker-sandbox.js";
 export { createLimitTracker, limitFailureMessage, mergeLimitReports, workerLimitsPlan, workerLimitsStatus, workerNoteLimits } from "./server/worker-limits.js";
 export type { WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";
@@ -62,7 +65,8 @@ export type { CompiledWorkerCommandPolicy, WorkerCommandPolicy } from "./server/
 
 export { prepareOutwardPlan, commitOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL, workerOutwardNote } from "./server/outward-policy.js";
 export type { OutwardPlan } from "./server/outward-policy.js";
-export { sameSafetyAdmission, safetyAdmissionRefusal, toolAdmissionSafety, outwardAdmissionRefusal, STALE_SAFETY_ADMISSION } from "./server/admission-safety.js";
+export { sameAuthority, sameSafetyAdmission, safetyAdmissionRefusal, toolAdmissionSafety, outwardAdmissionRefusal, STALE_SAFETY_ADMISSION } from "./server/admission-safety.js";
+
 export type { AdmissionSafety, AdmissionSafetySnapshot } from "./server/admission-safety.js";
 export { NativeFileVersions, nativeFileVersion } from "./server/native-file-versions.js";
 export { createWorkerFileObserver } from "./server/worker-file-observer.js";
@@ -72,6 +76,7 @@ export { parseNativeBrainDelta } from "./server/native-brain-delta.js";
 export type { NativeBrainDeltaCandidate } from "./server/native-brain-delta.js";
 
 export { prepareNativeWorkerOutput, type PreparedWorkerOutput, type WorkerOutputStorage } from "./server/worker-native-output.js";
+export { ProtectedMaintenanceOutputError } from "./server/protected-output-error.js";
 
 export { createNativeBrainManagerClient } from "./server/native-brain-manager-client.js";
 export { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, NativeBrainManagerError } from "./server/native-brain-manager-protocol.js";
@@ -95,8 +100,10 @@ export { acquireHostCredentialExclusion, HostCredentialExclusionError, type Host
 export { combineRemovalOutcomes, createSessionRetirement, ownedNames, removeMetadataFile, removeOwnedArtifact } from "./server/native-history-removal.js";
 export type { RemovalRun, SessionRetirement, SessionRetirementOptions } from "./server/native-history-removal.js";
 export { sessionReplayLocation } from "./server/session-replay.js";
-export { sessionPromptContextLocation } from "./server/session-prompt-context.js";
+export { SESSION_PROMPT_CONTEXT_MAX_BYTES, sessionPromptContextLocation } from "./server/session-prompt-context.js";
 export { nativeObservationIdentity } from "./server/native-observation-storage.js";
 
 export { createCleanupReconciler, processCleanupReconciler, CLEANUP_RETRY_ATTEMPTS, CLEANUP_RETRY_BASE_MS, CLEANUP_RETRY_MAX_MS } from "./server/cleanup-reconciler.js";
 export type { CleanupNotice, CleanupReconciler, CleanupReconcilerOptions, RetainedCleanup } from "./server/cleanup-reconciler.js";
+
+export { workspaceWriteRefusal } from "./server/workspace-refusal.js";
