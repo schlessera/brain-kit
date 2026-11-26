@@ -222,7 +222,7 @@ export const FilterKept = meta.story({
       eligibility="kept"
       why="tracked by Git"
       selected={false}
-      onSelectedChange={args.onActivate}
+      onSelectedChange={() => args.onActivate?.()}
       onInspect={() => undefined}
       />
     </Rows>
