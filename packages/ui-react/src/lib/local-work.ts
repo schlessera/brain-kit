@@ -3,7 +3,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { AttachmentFile, SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { attachmentFileSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainStores } from "../stores/create-stores.js";
-import { hasContent, type ComposerDraft, type DraftFile, type LocalDraft } from "../stores/draft-state.js";
+import { hasContent, holdsSnapshots, type ComposerDraft, type DraftFile, type LocalDraft } from "../stores/draft-state.js";
 import { mintDraftId } from "./drafts.js";
 import type { PendingAttachment } from "./image-attachments.js";
 import { PartitionRefusedError, accountPartition, type LocalPartitions, type PartitionHandle, type PartitionWrite } from "./local-partitions.js";
@@ -169,7 +169,7 @@ export function parseDraft(raw: unknown): LocalDraft | null {
   const b = r.bind;
   const bind = b && isStr(b.sessionId) && isStr(b.requestId) ? { sessionId: b.sessionId, requestId: b.requestId } : null;
   return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, ...(files.length ? { files } : {}), editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true, ...(r.deviceConflict && isStr(r.deviceConflict.otherId) && isStrOrNull(r.deviceConflict.sessionId) ? { deviceConflict: r.deviceConflict } : {}),
-    ...(r.uncertain === true ? { uncertain: true } : {}), ...(bind ? { bind } : {}) };
+    ...(r.uncertain === true ? { uncertain: true } : {}), ...(bind ? { bind } : {}), ...(isStr(r.refused) && r.refused ? { refused: r.refused } : {}) };
 }
 
 function parseContext(raw: unknown): WorkContext | null {
@@ -210,6 +210,10 @@ export function storeDraft(d: ComposerDraft): StoredDraft {
     // Reconciliation the draft client still owes the host (#1214).
     ...(d.uncertain ? { uncertain: true } : {}),
     ...(d.bind ? { bind: { sessionId: d.bind.sessionId, requestId: d.bind.requestId } } : {}),
+    // The host refused this content as it is (#4566): the cause survives a
+    // reload. Not for a draft with outgoing snapshots: the record does not
+    // keep them, so what was refused is not what comes back.
+    ...(d.failure?.kind === "refused" && d.failure.edit === d.edit && !holdsSnapshots(d) ? { refused: d.failure.reason } : {}),
   };
 }
 

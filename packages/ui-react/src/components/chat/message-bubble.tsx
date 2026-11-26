@@ -528,7 +528,7 @@ function AssistantContent({
 
       {/* How the turn stopped, when no failure says so (#3356): a status
           after its content, never the agent's words. */}
-      {message.runtimeNotice && !message.failure && !message.isStreaming ? <TurnNotice message={message} /> : null}
+      {message.runtimeNotice && (!message.failure || message.runtimeNotice.cause === "host_stop") && !message.isStreaming ? <TurnNotice message={message} /> : null}
 
       {(message.isStreaming || approval?.restored) && (message.retry ? (
         <TurnStatus message={message} mode="retry" />
@@ -632,7 +632,7 @@ function DeliveredExchange({
   // nothing left to cancel.
   const [endedDismissed, setEndedDismissed] = useState(false);
   const ended = exchange.terminal === true && !endedDismissed && (!delivery || isRefusedAdmission(delivery.state));
-  const endedBy = exchange.endedBy === "timeout" ? "timed out" : "ended";
+  const endedBy = exchange.endedBy === "timeout" ? "timed out" : exchange.endedBy === "host_stop" ? "was stopped by the host" : "ended";
   const keep = (payload: AnswerPayload) => {
     const at = Date.now();
     root.stores.chat.getState().setDelivery(exchange.requestId, {

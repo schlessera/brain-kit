@@ -196,7 +196,7 @@ export interface ApifyRuns {
   results(context: ApifyCallContext, input: { run: string; cursor?: string; limit?: number }): Promise<ApifyResultsPage>;
   abort(context: ApifyCallContext, input: { run: string }): Promise<ApifyAbortView>;
   /** Host: local cancellation, timeout or budget exhaustion of a session or turn aborts its open runs. */
-  stop(scope: { session_id: string; turn_id?: string }, reason: "cancelled" | "timeout" | "budget_exhausted" | "disabled"): Promise<ApifyAbortView[]>;
+  stop(scope: { session_id: string; turn_id?: string }, reason: "cancelled" | "timeout" | "budget_exhausted" | "host_stop" | "disabled"): Promise<ApifyAbortView[]>;
   /** Host: after a restart and periodically, settle, time out and clean up this brain's open runs. */
   reconcile(): Promise<{ settled: number; aborted: number; unknown: number; open: number }>;
   /**

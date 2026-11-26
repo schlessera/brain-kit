@@ -1,4 +1,6 @@
-import { FIRST_PARTY_FAILURE_CLASSES, HOST_TIMEOUT_OUTCOME_DETAIL } from "@schlessera/brain-ui-sdk/protocol";
+import { FIRST_PARTY_FAILURE_CLASSES, HOST_TIMEOUT_OUTCOME_DETAIL, hostStopFromOutcomeDetail } from "@schlessera/brain-ui-sdk/protocol";
+import { hostStopToolOutput } from "../../lib/host-stop.js";
+import { unownedReplyIndex } from "../../stores/chat-slices/turn-reply.js";
 import { ASK_USER_FORM_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { askUserFormSpec, askUserFormPayload } from "@schlessera/brain-ui-sdk/internal/client";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
@@ -322,6 +324,8 @@ export const chatFrameHandlers = {
     // interleave fan-out work with the main turn's steps.
     if (msg.parentToolUseId) return;
     context.state.startToolCall(context.key, msg.toolUseId, msg.toolName);
+    // As a delta does: a tool-only reply still belongs to its turn (#4565).
+    if (context.frameTurnId) context.state.stampToolTurn(context.key, msg.toolUseId, context.frameTurnId);
   },
   tool_input_delta: (msg, context) => {
     context.state.appendToolInput(context.key, msg.partialJson);
@@ -353,7 +357,10 @@ export const chatFrameHandlers = {
     );
   },
   tool_result: (msg, context) => {
-    context.state.setToolResult(context.key, msg.toolUseId, msg.output, msg.isError, msg.policyChange);
+    // A tool the host cut short shows the host's stop, not the runtime's
+    // refusal text (#4565); the model already received that text as written.
+    context.state.setToolResult(context.key, msg.toolUseId, msg.hostStop ? hostStopToolOutput(msg.hostStop) : msg.output,
+      msg.isError, msg.policyChange, msg.hostStop);
     // Once the agent receives the ask_user tool result, the exchange is
     // complete — drop any leftover ask_user UI state.
     const chat = context.buffer();
@@ -388,8 +395,27 @@ export const chatFrameHandlers = {
     // The host's hard turn limit ended it (#3356): the conversation says so,
     // and its open questions say why they closed.
     const timedOut = msg.outcome === "cancelled" && msg.outcomeDetail === HOST_TIMEOUT_OUTCOME_DETAIL;
-    context.state.endTurnQuestions(context.key, context.frameTurnId, timedOut ? "timeout" : undefined);
+    // The host itself stopped it (#4565): the conversation, and the
+    // questions it closed, name that instead of an unexplained end.
+    const hostStop = msg.outcome === "cancelled" ? hostStopFromOutcomeDetail(msg.outcomeDetail) : undefined;
+    // Only a result that names its turn can say why that turn's questions closed.
+    context.state.endTurnQuestions(context.key, context.frameTurnId, timedOut ? "timeout" : hostStop !== undefined && context.frameTurnId ? "host_stop" : undefined);
     if (timedOut) context.state.setTurnNotice(context.key, { cause: "timeout" }, context.frameTurnId);
+    if (hostStop !== undefined) context.state.setTurnNotice(context.key, { cause: "host_stop", hostStop }, context.frameTurnId);
+    // A tool the runtime never answered before it stopped shows the host's
+    // account, not an empty finished card.
+    if (hostStop) {
+      // Every message of this turn (a diagnostic, then more text, splits
+      // it), or the reply no turn owns yet. Without a turn id on the frame
+      // nothing establishes which reply it ends.
+      const messages = context.buffer()?.messages ?? [];
+      const owned = context.frameTurnId ? messages.filter((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === context.frameTurnId) : [];
+      const fallback = owned.length || !context.frameTurnId ? -1 : unownedReplyIndex(messages, context.frameTurnId);
+      const replies = owned.length ? owned : fallback === -1 ? [] : [messages[fallback]!];
+      for (const tool of replies.flatMap((m) => m.toolCalls)) {
+        if (tool.output === undefined && tool.status !== "denied") context.state.setToolResult(context.key, tool.id, hostStopToolOutput(hostStop), true, undefined, hostStop);
+      }
+    }
     context.state.finishAssistantMessage(context.key);
     // An absent outcome is the legacy wire, where `isError` alone decides.
     const failed = msg.outcome === "error" || (msg.outcome === undefined && msg.isError);

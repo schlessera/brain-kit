@@ -487,7 +487,8 @@ export type BackendActivityEvent =
       kind: "policy_confirm";
       toolUseId: string;
       payload: PolicyCommandRecord<"commands.confirm"> & {
-        decision: "approved" | "declined" | "timed_out" | "cancelled";
+        /** `host_stopped`: the host itself stopped the turn while it waited (#4565). */
+        decision: "approved" | "declined" | "timed_out" | "cancelled" | "host_stopped";
       };
     }
   | {

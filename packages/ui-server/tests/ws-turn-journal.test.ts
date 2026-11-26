@@ -107,6 +107,8 @@ test("a real mid-turn journal capacity stop emits the named failure and an error
     await writeFile(resolve(brain, "notes/partial.txt"), Buffer.alloc(2 * 1024 * 1024, 65));
     bridge.emit({ type: "tool_result", toolUseId: "loom", output: "Partial work remains", isError: false });
     if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
+    // The runtime ends an aborted turn with a cancelled result (#4565).
+    bridge.emit({ type: "result", sessionId: "sess-ithaca", outcome: "cancelled", isError: false, durationMs: 1, numTurns: 1 });
   } });
   const registry = createStaticBackendRegistry([backend], backend.id);
   const native = createNativeJournalFixture(brain,root), broker = native.serve();
@@ -126,6 +128,8 @@ test("a real mid-turn journal capacity stop emits the named failure and an error
     const failure = frames().find(frame => frame.type === "error");
     expect(failure, "JOURNAL_HOST_OVERFLOW_NAMED_FAILURE").toMatchObject({ code: "JOURNAL_CAPACITY", failure: { errorClass: "journal_capacity" } });
     expect(JSON.stringify(frames()), "JOURNAL_OVERFLOW_NOT_TIMEOUT").not.toContain("Turn timed out");
+    // The host stopped the turn for its journal, and its result says so.
+    expect(frames().find(frame => frame.type === "result")?.outcomeDetail, "JOURNAL_OVERFLOW_NAMES_HOST_STOP").toBe("host_stop:change_journal");
     expect(journal.details("sess-ithaca", failure.turnId)?.summary.state).toBe("partial");
     expect(app.db.query("SELECT outcome FROM activity_run_rollups WHERE run_id=?").get(failure.turnId), "JOURNAL_OVERFLOW_ACTIVITY_ERROR").toEqual({ outcome: "error" });
     expect(Bun.file(resolve(brain, "notes/partial.txt")).size).toBe(2 * 1024 * 1024);

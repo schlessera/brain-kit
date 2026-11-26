@@ -553,6 +553,7 @@ Nothing is sent and no host session is created.
 | unavailable | `draft · this host doesn't keep drafts · kept on this device` | capability absent |
 | too large | `draft · too large to save (8 MB max) · kept on this device` | 413 |
 | full | `draft · 100 drafts saved · delete one to save this` | 507 |
+| refused | `draft · not saved · refused by the brain · kept on this device` | a 400 the host gives again for the same edit: one recovery is tried (re-upload images, re-read a refused snapshot list, leave out originals it no longer stores), then nothing is sent until the content changes (#4566) |
 
 Content is always kept locally and is never dropped to fit a limit. Nothing
 claims host durability for an unacknowledged save.
@@ -756,6 +757,17 @@ reload context, while draft records remain shared and account-partitioned.
 
 Only after transaction commit does the stale writer show
 `Another tab changed this draft · Both versions kept`, with `Open other version`.
+That action ends at the other version's content or says why not (#4567). A
+version a rotation moved opens where it lives now. One with no chat, or whose
+chat's restore answers that it is gone, opens on its own in the new-chat view
+with the hint `Other version · not in a chat yet`; one whose chat is gone moves
+to a new draft of no chat first. Outgoing messages belong to that chat and
+stay with it, untouched; the composer's content is copied, and the branch's
+other version becomes that copy. A version holding nothing but outgoing messages
+whose chat is gone returns the reader to their branch with "The other
+version's chat is gone; its unsent messages stay there". A switch cancelled by a change of view, a
+failed device read, or a version found nowhere leaves the reader where they
+are and adds the reason to the indicator's summary and facts.
 Both versions remain reachable through the draft/session surfaces after a
 reload, including a fresh third tab. A failed write leaves editable content
 in memory and uses the existing storage-failure copy; it makes no retention

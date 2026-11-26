@@ -3,7 +3,8 @@
  * row after the turn's content, never in the agent's voice.
  *
  * The cause words only what was observed. `timeout` comes from the host's
- * own report that its hard turn limit ended the turn; `aborted` and
+ * own report that its hard turn limit ended the turn; `host_stop` from its
+ * report that it stopped the turn itself, and why (#4565); `aborted` and
  * `unspecified` come from the notice the agent runtime wrote into the
  * transcript, which does not say who stopped the turn or whether earlier
  * steps took effect. Like the failure card (D51), only a notice that arrived
@@ -11,11 +12,12 @@
  */
 import { useEffect, useState } from "react";
 
+import { hostStopNoticeCopy } from "../../lib/host-stop.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import type { ChatMessage, TurnNotice as TurnNoticeValue } from "../../stores/chat-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
 
-const TURN_NOTICE_COPY: Record<TurnNoticeValue["cause"], { tag: string; body: string }> = {
+const TURN_NOTICE_COPY: Record<Exclude<TurnNoticeValue["cause"], "host_stop">, { tag: string; body: string }> = {
   timeout: {
     tag: "Turn timed out",
     body: "The host's time limit for one turn ran out, so this turn stopped.",
@@ -34,7 +36,7 @@ export function TurnNotice({ message }: { message: ChatMessage }) {
   const root = useBrainUiRoot();
   const sessionId = useChatStore((s) => s.activeSessionId);
   const notice = message.runtimeNotice!;
-  const copy = TURN_NOTICE_COPY[notice.cause];
+  const copy = notice.cause === "host_stop" ? hostStopNoticeCopy(notice.hostStop ?? null) : TURN_NOTICE_COPY[notice.cause];
   // Fixed at mount: a replay that keeps this row mounted does not announce.
   const [announce] = useState(Boolean(message.runtimeNoticeLive));
   useEffect(() => {
