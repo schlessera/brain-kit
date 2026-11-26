@@ -37,7 +37,7 @@ import {
 import { StorageAlertsRow } from "./storage/storage-alerts.js";
 import { StorageHistorySection } from "./storage/storage-history-section.js";
 import { StorageBreakdown } from "./storage/storage-breakdown.js";
-import { StorageLargeFiles } from "./storage/storage-large-files.js";
+import { LastRemoval, StorageLargeFiles } from "./storage/storage-large-files.js";
 import { StorageFreeUp } from "./storage/storage-free-up.js";
 import { StorageAbout } from "./storage/storage-about.js";
 /** Account and root changes discard pending selections and local response ownership synchronously. */
@@ -385,6 +385,18 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
               />
             )}
           </section>
+        )}
+        {/* Receipts outlive the inventory (#4549 review): with no current
+            measurement there is no Find large files mode to hold the last
+            removal, so its receipt and Undo stay reachable here. */}
+        {!snapshot && view.receipt && (
+          <LastRemoval
+            receipt={view.receipt}
+            onReceipt={() => {
+              trigger.current = document.activeElement as HTMLElement;
+              view.setReviewOpen(true);
+            }}
+          />
         )}
         <div ref={freeUp} data-storage-free-up="">
           <StorageFreeUp

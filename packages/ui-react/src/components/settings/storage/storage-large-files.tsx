@@ -8,7 +8,7 @@ import {
   type StorageEligibility,
   type StorageGitFacet,
 } from "@schlessera/brain-ui-kit";
-import type { StorageFileEntry } from "@schlessera/brain-ui-sdk/protocol";
+import type { StorageFileEntry, StorageRemovalReceipt } from "@schlessera/brain-ui-sdk/protocol";
 import { bytes, humanReason, knownLinks } from "./storage-model.js";
 import { LARGER_PRESETS } from "./storage-pane-model.js";
 import { running, type useStorage } from "./use-storage.js";
@@ -31,6 +31,28 @@ const folderOf = (path: string) => {
 };
 
 const CUSTOM = "custom";
+
+/**
+ * The last removal's state and the way back to its receipt, where Undo
+ * lives. Receipts outlive the inventory, so the pane shows this line with
+ * or without a current measurement.
+ */
+export function LastRemoval({ receipt, onReceipt }: { receipt: StorageRemovalReceipt; onReceipt: () => void }) {
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 text-xs" data-storage-last-removal="">
+      <span>Last removal: {humanReason(receipt.state)}</span>
+      <Button
+        label={receipt.state === "review" ? "Resume recorded review" : "View receipt"}
+        ariaLabel={receipt.state === "review" ? "Resume recorded review" : "View removal receipt"}
+        tone="quiet"
+        size="sm"
+        reach
+        block={false}
+        onClick={onReceipt}
+      />
+    </p>
+  );
+}
 
 /**
  * "What's using space" in Find large files mode (#4537 D11): Type, Larger
@@ -121,18 +143,7 @@ export function StorageLargeFiles({
       }}
     />
   ) : view.receipt ? (
-    <p className="flex flex-wrap items-center gap-x-3 text-xs" data-storage-last-removal="">
-      <span>Last removal: {humanReason(view.receipt.state)}</span>
-      <Button
-        label={view.receipt.state === "review" ? "Resume recorded review" : "View receipt"}
-        ariaLabel={view.receipt.state === "review" ? "Resume recorded review" : "View removal receipt"}
-        tone="quiet"
-        size="sm"
-        reach
-        block={false}
-        onClick={onReceipt}
-      />
-    </p>
+    <LastRemoval receipt={view.receipt} onReceipt={onReceipt} />
   ) : (
     <StorageSelectionBar count={0} size="" basis="" onClear={view.clearSelection} onReview={onReview} />
   );
