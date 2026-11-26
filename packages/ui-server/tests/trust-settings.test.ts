@@ -679,6 +679,125 @@ for (const policy of ["unchanged", "changed"] as const) test(`ADMISSION_NEVER_WA
   } finally { release(); await running; host.close(); }
 });
 
+test("an out-of-band source removal during an active turn recovers automatically and ends only the removed source", async () => {
+  const f = await fixture({ originEnforcement: true });
+  const { request } = await import("node:http");
+  const { prepareTurnEgress } = await import("../src/brain/turn-egress");
+  const { createGovernanceWrites } = await import("../src/governance/event-writes");
+  const { connectedSafetySession } = await import("./helpers/connected-safety");
+  const { createEffectiveSafety } = await import("../src/governance/effective-safety");
+  const { resolveGovernancePolicy } = await import("@schlessera/brain-common/internal/governance-policy");
+  const serve = () => {
+    const state = { hits: 0, streams: [] as ReadableStreamDefaultController<Uint8Array>[] };
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { state.hits++;
+      return new Response(new ReadableStream<Uint8Array>({ start(c) { state.streams.push(c); c.enqueue(new TextEncoder().encode("first")); } })); } });
+    return { server, state };
+  };
+  const ithaca = serve(), argo = serve();
+  const source = (id: string, port: number) => ({ ...rule, id, selector: { kind: "web_origin" as const, scheme: "http" as const, host: "127.0.0.1", port } });
+  const removed = source("ithaca", ithaca.server.port!), kept = source("argo", argo.server.port!);
+  await f.commit(await f.prepare({ action: "create", rule: removed }));
+  await f.commit(await f.prepare({ action: "create", rule: kept }));
+  connectedSafetySession(f.db, "voyage", "turn-voyage");
+  const writes = createGovernanceWrites(f.db, f.writer), controller = new AbortController();
+  const safety = createEffectiveSafety(f.db, { turnId: "turn-voyage", sessionId: () => "voyage", policyHash: null, writes, trust: f.settings.live, authority: () => ({ current: true, epoch: "1" }) });
+  const proxy = await prepareTurnEgress({ policy: resolveGovernancePolicy({ schema_version: 1 }), trust: f.settings.live, controller, turnId: "turn-voyage", sessionId: () => "voyage",
+    model: () => null, profile: "governed", origin: "interactive", governanceDb: f.db, governanceWrites: writes, record: writes.record,
+    bridge: { emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Athena declines" }), admissionSafety: safety } });
+  const connections: Promise<void>[] = [];
+  const through = (url: string) => {
+    let body = "";
+    const waiters: [string, () => void][] = [];
+    const closed = new Promise<void>(resolve => {
+      const req = request({ socketPath: proxy.socketPath, path: url }, res => {
+        res.on("data", chunk => { body += chunk.toString(); for (const [text, wake] of waiters) if (body.includes(text)) wake(); });
+        res.on("close", resolve); res.on("error", () => resolve());
+      });
+      req.on("error", () => resolve()); req.end();
+    });
+    connections.push(closed);
+    return { closed, saw: (text: string) => new Promise<void>(resolve => { if (body.includes(text)) resolve(); else waiters.push([text, resolve]); }) };
+  };
+  const ended = (closed: Promise<void>) => Promise.race([closed.then(() => true), Bun.sleep(5000).then(() => false)]);
+  let release: (() => void) | undefined;
+  try {
+    const a = through(ithaca.server.url.href), b = through(argo.server.url.href);
+    await Promise.all([a.saw("first"), b.saw("first")]);
+    const before = f.settings.live.read(), birth = before.ruleInstances[kept.id];
+    // A concurrent publication holds the projection while the hand edit lands.
+    release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+    writeFileSync(f.path, `---\n${JSON.stringify({ schema_version: 1, taint: { trusted_sources: [kept] } })}\n---\nThe voyage policy.\n`);
+    expect(() => f.settings.live.read(), "OUT_OF_BAND_EDIT_FENCES_LIVE_READS").toThrow("stale_revision");
+    const during = through(argo.server.url.href);
+    expect(await ended(during.closed)).toBe(true);
+    expect(argo.state.hits, "NO_DISPATCH_WHILE_TRUST_IS_UNCERTAIN").toBe(1);
+    release(); release = undefined;
+    expect(await ended(a.closed), "REMOVED_SOURCE_ENDS_ON_AUTOMATIC_RECOVERY").toBe(true);
+    const recovered = f.settings.live.read();
+    expect(recovered).toMatchObject({ rules: [kept], revision: String(BigInt(before.revision) + 1n), error: null });
+    expect(recovered.ruleInstances[removed.id]).toBeUndefined();
+    expect(recovered.ruleInstances[kept.id], "UNRELATED_SOURCE_KEEPS_ITS_INSTANCE").toBe(birth);
+    argo.state.streams[0]!.enqueue(new TextEncoder().encode("second"));
+    expect(await Promise.race([b.saw("second").then(() => true), b.closed.then(() => false)]), "UNRELATED_SOURCE_SURVIVES_RECOVERY").toBe(true);
+    const after = through(argo.server.url.href);
+    expect(await Promise.race([after.saw("first").then(() => true), after.closed.then(() => false)]), "UNRELATED_SOURCE_ADMITS_AFTER_RECOVERY").toBe(true);
+    expect(controller.signal.aborted).toBe(false);
+  } finally {
+    release?.(); proxy.stop(); await Promise.all(connections); await proxy.settled(); ithaca.server.stop(true); argo.server.stop(true);
+  }
+});
+
+test("two live readers reconcile one out-of-band edit once, behind a bounded lock wait", async () => {
+  let clock = 1_000_000;
+  const f = await fixture({ originEnforcement: true, now: () => clock, recoveryWaitMs: 50 });
+  await f.commit(await f.prepare());
+  const second = createTrustSettings({ ...f.options, originEnforcement: true });
+  const before = f.settings.live.read();
+  expect(second.live.read()).toEqual(before);
+  const waits: Promise<unknown>[] = [], original = f.lock.withLock.bind(f.lock);
+  f.lock.withLock = (key, fn, options) => { const pending = original(key, fn, options); if (key === TRUST_PROJECTION_LOCK_KEY) waits.push(pending); return pending; };
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  try {
+    writeFileSync(f.path, initial);
+    for (let i = 0; i < 8; i++) {
+      expect(() => f.settings.live.revision()).toThrow("stale_revision");
+      expect(() => second.live.read()).toThrow("stale_revision");
+    }
+    expect(waits.length, "ONE_RECOVERY_PER_READER_WHILE_UNCERTAIN").toBe(2);
+    const settled = Promise.allSettled(waits).then(results => results.map(result => result.status));
+    expect(await Promise.race([settled, Bun.sleep(5000).then(() => "still waiting")]), "RECOVERY_LOCK_WAIT_IS_BOUNDED").toEqual(["rejected", "rejected"]);
+    expect(f.lock.heldKeys, "TIMED_OUT_RECOVERY_NEVER_RELEASES_THE_HOLDER").toContain(TRUST_PROJECTION_LOCK_KEY);
+    expect(() => f.settings.live.read(), "STILL_FENCED_AFTER_A_FAILED_RECOVERY").toThrow("stale_revision");
+    expect(waits.length, "FAILED_RECOVERY_WAITS_FOR_ITS_RETRY_DELAY").toBe(2);
+  } finally { release(); }
+  clock += 1_001; waits.length = 0;
+  expect(() => f.settings.live.read()).toThrow("stale_revision");
+  expect(() => second.live.read()).toThrow("stale_revision");
+  expect(waits.length).toBe(2);
+  await Promise.all(waits);
+  const next = String(BigInt(before.revision) + 1n);
+  expect(f.settings.live.read()).toMatchObject({ rules: [], revision: next, error: null });
+  expect(second.live.read().revision, "TWO_READERS_PUBLISH_ONE_REVISION").toBe(next);
+});
+
+test("a live recovery queued behind a Settings publication adds no second revision", async () => {
+  let paused!: () => void, resume!: () => void;
+  const reached = new Promise<void>(resolve => { paused = resolve; }), held = new Promise<void>(resolve => { resume = resolve; });
+  const f = await fixture({ originEnforcement: true, checkpoint: async stage => { if (stage === "renamed") { paused(); await held; } } });
+  const draft = await f.prepare(), committing = f.commit(draft);
+  const waits: Promise<unknown>[] = [], original = f.lock.withLock.bind(f.lock);
+  try {
+    await reached;
+    f.lock.withLock = (key, fn, options) => { const pending = original(key, fn, options); if (key === TRUST_PROJECTION_LOCK_KEY) waits.push(pending); return pending; };
+    expect(() => f.settings.live.read(), "PUBLISHED_BYTES_FENCE_UNTIL_PROJECTED").toThrow("stale_revision");
+    expect(waits.length).toBe(1);
+  } finally { resume(); await Promise.allSettled([committing, ...waits]); }
+  const saved = await committing;
+  await Promise.all(waits);
+  expect(saved.receipt).toMatchObject({ stage: "committed", publishedTrustRevision: "1" });
+  expect(f.settings.live.read(), "RECOVERY_BEHIND_PUBLICATION_ADDS_NO_REVISION").toMatchObject({ revision: "1", rules: [rule] });
+});
+
 for(const timeout of [false,true])test(`review10: turn trust refresh releases governed resources before the lock holder on ${timeout?'timeout':'cancel'}`,async()=>{
  const f=await fixture({originEnforcement:true});const {WsHost}=await import('../src/ws/host');const {runSession}=await import('../src/ws/run-session');const {createSessionCatalog}=await import('../src/ws/session-catalog');const {createStaticBackendRegistry}=await import('../src/agent/backend');const {makeFakeBackend}=await import('./helpers/fake-backend');const {testAuthorization}=await import('./helpers/principal');
  await f.commit(await f.prepare());writeFileSync(f.path,initial);

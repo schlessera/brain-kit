@@ -38,6 +38,9 @@ type Prepare = z.output<typeof TrustPrepareSchema>;
  * Order: a holder of `BRAIN_LOCK_KEY` may take this key; a holder of this key
  * never waits for `BRAIN_LOCK_KEY`. */
 export const TRUST_PROJECTION_LOCK_KEY = "trust-projection";
+/** Bounds a background recovery's projection lock wait; a failed attempt
+ * retries on a later stale read after the retry delay (#4352). */
+const TRUST_RECOVERY_WAIT_MS = 10_000, TRUST_RECOVERY_RETRY_MS = 1_000;
 type Commit = z.output<typeof TrustCommitSchema>;
 export class TrustSettingsError extends Error {
   constructor(readonly code: string, readonly status: 400 | 403 | 404 | 409 | 503 = 409) { super(code); }
@@ -97,6 +100,8 @@ export function createTrustSettings(options: {
   originEnforcement?: true;
   github?: ReturnType<typeof createTrustGitHubIdentity>;
   now?: () => number;
+  /** Host-only: the background recovery's lock wait bound. */
+  recoveryWaitMs?: number;
   /** Host-only deterministic crash/race injection, never wired from HTTP. */
   checkpoint?(stage: string): void | Promise<void>;
 }) {
@@ -162,7 +167,25 @@ export function createTrustSettings(options: {
     const value = withInstances({ ...base, policyHash: observation.policyHash, error: null },base.ruleInstances);
     liveCache = { observation, base, value }; return value;
   };
-  const live = { read: freshProjection, revision: () => freshProjection().revision,
+  // A stale live read (out-of-band edit or sync during an active turn) stays
+  // fenced, and schedules one bounded background reconciliation. Reads recover
+  // once the stable anchored observation and the durable projection agree;
+  // changed rules notify subscribers, which revalidate each source instance.
+  let recovering = false, recoveryAfter = 0;
+  const recover = () => {
+    if (recovering || now() < recoveryAfter) return;
+    recovering = true;
+    void options.lock.withLock(TRUST_PROJECTION_LOCK_KEY, project, { timeoutMs: options.recoveryWaitMs ?? TRUST_RECOVERY_WAIT_MS })
+      .then(() => { recoveryAfter = 0; }, () => { recoveryAfter = now() + TRUST_RECOVERY_RETRY_MS; })
+      .finally(() => { recovering = false; });
+  };
+  const liveRead = (): LiveProjection => {
+    try { return freshProjection(); } catch (error) {
+      if (error instanceof TrustSettingsError && error.code === "stale_revision") recover();
+      throw error;
+    }
+  };
+  const live = { read: liveRead, revision: () => liveRead().revision,
     refresh: async (signal?: AbortSignal) => {
       signal?.throwIfAborted();
       try {
