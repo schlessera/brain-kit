@@ -219,7 +219,7 @@ def run(argv,**kwargs):
  if '-c' in argv:return SimpleNamespace(returncode=0,stdout=b'[1000,1000,[65534]]')
  data=json.loads(Path(argv[-1]).read_text())
  if '--user' in argv:
-  Path(data['setup_error']).write_text('loopback setup denied')
+  if data.get('setup_error'):Path(data['setup_error']).write_text('loopback setup denied')
   return SimpleNamespace(returncode=125)
  assert argv[:3]==['/usr/bin/sudo','-n','--'], 'LOOPBACK_FAILURE_MUST_RETRY_SUDO'
  assert not data['unprivileged'], 'SUDO_MUST_RESTORE_COMPLETE_IDENTITY'
