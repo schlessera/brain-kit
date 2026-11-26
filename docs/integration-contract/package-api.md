@@ -5154,6 +5154,9 @@ It exports `ToolRow` and `ToolList` with their props types and the types
   "unknown → unknown".
 - A missing headroom estimate shows a `?` mark, never a bar.
 - Short headroom never disables Run, because the server decides admission.
+- `actionDisabled` (additive, #4549) holds the action button in place, inert,
+  while the caller has another request in flight, so a focused Run or Cancel
+  keeps focus. It reflects the caller's busy state, not headroom.
 
 All of these take pre-formatted strings, numbers and callbacks, and perform no I/O.
 
