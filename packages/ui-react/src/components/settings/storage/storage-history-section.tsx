@@ -17,20 +17,13 @@ import {
 import { StorageHistoryTable } from "./storage-history-table.js";
 import { StorageSegmented } from "./storage-segmented.js";
 import { humanReason } from "./storage-model.js";
-import type { StorageFormat, StorageVolume } from "./storage-volumes.js";
+import { VOLUME_STATUS_WORD, type StorageFormat, type StorageVolume } from "./storage-volumes.js";
 
 const STORAGE_TIERS: ReadonlyArray<{ value: StorageHistoryTier; label: string }> = [
   { value: "six-hour", label: "Recent" },
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
 ];
-
-const STATE_WORD: Record<StorageVolume["status"], string> = {
-  ok: "OK",
-  low: "Low",
-  "very-low": "Very low",
-  "not-measured": "Not measured",
-};
 
 /**
  * Available space over time for the selected volume (#4537 D3): the tier
@@ -103,7 +96,7 @@ export function StorageHistorySection({
             thresholds={historyThresholds(volume.capacity?.total ?? null)}
             scenarios={storageScenarios(pressure, format)}
             markers={storageMarkers({ series, identity: volume.id, pressure, maintenance, now, format })}
-            nowState={STATE_WORD[volume.status]}
+            nowState={VOLUME_STATUS_WORD[volume.status]}
             notes={notes}
             unmeasuredReason={series.length ? undefined : "no retained observation of this volume in this tier"}
             valueHeading="Available"

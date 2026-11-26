@@ -29,6 +29,7 @@ import {
 import {
   DAY_MS,
   NOMINAL_WINDOW_DAYS as NOMINAL_DAYS,
+  REFUSAL_RESOURCE,
   scenarioWindowName,
   storageFormat,
   thresholdBytes,
@@ -211,12 +212,6 @@ const RUN_TONE: Record<StorageMaintenanceReceipt["state"], NonNullable<HistoryMa
   cancelled: "neutral",
   unknown: "gold",
 };
-const RESOURCE: Record<StoragePressureView["causes"]["refusals"][number]["resource"], string> = {
-  bytes: "no space",
-  quota: "quota reached",
-  inodes: "no file slots",
-  unknown: "resource unknown",
-};
 
 /** Whether a maintenance run observed this volume. */
 const touches = (receipt: StorageMaintenanceReceipt, identity: string) =>
@@ -261,7 +256,7 @@ export function storageMarkers(input: {
       at: refusal.at,
       tone: "red",
       time: format.time(refusal.at),
-      label: `Owner refused a write: ${RESOURCE[refusal.resource]}`,
+      label: `Owner refused a write: ${REFUSAL_RESOURCE[refusal.resource]}`,
     });
   for (const row of input.maintenance ?? []) {
     const receipt = row.latest;

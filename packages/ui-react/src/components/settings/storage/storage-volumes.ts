@@ -162,6 +162,43 @@ export interface StorageVolume extends VolumeGroupItem {
   thresholdBytes: { low: number; veryLow: number } | null;
   /** The latest measurement time behind the figures; `null` when none. */
   measuredAt: number | null;
+  /**
+   * Each active owner refusal, newest first, in words. Retained evidence of
+   * the pressure, stated beside the volume whatever the chart's tier can draw.
+   */
+  refusals: string[];
+}
+
+/** What an owner refusal ran out of, in words. */
+export const REFUSAL_RESOURCE: Record<StoragePressureView["causes"]["refusals"][number]["resource"], string> = {
+  bytes: "no space",
+  quota: "quota reached",
+  inodes: "no file slots",
+  unknown: "resource unknown",
+};
+
+/** A volume's status as a word, as its card's chip reads it. */
+export const VOLUME_STATUS_WORD: Record<StorageVolume["status"], string> = {
+  ok: "OK",
+  low: "Low",
+  "very-low": "Very low",
+  "not-measured": "Not measured",
+};
+
+function refusalLines(pressure: StoragePressureView | null, format: StorageFormat): string[] {
+  return (pressure?.causes.refusals ?? [])
+    .slice()
+    .sort((a, b) => b.at - a.at)
+    .map((refusal) =>
+      [
+        "Owner refused a write",
+        REFUSAL_RESOURCE[refusal.resource],
+        format.time(refusal.at),
+        refusal.successAt === null
+          ? "no matching write has succeeded since"
+          : `a matching write succeeded ${format.time(refusal.successAt)} · recovery not yet confirmed`,
+      ].join(" · ")
+    );
 }
 
 interface StorageVolumeInput {
@@ -295,6 +332,7 @@ export function storageVolumes(input: StorageVolumeInput): StorageVolume[] {
       thresholdBytes: identified ? thresholdBytes(total) : null,
       measuredAt,
       stores: foldSidecarLabels(labels.length ? labels : pressure?.stores.map((store) => store.label) ?? []),
+      refusals: refusalLines(pressure, format),
     };
     if (capacityFigures) volume.capacity = capacityFigures;
     else if (identified)
