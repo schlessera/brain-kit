@@ -14,7 +14,7 @@
  * 1. Input: the tool's strict schema (`parseGoogleToolCall`); the call names
  *    its operation.
  * 2. Writes: the four write tools answer `unavailable` (`writes_unavailable`)
- *    until the write engine lands (#4211). Nothing is decided or sent.
+ *    until concrete Gmail operations land (#4213/#4214). Nothing is decided or sent.
  * 3. The gate: the decision function with every host fact except the
  *    targets' labels, which only the read itself can give: availability
  *    (owner only, an enabled block naming an account, Gmail listed), input,
@@ -46,6 +46,7 @@
  * The table is bounded and its entries expire; a restart forgets them, and
  * the model searches again.
  */
+import { createGoogleWriteEngine, type GoogleWriteTurn, type GoogleWriteOptions } from "./write-engine.js";
 import { randomBytes } from "node:crypto";
 import { isTargetIndependentGogFailure, type GogResult, type GogTransport } from "@schlessera/brain-common/internal/google-gog";
 import {
@@ -84,6 +85,7 @@ const GOOGLE_RECIPIENT = "google";
 
 /** The turn a call belongs to, bound by the host, never by the call. */
 export interface GoogleToolsTurn {
+  readonly write?: GoogleWriteTurn;
   readonly turnId: string;
   readonly principalId: string;
   readonly sessionId: () => string | null;
@@ -101,6 +103,8 @@ export interface GoogleToolsTurn {
 }
 
 interface GoogleToolsHostOptions {
+  /** Concrete host-owned state and live policy. */
+  writes?: GoogleWriteOptions;
   /** The host's credential: the account's transport, or why Google is unavailable. */
   credential: Pick<GoogleCredential, "transport">;
   /** Who a principal is to Google: the brain's owner, another principal, or nobody the host could establish. */
@@ -141,9 +145,17 @@ export interface GoogleCallAudit {
   outcome: "returned" | "refused";
   code: GoogleError["code"] | null;
   reason: string | null;
+  callId?: string;
+  effect?: "read" | "reversible" | "irreversible";
+  target?: string | null;
+  decision?: "allowed" | "approved" | "declined" | "refused";
+  admission?: "policy" | "remembered_approval" | "session_allowance" | null;
+  decisionEventId?: number | null;
 }
 
 export interface GoogleToolsHost {
+  /** Stop host-owned lock cleanup retries. */
+  close?(): void;
   call(turn: GoogleToolsTurn, call: GoogleToolCall): Promise<GoogleToolResult>;
   /**
    * One message's full text body for the owner's display (the internal
@@ -229,6 +241,7 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
   /** A failing log never changes an answer: the message is built inside the guard, so an error that cannot be shown is dropped too. */
   const report = (message: () => string) => { try { options.report?.(message()); } catch { /* Dropped. */ } };
   const shown = (error: unknown) => error instanceof Error ? error.message : String(error);
+  const write = options.writes ? createGoogleWriteEngine(options.writes, options.principal, message => report(() => message), now) : undefined;
   const cursorTtl = options.cursorTtlMs ?? GOOGLE_CURSOR_TTL_MS;
   const labelTtl = options.labelTtlMs ?? GOOGLE_LABEL_TTL_MS;
   const cursors = new Map<string, { scope: string; query: string; token: string; expires: number }>();
@@ -367,10 +380,12 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
   }
 
   /** One call, decided and run; the caller records its audit line. */
-  async function run(turn: GoogleToolsTurn, name: string, parsed: ReturnType<typeof parseGoogleToolCall>): Promise<GoogleToolResult> {
+  async function run(turn: GoogleToolsTurn, name: string, parsed: ReturnType<typeof parseGoogleToolCall>, audit: Partial<GoogleCallAudit>): Promise<GoogleToolResult> {
       if (!parsed.ok) return refusal(isGmailToolName(name) ? name : GMAIL_TOOL_NAMES.search, parsed.error);
       const tool = parsed.call.tool;
-      if (!isGmailReadToolName(tool)) return refusal(tool, WRITES_UNAVAILABLE);
+      if (!isGmailReadToolName(tool)) return write
+        ? write(turn, { tool, input: parsed.call.input } as Parameters<typeof write>[1], parsed.call.operation as Parameters<typeof write>[2], audit)
+        : refusal(tool, WRITES_UNAVAILABLE);
       const { operation, input } = parsed.call;
       try {
         const facts = await turnFacts(options, turn);
@@ -416,15 +431,17 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
   }
 
   return {
+    close: () => write?.close(),
     async call(turn, call) {
       let tool: string = GMAIL_TOOL_NAMES.search;
       let parsed: ReturnType<typeof parseGoogleToolCall> | null = null;
       let result: GoogleToolResult;
+      const writeAudit: Partial<GoogleCallAudit> = {};
       // Always an answer: nothing a call brings, or any step throws, escapes as a rejection.
       try {
         tool = call.tool;
         parsed = parseGoogleToolCall(tool, call.input);
-        result = await run(turn, tool, parsed);
+        result = await run(turn, tool, parsed, writeAudit);
       } catch (error) {
         report(() => `Gmail tool ${String(tool)} failed: ${shown(error)}`);
         result = refusal(isGmailToolName(tool) ? tool : GMAIL_TOOL_NAMES.search, { code: "upstream_error", reason: null, message: "The Gmail read failed." });
@@ -434,8 +451,8 @@ export function createGoogleToolsHost(options: GoogleToolsHostOptions): GoogleTo
         let sessionId: string | null = null;
         try { sessionId = turn.sessionId(); } catch { /* Unbound. */ }
         return { turnId: turn.turnId, sessionId, actor: turn.posture };
-      }, () => ({ tool, operation: parsed?.ok ? parsed.call.operation : null, view: answer.ok ? answer.result.view : null,
-        outcome: answer.ok ? "returned" : "refused", code: answer.ok ? null : answer.error.code, reason: answer.ok ? null : answer.error.reason }));
+      }, () => ({ tool, operation: parsed?.ok ? parsed.call.operation : null, view: answer.ok && "view" in answer.result ? answer.result.view : null,
+        outcome: answer.ok ? "returned" : "refused", code: answer.ok ? null : answer.error.code, reason: answer.ok ? null : answer.error.reason, ...writeAudit }));
       return answer;
     },
 

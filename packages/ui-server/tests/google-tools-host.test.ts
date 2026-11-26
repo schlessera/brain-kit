@@ -113,7 +113,7 @@ test("a hidden label keeps its threads out of every search and every get, as a m
   const h = harness();
   const hidden = h.turn({ policy: POLICY(["Label_12"]) });
   const search = await h.call("brain_google_gmail_search", { query: "in:inbox", view: "structured" }, hidden);
-  expect(search.ok && search.result.kind === "search" && search.result.threads.map(hit => hit.thread_id), "GOOGLE_HIDDEN_ABSENT_FROM_SEARCH").toEqual([SWINE]);
+  expect(search.ok && "kind" in search.result && search.result.kind === "search" && search.result.threads.map(hit => hit.thread_id), "GOOGLE_HIDDEN_ABSENT_FROM_SEARCH").toEqual([SWINE]);
   const miss = await h.call("brain_google_gmail_read", { target: "thread", id: MISSING }, hidden);
   expect(miss, "GOOGLE_REAL_MISS").toMatchObject({ ok: false, error: { code: "not_found", reason: null } });
   for (const [target, id] of [["thread", HALL], ["message", HALL_REPLY], ["draft", DRAFT]] as const) {
@@ -124,7 +124,7 @@ test("a hidden label keeps its threads out of every search and every get, as a m
   const sibling = await h.call("brain_google_gmail_read", { target: "message", id: HALL_REPLY }, h.turn({ policy: POLICY(["CATEGORY_PERSONAL"]) }));
   expect(sibling, "GOOGLE_HIDDEN_BY_THREAD").toEqual(miss);
   const labels = await h.call("brain_google_gmail_read", { target: "labels" }, hidden);
-  expect(labels.ok && labels.result.kind === "labels" && labels.result.labels.map(label => label.id), "GOOGLE_HIDDEN_LABEL_NOT_LISTED").not.toContain("Label_12");
+  expect(labels.ok && "kind" in labels.result && labels.result.kind === "labels" && labels.result.labels.map(label => label.id), "GOOGLE_HIDDEN_LABEL_NOT_LISTED").not.toContain("Label_12");
   expect(h.taints, "GOOGLE_HIDDEN_NOTHING_TAINTED").toEqual([]);
   // Without the label the same reads return.
   expect(await h.call("brain_google_gmail_read", { target: "message", id: HALL_REPLY, view: "structured" }), "GOOGLE_UNHIDDEN_READS").toMatchObject({ ok: true });
@@ -241,7 +241,7 @@ test("label names come from the label list, so a result names labels only where 
 test("a search cursor is the host's, bound to its conversation and query, and maps to Google's token", async () => {
   const h = harness();
   const first = await h.call("brain_google_gmail_search", { query: "in:inbox", view: "structured" });
-  const cursor = first.ok && first.result.kind === "search" ? first.result.next_cursor : null;
+  const cursor = first.ok && "kind" in first.result && first.result.kind === "search" ? first.result.next_cursor : null;
   expect(cursor, "GOOGLE_HOST_CURSOR").toMatch(/^gc_[A-Za-z0-9_-]{16,64}$/);
   expect(JSON.stringify(first), "GOOGLE_PAGE_TOKEN_NEVER_RETURNED").not.toContain("09876543210987654321");
   const refused = [

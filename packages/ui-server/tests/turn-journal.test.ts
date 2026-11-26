@@ -846,3 +846,34 @@ test("idle checkpoint cleanup records its cause durably before any turn exists a
     expect(status.journalCleanup).toMatchObject({ retained: { failed: 1 }, lastFailure: { cause: "Error: Odysseus idle checkpoint release refused" } });
   } finally { f.native.manager.release = release; await f.close(); }
 });
+
+test("google journal projects reversible and irreversible admission while preserving legacy outward rows and truncation", async () => {
+  const f = fixture();
+  try {
+    f.db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES ('ithaca',1,1)").run();
+    await f.begin("google-turn");
+    await f.journal.finish("google-turn");
+    const meta = { sessionId: "ithaca", turnId: "google-turn", actor: "interactive" as const, model: null, profile: "governed" as const };
+    const legacy = recordGovernanceEvent(f.db, { ...meta, kind: "outward_action", payload: { tool: "Bash", input: "git push", inputTruncated: false,
+      action: "git_push", target: "ithaca.invalid", historyRewrite: false, tainted: false, decision: "approved", rule: null } });
+    recordGovernanceEvent(f.db, { ...meta, kind: "outward_action", payload: { tool: "gmail_send", input: "r123", inputTruncated: false,
+      action: "google_write", google: { callId: "send", operation: "gmail.draft.send", effect: "irreversible" }, target: "r123",
+      historyRewrite: false, tainted: false, decision: "approved", rule: null } });
+    recordGovernanceEvent(f.db, { ...meta, kind: "google_call", payload: { tool: "gmail_read", operation: "gmail.read", view: "structured", outcome: "returned", code: null, reason: null } });
+    const receipt = { callId: "modify", tool: "gmail_modify", operation: "gmail.modify" as const, effect: "reversible" as const, target: "abcdef123",
+      tainted: true, decision: "allowed" as const, admission: "session_allowance" as const, inverseId: "inverse" };
+    const reversible = recordGovernanceEvent(f.db, { ...meta, kind: "google_reversible_action", payload: receipt });
+    const details = f.journal.details("ithaca", "google-turn")!;
+    expect(details.outwardActions?.find(row => row.id === legacy.id)).toEqual({ id: legacy.id, at: expect.any(Number), tool: "Bash", action: "git_push",
+      target: "ithaca.invalid", historyRewrite: false, decision: "approved", revertible: false });
+    expect(details.outwardActions?.find(row => row.action === "google_write")?.google).toEqual({ callId: "send", operation: "gmail.draft.send", effect: "irreversible" });
+    expect(details.googleActions).toEqual([{ id: reversible.id, at: expect.any(Number), callId: "modify", tool: "gmail_modify", operation: "gmail.modify",
+      effect: "reversible", target: "abcdef123", tainted: true, decision: "allowed", admission: "session_allowance", revertible: false, undoAvailable: false }]);
+    expect(details.googleActionsTruncated).toBe(false);
+    f.db.transaction(() => { for (let n = 0; n < 1000; n++) recordGovernanceEvent(f.db, { ...meta, kind: "google_reversible_action", payload: { ...receipt, callId: `modify-${n}` } }); })();
+    const bounded = f.journal.details("ithaca", "google-turn")!;
+    expect(bounded.googleActions).toHaveLength(1000);
+    expect(bounded.googleActionsTruncated).toBe(true);
+    expect(bounded.outwardActions).toEqual(details.outwardActions);
+  } finally { await f.close(); }
+});

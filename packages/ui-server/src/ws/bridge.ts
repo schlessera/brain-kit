@@ -1,3 +1,4 @@
+import { createProviderExposures } from "../brain/provider-exposure.js";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
 import { staleReadRefusal } from "../brain/turn-data-tree.js";
@@ -191,7 +192,22 @@ function applyExternalServices(ctx: BridgeContext, bridge: BackendBridge, transc
       const writes = host.activity?.governanceWrites, db = host.activity?.governanceDb;
       return writes ? writes.taint(turnId, sessionId()) !== null : db ? sessionTaint(db, turnId, sessionId()) !== null : true;
     };
-    bridge.google = call => google.call({ turnId, principalId, sessionId, posture: work?.posture === "voice" ? "voice" : "interactive",
+    const googleState = host.googleState;
+    const exposureReads = host.activity?.governanceDb ? createProviderExposures(host.activity.governanceDb) : undefined;
+    const write = {
+      signal, requestPermission: (request: Parameters<BackendBridge["requestPermission"]>[0]) => bridge.requestPermission(request),
+      toolName, isCurrent: () => !signal.aborted && isAuthorized(),
+      safety: () => { if (!bridge.admissionSafety) throw new Error("Google admission safety unavailable"); return bridge.admissionSafety.read(); },
+      routingNow: () => {
+        if (!governance || !exposureReads || !sessionId()) return "recipient_unproven" as const;
+        return recipientRouting(governance.policy.policy, governance.typeFolders, exposureReads.forSessions([sessionId()!]), "google") ?? "allowed" as const;
+      },
+      record: async (...args: Parameters<NonNullable<typeof googleState>["commitGoogleDecision"]>) => {
+        if (!googleState) throw new Error("Google decision recorder unavailable");
+        return googleState.commitGoogleDecision(...args);
+      },
+    };
+    bridge.google = call => google.call({ write, turnId, principalId, sessionId, posture: work?.posture === "voice" ? "voice" : "interactive",
       policy: () => governance?.policy.policy.google ?? null, routing, tainted }, call);
   }
 }

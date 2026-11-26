@@ -857,6 +857,8 @@ export interface ClientToolApproval {
    * kind "command" requests, which stay per-use).
    */
   always?: boolean;
+  /** Google card choice; scoped to this session, never a generic tool grant. */
+  forSession?: boolean;
   /** The channel the grant was made on. "voice" is refused by the host. */
   channel?: ApprovalChannel;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
@@ -1286,7 +1288,7 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * "command" — a destructive-pattern confirmation for an otherwise
    * auto-allowed tool (bash); always per-use, never rememberable.
    */
-  kind?: "tool" | "command" | "policy" | "actor";
+  kind?: "tool" | "command" | "policy" | "actor" | "google";
   /**
    * Whether the host will keep an "always allow" given on this card (rev 4,
    * additive). Sent as `false` when the host will refuse to remember the
@@ -4688,7 +4690,7 @@ export interface QueueStagingManifest extends ShareIntakeResult {
   source: "cli";
 }
 
-export type { JournalObservationReference, TurnHistoryAction, ConflictVersionSelection, TurnRevertRequest, JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction, ConfigurationCoverageRead } from "./turn-journal.js";
+export type { JournalObservationReference, TurnHistoryAction, ConflictVersionSelection, TurnRevertRequest, JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction, JournalGoogleAction, ConfigurationCoverageRead } from "./turn-journal.js";
 
 /** Durable journal progress can arrive after the terminal result without reopening the turn. */
 export interface ServerTurnJournal extends SessionScoped {

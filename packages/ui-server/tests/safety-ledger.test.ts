@@ -500,3 +500,44 @@ for(const boundary of ["rows","bytes"] as const)for(const admission of ["collect
  expect(sum.rows).toBeLessThanOrEqual(1000000);expect(sum.bytes).toBeLessThanOrEqual(536870912);
  expect(f.writes.safety("voyage","ithaca").restriction).toBe("restricted");
  }finally{await peerWriter?.close();peer?.close();await f.close();}});
+
+test("google audit variants and action receipts leave safety unchanged across reopen and legacy migration", async () => {
+  const f = fixture();
+  try {
+    await fresh(f);
+    const before = f.writes.safety("voyage", "ithaca");
+    const beforeRecords = safetyRecords(f.db, "ithaca");
+    expect(before.restriction).toBe("normal");
+    const meta = { sessionId: "ithaca", turnId: "voyage", actor: "interactive" as const, model: null, profile: "governed" as const };
+    for (const view of ["structured", "content", null] as const) {
+      for (const outcome of ["returned", "refused"] as const) await f.writes.record({ ...meta, kind: "google_call", payload: {
+        tool: "gmail_read", operation: "gmail.read", view, outcome, code: null, reason: null,
+        callId: `call-${view}-${outcome}`, effect: "read", target: null, decision: outcome === "returned" ? "allowed" : "refused",
+        admission: outcome === "returned" ? "policy" : null, decisionEventId: null,
+      } });
+    }
+    await f.writes.record({ ...meta, kind: "google_call", payload: { tool: "gmail_send", operation: "gmail.draft.send", view: null,
+      outcome: "returned", code: null, reason: null, callId: "send", effect: "irreversible", decision: "approved", admission: null, target: "r123", decisionEventId: null } });
+    await f.writes.record({ ...meta, kind: "google_reversible_action", payload: { callId: "modify", tool: "gmail_modify", operation: "gmail.modify",
+      effect: "reversible", target: "abcdef123", tainted: false, decision: "approved", admission: null, inverseId: "inverse" } });
+    await f.writes.record({ ...meta, kind: "outward_action", payload: { tool: "gmail_send", input: "r123", inputTruncated: false, action: "google_write",
+      google: { callId: "send", operation: "gmail.draft.send", effect: "irreversible" }, target: "r123", historyRewrite: false,
+      tainted: false, decision: "approved", rule: null } });
+    expect(f.writes.safety("voyage", "ithaca"), "GOOGLE_RECEIPTS_MUST_NOT_CHANGE_SAFETY").toEqual(before);
+    expect(safetyRecords(f.db, "ithaca"), "GOOGLE_RECEIPTS_MUST_NOT_ADD_SAFETY_RECORDS").toEqual(beforeRecords);
+    await f.writes.safetyEnd("voyage");
+    const sealed = f.writes.safety(null, "ithaca");
+    await f.writer.close(); f.db.close();
+    const reopened = createUiDb(f.path), writer = openSqliteWriter(reopened), writes = createGovernanceWrites(reopened, writer);
+    try {
+      const { migrateSafetyHistory } = await import("../src/governance/safety-store.js");
+      migrateSafetyHistory(reopened);
+      expect(writes.safety(null, "ithaca"), "GOOGLE_RECEIPTS_MUST_NOT_CHANGE_SAFETY_ON_REOPEN").toEqual(sealed);
+      expect(safetyRecords(reopened, "ithaca")).toEqual(beforeRecords);
+      // A new observation has no ended turn binding; the sealed turn must stay sealed.
+      await writes.record({ ...meta, turnId: null, kind: "taint", payload: { source: "google_result", tool: "gmail_read", detail: "Odysseus reads a letter." } });
+      expect(writes.safety(null, "ithaca").unresolvedCount, "REAL_GOOGLE_RESULT_IS_SAFETY_EVIDENCE").toBe(1);
+      expect(writes.safety(null, "ithaca").restriction).toBe("restricted");
+    } finally { await writer.close(); reopened.close(); }
+  } finally { await f.close(); }
+});

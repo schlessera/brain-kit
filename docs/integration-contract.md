@@ -30,7 +30,15 @@ tools in their fixed roster, always loaded: `brain_google_gmail_search`,
 roster never depends on configuration; each read is decided by the host under
 the turn's frozen `google` policy block (the owner account only, Google enabled,
 routing as the provider-policy recipient `google`). The four write tools
-answer `unavailable` (`writes_unavailable`) until #4211. Results are typed
+answer `unavailable` (`writes_unavailable`) until their operations land in
+#4213/#4214. The #4211 engine provides exact Google permission cards, a strict structured
+write-success envelope, commit-confirmed decision/inverse storage and journal
+receipts. It rechecks live authority, safety and the current Google block;
+card-less writes re-evaluate admission and G2 routing to recipient `google`
+at dispatch. Cards authorize one exact operation; both standing offers remain
+off until #4212. Startup cleanup failure contains only writes and recovers
+automatically. The engine does not enable concrete operations itself. See
+[write admission and results](integration-contract/wire.md#google-write-results-and-admission-additive-4211). Results are typed
 payloads in two views: `structured`, only host-validated ids, label ids and
 names, timestamps, counts, size buckets and flags, which taints nothing; and
 `content`, which adds the untrusted text, marked in the schema, and taints the

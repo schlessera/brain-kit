@@ -1,5 +1,6 @@
 import { approvalRequestFrame, withTurnScope } from "../frames.js";
 import { turnIdMatches, type ClientMessageHandler, type HandlerContext } from "./context.js";
+import type { PendingApproval } from "../turns.js";
 
 /**
  * Answer a permission reply that applied to nothing pending (#957): the host
@@ -27,6 +28,16 @@ function replyResolution(
     return;
   }
   host.sendMessage(ws, { type: "tool_resolution", toolUseId, outcome: "unknown", ...(echoed ? { turnId: echoed } : {}) });
+}
+
+/**
+ * A Google card carries the owner's mail and owner-only authority (Q9): only an
+ * owner answers it, by grant or denial; anyone else's answer leaves it pending.
+ */
+function mayAnswer(ctx: HandlerContext, pending: PendingApproval): boolean {
+  if (pending.request.kind !== "google") return true;
+  const { host, connection } = ctx;
+  return host.googleOwner ? host.googleOwner(connection.principal) : connection.principal.id === pending.turn.principalId;
 }
 
 export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (ctx, msg) => {
@@ -67,6 +78,17 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
     );
     return;
   }
+  // A Google card carries the owner's mail and owner-only authority (Q9): an
+  // answer from anyone else is ignored, and the card stays pending for the owner.
+  if (!mayAnswer(ctx, pending)) {
+    host.log.emit({
+      severityText: "WARN",
+      body: "google card answer from a non-owner ignored",
+      attributes: { "tool.name": pending.request.toolName, "toolUse.id": pending.request.toolUseId },
+    });
+    replyResolution(ctx, msg.toolUseId, msg.turnId);
+    return;
+  }
   const claimed = coordinator.claimApproval(msg.toolUseId, p => p === pending);
   if (!claimed) return;
   // Remember-on-approve. Kind "command" never persists (the client
@@ -86,7 +108,7 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
   const store = host.toolPermissions;
   const remembers =
     store !== null &&
-    pending.request.kind !== "actor" && pending.request.kind !== "command" && pending.request.kind !== "policy" &&
+    pending.request.kind !== "google" && pending.request.kind !== "actor" && pending.request.kind !== "command" && pending.request.kind !== "policy" &&
     !pending.request.outsideEnforcedAllowlist;
   const actorAlways = pending.request.kind === "actor" && !pending.request.outsideEnforcedAllowlist && msg.always === true;
   if (msg.always && remembers) {
@@ -99,7 +121,7 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
         "grant_storage_failed", p => p === claimed);
       return;
     }
-  } else if (msg.always && !actorAlways) {
+  } else if (msg.always && !actorAlways && pending.request.kind !== "google") {
     // The user asked for something the host will not do. Recorded for
     // the same reason the bridge records a grant it declines to apply:
     // a refusal nobody can see is indistinguishable from a bug, and for
@@ -123,7 +145,11 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
   coordinator.settleApproval(
     msg.toolUseId,
     pending,
-    msg.updatedInput
+    pending.request.kind === "google"
+      ? { behavior: "allow", ...(msg.updatedInput ? { updatedInput: msg.updatedInput } : {}),
+          ...(msg.always !== undefined ? { always: msg.always } : {}),
+          ...(msg.forSession !== undefined ? { forSession: msg.forSession } : {}) }
+      : msg.updatedInput
       ? { behavior: "allow", updatedInput: msg.updatedInput }
       : { behavior: "allow", ...(actorAlways ? { always: true } : {}) },
     {
@@ -136,7 +162,17 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
 
 export const handleToolDenial: ClientMessageHandler<"tool_denial"> = (ctx, msg) => {
   const { host, connection, requireEcho } = ctx;
-  const pending = host.coordinator.claimApproval(msg.toolUseId, (p) => turnIdMatches(p, msg.turnId, requireEcho));
+  const waiting = host.coordinator.pendingApprovals.get(msg.toolUseId);
+  if (waiting && !mayAnswer(ctx, waiting)) {
+    host.log.emit({
+      severityText: "WARN",
+      body: "google card denial from a non-owner ignored",
+      attributes: { "tool.name": waiting.request.toolName, "toolUse.id": waiting.request.toolUseId },
+    });
+    replyResolution(ctx, msg.toolUseId, msg.turnId);
+    return;
+  }
+  const pending = host.coordinator.claimApproval(msg.toolUseId, (p) => turnIdMatches(p, msg.turnId, requireEcho) && mayAnswer(ctx, p));
   if (pending) {
     host.coordinator.settleApproval(msg.toolUseId, pending, { behavior: "deny", message: msg.message }, {
       principalId: connection.authorization.principalId,

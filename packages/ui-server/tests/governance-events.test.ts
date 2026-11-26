@@ -29,6 +29,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> } = {
   safety_admission_expired: { toolUseId: "ithaca-card", evidenceRevision: "1", trustRevision: "0", authorityEpoch: "0", reason: "safety_changed" },
   taint_exposure: { occurrenceId: "ithaca-exposure", state: "interrupted_unknown" },
+  google_reversible_action: { callId: "call-ithaca", tool: "gmail_modify", operation: "gmail.modify", effect: "reversible", target: "abcdef123", tainted: false, decision: "approved", admission: null, inverseId: "inverse-ithaca" },
   google_call: { tool: "brain_google_gmail_search", operation: "gmail.search", view: "structured", outcome: "returned", code: null, reason: null },
   egress_connection: { host: "ithaca.invalid", port: 443, method: "CONNECT", bytes: 100, accounting: "opaque_bytes", durationMs: 5, outcome: "completed" },
   policy_change: { requestId: "policy-ithaca", baseHash: null, proposedHash: "a".repeat(64), sections: ["profiles.interactive"], outcome: "updated" },
@@ -291,4 +292,22 @@ test("migration 038 applies over a populated catalog and cascades from it", () =
   expect(() => d.query("INSERT INTO governance_events (at, kind, schema_version, actor, payload) VALUES (1, 'taint', 1, 'user', '[]')").run()).toThrow();
   d.query("DELETE FROM sessions WHERE id = 'sess-ithaca'").run();
   expect(count(d)).toBe(0);
+});
+
+
+test("google governance requires irreversible metadata and coherent reversible admission", () => {
+  const outward = GOVERNANCE_EVENT_SCHEMAS.outward_action.payload;
+  const card = { ...SAMPLE_PAYLOADS.outward_action, action: "google_write" };
+  expect(outward.safeParse(card).success).toBe(false);
+  expect(outward.safeParse({ ...card, google: { callId: "call", operation: "gmail.draft.send", effect: "irreversible" } }).success).toBe(true);
+  expect(outward.safeParse({ ...card, google: { callId: "call", operation: "gmail.draft.send", effect: "irreversible", body: "mail" } }).success).toBe(false);
+  const reversible = GOVERNANCE_EVENT_SCHEMAS.google_reversible_action.payload;
+  for (const invalid of [
+    { ...SAMPLE_PAYLOADS.google_reversible_action, inverseId: null },
+    { ...SAMPLE_PAYLOADS.google_reversible_action, decision: "refused" },
+    { ...SAMPLE_PAYLOADS.google_reversible_action, decision: "allowed" },
+    { ...SAMPLE_PAYLOADS.google_reversible_action, admission: "policy" },
+    { ...SAMPLE_PAYLOADS.google_reversible_action, snapshot: "mail" },
+  ]) expect(reversible.safeParse(invalid).success).toBe(false);
+  expect(reversible.safeParse({ ...SAMPLE_PAYLOADS.google_reversible_action, decision: "allowed", admission: "session_allowance" }).success).toBe(true);
 });

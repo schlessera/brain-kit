@@ -175,7 +175,7 @@ export interface ToolCall {
    * What the pending approval is for: "tool" may be remembered via "Always
    * allow"; "command" (a destructive-bash confirmation) is per-use only.
    */
-  approvalKind?: "tool" | "command" | "policy" | "actor";
+  approvalKind?: "tool" | "command" | "policy" | "actor" | "google";
   /**
    * `false` when the host said it will not keep an "always allow" given on
    * this card (#147) — the request is outside the turn's enforced allowlist.
@@ -475,7 +475,7 @@ export interface ChatState {
     toolName: string,
     input: Record<string, unknown>,
     description?: string,
-    kind?: "tool" | "command" | "policy" | "actor",
+    kind?: "tool" | "command" | "policy" | "actor" | "google",
     rememberable?: boolean,
     /** The host turn the request belongs to, from the frame. */
     turnId?: string,
@@ -688,7 +688,7 @@ export function anyStreaming(state: ChatShellState): boolean {
  * this one rule, so the button and the receipt cannot disagree.
  */
 export function offersAlwaysAllow(tool: Pick<ToolCall, "approvalKind" | "approvalRememberable">): boolean {
-  return tool.approvalKind !== "command" && tool.approvalKind !== "policy" && tool.approvalRememberable !== false;
+  return tool.approvalKind !== "google" && tool.approvalKind !== "command" && tool.approvalKind !== "policy" && tool.approvalRememberable !== false;
 }
 
 /**

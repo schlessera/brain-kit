@@ -1,3 +1,4 @@
+import { GOOGLE_MAIL_APPROVAL_SCHEMA } from "./tool-contracts/google.js";
 export { safetyFutureStatusSchema, safetyFuturePrepareSchema, safetyFutureCommitSchema, safetyFuturePreparedSchema, safetyFutureResultSchema } from "./safety.js";
 export { safetyProjectionSchema, safetyReviewBodySchema, safetyReviewReceiptSchema, safetyReviewResponseSchema, safetySessionKeySchema, safetyPageSchema, safetyUpdateSchema, safetyCapabilitiesSchema } from "./safety.js";
 import { clientSafetyReadSchema, clientSafetySubscribeSchema, clientSafetyUnsubscribeSchema, serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema, safetyCapabilitiesSchema } from "./safety.js";
@@ -468,6 +469,7 @@ export const clientToolApprovalSchema = z.looseObject({
     )
     .optional(),
   always: z.boolean().optional(),
+  forSession: z.boolean().optional(),
   channel: approvalChannelSchema.optional(),
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientToolApproval>;
@@ -1397,10 +1399,16 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   toolName: z.string(),
   input: z.record(z.string(), z.unknown()),
   description: z.string().optional(),
-  kind: z.enum(["tool", "command", "policy", "actor"]).optional(),
+  kind: z.enum(["tool", "command", "policy", "actor", "google"]).optional(),
   rememberable: z.boolean().optional(),
   display: approvalDisplaySchema.optional().catch(undefined),
   ...sessionScoped,
+}).superRefine((value, ctx) => {
+  if (value.kind !== "google") return;
+  const parsed = GOOGLE_MAIL_APPROVAL_SCHEMA.safeParse(value.input);
+  if (!parsed.success) for (const issue of parsed.error.issues) {
+    ctx.addIssue({ code: "custom", path: ["input", ...issue.path], message: issue.message });
+  }
 }) satisfies z.ZodType<ServerToolApprovalRequest>;
 
 const modelUsageSchema = z.looseObject({

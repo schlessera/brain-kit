@@ -94,6 +94,26 @@ most 1,000 rows, explicitly marks truncation, and leaves the complete retained
 governance event query available. No permission/card or protocol revision is
 added.
 
+### Google action receipts (additive, #4211)
+
+Journal details remain an HTTP read; there is no new WebSocket frame or
+protocol revision. `JournalOutwardAction.action` additionally accepts
+`google_write`, with `google: { callId, operation, effect: "irreversible" }`.
+Existing outward rows retain their shape. These are admission receipts;
+restoring files cannot undo an external effect.
+
+Optional `googleActions: JournalGoogleAction[]` contains only reversible
+Google receipts: `id`, `at`, `callId`, `tool`, `operation`,
+`effect: "reversible"`, nullable `target`, `tainted`,
+`decision: "allowed" | "approved" | "declined" | "refused"`,
+`admission: "policy" | "remembered_approval" | "session_allowance" | null`,
+`revertible: false` and `undoAvailable: false`. `allowed` requires an admission
+source; every other decision has null admission. No completion or usable undo
+is implied. The list is bounded to 1,000 rows with a separate
+`googleActionsTruncated` sentinel; complete receipts remain in governance.
+Reads and `google_call` audits are not projected into this list. Mail bodies,
+snapshots and serialized messages never belong in governance receipts.
+
 ### Hosted external compute (additive, 0.45.0, #3108)
 
 A hosted external compute job is its own Activity root run, run id
@@ -3200,6 +3220,90 @@ a generic tool grant and a generic remembered tool permission never answers an
 Actor request. Once and deny retain their existing wire shapes. The host stores
 Actor approval by brain, principal, account and immutable Actor id, and the
 owner can revoke it in Apify settings.
+
+### Google mail approval (additive, #4211)
+
+`tool_approval_request.kind` additionally accepts `google`. Its `input` must
+validate as the strict `GoogleMailApproval` schema. Every card has `operation`,
+`effect: "reversible" | "irreversible"`, `tainted`, `entities`, strict
+`offers: { allow_always, allow_for_session }` booleans and a prepared `payload`:
+
+| Operation | Payload |
+| --- | --- |
+| `gmail.modify` | `message_ids`, `add_label_ids`, `remove_label_ids` |
+| `gmail.trash` | `message_ids` |
+| `gmail.draft.save` | `action: "create" | "reply" | "update"`, nullable `draft_id` and `thread_id`, complete `message` |
+| `gmail.draft.delete` | `draft_id`, reviewed `digest` |
+| `gmail.draft.send` | `draft_id`, nullable `thread_id`, verified `send_as`, complete `message` |
+
+The complete parsed message carries `digest`, `bytes`, `from`, `to`, `cc`,
+`bcc`, `reply_to`, `subject`, `in_reply_to`, `references` and `body_text`.
+Mailboxes carry canonical `address`, `local`, `domain` and nullable
+`display_name`. The host rejects parser problems, HTML, attachments and
+unreadable fields before constructing a card and retains the bound raw bytes
+itself. Unknown fields and truncated content projections are rejected;
+`body_text` is complete, bounded by `GMAIL_LIMITS.draftBodyChars` (32,768).
+Irreversible cards offer neither standing choice. Reversible untainted cards
+may offer only `allow_always`; tainted cards may offer only `allow_for_session`.
+`rememberable` derives from those offers, independently of generic tool storage.
+The generic Always allow control is never shown for a Google card.
+
+`tool_approval` adds optional `forSession: boolean`. Once omits both choice
+fields; always sends `always: true`; session sends `forSession: true`.
+Google choices are forwarded distinctly as `PermissionDecision`, including
+when `updatedInput` is present; other kinds retain their existing behavior.
+Neither a generic tool grant nor a generic Always allow answer authorizes or
+persists a Google grant. This contract does not store standing approvals:
+Google ledger behavior belongs to #4212 and dedicated buttons to #4215/#4216.
+The write host must validate offered choices, unchanged input and current
+authority before dispatch. Decline retains the existing `tool_denial` shape.
+
+### Google write results and admission (additive, #4211)
+
+A successful write returns `{ ok: true, tool, operation, effect, admission,
+result }`. `effect` is `reversible` or `irreversible`; `admission` is `card`,
+`policy`, `remembered_approval` or `session_allowance`. The tool and operation
+must agree. Each receipt is strict, bounded and structured; it carries no mail
+body, subject, address or arbitrary transport text:
+
+| Operation | `result` |
+| --- | --- |
+| `gmail.modify` | Changed `message_ids`, `add_label_ids`, `remove_label_ids` |
+| `gmail.trash` | Changed `message_ids` |
+| `gmail.draft.save` | `draft_id`, SHA-256 `fingerprint` |
+| `gmail.draft.delete` | `draft_id` |
+| `gmail.draft.send` | Reviewed `draft_id`, returned `message_id`, nullable `thread_id` |
+
+The existing refusal envelope is unchanged. New host refusal reasons include
+`policy_changed` (`policy_denied`; the turn keeps its policy, so the change applies from the next message), `standing_choice_unavailable`
+(`approval_declined`), `draft_locked` (`draft_locked`), `card_too_large`
+(`draft_not_displayable`: the card's JSON exceeds `GOOGLE_APPROVAL_CARD_BYTES`
+and is never shown, so an approval frame is never shrunk in transit), and
+`recording_unavailable` or `state_unavailable` (`unavailable`). A timeout or
+ambiguous failure after dispatch is `outcome_unknown`: the write may have
+happened; the host never retries it.
+
+Until #4212, both card offers are **false**, remembered approvals and session
+allowances are empty, and either standing answer is declined. Canonically
+identical approval input echoes are accepted; any edit is declined. A card
+approves one exact operation, once. Only the brain's owner can answer a Google
+card: an answer from another principal is ignored and the card stays pending. The host rechecks live owner authority,
+safety and the current Google policy block after the card and at dispatch.
+An exact card stays bound to the complete safety snapshot it was decided and
+shown under: any change before dispatch refuses it (`safety_changed`) and needs
+a fresh card.
+Card-less writes additionally re-evaluate admission and routing as recipient
+`google` under the account write lock. The decision and any inverse commit
+before dispatch; unrecorded decisions authorize nothing. A refusal after that
+commit but before dispatch adds a refused receipt for the same `callId` and
+withdraws the prepared inverse, which nothing can need. Audit receipts retain
+metadata only. Card-owned send locks end with the card and are cleared at host
+startup. A failed startup cleanup restricts only Google writes and retries
+with bounded backoff; reads and chats remain available.
+
+Production operations still return `writes_unavailable` until #4213/#4214.
+The engine's prepared-operation injection is internal test plumbing, absent
+from the public package API and configuration.
 
 ### Live orientation disclosure and progress (additive, #3623)
 

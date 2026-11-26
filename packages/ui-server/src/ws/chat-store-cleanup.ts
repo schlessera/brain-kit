@@ -32,8 +32,9 @@ const run = (db: Database, sql: string, values: readonly string[], ...before: (s
 };
 
 /** Session projections that carry readable text, digests of it, or classified copies. */
-const PROJECTION_TABLES = ["message_blocks", "classification_confidence", "message_sources", "local_exchanges",
-  "retry_requests", "turn_failures", "turn_boundaries", "session_state_room"] as const;
+export const PROJECTION_TABLES = ["message_blocks", "classification_confidence", "message_sources", "local_exchanges",
+  "retry_requests", "turn_failures", "turn_boundaries", "session_state_room",
+  "google_send_locks", "google_inverses", "google_session_allowances", "google_calendar_handles"] as const;
 
 function scrub(db: Database, lifecycleId: string, store: HostChatStore, at: number): number {
   const ids = identitiesOf(db, lifecycleId);

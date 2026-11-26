@@ -117,7 +117,7 @@ export interface TurnRecorder {
   onApprovalDecision(
     toolUseId: string,
     decision: "allow" | "always_allow" | "deny",
-    requestKind: "tool" | "command" | "policy" | "actor",
+    requestKind: "tool" | "command" | "policy" | "actor" | "google",
     principalId?: string,
     channel?: ApprovalChannel
   ): void;

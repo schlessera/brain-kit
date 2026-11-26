@@ -119,8 +119,12 @@ export interface WsHostOptions {
   githubTools?: import("../github/host.js").GithubToolsHost;
   /** @internal The host's Google credential and availability probe (#4206), for the Google tools. */
   google?: import("../google/credential.js").GoogleCredential;
-  /** @internal The host Gmail tools (#4207): interactive turns of both backends call them through the bridge. */
+  /** @internal Commit-confirmed Google state; no catalog fallback. */
+  googleState?: ReturnType<typeof import("../google/state-writes.js").createGoogleStateWrites>;
+  /** @internal The host Gmail tools: interactive turns call them through the bridge. */
   googleTools?: import("../google/host.js").GoogleToolsHost;
+  /** @internal Whether a principal is the brain's owner to the Google tools; only an owner answers a Google card. */
+  googleOwner?: (principal: Principal) => boolean;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
@@ -319,8 +323,12 @@ export class WsHost {
   readonly githubTools?: import("../github/host.js").GithubToolsHost;
   /** @internal The host's Google credential and availability probe (#4206). */
   readonly google?: import("../google/credential.js").GoogleCredential;
-  /** @internal The host Gmail tools (#4207). */
+  /** @internal Commit-confirmed Google state; no catalog fallback. */
+  readonly googleState?: ReturnType<typeof import("../google/state-writes.js").createGoogleStateWrites>;
+  /** @internal The host Gmail tools. */
   readonly googleTools?: import("../google/host.js").GoogleToolsHost;
+  /** @internal Only an owner answers a Google card; unset, only the turn's own principal does. */
+  readonly googleOwner?: (principal: Principal) => boolean;
   /** @internal The open worker generation of each running turn. */
   readonly referenceWorktreeGenerations: Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration> = new Map();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
@@ -442,6 +450,8 @@ export class WsHost {
     this.githubTools = options.githubTools;
     this.google = options.google;
     this.googleTools = options.googleTools;
+    this.googleState = options.googleState;
+    this.googleOwner = options.googleOwner;
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
     this.budgets = options.budgets;

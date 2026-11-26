@@ -14,6 +14,7 @@ export type {
   SessionHistoryRemovalResult,
   PermissionDecision,
   PermissionRequest,
+  GooglePermissionRequest,
   AskUserResult,
   AskUserListResult,
   AskUserRankResult,

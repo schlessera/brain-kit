@@ -670,3 +670,27 @@ test("source-qualified recorder retains abandoned probe evidence after a success
       waste: { tokens: 20, costUsd: 0.02, ms: 200 } });
   } finally { clock.mockRestore(); db.close(); }
 });
+
+
+test("google reversible refusals count as roadblocks while admissions and audits do not", () => {
+  const db = createUiDb(":memory:");
+  try {
+    const meta = { sessionId: null, turnId: "google-turn", at: T0 + 10, actor: "interactive" as const, model: null, profile: "governed" as const };
+    for (const decision of ["declined", "refused", "allowed", "approved"] as const) {
+      db.query("DELETE FROM governance_events").run();
+      recordGovernanceEvent(db, { ...meta, kind: "google_reversible_action", payload: {
+        callId: "call", tool: "gmail_modify", operation: "gmail.modify", effect: "reversible", target: null, tainted: false,
+        decision, admission: decision === "allowed" ? "policy" : null,
+        inverseId: decision === "allowed" || decision === "approved" ? "inverse" : null,
+      } });
+      recordGovernanceEvent(db, { ...meta, kind: "google_call", payload: {
+        tool: "gmail_modify", operation: "gmail.modify", view: null, outcome: "refused", code: "policy_denied", reason: null,
+      } });
+      const episodes = classifyRoadblocks(trace([]), queryGovernanceEvents(db, { turnId: "google-turn", limit: 100 }));
+      if (decision === "declined" || decision === "refused") {
+        expect(episodes).toHaveLength(1);
+        expect(episodes[0]).toMatchObject({ category: "permission_denied", failures: [expect.objectContaining({ category: "permission_denied" })] });
+      } else expect(episodes).toEqual([]);
+    }
+  } finally { db.close(); }
+});

@@ -46,6 +46,8 @@ import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
 import { createGoogleCredential } from "./google/credential.js";
+import { createGoogleStateWrites, isDraftSendLocked } from "./google/state-writes.js";
+import { initializeGoogleWrites } from "./google/startup.js";
 import { createGoogleToolsHost, googlePrincipalKind } from "./google/host.js";
 import { governancePolicyReaderFor } from "./brain/governance-policy.js";
 import { createGoogleDetailRoutes } from "./routes/google-details.js";
@@ -234,6 +236,8 @@ export interface CreateAppOptions {
    * the pinned `BRAIN_UI_GOG_PATH`.
    */
   googleBinary?: import("@schlessera/brain-common/internal/google-gog").GogBinary;
+  /** @internal Prepared writes for offline tests; production has no write factories. */
+  googlePreparedWrites?: import("./google/write-engine.js").GoogleWriteFactories;
   /** Full SemVer minima composed with package requirements; unknown explicit identities refuse startup. */
   versionRequirements?: HostVersionRequirements;
   /**
@@ -864,7 +868,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // account and never the owner of the host's Google credential. The
   // session's G6 taint commits before any content view reaches a turn, and a
   // record that is not made withholds it; a structured view records nothing.
-  const googleTools = createGoogleToolsHost({ credential: google, principal: id => googlePrincipalKind(resolvePrincipal(db, id), authMode, Date.now()),
+  const googleState = createGoogleStateWrites(db, writer);
+  const googleStartup = await initializeGoogleWrites(googleState, message => brainLog.emit({ severityText: "WARN", body: message }));
+  bootCleanup.push(() => googleStartup.close());
+  const googleTools = createGoogleToolsHost({ writes: {
+    brainId: config.brainPath, state: googleState, ready: googleStartup.ready,
+    currentPolicy: () => governancePolicyReaderFor(config.brainPath).load().policy.google,
+    isDraftLocked: (account, draft, epoch, now) => isDraftSendLocked(db, config.brainPath, account, draft, epoch, now),
+    preparedWrites: options.googlePreparedWrites,
+  }, credential: google, principal: id => googlePrincipalKind(resolvePrincipal(db, id), authMode, Date.now()),
     untrusted: async (turn, event) => {
       const collection=db.query("SELECT id,policy_hash FROM safety_collections WHERE turn_id=?").get(turn.turnId) as {id:string;policy_hash:string|null}|null;
       const observed=occurrence(collection?.id??crypto.randomUUID(),"compute_input",null,"finalized");
@@ -878,6 +890,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await activity.governanceWrites.record({ kind: "google_call", payload: event, sessionId: scope.sessionId, turnId: scope.turnId, actor: scope.actor, model: null, profile: null });
     },
     report: message => brainLog.emit({ severityText: "WARN", body: message }) });
+  bootCleanup.push(() => googleTools.close?.());
   const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());
   const accountSeed = await accountWrites(db).partitionSeed();
   const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, accountSeed);
@@ -925,7 +938,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     apify: apifyHost,
     githubTools,
     google,
-    googleTools,
+    googleTools, googleState,
+    googleOwner: principal => googlePrincipalKind(resolvePrincipal(db, principal.id), authMode, Date.now()) === "owner",
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
@@ -1612,6 +1626,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(stopAttachmentSweep);
       await attempt(() => hostExecution.release());
       // Consumers have drained; close the shared write connection before its reader.
+      await attempt(() => googleTools.close?.());
+      await attempt(() => googleStartup.close());
       await attempt(() => writer.close());
       await attempt(() => db.close());
       await attempt(() => ownerContinuity.close());
