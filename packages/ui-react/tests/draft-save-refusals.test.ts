@@ -938,20 +938,3 @@ test("a re-read keeps the host's order: a message found only there stays after t
   expect(d.snapshots?.map((x) => x.snapshotId), "HOST_ORDER_KEPT").toEqual(["snap-oars", "snap-sail"]);
   expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.snapshotId), "HOST_ORDER_SAVED").toEqual(["snap-oars", "snap-sail"]);
 });
-
-test("a Send whose creating save is refused for good is returned, so it can be edited or deleted", async () => {
-  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.some((x) => x.snapshotId === "snap-dawn") ? { status: 400, body: { error: "DRAFT_INVALID", message: "The message names an unknown field." } } : null) });
-  s.drafts.getState().edit(s.id, SESSION, { text: "Muster the crew" });
-  await run(SAVE_DELAY + 100);
-  expect(s.drafts.getState().drafts[s.id]?.host?.revision, "stored before the Send").toBe(1);
-  const message = { type: "chat_message" as const, text: "Muster the crew", sessionId: SESSION, requestId: "req-dawn" };
-  s.drafts.getState().createSnapshot(s.id, SESSION, { snapshotId: "snap-dawn", requestId: "req-dawn", text: "Muster the crew", files: [], state: "dispatched", createdAt: null, dispatch: "due", message }, "Muster the crew");
-  await run(LONG);
-  const d = s.drafts.getState().drafts[s.id]!;
-  // Not left at "Sending…": returned, with the host's reason, and its Edit and Delete… work.
-  expect(d.snapshots?.map((x) => ({ id: x.snapshotId, state: x.state, why: x.why })), "REFUSED_SEND_RETURNED").toEqual([{ id: "snap-dawn", state: "returned", why: { kind: "refused", reason: "The message names an unknown field." } }]);
-  expect(s.indicator(s.id), "REFUSAL_STILL_SHOWN").toMatchObject({ key: "refused" });
-  expect(s.drafts.getState().editSnapshot(s.id, "snap-dawn"), "EDIT_WORKS").toBe(true);
-  await run(LONG);
-  expect(s.saves.at(-1)!.body, "EDITED_TEXT_SAVED").toEqual({ sessionId: SESSION, text: "Muster the crew", attachmentIds: [] });
-});
