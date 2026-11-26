@@ -355,7 +355,11 @@ export function createTurnRecorder(
               break;
             }
             if (!safetyHooked && turn.origin !== "autonomous") {
-              try { ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID(), searchContext: searchOutputContext(msg.toolName,msg.input) }); }
+              try {
+                const searchContext=searchOutputContext(msg.toolName,msg.input);
+                if(msg.toolName==="Grep"&&(!msg.input||typeof msg.input!=="object"||!("output_mode" in msg.input)))searchContext.outputMode="legacy";
+                ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID(), searchContext });
+              }
               catch { deps.abort?.(new Error("Safety input detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
             }
             const traced = traceCall(msg.toolUseId, msg.toolName);

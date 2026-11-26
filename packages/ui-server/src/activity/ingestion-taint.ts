@@ -290,8 +290,18 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
       const lines=output.split('\n');
       // Literal filenames are candidates only in filename mode. Match text
       // is not a filename and must not consume the path budget.
-      const filenames=tool==='Glob'||context.outputMode==='files_with_matches';
-      if(filenames)for(const line of lines)if(line)add(line);
+      // Older display frames omit the selector even when they carry numbered
+      // match rows. Observe those path candidates without assuming the native
+      // default filename mode; exact literal marks remain independent.
+      const legacy=tool==='Grep'&&context.outputMode==='legacy';
+      const filenames=tool==='Glob'||context.outputMode==='files_with_matches'||legacy;
+      if(filenames)for(const line of lines)if(line){
+        if(legacy&&/:[1-9][0-9]*:/.test(line)){
+          content(line,true);
+          const relative=Buffer.byteLength(line)<=1024?brainRelative(line,brainPath):null;
+          try{if(relative!==null&&marked?.(relative))add(line);}catch{unknown=true;}
+        }else add(line);
+      }
       let candidates=0;
       joins:for(let span=2;filenames&&span<=lines.length;span++)for(let start=0;start+span<=lines.length;start++){
           if(++candidates>4096)break joins;
