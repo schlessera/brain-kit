@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /**
  * Paging replaces its own buttons: Next is gone on the last page, First on
@@ -29,13 +29,18 @@ export function usePageFocus(loading: boolean, page: unknown) {
  * A control that leaves its slot while focused (#4549: focus is kept during
  * actions). Each slot inside the returned ref is marked `data-focus-slot`;
  * when the focused control is removed and focus has fallen to the body, the
- * first control left in its slot takes focus.
+ * first control left in its slot takes focus. The listeners follow the
+ * element, which may mount after the hook does (a slot shown only with a
+ * selection).
  */
 export function useSlotFocus<T extends HTMLElement>() {
   const ref = useRef<T>(null),
-    last = useRef<{ control: Element; slot: Element } | null>(null);
+    last = useRef<{ control: Element; slot: Element } | null>(null),
+    [element, setElement] = useState<T | null>(null);
+  useLayoutEffect(() => {
+    if (ref.current !== element) setElement(ref.current);
+  });
   useEffect(() => {
-    const element = ref.current;
     if (!element) return;
     const enter = (event: FocusEvent) => {
       const control = event.target as Element;
@@ -60,7 +65,7 @@ export function useSlotFocus<T extends HTMLElement>() {
       element.removeEventListener("focusin", enter);
       element.removeEventListener("focusout", leave);
     };
-  }, []);
+  }, [element]);
   useLayoutEffect(() => {
     const was = last.current;
     if (!was || was.control.isConnected) return;

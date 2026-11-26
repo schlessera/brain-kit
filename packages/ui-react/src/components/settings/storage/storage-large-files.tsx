@@ -12,7 +12,7 @@ import type { StorageFileEntry, StorageRemovalReceipt } from "@schlessera/brain-
 import { bytes, humanReason, knownLinks } from "./storage-model.js";
 import { LARGER_PRESETS } from "./storage-pane-model.js";
 import { running, type useStorage } from "./use-storage.js";
-import { usePageFocus } from "./storage-page-focus.js";
+import { usePageFocus, useSlotFocus } from "./storage-page-focus.js";
 
 type StorageView = ReturnType<typeof useStorage>;
 type Facts = NonNullable<StorageView["evidence"][string]["facts"]>;
@@ -136,6 +136,7 @@ export function StorageLargeFiles({
   // server can report removal unavailable while it still holds the last
   // receipt, and that receipt is the only way back to its outcome and Undo.
   const lastRemoval = view.receipt ? <LastRemoval receipt={view.receipt} onReceipt={onReceipt} /> : null;
+  const slot = useSlotFocus<HTMLDivElement>();
   const bar = (
     <StorageSelectionBar
       count={view.selection.length}
@@ -150,12 +151,13 @@ export function StorageLargeFiles({
   // A removal still running or unconfirmed keeps its selection and holds
   // Review removal, so its receipt stays beside the bar (#4549 review).
   const footer = unavailable ? lastRemoval : view.selection.length > 0 ? (
-    // A fragment keeps the bar at one tree position, so the focused Review
-    // removal survives the receipt line appearing and leaving.
-    <>
+    // One box-less slot keeps the bar at one tree position, so a focused
+    // Review removal survives the receipt line appearing; when the line
+    // leaves while focused, the bar's first control takes focus.
+    <div ref={slot} className="contents" data-focus-slot="">
       {operationPending ? lastRemoval : null}
       {bar}
-    </>
+    </div>
   ) : lastRemoval ? (
     lastRemoval
   ) : (
