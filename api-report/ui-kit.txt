@@ -160,6 +160,25 @@ export "." (./src/index.ts)
   type GitHubThreadProps
   GitHubWriteNotice
   type GitHubWriteNoticeProps
+  type GmailAttachment
+  type GmailBodyDetail
+  type GmailContentMessage
+  type GmailContentThread
+  type GmailDate
+  type GmailDetailState
+  type GmailFlags
+  type GmailLabel
+  GmailLabels
+  type GmailLabelsProps
+  GmailMessage
+  type GmailMessageProps
+  GmailResultList
+  type GmailResultListProps
+  type GmailSizeBucket
+  type GmailStructuredMessage
+  type GmailStructuredThread
+  GmailThread
+  type GmailThreadProps
   GoogleAllowanceList
   type GoogleAllowanceListProps
   GoogleApprovalList
@@ -187,6 +206,7 @@ export "." (./src/index.ts)
   type InkTone
   InlineToast
   type InlineToastProps
+  type InvisibleSegment
   ItemCard
   type ItemCardAction
   type ItemCardProps
@@ -431,12 +451,14 @@ export "." (./src/index.ts)
   font
   githubHref
   googleActionWords
+  invisibleSegments
   markupBytesLabel
   markupNotes
   markupReceiptRows
   markupSummary
   overCapMessage
   registrableDomain
+  revealInvisibles
   z
 
 export "./brand" (./src/brand.ts)
@@ -1576,6 +1598,128 @@ signatures (every public export and the types it is made of)
     export interface GitHubWriteNoticeProps {
         outcome: "declined" | "changed" | "unknown";
     }
+  GmailAttachment (packages/ui-kit/src/google/GmailMessage.tsx)
+    export interface GmailAttachment {
+        filename: string | null;
+        mimeType: string | null;
+        size: number | null;
+    }
+  GmailBodyDetail (packages/ui-kit/src/google/GmailMessage.tsx)
+    export interface GmailBodyDetail {
+        state: GmailDetailState;
+        rest?: string | null;
+        restTruncated?: boolean;
+        errorStatus?: number | string;
+        resetAt?: string;
+        resetIn?: string;
+        onLoad?: () => void;
+        onRetry?: () => void;
+    }
+  GmailContentMessage (packages/ui-kit/src/google/GmailMessage.tsx)
+    export interface GmailContentMessage extends GmailStructuredMessage {
+        untrusted: {
+            from: string | null;
+            to: string | null;
+            cc: string | null;
+            bcc?: string | null;
+            subject: string | null;
+            snippet: string | null;
+            body: string | null;
+            bodyTruncated: boolean;
+            bodyLength: number | null;
+            attachments: readonly GmailAttachment[];
+        };
+        detail?: GmailBodyDetail;
+    }
+  GmailContentThread (packages/ui-kit/src/google/GmailResultList.tsx)
+    export interface GmailContentThread extends GmailStructuredThread {
+        untrusted: {
+            from: string | null;
+            to: string | null;
+            cc: string | null;
+            subject: string | null;
+            snippet: string | null;
+        };
+    }
+  GmailDate (packages/ui-kit/src/google/shared.tsx)
+    export interface GmailDate {
+        short: string;
+        full: string;
+        iso?: string;
+    }
+  GmailDetailState (packages/ui-kit/src/google/GmailMessage.tsx)
+    export type GmailDetailState = "idle" | "loading" | "loaded" | "error" | "rate-limited" | "unavailable" | "gone";
+  GmailFlags (packages/ui-kit/src/google/shared.tsx)
+    export interface GmailFlags {
+        unread?: boolean | null;
+        starred?: boolean | null;
+        hasAttachment?: boolean | null;
+    }
+  GmailLabel (packages/ui-kit/src/google/shared.tsx)
+    export interface GmailLabel {
+        id: string;
+        name: string | null;
+    }
+  GmailLabels (packages/ui-kit/src/google/GmailLabels.tsx)
+    export function GmailLabels(p: GmailLabelsProps): import("react").JSX.Element | null;
+  GmailLabelsProps (packages/ui-kit/src/google/GmailLabels.tsx)
+    export interface GmailLabelsProps {
+        labels: readonly GmailLabel[];
+        limit?: number;
+        static?: boolean;
+    }
+  GmailMessage (packages/ui-kit/src/google/GmailMessage.tsx)
+    export function GmailMessage(p: GmailMessageProps): import("react").JSX.Element;
+  GmailMessageProps (packages/ui-kit/src/google/GmailMessage.tsx)
+    export type GmailMessageProps = {
+        view: "content";
+        message: GmailContentMessage;
+    } | {
+        view: "structured";
+        message: GmailStructuredMessage;
+    };
+  GmailResultList (packages/ui-kit/src/google/GmailResultList.tsx)
+    export function GmailResultList(p: GmailResultListProps): import("react").JSX.Element;
+  GmailResultListProps (packages/ui-kit/src/google/GmailResultList.tsx)
+    export type GmailResultListProps = {
+        query?: string | null;
+        nextPage?: boolean;
+        initial?: number;
+    } & ({
+        view: "structured";
+        threads: readonly GmailStructuredThread[];
+    } | {
+        view: "content";
+        threads: readonly GmailContentThread[];
+    });
+  GmailSizeBucket (packages/ui-kit/src/google/shared.tsx)
+    export type GmailSizeBucket = "under_10kb" | "under_100kb" | "under_1mb" | "1mb_or_more";
+  GmailStructuredMessage (packages/ui-kit/src/google/GmailMessage.tsx)
+    export interface GmailStructuredMessage extends GmailFlags {
+        messageId: string;
+        date?: GmailDate | null;
+        labels: readonly GmailLabel[];
+        sizeBucket?: GmailSizeBucket | null;
+        attachmentCount?: number | null;
+    }
+  GmailStructuredThread (packages/ui-kit/src/google/GmailResultList.tsx)
+    export interface GmailStructuredThread extends GmailFlags {
+        threadId: string;
+        date?: GmailDate | null;
+        messageCount?: number | null;
+        labels: readonly GmailLabel[];
+        sizeBucket?: GmailSizeBucket | null;
+    }
+  GmailThread (packages/ui-kit/src/google/GmailThread.tsx)
+    export function GmailThread(p: GmailThreadProps): import("react").JSX.Element;
+  GmailThreadProps (packages/ui-kit/src/google/GmailThread.tsx)
+    export type GmailThreadProps = {
+        view: "content";
+        messages: readonly GmailContentMessage[];
+    } | {
+        view: "structured";
+        messages: readonly GmailStructuredMessage[];
+    };
   GoogleAllowanceList (packages/ui-kit/src/google/GoogleAllowanceList.tsx)
     export function GoogleAllowanceList(p: GoogleAllowanceListProps): import("react").JSX.Element;
   GoogleAllowanceListProps (packages/ui-kit/src/google/GoogleAllowanceList.tsx)
@@ -1824,6 +1968,7 @@ signatures (every public export and the types it is made of)
         readonly settings: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly share: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly speaker: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly star: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly steps: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly stopped: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly suggestion: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1907,6 +2052,17 @@ signatures (every public export and the types it is made of)
         onUndo?: () => void;
         announce?: boolean;
     }
+  InvisibleSegment (packages/ui-kit/src/google/reveal-invisibles.ts)
+    export type InvisibleSegment = {
+        kind: "text";
+        text: string;
+    } | {
+        kind: "hidden";
+        code: number;
+        count: number;
+        marker: string;
+        spoken: string;
+    };
   ItemCard (packages/ui-kit/src/rows/ItemCard.tsx)
     const ItemCard: import("react").ForwardRefExoticComponent<ItemCardProps & import("react").RefAttributes<HTMLDivElement>>;
   ItemCardAction (packages/ui-kit/src/rows/ItemCard.tsx)
@@ -3454,6 +3610,8 @@ signatures (every public export and the types it is made of)
         mono?: string;
     };
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  invisibleSegments (packages/ui-kit/src/google/reveal-invisibles.ts)
+    export function invisibleSegments(text: string): InvisibleSegment[];
   markupBytesLabel (packages/ui-kit/src/images/markup.ts)
     export function markupBytesLabel(bytes: number): string;
   markupNotes (packages/ui-kit/src/images/markup.ts)
@@ -3467,6 +3625,8 @@ signatures (every public export and the types it is made of)
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   registrableDomain (packages/ui-kit/src/evidence/UntrustedText.tsx)
     export function registrableDomain(host: string): string;
+  revealInvisibles (packages/ui-kit/src/google/reveal-invisibles.ts)
+    export function revealInvisibles(text: string): string;
   z (packages/ui-kit/src/tokens.ts)
     const z: {
         readonly banner: "var(--bk-z-banner)";

@@ -3243,6 +3243,133 @@ ol.bk-ut-list { list-style: decimal outside; }
   .bk-gh-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
+/* ── Gmail components (#4209, rulings G1–G5) ─────────────────────────────
+ * Layout only; every colour is an existing token. The query container is
+ * an inner frame, never the card itself: size containment zeroes an
+ * element's intrinsic width, and the card must still fill a shrink-to-fit
+ * column. Rows rearrange at 560px of the frame, not of the viewport, so a
+ * card in a narrow chat column on a wide screen reads as it does on a phone. */
+.bk-gm-frame { container-type: inline-size; min-width: 0; }
+
+/* A structured row: no subject and no sender to show (G1), so the date and
+ * the count lead, the labels follow, the flags close. It does not expand. */
+.bk-gm-srow {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr);
+  column-gap: 9px;
+  row-gap: 6px;
+  align-items: start;
+  padding: 10px 14px;
+  border-top: 1px solid var(--bk-color-line);
+}
+.bk-gm-srow > .bk-gm-dot { grid-column: 1; grid-row: 1; margin-top: 6px; }
+.bk-gm-srow > :not(.bk-gm-dot) { grid-column: 2; min-width: 0; }
+.bk-gm-srow:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: -2px; }
+@container (min-width: 560px) {
+  .bk-gm-srow { grid-template-columns: 7px minmax(170px, 36%) minmax(0, 1fr); }
+  .bk-gm-srow > .bk-gm-when { grid-column: 2; grid-row: 1 / span 2; }
+  .bk-gm-srow > .bk-gm-labels { grid-column: 3; grid-row: 1; }
+  .bk-gm-srow > .bk-gm-flags { grid-column: 3; }
+  .bk-gm-srow > .bk-gm-when:last-child { grid-row: 1; }
+}
+
+/* A content row and a message's toggle: the dot, the text, the chevron. */
+.bk-gm-crow {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) 14px;
+  column-gap: 9px;
+  align-items: start;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.bk-gm-crow > .bk-gm-dot { margin-top: 6px; }
+.bk-gm-crow-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bk-gm-crow-chevron { display: inline-flex; padding-top: 2px; color: var(--bk-color-ink-mute); }
+.bk-gm-line { display: flex; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.bk-gm-line > .bk-gm-grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-gm-line > time { flex: none; margin-inline-start: auto; white-space: nowrap; }
+.bk-gm-clamp-1, .bk-gm-clamp-2 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.bk-gm-clamp-1 { -webkit-line-clamp: 1; }
+.bk-gm-clamp-2 { -webkit-line-clamp: 2; }
+/* The subject takes two lines on a phone and one when there is room for it. */
+@container (min-width: 560px) {
+  .bk-gm-subject { -webkit-line-clamp: 1; }
+}
+
+/* A message's head: the sender, then the date, which drops under the sender
+ * rather than cutting the name when the line is short. */
+.bk-gm-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; min-width: 0; }
+.bk-gm-head > .bk-gm-grow { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
+.bk-gm-head > time { flex: none; white-space: nowrap; }
+
+.bk-gm-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; box-sizing: border-box; }
+.bk-gm-dot[data-unread] { background: var(--bk-color-ink); }
+
+.bk-gm-flags { display: inline-flex; flex-wrap: wrap; align-items: center; row-gap: 2px; }
+.bk-gm-flag { display: inline-flex; align-items: center; gap: 3px; }
+
+/* Labels (G5): neutral chips, no colour, wrapping inside the row. */
+.bk-gm-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.bk-gm-label {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--bk-chip-border-neutral);
+  background: var(--bk-chip-tint-neutral);
+  font: 500 10.5px/1.35 "Plus Jakarta Sans", sans-serif;
+  color: var(--bk-neutral-ink);
+  overflow-wrap: anywhere;
+}
+.bk-gm-label[data-id-only] { font-family: "JetBrains Mono", ui-monospace, monospace; }
+.bk-gm-label:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; }
+/* The end padding holds "+N"'s 4px horizontal reach inside the list. */
+.bk-gm-label-more { display: inline-flex; align-items: center; padding-inline-end: 4px; }
+/* "+N" is a 24px box each way, its 44px height reach from `data-inline` and,
+ * under a coarse pointer, its 44px width from `.bk-hit`. The negative block
+ * margin keeps the label line the chips' height: the box grows, the row
+ * does not. */
+.bk-gm-label-more > .bk-text-btn { min-width: 24px; min-height: 24px; margin-block: -2px; padding: 0 4px; }
+.bk-gm-label-count { font: 400 10.5px/20px "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-mute); }
+
+/* A hidden character, shown (G4): a small mono chip in a single-line field. */
+.bk-gm-hidden {
+  display: inline-block;
+  margin: 0 1px;
+  padding: 0 3px;
+  border-radius: 4px;
+  border: 1px dashed var(--bk-color-edge);
+  font: 500 0.82em/1.35 "JetBrains Mono", ui-monospace, monospace;
+  color: var(--bk-color-ink-dim);
+  white-space: nowrap;
+  unicode-bidi: isolate;
+  direction: ltr;
+}
+
+/* A message's body takes focus when a control in it removes itself ("Show
+ * whole message", "Show the rest"), so the reader carries on from the text. */
+.bk-gm-message-body:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; border-radius: 6px; }
+
+/* A message body: one provenance rule down everything a stranger wrote in it. */
+.bk-gm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--bk-provenance-border);
+}
+.bk-gm-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; min-width: 0; }
+
 /* ── Google components (#4212) ───────────────────────────────────────────
  * A remembered approval's row. On a phone the "since" line sits under the
  * action words and Revoke stays level with them; once the list is 480px or
