@@ -1163,7 +1163,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           }
           // A re-read of the refused edit: what changed here since (a cancel, say) is that edit, and stays.
           // A message neither this tab nor its last host copy knew (one a reload did not keep here) joins, paused.
-          if (options.sameEdit && local) snapshots.push(local.createdAt == null && h.createdAt != null ? { ...local, createdAt: h.createdAt } : local);
+          // Unless the host has returned it (on another device, say): a return is never undone.
+          if (options.sameEdit && local && !(h.state === "returned" && local.state !== "returned")) snapshots.push(local.createdAt == null && h.createdAt != null ? { ...local, createdAt: h.createdAt } : local);
           else snapshots.push(...mergeSnapshots(local ? [local] : undefined, [h]));
         }
         const onHost = new Set(host.map((h) => h.snapshotId));
