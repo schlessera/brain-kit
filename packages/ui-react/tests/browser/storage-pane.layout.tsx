@@ -667,6 +667,26 @@ test("A folded database's members are reachable from the list, as from the map",
     })
     .toBe(true);
 });
+// #4549 review F2 (third round): a row's links come from its removal
+// inspection. An inspection that did not check every reference leaves the
+// count unknown, never "no links"; a complete one states its count.
+for (const complete of [false, true])
+  test(`A row reads its links from ${complete ? "a complete" : "an incomplete"} inspection`, async () => {
+    const fixture = storageViewFixture("dense");
+    const request: Fixture["request"] = async (url, init) => {
+      const response = await fixture.request(url, init);
+      if (!new URL(url, "http://fixture.invalid").pathname.endsWith("/inspection")) return response;
+      return Response.json({ ...(await response.json()), complete });
+    };
+    await scene("dense", 1280, "dark", 1, { request });
+    await files();
+    await select("Ithaca-harbor.pdf");
+    await select("Troy-charts.PDF");
+    const links = (name: string) => inspect(name).element().textContent ?? "";
+    expect([links("Ithaca-harbor.pdf"), links("Troy-charts.PDF")].map((text) => /\? links unknown|no links|\d+ links?/.exec(text)?.[0]), "STORAGE_ROW_LINKS").toEqual(
+      complete ? ["2 links", "no links"] : ["? links unknown", "? links unknown"]
+    );
+  });
 // #4549 review F1 (third round): inventory expires after ten minutes while
 // removal receipts persist, so the last removal's receipt and its Undo stay
 // reachable when no measurement is current, as they were before the overhaul.
