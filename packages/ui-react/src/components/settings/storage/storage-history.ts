@@ -332,10 +332,12 @@ export function storageMarkers(input: {
     to = Math.max(series.at(-1)!.at, input.now);
   const timeline = (input.timeline?.events ?? []).filter((event) => event.kind === "maintenance" || event.identity === identity);
   // `seq` orders timeline events that share an `at`, as they were recorded.
-  type Found = Omit<HistoryMarker, "n"> & { seq?: number };
+  // A time is formatted only once its marker is inside the span, so a time
+  // past it never reaches the formatter, whatever its source.
+  type Found = Omit<HistoryMarker, "n" | "time"> & { seq?: number };
   const found: Found[] = [];
   const add = (at: number, tone: NonNullable<HistoryMarker["tone"]>, label: string, seq?: number) =>
-    found.push({ at, tone, time: format.time(at), label, ...(seq === undefined ? {} : { seq }) });
+    found.push({ at, tone, label, ...(seq === undefined ? {} : { seq }) });
 
   const scopes = timeline.filter((event) => event.kind === "scope");
   // Scope transitions are tracked apart from measured points: the observation
@@ -383,7 +385,6 @@ export function storageMarkers(input: {
     run(receipt.id)[isRun(receipt.state) ? "requested" : "finished"] = {
       at,
       tone: RUN_TONE[receipt.state],
-      time: format.time(at),
       label: `${row.label} · ${RUN_WORD[receipt.state]}`,
     };
   }
@@ -392,7 +393,7 @@ export function storageMarkers(input: {
     if (event.kind === "maintenance") {
       if (elsewhere.has(event.receipt)) continue;
       const { label, tone } = storageEventText(event, input.maintenance);
-      run(event.receipt)[event.phase] = { at: event.at, tone, time: format.time(event.at), label, seq: event.seq };
+      run(event.receipt)[event.phase] = { at: event.at, tone, label, seq: event.seq };
       continue;
     }
     const { label, tone } = storageEventText(event, input.maintenance);
@@ -403,5 +404,5 @@ export function storageMarkers(input: {
   return found
     .filter((marker) => marker.at >= from && marker.at <= to)
     .sort((a, b) => a.at - b.at || (a.seq ?? Infinity) - (b.seq ?? Infinity) || a.label.localeCompare(b.label))
-    .map(({ seq: _seq, ...marker }, index) => ({ ...marker, n: index + 1 }));
+    .map(({ seq: _seq, ...marker }, index) => ({ ...marker, time: format.time(marker.at), n: index + 1 }));
 }

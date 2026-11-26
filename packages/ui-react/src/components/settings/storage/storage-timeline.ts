@@ -43,7 +43,9 @@ const finishedState = known<Extract<StorageMaintenanceEvent, { phase: "finished"
   unknown: true,
 });
 const text = (value: unknown): value is string => typeof value === "string";
-const time = (value: unknown): value is number => Number.isSafeInteger(value);
+const count = (value: unknown): value is number => Number.isSafeInteger(value);
+/** Milliseconds a `Date` can hold (ECMA-262 time values: ±8.64e15). */
+const time = (value: unknown): value is number => count(value) && Math.abs(value) <= 8.64e15;
 
 /**
  * An event the pane can draw: every field its marker reads, with a value it
@@ -53,10 +55,10 @@ const time = (value: unknown): value is number => Number.isSafeInteger(value);
 function isEvent(value: unknown): value is StorageEvent {
   if (typeof value !== "object" || value === null) return false;
   const event = value as Record<string, unknown>;
-  if (!time(event.seq) || !time(event.at)) return false;
+  if (!count(event.seq) || !time(event.at)) return false;
   switch (event.kind) {
     case "pressure":
-      return text(event.identity) && pressurePhase(event.phase) && severity(event.severity) && time(event.episode);
+      return text(event.identity) && pressurePhase(event.phase) && severity(event.severity) && count(event.episode);
     case "refusal":
       return text(event.identity) && refusalPhase(event.phase) && text(event.target) && resource(event.resource);
     case "scope":
