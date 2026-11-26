@@ -885,27 +885,76 @@ describe("sections from chunks", () => {
     }
   });
 
-  test("when the match cannot be placed in a folded chunk, the hit keeps its snippet", async () => {
-    const body = `## Weather\n\n${para("Weather", 8)}\n\n## Signal\n\nThe beacon code is violet.\n`;
-    const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", body) });
+  // #3683: a folded chunk whose match cannot be placed in one of its sections
+  // widens to its whole span, every section the chunker merged into it, in
+  // source order, when the budget has room; otherwise the hit keeps its snippet.
+  describe("when the match cannot be placed in a folded chunk", () => {
+    const FOLDED = `## Weather\n\n${para("Weather", 8)}\n\n## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n`;
     // Only the match line fails; the chunk itself is still matched.
-    const real = db.prepare.bind(db);
-    const spy = spyOn(db, "prepare").mockImplementation(((sql: string) => {
-      if (sql.includes("highlight(chunks_fts")) throw new Error("injected highlight failure");
-      return real(sql);
-    }) as typeof db.prepare);
-    try {
-      const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
-      const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
-      expect(hit).toBeDefined();
-      // Not Weather, which holds most of the chunk's lines: the snippet, which holds the match.
-      expect(hit).not.toContain("Weather paragraph 1");
-      expect(hit).not.toContain("####");
-      expect(hit).toContain("violet");
-    } finally {
-      spy.mockRestore();
-      db.close();
+    function failMatchLine(db: Database) {
+      const real = db.prepare.bind(db);
+      return spyOn(db, "prepare").mockImplementation(((sql: string) => {
+        if (sql.includes("highlight(chunks_fts")) throw new Error("injected highlight failure");
+        return real(sql);
+      }) as typeof db.prepare);
     }
+
+    test("with room, the hit is the folded chunk's whole span, its sections in source order", async () => {
+      const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", FOLDED) });
+      // The premise: Signal was folded into Tides' chunk, and Weather is a chunk of its own.
+      const chunks = db
+        .prepare("SELECT c.heading, c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? ORDER BY chunk_index")
+        .all("studies/folded.md") as { heading: string; content: string }[];
+      expect(chunks.map((c) => c.heading)).toEqual(["Weather", "Tides"]);
+      expect(chunks[1]!.content).toStartWith("## Signal\n\nThe beacon code is violet.");
+      const spy = failMatchLine(db);
+      try {
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toContain("#### Signal\nThe beacon code is violet.\n\n#### Tides\nTide paragraph 1");
+        expect(hit).toContain("Tide paragraph 8 fills out the section with plain field notes.");
+        // No section from another chunk is pulled in, and nothing is cut.
+        expect(hit).not.toContain("Weather paragraph 1");
+        expect(hit).not.toContain("(truncated");
+      } finally {
+        spy.mockRestore();
+        db.close();
+      }
+    });
+
+    test("without room for the whole span, the hit keeps its snippet", async () => {
+      const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", FOLDED) });
+      const spy = failMatchLine(db);
+      try {
+        // The span is about 160 tokens; a hit may take 40% of 300.
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 300, includeIdentity: false, includeCurrentFocus: false });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toBeDefined();
+        // Not Tides, which holds most of the chunk's lines, nor a cut span:
+        // the header and the one-line snippet, which holds the match.
+        expect(hit.split("\n")).toHaveLength(2);
+        expect(hit).not.toContain("Tide paragraph 8");
+        expect(hit).not.toContain("####");
+        expect(hit).not.toContain("(truncated");
+        expect(hit).toContain("violet");
+      } finally {
+        spy.mockRestore();
+        db.close();
+      }
+    });
+
+    test("a match line that two of its sections hold widens it too", async () => {
+      const body = `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n\nThe beacon code is violet.\n`;
+      const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", body) });
+      try {
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toContain("#### Signal\nThe beacon code is violet.\n\n#### Tides\nTide paragraph 1");
+        expect(hit).toContain("Tide paragraph 8 fills out the section with plain field notes.\n\nThe beacon code is violet.");
+      } finally {
+        db.close();
+      }
+    });
   });
 
   test("when chunk matching fails, the context still assembles, from snippets", async () => {
