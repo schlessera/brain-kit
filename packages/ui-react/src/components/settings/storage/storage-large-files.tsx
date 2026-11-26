@@ -136,7 +136,7 @@ export function StorageLargeFiles({
   // server can report removal unavailable while it still holds the last
   // receipt, and that receipt is the only way back to its outcome and Undo.
   const lastRemoval = view.receipt ? <LastRemoval receipt={view.receipt} onReceipt={onReceipt} /> : null;
-  const footer = unavailable ? lastRemoval : view.selection.length > 0 ? (
+  const bar = (
     <StorageSelectionBar
       count={view.selection.length}
       size={bytes(view.selectedBytes)}
@@ -146,6 +146,16 @@ export function StorageLargeFiles({
         if (!blocked) onReview();
       }}
     />
+  );
+  // A removal still running or unconfirmed keeps its selection and holds
+  // Review removal, so its receipt stays beside the bar (#4549 review).
+  const footer = unavailable ? lastRemoval : view.selection.length > 0 ? (
+    // A fragment keeps the bar at one tree position, so the focused Review
+    // removal survives the receipt line appearing and leaving.
+    <>
+      {operationPending ? lastRemoval : null}
+      {bar}
+    </>
   ) : lastRemoval ? (
     lastRemoval
   ) : (
