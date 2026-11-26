@@ -222,12 +222,15 @@ test("text pasted while a Send's snapshot is unacknowledged is shown in the fiel
   s.sendButton().click();
   expect(s.draft()!.snapshots?.length, "SECOND_SEND_WAITS_BESIDE_REPLACEMENT").toBe(2);
   expect(s.field().value).toBe("Bring the wine for Polyphemus.");
-  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: d2 } }));
-  // Nor while the draft's delete is out.
+  // Nor while the draft's delete is out, with every snapshot it shows as the host holds it.
+  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: { ...d2, failure: null,
+    host: { ...d2.host!, snapshots: [{ snapshotId: first.snapshotId, requestId: first.requestId, text: first.text, fileIds: [], state: first.state }] } } } }));
   s.root.stores.drafts.getState().deleting(d2.draftId, true);
   s.sendButton().click();
   expect(s.draft()!.snapshots?.length, "SEND_WAITS_DURING_DELETE").toBe(1);
+  expect(s.field().value).toBe("Bring the wine for Polyphemus.");
   s.root.stores.drafts.getState().deleting(d2.draftId, false);
+  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: d2 } }));
   // An edit clears the refusal for the acknowledgement below.
   s.root.stores.drafts.getState().saveFailed(d1.draftId, { kind: "unsaved" });
   expect(s.field().value).toBe("Bring the wine for Polyphemus.");
