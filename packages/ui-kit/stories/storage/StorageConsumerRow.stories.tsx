@@ -137,6 +137,39 @@ export const LongName = meta.story({
 });
 export const LongNameDesktop = LongName.extend({ globals: viewportAt(1280) });
 
+/**
+ * A folder's own metadata has nothing to open (`action: "none"`): plain
+ * text between interactive rows, no button and no glyph, its size in the
+ * same column, and skipped by Tab.
+ */
+export const Metadata = meta.story({
+  render: () => (
+    <Rows>
+      <StorageConsumerRow {...folder} />
+      <StorageConsumerRow name="Folder metadata" owner="app" action="none" kind="folder metadata" size="48.0 KB" share={0.01} />
+      <StorageConsumerRow name="index-2026-07.db" owner="app" action="inspect" kind="file" meta="database" size="1.90 GB" share={0.19} onActivate={() => undefined} />
+    </Rows>
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const rows = [...canvasElement.querySelectorAll<HTMLElement>(".bk-storage-row")];
+    await expect(rows).toHaveLength(3);
+    await expect(rows[1]!.querySelector("button"), "the metadata row has no button").toBeNull();
+    await expect(rows[1]!.querySelector("[data-glyph]"), "and no glyph").toBeNull();
+    await expect(rows[1]!.querySelector('[role="cell"]')).toHaveAccessibleName("Folder metadata, App, folder metadata, 48.0 KB");
+    const folderRow = canvas.getByRole("button", { name: "Packs, App, folder, 9.80 GB, 38% of view" });
+    const fileRow = canvas.getByRole("button", { name: "index-2026-07.db, App, file, 1.90 GB, inspect" });
+    const right = (row: HTMLElement) => row.querySelector(".bk-storage-size")!.getBoundingClientRect().right;
+    await expect(right(rows[1]!), "the size keeps an interactive row's column").toBeCloseTo(right(rows[0]!), 0);
+    await userEvent.tab();
+    await userEvent.tab();
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(folderRow);
+    await userEvent.tab();
+    await expect(document.activeElement, "Tab skips the metadata row").toBe(fileRow);
+  },
+});
+export const MetadataDesktop = Metadata.extend({ globals: viewportAt(1280) });
+
 /** Hovering or focusing the row rings it, the same 2px ring its tile draws (`highlighted`). */
 export const Highlighted = meta.story({ args: { highlighted: true } });
 
@@ -189,7 +222,7 @@ export const FilterKept = meta.story({
       eligibility="kept"
       why="tracked by Git"
       selected={false}
-      onSelectedChange={args.onActivate}
+      onSelectedChange={() => args.onActivate?.()}
       onInspect={() => undefined}
       />
     </Rows>

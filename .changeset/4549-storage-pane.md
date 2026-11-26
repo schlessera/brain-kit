@@ -1,0 +1,5 @@
+---
+"@schlessera/brain-ui-react": minor
+---
+
+Settings › Storage is recomposed from the kit's storage components. One mono status line and an Alerts row head the pane; a banner appears only when a volume is Low or Very low; each capacity is a named volume card (never added together) that selects the "Available space over time" chart, with one dashed line per qualified window and the exact endpoints behind "Measurements behind this chart". "What's using space" shows the map and the ranked list side by side, stacking when narrow, with an All · Brain · App · Operator switch; unknown sizes are `?` rows, and a hard-linked alias is listed as "Shared · counted once". "Find large files" is the pane's one primary button and switches that section into a filter mode with its own focus and announcement rules; Back to overview asks before discarding a selection. The review, removal, receipt and Undo journey is unchanged. Maintenance is a "Free up space" tool list, and every caveat the old pane printed inline is in "About these numbers". The "Use list only" switch is removed: the list is always present.

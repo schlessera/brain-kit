@@ -20,6 +20,8 @@ interface EvidenceState {
    */
   inventory: StorageSnapshot | null;
   error: "unavailable" | "forbidden" | null;
+  /** The last history read settled without a usable history: unavailable, not loading. */
+  historyError: boolean;
   loading: boolean;
 }
 const empty = (epoch: number): EvidenceState => ({
@@ -28,6 +30,7 @@ const empty = (epoch: number): EvidenceState => ({
   history: null,
   inventory: null,
   error: null,
+  historyError: false,
   loading: false,
 });
 /** One read coordinator per mounted root. It retains no account data in browser storage. */
@@ -124,15 +127,16 @@ function createEvidence(root: BrainUiRoot) {
             error: null,
           });
         else state.setState({ error: "unavailable" });
-        if (withHistory)
+        if (withHistory) {
+          const usable =
+            history.status === "fulfilled" &&
+            history.value?.version === 1 &&
+            Array.isArray(history.value.observations);
           state.setState({
-            history:
-              history.status === "fulfilled" &&
-              history.value?.version === 1 &&
-              Array.isArray(history.value.observations)
-                ? history.value
-                : null,
+            history: usable ? history.value : null,
+            historyError: !usable,
           });
+        }
       })
       .finally(() => {
         clearTimeout(deadline);
