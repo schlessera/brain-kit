@@ -60,6 +60,9 @@ export interface ToolRowProps {
   /** Forces the cancelling state. The row also enters it by itself when
    * Cancel is pressed, until `state` changes. */
   cancelling?: boolean;
+  /** Holds the action while the caller has another request in flight. The
+   * button stays in place, and keeps focus if it has it, but is inert. */
+  actionDisabled?: boolean;
   onRun?: () => void;
   onCancel?: () => void;
 }
@@ -153,7 +156,7 @@ export function ToolRow(p: ToolRowProps) {
               reach
               label={action.label}
               ariaLabel={`${action.label === "Cancelling…" ? "Cancelling" : action.label} ${p.name}`}
-              disabled={action.disabled}
+              disabled={action.disabled || p.actionDisabled === true}
               onClick={() => {
                 if (action.kind === "cancel") setCancelPressed(true);
                 handler();

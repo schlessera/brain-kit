@@ -7,6 +7,7 @@ import { toolRowView } from "./storage-tools.js";
 import { running, type useStorage } from "./use-storage.js";
 import type { StorageFormat, StorageVolume } from "./storage-volumes.js";
 import { relevantTools } from "./storage-pane-model.js";
+import { useSlotFocus } from "./storage-page-focus.js";
 
 type StorageView = ReturnType<typeof useStorage>;
 
@@ -41,6 +42,7 @@ export function StorageFreeUp({
   onFindLargeFiles?: () => void;
 }) {
   const [started, setStarted] = useState<StorageMaintenanceRow["id"] | null>(null);
+  const slots = useSlotFocus<HTMLDivElement>();
   const live = view.maintenanceReceipt;
   const pendingId = view.maintenanceId ? live?.operation ?? started : null;
   const inFlight = !!view.maintenanceId && (!live || running(live.state) || live.state === "unknown");
@@ -62,7 +64,7 @@ export function StorageFreeUp({
     ? `${view.maintenance.find((row) => row.id === pendingId)?.label ?? "Maintenance"}: ${humanReason(live.state)}`
     : "";
   return (
-    <div className="grid min-w-0 gap-2">
+    <div ref={slots} className="grid min-w-0 gap-2">
       <ToolList heading="Free up space" headingLevel={3} onFindLargeFiles={onFindLargeFiles} announcement={announcement}>
         {relevant.empty ? (
           <p className="text-xs text-muted-foreground" data-storage-no-tools="">
@@ -70,18 +72,22 @@ export function StorageFreeUp({
           </p>
         ) : null}
         {rows.map(({ row, props, mine, unconfirmed }) => (
-          <div key={row.id} className="grid gap-2">
+          <div key={row.id} className="grid gap-2" data-focus-slot="">
             <ToolRow
               {...props}
+              // The row's own action never leaves while its run starts,
+              // settles or is cancelled: it is held instead, so a focused
+              // button keeps focus (#4549). Another row's run still hides Run.
               onRun={
-                inFlight || view.busy
+                inFlight && !mine
                   ? undefined
                   : () => {
                       setStarted(row.id);
                       void view.maintain(row.id);
                     }
               }
-              onCancel={mine && !view.busy ? () => void view.cancelMaintenance() : undefined}
+              onCancel={mine ? () => void view.cancelMaintenance() : undefined}
+              actionDisabled={view.busy || (inFlight && !(mine && live && running(live.state)))}
             />
             {mine && (
               <div className="flex flex-wrap items-center gap-3">

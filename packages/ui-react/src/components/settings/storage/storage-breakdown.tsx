@@ -206,7 +206,17 @@ export function StorageBreakdown({
         {here} · {partial ? "≥ " : ""}
         {tree?.matched ?? "?"} items · {total === null ? "? size" : `${partial ? "≥ " : ""}${bytes(total)}`} {basis}
       </h4>
-      {view.smaller && <TextButton inline label="Show all children" onClick={() => view.setSmaller(false)} />}
+      {view.smaller && (
+        <TextButton
+          inline
+          label="Show all children"
+          onClick={() => {
+            // The button leaves with the smaller items; the list heading keeps focus.
+            view.setSmaller(false);
+            frame.current?.querySelector<HTMLElement>("[data-storage-list-heading]")?.focus();
+          }}
+        />
+      )}
       {view.loading && (
         <p role="status" className="text-xs text-muted-foreground">
           Loading observed entries…

@@ -251,7 +251,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                 reach
                 block={false}
                 disabled={view.busy}
-                onClick={() => void view.checkStatus()}
+                onClick={() => {
+                  // The alert leaves with the error it checks; the pane's heading keeps focus.
+                  heading.current?.focus();
+                  void view.checkStatus();
+                }}
               />
             </div>
           )}
