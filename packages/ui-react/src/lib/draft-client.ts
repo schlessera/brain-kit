@@ -187,7 +187,19 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   function refuse(draftId: string, edit: number, body: { message?: string }) {
     refusals.set(draftId, { edit, counts: { other: MAX_REFUSED_CALLS } });
     failures.delete(draftId);
-    drafts.getState().saveFailed(draftId, { kind: "refused", edit, reason: String(body.message ?? "") || "No reason given." });
+    const reason = String(body.message ?? "") || "No reason given.";
+    drafts.getState().saveFailed(draftId, { kind: "refused", edit, reason });
+    // A Send this save would have created is not left at "Sending…" (#4566): nothing was stored and
+    // nothing sent, so it returns with the host's reason, where Edit and Delete… act on it. In place,
+    // as this edit: the refusal bound holds until the reader changes it.
+    const d = drafts.getState().drafts[draftId];
+    if (d && d.edit === edit) {
+      const acked = new Set((d.host?.snapshots ?? []).map((x) => x.snapshotId));
+      for (const x of draftSnapshots(d)) {
+        if (acked.has(x.snapshotId) || x.retiring || x.replaces || x.state === "returned") continue;
+        drafts.getState().patchSnapshot(draftId, x.snapshotId, { state: "returned", dispatch: undefined, uploads: [], why: { kind: "refused", reason } }, true);
+      }
+    }
   }
 
   function sendingSnapshot(draftId: string): boolean {
