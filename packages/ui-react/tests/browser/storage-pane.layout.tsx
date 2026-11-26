@@ -518,7 +518,9 @@ test("Free up space and the status alert keep focus while their controls change 
   };
   await press("Run Pack Git objects");
   await expect.poll(() => list().textContent).toContain("response unconfirmed");
-  expect(inList(), "STORAGE_RUN_KEEPS_FOCUS").toBe(true);
+  // The row's own button stays, held, and keeps focus: not a neighbour.
+  const action = () => document.activeElement?.getAttribute("aria-label");
+  expect(action(), "STORAGE_RUN_KEEPS_FOCUS").toBe("Try again Pack Git objects");
   // The error's own button leaves with the error it checks.
   await press("Check measurement status");
   await expect.poll(() => host.querySelector('[role="alert"]')).toBeNull();
@@ -541,7 +543,7 @@ test("Free up space and the status alert keep focus while their controls change 
   await expect.poll(() => button("Cancel Pack Git objects").elements().length).toBe(1);
   await press("Cancel Pack Git objects");
   await expect.poll(() => list().textContent).toContain("Cancelled");
-  expect(inList(), "STORAGE_CANCEL_KEEPS_FOCUS").toBe(true);
+  expect(action(), "STORAGE_CANCEL_KEEPS_FOCUS").toBe("Try again Pack Git objects");
 });
 test("Show all children leaves with the smaller items, and focus stays on the list", async () => {
   await scene("paged", 1280);
