@@ -1148,28 +1148,33 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const d = get().drafts[draftId];
         if (!d) return;
         const host = draft.snapshots ?? [];
-        const local = new Set(draftSnapshots(d).map((x) => x.snapshotId));
+        const mine = new Map(draftSnapshots(d).map((x) => [x.snapshotId, x]));
         const acknowledged = new Set((d.host?.snapshots ?? []).map((x) => x.snapshotId));
-        // Returned here and then deleted or taken back by Edit before the host had that return: the host
-        // keeps a held or dispatched message until it is returned, so it comes back returned, to be
-        // deleted again once the host has that. Never held again: the reader cancelled it (#4566).
-        const unreturnedIds = new Set(host.filter((h) => !local.has(h.snapshotId) && acknowledged.has(h.snapshotId) && h.state !== "returned").map((h) => h.snapshotId));
-        const unreturned: ComposerSnapshot[] = host.filter((h) => unreturnedIds.has(h.snapshotId))
-          .map((h) => ({ snapshotId: h.snapshotId, requestId: h.requestId, text: h.text, files: h.fileIds.map((fileId) => ({ fileId })), state: "returned", createdAt: h.createdAt, why: { kind: "cancelled" } }));
+        // In the host's order, which is the order the messages were sent (#4566).
+        const snapshots: ComposerSnapshot[] = [];
+        for (const h of host) {
+          const local = mine.get(h.snapshotId);
+          if (!local && acknowledged.has(h.snapshotId)) {
+            // Deleted here, or taken back by Edit. One the host already returned stays deleted: a save
+            // may leave it out. A held or dispatched one the host keeps until it is returned, so it comes
+            // back returned, to be deleted again once the host has that. Never held again (#4566).
+            if (h.state !== "returned") snapshots.push({ snapshotId: h.snapshotId, requestId: h.requestId, text: h.text, files: h.fileIds.map((fileId) => ({ fileId })), state: "returned", createdAt: h.createdAt, why: { kind: "cancelled" } });
+            continue;
+          }
+          // A re-read of the refused edit: what changed here since (a cancel, say) is that edit, and stays.
+          // A message neither this tab nor its last host copy knew (one a reload did not keep here) joins, paused.
+          if (options.sameEdit && local) snapshots.push(local);
+          else snapshots.push(...mergeSnapshots(local ? [local] : undefined, [h]));
+        }
+        const onHost = new Set(host.map((h) => h.snapshotId));
+        // After them, a Send made here that the host never saw. On a re-read, everything this edit holds.
+        const after = draftSnapshots(d).filter((x) => !onHost.has(x.snapshotId) && (options.sameEdit || !acknowledged.has(x.snapshotId)));
         if (options.sameEdit) {
-          // A re-read of the refused edit: what changed here since (a cancel, a delete) is that edit, and
-          // stays. Only a message neither this tab nor its last host copy knew (one a reload did not keep
-          // here) joins it, paused (#4566).
-          const hostOnly = host.filter((h) => !local.has(h.snapshotId) && !acknowledged.has(h.snapshotId));
-          put({ ...d, host: hostCopy(draft, -1), snapshots: [...mergeSnapshots(undefined, hostOnly), ...unreturned, ...draftSnapshots(d)], uncertain: false });
+          // Still the refused edit: a new one would lift its bound, and the same list would go again and again.
+          put({ ...d, host: hostCopy(draft, -1), snapshots: [...snapshots, ...after], uncertain: false });
           return;
         }
-        // A Send made meanwhile, which the host never saw, stays after the host's own.
-        const fresh = draftSnapshots(d).filter((x) => !host.some((h) => h.snapshotId === x.snapshotId) && !acknowledged.has(x.snapshotId));
-        // One already returned there and deleted here stays deleted: the host lets a save leave it out.
-        const kept = host.filter((h) => !(acknowledged.has(h.snapshotId) && !local.has(h.snapshotId)));
-        const snapshots = [...mergeSnapshots(d.snapshots, kept), ...unreturned, ...fresh];
-        put({ ...d, host: hostCopy(draft, -1), snapshots, uncertain: false, edit: d.edit + 1, editedAt: now() });
+        put({ ...d, host: hostCopy(draft, -1), snapshots: [...snapshots, ...after], uncertain: false, edit: d.edit + 1, editedAt: now() });
       },
 
       filesGone(draftId, fileIds) {
