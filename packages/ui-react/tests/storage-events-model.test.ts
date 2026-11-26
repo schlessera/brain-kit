@@ -177,6 +177,18 @@ describe("timeline markers (#4548)", () => {
     ).toEqual([sixHour(5)]);
   });
 
+  test("a run refused before it measured any volume is not taken for another volume's", () => {
+    // Refused before measurement: no observation says which volume it is on.
+    const unmeasured = onIthaca({ state: "refused", before: null, after: null });
+    const events = [finished(1, sixHour(2), "pack-ithaca", "refused")];
+    expect(
+      storageMarkers({ series: steady, identity: ITHACA, maintenance: [unmeasured], timeline: timeline(events), now: worldTime, format }).map((m) => m.at)
+    ).toEqual([sixHour(2)]);
+    expect(
+      storageMarkers({ series: steady, identity: SCHERIA, maintenance: [unmeasured], timeline: timeline(events), now: worldTime, format }).map((m) => m.at)
+    ).toEqual([sixHour(2)]);
+  });
+
   test("a refusal the timeline opened is not repeated from pressure; a newer one after its resolution is", () => {
     const target = "c".repeat(32);
     const refused = (at: number) =>
