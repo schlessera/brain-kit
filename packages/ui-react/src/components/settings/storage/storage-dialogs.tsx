@@ -1,9 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Overlay } from "@schlessera/brain-ui-kit";
 import type { BrainUiRoot } from "../../../root.js";
-import { bytes, exactBytes, humanReason, time } from "./storage-model.js";
+import { bytes, exactBytes, humanReason, knownLinks, time } from "./storage-model.js";
 import { StorageDelta } from "./storage-observations.js";
 import { running, type StorageView } from "./use-storage.js";
+
+// A file's links, by the rule its Find large files row uses (`knownLinks`,
+// #4601): an empty list from an inspection that did not check every
+// reference, or from a file refused as consequences_incomplete, is unknown
+// coverage, never "none found".
+const UNCHECKED = "not every reference was checked";
+const sheetLinks = (count: number, known: boolean) =>
+  count
+    ? known
+      ? "These links remain after removal and may break."
+      : `These links remain after removal and may break; others may exist, since ${UNCHECKED}.`
+    : known
+    ? "No references found in the checked scope."
+    : `Links unknown: ${UNCHECKED}.`;
+const reviewLinks = (sources: readonly string[], known: boolean) =>
+  sources.length
+    ? `${sources.length} link(s) remain and may break: ${sources.join(", ")}${known ? "" : `. Others may exist: ${UNCHECKED}`}`
+    : known
+    ? "No references found in checked scope; other consumers remain unknown."
+    : `Links unknown: ${UNCHECKED}; other consumers remain unknown.`;
 export function StorageDialogs({
   view,
   root,
@@ -111,9 +131,7 @@ export function StorageDialogs({
                   <p>
                     Current source review:{" "}
                     {file.observedAt ? time(file.observedAt) : "unknown"}.{" "}
-                    {file.facts.references.length
-                      ? "These links remain after removal and may break."
-                      : "No references found in the checked scope."}
+                    {sheetLinks(file.facts.references.length, knownLinks(file) !== null)}
                   </p>
                   <ul>
                     {file.facts.references.map((reference) => (
@@ -262,13 +280,10 @@ export function StorageDialogs({
                           : `Excluded: ${humanReason(item.reason)}`}
                       </p>
                       <p>
-                        {item.references.length
-                          ? `${
-                              item.references.length
-                            } link(s) remain and may break: ${item.references
-                              .map((reference) => reference.source)
-                              .join(", ")}`
-                          : "No references found in checked scope; other consumers remain unknown."}
+                        {reviewLinks(
+                          item.references.map((reference) => reference.source),
+                          knownLinks({ facts: item, complete: review.complete }) !== null
+                        )}
                       </p>
                     </li>
                   ))}
