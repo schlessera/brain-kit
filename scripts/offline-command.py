@@ -97,8 +97,9 @@ def setup(data):
 
 def main(argv):
     if argv[:1] == ['--inside']:
-        data = json.loads(Path(argv[1]).read_text())
+        data = {}
         try:
+            data = json.loads(Path(argv[1]).read_text())
             setup(data)
         except Exception as error:
             if data.get('unprivileged') and not Path(data['started']).exists():
