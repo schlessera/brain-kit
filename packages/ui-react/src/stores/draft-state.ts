@@ -43,7 +43,13 @@ type DraftSaveFailure =
   /** 413: `limit` bytes (or images), named by `bound`. */
   | { kind: "too_large"; limit: number; bound: string }
   /** 507: the host keeps `limit` drafts, or bytes, already. */
-  | { kind: "full"; limit: number; bound: string };
+  | { kind: "full"; limit: number; bound: string }
+  /**
+   * 400 (#4566): the host refused this edit as it is and would refuse it
+   * again. Not sent again until the content changes: `edit` is the
+   * generation refused, and `reason` the host's message.
+   */
+  | { kind: "refused"; edit: number; reason: string };
 
 /**
  * A composer original the host stored for a draft (#3155). `lineage` is the
@@ -55,6 +61,14 @@ export interface DraftFile {
   file: AttachmentFile;
   lineage: string;
 }
+
+/**
+ * The lineage of an original the host said it no longer stores (#4566): no
+ * draft id is this (the host's draft ids cannot contain `~`), so it reads as
+ * needing to be chosen again, like one carried from another id, and no save
+ * lists it.
+ */
+export const GONE_LINEAGE = "~gone";
 
 const NO_FILES: readonly DraftFile[] = [];
 /** A draft's originals; none when it was built without the field. */
@@ -208,6 +222,8 @@ export interface ComposerDraft {
   uncertain: boolean;
   /** The accepted request that started this draft's session, to bind it on the host. */
   bind: { sessionId: string; requestId: string } | null;
+  /** Local: a delete of this draft is out (#4567). Send waits until it answers. */
+  deleting?: true;
 }
 
 type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
@@ -247,6 +263,17 @@ export interface DraftSend {
 export type DraftConflictChoice = "mine" | "other" | "both";
 
 /**
+ * How the last Open other version ended, where it says so (#4567). `from`
+ * outcomes belong to the draft the switch left: it was cancelled by a
+ * change of view, failed, or found the other version nowhere. `unattached`
+ * belongs to the draft it opened: the other version has no live chat, so it
+ * is open on its own in the new-chat view.
+ */
+type VersionSwitchNote =
+  | { draftId: string; outcome: "cancelled" | "failed" | "missing" | "chat_gone" }
+  | { draftId: string; outcome: "unattached" };
+
+/**
  * A draft as this device kept it (#1014): its content, and the host
  * revision it last knew. `clean` says the content is that revision.
  */
@@ -265,6 +292,8 @@ export interface LocalDraft {
   host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
   /** A first save got no answer: the host may hold it, and a reconciliation is owed (#1214). */
   uncertain?: boolean;
+  /** The host refused this content as it is (#4566): its reason. Not sent again until it changes. */
+  refused?: string;
   /** An accepted first message's session, still to be bound on the host (#1214). */
   bind?: { sessionId: string; requestId: string } | null;
 }
@@ -293,6 +322,8 @@ export interface DraftStoreState {
    * notice until this tab frees a slot.
    */
   outgoingFull: { draftId: string; sessionId: string | null; limit: number } | null;
+  /** How the last Open other version ended (#4567), until the next one. */
+  versionSwitch: VersionSwitchNote | null;
 
   /**
    * The id a draft lives under now: a rotation hands its content to a
@@ -377,6 +408,15 @@ export interface DraftStoreState {
   showDeviceBranch(sessionId: string, draftId: string): void;
   /** @internal Explicitly open the other retained version. */
   openDeviceVersion(draftId: string, kept?: LocalDraft): void;
+  /**
+   * @internal The id a retained version lives under now (#4567): its own,
+   * or the draft a rotation moved its content to. Device-branch redirects
+   * are not followed: they lead back to the branch the reader is leaving.
+   */
+  versionHome(draftId: string): string | undefined;
+  /** @internal A version whose chat is gone moves, content and all, to a new draft of no chat (#4567). Returns its id. */
+  detachVersion(draftId: string): string | undefined;
+  noteVersionSwitch(note: VersionSwitchNote | null): void;
 
   // The draft client's reports.
   setSupport(supported: boolean, limits?: SessionDraftLimits, fileLimits?: AttachmentLimits | null, snapshotsOn?: boolean): void;
@@ -386,6 +426,17 @@ export interface DraftStoreState {
   uploaded(draftId: string, attachment: PendingAttachment, attachmentId: string): void;
   /** The host's uploads for this draft are gone; upload again on the next save. */
   forgetUploads(draftId: string): void;
+  /**
+   * The host refused to delete this draft because a message of it still waits there (#4567): its
+   * revision and snapshot list come back, so the message is shown with its own actions again.
+   * `sameEdit`: a re-read after a refused list (#4566) keeps the edit it was for, so the
+   * save it owes stays under that edit's refusal bound instead of starting a new one.
+   */
+  adoptHostSnapshots(draftId: string, draft: Draft, options?: { sameEdit?: boolean }): void;
+  /** @internal A delete of this draft went out (true) or was answered (false). */
+  deleting(draftId: string, on: boolean): void;
+  /** The host no longer stores these originals for this draft (#4566): they read as needing to be chosen again. */
+  filesGone(draftId: string, fileIds: readonly string[]): void;
   /** The host deleted the draft (DELETE acknowledged): it is gone here too. */
   removed(draftId: string): void;
   /**
@@ -416,6 +467,9 @@ const SETTLED_SENDS_KEPT = 16;
 export function holdsUnsaved(state: Pick<DraftStoreState, "drafts" | "sends">): boolean {
   for (const d of Object.values(state.drafts)) {
     if (hasContent(d) && !(d.host !== null && d.host.edit === d.edit)) return true;
+    // A Send's snapshot the host never acknowledged lives only here (#4566), as does a refused edit.
+    if (draftSnapshots(d).some((s) => !s.retiring && !d.host?.snapshots?.some((h) => h.snapshotId === s.snapshotId))) return true;
+    if (d.failure?.kind === "refused") return true;
     // Emptied, with the host still holding it: the delete has not landed.
     // Or a save is out: its answer is still owed.
     if (d.conflict || d.savingSince !== null || d.uncertain || (d.host !== null && !hasContent(d))) return true;
@@ -511,7 +565,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // A retained Draft explicitly sent as a new conversation now owns
         // that session. The original session goes back to its own version.
         for (const [session, branch] of deviceViews) if (resolve(branch) === draft.draftId) deviceViews.delete(session);
-        successors.delete(draft.deviceConflict.otherId);
+        // Only a link to this branch: a rotation that moved the other version elsewhere still finds it (#4567).
+        if (successors.get(draft.deviceConflict.otherId) === draft.draftId) successors.delete(draft.deviceConflict.otherId);
         deviceRedirects.delete(draft.deviceConflict.otherId);
       }
       set((state) => ({
@@ -543,9 +598,11 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     }
 
     /** The content under a new id (attachments upload again), the old id left to delete. */
-    function rotate(d: ComposerDraft, sessionId: string | null): string {
+    /** `snapshots`: carry the draft's snapshots too (ones the old id's host copy never held). */
+    function rotate(d: ComposerDraft, sessionId: string | null, snapshots = false): string {
       // Originals keep their lineage: the new id cannot bind them, so they read as needing to be chosen again.
-      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, files: d.files, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly, deviceConflict: d.deviceConflict };
+      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, files: d.files, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly, deviceConflict: d.deviceConflict,
+        ...(snapshots && d.snapshots?.length ? { snapshots: d.snapshots } : {}) };
       successors.set(d.draftId, next.draftId);
       origins.set(next.draftId, origins.get(d.draftId) ?? d.draftId);
       set((state) => {
@@ -626,6 +683,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       orphans: [],
       snapshotsOn: false,
       outgoingFull: null,
+      versionSwitch: null,
 
       idFor(sessionId) {
         const state = get();
@@ -726,6 +784,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
             // The draft client's uncertain-save and bind paths pick these up again (#1214).
             uncertain: k.uncertain === true && k.host === null,
             bind: k.bind ?? null,
+            // A refusal kept on this device stays one: the same content is not sent again (#4566).
+            ...(k.refused ? { failure: { kind: "refused" as const, edit, reason: k.refused } } : {}),
           });
         }
       },
@@ -741,7 +801,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const live = state.drafts[liveId] ?? blank(sourceId, sessionId, now());
         const viewSession = live.sessionId ?? sessionId;
         const viewed = viewSession !== null && (state.idFor(viewSession) === liveId || (followed === liveId && !hasContent(state.drafts[state.idFor(viewSession)])));
-        const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId: viewSession } };
+        // A refusal was of the original's save, under its id and chat: the branch's first save is its own.
+        const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId: viewSession },
+          failure: live.failure?.kind === "refused" ? null : live.failure };
         // Navigation redirects can be removed when the reader opens the
         // original. Pending sends keep a separate editable-target binding.
         for (const send of Object.values(state.sends)) if (sendTarget(send) === liveId) sendTargets.set(send.requestId, branchId);
@@ -762,9 +824,10 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           // The caller keeps its prior expectation until those edits save.
           if (other && (!preserveOther || !drafts[other.draftId])) {
             const edit = 1;
-            const { uncertain: _uncertain, bind: _bind, ...content } = other;
+            const { uncertain: _uncertain, bind: _bind, refused: _refused, ...content } = other;
             drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...content, files: content.files ?? [], edit,
-              host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null };
+              host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null,
+              ...(other.refused ? { failure: { kind: "refused" as const, edit, reason: other.refused } } : {}) };
           }
           return { drafts, fresh: s.fresh === sourceId || s.fresh === liveId ? branchId : s.fresh };
         });
@@ -774,9 +837,11 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (current) release(current.attachments, []);
         const edit = 1;
         // Another tab's pending reconciliation stays that tab's to finish.
-        const { uncertain: _uncertain, bind: _bind, ...content } = kept;
+        const { uncertain: _uncertain, bind: _bind, refused: _refused, ...content } = kept;
         const d = { ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...content, files: content.files ?? [], edit, deviceEpoch: (current?.deviceEpoch ?? 0) + 1,
-          host: kept.host ? { ...kept.host, edit: kept.host.clean ? edit : -1, attachmentIds: [] } : null };
+          host: kept.host ? { ...kept.host, edit: kept.host.clean ? edit : -1, attachmentIds: [] } : null,
+          // A refusal kept with the record stays one (#4566).
+          ...(kept.refused ? { failure: { kind: "refused" as const, edit, reason: kept.refused } } : {}) };
         set(s => ({ drafts: { ...s.drafts, [kept.draftId]: d } }));
       },
       showDeviceBranch(sessionId, draftId) {
@@ -785,12 +850,62 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         set(s => ({ drafts: { ...s.drafts } }));
       },
       openDeviceVersion(draftId, kept) {
-        if (kept) get().adoptDeviceRecord(kept);
-        successors.delete(draftId);
+        // Opening the original bypasses its continuation. One that was not
+        // here (a rotation moved it, and the device only kept its emptied
+        // record) keeps it, so a later open still finds the content (#4567).
+        // A record with no text, images or outgoing messages (a device
+        // tombstone, files and all) is not a version to open over the link.
+        const here = get().drafts[draftId];
+        const present = !!here && (here.text.length > 0 || here.attachments.length > 0 || holdsSnapshots(here));
+        // The device's record of an id a rotation moved, with no text or images, is its tombstone: not adopted
+        // (it would be saved, refused as deleted and rotated again over the link).
+        const tombstone = !!kept && !present && successors.has(draftId) && kept.text.length === 0 && kept.attachments.length === 0;
+        if (kept && !tombstone) get().adoptDeviceRecord(kept);
+        if (present) successors.delete(draftId);
         for (const [source, target] of deviceRedirects) if (source === draftId || target === draftId) deviceRedirects.delete(source);
         for (const [session, branch] of deviceViews) if (branch === draftId || get().drafts[resolve(branch)]?.deviceConflict?.otherId === draftId) deviceViews.delete(session);
         const d = get().drafts[draftId];
         set(s => ({ drafts: { ...s.drafts }, ...(d?.sessionId === null ? { fresh: draftId } : {}) }));
+      },
+
+      versionHome(draftId) {
+        // A rotation's link outlives only an original that was not here to
+        // open: whatever record sits under the old id then (a device
+        // tombstone, files and all) is not where the content went.
+        const holds = (id: string) => { const d = get().drafts[id]; return !!d && (hasContent(d) || holdsSnapshots(d)); };
+        let id = draftId;
+        const visited = new Set<string>();
+        while (successors.has(id) && !visited.has(id)) { visited.add(id); id = successors.get(id)!; }
+        if (id !== draftId && holds(id)) return id;
+        return holds(draftId) ? draftId : undefined;
+      },
+      detachVersion(draftId) {
+        const d = get().drafts[draftId];
+        if (!d) return undefined;
+        if (d.sessionId === null) return draftId;
+        // Outgoing messages belong to that chat and stay with it, untouched:
+        // a change there would be saved to a chat that is gone, and its
+        // refusal would drop them. The composer's content is copied to a new
+        // draft of no chat (#4567), and the branch's other version is that copy.
+        if (holdsSnapshots(d)) {
+          if (!hasContent(d)) return undefined;
+          // The copy gets its own previews of the same bytes: releasing either side cannot break the other's.
+          const attachments = d.attachments.map((a) => ({ ...a, previewUrl: `data:${a.attachment.mediaType};base64,${a.attachment.data}` }));
+          const copy: ComposerDraft = { ...blank(mintDraftId(), null, now()), text: d.text, attachments, files: d.files, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly };
+          // Branches naming this version, directly or through a rotation that moved it here.
+          const naming = Object.entries(get().drafts).filter(([, x]) => x.deviceConflict && (x.deviceConflict.otherId === d.draftId || get().versionHome(x.deviceConflict.otherId) === d.draftId)).map(([id]) => id);
+          set((st) => {
+            const drafts = { ...st.drafts, [copy.draftId]: copy };
+            for (const id of naming) { const x = drafts[id]; if (x?.deviceConflict) drafts[id] = { ...x, deviceConflict: { ...x.deviceConflict, otherId: copy.draftId } }; }
+            return { drafts };
+          });
+          return copy.draftId;
+        }
+        // The host's copy is bound to that chat: the content moves to a new id, and the old one is deleted there.
+        return rotate(d, null);
+      },
+      noteVersionSwitch(note) {
+        if (note !== get().versionSwitch) set({ versionSwitch: note });
       },
 
       beginSend(input, consumedText) {
@@ -1018,10 +1133,46 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (d && d.uploads.size > 0) put({ ...d, uploads: new Map() });
       },
 
+      deleting(draftId, on) {
+        const d = get().drafts[draftId];
+        if (!d || !!d.deleting === on) return;
+        const { deleting: _was, ...rest } = d;
+        put(on ? { ...rest, deleting: true } : rest);
+      },
+
+      adoptHostSnapshots(draftId, draft, options = {}) {
+        const d = get().drafts[draftId];
+        if (!d) return;
+        // A Send made meanwhile, which the host never saw, stays after the host's own.
+        const fresh = draftSnapshots(d).filter((x) => !(draft.snapshots ?? []).some((h) => h.snapshotId === x.snapshotId) && !d.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId));
+        const snapshots = [...mergeSnapshots(d.snapshots, draft.snapshots), ...fresh];
+        put(options.sameEdit ? { ...d, host: hostCopy(draft, -1), snapshots, uncertain: false }
+          : { ...d, host: hostCopy(draft, -1), snapshots, uncertain: false, edit: d.edit + 1, editedAt: now() });
+      },
+
+      filesGone(draftId, fileIds) {
+        const d = get().drafts[draftId];
+        if (!d || !draftFiles(d).some((f) => fileIds.includes(f.file.fileId))) return;
+        put({ ...d, files: draftFiles(d).map((f) => (fileIds.includes(f.file.fileId) ? { ...f, lineage: GONE_LINEAGE } : f)) });
+      },
+
       removed(draftId) {
         const d = get().drafts[draftId];
         if (!d) return;
-        if (!hasContent(d)) {
+        // A Send made while the delete was out holds a snapshot the host never saw (#4567): it goes with the
+        // content. One with originals cannot: they were minted for the deleted id, so it comes back to the
+        // composer unsent, its files to be chosen again.
+        const unsent = draftSnapshots(d).filter((x) => x.files.length > 0 || (x.uploads?.length ?? 0) > 0);
+        if (unsent.length > 0) {
+          let text = d.text;
+          for (const r of [...unsent].reverse()) text = text ? (r.text ? `${r.text}\n${text}` : text) : r.text;
+          const back = unsent.flatMap((r) => r.files.flatMap((f) => f.file ? [{ file: f.file, lineage: draftId }] : []));
+          put({ ...d, text, files: [...back, ...draftFiles(d).filter((f) => !back.some((b) => b.file.fileId === f.file.fileId))],
+            snapshots: draftSnapshots(d).filter((x) => !unsent.includes(x)), edit: d.edit + 1, editedAt: now() });
+          return get().removed(draftId);
+        }
+        const carried = draftSnapshots(d).length > 0;
+        if (!hasContent(d) && !carried) {
           if (held(draftId)) put({ ...d, host: null, uploads: new Map(), savingSince: null });
           else if (d.deviceConflict) rotate({ ...d, host: null, uploads: new Map(), savingSince: null }, d.sessionId);
           else drop(draftId);
@@ -1030,7 +1181,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // Typed again while the delete was out: the id is a tombstone now,
         // so the new words move to a new id of the same session.
         put({ ...d, host: null, uploads: new Map(), savingSince: null });
-        rotate(get().drafts[draftId]!, d.sessionId);
+        rotate(get().drafts[draftId]!, d.sessionId, carried);
       },
 
       hostGone(draftId) {

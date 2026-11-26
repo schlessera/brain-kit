@@ -47,6 +47,8 @@ import { useLocalWorkStatus, useWorkRestore } from "../../hooks/use-local-work.j
 
 /** The hint when the work context could not be written to this device (#1014). */
 const LOCAL_SAVE_FAILED = "Couldn't save your draft on this device.";
+/** Open other version opened a version that has no live chat (#4567). */
+const UNATTACHED_HINT = "Other version · not in a chat yet";
 
 /**
  * The composer — everything below the transcript: draft text, attachments,
@@ -113,16 +115,17 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // The draft's content is the revision the host acknowledged, file bindings included.
   const draftClean = !!draft && draft.host !== null && draft.host.edit === draft.edit && draft.conflict === null;
   const draftFailure = draft?.failure ?? null;
-  // A Send whose snapshot the host has not acknowledged yet (#3155): a
-  // refusal gives its text back to the field, so nothing typed meanwhile may
-  // land there to be joined with it. The window is one save.
-  const creatingSnapshot = draftSnapshots(draft).some((x) => !x.replaces && !draft?.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId));
+  // Typing while a Send's snapshot is unacknowledged goes into the draft as
+  // always (#4567): a refusal gives the snapshot's text back ahead of it, on
+  // its own line (`snapshotsRefused`), so nothing typed is ever dropped.
   /** Write the view's draft. A function reads the draft as it is now, not as rendered. */
   const setInput = (value: string | ((current: string) => string)) => {
     const store = root.stores.drafts.getState();
     const current = store.drafts[draftId]?.text ?? "";
     store.edit(draftId, sessionId, { text: typeof value === "function" ? value(current) : value });
   };
+  // Open other version landed on a version with no live chat (#4567): it is open on its own, and says so.
+  const unattachedVersion = useRootStore("drafts", (s) => sessionId === null && s.versionSwitch?.outcome === "unattached" && s.versionSwitch.draftId === draftId);
   // The work context kept on this device (#1014): where the caret was goes
   // into each snapshot, and a restore after reload puts it back once the
   // restored text is in the field.
@@ -771,7 +774,15 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const current = store.drafts[draftId];
     if (current && draftFilesOf(current).some((f) => f.lineage !== current.draftId)) { setEffortNotice("Your draft is kept. Remove the files marked not attached, or choose them again, before sending."); return; }
     if (current?.conflict) { setEffortNotice("Your draft is kept. Choose which version to keep before sending."); return; }
-    if (current?.failure && current.failure.kind !== "unsaved") { setEffortNotice("Your draft is kept. Its files couldn't be saved with it; remove one and try again."); return; }
+    // One snapshot is created at a time (#4567): text typed while the last
+    // one's save is out stays here until the host has it, then sends.
+    // Whatever the last save's answer, a second snapshot never goes out beside it (#4567).
+    // A Send again replacement counts too, and so does a delete of the draft still out.
+    if (current && (current.deleting || draftSnapshots(current).some((x) => !current.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId)))) {
+      setEffortNotice("Your draft is kept. Send waits until your last message is saved."); return;
+    }
+    // A refused save does not hold Send: the send is the next edit, saved again (#4566).
+    if (current?.failure && current.failure.kind !== "unsaved" && current.failure.kind !== "refused") { setEffortNotice("Your draft is kept. Its files couldn't be saved with it; remove one and try again."); return; }
     // A typed answer to a pending question is still an answer, never a message (D38 §1).
     if (text && !hasAttachments && takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) =>
       void root.answers.submit(answer).then((result) => { if (result === "refused") root.stores.chat.getState().requestComposerInsert(text); }))) {
@@ -819,7 +830,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (d && draftFilesOf(d).some((f) => f.lineage !== d.draftId)) return { blocked: "Your draft is kept. Remove the files marked not attached, or choose them again, before sending." };
     if (queued.some(queuedPending)) return { pending: true };
     if (!d || draftFilesOf(d).length === 0) return {};
-    if (d.failure && d.failure.kind !== "unsaved") return { blocked: "Your draft is kept. Its files couldn't be saved with it; remove one and try again." };
+    if (d.failure?.kind === "refused" && d.failure.edit === d.edit) return { blocked: "Your draft is kept. The brain refused to save it; change it and try again." };
+    if (d.failure && d.failure.kind !== "unsaved" && d.failure.kind !== "refused") return { blocked: "Your draft is kept. Its files couldn't be saved with it; remove one and try again." };
     if (d.conflict) return { blocked: "Your draft is kept. Choose which version to keep before sending its files." };
     // Sent only from an acknowledged revision: the message names it.
     if (!(d.host !== null && d.host.edit === d.edit)) return { pending: true };
@@ -1121,7 +1133,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : localSaveFailed ? LOCAL_SAVE_FAILED : unattachedVersion ? UNATTACHED_HINT : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" && outgoingFull !== null && restorePhase === null && !sessionProfile.saving && !sessionProfile.awaitingDraftFacts ? `${outgoingFull.limit} messages waiting · your text stays here`
               : wsStatus === "connected" && sessionProfile.saving ? "saving this chat profile · your draft is kept"
@@ -1189,7 +1201,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           frameRef={frameRef}
           providerMenuRef={providerMenuRef}
           onChange={(value) => {
-            if (capturing || creatingSnapshot) return;
+            if (capturing) return;
             setInput(value);
             setPaletteDismissed(false);
             setPaletteIndex(0);
