@@ -539,7 +539,7 @@ components are the kit's (#4542–#4545); the derivations are ui-react's
 | D7 | Volumes are named from their contents on the client (Brain disk, App data disk, Backups for a volume holding only Operator backups, Memory (tmpfs), Unidentified volume), never after the loudest store. A sole volume is Disk. | "Disk · data volume" for every card |
 | D8 | Ownership is tint, edge and label: Brain solid, App dotted, Operator dashed, the smaller aggregate a neutral outline, an owner letter on tiles large enough to carry it. No hatching. | "App uses hatching" (Exploration and selection) |
 | D9 | One dashed line per qualified window, labelled with its window. The volume card's Runway names the window it comes from the same way (`~40 days · 30-day rate`); see [storage guidance](../storage-guidance.md#2026-11-25--scenario-drawing-and-shared-constants-4537-4539-4549). | — |
-| D10 | The UI derives names, threshold bytes, series, markers, unmeasured rows and before → after deltas. The chart ships with derived markers, before the events timeline (#4541, #4548). | — |
+| D10 | The UI derives names, threshold bytes, series, markers, unmeasured rows and before → after deltas. The chart joins those markers with the server's events timeline (#4541, #4548) and keeps the derived ones alone when no timeline is available. | — |
 | D11 | **Find large files** is a mode of the breakdown and the pane's single primary button. | Find large files in the pane heading |
 | D12 | The chart is hand-rolled SVG in ui-kit with pure, unit-tested geometry. | — |
 
