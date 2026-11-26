@@ -87,7 +87,7 @@ export function GmailLabels(p: GmailLabelsProps) {
         <li className="bk-gm-label-more">
           <button
             type="button"
-            className="bk-text-btn"
+            className="bk-text-btn bk-hit"
             data-tone="meta"
             data-inline="true"
             aria-label={`Show ${hidden} more ${noun(hidden)}`}

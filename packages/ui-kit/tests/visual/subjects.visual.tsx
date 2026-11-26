@@ -598,18 +598,19 @@ const GITHUB: [story: unknown, name: string, width: 320 | 760 | 1280, height: nu
 
 // The Gmail family (#4209, rulings G1–G5), on the GitHub matrix: both
 // widths, both themes. A structured list in each layout, the content list
-// and an open row, the hidden-character markers, the folded thread and its
-// quoted history, every on-demand body state and the label overflow. Focus,
-// targets and the structured view's no-sender guarantee are the stories'
-// own play functions; these catch a lost provenance rule, a column that
-// stopped moving at 560px or a marker chip that lost its frame.
+// and an open row, the hidden-character markers, the folded thread (at rest:
+// its story presses nothing) and its quoted history, every on-demand body
+// state and the label overflow. Focus, targets and the structured view's
+// no-sender guarantee are the stories' own play functions; these catch a
+// lost provenance rule, a column that stopped moving at 560px or a marker
+// chip that lost its frame.
 const GMAIL: [story: unknown, name: string, width: 320 | 760 | 1280, height: number][] = [
   [gmResults.Structured5, "gmail-results-structured", 760, 520],
   [gmResults.Structured5Narrow, "gmail-results-structured-phone", 320, 760],
   [gmResults.Content4, "gmail-results-content", 760, 640],
   [gmResults.ContentRowOpenNarrow, "gmail-results-content-open-phone", 320, 1200],
   [gmResults.HiddenCharsInSubjectNarrow, "gmail-hidden-chars-phone", 320, 360],
-  [gmThread.FiveMessagesFolded, "gmail-thread-folded", 760, 760],
+  [gmThread.FiveMessagesFoldedAtRest, "gmail-thread-folded", 760, 760],
   [gmThread.QuotedHistoryOpenNarrow, "gmail-thread-quoted-open-phone", 320, 1300],
   [gmMessage.RtlOverrideInBody, "gmail-message-hidden-chars", 760, 520],
   [gmMessage.EveryDetailState, "gmail-detail-states-phone", 320, 2600],

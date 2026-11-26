@@ -19,21 +19,52 @@
  * the line and paragraph separators; and lone surrogates.
  *
  * Kept, because each is how ordinary writing is spelled and reveals nothing
- * hidden:
+ * hidden. Each exemption recognises a spelling, not a shape; everything else
+ * is revealed:
  * - the prepended concatenation marks (Arabic number signs and the like),
  *   format characters that draw a visible sign;
- * - one variation selector directly after the character it selects for (the
- *   red heart emoji is U+2764 U+FE0F). A second selector in a row selects nothing
- *   and is revealed: that is how text is smuggled behind an emoji;
- * - a zero-width joiner inside an emoji sequence (woman, U+200D, laptop);
- * - a zero-width joiner or non-joiner between two letters of a script that
- *   uses them to choose letter forms (Persian, the Indic scripts);
- * - the tag characters of a flag sequence (U+1F3F4, tag letters, cancel tag).
+ * - one variation selector directly after a base it can select for, and
+ *   only that pairing: U+FE0E or U+FE0F after an emoji-capable character
+ *   (`Extended_Pictographic`, `Emoji_Presentation`), or after a keycap base
+ *   (`0`–`9`, `#`, `*`) when U+20E3 follows (the red heart emoji is U+2764
+ *   U+FE0F; keycap one is `1` U+FE0F U+20E3); an ideographic variation
+ *   selector (U+E0100–U+E01EF) after a Han ideograph; a Mongolian selector
+ *   (U+180B–U+180F) after a Mongolian letter. U+FE00–U+FE0D, a selector
+ *   after any other base (a Latin letter, a digit with no keycap), and a
+ *   second selector in a row are revealed: that is how text is smuggled one
+ *   selector per letter, or behind an emoji;
+ * - a zero-width joiner between two pictographs (woman, U+200D, laptop),
+ *   skipping back over the skin tones and U+FE0F of the first;
+ * - a zero-width joiner or non-joiner between two letters or marks of one
+ *   script that uses them to choose letter forms (Persian, the Indic
+ *   scripts). A digit or punctuation beside it, or two different scripts,
+ *   is not spelling;
+ * - the tag characters of the three recommended subdivision flags, and only
+ *   those: U+1F3F4, the lowercase tag letters of `gbeng`, `gbsct` or
+ *   `gbwls`, U+E007F. Any other tag run, after a black flag or not, is
+ *   revealed.
+ *
+ * What the exemptions still let through, by design. They admit ordinary
+ * spelling, so a sender can still choose among spellings the owner cannot
+ * tell apart: whether two adjacent pictographs carry a joiner (one per
+ * pair, whether or not the pair is a recommended emoji sequence), which of
+ * the 240 ideographic variation selectors follows each Han ideograph,
+ * whether an emoji-capable character carries U+FE0E or U+FE0F, which
+ * Mongolian selector follows each Mongolian letter, and whether a joiner
+ * or non-joiner sits between two letters of a joining script. Each is a
+ * covert channel of a few bits per visible character, never a hidden run:
+ * a run of any of them, or one in any other place, is revealed.
  *
  * Three or more of the same character in a row become one counted marker,
  * `‹U+200B ×12›`, so a run of padding reads as one fact, not a wall.
  *
- * Pure: no DOM, no React, linear in the input.
+ * Pure: no DOM, no React. Linear in the input: one forward pass classifies
+ * every code point from itself, its two neighbours and, after a black
+ * flag, the six code points a subdivision flag spells, and a second pass
+ * groups the runs, visiting each code point once. Every read a decision
+ * rests on goes through one accessor, so a `ScanMeter` handed to
+ * `scanInvisibles` counts all of the scanning (`tests/reveal-invisibles.test.ts`
+ * bounds it per code point).
  */
 
 /** One piece of revealed text: text as written, or a run of one hidden character. */
@@ -55,17 +86,34 @@ const HIDDEN = /^[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}\p{Cs}
 const SHOWN_CONTROLS = new Set([0x09, 0x0a, 0x0d]);
 /** Format characters that draw a visible sign (Unicode's Prepended_Concatenation_Mark). */
 const PREPENDED_MARK = /^[\u{600}-\u{605}\u{6DD}\u{70F}\u{890}\u{891}\u{8E2}\u{110BD}\u{110CD}]$/u;
-const VARIATION_SELECTOR = /^\p{Variation_Selector}$/u;
 const PICTOGRAPH = /^\p{Extended_Pictographic}$/u;
+/** A base U+FE0E or U+FE0F selects a presentation for. */
+const EMOJI_BASE = /^[\p{Extended_Pictographic}\p{Emoji_Presentation}]$/u;
+/** What a skin tone or presentation selector sits between a pictograph and its joiner. */
 const EMOJI_COMPONENT = /^[\p{Emoji_Modifier}\u{FE0F}]$/u;
+const HAN = /^\p{Script=Han}$/u;
+const MONGOLIAN_LETTER = /^(?=\p{L})\p{Script=Mongolian}$/u;
+const LETTER_OR_MARK = /^[\p{L}\p{M}]$/u;
+/** `0`–`9`, `#` and `*`: a keycap's base, before U+FE0F U+20E3. */
+const KEYCAP_BASES = new Set([0x23, 0x2a, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39]);
+const KEYCAP = 0x20e3;
 const ZWNJ = 0x200c;
 const ZWJ = 0x200d;
 const BLACK_FLAG = 0x1f3f4;
 const CANCEL_TAG = 0xe007f;
-/** Scripts whose letters a joiner or non-joiner joins or parts as a matter of spelling. */
+/** The lowercase tag letters a subdivision flag is spelled with, U+E0061–U+E007A. */
+const TAG_A = 0xe0061;
+const TAG_Z = 0xe007a;
+/** The recommended-for-general-interchange subdivision flags: England, Scotland, Wales. */
+const RGI_SUBDIVISIONS = new Set(["gbeng", "gbsct", "gbwls"]);
+/**
+ * Scripts whose letters a joiner or non-joiner joins or parts as a matter of
+ * spelling. Script_Extensions, so the Arabic vowel marks, whose Script is
+ * Inherited, count as Arabic.
+ */
 const JOINING_SCRIPTS = [
   "Arabic", "Syriac", "Devanagari", "Bengali", "Gurmukhi", "Gujarati", "Oriya", "Tamil", "Telugu", "Kannada", "Malayalam", "Sinhala",
-].map((script) => new RegExp(`^[\\p{Script=${script}}]$`, "u"));
+].map((script) => new RegExp(`^\\p{Script_Extensions=${script}}$`, "u"));
 
 const NAMES: Record<number, string> = {
   0x00ad: "soft hyphen",
@@ -119,60 +167,105 @@ export function codeLabel(code: number): string {
   return `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
 }
 
-const isHidden = (code: number, ch: string) => !SHOWN_CONTROLS.has(code) && HIDDEN.test(ch) && !PREPENDED_MARK.test(ch);
+const char = (code: number) => String.fromCodePoint(code);
 
-/** Whether the hidden character at `i` is one ordinary spelling needs (see the module comment). */
-function spelled(chars: string[], codes: number[], i: number): boolean {
-  const code = codes[i]!;
-  const ch = chars[i]!;
-  const prev = chars[i - 1];
-  const next = chars[i + 1];
-  if (VARIATION_SELECTOR.test(ch)) {
-    return prev !== undefined && !isHidden(codes[i - 1]!, prev);
-  }
-  if (code === ZWJ && prev !== undefined && next !== undefined && PICTOGRAPH.test(next)) {
-    // Back over a skin tone or an emoji presentation selector to the pictograph.
-    let j = i - 1;
-    while (j > 0 && EMOJI_COMPONENT.test(chars[j]!)) j--;
-    if (PICTOGRAPH.test(chars[j]!)) return true;
-  }
-  if ((code === ZWJ || code === ZWNJ) && prev !== undefined && next !== undefined) {
-    if (JOINING_SCRIPTS.some((script) => script.test(prev) && script.test(next))) return true;
-  }
-  if (code >= 0xe0020 && code <= CANCEL_TAG) {
-    // A flag: the black flag, a run of tag letters, the cancel tag.
-    let start = i;
-    while (start > 0 && codes[start - 1]! >= 0xe0020 && codes[start - 1]! < CANCEL_TAG) start--;
-    let end = i;
-    while (end < codes.length && codes[end]! >= 0xe0020 && codes[end]! < CANCEL_TAG) end++;
-    return codes[start - 1] === BLACK_FLAG && codes[end] === CANCEL_TAG && end > start;
-  }
+const isHidden = (code: number) => !SHOWN_CONTROLS.has(code) && HIDDEN.test(char(code)) && !PREPENDED_MARK.test(char(code));
+
+const isSelector = (code: number) => (code >= 0xfe00 && code <= 0xfe0f) || (code >= 0xe0100 && code <= 0xe01ef) || (code >= 0x180b && code <= 0x180f);
+
+/** Whether the variation selector `code` selects for `prev`, the code point before it (see the module comment). */
+function selects(prev: number | undefined, code: number, next: number | undefined): boolean {
+  if (prev === undefined) return false;
+  if (code === 0xfe0e || code === 0xfe0f) return EMOJI_BASE.test(char(prev)) || (KEYCAP_BASES.has(prev) && next === KEYCAP);
+  if (code >= 0xe0100) return HAN.test(char(prev));
+  if (code >= 0x180b && code <= 0x180f) return MONGOLIAN_LETTER.test(char(prev));
   return false;
+}
+
+/** Whether a joiner or non-joiner between `prev` and `next` is spelling: two letters or marks of one joining script. */
+function joins(prev: number | undefined, next: number | undefined): boolean {
+  if (prev === undefined || next === undefined) return false;
+  const a = char(prev);
+  const b = char(next);
+  return LETTER_OR_MARK.test(a) && LETTER_OR_MARK.test(b) && JOINING_SCRIPTS.some((script) => script.test(a) && script.test(b));
+}
+
+/** Counts the scanner's reads of the input, for the proof that its work is linear (#4209 review, F2). */
+export interface ScanMeter {
+  reads: number;
 }
 
 /** The text as segments: what is written, and each run of a hidden character. */
 export function invisibleSegments(text: string): InvisibleSegment[] {
+  return scanInvisibles(text);
+}
+
+/** `invisibleSegments`, counting its reads of the input in `meter` (module-level: the linear-work proof's entry). */
+export function scanInvisibles(text: string, meter?: ScanMeter): InvisibleSegment[] {
   const chars = Array.from(text);
+  const n = chars.length;
   const codes = chars.map((ch) => ch.codePointAt(0)!);
+  // The one way the scanner reads a code point to decide anything, so `meter` sees all of its scanning.
+  const at = (i: number): number | undefined => {
+    if (meter) meter.reads++;
+    return i >= 0 && i < n ? codes[i] : undefined;
+  };
+
+  /** The index of the cancel tag closing a recommended subdivision flag whose black flag is at `i`, else -1. */
+  const flagEnd = (i: number): number => {
+    let spelled = "";
+    for (let k = 1; k <= 5; k++) {
+      const code = at(i + k);
+      if (code === undefined || code < TAG_A || code > TAG_Z) return -1;
+      spelled += String.fromCharCode(code - 0xe0000);
+    }
+    return at(i + 6) === CANCEL_TAG && RGI_SUBDIVISIONS.has(spelled) ? i + 6 : -1;
+  };
+
+  // Pass 1: classify every code point once, from itself and its neighbours.
+  const reveal = new Uint8Array(n);
+  let flagUntil = -1;
+  // Whether the last code point that is not a skin tone or U+FE0F was a pictograph: an emoji joiner's left side.
+  let afterPictograph = false;
+  for (let i = 0; i < n; i++) {
+    const code = at(i)!;
+    if (code === BLACK_FLAG && i > flagUntil) flagUntil = flagEnd(i);
+    if (i > flagUntil || code === BLACK_FLAG) {
+      if (isHidden(code)) {
+        let spelling = false;
+        if (isSelector(code)) spelling = selects(at(i - 1), code, at(i + 1));
+        else if (code === ZWJ || code === ZWNJ) {
+          const next = at(i + 1);
+          spelling = (code === ZWJ && afterPictograph && next !== undefined && PICTOGRAPH.test(char(next))) || joins(at(i - 1), next);
+        }
+        if (!spelling) reveal[i] = 1;
+      }
+    }
+    if (!EMOJI_COMPONENT.test(char(code))) afterPictograph = PICTOGRAPH.test(char(code));
+  }
+
+  // Pass 2: text as written, and each run of one revealed character, visiting each code point once.
   const out: InvisibleSegment[] = [];
   let run = "";
-  for (let i = 0; i < chars.length; i++) {
-    const code = codes[i]!;
-    if (!isHidden(code, chars[i]!) || spelled(chars, codes, i)) {
+  for (let i = 0; i < n; ) {
+    const code = at(i)!;
+    if (!reveal[i]) {
       run += chars[i];
+      i++;
       continue;
     }
     let count = 1;
-    while (codes[i + count] === code && !spelled(chars, codes, i + count)) count++;
+    while (i + count < n && reveal[i + count] && at(i + count) === code) count++;
     if (run) out.push({ kind: "text", text: run });
     run = "";
     const name = invisibleName(code);
     // Three or more in a row read as one counted run; one or two stay single markers.
     if (count >= 3) {
       out.push({ kind: "hidden", code, count, marker: `‹${codeLabel(code)} ×${count}›`, spoken: `${count} hidden characters: ${name}` });
-      i += count - 1;
+      i += count;
     } else {
       out.push({ kind: "hidden", code, count: 1, marker: `‹${codeLabel(code)}›`, spoken: `hidden character: ${name}` });
+      i++;
     }
   }
   if (run) out.push({ kind: "text", text: run });

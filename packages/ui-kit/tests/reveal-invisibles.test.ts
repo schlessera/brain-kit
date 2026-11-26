@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { codeLabel, hasInvisibles, invisibleName, invisibleSegments, revealInvisibles } from "../src/google/reveal-invisibles.js";
+import { codeLabel, hasInvisibles, invisibleName, invisibleSegments, revealInvisibles, scanInvisibles, type ScanMeter } from "../src/google/reveal-invisibles.js";
 
 describe("revealInvisibles: hidden characters become markers", () => {
   test.each([
@@ -20,7 +20,7 @@ describe("revealInvisibles: hidden characters become markers", () => {
     ["tag characters spelling a hidden word", "ok\u{E0049}\u{E0047}\u{E004E}", "ok‹U+E0049›‹U+E0047›‹U+E004E›"],
     ["a variation selector with nothing to select", "\u{FE0F}start", "‹U+FE0F›start"],
     ["a second variation selector after the first", "\u{2764}\u{FE0F}\u{FE0F}", "\u{2764}\u{FE0F}‹U+FE0F›"],
-    ["a supplementary variation selector run smuggled behind a letter", "a\u{E0100}\u{E0101}", "a\u{E0100}‹U+E0101›"],
+    ["a supplementary variation selector run smuggled behind a letter", "a\u{E0100}\u{E0101}", "a‹U+E0100›‹U+E0101›"],
     ["a Hangul filler", "x\u{3164}y", "x‹U+3164›y"],
     ["a lone surrogate", "a\u{D800}b", "a‹U+D800›b"],
   ])("%s", (_name, input, expected) => {
@@ -80,5 +80,78 @@ describe("revealInvisibles: ordinary spelling stays as written", () => {
   test("tag characters after anything but the black flag are revealed", () => {
     expect(revealInvisibles("\u{1F3F3}\u{E0067}\u{E007F}")).toBe("\u{1F3F3}‹U+E0067›‹U+E007F›");
     expect(revealInvisibles("\u{1F3F4}\u{E0067}\u{E0062}")).toBe("\u{1F3F4}‹U+E0067›‹U+E0062›");
+  });
+
+  test.each([
+    ["England", "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}"],
+    ["Scotland", "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}"],
+    ["Wales", "\u{1F3F4}\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}"],
+    ["a rainbow flag: a selector, then a joiner between pictographs", "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}"],
+    ["a keycap hash", "#\u{FE0F}\u{20E3}"],
+    ["a text-presentation selector after an emoji-capable character", "\u{00A9}\u{FE0E} Ithaca"],
+    ["Persian with a vowel mark before its non-joiner", "\u{0645}\u{064E}\u{200C}\u{062E}"],
+    ["a Mongolian letter with its free variation selector", "\u{1820}\u{180B}"],
+  ])("the recognised spelling stays: %s", (_name, input) => {
+    expect(revealInvisibles(input)).toBe(input);
+  });
+});
+
+// Every exemption recognises a spelling, never a shape (#4209 review, F1):
+// each case is the shape of an exemption carrying something else.
+describe("revealInvisibles: a shape that only looks like spelling is revealed", () => {
+  const tag = (text: string) => Array.from(text, (ch) => String.fromCodePoint(0xe0000 + ch.codePointAt(0)!)).join("");
+  const markers = (text: string) => Array.from(text, (ch) => `‹U+${(0xe0000 + ch.codePointAt(0)!).toString(16).toUpperCase()}›`).join("");
+
+  test.each([
+    ["an arbitrary tag sentence wrapped in a black flag", `\u{1F3F4}${tag("IGNORE")}\u{E007F}`, `\u{1F3F4}${markers("IGNORE")}‹U+E007F›`],
+    ["a lowercase tag sentence wrapped in a black flag", `\u{1F3F4}${tag("ignore the owner")}\u{E007F}`, `\u{1F3F4}${markers("ignore the owner")}‹U+E007F›`],
+    ["a subdivision flag that is not recommended (Northern Ireland)", `\u{1F3F4}${tag("gbnir")}\u{E007F}`, `\u{1F3F4}${markers("gbnir")}‹U+E007F›`],
+    ["a region-shaped subdivision (California)", `\u{1F3F4}${tag("usca")}\u{E007F}`, `\u{1F3F4}${markers("usca")}‹U+E007F›`],
+    ["a recommended flag spelled in upper-case tag letters", `\u{1F3F4}${tag("GBSCT")}\u{E007F}`, `\u{1F3F4}${markers("GBSCT")}‹U+E007F›`],
+    ["a recommended flag with more tags before its cancel tag", `\u{1F3F4}${tag("gbsctx")}\u{E007F}`, `\u{1F3F4}${markers("gbsctx")}‹U+E007F›`],
+    ["one ideographic selector per Latin letter", "a\u{E0100}b\u{E0101}c\u{E0102}", "a‹U+E0100›b‹U+E0101›c‹U+E0102›"],
+    ["an emoji presentation selector on a Latin letter", "a\u{FE0F}b", "a‹U+FE0F›b"],
+    ["a selector after a digit with no keycap", "1\u{FE0F} and 2\u{FE0E}", "1‹U+FE0F› and 2‹U+FE0E›"],
+    ["a standardized-variant selector (U+FE00–U+FE0D), even after an emoji", "\u{2764}\u{FE00} x\u{FE0D}", "\u{2764}‹U+FE00› x‹U+FE0D›"],
+    ["an ideographic selector after an emoji", "\u{2764}\u{E0100}", "\u{2764}‹U+E0100›"],
+    ["a Mongolian selector after a Latin letter", "a\u{180B}", "a‹U+180B›"],
+    ["a joiner between Arabic digits", "\u{0661}\u{200D}\u{0662}", "\u{0661}‹U+200D›\u{0662}"],
+    ["a non-joiner between Arabic punctuation and a letter", "\u{060C}\u{200C}\u{0645}", "\u{060C}‹U+200C›\u{0645}"],
+    ["a non-joiner between letters of two joining scripts", "\u{0645}\u{200C}\u{0915}", "\u{0645}‹U+200C›\u{0915}"],
+    ["a joiner between Devanagari digits", "\u{0967}\u{200D}\u{0968}", "\u{0967}‹U+200D›\u{0968}"],
+    ["two joiners between pictographs", "\u{1F469}\u{200D}\u{200D}\u{1F4BB}", "\u{1F469}‹U+200D›‹U+200D›\u{1F4BB}"],
+  ])("%s", (_name, input, expected) => {
+    expect(revealInvisibles(input)).toBe(expected);
+    expect(hasInvisibles(input)).toBe(true);
+  });
+});
+
+// The scanner's work is linear in the input (#4209 review, F2), proved by
+// counting its reads, not by timing it. Each code point is read for itself
+// and by its two neighbours in the first pass, once in the second, and a
+// black flag reads the six code points a subdivision flag spells: at most
+// 10 reads per code point.
+describe("revealInvisibles: work proportional to the input", () => {
+  const PER_CODE_POINT = 10;
+  const tags = (n: number) => Array.from({ length: n }, (_, i) => String.fromCodePoint(0xe0061 + (i % 26))).join("");
+
+  test.each([
+    ["16,000 tag letters wrapped in a black flag and a cancel tag", `\u{1F3F4}${tags(16_000)}\u{E007F}`],
+    ["16,000 bare tag letters", tags(16_000)],
+    ["16,000 of one tag character", "\u{E0067}".repeat(16_000)],
+    ["3,200 black flags, each before four tag letters", `\u{1F3F4}${tags(4)}`.repeat(3_200)],
+    ["2,300 black flags, each before five tag letters and a cancel tag", `\u{1F3F4}${tags(5)}\u{E007F}`.repeat(2_300)],
+    ["16,000 zero-width spaces", "\u{200B}".repeat(16_000)],
+    ["8,000 Latin letters, each with a selector", "a\u{E0100}".repeat(8_000)],
+    ["skin tones between pictographs and joiners", "\u{1F469}\u{1F3FD}\u{FE0F}\u{200D}".repeat(4_000)],
+  ])("%s: at most a constant number of reads per code point", (_name, input) => {
+    const meter: ScanMeter = { reads: 0 };
+    const segments = scanInvisibles(input, meter);
+    expect(segments, "the metered scan is the one invisibleSegments runs").toEqual(invisibleSegments(input));
+    const length = Array.from(input).length;
+    expect(length).toBeGreaterThan(15_000);
+    expect(meter.reads, "the meter counts every code point").toBeGreaterThanOrEqual(length);
+    expect(meter.reads).toBeLessThanOrEqual(PER_CODE_POINT * length);
+    expect(segments.some((segment) => segment.kind === "hidden")).toBe(true);
   });
 });

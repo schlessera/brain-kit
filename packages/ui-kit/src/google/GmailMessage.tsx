@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { DetailSection } from "../evidence/DetailSection.js";
 import { UntrustedText } from "../evidence/UntrustedText.js";
 import { Icon } from "../primitives/Icon.js";
@@ -8,7 +8,7 @@ import { GmailLabels } from "./GmailLabels.js";
 import { StructuredRow } from "./GmailResultList.js";
 import { mailboxLabels, readMailbox, splitMailboxes, splitQuotedTail } from "./mail-text.js";
 import {
-  CONTENT_LINE, Field, Flags, MAIL_SOURCE, META, PROVENANCE, STRUCTURED_LINE_ONE, UnreadDot, When, count, fileSize, plural, spoken,
+  CONTENT_LINE, Field, Flags, MAIL_SOURCE, META, PROVENANCE, STRUCTURED_LINE_ONE, UnreadDot, When, accessibleName, count, fileSize, plural, spoken,
   type GmailDate, type GmailFlags, type GmailLabel, type GmailSizeBucket,
 } from "./shared.js";
 
@@ -26,10 +26,18 @@ import {
  *   payload is unchanged; this is the kit's reading of it.
  * - **Truncation**: when the payload cut the body, one line says how much
  *   Brain read — "Brain read the first 32,768 of 49,152 characters." — and
- *   never changes. Under it, the rest loads on demand from the display-only
- *   route through the shared detail section (G2), which says the rest stays
- *   out of Brain's reading. A cut body never folds its quote: what looks
- *   like its end is not the message's end.
+ *   never changes. The payload's `bodyTruncated` decides: a body it cut is
+ *   cut even when its length is missing or no longer than what arrived, and
+ *   then the line names no total ("Brain read the first 32,768 characters
+ *   of this message."). Under it, the rest loads on demand from the
+ *   display-only route through the shared detail section (G2), which says
+ *   the rest stays out of Brain's reading. A cut body never folds its
+ *   quote: what looks like its end is not the message's end.
+ * - **Focus**: a control that removes itself — "Show whole message", the
+ *   rest's "Show the rest", "Try again" — would drop focus to the page. It
+ *   moves to the message body instead (a labelled group, `tabIndex -1`), so
+ *   the reader carries on from where the text is. The shared detail section
+ *   is unchanged: GitHub's keeps its own behaviour.
  * - **Links** in the body keep the full-address interstitial. It names no
  *   author: a From header is a claim anyone can write.
  */
@@ -77,8 +85,9 @@ export interface GmailContentMessage extends GmailStructuredMessage {
     snippet: string | null;
     /** The text body Brain read, capped by the payload. */
     body: string | null;
+    /** The payload cut the body. Authoritative: a cut body is shown as cut whatever `bodyLength` says. */
     bodyTruncated: boolean;
-    /** The whole body's length in characters. */
+    /** The whole body's length in characters. `null` (or no more than `body`'s length) when the payload did not say. */
     bodyLength: number | null;
     attachments: readonly GmailAttachment[];
   };
@@ -150,8 +159,9 @@ function Attachments({ items }: { items: readonly GmailAttachment[] }) {
   );
 }
 
-/** What Brain read of a cut body. It never changes when the reader loads the rest. */
-function readLine(shown: number, total: number) {
+/** What Brain read of a cut body; `total` is `null` when the payload gave no usable length. It never changes when the reader loads the rest. */
+function readLine(shown: number, total: number | null) {
+  if (total === null) return shown === 0 ? "Brain read none of this message." : `Brain read the first ${count(shown)} characters of this message.`;
   return shown === 0
     ? `Brain read none of this message's ${count(total)} characters.`
     : `Brain read the first ${count(shown)} of ${count(total)} characters.`;
@@ -161,8 +171,9 @@ function readLine(shown: number, total: number) {
 export function MessageBody({ message }: { message: GmailContentMessage }) {
   const u = message.untrusted;
   const raw = u.body ?? "";
-  const total = u.bodyLength ?? raw.length;
-  const cut = u.bodyTruncated && total > raw.length;
+  // The payload's flag decides whether the body was cut; its length only says by how much, when it can.
+  const cut = u.bodyTruncated;
+  const total = u.bodyLength !== null && u.bodyLength > raw.length ? u.bodyLength : null;
   const detail = message.detail;
   const split = cut ? null : splitQuotedTail(raw);
   const [quotedOpen, setQuotedOpen] = useState(false);
@@ -171,8 +182,50 @@ export function MessageBody({ message }: { message: GmailContentMessage }) {
   const clamp = !cut || !detail || detail.state === "idle";
   const main = split ? split.body : raw;
 
+  // A control the reader pressed that then removes itself would leave focus on
+  // the page; the body takes it instead. UntrustedText's own "Show whole
+  // message" re-renders only itself, so a timer looks once that commit is in;
+  // a host that answers Load with a new detail state re-renders this, and the
+  // layout effect looks then.
+  const region = useRef<HTMLDivElement>(null);
+  const pressed = useRef<HTMLElement | null>(null);
+  const keepFocus = () => {
+    const control = pressed.current;
+    if (!control || control.isConnected) return;
+    pressed.current = null;
+    const active = document.activeElement;
+    if (active === null || active === document.body) region.current?.focus();
+  };
+  useLayoutEffect(keepFocus);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useLayoutEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+  }, []);
+  const press = (target: EventTarget) => {
+    pressed.current = (target as Element).closest<HTMLElement>("button, [role='button']");
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(keepFocus, 0);
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+    <div
+      ref={region}
+      role="group"
+      aria-label="Message body"
+      tabIndex={-1}
+      className="bk-gm-message-body"
+      style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}
+      data-gmail-message-body=""
+      onClickCapture={(event) => press(event.target)}
+      // The kit's Button acts on Enter and Space at keydown, with no click.
+      onKeyDownCapture={(event) => {
+        if (event.key === "Enter" || event.key === " ") press(event.target);
+      }}
+      onFocusCapture={(event) => {
+        // Focus that moved on by itself is the reader's; nothing pending survives it.
+        if (event.target !== pressed.current) pressed.current = null;
+      }}
+    >
       {raw === "" && !cut ? (
         <p style={{ margin: 0, font: `400 12px/1.5 ${font.body}`, ...MUTED_ITALIC }}>— This message has no text body.</p>
       ) : null}
@@ -221,7 +274,7 @@ export function MessageBody({ message }: { message: GmailContentMessage }) {
               source="Gmail"
               noun="the rest of this message"
               object="message"
-              idleLabel={`Show the rest · ${plural(total - raw.length, "character")}`}
+              idleLabel={total === null ? "Show the rest" : `Show the rest · ${plural(total - raw.length, "character")}`}
               pronoun="this"
               reach
               attribute="data-gmail-detail"
@@ -287,7 +340,7 @@ export function GmailMessage(p: GmailMessageProps) {
   return (
     <div style={{ width: "100%", minWidth: 0 }}>
       <Surface pad={0}>
-        <article className="bk-gm-frame" aria-label={`Email${name ? ` from ${spoken(name)}` : ""}`} data-gmail-message="content">
+        <article className="bk-gm-frame" aria-label={`Email${name ? ` from ${accessibleName(name)}` : ""}`} data-gmail-message="content">
           <header style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6, borderBottom: `1px solid ${color.line}` }}>
             <h3 className="bk-gm-clamp-2" style={{ margin: 0, font: `650 13.5px/1.35 ${font.body}`, color: color.ink }}>
               {u.subject ? <Field text={u.subject} /> : <span style={{ ...MUTED_ITALIC, fontWeight: 400 }}>— no subject</span>}

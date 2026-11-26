@@ -15,7 +15,7 @@ import {
 } from "../fixtures/gmail.js";
 import { GitHubDetailSection } from "../src/github/GitHubDetailSection.js";
 import { GmailLabels } from "../src/google/GmailLabels.js";
-import { GmailMessage, type GmailDetailState } from "../src/google/GmailMessage.js";
+import { GmailMessage, type GmailContentMessage, type GmailDetailState, type GmailStructuredMessage } from "../src/google/GmailMessage.js";
 import { GmailResultList, type GmailStructuredThread } from "../src/google/GmailResultList.js";
 import { GmailThread } from "../src/google/GmailThread.js";
 import { shownLabels, STRUCTURED_LINE, type GmailLabel, type GmailSizeBucket } from "../src/google/shared.js";
@@ -28,23 +28,31 @@ function draw(element: ReactElement): Document {
 
 const text = (doc: Document) => doc.body.textContent ?? "";
 
-/** Every text node containing `needle` sits inside an untrusted field or an untrusted text block. */
-function unguarded(doc: Document, needles: string[]): string[] {
-  const out: string[] = [];
+/**
+ * Where each needle appears: `unguarded` lists every text node holding one
+ * outside an untrusted field or text block, `guarded` every needle found at
+ * least once inside one. Both together prove containment: a needle that is
+ * not on screen at all is missing from `guarded`.
+ */
+function containment(doc: Document, needles: string[]): { unguarded: string[]; guarded: string[] } {
+  const unguarded: string[] = [];
+  const guarded = new Set<string>();
   const walker = doc.createTreeWalker(doc.body, 4 /* NodeFilter.SHOW_TEXT */);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const value = node.nodeValue ?? "";
     for (const needle of needles) {
       if (!value.includes(needle)) continue;
-      if (!(node.parentElement as Element | null)?.closest("[data-untrusted-field], [data-untrusted-text]")) out.push(needle);
+      if ((node.parentElement as Element | null)?.closest("[data-untrusted-field], [data-untrusted-text]")) guarded.add(needle);
+      else unguarded.push(needle);
     }
   }
-  return out;
+  return { unguarded, guarded: needles.filter((needle) => guarded.has(needle)) };
 }
 
 describe("the payload's shapes fit the kit's", () => {
-  test("a ui-sdk label and size bucket are the kit's", () => {
-    // Compile-time: the kit's types accept what the contract carries.
+  test("compile-time proof (tsc, not this runner): a ui-sdk label and size bucket type-check as the kit's", () => {
+    // The proof is the typecheck: these assignments fail `tsc` if the contract's
+    // shapes drift from the kit's. The runtime lines only keep the bindings used.
     const label: GmailLabel = { id: "Label_1", name: "Family" } satisfies SdkLabel;
     type Hit = Extract<GmailSearchPayload, { view: "structured" }>["threads"][number];
     const bucket: GmailSizeBucket | null = (null as unknown as Hit)?.size_bucket ?? null;
@@ -96,6 +104,21 @@ describe("structured rows show only what the structured view carries (G1)", () =
     expect(row.textContent).toBe("Inbox");
   });
 
+  test("a structured thread and message handed content-view messages still show nothing a stranger wrote", () => {
+    // As for the list: if ui-react ever passed content messages to the structured view, no row may show their text.
+    const values = loomMessages.flatMap((m) => [m.untrusted.from, m.untrusted.to, m.untrusted.cc, m.untrusted.subject, m.untrusted.snippet, m.untrusted.body, ...m.untrusted.attachments.map((a) => a.filename)]).filter((v): v is string => !!v);
+    expect(values.length).toBeGreaterThan(10);
+    for (const element of [
+      <GmailThread view="structured" messages={loomMessages as unknown as GmailStructuredMessage[]} />,
+      <GmailMessage view="structured" message={loomMessages[4] as unknown as GmailStructuredMessage} />,
+    ]) {
+      const doc = draw(element);
+      expect(doc.querySelectorAll("[data-gmail-row='structured']").length).toBeGreaterThan(0);
+      for (const value of values) expect(text(doc)).not.toContain(value.slice(0, 12));
+      expect(doc.querySelectorAll("[data-untrusted-field], [data-untrusted-text]")).toHaveLength(0);
+    }
+  });
+
   test("a structured thread and message carry the G1 line and no text a stranger wrote", () => {
     for (const element of [<GmailThread view="structured" messages={structuredMessages} />, <GmailMessage view="structured" message={structuredMessages[4]!} />]) {
       const doc = draw(element);
@@ -109,8 +132,10 @@ describe("structured rows show only what the structured view carries (G1)", () =
 describe("content rows", () => {
   test("every sender, subject and snippet sits under an untrusted field", () => {
     const doc = draw(<GmailResultList view="content" query="from:penelope" threads={contentThreads} />);
-    const strings = contentThreads.flatMap((t) => [t.untrusted.subject, t.untrusted.snippet, "Penelope", "Eumaeus", "Telemachus", "Calypso"]).filter((s): s is string => !!s);
-    expect(unguarded(doc, strings)).toEqual([]);
+    const strings = [...new Set(contentThreads.flatMap((t) => [t.untrusted.subject, t.untrusted.snippet, "Penelope", "Eumaeus", "Telemachus", "Calypso"]).filter((s): s is string => !!s))];
+    const where = containment(doc, strings);
+    expect(where.unguarded).toEqual([]);
+    expect(where.guarded, "each one is on screen, inside a field").toEqual(strings);
     expect(text(doc)).toContain("— no subject");
     expect(doc.querySelectorAll("a")).toHaveLength(0);
   });
@@ -129,7 +154,10 @@ describe("content rows", () => {
     expect(markers).toEqual(["‹U+200B›", "‹U+202E›", "‹U+200B ×4›", "‹U+E0049›", "‹U+E0047›", "‹U+E004E›", "‹U+E004F›", "‹U+E0052›", "‹U+E0045›"]);
     expect(text(doc)).not.toMatch(/[\u{200B}\u{202E}\u{E0049}]/u);
     expect(doc.querySelector("[data-hidden-char='‹U+202E›'] .bk-sr-only")!.textContent).toBe(" hidden character: right-to-left override ");
-    expect(doc.querySelector("button")!.getAttribute("aria-label")).toContain("Ithaca‹U+200B› Steward, Invoice for the shroud wool ‹U+202E›txt.exe");
+    // The row's name says what each marker is, as the field does to a screen reader; never the hex marker.
+    const name = doc.querySelector("button")!.getAttribute("aria-label")!;
+    expect(name).toContain("Ithaca hidden character: zero-width space Steward, Invoice for the shroud wool hidden character: right-to-left override txt.exe");
+    expect(name).not.toContain("‹U+");
   });
 
   test("an empty search says so and keeps the query", () => {
@@ -248,6 +276,80 @@ describe("message body", () => {
     expect(rest.querySelector("[data-untrusted-text]")!.textContent).toBe("Day 400: the last tally.");
     expect(text(doc)).toContain("Loaded for you · Brain hasn't read this");
     expect(doc.querySelector("[data-brain-read]")!.textContent).toBe("Brain read the first 32,768 of 49,152 characters.");
+  });
+});
+
+describe("a cut body whose length the payload did not give (F4)", () => {
+  const partial = (body: string, bodyLength: number | null): GmailContentMessage => ({
+    ...herdsMessage,
+    untrusted: { ...herdsMessage.untrusted, body, bodyLength },
+    detail: { state: "idle" },
+  });
+  /** The read line and the rest's button: asserted present, so a body shown as uncut fails here, by name. */
+  const cutParts = (doc: Document) => {
+    const line = doc.querySelector("[data-brain-read]");
+    const rest = doc.querySelector("[data-gmail-detail='idle'] [data-bk-button]");
+    expect(line, "the body is shown as cut: a read line").not.toBeNull();
+    expect(rest, "the body is shown as cut: the rest is offered").not.toBeNull();
+    return { line: line!.textContent, rest: rest!.textContent };
+  };
+
+  test.each<[string, number | null]>([
+    ["no length", null],
+    ["a length no greater than what arrived", 32_768],
+    ["a length shorter than what arrived", 100],
+  ])("with %s, the explicit cut wins: the read line names no total and the rest is offered without a count", (_name, length) => {
+    const doc = draw(<GmailMessage view="content" message={partial(herdsMessage.untrusted.body!, length)} />);
+    expect(cutParts(doc)).toEqual({ line: "Brain read the first 32,768 characters of this message.", rest: "Show the rest" });
+    expect(text(doc)).toContain("Loads from Gmail when you ask. Brain won't see it.");
+    expect(text(doc)).not.toContain("whole message");
+  });
+
+  test("a cut body never folds its quote, length or not (D4)", () => {
+    const doc = draw(<GmailMessage view="content" message={partial("Come home.\n\n> Tell them it's for Laertes.", null)} />);
+    expect(doc.querySelector("[data-gmail-quoted-toggle]")).toBeNull();
+    expect(doc.querySelector("[data-gmail-body]")!.textContent).toContain("Tell them it's for Laertes.");
+  });
+
+  test("nothing read and no length: Brain read none of it, and it does not claim the message has no body", () => {
+    const doc = draw(<GmailMessage view="content" message={partial("", null)} />);
+    expect(cutParts(doc)).toEqual({ line: "Brain read none of this message.", rest: "Show the rest" });
+    expect(text(doc)).not.toContain("no text body");
+    expect(doc.querySelector("[data-gmail-body]")).toBeNull();
+  });
+
+  test("a known length is unchanged (D1)", () => {
+    const doc = draw(<GmailMessage view="content" message={partial(herdsMessage.untrusted.body!, 49_152)} />);
+    expect(cutParts(doc)).toEqual({ line: "Brain read the first 32,768 of 49,152 characters.", rest: "Show the rest · 16,384 characters" });
+  });
+});
+
+describe("what the guard reveals survives every reading of the text (F3)", () => {
+  const message: GmailContentMessage = {
+    ...loomMessages[4]!,
+    untrusted: {
+      ...loomMessages[4]!.untrusted,
+      from: "Penelope\u{FEFF} <\u{2028}penelope@example.com>",
+      body: "Come home before the last of the wool.\u{FEFF}\n\nOn Fri, 10 Jul 2026 at 07:05, Odysseus <odysseus@example.com> wrote:\n> Tell them it's for Laertes.",
+    },
+  };
+
+  test("a hidden character just before a folded quote shows a marker in the body", () => {
+    const doc = draw(<GmailMessage view="content" message={message} />);
+    expect(doc.querySelector("[data-gmail-quoted-toggle]"), "the quote still folds").not.toBeNull();
+    expect([...doc.querySelectorAll("[data-gmail-body] > [data-untrusted-text]")].map((n) => n.textContent).join("\n")).toContain("the wool.‹U+FEFF›");
+  });
+
+  test("a hidden character at a mailbox's name and address boundaries shows a marker in each", () => {
+    const doc = draw(<GmailMessage view="content" message={message} />);
+    const markers = [...doc.querySelectorAll("header ~ div [data-untrusted-field] [data-hidden-char]")].map((n) => n.getAttribute("data-hidden-char"));
+    expect(markers).toEqual(["‹U+FEFF›", "‹U+2028›"]);
+    expect(doc.querySelector("article")!.getAttribute("aria-label")).toBe("Email from Penelope hidden character: zero-width no-break space");
+  });
+
+  test("the same holds in a content row's sender", () => {
+    const doc = draw(<GmailResultList view="content" threads={[{ ...contentThreads[0]!, untrusted: { ...contentThreads[0]!.untrusted, from: "\u{FEFF}Penelope <penelope@example.com>" } }]} />);
+    expect([...doc.querySelectorAll(".bk-gm-grow [data-hidden-char]")].map((n) => n.getAttribute("data-hidden-char"))).toEqual(["‹U+FEFF›"]);
   });
 });
 

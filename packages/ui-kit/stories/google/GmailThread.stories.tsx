@@ -5,7 +5,7 @@ import { loomMessages, midQuoteMessage, spartaMessages, structuredMessages } fro
 import { GmailThread } from "../../src/google/GmailThread.js";
 import { STRUCTURED_LINE } from "../../src/google/shared.js";
 import { stage } from "../_stage.js";
-import { desktop, holdsTogether, narrow, unguarded, widthOf } from "./_gmail.js";
+import { containment, desktop, holdsTogether, narrow, widthOf } from "./_gmail.js";
 
 /**
  * One Gmail thread (#4209; brief §3, rulings G3 and G5): oldest first, the
@@ -31,7 +31,10 @@ export const TwoMessages = meta.story({
     await expect(toggles(canvasElement).map((b) => b.getAttribute("aria-expanded"))).toEqual(["false", "true"]);
     await expect(canvas.getByRole("heading", { name: "Leaving for Sparta" })).toBeVisible();
     await expect(canvas.getByRole("list", { name: "Messages, oldest first" })).toBeVisible();
-    await expect(unguarded(canvasElement, ["Leaving for Sparta", "Telemachus", "The island part is true"])).toEqual([]);
+    const strings = ["Leaving for Sparta", "Telemachus", "The island part is true"];
+    const where = containment(canvasElement, strings);
+    await expect(where.unguarded, "nothing a stranger wrote sits outside an untrusted field").toEqual([]);
+    await expect(where.guarded, "each one is on screen, inside one").toEqual(strings);
   },
 });
 export const TwoMessagesNarrow = TwoMessages.extend({ ...narrow });
@@ -54,6 +57,22 @@ export const EarlierMessageOpens = meta.story({
   },
 });
 export const EarlierMessageOpensNarrow = EarlierMessageOpens.extend({ ...narrow });
+
+/**
+ * Five messages at rest: the first two folded into one row, the next two as
+ * rows, the newest open. Nothing is pressed, so its capture is the folded
+ * thread (`gmail-thread-folded`).
+ */
+export const FiveMessagesFoldedAtRest = meta.story({
+  args: { view: "content", messages: loomMessages },
+  ...desktop,
+  play: async ({ canvas, canvasElement, parameters }) => {
+    await holdsTogether(canvasElement, widthOf(parameters));
+    await expect(canvas.getByRole("button", { name: "Show 2 earlier messages" })).toBeVisible();
+    await expect(toggles(canvasElement).map((b) => b.getAttribute("aria-expanded"))).toEqual(["false", "false", "true"]);
+  },
+});
+export const FiveMessagesFoldedAtRestNarrow = FiveMessagesFoldedAtRest.extend({ ...narrow });
 
 /** Five messages: the first two fold into one row; opening it moves focus to the first message it revealed. */
 export const FiveMessagesFolded = meta.story({
@@ -141,7 +160,7 @@ export const Structured = meta.story({
   args: { view: "structured", messages: structuredMessages },
   ...desktop,
   play: async ({ canvas, canvasElement, parameters }) => {
-    await holdsTogether(canvasElement, widthOf(parameters));
+    await holdsTogether(canvasElement, widthOf(parameters), { controls: 0 });
     await expect(canvas.getByRole("heading", { name: "Thread · 5 messages" })).toBeVisible();
     await expect(canvas.getByText(STRUCTURED_LINE)).toBeVisible();
     const text = canvasElement.textContent ?? "";

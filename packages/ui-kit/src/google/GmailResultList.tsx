@@ -6,7 +6,7 @@ import { color, font } from "../tokens.js";
 import { GmailLabels } from "./GmailLabels.js";
 import { mailboxLabel } from "./mail-text.js";
 import {
-  CAPS, CONTENT_LINE, Field, Flags, META, PROVENANCE, STRUCTURED_LINE, UnreadDot, When, plural, shownLabels, spoken,
+  CAPS, CONTENT_LINE, Field, Flags, META, PROVENANCE, STRUCTURED_LINE, UnreadDot, When, accessibleName, plural, shownLabels,
   type GmailDate, type GmailFlags, type GmailLabel, type GmailSizeBucket,
 } from "./shared.js";
 
@@ -94,7 +94,7 @@ function contentName(thread: GmailContentThread, sender: string | null) {
   const parts: string[] = [];
   if (thread.unread) parts.push("Unread");
   parts.push(sender ?? "Sender not given");
-  parts.push(thread.untrusted.subject ? spoken(thread.untrusted.subject) : "no subject");
+  parts.push(thread.untrusted.subject ? accessibleName(thread.untrusted.subject) : "no subject");
   if (thread.date) parts.push(thread.date.full);
   if (thread.messageCount !== undefined && thread.messageCount !== null) parts.push(plural(thread.messageCount, "message"));
   if (thread.starred) parts.push("starred");
@@ -118,7 +118,7 @@ function ContentRow({ thread }: { thread: GmailContentThread }) {
   const [open, setOpen] = useState(false);
   const panel = useId();
   const u = thread.untrusted;
-  const sender = u.from ? spoken(mailboxLabel(u.from)) : null;
+  const sender = u.from ? accessibleName(mailboxLabel(u.from)) : null;
   const weight = thread.unread ? 650 : 500;
   const labels = shownLabels(thread.labels);
   const count = thread.messageCount !== undefined && thread.messageCount !== null ? plural(thread.messageCount, "message") : null;

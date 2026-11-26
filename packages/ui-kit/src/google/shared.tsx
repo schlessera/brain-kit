@@ -198,8 +198,19 @@ function Revealed({ text }: { text: string }) {
   );
 }
 
-/** An untrusted string for an accessible name or a plain-text slot, with hidden characters spelled out. */
+/** An untrusted string for a plain-text slot (a body `UntrustedText` draws), with each hidden character as its `‹U+XXXX›` marker. */
 export const spoken = (text: string) => revealInvisibles(text);
+
+/**
+ * An untrusted string for an accessible name: each hidden character said as
+ * `Field` says it to a screen reader ("hidden character: right-to-left
+ * override"), never as its hex marker, which a screen reader would spell out.
+ */
+export function accessibleName(text: string): string {
+  let out = "";
+  for (const segment of invisibleSegments(text)) out += segment.kind === "text" ? segment.text : ` ${segment.spoken} `;
+  return out.replace(/ {2,}/g, " ").replace(/^ +| +$/g, "");
+}
 
 /** The flags line: glyph and word, never colour alone. Renders nothing when the payload carries none. */
 export function Flags({ flags, size, attachments, style }: { flags: GmailFlags; size?: GmailSizeBucket | null; attachments?: number | null; style?: CSSProperties }) {

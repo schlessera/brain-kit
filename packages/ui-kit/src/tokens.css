@@ -3334,8 +3334,11 @@ ol.bk-ut-list { list-style: decimal outside; }
 .bk-gm-label:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; }
 /* The end padding holds "+N"'s 4px horizontal reach inside the list. */
 .bk-gm-label-more { display: inline-flex; align-items: center; padding-inline-end: 4px; }
-/* "+N" keeps its 44px reach (`data-inline`) and gets 24px of width on its own. */
-.bk-gm-label-more > .bk-text-btn { min-width: 20px; padding: 0 4px; }
+/* "+N" is a 24px box each way, its 44px height reach from `data-inline` and,
+ * under a coarse pointer, its 44px width from `.bk-hit`. The negative block
+ * margin keeps the label line the chips' height: the box grows, the row
+ * does not. */
+.bk-gm-label-more > .bk-text-btn { min-width: 24px; min-height: 24px; margin-block: -2px; padding: 0 4px; }
 .bk-gm-label-count { font: 400 10.5px/20px "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-mute); }
 
 /* A hidden character, shown (G4): a small mono chip in a single-line field. */
@@ -3351,6 +3354,10 @@ ol.bk-ut-list { list-style: decimal outside; }
   unicode-bidi: isolate;
   direction: ltr;
 }
+
+/* A message's body takes focus when a control in it removes itself ("Show
+ * whole message", "Show the rest"), so the reader carries on from the text. */
+.bk-gm-message-body:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; border-radius: 6px; }
 
 /* A message body: one provenance rule down everything a stranger wrote in it. */
 .bk-gm-body {

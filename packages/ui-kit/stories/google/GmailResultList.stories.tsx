@@ -5,7 +5,7 @@ import { contentThreads, hiddenCharsThread, longSenderThread, sparseStructuredTh
 import { GmailResultList, type GmailContentThread } from "../../src/google/GmailResultList.js";
 import { STRUCTURED_LINE } from "../../src/google/shared.js";
 import { stage } from "../_stage.js";
-import { desktop, holdsTogether, narrow, unguarded, widthOf } from "./_gmail.js";
+import { containment, desktop, holdsTogether, narrow, widthOf } from "./_gmail.js";
 
 /**
  * The threads a Gmail search returned (#4209; brief §1, §2, §6; rulings G1
@@ -24,8 +24,8 @@ const meta = preview.meta({
 /** Words no structured story may show: a sender, a subject, an address, a placeholder for either. */
 const NEVER_STRUCTURED = ["@", "Penelope", "Eumaeus", "Telemachus", "Calypso", "subject", "sender", "From", "loom"];
 
-const structuredHolds = async (canvasElement: HTMLElement, parameters: Record<string, unknown>) => {
-  await holdsTogether(canvasElement, widthOf(parameters));
+const structuredHolds = async (canvasElement: HTMLElement, parameters: Record<string, unknown>, opts?: { controls?: number }) => {
+  await holdsTogether(canvasElement, widthOf(parameters), opts);
   const text = canvasElement.textContent ?? "";
   for (const word of NEVER_STRUCTURED) await expect(text, `a structured row shows no "${word}"`).not.toContain(word);
   await expect(text.split(STRUCTURED_LINE), "the G1 line appears exactly once").toHaveLength(2);
@@ -114,7 +114,7 @@ export const StructuredEmpty = meta.story({
   args: { view: "structured", threads: [], query: "label:raft older_than:1y" },
   ...desktop,
   play: async ({ canvas, canvasElement, parameters }) => {
-    await structuredHolds(canvasElement, parameters);
+    await structuredHolds(canvasElement, parameters, { controls: 0 });
     await expect(canvas.getByText("— Gmail found nothing for this search.")).toBeVisible();
     await expect(canvas.getByRole("heading", { name: "0 threads" })).toBeVisible();
   },
@@ -132,7 +132,10 @@ export const Content4 = meta.story({
   ...desktop,
   play: async ({ canvas, canvasElement, parameters }) => {
     await holdsTogether(canvasElement, widthOf(parameters));
-    await expect(unguarded(canvasElement, UNTRUSTED(contentThreads)), "every subject and snippet is an untrusted field").toEqual([]);
+    const strings = UNTRUSTED(contentThreads);
+    const where = containment(canvasElement, strings);
+    await expect(where.unguarded, "no subject or snippet sits outside an untrusted field").toEqual([]);
+    await expect(where.guarded, "every subject and snippet is on screen, inside one").toEqual(strings);
     await expect(canvas.getByText("Content view · written by others · not checked")).toBeVisible();
     await expect(canvas.getByRole("button", { name: "Unread, Penelope, The loom, again, Saturday 11 July 2026, 18:02, 5 messages, has an attachment" })).toHaveAttribute("aria-expanded", "false");
     await expect(canvasElement.querySelectorAll("a"), "no row links anywhere").toHaveLength(0);
@@ -200,7 +203,7 @@ export const ContentEmpty = meta.story({
   args: { view: "content", threads: [], query: "from:poseidon" },
   ...desktop,
   play: async ({ canvas, canvasElement, parameters }) => {
-    await holdsTogether(canvasElement, widthOf(parameters));
+    await holdsTogether(canvasElement, widthOf(parameters), { controls: 0 });
     await expect(canvas.getByText("— Gmail found nothing for this search.")).toBeVisible();
   },
 });
@@ -214,12 +217,15 @@ export const ContentEmptyNarrow = ContentEmpty.extend({ ...narrow });
 export const HiddenCharsInSubject = meta.story({
   args: { view: "content", query: "is:unread", threads: [hiddenCharsThread] },
   ...desktop,
-  play: async ({ canvas, canvasElement, parameters }) => {
+  play: async ({ canvasElement, parameters }) => {
     await holdsTogether(canvasElement, widthOf(parameters));
     const markers = [...canvasElement.querySelectorAll("[data-hidden-char]")].map((n) => n.getAttribute("data-hidden-char"));
     await expect(markers.slice(0, 3)).toEqual(["‹U+200B›", "‹U+202E›", "‹U+200B ×4›"]);
     await expect(canvasElement.textContent ?? "").not.toMatch(/[\u{200B}\u{202E}\u{E0049}]/u);
-    await expect(canvas.getByRole("button", { name: /Ithaca‹U\+200B› Steward, Invoice for the shroud wool ‹U\+202E›txt\.exe/ })).toBeVisible();
+    // The row's accessible name says what each marker is, as the field does; never the hex marker.
+    const row = canvasElement.querySelector<HTMLElement>("[data-gmail-row='content'] > button")!;
+    await expect(row).toHaveAccessibleName(/^Unread, Ithaca hidden character: zero-width space Steward, Invoice for the shroud wool hidden character: right-to-left override txt\.exe, /);
+    await expect(row.getAttribute("aria-label")).not.toContain("‹U+");
     // The subject reads left to right as written: the marker sits before "txt.exe", which is not reversed.
     const subject = canvasElement.querySelector<HTMLElement>(".bk-gm-subject [data-untrusted-field]")!;
     const marker = subject.querySelector("[data-hidden-char]")!.getBoundingClientRect();

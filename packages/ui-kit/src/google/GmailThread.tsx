@@ -5,7 +5,7 @@ import { color, font } from "../tokens.js";
 import { GmailLabels } from "./GmailLabels.js";
 import { MessageBody, Recipients, SenderAddress, senderLabel, type GmailContentMessage, type GmailStructuredMessage } from "./GmailMessage.js";
 import { StructuredRow } from "./GmailResultList.js";
-import { CONTENT_LINE, Field, Flags, META, PROVENANCE, STRUCTURED_LINE, UnreadDot, When, mergeLabels, plural, spoken } from "./shared.js";
+import { CONTENT_LINE, Field, Flags, META, PROVENANCE, STRUCTURED_LINE, UnreadDot, When, accessibleName, mergeLabels, plural } from "./shared.js";
 
 /**
  * `GmailThread` — the messages of one Gmail thread, oldest first and newest
@@ -38,7 +38,7 @@ function MessageItem({ message, initiallyOpen, toggleRef }: { message: GmailCont
   const panel = useId();
   const u = message.untrusted;
   const name = senderLabel(u.from);
-  const label = `${message.unread ? "Unread, " : ""}${name ? spoken(name) : "Sender not given"}${message.date ? `, ${message.date.full}` : ""}`;
+  const label = `${message.unread ? "Unread, " : ""}${name ? accessibleName(name) : "Sender not given"}${message.date ? `, ${message.date.full}` : ""}`;
   return (
     <li style={{ borderTop: `1px solid ${color.line}` }} data-gmail-thread-message={open ? "open" : "closed"}>
       <button ref={toggleRef} type="button" className="bk-row bk-gm-crow" aria-expanded={open} aria-controls={panel} aria-label={label} onClick={() => setOpen(!open)}>
@@ -120,7 +120,7 @@ export function GmailThread(p: GmailThreadProps) {
   return (
     <div style={{ width: "100%", minWidth: 0 }}>
       <Surface pad={0}>
-        <section className="bk-gm-frame" aria-label={subject ? `Email thread: ${spoken(subject)}` : "Email thread"} data-gmail-thread="content">
+        <section className="bk-gm-frame" aria-label={subject ? `Email thread: ${accessibleName(subject)}` : "Email thread"} data-gmail-thread="content">
           <header style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
             <h3 className="bk-gm-clamp-2" style={H3}>
               {subject ? <Field text={subject} /> : <span style={{ fontStyle: "italic", fontWeight: 400, color: color.inkMute }}>— no subject</span>}

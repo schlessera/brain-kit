@@ -31,6 +31,9 @@ export function mailDate(local: string, opts: { time?: boolean } = {}): GmailDat
 
 // ------------------------------------------------------------------ labels
 
+/** `word` repeated to exactly `length` characters: one string with no break opportunity in it. */
+const unbroken = (word: string, length: number) => word.repeat(Math.ceil(length / word.length)).slice(0, length);
+
 export const L = {
   inbox: { id: "INBOX", name: "INBOX" },
   unread: { id: "UNREAD", name: "UNREAD" },
@@ -51,6 +54,8 @@ export const L = {
   escaped: { id: "Label_7", name: "Suitors \\u{202E}gol" },
   /** A name the host withheld (longer than Gmail allows): only the id. */
   withheld: { id: "Label_8", name: null },
+  /** The longest name the payload carries: 2,250 characters (225 escaped to ten each), none of them a place to break. */
+  longest: { id: "Label_9", name: unbroken("Ithaca", 2_250) },
 } satisfies Record<string, GmailLabel>;
 
 // ---------------------------------------------------------------- mailboxes
@@ -458,6 +463,28 @@ export const clampedMessage: GmailContentMessage = {
       "",
       "Menelaus gave me horses. I said Ithaca is no country for horses and asked for a cup instead. He laughed and gave me the cup.",
     ].join("\n"),
+  },
+};
+
+/** One unbroken address filling a From header to the payload's 2,000-character limit. */
+export const UNBROKEN_ADDRESS = `${unbroken("orchardkeeper", 2_000 - "Laertes <@example.com>".length)}@example.com`;
+/** One unbroken file name at the payload's 255-character limit. */
+export const UNBROKEN_FILENAME = `${unbroken("orchardrows", 251)}.pdf`;
+
+/** The longest unbroken strings the payload carries, in one message: a label name, a From address and a file name. */
+export const unbrokenMessage: GmailContentMessage = {
+  ...spartaMessages[0]!,
+  messageId: "19a1a4410d5ce808",
+  labels: [L.inbox, L.longest, L.family],
+  hasAttachment: true,
+  attachmentCount: 1,
+  untrusted: {
+    ...spartaMessages[0]!.untrusted,
+    from: `Laertes <${UNBROKEN_ADDRESS}>`,
+    subject: "The orchard, row by row",
+    snippet: "Every tree you were given, still standing.",
+    body: "Every tree you were given, still standing. The list is attached.",
+    attachments: [{ filename: UNBROKEN_FILENAME, mimeType: "application/pdf", size: 18_432 }],
   },
 };
 

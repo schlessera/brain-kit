@@ -4,7 +4,26 @@
  * only decide how text is laid out; neither changes a character of it, and
  * neither trusts what it reads. Every string still reaches the screen through
  * `Field` or `UntrustedText`.
+ *
+ * Trimming removes mail whitespace only: space, tab, carriage return and line
+ * feed. A byte-order mark, a line or paragraph separator, a no-break space or
+ * any other character JavaScript's `trim` would drop stays in the slice, so
+ * `revealInvisibles` sees every code point the guard promises to show.
  */
+
+/** Space, tab, CR and LF: the only characters a reading may trim. */
+const MAIL_SPACE = new Set([0x20, 0x09, 0x0d, 0x0a]);
+
+/** `text` without mail whitespace at its end (and at its start, unless `endOnly`). A loop, so a long run of spaces costs linear time. */
+function trimMail(text: string, endOnly = false): string {
+  let start = 0;
+  let end = text.length;
+  while (!endOnly && start < end && MAIL_SPACE.has(text.charCodeAt(start))) start++;
+  while (end > start && MAIL_SPACE.has(text.charCodeAt(end - 1))) end--;
+  return text.slice(start, end);
+}
+
+const blank = (line: string) => trimMail(line) === "";
 
 /** One mailbox as written in a header, split into what a reader needs. */
 interface MailboxReading {
@@ -40,38 +59,38 @@ export function splitMailboxes(header: string): string[] {
     else if (ch === "(") comment++;
     else if (ch === ")" && comment > 0) comment--;
     else if (ch === "," && angle === 0 && comment === 0) {
-      if (current.trim()) out.push(current.trim());
+      if (!blank(current)) out.push(trimMail(current));
       current = "";
       continue;
     }
     current += ch;
   }
-  if (current.trim()) out.push(current.trim());
+  if (!blank(current)) out.push(trimMail(current));
   return out;
 }
 
 /** One mailbox's display name and address. Tolerant: a header that is neither shape is its own name. */
 export function readMailbox(mailbox: string): MailboxReading {
-  const text = mailbox.trim();
-  const angled = /^(.*?)<([^<>]*)>\s*$/s.exec(text);
+  const text = trimMail(mailbox);
+  const angled = /^(.*?)<([^<>]*)>[ \t\r\n]*$/s.exec(text);
   if (angled) {
-    const name = unquote(angled[1]!.trim());
-    const address = angled[2]!.trim();
+    const name = unquote(trimMail(angled[1]!));
+    const address = trimMail(angled[2]!);
     return { name: name || null, address: address || null };
   }
-  if (/^[^\s@]+@[^\s@]+$/.test(text)) return { name: null, address: text };
+  if (/^[^ \t\r\n@]+@[^ \t\r\n@]+$/.test(text)) return { name: null, address: text };
   return { name: unquote(text) || null, address: null };
 }
 
 function unquote(name: string): string {
   const quoted = /^"(.*)"$/s.exec(name);
-  return (quoted ? quoted[1]!.replace(/\\(.)/g, "$1") : name).trim();
+  return trimMail(quoted ? quoted[1]!.replace(/\\(.)/g, "$1") : name);
 }
 
 /** The words a reader knows a mailbox by: its display name, else its address, else the header as written. */
 export function mailboxLabel(mailbox: string): string {
   const reading = readMailbox(mailbox);
-  return reading.name ?? reading.address ?? mailbox.trim();
+  return reading.name ?? reading.address ?? trimMail(mailbox);
 }
 
 /** Every mailbox in a header by the words a reader knows it by: "Odysseus, Eumaeus". */
@@ -125,30 +144,30 @@ export function splitQuotedTail(text: string): QuotedTail | null {
   }
 
   let end = lines.length;
-  while (end > 0 && lines[end - 1]!.trim() === "") end--;
+  while (end > 0 && blank(lines[end - 1]!)) end--;
   let start = end;
   while (start > 0) {
     const line = lines[start - 1]!;
-    if (line.trim() === "" || (!fenced[start - 1] && QUOTE.test(line))) start--;
+    if (blank(line) || (!fenced[start - 1] && QUOTE.test(line))) start--;
     else break;
   }
-  while (start < end && lines[start]!.trim() === "") start++;
+  while (start < end && blank(lines[start]!)) start++;
   if (start >= end) return null;
 
   let cut = start;
-  while (cut > 0 && lines[cut - 1]!.trim() === "") cut--;
+  while (cut > 0 && blank(lines[cut - 1]!)) cut--;
   let attribution: string | null = null;
   const last = lines[cut - 1];
   const before = lines[cut - 2];
   if (last !== undefined && !fenced[cut - 1] && ATTRIBUTION_ONE.test(last)) {
-    attribution = last.trim();
+    attribution = trimMail(last);
     cut -= 1;
   } else if (last !== undefined && before !== undefined && !fenced[cut - 1] && !fenced[cut - 2] && ATTRIBUTION_END.test(last) && ATTRIBUTION_START.test(before) && !ATTRIBUTION_END.test(before)) {
-    attribution = `${before.trim()}\n${last.trim()}`;
+    attribution = `${trimMail(before)}\n${trimMail(last)}`;
     cut -= 2;
   }
 
-  const body = lines.slice(0, cut).join("\n").replace(/\s+$/, "");
-  if (body.trim() === "") return null;
+  const body = trimMail(lines.slice(0, cut).join("\n"), true);
+  if (blank(body)) return null;
   return { body, attribution, quoted: lines.slice(start, end).join("\n") };
 }

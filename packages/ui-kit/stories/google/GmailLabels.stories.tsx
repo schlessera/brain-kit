@@ -26,7 +26,7 @@ export const SystemOnly = meta.story({
   args: { labels: [L.unread, L.inbox, L.starred, L.yellowStar, L.important] },
   ...desktop,
   play: async ({ canvasElement, parameters }) => {
-    await holdsTogether(canvasElement, widthOf(parameters));
+    await holdsTogether(canvasElement, widthOf(parameters), { controls: 0 });
     await expect(names(canvasElement)).toEqual(["Inbox", "Important"]);
   },
 });
@@ -37,7 +37,7 @@ export const UserLabels = meta.story({
   args: { labels: [L.family, L.inbox, L.ithaca] },
   ...desktop,
   play: async ({ canvasElement, parameters }) => {
-    await holdsTogether(canvasElement, widthOf(parameters));
+    await holdsTogether(canvasElement, widthOf(parameters), { controls: 0 });
     await expect(names(canvasElement)).toEqual(["Inbox", "Family", "Ithaca"]);
   },
 });
@@ -67,7 +67,7 @@ export const OverflowExpanded = meta.story({
     await expect(document.activeElement?.getAttribute("data-gmail-label")).toBe("Label_2");
     await expect(names(canvasElement)).toEqual(["Inbox", "Important", "Family", "Ithaca", "Voyage", "Suitors", "Raft"]);
     await expect(canvas.queryByRole("button")).toBeNull();
-    await holdsTogether(canvasElement, widthOf(parameters));
+    await holdsTogether(canvasElement, widthOf(parameters), { controls: 0 }); // "+4" went with the labels it showed
   },
 });
 export const OverflowExpandedNarrow = OverflowExpanded.extend({ ...narrow });
@@ -82,9 +82,22 @@ export const EscapedName = meta.story({
   args: { labels: [L.escaped, L.withheld, L.estate], limit: 5 },
   ...desktop,
   play: async ({ canvasElement, parameters }) => {
-    await holdsTogether(canvasElement, widthOf(parameters));
+    await holdsTogether(canvasElement, widthOf(parameters), { controls: 0 });
     await expect(names(canvasElement)).toEqual(["Suitors \\u{202E}gol", "Label_8", "Estate · herds and orchards"]);
     await expect(getComputedStyle(canvasElement.querySelector("[data-gmail-label='Label_8']")!).fontFamily).toContain("JetBrains Mono");
   },
 });
 export const EscapedNameNarrow = EscapedName.extend({ ...narrow });
+
+/** The longest name the payload carries, 2,250 characters with no place to break: it wraps inside its chip, at 320px too. */
+export const LongestName = meta.story({
+  args: { labels: [L.inbox, L.longest, L.family] },
+  ...desktop,
+  play: async ({ canvasElement, parameters }) => {
+    await holdsTogether(canvasElement, widthOf(parameters), { controls: 0 });
+    const chip = canvasElement.querySelector<HTMLElement>(`[data-gmail-label='${L.longest.id}']`)!;
+    await expect(chip.textContent, "the whole name is drawn").toBe(L.longest.name);
+    await expect(chip.getBoundingClientRect().right, "the chip ends inside its list").toBeLessThanOrEqual(chip.parentElement!.getBoundingClientRect().right + 0.5);
+  },
+});
+export const LongestNameNarrow = LongestName.extend({ ...narrow });

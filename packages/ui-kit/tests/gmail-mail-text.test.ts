@@ -82,12 +82,51 @@ describe("splitQuotedTail (G3)", () => {
   test("what folds is exactly the quote blocks the renderer draws", () => {
     const body = `Come home.\n\n${wrote}\n> Tell them.\n>\n>> Eurycleia knows.`;
     const split = splitQuotedTail(body)!;
-    expect(parseUntrusted(split.quoted).every((block) => block.type === "quote")).toBe(true);
+    const quoted = parseUntrusted(split.quoted);
+    expect(quoted.length, "the renderer draws the folded part as blocks").toBeGreaterThan(0);
+    expect(quoted.every((block) => block.type === "quote")).toBe(true);
     expect(parseUntrusted(split.body).some((block) => block.type === "quote")).toBe(false);
     expect(`${split.body}\n\n${split.attribution}\n${split.quoted}`).toBe(body);
   });
 
   test("Windows line endings read the same", () => {
     expect(splitQuotedTail("Agreed.\r\n\r\n> Keep unweaving.\r\n")?.quoted).toBe("> Keep unweaving.");
+  });
+});
+
+// Trimming removes mail whitespace only (#4209 review, F3): every character
+// the guard reveals reaches `revealInvisibles`, at the edge of a slice too.
+describe("trimming keeps what the guard reveals", () => {
+  test.each([
+    ["a byte-order mark", "\u{FEFF}"],
+    ["a line separator", "\u{2028}"],
+    ["a paragraph separator", "\u{2029}"],
+    ["a no-break space", "\u{00A0}"],
+    ["an ideographic space", "\u{3000}"],
+  ])("%s before a folded quote stays in the body", (_name, ch) => {
+    expect(splitQuotedTail(`Visible${ch}\n\n> quoted`)).toEqual({ body: `Visible${ch}`, attribution: null, quoted: "> quoted" });
+  });
+
+  test("a line holding only a hidden character is not blank, so the quote above it does not fold", () => {
+    expect(splitQuotedTail("Visible.\n\n> quoted\n\u{FEFF}")).toBeNull();
+    expect(splitQuotedTail("Visible.\n\u{2028}\n> quoted")).toEqual({ body: "Visible.\n\u{2028}", attribution: null, quoted: "> quoted" });
+  });
+
+  test("a hidden character at the edge of an attribution stays in it", () => {
+    expect(splitQuotedTail("Yes.\n\n\u{FEFF}On Fri, Odysseus wrote:\u{2029}\n> Tell them.")?.attribution).toBe("\u{FEFF}On Fri, Odysseus wrote:\u{2029}");
+  });
+
+  test("a hidden character at a mailbox's name or address boundary stays with it", () => {
+    expect(readMailbox("\u{FEFF}Penelope <penelope@example.com>")).toEqual({ name: "\u{FEFF}Penelope", address: "penelope@example.com" });
+    expect(readMailbox("Penelope\u{2028} <\u{2029}penelope@example.com\u{FEFF}>")).toEqual({ name: "Penelope\u{2028}", address: "\u{2029}penelope@example.com\u{FEFF}" });
+    expect(readMailbox("Penelope <penelope@example.com>\u{FEFF}")).toEqual({ name: "Penelope <penelope@example.com>\u{FEFF}", address: null });
+    expect(readMailbox('"Penelope\u{FEFF}" <penelope@example.com>').name).toBe("Penelope\u{FEFF}");
+    expect(splitMailboxes("\u{FEFF}, Odysseus <odysseus@example.com>\u{2028}")).toEqual(["\u{FEFF}", "Odysseus <odysseus@example.com>\u{2028}"]);
+    expect(mailboxLabel("\u{FEFF}")).toBe("\u{FEFF}");
+  });
+
+  test("ASCII whitespace still trims", () => {
+    expect(readMailbox(" \t Penelope \r\n <penelope@example.com> \n")).toEqual({ name: "Penelope", address: "penelope@example.com" });
+    expect(splitMailboxes(" a@example.com ,\tb@example.com\n")).toEqual(["a@example.com", "b@example.com"]);
   });
 });
