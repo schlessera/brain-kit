@@ -20,6 +20,7 @@ import { UnconfirmedSends } from "../../src/components/chat/unconfirmed-sends.js
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { SESSION, snapshotHost, type SnapshotHost } from "../snapshot-host.js";
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 
 class FixtureSocket {
   static last: FixtureSocket | undefined;
@@ -182,7 +183,7 @@ test("a typed answer to an open question goes while a Send's snapshot is unackno
   const fixture = snapshotHost();
   const s = await mount(fixture);
   await typed(s, "Muster the crew at dawn.");
-  await expect.poll(() => saved(s), { timeout: 5_000 }).toBe(true);
+  await expect.poll(() => saved(s), { timeout: watchdogMs(5_000) }).toBe(true);
   const release = fixture.holdSaves();
   s.sendButton().click();
   await expect.poll(() => s.field().value).toBe("");
@@ -191,7 +192,7 @@ test("a typed answer to an open question goes while a Send's snapshot is unackno
   await typed(s, "Ithaca");
   s.sendButton().click();
   // An answer goes on its own queue: no draft save holds it.
-  await expect.poll(() => s.root.stores.chat.getState().deliveries["ask-harbour"], { message: "TYPED_ANSWER_NOT_HELD", timeout: 5_000 }).toBeDefined();
+  await expect.poll(() => s.root.stores.chat.getState().deliveries["ask-harbour"], { message: "TYPED_ANSWER_NOT_HELD", timeout: watchdogMs(5_000) }).toBeDefined();
   release();
 });
 
@@ -199,7 +200,7 @@ test("text pasted while a Send's snapshot is unacknowledged is shown in the fiel
   const fixture = snapshotHost();
   const s = await mount(fixture);
   await typed(s, "Muster the crew at dawn.");
-  await expect.poll(() => saved(s), { timeout: 5_000 }).toBe(true);
+  await expect.poll(() => saved(s), { timeout: watchdogMs(5_000) }).toBe(true);
   const release = fixture.holdSaves();
   s.sendButton().click();
   await expect.poll(() => s.field().value).toBe("");

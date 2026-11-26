@@ -15,6 +15,7 @@ import { Composer } from "../../src/components/chat/composer.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { SESSION, snapshotHost, type SnapshotHost } from "../snapshot-host.js";
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 
 class FixtureSocket {
   static last: FixtureSocket | undefined;
@@ -362,7 +363,7 @@ test("Open other version cancelled by a change of view says so in the indicator,
   // The device read is out when the reader opens another view.
   detailAction("other_version")!.click();
   flushSync(() => s.root.stores.ui.getState().setActiveView("activity"));
-  await expect.poll(() => s.summary(), { timeout: 5_000 }).toBe("Another tab changed this draft. Both versions are kept. Other version not opened: you moved away first.");
+  await expect.poll(() => s.summary(), { timeout: watchdogMs(5_000) }).toBe("Another tab changed this draft. Both versions are kept. Other version not opened: you moved away first.");
   expect(s.field().value, "the reader's own version stays in the field").toBe("Telemachus keeps the voyage");
   s.trigger()!.click();
   await expect.poll(() => details()?.textContent ?? "").toContain("Other version not opened: you moved away first");
@@ -384,7 +385,7 @@ const UNATTACHED = "Other version · not in a chat yet";
 test("Open other version of a version with no chat shows its text on its own, labelled, never an empty new chat (#4567)", async () => {
   const s = await mount(snapshotHost(), { device: device() });
   await branched(s, { sessionId: null });
-  await expect.poll(() => s.field().value, { timeout: 5_000, message: "OTHER_TEXT_RENDERED" }).toBe("Penelope keeps the loom");
+  await expect.poll(() => s.field().value, { timeout: watchdogMs(5_000), message: "OTHER_TEXT_RENDERED" }).toBe("Penelope keeps the loom");
   expect(s.root.stores.chat.getState().activeSessionId).toBeNull();
   await expect.poll(() => s.host.textContent ?? "", { message: "UNATTACHED_LABEL_RENDERED" }).toContain(UNATTACHED);
 });
@@ -392,7 +393,7 @@ test("Open other version of a version with no chat shows its text on its own, la
 test("Open other version whose chat is gone moves it off that chat and shows it on its own, labelled (#4567)", async () => {
   const s = await mount(snapshotHost(), { device: device() });
   await branched(s, { sessionId: "odysseus-raft" });
-  await expect.poll(() => s.root.stores.chat.getState().activeSessionId, { timeout: 5_000 }).toBe("odysseus-raft");
+  await expect.poll(() => s.root.stores.chat.getState().activeSessionId, { timeout: watchdogMs(5_000) }).toBe("odysseus-raft");
   await expect.poll(() => s.field().value).toBe("Penelope keeps the loom");
   // The host answers the resume: no such conversation.
   s.socket.deliver({ type: "error", code: "SESSION_NOT_FOUND", sessionId: "odysseus-raft", message: "Session not found." });
@@ -413,6 +414,6 @@ test("Open other version of a version a rotation moved within its chat opens tha
   s.trigger()!.click();
   await expect.poll(() => detailAction("other_version")).not.toBeNull();
   detailAction("other_version")!.click();
-  await expect.poll(() => s.root.stores.chat.getState().activeSessionId, { timeout: 5_000 }).toBe("odysseus-raft");
+  await expect.poll(() => s.root.stores.chat.getState().activeSessionId, { timeout: watchdogMs(5_000) }).toBe("odysseus-raft");
   await expect.poll(() => s.field().value, { message: "ROTATED_LANDING_RENDERED" }).toBe("Penelope keeps the loom");
 });
