@@ -76,9 +76,9 @@ const steady = storageSeries(
   "six-hour",
   worldTime
 );
-const brain = capacity(ITHACA, brainRoots.map((root) => root.id), 161 * GB, 16 * GB);
+const brainVolume = capacity(ITHACA, brainRoots.map((root) => root.id), 161 * GB, 16 * GB);
 const onIthaca = (extra: Parameters<typeof receipt>[0] = {}) =>
-  packRow(receipt({ before: observe([brain], [brainRoots[1]!]), after: observe([brain], [brainRoots[1]!]), ...extra }));
+  packRow(receipt({ before: observe([brainVolume], [brainRoots[1]!]), after: observe([brainVolume], [brainRoots[1]!]), ...extra }));
 
 describe("timeline markers (#4548)", () => {
   test("low → critical → low → observed is four markers at the server's times, numbered in time order", () => {
