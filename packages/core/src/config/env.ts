@@ -159,8 +159,8 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   },
   {
     name: "BRAIN_GOOGLE_LEDGER",
-    description: "Absolute host-only shared Google approval ledger, outside the brain. Set it to the server ledger for standalone approvals and revoke. Never passed to workers.",
-    default: "unset: standalone approval management refuses as unavailable/ledger_unset",
+    description: "Absolute host-only shared Google ledger, outside the brain. Required for standalone reversible-write inverses, approvals and revoke. Never passed to workers.",
+    default: "unset: standalone writes and approval management refuse as unavailable/ledger_unset",
     required: false,
   },
   {
@@ -269,7 +269,7 @@ export interface CoreEnv {
   apifyToken: string | undefined;
   /** BRAIN_APIFY_LEDGER, trimmed, or undefined when unset or blank. */
   apifyLedger: string | undefined;
-  /** Absolute shared host Google ledger, required for standalone management. */
+  /** Absolute shared host Google ledger, required for standalone writes and management. */
   googleLedger: string | undefined;
   /**
    * The Google home, keyring password and gog binary `brain google` uses

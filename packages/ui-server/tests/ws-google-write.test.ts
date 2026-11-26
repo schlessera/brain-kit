@@ -1,3 +1,4 @@
+import { writesScenario, FIRST, SECOND } from "../../common/tests/support/gmail-write-fixtures.js";
 import { existsSync } from "node:fs";
 import { generateSignedCookie } from "hono/cookie";
 import { runCli } from "../../core/tests/cli-harness.js";
@@ -36,6 +37,8 @@ const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
 type App = Awaited<ReturnType<typeof createApp>>;
 interface Options {
+  concrete?: boolean;
+  googlePolicy?: string;
   answer?: "allow" | "edit" | "decline" | "stop" | "always" | "voice-grant";
   principal?: "agent";
   voice?: boolean;
@@ -52,8 +55,8 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
   await mkdir(resolve(brain, "context/policies"), { recursive: true });
-  await writeFile(resolve(brain, "context/policies/governance.md"), `---\nschema_version: 1\ngoogle:\n  enabled: true\n  account: ithaca\n  services: [gmail]\n  modes: { reversible: ask }\n---\nIthaca's mail rules.\n`);
-  const fake = createFakeGog({ "auth.alias.list": { stdout: { aliases: { ithaca: "odysseus@example.com" } } } });
+  await writeFile(resolve(brain, "context/policies/governance.md"), `---\nschema_version: 1\ngoogle:\n  enabled: true\n  account: ithaca\n  services: [gmail]\n  modes: { reversible: ask }\n${options.googlePolicy ?? ""}---\nIthaca's mail rules.\n`);
+  const fake = createFakeGog({ ...(options.concrete ? writesScenario() : {}), "auth.alias.list": { stdout: { aliases: { ithaca: "odysseus@example.com" } } } });
   fake.environment.home = resolve(root, "google-home");
   await mkdir(fake.environment.home, { mode: 0o700 });
   cleanups.push(() => fake.dispose());
@@ -103,7 +106,7 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
     HOST: "127.0.0.1", AUTH_MODE: "password", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash("Odysseus strings the bow"),
     COOKIE_SECRET: "odysseus-google-write-cookie-secret", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
     googleBinary: fake.binary, registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(),
-    googlePreparedWrites: { "gmail.modify": async (_, call) => {
+    googlePreparedWrites: options.concrete ? undefined : { "gmail.modify": async (_, call) => {
       prepares++;
       return googleModifyPrepared(call, () => {
         // T5: inspect committed storage at the actual transport boundary.
@@ -113,6 +116,19 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
       });
     } } });
   cleanups.push(async () => { await app.close(); broker.close(); await native.close(); });
+  const inverseAtSpawn: unknown[] = [];
+  let restoreSpawn = () => {};
+  if (options.concrete) {
+    const spawn = Bun.spawn;
+    const spy = spyOn(Bun, "spawn").mockImplementation(((...args: Parameters<typeof Bun.spawn>) => {
+      const argv = args[0];
+      if (Array.isArray(argv) && argv[0] === fake.executable && argv.includes("--enable-commands-exact=gmail.batch.modify"))
+        inverseAtSpawn.push(app.db.query("SELECT state,inverse_json FROM google_inverses WHERE state='prepared'").all());
+      return Reflect.apply(spawn, Bun, args);
+    }) as typeof Bun.spawn);
+    restoreSpawn = () => spy.mockRestore();
+    cleanups.push(restoreSpawn);
+  }
   options.prepare?.(app);
   const owner = createPrincipal(app.db, { authMethod: "password", label: "Odysseus", ttlSeconds: 60 });
   const principal = options.principal === "agent" ? createPrincipal(app.db, { authMethod: "delegated", label: "Eurylochus", ttlSeconds: 60, createdBy: owner.id }) : owner;
@@ -151,8 +167,9 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
     await Bun.sleep(20);
     expect(dispatches, "GOOGLE_LATE_APPROVAL_AFTER_STOP_CANNOT_DISPATCH").toBe(0);
   }
+  restoreSpawn();
   if (scriptError) throw scriptError;
-  return { app, result, cards, dispatches, prepares, sent, brain, brainPath, dbPath, ledgerPath, owner };
+  return { app, result, cards, dispatches, prepares, sent, brain, brainPath, dbPath, ledgerPath, owner, fake, inverseAtSpawn };
 }
 for (const backend of ["claude", "pi"] as const) {
   test(`google ${backend} WebSocket exact card commits decision and inverse before one invocation`, async () => {
@@ -277,3 +294,38 @@ test("google real app removes old allowances before its first turn", async () =>
     },
   });
 });
+
+for (const backend of ["claude", "pi"] as const) test(`google ${backend} concrete structured search then archive is card-less; content read then archive asks`, async () => {
+  const results: GoogleToolResult[] = [];
+  const archive = { tool: "brain_google_gmail_modify" as const, input: { message_ids: [FIRST, SECOND], remove_label_ids: ["INBOX"] } };
+  const f = await hosted(backend, { concrete: true, googlePolicy: "  operations: { gmail.modify: allow }\n", script: async bridge => {
+    const search = await bridge.google!({ tool: "brain_google_gmail_search", input: { query: "in:inbox", view: "structured" } });
+    expect(search, "WS_STRUCTURED_SEARCH").toMatchObject({ ok: true, result: { view: "structured" } });
+    results.push(await bridge.google!(archive));
+    expect(await bridge.google!({ tool: "brain_google_gmail_read", input: { target: "message", id: FIRST, view: "content" } })).toMatchObject({ ok: true });
+    return bridge.google!(archive);
+  } });
+  expect(f.inverseAtSpawn, "WS_CONCRETE_INVERSE_AT_SPAWN").toEqual([
+    [{ state: "prepared", inverse_json: expect.any(String) }], [{ state: "prepared", inverse_json: expect.any(String) }],
+  ]);
+  expect(results[0], "WS_CONCRETE_CARDLESS").toMatchObject({ ok: true, admission: "policy" });
+  expect(f.result, "WS_CONTENT_REQUIRES_CARD").toMatchObject({ ok: true, admission: "card" });
+  expect(f.cards).toHaveLength(1); expect(f.fake.callsOf("gmail.batch.modify")).toHaveLength(2);
+  const rows = f.app.db.query("SELECT state,inverse_json FROM google_inverses ORDER BY decision_event_id").all() as { state: string; inverse_json: string }[];
+  expect(rows.map(row => row.state)).toEqual(["confirmed", "confirmed"]);
+  expect(JSON.parse(rows[0]!.inverse_json).changes).toEqual([{ message_id: FIRST, add_label_ids: ["INBOX"], remove_label_ids: [] }]);
+}, 60_000);
+
+test("google concrete WebSocket hidden targets and item limits refuse, turn limit asks", async () => {
+  const archive = { tool: "brain_google_gmail_modify" as const, input: { message_ids: [FIRST, SECOND], remove_label_ids: ["INBOX"] } };
+  for (const extra of ["  gmail: { hidden_labels: [Label_12] }\n", "  limits: { items_per_call: 1 }\n"]) {
+    const f = await hosted("pi", { concrete: true, googlePolicy: "  operations: { gmail.modify: allow }\n" + extra, script: bridge => bridge.google!(archive) });
+    expect(f.result, "WS_CONCRETE_HIDDEN_LIMIT_REFUSAL").toMatchObject({ ok: false, error: extra.includes("hidden_labels") ? { code: "not_found", reason: null } : { code: "policy_denied", reason: "items_per_call" } });
+    expect(f.fake.callsOf("gmail.batch.modify")).toHaveLength(0); expect(f.cards).toHaveLength(0);
+  }
+  const f = await hosted("pi", { concrete: true, googlePolicy: "  operations: { gmail.modify: allow }\n  limits: { reversible_per_turn: 2 }\n", script: async bridge => {
+    expect(await bridge.google!(archive)).toMatchObject({ ok: true, admission: "policy" });
+    return bridge.google!(archive);
+  } });
+  expect(f.result, "WS_CONCRETE_TURN_LIMIT").toMatchObject({ ok: true, admission: "card" }); expect(f.cards).toHaveLength(1);
+}, 60_000);

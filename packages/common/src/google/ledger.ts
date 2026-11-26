@@ -13,7 +13,13 @@ export interface GoogleApprovalScope { principal_id: string; brain_id: string; a
 export interface GoogleApproval extends GoogleApprovalScope {
   id: string; operation: GoogleOperation; entity: string; approved_at: number;
 }
+export interface GoogleStandaloneInverse {
+  id: string; brain_id: string; account_identity: string; operation: "gmail.modify" | "gmail.draft.save";
+  inverse: Record<string, unknown>; precondition: Record<string, unknown>; created_at: number; expires_at: number;
+}
 export interface GoogleLedger {
+  prepareStandalone(inverse: GoogleStandaloneInverse): void;
+  settleStandalone(id: string, state: "confirmed" | "unknown" | "withdrawn", result?: { id: string; fingerprint: string }): void;
   list(brainId: string, principalId?: string): GoogleApproval[];
   approvals(scope: GoogleApprovalScope): GoogleApproval[];
   remember(scope: GoogleApprovalScope, operation: GoogleOperation, entities: readonly string[], at: number): void;
@@ -84,11 +90,31 @@ export function openGoogleLedger(path: string): GoogleLedger {
         CREATE TABLE IF NOT EXISTS remembered_approvals (
           id TEXT PRIMARY KEY, principal_id TEXT NOT NULL, brain_id TEXT NOT NULL, account_identity TEXT NOT NULL,
           operation TEXT NOT NULL, entity TEXT NOT NULL, approved_at INTEGER NOT NULL,
-          UNIQUE(principal_id,brain_id,account_identity,operation,entity));`);
+          UNIQUE(principal_id,brain_id,account_identity,operation,entity));
+        CREATE TABLE IF NOT EXISTS standalone_inverses (
+          id TEXT PRIMARY KEY, brain_id TEXT NOT NULL, account_identity TEXT NOT NULL, operation TEXT NOT NULL,
+          state TEXT NOT NULL, inverse_json TEXT NOT NULL, precondition_json TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);`);
       return work(db);
     } finally { db.close(); }
   }
   return {
+    prepareStandalone: inverse => use(true, undefined, db => db.transaction(() => {
+      key.parse(inverse.id); key.parse(inverse.brain_id); key.parse(inverse.account_identity);
+      z.enum(["gmail.modify", "gmail.draft.save"]).parse(inverse.operation);
+      if (!Number.isSafeInteger(inverse.created_at) || inverse.expires_at <= inverse.created_at || inverse.expires_at > inverse.created_at + 604_800_000)
+        throw new Error("Invalid standalone inverse lifetime");
+      db.query("DELETE FROM standalone_inverses WHERE expires_at<=?").run(inverse.created_at);
+      db.query("INSERT INTO standalone_inverses VALUES(?,?,?,?,'prepared',?,?,?,?)").run(inverse.id, inverse.brain_id, inverse.account_identity,
+        inverse.operation, JSON.stringify(inverse.inverse), JSON.stringify(inverse.precondition), inverse.created_at, inverse.expires_at);
+    }).immediate()),
+    settleStandalone: (id, state, result) => use(false, undefined, db => db.transaction(() => {
+      key.parse(id);
+      if (state === "withdrawn") { db.query("DELETE FROM standalone_inverses WHERE id=? AND state='prepared'").run(id); return; }
+      if (result) { key.parse(result.id); z.string().regex(/^[a-f0-9]{64}$/).parse(result.fingerprint); }
+      const changed = db.query(`UPDATE standalone_inverses SET state=?, inverse_json=CASE WHEN ? IS NULL THEN inverse_json
+        ELSE json_set(inverse_json,'$.result',json(?)) END WHERE id=? AND state='prepared'`).run(state, result ? JSON.stringify(result) : null, JSON.stringify(result ?? null), id);
+      if (changed.changes !== 1) throw new Error("Standalone inverse is not prepared");
+    }).immediate()),
     list: (brainId, principalId) => {
       key.parse(brainId); if (principalId !== undefined) key.parse(principalId);
       return use(false, [], db => db.query<GoogleApproval, [string, string | null, string | null]>(`SELECT * FROM remembered_approvals

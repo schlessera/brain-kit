@@ -3302,7 +3302,28 @@ metadata only. Card-owned send locks end with the card and are cleared at host
 startup. A failed startup cleanup restricts only Google writes and retries
 with bounded backoff; reads and chats remain available.
 
-Production operations still return `writes_unavailable` until #4213/#4214.
+Additively (#4213), production executes modify and draft save. Modify pre-reads
+labels under the account lock and records an opposite delta for each message
+that actually changes; already-satisfied targets are absent from the inverse
+and returned `message_ids`. At most 25 resolved message ids are admitted.
+Only INBOX, UNREAD, STARRED and user label ids are supported; other system
+labels refuse as `policy_denied/unsupported_label`. Hidden threads and hidden
+label deltas refuse as `not_found`.
+
+Draft create/reply cards carry the host-composed recipients, subject and full
+quoted plain text; gog never receives `--reply-all` or `--quote`. The card's
+message digest covers the composed fields, not a raw send. Update pre-reads
+raw bytes and asks unless this session's owner/account records prove a
+brain-created draft with an unchanged last confirmed fingerprint. The old
+raw snapshot commits before every admitted update, including an escalated
+update. Unreadable, HTML, attachment-bearing or unrepresentable sender/Reply-To
+snapshots refuse as `draft_not_displayable`. A post-save raw read must match
+the composed contents before its fingerprint is confirmed. Failure leaves an
+unknown inverse and returns `outcome_unknown`, without retrying the write.
+
+All write pre-reads and dispatches use the resolved account address, so a
+later alias change cannot redirect them. Trash, send and draft delete still
+return `writes_unavailable` until #4214.
 The engine's prepared-operation injection is internal test plumbing, absent
 from the public package API and configuration.
 
@@ -3618,3 +3639,31 @@ in-process-only restriction receives once-only approval if it cannot be kept.
 A null policy hash invalidates only its collection's session. A known differing
 full policy hash invalidates all allowances. An entirely unobserved policy
 A→B→A file edit, with no intervening turn or Google call, cannot be detected.
+
+### Gmail preparation refinements (#4213)
+
+Modify reads the account's label directory under its account lock before
+checking requested label ids. Missing user ids, hidden ids and ids colliding
+case-insensitively with another label's name all answer the same `not_found`
+refusal at that preparation boundary, before admission. The relevant id/name
+set joins the precondition checked on re-preparation. Target-independent
+pre-read failures, including rate limiting and authentication, keep their real
+error codes even with hidden labels configured, and so does any failure of the
+label-directory read itself, which names no target.
+
+Reply cards carry the pre-read Message-ID and ordered References that gog will
+store, raw as gog reads them (encoded words are not decoded); the post-save
+read must match both. Each id must be `<local@domain>` in printable ASCII,
+with no `<` or `>` inside the brackets, padded only by spaces or tabs, and
+References hold at most 100 ids. Anything else, or an
+unsent reply target, refuses as `draft_not_displayable/reply_threading_unreadable`.
+An empty recipient set after excluding the account refuses as
+`invalid_input/reply_no_recipient`. A complete draft body, including any quote,
+exceeding 32,768 characters refuses as `draft_not_displayable/composed_body_too_large`.
+Blank bodies and existing blank subjects refuse before admission as
+`invalid_input/draft_body_blank` and `invalid_input/draft_subject_blank`.
+Updates retain omitted recipients, with their display names (a blank name is
+dropped, as gog drops it), and the stored
+threading under gog's rule: lineage is carried only with an In-Reply-To, and
+an empty References takes the In-Reply-To. The host explicitly supplies the
+current subject because gog requires it. No tool names or wire schemas change.

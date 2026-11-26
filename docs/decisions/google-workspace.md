@@ -146,12 +146,16 @@ the lowercased resolved address, never the alias. A changed address refuses
 that call and a missing or unreadable identity is unavailable. The final
 admission callback stays synchronous and rereads local grant liveness.
 
-Only the owner can repoint the alias in the protected Google home, but a
-window remains between the last alias read and gog's write spawn. The argv
-builder still accepts aliases only: the pinned binary's handling of a
-resolved address in `--account` is not verified. Closing this window is an
-open transport question for #4213; this implementation makes no atomic
-alias-binding claim.
+#4213 binds write pre-reads and dispatch to the resolved address. The pinned
+source at 44364d31 (gog v0.48.1), `resolveAccountAlias` in account.go, bypasses alias resolution
+for any value containing `@`; `selectConfiguredAccount` then returns that
+address unchanged. The root schema already accepts a string `--account`.
+Policy remains alias-only; only the host's resolved bare address can enter
+this transport argument. This closes the alias-retargeting window for these
+writes. It does not prevent another mail client changing labels or a draft
+between a pre-read and the write; Google supplies no compare-and-swap here.
+Write response fixtures are source-derived; live disposable-account write
+proof remains a maintainer-run release qualification.
 
 
 ## Standing approval storage and continuity (#4212)

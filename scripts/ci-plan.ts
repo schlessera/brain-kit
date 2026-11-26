@@ -43,6 +43,7 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
     "packages/core/tests/indexer-reliability.test.ts",
     "packages/core/tests/eval-corpus.test.ts",
     "packages/core/tests/cli-contract.test.ts",
+    "packages/core/tests/google-writes-contract.test.ts",
   ],
   "ui-sdk": [
     "packages/ui-sdk/tests/schemas.test.ts",

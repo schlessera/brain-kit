@@ -29,15 +29,15 @@ tools in their fixed roster, always loaded: `brain_google_gmail_search`,
 `brain_google_gmail_send` (`mcp__brain-ui__*` on Claude, plain on pi). The
 roster never depends on configuration; each read is decided by the host under
 the turn's frozen `google` policy block (the owner account only, Google enabled,
-routing as the provider-policy recipient `google`). The four write tools
-answer `unavailable` (`writes_unavailable`) until their operations land in
-#4213/#4214. The #4211 engine provides exact Google permission cards, a strict structured
+routing as the provider-policy recipient `google`). Additively (#4213), modify and draft save (create, reply, update) execute
+through recorded inverses and host-composed payloads. Trash, send and draft
+delete still answer `unavailable` (`writes_unavailable`) until #4214. The #4211 engine provides exact Google permission cards, a strict structured
 write-success envelope, commit-confirmed decision/inverse storage and journal
 receipts. It rechecks live authority, safety and the current Google block;
 card-less writes re-evaluate admission and G2 routing to recipient `google`
 at dispatch. Additively (#4212), reversible cards offer remembered approval in
 untainted sessions or a bounded session allowance in tainted sessions. Startup cleanup failure contains only writes and recovers
-automatically. The engine does not enable concrete operations itself. See
+automatically. Production registers the concrete reversible Gmail factories. See
 [write admission and results](integration-contract/wire.md#google-write-results-and-admission-additive-4211). Results are typed
 payloads in two views: `structured`, only host-validated ids, label ids and
 names, timestamps, counts, size buckets and flags, which taints nothing; and
@@ -67,7 +67,7 @@ Google standing approvals (#4212) add shared canonical ledger scope,
 wire behavior is specified in the CLI, package API and wire components.
 
 `brain google status`, `connect`, `approvals`, `revoke <approval-id>` and
-`gmail search|read|labels` print the
+`gmail search|read|labels|modify` and `gmail draft create|update` print the
 envelope `{ ok, operation, data }` or `{ ok: false, operation, error: { code,
 reason, message } }` and exit `0` or `1`. The reads return the Google
 operations' structured or content results in the standalone posture, with no
@@ -75,6 +75,10 @@ taint and no card; `status` reports the home, the pin, the policy, the alias
 and its scopes, warns on a grant broader than the policy can use, and says
 that a local agent with shell access is inside the standalone boundary. `brain doctor` gains the `google-home` check. See
 [the CLI component](integration-contract/cli.md#google-commands-additive-0460-4208).
+Standalone modify and draft create require both `standalone.reversible: allow`
+and effective operation mode `allow`, plus `BRAIN_GOOGLE_LEDGER` for their
+body-free inverses. Standalone update refuses as
+`policy_denied/standalone_update_requires_card`.
 This ships in a minor; no breaking ruling is required.
 
 ## Per-review line-comment counts (additive, 0.45.0, #4147)

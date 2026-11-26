@@ -1,6 +1,6 @@
 import { redactCredentials } from "../activity/runtime-status.js";
-/** Concrete Google write sequencing. Production has no prepared operations until
- * #4213/#4214; the internal factories exercise the same admission path in tests. */
+/** Concrete Google write sequencing, shared by production Gmail factories and
+ * offline test factories. */
 import { createHash, randomUUID } from "node:crypto";
 import { createKeyedLock, type PermissionDecision, type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import { safetyAdmissionRefusal, sameSafetyAdmission, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
@@ -10,7 +10,7 @@ import { decideGoogleCall, type GoogleCallFacts, type GoogleDecision, type Googl
 import { GOOGLE_APPROVAL_CARD_BYTES, GOOGLE_MAIL_APPROVAL_SCHEMA, GOOGLE_WRITE_SUCCESS_SCHEMA, type GoogleMailApproval,
   type GoogleToolCall, type GoogleToolResult, type GoogleWriteSuccess } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { GoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
-import type { GogResult } from "@schlessera/brain-common/internal/google-gog";
+import { GooglePreparationError, type GogResult } from "@schlessera/brain-common/internal/google-gog";
 import type { createGoogleAllowances, GoogleAllowanceContext, GoogleAllowanceRow } from "./allowances.js";
 import type { GoogleToolsTurn, GoogleCallAudit } from "./host.js";
 import type { createGoogleStateWrites, GoogleDecisionEvent, GoogleInversePrepared, GoogleInverseResult } from "./state-writes.js";
@@ -29,12 +29,12 @@ export interface GoogleWriteTurn {
   /** Commit-confirmed transaction only: never the optional catalog recorder. */
   record: State["commitGoogleDecision"];
 }
-/** Internal, test-only until concrete Gmail operations land. Pre-reads happen
+/** Internal prepared operation. Pre-reads happen
  * under the host account lock. Re-preparing must expose changes in payload or
  * preconditions, so an approval cannot silently change targets.
  * execute MUST call finalAdmission synchronously immediately before its SINGLE
  * dispatch, after all transport waits, and MUST NOT dispatch on an error.
- * #4213 threads this callback through the gog transport's final spawn boundary. */
+ * The gog transport invokes this callback at its final spawn boundary. */
 export interface PreparedGoogleWrite {
   operation: Operation;
   input: WriteCall["input"];
@@ -47,7 +47,7 @@ export interface PreparedGoogleWrite {
     { ok: true; result: GoogleWriteSuccess["result"]; inverseResult?: GoogleInverseResult } | { ok: false; error: GoogleError }>;
 }
 export type GoogleWriteFactories = Partial<Record<Operation,
-  (turn: GoogleToolsTurn, call: WriteCall) => Promise<PreparedGoogleWrite>>>;
+  (turn: GoogleToolsTurn, call: WriteCall, accountIdentity: string) => Promise<PreparedGoogleWrite>>>;
 export interface GoogleWriteOptions {
   brainId: string;
   hostEpoch: string;
@@ -60,7 +60,7 @@ export interface GoogleWriteOptions {
   ready(): boolean;
   currentPolicy(): GooglePolicy | null | undefined;
   isDraftLocked(account: string, draft: string, epoch: string, now: number): boolean;
-  /** @internal Prepared operations for offline tests; never configuration. */
+  /** Concrete operation factories; overridable by offline tests, never configuration. */
   preparedWrites?: GoogleWriteFactories;
 }
 
@@ -174,7 +174,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       const effect = decision?.effect === "reversible" ? "reversible" : "irreversible";
       const accepted = verdict === "allowed" || verdict === "approved";
       const target = prepared?.card.payload && "draft_id" in prepared.card.payload ? prepared.card.payload.draft_id : operation;
-      inverseId = accepted && effect === "reversible" ? randomUUID() : null;
+      inverseId = accepted && (effect === "reversible" || (operation === "gmail.draft.save" && prepared?.inverse)) ? randomUUID() : null;
       Object.assign(audit, { callId, effect, target, decisionEventId: null, decision: verdict, admission: verdict === "allowed" ? admission : null });
       const base = { sessionId, turnId: turn.turnId, actor: turn.posture, model: null, profile: null };
       // Explicit metadata projection: no subjects, recipients, body or raw bytes.
@@ -213,7 +213,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
     const preparedKey = (p: PreparedGoogleWrite) => canonical({ operation: p.operation, input: p.input, payload: p.card.payload,
       facts: p.facts, classificationFacts: p.classificationFacts, precondition: p.inverse?.precondition, sendLock: p.sendLock });
     const prepare = async () => {
-      const p = await factory(turn, call);
+      const p = await factory(turn, call, account);
       if (p.operation !== operation || canonical(p.input) !== canonical(call.input) || p.card.operation !== operation) throw new Error("Google prepared operation mismatch");
       return p;
     };
@@ -386,7 +386,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         if (inverseId) { const id = inverseId; await cleanup("Google inverse unknown marking", () => options.state.markInverseUnknown(sessionId, id)); }
         return refuse(gogError("outcome_unknown", "dispatch_failed"));
       }
-      return await withdraw(ctx.signal.aborted ? cancelled : error("state_unavailable", "Google write preparation or state failed; nothing was sent.", "unavailable"));
+      return await withdraw(ctx.signal.aborted ? cancelled : cause instanceof GooglePreparationError ? cause.error : error("state_unavailable", "Google write preparation or state failed; nothing was sent.", "unavailable"));
     } finally { releaseAlias?.(); held?.(); }
   };
   return Object.assign(write, { close: () => { closed = true; for (const timer of retries) clearTimeout(timer); retries.clear(); } });

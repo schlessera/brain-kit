@@ -61,8 +61,8 @@ export const GOG_DRAFT_SAVE_INPUT = z.discriminatedUnion("action", [
   z.strictObject({
     action: z.literal("create"),
     to: recipients,
-    cc: recipients.optional(),
-    bcc: recipients.optional(),
+    cc: z.array(recipients.element).max(GMAIL_LIMITS.recipientsPerField).optional(),
+    bcc: z.array(recipients.element).max(GMAIL_LIMITS.recipientsPerField).optional(),
     subject,
     body,
     /** For a reply the host composed: threads the draft and sets In-Reply-To and References. */
@@ -72,8 +72,8 @@ export const GOG_DRAFT_SAVE_INPUT = z.discriminatedUnion("action", [
     action: z.literal("update"),
     draft_id: draftId,
     to: recipients.optional(),
-    cc: recipients.optional(),
-    bcc: recipients.optional(),
+    cc: z.array(recipients.element).max(GMAIL_LIMITS.recipientsPerField).optional(),
+    bcc: z.array(recipients.element).max(GMAIL_LIMITS.recipientsPerField).optional(),
     subject: subject.optional(),
     body: body.optional(),
   }).refine(input => Object.keys(input).length > 2, "an update changes at least one of to, cc, bcc, subject and body"),
@@ -234,11 +234,18 @@ export function gogInvocation<O extends GoogleOperation>(operation: O, input: Go
  * or positional the command's spec does not list, so a builder cannot drift
  * from the snapshot the pin checked.
  */
-export function gogArgv(call: GogInvocation, account: string): string[] {
+export function gogArgv(call: GogInvocation, account: string, accountIdentity?: string): string[] {
   if (!isGogAccountAlias(account)) throw new GogArgvError("account", "is not a gog account alias");
+  // gog 44364d31 internal/cmd/account.go:188-192 bypasses aliases for an address.
+  // Only host-resolved identities enter here; the policy still accepts aliases only.
+  if (accountIdentity !== undefined) {
+    const parsed = parseGoogleMailbox(accountIdentity);
+    if (!parsed.ok || parsed.mailbox.address !== accountIdentity || parsed.mailbox.display_name !== null)
+      throw new GogArgvError("account", "is not a resolved bare address");
+  }
   const spec = GOG_COMMANDS[call.command];
   if (!spec) throw new GogArgvError("command", "is not a catalog command");
-  const argv = ["--no-input", "--json", "--color=never", `--account=${account}`, `--enable-commands-exact=${call.command}`];
+  const argv = ["--no-input", "--json", "--color=never", `--account=${accountIdentity ?? account}`, `--enable-commands-exact=${call.command}`];
   if (!spec.write) argv.push("--readonly");
   if (call.command !== GOG_SEND_COMMAND) argv.push("--gmail-no-send");
   if (call.force) argv.push("--force");

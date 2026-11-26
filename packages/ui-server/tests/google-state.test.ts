@@ -104,3 +104,14 @@ test("google state refuses missing sessions and expired incoming locks without c
   expect(db.query("SELECT COUNT(*) AS n FROM google_send_locks").get()).toEqual({ n: 0 });
   expect(await state.acquireSendLock(lock)).toBe("acquired");
 });
+
+for (const kind of ["other_operation", "declined", "refused"] as const) test(`google inverse gate refuses outward ${kind}`, async () => {
+  const f = fixture();
+  const operation = kind === "other_operation" ? "gmail.draft.delete" as const : "gmail.draft.save" as const;
+  const event: GoogleDecisionEvent = { kind: "outward_action", sessionId: "ithaca", turnId: "turn", actor: "interactive", model: null, profile: null,
+    payload: { tool: "gmail_draft", action: "google_write", input: "{}", inputTruncated: false, target: null, historyRewrite: false, tainted: false,
+      decision: kind === "other_operation" ? "approved" : kind, rule: null, google: { callId: "call", operation, effect: "irreversible" } } };
+  await expect(f.state.commitGoogleDecision(event, { ...f.inverse, operation }), `INVERSE_GATE_${kind.toUpperCase()}`).rejects.toThrow("inverse mismatch");
+  expect(f.db.query("SELECT * FROM google_inverses").all()).toEqual([]);
+  expect(f.db.query("SELECT * FROM governance_events").all()).toEqual([]);
+});
