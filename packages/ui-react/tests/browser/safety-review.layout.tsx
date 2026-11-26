@@ -21,12 +21,12 @@ async function disposeView(){safetyClient?.dispose();safetyClient=undefined;if(r
 afterEach(async()=>{statusBarrier=undefined;commitBarrier=undefined;await disposeView();if(fixture)await commands.safetyServer({op:'stop',id:fixture.id});fixture=undefined;if(oldTheme===undefined)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=oldTheme;});
 const patch=(patch:Record<string,unknown>={})=>commands.safetyServer({op:'set',id:fixture!.id,patch}) as Promise<{page:SafetyPage;commits:number;prepares:number;decisions:Array<{occurrence_id:string}>}>;
 const noop=()=>{};
-const message:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
+const defaultMessage:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
  toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Grep',inputJson:'{}',input:{path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
  parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'text',text:'Voyage notes retained.'}]};
 let commitBarrier:((result:{status:number;body:unknown})=>Promise<void>)|undefined;
 let statusBarrier:((body:Record<string,unknown>,result:{status:number;body:unknown})=>Promise<void>)|undefined;
-async function view(independentSocket=false){
+async function view(independentSocket=false,message=defaultMessage){
  const f=fixture!;
  ui=createBrainUiRoot({storage:null,config:{backendUrl:f.url},request:async(url,init)=>{
   if(!String(url).includes('/safety/reviews/'))return Response.json({providers:[]});
@@ -46,7 +46,8 @@ async function view(independentSocket=false){
  flushSync(()=>renderer!.render(<BrainUiProvider root={current}><button type="button">Outside safety details</button><SessionSafety visibleMessages={[message]}/><MessageBubble message={message} journalVisible={false} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
  try{await expect.poll(()=>current.stores.safety.getState().status,{timeout:5000}).toBe('ready');}catch(error){throw new Error(`${String(error)} Frames:${JSON.stringify(frames)} Sent:${JSON.stringify(sent)} Safety:${JSON.stringify(current.stores.safety.getState())} Session:${current.stores.chat.getState().activeSessionId}`);}
 }
-async function scene(width:number,theme:string,independentSocket=false){await page.viewport(width,900);document.documentElement.dataset.theme=theme;fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view(independentSocket);}
+async function scene(width:number,theme:string,independentSocket=false,message=defaultMessage){await page.viewport(width,900);document.documentElement.dataset.theme=theme;fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view(independentSocket,message);}
+const message=defaultMessage;
 function buttonForTool(){const all=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')];return all.find(b=>b.getAttribute('aria-label')?.includes('2 unresolved'))!;}
 
 for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width} ${theme}: collapsed counts, native touch, exact scope, A/B/C and reload`,async()=>{
@@ -83,6 +84,39 @@ for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width}
  reopener.focus();
  await userEvent.keyboard('{Enter}');await expect.element(panel).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Outside safety details'}));expect(document.querySelector('[data-safety-details]')).toBeNull();
  await disposeView();await view();expect((await patch()).commits,'RELOAD_NEVER_REPLAYS_A_VERDICT').toBe(1);expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(2);
+});
+
+/** The installed runtime can reuse one tool-use ID for two differently named
+ * calls in a turn (#4513): no name proves which call produced the input. */
+const reused:ChatMessage={...defaultMessage,toolCalls:[...defaultMessage.toolCalls,{id:'tool_c',name:'Bash',inputJson:'{}',input:{command:'cat workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
+ parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'tool',toolIndex:2},{kind:'text',text:'Voyage notes retained.'}]};
+function transcriptCounts(){
+ return [...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].filter(b=>b.getClientRects().length>0&&!b.closest('[data-safety-turn-event]'))
+  .map(b=>Number(/· (\d+) unresolved input/.exec(b.getAttribute('aria-label')??'')?.[1]??0));
+}
+async function details(button:HTMLButtonElement){
+ await userEvent.click(button);await expect.element(page.getByRole('dialog',{name:'Safety input details'})).toBeVisible();
+ const sections=[...document.querySelectorAll('[data-safety-trigger]')].map(e=>e.textContent??'');
+ await userEvent.keyboard('{Escape}');return sections;
+}
+for(const width of [320,1280])test(`${width}: a tool-use ID reused by differently named calls keeps one input with unknown attribution`,async()=>{
+ await scene(width,'light',false,reused);
+ const collapsed=transcriptCounts();
+ expect(collapsed,'REUSED_ID_COLLAPSED_COUNT').toEqual([2]);
+ const sections=await details([...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].find(b=>!b.closest('[data-safety-turn-event]'))!);
+ expect(sections).toHaveLength(2);
+ const search=sections.find(text=>text.includes('Workspace read'))!,fetch=sections.find(text=>text.includes('Web fetch'))!;
+ expect(search,'REUSED_ID_NAMES_NO_ACTION').not.toMatch(/Action · (Local search|Bash|Grep)/);
+ expect(search,'REUSED_ID_EXPLAINS_UNKNOWN_ATTRIBUTION').toContain('Action · Unknown');
+ expect(fetch,'UNIQUE_ID_KEEPS_ITS_ACTION').toContain('Action · WebFetch');
+ await userEvent.click(page.getByRole('button',{name:/^3 steps/}));
+ await expect.poll(()=>host!.querySelectorAll('[data-tool-call]').length).toBe(3);
+ expect(transcriptCounts().reduce((a,b)=>a+b,0),'REUSED_ID_EXPANDED_COUNT').toBe(2);
+ const expanded=[...host!.querySelectorAll<HTMLElement>('[data-tool-call="tool_c"]')];
+ expect(expanded.map(row=>row.querySelectorAll('[data-safety-indicator]').length),'REUSED_ID_ONE_REVIEWABLE_OCCURRENCE').toEqual([1,0]);
+ const [only]=await details(expanded[0]!.querySelector<HTMLButtonElement>('[data-safety-indicator] > button')!);
+ expect(only).toContain('Action · Unknown');expect(only).not.toMatch(/Action · (Local search|Bash|Grep)/);
+ expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
 });
 
 test('open delivery, pruning, recorder loss and explicit unavailable evidence remain restrictive',async()=>{

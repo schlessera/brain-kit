@@ -90,9 +90,9 @@ export function ToolCallTimeline({
         <TextButton tone="meta" label="Hide steps" glyph={<ChevronDown />} onClick={() => setCollapsed(true)} style={{ marginBottom: 4 }} />
       )}
       <div className="relative ml-1 border-l-2 border-border/40 pl-4 space-y-1.5">
-        {toolCalls.map((tool) => (
+        {toolCalls.map((tool, index) => (
           <ToolCallEntry
-            key={tool.id}
+            key={toolCalls.findIndex((t) => t.id === tool.id) === index ? tool.id : `${tool.id}:${index}`}
             toolCall={tool}
             backendId={backendId}
             onApproval={onApproval}
