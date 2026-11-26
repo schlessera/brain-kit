@@ -1147,24 +1147,26 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       adoptHostSnapshots(draftId, draft, options = {}) {
         const d = get().drafts[draftId];
         if (!d) return;
-        // A Send made meanwhile, which the host never saw, stays after the host's own.
-        const fresh = draftSnapshots(d).filter((x) => !(draft.snapshots ?? []).some((h) => h.snapshotId === x.snapshotId) && !d.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId));
+        const host = draft.snapshots ?? [];
+        const local = new Set(draftSnapshots(d).map((x) => x.snapshotId));
+        const acknowledged = new Set((d.host?.snapshots ?? []).map((x) => x.snapshotId));
+        // Returned here and then deleted or taken back by Edit before the host had that return: the host
+        // keeps a held or dispatched message until it is returned, so it comes back returned, to be
+        // deleted again once the host has that. Never held again: the reader cancelled it (#4566).
+        const unreturnedIds = new Set(host.filter((h) => !local.has(h.snapshotId) && acknowledged.has(h.snapshotId) && h.state !== "returned").map((h) => h.snapshotId));
+        const unreturned: ComposerSnapshot[] = host.filter((h) => unreturnedIds.has(h.snapshotId))
+          .map((h) => ({ snapshotId: h.snapshotId, requestId: h.requestId, text: h.text, files: h.fileIds.map((fileId) => ({ fileId })), state: "returned", createdAt: h.createdAt, why: { kind: "cancelled" } }));
         if (options.sameEdit) {
           // A re-read of the refused edit: what changed here since (a cancel, a delete) is that edit, and
           // stays. Only a message neither this tab nor its last host copy knew (one a reload did not keep
           // here) joins it, paused (#4566).
-          const local = new Set(draftSnapshots(d).map((x) => x.snapshotId));
-          const acknowledged = new Set((d.host?.snapshots ?? []).map((x) => x.snapshotId));
-          const hostOnly = (draft.snapshots ?? []).filter((h) => !local.has(h.snapshotId) && !acknowledged.has(h.snapshotId));
-          // Returned here and then deleted or taken back by Edit before the host had that return: the host
-          // keeps a held or dispatched message until it is returned, so it comes back returned, to be
-          // deleted again once the host has that.
-          const unreturned: ComposerSnapshot[] = (draft.snapshots ?? []).filter((h) => !local.has(h.snapshotId) && acknowledged.has(h.snapshotId) && h.state !== "returned")
-            .map((h) => ({ snapshotId: h.snapshotId, requestId: h.requestId, text: h.text, files: h.fileIds.map((fileId) => ({ fileId })), state: "returned", createdAt: h.createdAt, why: { kind: "cancelled" } }));
+          const hostOnly = host.filter((h) => !local.has(h.snapshotId) && !acknowledged.has(h.snapshotId));
           put({ ...d, host: hostCopy(draft, -1), snapshots: [...mergeSnapshots(undefined, hostOnly), ...unreturned, ...draftSnapshots(d)], uncertain: false });
           return;
         }
-        const snapshots = [...mergeSnapshots(d.snapshots, draft.snapshots), ...fresh];
+        // A Send made meanwhile, which the host never saw, stays after the host's own.
+        const fresh = draftSnapshots(d).filter((x) => !host.some((h) => h.snapshotId === x.snapshotId) && !acknowledged.has(x.snapshotId));
+        const snapshots = [...mergeSnapshots(d.snapshots, host.filter((h) => !unreturnedIds.has(h.snapshotId))), ...unreturned, ...fresh];
         put({ ...d, host: hostCopy(draft, -1), snapshots, uncertain: false, edit: d.edit + 1, editedAt: now() });
       },
 

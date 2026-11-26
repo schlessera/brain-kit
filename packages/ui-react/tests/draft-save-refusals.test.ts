@@ -898,3 +898,23 @@ test("a device branch forked while a delete is out does not wait for that delete
   expect(deletingNow(s, s.id)).toBe(false);
   expect(deletingNow(s, "draft-branch-raft"), "BRANCH_NOT_DELETING").toBe(false);
 });
+
+test("a delete refused for a message cancelled and deleted here brings it back returned, not held", async () => {
+  const held = { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", fileIds: [], state: "held" as const, createdAt: 5 };
+  // As the host does: the delete of a draft still holding a held message is refused with its copy.
+  const s = scene({ snapshots: true, remove: async (draftId, ifMatch) => {
+    const row = s.rows.get(draftId)!;
+    if (ifMatch !== row.revision) return { ok: false, status: 409, body: { error: "DRAFT_CONFLICT", message: "changed" } };
+    return { ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "A message of this draft is still waiting.", current: { draftId, sessionId: SESSION, revision: row.revision, updatedAt: 9, text: "", attachments: [], snapshots: [held] } } };
+  } });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 2, updatedAt: 9, text: "", attachments: [], snapshots: [held] });
+  // This tab had it acknowledged, then cancelled and deleted it before any save: the draft is empty here.
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [], editedAt: 1, edit: 3,
+    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [held].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  s.ui.stores.connection.getState().setWsStatus("connected");
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.snapshots?.map((x) => `${x.snapshotId}:${x.state}`), "CANCELLED_NOT_HELD_AFTER_REFUSED_DELETE").toEqual(["snap-raft:returned"]);
+  expect(s.saves.some((x) => x.body.snapshots?.some((w) => w.snapshotId === held.snapshotId && w.state === "held")), "CANCELLED_NOT_SAVED_HELD").toBe(false);
+  expect(s.sent.filter((m) => m.type === "chat_message"), "NOTHING_SENT").toEqual([]);
+});
