@@ -5,24 +5,28 @@ import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
 import type { BridgeContext } from "./bridge-capabilities/context.js";
 
 const contexts = new WeakMap<BackendBridge, BridgeContext>();
+export type SessionBindingRefusal = "safety_changed" | "turn_cancelled" | "session_binding_unavailable";
 
 export function retainTurnSessionBinding(bridge: BackendBridge, context: BridgeContext): void {
   contexts.set(bridge, context);
 }
 
 /** Join only this bridge's announced binding, before minting admission authority. */
-export async function settleTurnSessionBinding(bridge: BackendBridge, signal: AbortSignal): Promise<boolean> {
+export async function settleTurnSessionBinding(bridge: BackendBridge, signal: AbortSignal): Promise<SessionBindingRefusal|null> {
+  if (signal.aborted) return "turn_cancelled";
   const ctx = contexts.get(bridge);
-  if (!ctx) return true;
+  if (!ctx) return null;
   const settled = await waitWhile(() => !!ctx.sessionBinding.pending && ctx.current(),
     () => ctx.sessionBinding.pending!, signal, Date.now() + STORAGE_SETTLEMENT_MS);
-  if (!settled || signal.aborted || !ctx.current() || ctx.sessionBinding.pending || ctx.sessionBinding.failed) return false;
+  if (signal.aborted) return "turn_cancelled";
+  if (!ctx.current()) return "safety_changed";
+  if (!settled || ctx.sessionBinding.pending || ctx.sessionBinding.failed) return "session_binding_unavailable";
   const db = ctx.host.activity?.governanceDb, sessionId = ctx.turn.sessionId;
   // Catalog accounting reports failures without rejecting settled(). Check
   // the actual collection binding too; a drained queue is not commit proof.
   if (db && sessionId !== null) {
-    return !!db.query(`SELECT 1 FROM safety_collections c JOIN safety_sessions s ON s.session_id=c.session_id
-      WHERE c.turn_id=? AND c.session_id=?`).get(ctx.turnId, sessionId);
+    return db.query(`SELECT 1 FROM safety_collections c JOIN safety_sessions s ON s.session_id=c.session_id
+      WHERE c.turn_id=? AND c.session_id=?`).get(ctx.turnId, sessionId) ? null : "session_binding_unavailable";
   }
-  return true;
+  return null;
 }

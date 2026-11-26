@@ -419,6 +419,32 @@ non-interactive operation. These project rules apply alongside it:
   yet merged. Use the stack-specific guidance in
   [CI and merge](../../.agents/skills/work-issue/references/ci-and-merge.md#stacked-pr-evidence).
 
+### Integration branches
+
+A maintainer may rule that an epic's increments are built on integration
+branches instead of a native stack, as for the Google Workspace epics
+([the decision](../decisions/google-workspace.md)). `scripts/integrate.ts`
+admits only `main`-based candidates, while CI's candidate proof and the review
+receipt accept any base, so the mechanics differ from a stack:
+
+- **One branch per landing increment**, cut from `main` and named for the epic
+  and increment (`feat/<epic>-<name>-<increment>`). The next increment starts
+  from `main` after the previous one has landed.
+- **Task PRs** target the integration branch. Each runs
+  `bun run check:pr --base origin/<integration branch>`, carries its own
+  failing-first and mutation receipts, waits for its own hosted CI on that base,
+  and, when it touches a core package, carries a recorded independent review.
+  It is squash-merged by hand after its checks are read back, and says
+  `Refs #N`: closing keywords fire only on the default branch.
+- **Syncing `main`** into an integration branch goes through a PR, so CI runs on
+  the merge; push CI runs only for `main`. A sync that needed a conflict
+  resolution gets a fresh review.
+- **A landing** is an ordinary PR from the integration branch to `main`, through
+  `integrate.ts confirm` and `merge`, with everything any `main` PR needs: complete
+  selected hosted proof, a recorded independent review of the whole landing diff,
+  the `CONTRACT:` prefix when it applies, changesets, `Closes` for every task it
+  completes, and release milestones on the PR and each issue it delivers.
+
 ## What an agent does before writing code
 
 This repo is operated by coding agents, so this is a contract and not advice.

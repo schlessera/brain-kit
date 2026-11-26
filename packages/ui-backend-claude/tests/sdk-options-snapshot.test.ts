@@ -1,4 +1,9 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import * as worker from "@schlessera/brain-ui-sdk/internal";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { prepareClaudeTurnSandbox } from "../src/sdk-options.js";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { installTestHome } from "../../../scripts/test-home";
 
 import expected from "./fixtures/sdk-options-snapshot.json" with { type: "json" };
@@ -41,6 +46,7 @@ afterEach(() => { testHome?.dispose(); testHome = undefined; });
  * #3613 adds reference_read to the four interactive rosters and retained
  * briefs, and to the allowlist where reference access is available. The two
  * autonomous modes and all unrelated options remain byte-identical.
+ * #4307/#4308 re-record new hosted selections and the fixed batching brief.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */
@@ -48,4 +54,43 @@ for (const mode of SNAPSHOT_MODES) test(`the SDK options for a fixed ${mode} req
   const actual = await sdkOptionsSnapshot(mode);
   expect(JSON.stringify(actual, null, 2), `SDK_OPTIONS_DRIFT_${mode}`)
     .toBe(JSON.stringify((expected as Record<string, unknown>)[mode], null, 2));
+});
+
+
+test("the real handoff preparation preserves its populated-workspace system prompt", async () => {
+  const direct = await sdkOptionsSnapshot("autonomous-summary", { populatedWorkspace: true });
+  const prepared = await sdkOptionsSnapshot("autonomous-summary", { populatedWorkspace: true, prepareSandbox: true });
+  expect(JSON.stringify(prepared.systemPrompt), "HANDOFF_STILL_DESCRIBES_THE_LEGACY_WRITABLE_AREA").toContain("is writable: clone, fetch and commit");
+  expect(JSON.stringify(prepared.systemPrompt)).not.toContain("code-changes switch");
+  expect(prepared.systemPrompt, "HANDOFF_PREPARATION_DOES_NOT_CHANGE_SYSTEM_PROMPT").toEqual(direct.systemPrompt);
+});
+
+
+test("an interactive caller without a host switch prepares inspection, never writable code", async () => {
+  const brain=mkdtempSync(join(tmpdir(),"odysseus-default-sandbox-"));mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});
+  try {
+    const own=await prepareClaudeTurnSandbox({backend:{brainPath:brain} as never,req:{prompt:"Read Ithaca source.",bridge:{emit(){}},signal:new AbortController().signal} as never,profile:{} as never,turnEnvironment:{}});
+    expect(own!.workerSandbox.areas.find(area=>area.name==="workspaces")!.mount.writable,"HOSTLESS_CALLER_CANNOT_GRANT_CODE_WRITES").toBe(false);
+    expect(own!.workerSandbox.codeChanges).toBe(false);
+  }finally{rmSync(brain,{recursive:true,force:true});}
+});
+
+
+test("direct interactive assembly without a host grant describes inspection", async () => {
+  const snapshot=await sdkOptionsSnapshot("hosted-typed",{populatedWorkspace:true,withoutHostSandbox:true});
+  expect(JSON.stringify(snapshot.systemPrompt),"HOSTLESS_ASSEMBLY_HAS_NO_WRITABLE_WORKSPACE").not.toContain("is writable: clone, fetch and commit");
+  expect(JSON.stringify(snapshot.contextTail)).toContain("code-changes switch");
+  expect(JSON.stringify(snapshot.contextTail),"HOSTLESS_CONTEXT_USES_THE_READ_ONLY_MOUNT").not.toContain("is writable: clone, fetch and commit");
+});
+
+
+test("prepared handoff rendering never prepares the worker synchronously again",async()=>{
+ const preparation=spyOn(worker,"prepareWorkerSandbox");
+ try{const snapshot=await sdkOptionsSnapshot("autonomous-summary",{populatedWorkspace:true,prepareSandbox:true});expect(JSON.stringify(snapshot.systemPrompt)).toContain("is writable: clone, fetch and commit");expect(preparation,"HANDOFF_REUSES_THE_PREPARED_SANDBOX").not.toHaveBeenCalled();}finally{preparation.mockRestore();}
+});
+
+
+test("Claude handoff retains an actually refused legacy workspace qualification",async()=>{
+ const snapshot=await sdkOptionsSnapshot("autonomous-summary",{populatedWorkspace:true,aliasWorkspace:true,prepareSandbox:true});
+ expect(JSON.stringify(snapshot.systemPrompt),"HANDOFF_PRESERVES_LEGACY_ALIAS_REFUSAL").toContain("hard-linked to files outside workspaces/");expect(JSON.stringify(snapshot.systemPrompt)).not.toContain("is writable: clone, fetch and commit");
 });

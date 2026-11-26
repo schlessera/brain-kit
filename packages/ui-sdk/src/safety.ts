@@ -19,11 +19,20 @@ const source = z.enum(["web_fetch", "web_search", "staged_share", "chat_attachme
 const exposure = z.enum(["open", "finalized", "interrupted_unknown"]);
 const provenance = z.union([z.null(), z.strictObject({ kind: z.literal("web_origin"), origin: z.strictObject({scheme:z.enum(["http","https"]),host:text(253),port:z.number().int().min(1).max(65535)}), verifiedBy:z.literal("host_transport") }),
   z.strictObject({kind:z.literal("tunnel_authority"),authority:z.strictObject({host:text(253),port:z.number().int().min(1).max(65535)}),verifiedBy:z.literal("host_proxy")})]);
+export const safetyAdmissionSchema = z.discriminatedUnion("trusted",[
+    z.strictObject({trusted:z.literal(false),policyHash:z.string().regex(/^[a-f0-9]{64}$/).nullable(),trustRevision:revision}),
+    z.strictObject({trusted:z.literal(true),ruleId:id,policyHash:z.string().regex(/^[a-f0-9]{64}$/),trustRevision:revision,collectionRevision:revision}),
+  ]);
+/** Shared recorder/history evidence. Trusted input is only verified proxy content. */
+export const safetyOccurrenceAdmissionSchema = z.object({detector:id.nullable(),provenance,
+  admission:safetyAdmissionSchema.optional(),
+}).refine(v=>!v.admission?.trusted || v.detector === "proxy_input" && v.provenance !== null,
+  {message:"Trusted admission requires verified proxy provenance"});
 const common = { id, sequence: revision, observedAt: time, turnId: id, bindingId: id, occurrenceId: id, detailPruned: z.boolean() };
 export const safetyRecordSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ ...common, kind:z.literal("occurrence"), epochId:id, detector:id.nullable(), source, operationId:id.nullable(), signalId:id.nullable(), exposureId:id.nullable(), exposure,
-    summary:text(2048), provenance, entry:z.strictObject({kind:z.literal("tool"),toolUseId:id}).optional() }),
-  z.strictObject({ ...common, kind:z.literal("exposure"), state:exposure }),
+  safetyOccurrenceAdmissionSchema.safeExtend({ ...common, kind:z.literal("occurrence"), epochId:id, source, operationId:id.nullable(), signalId:id.nullable(), exposureId:id.nullable(), exposure,
+    summary:text(2048), entry:z.strictObject({kind:z.literal("tool"),toolUseId:id}).optional() }).strict(),
+  z.strictObject({ ...common, kind:z.literal("exposure"), state:z.enum(["open","finalized","interrupted_unknown","not_delivered"]) }),
   z.strictObject({ ...common, kind:z.literal("safe_decision"), session:safetySessionKeySchema, requestId:id, principalId:id, verdict:z.literal("safe"), channel:z.enum(["owner_history","owner_settings"]) }),
 ]);
 export const safetyPageSchema = z.strictObject({ version:z.literal(1), identity:safetyIdentitySchema, snapshotId:id, cursor:z.string().max(512).nullable(), highWater:revision,
@@ -31,7 +40,7 @@ export const safetyPageSchema = z.strictObject({ version:z.literal(1), identity:
 export const safetyUpdateSchema = z.strictObject({ version:z.literal(1), identity:safetyIdentitySchema, fromRevision:revision, toRevision:revision,
   projection:safetyProjectionSchema, records:z.array(safetyRecordSchema).max(100) });
 export const safetyUnavailableSchema = z.strictObject({ version:z.literal(1), reason:z.enum(["unavailable","unauthorized","expired","capacity","generation_changed","gap"]) });
-export const safetyCapabilitiesSchema = z.strictObject({ version:z.literal(1), read:z.literal(true), review:z.boolean(), originRules:z.literal(false), repositoryRules:z.literal(false), recipientRules:z.literal(false),
+export const safetyCapabilitiesSchema = z.strictObject({ version:z.literal(1), read:z.literal(true), review:z.boolean(), originRules:z.boolean(), repositoryRules:z.literal(false), recipientRules:z.boolean(),
   readOnlyReason:z.enum(["review_unavailable","owner_required"]).nullable(), detectorVersion:z.literal(1), limits:z.strictObject({ pageRecords:z.literal(100), frameBytes:z.literal(262144), cursorBytes:z.literal(512), cursorLifetimeMs:z.literal(300000),
     reviewBodyBytes:z.literal(16384).optional(), reviewLifetimeMs:z.literal(900000).optional(), receiptLifetimeMs:z.literal(86400000).optional() }) });
 export const SESSION_SAFETY_CAPABILITY = "sessionSafetyHistory";
@@ -63,7 +72,7 @@ export type SafetyReviewBody = z.infer<typeof safetyReviewBodySchema>;
 export type SafetyReviewReceipt = z.infer<typeof safetyReviewReceiptSchema>;
 export type SafetyReviewResponse = z.infer<typeof safetyReviewResponseSchema>;
 
-export const clientSafetyReadSchema = z.strictObject({type:z.literal("safety_read"),requestId:id,version:z.literal(1),target:safetyTargetSchema,cursor:z.string().max(512).nullable().optional(),limit:z.number().int().min(1).max(100).optional(),includeEntries:z.literal(true).optional()});
+export const clientSafetyReadSchema = z.strictObject({type:z.literal("safety_read"),requestId:id,version:z.literal(1),target:safetyTargetSchema,cursor:z.string().max(512).nullable().optional(),limit:z.number().int().min(1).max(100).optional(),includeEntries:z.literal(true).optional(),includeAdmissions:z.literal(true).optional(),includeNonDelivery:z.literal(true).optional()});
 export const clientSafetySubscribeSchema = z.strictObject({type:z.literal("safety_subscribe"),requestId:id,version:z.literal(1),identity:safetyIdentitySchema,afterRevision:revision,snapshotId:id});
 export const clientSafetyUnsubscribeSchema = z.strictObject({type:z.literal("safety_unsubscribe"),version:z.literal(1)});
 export const serverSafetyHistorySchema = z.strictObject({type:z.literal("safety_history"),requestId:id,page:safetyPageSchema});
@@ -75,3 +84,16 @@ export type ClientSafetyUnsubscribe = z.infer<typeof clientSafetyUnsubscribeSche
 export type ServerSafetyHistory = z.infer<typeof serverSafetyHistorySchema>;
 export type ServerSafetyUpdate = z.infer<typeof serverSafetyUpdateSchema>;
 export type ServerSafetyUnavailable = z.infer<typeof serverSafetyUnavailableSchema>;
+
+/** Optional prospective rule review. Repository identity remains unavailable. */
+export const safetyFuturePrepareSchema=safetyReviewBodySchema.extend({future:z.strictObject({incomingContent:z.literal(true),recipientWhileRestricted:z.boolean()})});
+export const safetyFutureCommitSchema=z.strictObject({version:z.literal(1),requestId:id,reviewId:id,reviewedBytesHash:z.string().regex(/^[a-f0-9]{64}$/u)});
+const futureRuleReceipt=z.strictObject({version:z.literal(1),requestId:id,operationId:id,stage:z.enum(["prepared","file_published","committed","partial","unknown","refused"]),publication:z.enum(["not_published","proved","unknown"]),ruleId:id,publishedTrustRevision:revision.nullable(),currentRule:z.enum(["present","removed","changed","unknown"]),enforcement:z.enum(["unavailable","enforced"]),reason:text(512).nullable()});
+export const safetyFuturePreparedSchema=z.strictObject({version:z.literal(1),requestId:id,session:safetySessionKeySchema,occurrenceId:id,
+ review:z.strictObject({reviewId:id,base:text(196608).nullable(),proposed:text(196608),diff:text(196608),reviewedBytesHash:z.string().regex(/^[a-f0-9]{64}$/u),expiresAt:time,repositoryIdentity:z.null(),includesFutureRepositories:z.boolean()}),rule:futureRuleReceipt,currentProjection:safetyProjectionSchema.nullable()});
+export const safetyFutureResultSchema=z.strictObject({version:z.literal(1),requestId:id,session:safetySessionKeySchema,occurrenceId:id,stage:z.enum(["prepared","verdict_committed","partial","unknown","refused"]),rule:futureRuleReceipt,verdict:safetyReviewReceiptSchema.nullable(),currentProjection:safetyProjectionSchema});
+export type SafetyFuturePrepare=z.infer<typeof safetyFuturePrepareSchema>;
+export type SafetyFutureCommit=z.infer<typeof safetyFutureCommitSchema>;
+export type SafetyFuturePrepared=z.infer<typeof safetyFuturePreparedSchema>;
+
+export const safetyFutureStatusSchema=z.strictObject({version:z.literal(1),session:safetySessionKeySchema,occurrenceId:id});

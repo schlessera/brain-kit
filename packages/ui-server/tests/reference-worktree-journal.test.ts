@@ -28,7 +28,7 @@ async function fixture() {
       poolReadCheckpoint: unsupported, poolStatCheckpoint: unsupported, poolListCheckpoint: unsupported } });
   const stopped = new Map<string, Error>(), facts = new Map<string, Facts>();
   journal.onObservation((turnId, value) => facts.set(turnId, value));
-  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { stopped.set(id, error); });
+  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, error => { stopped.set(id, error); });
   // Sealed shared source and one worktree snapshotted from it.
   const source = await pool.poolCreate(crypto.randomUUID(), "source", null, 4096);
   mkdirSync(join(source.path!, "odyssey"));
@@ -64,6 +64,7 @@ test("intentional worktree edits are journaled as workspace content of the holdi
     expect(JSON.parse(worktreeRows.find(row => row.path.endsWith("out.txt"))!.after_json!), "REFERENCE_WORKTREE_GITIGNORE_RESPECTED").toMatchObject({ ignored: true });
     expect(rows.find(row => row.path === "workspaces/argo/log.md"), "REFERENCE_WORKTREE_WORKSPACE_JOURNALING_UNCHANGED").toMatchObject({ scope: "workspaces/argo", class: "content" });
     expect(f.facts.get("turn-ithaca")?.changedPaths, "REFERENCE_WORKTREE_SCOPE_COUNTS_EDITS").toBe(4);
+    expect(f.db.query("SELECT DISTINCT turn_id FROM turn_journal_object_refs WHERE hash=? ORDER BY turn_id").all(JSON.parse(book.after_json!).hash), "REFERENCE_WORKTREE_PINS_ONLY_HOLDING_TURN").toEqual([{ turn_id: "turn-ithaca" }]);
     expect(f.rows("turn-other").filter(row => row.scope === REFERENCE_WORKTREE_JOURNAL_SCOPE), "REFERENCE_WORKTREE_ONLY_ITS_HOLDING_TURN").toEqual([]);
     expect(f.journal.summary("turn-ithaca").state).toBe("recording");
     expect(reversibleJournalPath(referenceWorktreeJournalPath(tree.id, "odyssey/book-1.md")), "REFERENCE_WORKTREE_NEVER_REVERTED_INTO_THE_BRAIN").toBe(false);
@@ -281,4 +282,45 @@ test("the worktree retry owner joins a capture still closing at turn end", async
     await finishing; await f.journal.idle();
     expect(attempts, "WORKTREE_RETRY_JOINS_PENDING_CLOSE").toBe(2);
   } finally { resume.resolve(); await finishing; f.pool.poolRelease = release; await f.close(); timers.restore(); }
+});
+
+test("hold path counts distinguish the brain and every managed worktree namespace", async () => {
+  const f = await fixture();
+  const holds: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnHold[] = [];
+  try {
+    const first = await f.worktree(), second = await f.worktree();
+    await f.begin("turn-ithaca");
+    await f.journal.attachWorktree("turn-ithaca", first.id); await f.journal.attachWorktree("turn-ithaca", second.id);
+    f.journal.evidence("turn-ithaca", hold => holds.push(hold));
+    writeFileSync(join(f.brain, "README.md"), "Odysseus returns to Ithaca.\n");
+    writeFileSync(join(first.path!, "README.md"), "Penelope records the loom.\n");
+    writeFileSync(join(second.path!, "README.md"), "Telemachus records the voyage.\n");
+    await f.journal.observe();
+    expect(holds).toHaveLength(1);
+    expect(holds[0]!.changedPaths, "HOLD_COUNTS_QUALIFIED_WORKTREE_PATHS").toBe(3);
+    expect(f.rows("turn-ithaca").map(row => row.path).sort()).toEqual(["README.md",
+      referenceWorktreeJournalPath(first.id, "README.md"), referenceWorktreeJournalPath(second.id, "README.md")].sort());
+  } finally { await f.close(); }
+});
+
+test("finish_worktrees stays incomplete when retained checkpoint close fails", async () => {
+  const timers = cleanupTimers(), f = await fixture(), release = f.pool.poolRelease;
+  const steps: Array<{ name: string; ended: boolean }> = [];
+  try {
+    const tree = await f.worktree(); await f.begin("turn-ithaca"); await f.journal.attachWorktree("turn-ithaca", tree.id);
+    f.pool.poolRelease = async () => { throw Error("Odysseus checkpoint remains pinned"); };
+    await f.journal.finish("turn-ithaca", name => { const step = { name, ended: false }; steps.push(step); return () => { step.ended = true; }; });
+    expect(steps.find(step => step.name === "finish_worktrees"), "FAILED_WORKTREE_CLOSE_HAS_NO_COMPLETION").toEqual({ name: "finish_worktrees", ended: false });
+    expect(f.ledger.size).toBeGreaterThan(0);
+  } finally { f.pool.poolRelease = release; await f.close(); timers.restore(); }
+});
+
+test("finish_worktrees never attributes another active turn's worktree", async () => {
+  const f = await fixture(), steps: string[] = [];
+  try {
+    const tree = await f.worktree(); await f.begin("turn-ithaca"); await f.begin("turn-other"); await f.journal.attachWorktree("turn-other", tree.id);
+    await f.journal.finish("turn-ithaca", name => { steps.push(name); return () => {}; });
+    expect(steps, "OTHER_TURNS_WORKTREES_HAVE_NO_FINISH_STEP").not.toContain("finish_worktrees");
+    expect(f.journal.worktrees("turn-other")).toEqual([tree.id]);
+  } finally { await f.close(); }
 });

@@ -24,6 +24,15 @@ This is internal compatibility wiring under the internal-entry classification
 below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
 frontmatter meaning or credential authority, and requires a patch changeset.
 
+
+Workspace inspection adds optional `legacyWorkspaceNote` preparation and
+`WorkerNoteFacts.legacyWorkspaces` qualification facts for first-party read-only
+handoffs (#4295). The historical note retains refused alias/scan-limit results;
+it never fabricates a writable mount or grants authority. Asynchronous
+preparation resolves this compatibility scan off the host event loop, within
+its existing preparation, and ordinary callers explicitly default to inspection.
+These are internal rendering facts, not provider input or a new extension seam.
+
 ## Native maintenance preparation (internal #2300 / #2343)
 
 The SDK's `/internal` entry adds `prepareMaintenanceWorker` and
@@ -45,6 +54,29 @@ frontmatter meaning or credential authority, and requires a patch changeset
 rather than an additive public-contract feature.
 
 ## Tool execution evidence (internal #2834)
+
+The optional internal `StartTurnRequest.startupTiming` observer (#4285/#4286)
+offers `start(name)` (returns an end callback), `worker(name, durationMs)`,
+`missing(name)` and `received()`. Both first-party backends use the host-owned
+lifecycle timer, including startup before the first bridge frame. The observer
+is stripped from Pi's serialized init environment. It supplies no authority,
+never reaches provider inputs, and is optional for older hosts. The internal
+inference relay's optional `received(path)` notification runs after method and
+route checks, before admission/body reading; its exception is ignored.
+See [Host turn lifecycle](wire.md#host-turn-lifecycle-additive) for the persisted
+fields, clocks and missing-evidence semantics. New phases are persisted in
+`openSubPhases`; the legacy `subPhases` enum remains unchanged for older SDKs.
+
+The experimental toolkit helper `safeStartupTiming(observer)` preserves an
+optional observer's arguments and method receivers while suppressing exceptions
+from every method and returned step completion, including rejected promises
+and thenables. Diagnostic promises are consumed without awaiting them, so a
+pending sink cannot hold up observed work. Relay receipt and request-event
+diagnostics have the same boundary. Both first-party backends use
+it so unavailable diagnostics cannot refuse work or escape a worker's cleanup
+ownership. An initialization response observed before the deferred worker
+launch cannot start a later `runtime_to_sdk_init` interval; that stage is
+recorded as missing instead.
 
 `StartTurnRequest` adds optional `@internal toolExecution(toolUseId, path)`, a
 server-only callback a backend calls before a call's `tool_result` with where
@@ -77,7 +109,27 @@ The internal turn proxy has a first-party `managedReference(target,
 signal)` operation for fixed GitHub HTTPS acquisition and a `remainingBytes()`
 counter. It retains ordinary G6 recipient narrowing, final admission fences
 and byte accounting; it cannot grant a contacted-host allowance. No worker
-header selects it. The internal entry also exports the existing
+header selects it. Network approval destinations carry `protocol` and the
+host-owned `managedReference` identity; pending approvals never coalesce a
+managed HTTPS acquisition with an opaque CONNECT to the same authority.
+CONNECT accepts explicit bracketed IPv6 authorities as well as canonical DNS
+and IPv4 hosts. `canonicalEgressHost` supplies one lowercase DNS or canonical bare
+IP comparison identity for host checks, cards and receipts. Resolution/dialing
+preserves the requested URL hostname, including a DNS root dot; destination
+policy resolves that exact hostname before pinning a checked IP. Settings selectors
+retain URL brackets for IPv6; the trust matcher adapts that schema boundary.
+Absent approvals never request an approval revision. Unchanged safety reads,
+approval markers and taint/projection reads use local-write, external SQLite
+change and pending/loss counters; changed evidence revalidates the scoped
+marker, including the exact own-occurrence exception.
+Every upstream write/end and tunnel chunk uses the same current authority,
+recipient, source-trust, approval-freshness and byte-budget fence.
+Live trust reads and durable refresh share one policy observation state machine.
+Stable invalid or unreadable policy retains last-valid rules/hash with an error;
+a changed-file or ancestry verification mismatch fences. Unchanged-file chunk
+fences compare ancestry/file metadata generations without reading policy bytes
+or querying SQLite. Refresh rechecks the generation after its durable write.
+The internal entry also exports the existing
 `egressAddressRefusal` validator so the fixed acquisition wire validates every
 DNS address before connecting to a checked IP. These are implementation
 sharing, with no supported public transport extension seam (#3613).
@@ -444,7 +496,7 @@ admitted model as its backend lends it on the host, and `handleWebTool` takes
 it as an optional fifth argument, `model`. `WebModelAccess` is
 `{ provider, model, open(egress, signal?) }`; `open` starts a host relay for
 exactly that model into a web executor's egress route (`WebModelEgress`:
-`{ dir, inference }`) and resolves to `{ grant, stop() }`. `WebModelGrant`
+`{ dir, inference, remainingBytes? }`) and resolves to `{ grant, stop() }`. `WebModelGrant`
 (`{ provider, model, credential: "api_key" | "oauth", basePath, socket }`) is
 everything the executor is told, and never holds a credential. A backend that
 does not set `model` behaves as before.
@@ -1022,6 +1074,36 @@ beside the sync mirror by the sync transport, with `BRAIN_UI_SYNC_GITHUB_TOKEN`
 the mirror read-only and `url.file://<mirror>.insteadOf` rewrites for the
 URL's plain, `/`, `.git` and `.git/` spellings. It never receives a Git
 credential. The crontab layout is unchanged.
+
+<a id="module-github-relay"></a>
+
+**Additive module GitHub relay (0.45.0, #4259).** A module job granted a
+`https://github.com/<owner>/<repo>` repository above also gets
+`BRAIN_MODULE_GITHUB_SOCKET=/run/brain-github/github.sock` in its maintenance
+worker: a per-run Unix socket bound read-only from a private server-owned
+directory, alive only for that run. HTTP requests to it are relayed to
+`https://api.github.com` with the host's `BRAIN_UI_MODULE_GITHUB_TOKEN` (no
+fallback), never following a redirect. Relayed: `GET /repos/<owner>/<repo>/…`
+for a granted repository; `POST /graphql` with `{ query, variables?,
+operationName? }` when the query is one query operation whose only root field
+is `repository(owner:, name:)` naming a granted repository and no field below it
+selects another repository, owner or account by name (nested traversal is
+otherwise bounded by the token's scope); and, only where
+the operator's `BRAIN_UI_MODULE_GITHUB_WRITES` enables them for that repository,
+`POST /repos/<r>/issues/<n>/comments` with exactly `{ body }` (`issue_comment`)
+and `PATCH /repos/<r>/issues/<n>` with `{ state, state_reason? }`
+(`issue_state`). Every other request is refused before anything leaves the
+host, with `{ message, brain_relay_refusal }` and status 400, 403, 413, 429 or
+503 (`unavailable` without the token). A forwarded call fails with 502 after
+GitHub answers or fails to: `redirect` (never followed), `response_too_large`
+or `upstream_unreachable`. A call beyond 8 in flight is refused with 503 `relay_busy` before anything is
+read, and a call that arrives after the run ended, while calls in flight settle
+for up to 10 seconds, with 503 `relay_stopped`. Request bodies are bounded at 1 MiB, responses at 16 MiB and calls at 500
+per run. The response keeps GitHub's status,
+body and `content-type`, `link`, `etag`, rate-limit and request-id headers. Each
+forwarded write is a `github_write` event on the job's Activity root span:
+`{ repository, operation, number, status }`, with `status: 0` when the request
+was sent but its answer was lost. Neither setting reaches a job.
 
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional
@@ -4687,6 +4769,12 @@ and returns `NativePoolGrowth`:
 - `omitted` counts comparisons, groups or flags left out to keep one reply
   within the 64 KiB control bound. Unflagged detail goes first.
 
+The private request parser has a separate 512 KiB bound for worst-case escaped
+stat paths. It does not change the 64 KiB control reply, intent-file, stage-row
+or paginated-list limits. Metadata read operations return a small fixed-reader
+ticket over HTTP; stat/list data travels over the existing separately bounded
+reader stream, rather than being embedded in a control reply.
+
 The status is read-only. It neither reconciles, deletes, resets nor reserves
 anything, and nothing in it forecasts savings or freed capacity. It is
 unavailable in these cases:
@@ -4964,6 +5052,9 @@ independent store/capacity measurements in the
 [maintenance HTTP contract](../http-api.md#storage-maintenance-additive-2011).
 They do not add an agent tool or generic executor. Existing automatic retention
 and owner APIs retain their previous defaults.
+Additive in #4540: the receipt and row `headroom` adds nullable
+`packingRequiredBytes`, core's pack preflight need on a `pack-git` receipt
+([pack headroom](http.md#storage-maintenance-pack-headroom-additive-4540)).
 
 ### Selected attachment application (additive, 0.44.0, #2012)
 
@@ -5007,6 +5098,65 @@ The component performs no I/O; callers own the bounded, deduplicated inventory
 and equivalent complete list. Unknown and nonpositive sizes have no tile area;
 small tiles have no activation target. It preserves one roving tab stop.
 
+### Storage breakdown ownership and rows (additive, #4544)
+
+`StorageMap` keeps its props and `StorageMapItem` shape. Its skin changes:
+ownership is tint, edge and label with no hatching (#4537 D8). Brain tiles
+draw a solid edge, App an inner dotted edge, Operator a dashed edge, and the
+`smaller` aggregate a neutral outline whatever its `owner`. Tiles of at least
+62 × 40 prefix their name with the owner's letter (`B ·`, `A ·`, `O ·`) at
+any width, and the legend decodes the letters. Neighbouring tiles are
+separated by a 2px gutter, with areas proportional before the trim and the
+label and target sizes measured on the drawn tile. It adds optional
+`highlightedId`, `onHighlight(id | null)` and `muted`. A tile's accessible
+name uses the owner word, and the aggregate's ends in "Open list.".
+
+`@schlessera/brain-ui-kit` also exports `StorageMapLegend`, `StorageConsumerList`,
+`StorageConsumerRow`, `StorageFilterRow`, `StorageSelectionBar`,
+`StorageBreadcrumb` and `StorageSummaryRow` with their props types, the types
+`StorageOwner`, `StorageMapLegendOwner`, `StorageSortKey`,
+`StorageSortDirection`, `StorageCrumb`, `StorageGitFacet` and
+`StorageEligibility`, `storageUnknownReason(reason)` and
+`STORAGE_PARTIAL_REASON`. They take pre-formatted strings, numbers and
+callbacks and perform no I/O. A row with a `null` size is the unknown row: a
+`?` mark, `? not measured` and its reason, never a bar or a zero. Rows have no
+Open action; the caller places Open in its inspect panel and the breadcrumb's
+`actions` slot.
+
+### Storage volumes, history and tools (additive, #4542, #4543, #4545)
+
+`@schlessera/brain-ui-kit` exports `CapacityGauge`, `VolumeCard` and
+`VolumeGroup` with their props types and the types `CapacityLevel`,
+`VolumeGroupItem` and `VolumeStatus`. It also exports the gauge geometry:
+`capacityDrawable`, `capacitySegments`, `percentLabel`, `thresholdsValid`,
+`tickLayout`, `CapacityFigures`, `CapacitySegment`, `CapacitySegmentKind`,
+`CapacityThresholds` and `TickLayout`.
+- The gauge draws used → reserved → available against total, with Low and Very
+  low ticks at the fractions its caller passes.
+- An unknown total, or figures that do not add up, draws no bar and shows a
+  text mark.
+- `VolumeGroup` is a radio group with one tab stop.
+
+It exports `HistoryChart`, `EventList` and `Sparkline` with their props types,
+`SCENARIO_DASH`, `projectionReasonText`, and the types
+`HistoryEvidenceReason`, `HistoryMarker`, `HistoryPoint`, `HistoryScenario`,
+`HistoryScenarioWindow` and `HistoryThresholds`.
+- The chart is hand-rolled SVG with an equivalent data table.
+- A `null` point is a gap, never a zero.
+- Each qualified window is one dashed line (#4537 D9), and the chart never
+  forecasts: scenario endpoints and labels arrive as props.
+- `Sparkline` takes `showValue={false}` when its host row prints the value.
+
+It exports `ToolRow` and `ToolList` with their props types and the types
+`ToolRunState`, `ToolChange`, `ToolNotMeasuredReason`, `ToolOutcomeCounts`,
+`ToolHeadroom` and `ToolHeadroomFigure`.
+- A `ToolChange` is either a delta or a not-measured reason, never
+  "unknown → unknown".
+- A missing headroom estimate shows a `?` mark, never a bar.
+- Short headroom never disables Run, because the server decides admission.
+
+All of these take pre-formatted strings, numbers and callbacks, and perform no I/O.
+
 The ui-react Settings selection accepts `storage`. `openSettings("storage")`
 and the existing palette open the same lazy pane after Modules; Models remains
 the default. This adds no main destination or keyboard shortcut. Requests and
@@ -5022,6 +5172,36 @@ authorized guidance read, preserves Settings leave guards and clears the link
 when Storage closes. These additions create no navigation destination, keyboard
 shortcut or new exported component. Evidence is isolated by root, account and
 authentication epoch; forbidden responses clear it.
+
+### Storage pressure policy constants (additive, #4539)
+
+`@schlessera/brain-ui-sdk/protocol` (and the package root) exports the pressure
+policy from the [storage guidance decision](../decisions/storage-guidance.md) as
+named numeric constants. The host's severity computation reads them, so a client
+drawing threshold ticks, bands or recovery copy stays in step with the severity
+`GET /api/storage/guidance` reports:
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `STORAGE_PRESSURE_LOW_PERCENT` | 10 | Low enters at or below this percentage of total available. |
+| `STORAGE_PRESSURE_CRITICAL_PERCENT` | 5 | Critical enters at or below this percentage. |
+| `STORAGE_PRESSURE_LOW_RECOVERY_PERCENT` | 12 | A Low capacity cause recovers only above this percentage. |
+| `STORAGE_PRESSURE_CRITICAL_RECOVERY_PERCENT` | 7 | A Critical capacity cause recovers to Low only above this percentage. |
+| `STORAGE_PRESSURE_LOW_FORECAST_DAYS` | 30 | Low enters when either qualified scenario is within this many days. |
+| `STORAGE_PRESSURE_CRITICAL_FORECAST_DAYS` | 7 | Critical enters when both qualified scenarios are within this many days. |
+| `STORAGE_PRESSURE_LOW_FORECAST_RECOVERY_DAYS` | 45 | A Low forecast cause recovers when both scenarios are beyond this. |
+| `STORAGE_PRESSURE_CRITICAL_FORECAST_RECOVERY_DAYS` | 10 | A Critical forecast cause recovers to Low when either scenario is beyond this. |
+| `STORAGE_PRESSURE_RECOVERY_OBSERVATIONS` | 2 | Consecutive qualifying fresh observations a recovery needs. |
+| `STORAGE_PRESSURE_RECOVERY_SPACING_MS` | 60000 | Minimum time from the first to the last of those observations. |
+| `STORAGE_PRESSURE_EVIDENCE_WINDOW_MS` | 21600000 | Evidence or a refusal older than this (six hours) is not current. |
+
+Percentages compare caller-available bytes with the capacity total. Entry is
+inclusive and recovery strict; a non-depleting scenario counts as beyond every
+recovery horizon. Every active cause must recover, and an owner no-space refusal
+still enters Critical independently of these values. The thresholds are not wire
+fields: no HTTP or wire payload changes, and a client derives threshold bytes
+from a capacity's `total`. A future change to a value is a change of meaning and
+follows the breaking rule.
 
 ### Claude cumulative usage evidence (additive, #2025)
 
@@ -5239,6 +5419,34 @@ Its reads are the `ActivityStore` reads. Its writes may return promises that
 settle after their commit. An `ActivityStore`, whose writes all commit before
 they return, satisfies it. Refusal classes and transaction order are
 unchanged. These shapes change at a pre-1.0 minor under that ruling.
+
+The optional `ActivityStore.lifecycleSnapshot(turnId)` returns a lifecycle and
+its `highWaterSeq` from one read transaction, or null when absent. The built-in
+store provides it. Without either atomic lifecycle reader, REST and the stream
+read the sequence through the store before its lifecycle row; REST still returns
+that conservative `lifecycleSeq` for prior store implementations.
+`ActivityStore.snapshotRun(runId, rootOnly?)` optionally reads only open roots
+with the full run sequence from the same transaction. The index stream lowers
+that floor only before a run change above the shared pump cursor, whose normal
+delta will reach that socket. It keeps the full floor for already-passed
+changes, including reconnects. Older stores returning full run snapshots
+remain supported.
+
+The internal startup observer's `missing(name, omitted?)` accepts an optional
+positive omitted observation count. The safe observer wrapper forwards that
+count without allowing diagnostics to fail a turn. This supports bounded SDK
+sampling and the lifecycle's additive `backendEvidenceOmitted` count.
+
+### Consistent Activity lifecycle snapshots
+
+`ActivityStore` adds optional `snapshotLifecycles({ turnId?, sessionId?, limit? })`,
+returning `{ lifecycles, highWaterSeq }` from one read transaction. Each lifecycle
+includes its separately stored client receipt, and each sequence belongs to that
+same database snapshot. `AwaitableActivityStore` inherits this synchronous read.
+Prior store implementations need not provide it: the Activity stream reads a
+conservative sequence floor before re-reading lifecycle data, permitting replay
+without losing a receipt delta. Existing methods and factory return shapes remain
+compatible. This additive API ships in a minor release.
 
 ### Late Activity session association
 
@@ -5581,10 +5789,37 @@ capability, HTTP endpoint, history DTO or provider conversation changes here.
 
 ### Human trust Settings publication
 
-The optional owner-only `/api/trust-settings` HTTP surface is a policy-publication
+Security Settings now consumes the protected trust publication surface. The
+list GET is available to authenticated callers and adds `mutationAllowed`;
+this reflects a live password/passkey owner at read time, never grants commit
+authority. It exposes only the current served brain's trust policy facts, not
+operation identities, review bytes, private grants or history. Prepare, commit
+and per-request receipt reads retain the live owner checks. Mixed-version hosts
+that omit `mutationAllowed` are read-only in the UI. List reads recheck live
+principal usability after the brain-lock wait: a revoked or expired caller gets
+no policy facts. Losing owner availability invalidates private review bytes and
+pending mutation replies; a failed list refresh disables writes until a fresh
+successful read. Expired, uncommitted prepared reviews can be discarded without
+republishing, while unknown publication remains uncertain. The list's optional `instances` maps each rule ID to an observation-only source
+incarnation token captured with that policy. It grants no publication authority.
+An edit/remove draft can refresh across unrelated trust revisions only when its
+selected rule bytes and incarnation are unchanged. A changed/missing incarnation
+or selected rule requires explicit re-selection; older hosts without tokens keep
+the conservative same-revision requirement. A denied read clears every protected
+draft field. Missing retained receipts can be left as outcome unknown, without
+replay or a success claim. Required enforcement capabilities are rechecked for
+both Review and Save; removing a rule remains available when enforcement is
+unavailable. Enforcing policy facts refresh with list reads and after Save; old
+facts during refresh are labeled last-read, never current enforcing facts. Missing runtime capabilities
+never imply active trust; repository rows remain disabled/unverified while
+repository enforcement is unavailable. Settings edits are prospective and never
+commit historical safety verdicts. The SDK schemas entry point exposes the
+existing canonical trust parsers and rule/list validators for browser inputs.
+
+The optional `/api/trust-settings` HTTP surface is a policy-publication
 building block. `GET /api/trust-settings` reads the current trust-only revision,
 exact policy hash, `origins`, `repositories`, repository-identity availability,
-and disabled runtime enforcement capabilities.
+and independently advertised runtime enforcement capabilities. The composed host enables origin/recipient enforcement; repository enforcement remains unavailable.
 `POST /api/trust-settings/prepare` accepts strict version-1 JSON with
 `expectedTrustRevision`, `expectedPolicyHash` and exactly one `change`:
 `{action:create|edit,rule}` or `{action:remove,ruleId}`. The host issues the
@@ -5633,12 +5868,10 @@ only read the original outcome; changed data conflicts. Expired handles can
 never create operations. Prepared/readback text survives stale-base refusal.
 
 The receipt stages are `prepared|file_published|committed|partial|unknown|refused`;
-`committed` is an internal publication-completion stage, never proof of live
-runtime enforcement. Current responses use `partial` for saved policy because
-`enforcement:unavailable` remains truthful until the admission implementation.
+`committed` with `enforcement:enforced` reports a qualified origin/tunnel publication only after the live revision and active input fences have updated. Repository publication and hosts without origin enforcement continue to return `partial` with `enforcement:unavailable`.
 `currentRule:present|removed|changed|unknown` is refreshed on reads, independently
 of historical publication proof. Readback loads the durable operation and policy
-projection within the same brain lock after any in-progress commit finishes. No removal receipt claims an enforcing fence.
+projection within the same brain lock after any in-progress commit finishes. An enforced origin removal has already fenced later active-turn admission and interrupted affected source streams.
 No agent turn, provider message or ordinary governance snapshot is changed.
 The journal awaits asynchronous metadata and publication before releasing its
 Settings observation window. It records intervening changes with their ordinary attribution before
@@ -5649,7 +5882,9 @@ The live trust projection retains last-valid rules on invalid policy, reports
 an error, and increments its decimal uint64 revision only for trust-list changes.
 Exhausted revisions refuse both new reviews and publication of retained reviews
 before any protected policy write; request revisions above uint64 also refuse.
-It is supplied for future admission integration; runtime capabilities remain off.
+The composed host shares its live trust revision with proxy and backend admission. The protected policy proposal publisher refreshes the same projection under the shared brain lock before reporting updated; qualified turn preparation refreshes it too. A synchronous anchored trust-list check refuses stale disk/projection matches during that refresh gap. Invalid policy retains last-valid rules with an error. Ordinary turn budgets, commands and profiles retain their admitted snapshots.
+
+`OriginTrust.refresh` returns without the brain lock when the observed policy hash equals the durable projection's hash and the projection carries no error; otherwise it queues the lock as before, cancellable on turn abort.
 
 The HTTP boundary admits at most 32 concurrent requests per principal and 256
 for the served brain, including lock waiters; excess requests return retryable
@@ -5936,8 +6171,11 @@ current accounting and historical diagnostic record exposed as
 the configured allowance. The manager tests each stage's actual allowance
 before classifying its refusal. `JournalRecoveryStatus` and optional
 `SystemStatus.journalRecovery` expose the count and first cause of unresolved
-object reservations from boot. The journal host adds `recoveryStatus()` returning
-that summary. Fields and recovery semantics are in the
+reservations after startup or the latest idle-maintenance recovery. Temporary
+reservations carry `hash: ""` because they have no content identity. Idle
+maintenance refreshes both the summary and its contribution to `healthy`
+without a restart. The journal host adds `recoveryStatus()` returning that
+latest summary. Fields and recovery semantics are in the
 [HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).
 
 ## GitHub tools system brief (additive, 0.45.0, #3799)
@@ -5953,6 +6191,189 @@ the bullet. A session retained earlier keeps its append byte for byte. The
 same-commit API report records the additive types. See
 [the MCP component](mcp.md#raw-connections-to-githubs-api-0450-3799).
 
+
+### Historical origin admission evidence (#3609)
+
+Safety occurrence DTOs add optional `admission` with `trusted`, `policyHash`
+and `trustRevision`; a true decision also carries `ruleId` and
+`collectionRevision`. A trusted admission requires the proxy detector and verified
+HTTP-origin or tunnel provenance; both revisions are bounded unsigned 64-bit
+decimal strings. Recorder ingestion, projection and history share this schema.
+It is host-owned historical evidence, never client
+permission or a human verdict. Older payloads without it retain conservative
+interpretation. The aggregate excludes trusted admissions from unresolved
+counts while keeping unrelated occurrences, coverage gaps and recording failures
+restrictive. Pruning preserves these minimal admission facts and their verified provenance. The UI names
+historical source trust separately and offers no safe-verdict action for it.
+Provider history remains byte-identical as an earlier prefix.
+
+
+## Turn egress charge and cancellation
+
+Each cleartext HTTP proxy operation uses its own non-pooled upstream connection, matching its `Connection: close` request header. A closed socket from an earlier operation is never reused, and transport failures do not automatically replay the request. Application-byte accounting and the final admission fence run once per send. CONNECT already owns a distinct upstream socket; inference and provider relays retain their separate Fetch transports.
+
+The concrete turn proxy's `charge(bytes)` returns `{ok:true}` or
+`{ok:false,reason:"budget"|"safety_changed"|"policy_denied"|"unavailable"|"cancelled"}`. Callers preserve that
+classification. Each terminal decision stores its typed reason before notifying
+abort listeners; `failure()` reads that immutable decision without charging or
+consulting live state. Callers never call `charge(0)` to classify an operation
+that already refused. `prepare()` runs preparation observers without publishing a
+dispatch fact. After charging, `dispatch(send)` runs the final typed fence and
+calls the synchronous transport handoff. Only after the transport constructor or fetch call returns successfully does
+it publish dispatched state and the committed/contacted notification, once.
+The final fence returns the recipient authority it used (the exact rule instance,
+explicit approval or independent allowance). Only that decision feeds the
+dispatch receipt; preparation never supplies recipient evidence.
+A refused preparation or fence never grants contacted-host access. A started
+send still counts if it later fails. Preparation observers may revoke; fact
+observers run after send and cannot erase bytes already handed to transport. A zero-byte terminal decision can complete at the exact byte ceiling while
+still revalidating safety. `bytes` must be a nonnegative safe integer; invalid counts
+throw RangeError before changing either the turn or connection byte counter.
+Only budget refusal is byte exhaustion; authority/source or
+approval changes are `safety_changed`, denied recipient/destination policy is
+`policy_denied`, unverifiable recording/admission is `unavailable`, and turn or
+client cancellation is `cancelled`. Their statuses are 403, 403, 503 and 499
+respectively; disconnected transports may have no response status. Inference/provider uploads, headers, streams and managed GitHub
+wire metering consume this result. `OriginTrust.refresh(signal?)` cancels a
+queued brain-lock acquisition on turn abort; it never releases another holder. `OriginTrust.refresh` returns without the brain lock when the observed policy hash equals the durable projection's hash and the projection carries no error; otherwise it queues the lock as before, cancellable on turn abort.
+Turn startup rechecks abort before creating egress resources and normal turn
+teardown releases its own governed hold and concurrency slot.
+
+The concrete operation lifecycle is pending → admitted → dispatched → finished
+or aborted. Admission after a terminal transition is a no-op. A new dispatch
+requires remaining byte capacity, including after approval or DNS waits; the
+zero-byte ceiling exception applies only to an already-dispatched stream.
+Admission effects already started are joined before terminal observation and
+cleanup. Proxy `settled()` joins those effects before the host joins its durable
+records. Each operation owns and releases all of its per-connection keys once.
+
+Proxy destination admission and server occurrence provenance use the history
+record schema itself: host names fit 253 UTF-8 bytes and ports are integers
+from 1 through 65535. Invalid destinations are refused before admission effects
+or durable occurrence writes. Relay retries use the same stored-failure
+classification as initial admission. All upstream requests use operation
+cancellation together with their existing request/deadline signal, and check
+cancellation again after observer callbacks immediately before dispatch.
+
+Relay failure classification snapshots the failure site before terminal
+cleanup aborts the operation signal. Credential or upstream request failures
+return 502, actual cancellation returns 499, and a previously decided policy
+or safety refusal retains its typed status. Interrupted streams keep their
+already-sent HTTP status and terminate with failed or cancelled evidence.
+Caller-signal listeners belong to the operation lifecycle and are released
+by every terminal transition, including internal admit/charge/dispatch refusals.
+
+Provider relay cancellation preserves `cancelled` in both the refusal observer
+and `error.reason`. Preparation observers run before a final typed send fence;
+a synchronous authority or recording change refuses the upstream request.
+Files cleanup responses charge their headers against the same turn ceiling as
+ordinary provider responses, with a budget refusal if those headers exceed it.
+
+Provider receipt `status` is exclusively the observed upstream HTTP status,
+including cancellation and cleanup; it stays 0 until a response arrives.
+Local refusal status remains in the caller response. Governed buffered Files
+answers and streaming scrubber tails revalidate safety at EOF before exposing
+held bytes or registering upload URLs and handles.
+
+Inference and provider relays share response accounting: observed headers debit
+before redirect/status handling, every observed chunk debits before response
+size checks, and EOF revalidates live admission before completion. Incoming
+bytes beyond the remaining turn allowance consume the available allowance and
+refuse the excess. Files cleanup drains through the same metered reader.
+
+`WebModelEgress.remainingBytes()` and the reader on governed relay `egress`
+options are optional additive minor-version fields. Existing operation-only
+adapters still compile and run. Without a reader, each relay operation uses a
+32 MiB compatibility ceiling (the existing per-request limit) across its
+accounted request and response bytes, while the route's own charge/admission
+checks still apply. This fallback cannot know or saturate an older adapter's
+remaining shared turn allowance; adapters should supply the reader for exact
+shared accounting. Host web-model routes require it through an internal type,
+and Pi forwards it unchanged. Ungoverned relays without an egress route
+retain their existing behavior. Received proxy HTTP/CONNECT bytes and both
+relay uploads/responses share the same saturating allowance accounting.
+
+Preparation and exposure notifications are separate: proxy `preparing` and
+provider relay `preparing` run before the last send fence; `committed` and
+provider `observe({outcome:"dispatched",...})` report an actual transport start.
+Relayed operations expose `prepare()` and `dispatch(send)` in place of this
+change's provisional `commit()` method. A pending terminal decision during a
+synchronous transport handoff joins its final dispatched fact before audit only
+if the handoff returns successfully.
+Streaming read results carry a delivery closure that revalidates and enqueues
+in one synchronous call. No awaited continuation separates that final check
+from chunk delivery or scrubber-tail release.
+
+An upstream HTTP request constructor starts a connection attempt. The proxy
+constructs it inside `dispatch(send)` after the final fence, even if the
+client's body is still pending. That connection attempt is dispatched and
+contacted exposure; later cancellation cannot erase it. Subsequent writes and
+end still revalidate through the same send fence.
+
+A synchronous transport-handoff throw is classified by the same caller path
+as an asynchronous upstream rejection. A synchronous throw publishes no
+dispatched fact or contacted-host grant. Dispatch does not abort or store an
+admission refusal before the caller classifies
+that transport error. Both report failed upstream attempts (502 before response
+headers), with provider receipt status 0 when no upstream response was seen.
+The final fence and transport invocation remain synchronous. Proxy HTTP and
+CONNECT use their ordinary upstream-failure handler for either failure order.
+
+Received HTTP heads are metered by the shared reader before forwarding filters.
+The Node proxy supplies the actual HTTP version/status or request line and every
+`rawHeaders` pair, including duplicate and Connection-nominated fields. Fetch
+relays supply every unfiltered header pair exposed by Fetch, including repeated
+Set-Cookie entries in the installed runtime. Counts cover all exposed name/value
+bytes and CRLF framing plus the existing runtime allowance. `http_wire_bound`
+is conservative application-level accounting: it does not claim exact TLS,
+transport wire bytes, or original header formatting discarded by Fetch. This
+clarifies the existing bound; forwarding policy never determines received cost.
+
+Relay request accounting charges the unfiltered worker head before any body read,
+forwarding filter or credential injection. The logical request head costs at
+least the larger of that received head and the constructed upstream head,
+including the framing allowance; upstream growth is charged before dispatch.
+The local relay hop does not count the same logical head twice. Generated
+cleanup requests have no worker head and charge their constructed upstream head.
+
+The native HTTP proxy also meters every informational response head (including
+100 Continue and 103 Early Hints) through the same raw-head meter, before the
+final response. A 101 upgrade head is also metered; this HTTP route refuses
+protocol switching and closes that socket. An interim refusal cannot be overwritten by a final head that
+arrives in the same packet.
+
+A proxy input cannot use source trust until its occurrence write confirms a
+durable commit. A false result or failed write refuses that operation with
+503 egress_unavailable even if permanent-gap coverage reports recording
+available. No trusted source fact or terminal exposure is published for a
+missing occurrence. Legacy recorder adapters await their write result; an
+otherwise unacknowledged trusted write must be present in the safety ledger.
+
+Network approval markers exclude only the approved operation’s own occurrence
+and, when it creates the turn’s first collection, that same collection-start
+metadata. Independent inputs, pending writes, failures, bindings and authority
+changes still invalidate the decision. An unknown collection does not become
+clean through this exclusion.
+
+An operation-specific recorder failure is 503 egress_unavailable. A different
+recorder’s loss changes the safety context and refuses with 403 safety_changed.
+When an independent evidence reservation is the only recording block, the
+proxy, managed references, inference and paid-provider relays, and Claude and
+Pi tool admissions wait up to two seconds and check the settled evidence and
+current authority before proceeding. The paid-provider host checks recording
+both before and after budget admission. Managed acquisition checks it at entry,
+after metadata and Git waits, and before publishing the result. A reservation
+still pending at the deadline retains the stale-safety refusal. The internal optional
+AdmissionSafetySnapshot.operationRecordingAvailable distinguishes the two;
+legacy snapshots without that detail retain conservative unavailable behavior.
+
+Once a successfully dispatched explicit Network approval has become the session
+contacted-host grant, later independent input does not revoke that recipient
+grant or truncate the approved stream. Pre-dispatch approval freshness, source
+rule removal, authority, recorder availability, outward permission and byte
+ceilings remain independently fenced. Outward callbacks retain their original
+{host, port, method} shape; transport metadata is confined to source/recipient
+matching and the corresponding Network-card identity.
 
 ## Collected search output status (additive, 0.45.0, #4275)
 

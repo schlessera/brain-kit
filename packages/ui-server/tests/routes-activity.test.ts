@@ -666,3 +666,74 @@ describe("activity rollups: the days window (#127)", () => {
     db.close();
   });
 });
+
+test("owner timing summary separates builds, open and absent steps, and caps the record window", async () => {
+  const { Hono } = await import("hono");
+  const { testPrincipal } = await import("./helpers/principal.js");
+  const { createTurnLifecycle } = await import("../src/activity/turn-lifecycle.js");
+  const { db, store } = seeded();
+  try {
+    const app = new Hono<import("../src/app-env.js").AppEnv>();
+    app.use("*", async (c, next) => {
+      if (c.req.header("X-Fixture-Owner")) c.set("principal", testPrincipal());
+      await next();
+    });
+    app.route("/", createActivityRoutes({ db, store }));
+    const url = "/activity/turn-timings/summary";
+    const read = async (query = "") => {
+      const response = await app.request(url + query, { headers: { "X-Fixture-Owner": "1" } });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const probe = createTurnLifecycle(store, "private-turn", "private-session", 1, () => {});
+    probe.finish("success");
+    const record = store.lifecycle("private-turn")!;
+    for (const [i, duration] of [10, 20, null, undefined, 5].entries()) {
+      const id = "voyage-" + i;
+      store.writeLifecycle({ ...record, turnId: id, lifecycleId: "lifecycle:" + id, acceptedAt: 10 + i, endedAt: 100,
+        packageVersion: "0.44.0", buildRevision: i === 4 ? "b" : "a", backendRunId: i === 4 ? "turn-1" : null,
+        outcome: i === 4 ? "denied" : "success",
+        ...(i === 4 ? { admissionLoad: { atDequeue: { cpuCount: 4 } } } : {}),
+        subPhases: duration === undefined ? [] : [{ name: "boundary_prepare", phase: "governed", startedAt: 20,
+          endedAt: duration === null ? null : 20 + duration, elapsedMs: duration }] });
+    }
+    const historical = { ...record, backendInvokedAt: 5, openSubPhases: Array.from({ length: 100 }, (_, i) =>
+      ({ phase: "backend", name: "historical-" + i, startedAt: 5, endedAt: 6, elapsedMs: 1 })) };
+    delete historical.packageVersion;
+    delete historical.firstRelayRequestAt;
+    delete historical.recorderSettledAt;
+    delete historical.idleEmittedAt;
+    db.query("UPDATE activity_turn_lifecycles SET record=? WHERE turn_id=?").run(JSON.stringify(historical), record.turnId);
+    expect((await app.request(url)).status).toBe(403);
+    const result = await read("?limit=1000");
+    expect(result.limit).toBe(200);
+    expect(result.groups).toHaveLength(3);
+    const a = result.groups.find((g: { buildRevision: string }) => g.buildRevision === "a");
+    expect(a.measurements["atDequeue.cpuCount"], "CROSS_BUILD_MISSING_MEASUREMENT").toEqual({
+      count: 0, median: null, p90: null, max: null, open: 0, absent: 4,
+    });
+    const b = result.groups.find((g: { buildRevision: string }) => g.buildRevision === "b");
+    expect(b.measurements["atDequeue.cpuCount"]).toEqual({ count: 1, median: 4, p90: 4, max: 4, open: 0, absent: 0 });
+    expect(a.steps).toContainEqual({ phase: "governed", name: "boundary_prepare", count: 2, median: 15, p90: 20, max: 20, open: 1, absent: 1 });
+    const legacy = result.groups.find((g: { packageVersion: string | null }) => g.packageVersion === null);
+    expect(legacy.steps.find((s: { name: string }) => s.name === "boundary_prepare").absent).toBe(1);
+    expect(legacy.steps.filter((s: { phase: string }) => s.phase === "backend").length, "BOUNDED_HISTORICAL_SUMMARY").toBe(16);
+    for (const interval of ["timeToFirstRelayMs", "terminalToRecorderMs", "terminalToIdleMs"]) {
+      expect(legacy.intervals[interval], "HISTORICAL_MISSING_MILESTONE").toMatchObject({ open: 0, absent: 1, count: 0 });
+    }
+    expect((await read("?origin=session&outcome=denied&since=12&before=15")).groups.map((g: { buildRevision: string }) => g.buildRevision)).toEqual(["b"]);
+    expect((await read("?limit=1")).groups.map((g: { turns: number }) => g.turns)).toEqual([1]);
+    const queued = createTurnLifecycle(store, "ithaca-queued", "ithaca", 15, () => {}, undefined, undefined, { queuedAt: 15, buildRevision: "queued" });
+    const queuedStats = async () => (await read()).groups.find((g: { buildRevision: string }) => g.buildRevision === "queued").intervals.queueWaitMs;
+    expect(await queuedStats()).toMatchObject({ count: 0, open: 1, absent: 0 });
+    queued.finish("cancelled");
+    expect(await queuedStats()).toMatchObject({ count: 0, open: 1, absent: 0 });
+    expect(legacy.intervals.queueWaitMs).toMatchObject({ count: 0, open: 0, absent: 1 });
+    for (let i = 0; i < 205; i++) {
+      const id = "ithaca-window-" + i;
+      store.writeLifecycle({ ...record, turnId: id, lifecycleId: "lifecycle:" + id, acceptedAt: 20 + i, buildRevision: "c" });
+    }
+    expect((await read("?limit=1000")).groups.map((g: { turns: number }) => g.turns)).toEqual([200]);
+    expect(JSON.stringify(result)).not.toMatch(/private-turn|private-session|principal-a|voyage-/);
+  } finally { db.close(); }
+});

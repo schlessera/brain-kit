@@ -73,7 +73,7 @@ test("installed native auth reads current credentials, serializes refresh, cance
     hostAuthUnchanged: true,
   });
   expect(result.nativeAuthErrorRedaction).toEqual({
-    status: 503,
+    status: 502,
     secretAbsent: true,
     namedRefusal: true,
   });

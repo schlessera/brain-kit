@@ -39,6 +39,130 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+### Checkout change receipts (#4297)
+
+**Breaking narrowing, authorized 2026-11-20:** new turns replace per-file
+history of covered writable Git checkouts with one `codeChanges` entry per
+checkout in `TurnJournalDetails`. Retained legacy `changes` rows remain
+readable. Notes and non-checkout workspace files retain their previous
+before-images and revert rules. This is a pre-1.0 minor with the restriction
+named in its changeset.
+
+Each entry has `checkout` (a logical `workspaces/<name>` or
+`reference-worktree://<id>/` identity), `state` (`recording`, `complete`, or
+`partial`), `head_before` and `head_after` (`{ commit, ref }`, where a detached
+HEAD has `ref: null`), `tree_before`, `tree_after`, `paths` (each
+`{ path, kind: added|deleted|modified, untracked }`), `bytes` (sum of the two
+changed blob sizes), `untracked` (count of added, untracked paths), and
+`ignore_changed` (any changed `.gitignore`). The starting tree is the previous
+completed receipt's endpoint or the starting commit's tree. Tracked files and
+untracked files Git does not ignore are captured as raw bytes. Ignored output
+and intermediate versions are not retained. Submodules, linked worktrees, unborn checkouts, LFS and filter/encoding attributes refuse writable
+receipt admission rather than claim faithful coverage.
+
+Both endpoint trees and their reachable blobs are copied as self-contained
+Git packs into host-owned journal object storage beside the journal database.
+Their stored bytes and receipt rows count toward its existing quota. Turn pins
+retain them through checkout deletion, source GC and restart, until ordinary
+journal retention expires. Git runs only in a credential-free maintenance
+worker, with source configuration never installed and hooks, filters and
+fsmonitor disabled. The evidence repository and journal rows are not worker
+mounts. A durable baseline receipt precedes exclusion of file coverage. A checkout
+created after admission keeps ordinary file coverage until its next admission. A final
+receipt is captured after writers exit, before the access generation closes;
+release captures the held endpoint under the existing worker hold. An
+interrupted recording remains partial, never a completed endpoint.
+
+Managed worktrees retain the pool's per-operation allowance, replacing the
+journal's `turn_bytes` charge. In-brain checkouts have a 16 MiB total captured
+content bound. The existing maintenance transport bounds combined capture output to 64 MiB
+(including base64 and path metadata); an endpoint pack that cannot fit refuses
+that operation without granting uncovered writes. A
+receipt-capacity refusal cannot grant uncovered writes.
+
+From the same authenticated turn-history entry:
+
+- `GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview?checkout=...`
+  returns `{ inline: true, diff }` or `{ inline: false, reason }`. Preview reads
+  only owned endpoint evidence, with a 256 KiB inline bound.
+- Owner/ambient-authorized `POST .../journal/code/revert` accepts exactly
+  `{ id, checkout }`, with a UUID operation identity. It drains writers, holds
+  the brain/Git locks, captures a fresh tree and restores the changed paths
+  from `tree_before` only when that tree equals `tree_after`. Added paths are
+  removed. Commits, branch refs and ignored output are unchanged.
+- `GET .../journal/code/revert/:id` reconciles that principal/session/turn-bound
+  operation. Results have `id`, `status` (`restored`, `conflict`, `unknown`, or
+  `failed`); a conflict includes `expected`, `current` endpoint facts and a bounded
+  `currentPreview` (`{ inline, diff?, reason? }`) for
+  owner review. Reusing an identity never dispatches its effect again. Lost
+  responses read the original identity; interrupted effects stay unknown.
+
+These UI history transports do not introduce an Activity record kind. Receipt
+facts never enter a provider's history. Existing tool definitions remain
+byte-identical; updated recording guidance is emitted only in a new tool
+result.
+
+### Default workspace inspection and code-changes preference (#4295)
+
+**Breaking narrowing, authorized 2026-11-20:** default governed and strict
+turns bind an existing `workspaces/` read-only. Their retained journal coverage excludes
+workspace paths, checkout ignore-policy reads and observed workspace bytes.
+Notes keep their existing coverage. This applies per turn even during shared
+observations with an opted-in writer. Retained history from earlier turns
+remains readable with its existing routes and shapes. If the optional area
+is absent at launch, governed note writes stay live, no mountpoint is created,
+and workspace exclusion does not apply: new content under that name is
+retained and charged as ordinary brain content for that turn, including the
+brain's frozen root ignore rules, root journal scope and ordinary Git-internal
+exclusions. Steering references and unavailable markers also remain per turn;
+an overlapping writer cannot donate its ignore policy. The next default
+turn binds the new directory read-only. Status describes the same default
+qualification, including an unqualified workspace root or unenforceable policy-protected
+parent selecting strict. An unqualified workspace symlink protects only its
+namespace; it never makes unrelated note destinations protected. Explicit
+owner protections still cover their symlink destinations. Status inspection
+never creates protection prerequisites on the live brain. It includes literal
+provider folder pins. When provider type folders still require checkpoint taxonomy
+qualification, the optional `profile` and `configurationView` are omitted and the
+existing `profileFallback` explains the uncertainty; status does not execute
+brain configuration or report a guessed profile. Captured versions
+remain per turn through storage, so one participant’s retained hash never
+replaces another participant’s ignored metadata. Superseded checkpoint
+accounting includes excluded checkout bytes until release succeeds.
+
+**Additive API:** authenticated `GET` and `PUT`
+`/api/sessions/:id/code-changes` and `/api/drafts/:id/code-changes` return
+`{ enabled: boolean }`, default false. PUT accepts exactly that JSON object;
+unknown fields or a non-boolean give 400, non-JSON gives 415, an oversized
+body gives 413, an unknown session or one without proven ownership by the
+authenticated principal gives 404, and unusable authentication gives 401.
+Session reads, writes and enabled draft binds all require proven ownership;
+legacy ownership gaps cannot grant writable admission. Drafts are scoped to
+the authenticated principal and share the existing bounded profile-draft
+storage (507 when full). Successful saves are durable before acknowledgement. All responses are `Cache-Control: no-store`.
+
+The switch is independent of the worker profile, preserves that preference,
+and cannot weaken strict or provider restrictions. A first-send profile draft
+carries its code-changes preference into the named session. Saves survive
+resume and are frozen before admission awaits; changing a save never changes
+an active turn. Enabled turns retain writable workspace qualification, the
+alias scan and byte bounds. Ordinary workspace files keep per-file journaling; covered Git checkouts use the receipt narrowing below. The saved switch is intent:
+host application writes remain protected unless admission actually qualifies
+a writable mount. Mode changes reach the worker through append-only new-turn context, without altering tools, the
+system prompt or earlier messages. The refusal note names both writable
+alternatives: the session's code-changes switch and a managed worktree. Read-only tool failures in
+an inspected turn receive the fixed conditional sentence quoted in the
+[workspace decision](../decisions/worker-writable-areas.md#workspace-inspection-amendment-2026-11-20-4295-4298),
+without path attribution. Explicit host workspace refusals use that same text.
+Result codes, record fields and closed HTTP/WS enums remain unchanged.
+Commands execute against the read-only mount; read-only failures receive the
+conditional remedy after execution, including failures outside the checkout.
+Verification and dry runs are never denied by command name. Strict Pi tools
+keep repo-relative checkout reads through a sealed source overlay beneath
+provider masks. Privileged host applications enforce inspection even without
+a governed admission service.
+This adds no value to an existing wire/HTTP enum or required response field.
+
 <a id="untrusted-file-marks-additive-2673"></a>
 
 ### Untrusted file marks (additive, #2673)
@@ -55,7 +179,7 @@ The `taint` governance event's shape is unchanged: its reserved
 ### Brain-wide configuration coverage (additive, #3257)
 
 `GET /api/journal/configuration-coverage` returns `ConfigurationCoverageRead`
-(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:183-185`):
+(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:190-192`):
 the brain's current set of configuration inputs steering could not trace. It
 is `{ state: "known", hash, paths, count, turnId, observedAt }` for the set the
 most recent complete turn recorded from a configuration inventory: `paths` is
@@ -149,6 +273,44 @@ the bytes to the journal's capacity. The decision is recorded in
 [the governed-workers decision](../decisions/governed-writable-workers.md#metadata-only-index-history--2026-10-25-2873)
 and [its purge](../decisions/governed-writable-workers.md#purging-earlier-index-versions-and-the-embeddings-lock--2026-10-25-2903).
 
+### Index updates leave change history (breaking, pre-1.0 minor, #4302)
+
+For observations made after this change, the exact root index family and
+publication copies listed above contribute no journal change rows, changed-file
+counts or observed bytes. Notes, enrichment caches, similarly named paths and
+independently held worktrees retain their existing coverage. Previously written
+history remains readable in its existing metadata-only form, with the same
+preview, download and restore exclusions.
+
+The host `GovernedTurns.refresh(lock, turnId?)` accepts an optional causing
+turn ID to correlate its index receipt. Each host application batch and
+governed post-turn index update, including the separate credentialed vector refresh, records one
+`index_update` Activity event for each causing turn. Its payload contains an
+opaque `generation`, `durationMs` and `outcome` (`complete`, `failed`, `cancelled` or
+`index_capacity`); failures also carry a bounded `cause`. A retry is a new
+update with a new generation. Revert and Undo updates use their own journal turn IDs. Shutdown records a cancelled generation for queued refreshes that never start. Tool child spans carry the causing session and retain receipts that arrive before the backend root span. Owner API/stream records retain the receipt spans and events; `query_activity` omits host receipt spans and lifecycle diagnostics from its model-facing projection. These host receipts never enter provider history.
+
+An ordinary governed writer keeps direct in-worker `brain index`. Each
+observation also measures current index-family and publication-copy size from
+sealed metadata, without reading content or creating history rows. Past the
+independent 4 GiB bound, scope pauses with optional receipt
+`result: "index_capacity"` under the existing `turn_bytes` dimension. Optional
+scope fields `indexBytes` (nullable while unconfirmed) and `indexLimitBytes`
+disclose that independent size and ceiling. The existing one-time finite
+continuation doubles only the index ceiling; the prompt names that ceiling and preserves the content allowance. Independent pending content and index pauses must both be answered before workers resume. Unknown measurement has no grant. Optional receipt and scope-event `measurement: "unknown"` names that state; numeric count/observed and overshoot are zero compatibility placeholders, not measurements. UI and voice say the size is unknown. Operational backups retain admitted conflict state with exact schema validation and accept earlier images without those tables. Only the newest open pause offers Continue; earlier open cards keep Stop available, and regain their eligible Continue after newer pauses are answered. Refused continuation leaves Stop available. Expanded facts label unknown overshoot as unknown. The index scope event has optional `result: "index_capacity"` and `source: "default"` even under a custom policy. Strict and masked/private-index turns cannot write this live index and do not receive its cap. Admitted permanent conflict-table guards apply to already-open connections and are preserved/validated in backups. History serves stored pre-upgrade conflict lists unchanged, including empty lists and their order. New rows expose the released per-row optional `conflict` field, computed from the once-per-path durable relation. Clients continue reading the selected row's field. The repeated response size is preserved for compatibility.
+The closed dimension enum is unchanged, and old parsers accept the records.
+The bound matches the former default byte scope; checks occur at observations,
+so writes may overshoot between them. The free-space floor remains binding.
+
+Host index writers remain independently bounded by maintenance temporary storage
+and output staging (256 MiB per command by default, with their existing
+configured aggregate budgets). Writes beyond a worker allowance return
+`ENOSPC`; unavailable admission returns `worker_state_busy`. An update that
+reports either condition has the named receipt outcome `index_capacity`.
+Committed Markdown remains authoritative, and pending application paths stay
+queued for the next retry. This restriction supersedes new index-version
+listing under #2873, with the maintainer's approval on #4302 (2026-11-20).
+
 ### User history restoration (additive, #1653)
 
 The four authenticated human `/revert` operations are specified in
@@ -193,13 +355,17 @@ the server boots. No unknown or surviving storage charge is released.
 The response also adds optional `journalRecovery`, declared by `SystemStatus`:
 `{ unresolvedRecords: number, firstCause: null | { reservationId: string,
 hash: string, at: number, errorClass: string, message: string, site: string } }`.
-This is the journal worker's boot recovery summary: the count is unresolved
-object reservations, including multiple reservations of the same hash, and
+This is the journal worker's latest recovery summary, refreshed at startup and
+by idle maintenance: the count is unresolved reservations, including multiple
+reservations of the same hash and temporary reservations without a content
+identity. A temporary reservation carries `hash: ""`. The value can change
+without a restart, and `healthy` is recomputed from the refreshed result.
+For either kind of reservation,
 `firstCause` is the earliest recorded I/O refusal among them (`at` is Unix
 milliseconds). The first cause stays on its charged reservation across restarts;
 a successful later recovery removes both. Zero unresolved records means
 `firstCause: null`. Any unresolved records make `healthy` false without refusing
-boot or unrelated work. If persisting a cause fails, the current boot still
+boot or unrelated work. If persisting a cause fails, the current recovery pass still
 reports it and logs the diagnostic-write failure; the existing reservation
 remains durable and charged. Neither summary is exposed by unauthenticated
 `/api/status` or public `/api/health`. Additive in 0.45.0.
@@ -270,6 +436,22 @@ Three additions ([HTTP reference](../http-api.md#corpus-queries-capture-and-sync
   `cron` and `jobName: "ui-sync"`, attributed to the requesting principal. Its
   terminal outcome carries the exit status and last output lines, and its
   `job_output` event carries the output tail.
+
+<a id="sync-incoming-policy-review-additive-4256"></a>
+
+### A sync's incoming policy change is reviewed, not failed (additive, #4256)
+
+`POST /api/brain/sync` may send one new frame,
+`{ type: "policy_review", turn_id, request_id, review: PolicyChangeReview }`,
+followed by `{ type: "done", success: false, reason: "policy_review", text }`,
+when a hosted pull's only tier A change is `context/policies/governance.md`
+([HTTP reference](../http-api.md#corpus-queries-capture-and-sync)). Nothing is
+published. The internal `POST /api/brain/sync/policy/:turnId/:requestId`
+takes `{ approve }` from the owner whose sync opened the review and returns the
+recorded `PolicyChangeReview`; only an approval writes, through the existing
+policy writer. `brainSync()` keeps mapping the terminal frame to
+`{ success: false, message }`, and clients that ignore unknown frame types are
+unaffected. No agent runtime proposes or answers these reviews.
 
 <a id="typed-status-software-identity-additive-598"></a>
 
@@ -447,7 +629,40 @@ payload fields.
 The additive `egress_connection` kind records the concrete turn proxy's host,
 port, visible HTTP method/path, bytes, accounting scope, duration and outcome.
 CONNECT records opaque bytes without a path or content claim; the inference
-tag comes only from the actual relay. Existing `egress_denial` remains named
+tag comes only from the actual relay. Inference records may carry monotonic
+millisecond offsets from the operation start: `admitMs` (first admission returned after its final synchronous commit check), `bodyMs` (body read), `credentialMs` (credential resolved),
+`dispatchMs` (immediately before upstream fetch), `headersMs` (fetch resolved)
+and `firstChunkMs` (first upstream read resolved, including EOF). Its mark is
+attempted once: a failed first mark remains absent and is never retried on a
+later read. Reached offsets are
+nonnegative, ordered and bounded by `durationMs`. Unreached marks are absent,
+including on refused/failed attempts. `loopLagMaxMs` is independently the
+maximum nonnegative drift of a 50 ms timer before dispatch (also sampled at
+dispatch before a delayed callback can run); it is not a provider latency.
+These optional host fields never alter request or response bytes. Timing and
+per-request usage callbacks are best-effort: a failed callback leaves its mark
+absent and cannot prevent dispatch or interrupt a response. A refused
+first admission carries `admitMs` at the completed refusal decision, including
+session-binding waits before proxy admission. A denied audit is submitted
+synchronously at that boundary, so turn stop and settlement cannot outrun it.
+
+Inference records also optionally carry provider-reported `inputTokens`,
+`cacheReadTokens` and `cacheCreationTokens` per request. The relay inspects the
+initial Messages SSE `message_start.message.usage` block, mapping
+`input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens`.
+Only nonnegative safe integers actually reported by the provider are kept;
+missing or provider-null fields are not inferred as zero. A missing, malformed, unsupported or
+unreadable initial block leaves these fields absent. LF, CRLF and bare CR
+line endings are accepted across chunk boundaries. Comment and ping frames
+may precede the start; content, errors or another substantive frame end the
+initial-usage window. The last `event:` field in a frame supplies its effective label. Parsing
+consumes each retained character once, without rescanning the prefix after
+each chunk. The event label (when supplied) and JSON type must both
+identify `message_start`. Inspection is bounded to
+the first 64 KiB, deferred outside the forwarding stack and never awaited; it
+reads only chunks already forwarded and never alters or delays a chunk. The
+record stores no stream text, and terminal observation never waits for parsing.
+Existing `egress_denial` remains named
 and versioned as before. Header values, query strings and bodies are excluded.
 
 The additive `provider_mask_refusal` kind (#2690) records a host bridge tool
@@ -460,8 +675,7 @@ The version 1 governance taint payload optionally adds strict host occurrence
 metadata; the source enum adds `legacy_unknown`. Every input/output/path/mark
 signal is independent, including later signals from the same source. Exact
 host-key retries deduplicate; changed identity/payload retries refuse. Admission
-records `trusted: false`, the admitted policy hash (or `null`) and trust revision
-`"0"`. Runtime source trust remains disabled. Verified proxy provenance records
+records the host admission decision. Unmatched input retains `trusted:false` and the policy hash (or `null`) and trust revision from the same live projection snapshot used for matching. Since #3609, verified exact-origin/tunnel matches retain `trusted:true`, `ruleId`, exact trust policy hash, `trustRevision` and `collectionRevision`; these immutable facts survive rule removal and detail pruning. The wire validator discriminates `trusted:true` (all evidence fields required, non-null hash) from `trusted:false` (no rule ID or collection revision); malformed trusted evidence is refused rather than shown as trusted. The existing v1 detector field continues accepting any valid ID; admission negotiation does not narrow it. Trusted admissions remain inspectable and do not contribute unresolved triggers. Unknown or independent signals stay restrictive. Verified proxy provenance records
 only the actual web origin or opaque tunnel authority; worker tool arguments
 never establish transport or repository provenance. The proxy's optional
 `connectionId` relates its admission and receipt, without guessing a tool call.
@@ -539,6 +753,14 @@ history owner, aliases and generation govern binding. Retired session/owner/turn
 identities refuse late callbacks even after private detail is removed.
 The principal binds as its account
 ([additive, #3952](#account-bound-safety-history-additive-3952)).
+
+A fetch proved refused before execution remains an audited attempt and contributes
+zero unresolved inputs (#4514). This also applies to the first unresolved ID
+and handoff selection. Delivery uncertainty and earlier records without proof
+remain restricted. On the session safety history route, `nonDelivery=1`
+requests the terminal exposure state `not_delivered`. Without this option
+the attempt has the conservative v1 terminal representation `interrupted_unknown`.
+The host's aggregate excludes proven non-delivery for both readers.
 
 Effective admission is restricted for any unresolved occurrence, incomplete or
 unknown coverage, pending recording, failure or exhausted capacity. Only a
@@ -679,15 +901,25 @@ stored events keep their recorded sources.
 behind the proxy, a connection to a host outside `taint.egress.allow` and the
 session's contacted hosts now raises the existing tool-permission request
 before it is refused: `toolName: "Network"`, `kind: "command"`, `input` of
-`{ host, port, method, target }` with `target` as `host:port`, and a
+`{ host, port, method, protocol, managedReference, target }` with `target` as
+`host:port` (bracketed for IPv6), and a
 `description` naming what tainted the session and what allowing does. No
-request field, kind or card variant is added. An allowed connection records
+new card kind or variant is added. An allowed connection records
 `egress_connection` as any admitted one does; a declined one records
 `egress_connection` with `reason: "taint_not_approved"` and the existing
 `egress_denial` with `reason: "taint_allowlist"`. A turn stopped while the card
 is pending records the connection as `cancelled` with `turn_cancelled`, as any
 connection its turn stops. Voice turns refuse without a request, as before,
 with `reason: "taint_not_allowed"`.
+
+When new evidence withdraws a Network card while the connection is still
+waiting, the host can present a fresh request for the same destination with
+a new tool-use ID. It rechecks the current policy, scope, authority, trust
+revision and recording state before asking. Late replies to the withdrawn
+ID retain their expired outcome. A card that expires while the transport stays active records
+`network_approval_expired`. A turn deadline closes the transport as `turn_cancelled` and retains “Turn timed out” on the expired card. A missing outcome records
+`network_approval_unconfirmed`. An explicit owner denial still records
+`taint_not_approved`.
 
 The `outward_action` kind's `action` gains `compute_run` and the `taint`
 kind's `source` gains `compute_output` (both additive, #3108): a hosted
@@ -760,7 +992,9 @@ run on this server, and where the server evaluates the brain's own code.
   `brain` command, every cron job and every git invocation against the brain
   runs in a maintenance worker, never in a host process.
 - `{ available: false, reason, detail, hostExecution }`: governed cannot run,
-  and interactive and voice turns run under `strict`. `reason` is
+  and interactive and voice turns run under `strict` except when private-state
+  verification is incomplete, which refuses turn admission as described below.
+  `reason` is
   `server_cwd_in_brain` (the server was started inside the brain, so Bun
   already loaded the brain's `bunfig.toml` and `.env` into it),
   `database_in_brain`, or `worker_host_unavailable` (with the probe's
@@ -970,6 +1204,18 @@ routed. The field is not removed: `active: false` remains for a brain that is
 not on managed native storage, where `detail` says that every governed and
 strict turn is refused rather than run without the proxy (#3314).
 
+### Checkout capture containment (additive, #4486)
+
+`TurnJournal.restrictedCheckouts(turnId)` returns checkout paths with recorded
+capture failures for that turn, including before a new session is bound. Only
+a checkout-local refusal with a durable cause and an enforceable mask admits
+the remaining turn. The host masks that checkout before worker
+launch and retains its cause in journal detail `missing` entries. Shared
+capacity, object-store, maintenance-input, checkpoint and retained-pack failures
+refuse admission with their original cause. A completed turn with a checkout
+capture gap remains partial. Non-repository `.git` entries stay under ordinary
+file observation.
+
 ### Operational-state layout refusal (additive, #1649)
 
 The host boundary status reason adds `private_state_in_brain` alongside
@@ -978,6 +1224,28 @@ Every hosted profile refuses boot as `OperationalStateInBrainError` when
 `DB_PATH` or private poke-token state resolves inside the brain. The error
 carries the unavailable diagnostic as `status`; no HTTP listener is created.
 The hosting guide documents migration and the retained directory masks.
+
+The additive `private_state_unverified` reason means the operational-state alias
+check could not finish within three complete attempts per path (for example,
+concurrent journal quarantine renames or an I/O error). Its detail begins with
+`OperationalStateAliasVerificationUnavailable` and retains the underlying cause.
+At boot, the host refuses before opening operational state or evaluating brain
+code, through the same path as a confirmed exposure. The thrown error is named
+`OperationalStateAliasVerificationUnavailable`, retains the original scan error
+in `cause`, and carries the unavailable diagnostic as `status`; no HTTP listener
+is created. A confirmed exposure on any configured path takes precedence over an
+incomplete scan on another path and refuses as `OperationalStateInBrainError`.
+After boot, status and turn admission retry the check. An incomplete check
+refuses that governed or strict turn with `PRIVATE_STATE_UNVERIFIED` and failure
+class `private_state_unverified`; status advertises no strict fallback. The next
+check recovers automatically once verification succeeds. Direct host reads and
+native checkpoint operations retain their existing checks.
+The authenticated status field `runtime.operationalStateLastFailure` retains
+the last incomplete check across recovery and restart: `{ at,
+errorClass: "OperationalStateAliasVerificationUnavailable", callSite:
+"operationalStateRefusal", scope: "governed", detail }`. It is a diagnostic,
+not a cached availability verdict.
+
 
 
 <a id="session-worker-profile-additive-1663"></a>
@@ -1101,6 +1369,28 @@ identities to charged retained originals. Unknown outcomes never authorize
 replay. Undo is separately reviewed, cannot overwrite a replacement, and expires
 with actual journal detail. Existing Markdown application semantics are unchanged.
 
+### Storage maintenance pack headroom (additive, #4540)
+
+On `GET /api/storage/maintenance` rows and on every SDK `StorageMaintenanceReceipt`
+of the [maintenance operations](../http-api.md#storage-maintenance-additive-2011),
+`headroom` gains `packingRequiredBytes: number | null`. `headroom.requiredBytes`
+keeps its historical `null` on every kind; nothing in this contract makes it
+non-null, and nothing is reserved.
+
+`packingRequiredBytes` mirrors the CLI pack result's
+[`headroom.packingRequiredBytes`](cli.md#storage-packing-additive-0440-2011) (#4287/#4288): core's conservative
+preflight need for packing, in bytes, measured by core against the brain's
+current Git objects. It is non-null only on a `pack-git` receipt whose own core
+run reported a figure, which it carries unchanged. It is `null`, never `0`, for
+`prune-scratch` and `cleanup-staging`, before core reports, when core reported no
+headroom or a malformed one, and on a receipt recorded before this field existed.
+A row's own `headroom` is the operation's static disclosure and always carries
+`null`; the figure from the most recent run is on the row's `latest` receipt, so
+before any run there is none. The figure describes that run, not a current
+preflight. Each kind has its own `note`; only `pack-git`'s describes packs. A
+`note` describes the kind, not the run: every receipt of another kind, including
+one recorded before #4540, reads back with that kind's current note.
+
 ### Storage history and pressure guidance (additive, #2058)
 
 The two [history/guidance operations](../http-api.md#storage-history-and-pressure-guidance)
@@ -1112,6 +1402,24 @@ uncertainty. Public types do not expose compact persistence tuples or host paths
 The next compatible server/SDK minor includes these endpoints; clients must
 retain an unavailable state when an older host does not provide them. No core
 CLI, MCP, frontmatter, config or content-index contract changes.
+
+### Storage events timeline (additive, 0.45.0, #4541)
+
+The [storage events operation](../http-api.md#storage-events-timeline),
+`GET /api/storage/events?identity=&since=`, and SDK `StorageEventsResponse`,
+`StorageEvent`, `StorageEventKind` and the four `Storage*Event` types are
+version 1 additive contracts. They keep current human-owner authorization and
+the per-principal boundary of maintenance receipts. Events carry the time of
+the evidence, report or receipt that caused them; `seq` is the recording order
+and the `since` continuation, so equal `at` values stay distinct. A maintenance
+event matches its receipt by `receipt` and `phase`, never by time. Each kind is
+bounded (256 pressure, 128 refusal, 64 scope, 512 maintenance) so the worst case
+fits the 262,144-byte cap; a full kind, or one paused because more than 512
+owner reports reached one history write, reports `paused` and keeps every earlier
+event. Episodes, refusals and receipts open before recording began are omitted,
+and no event closes one whose opening was not recorded. `StorageHistoryResponse`
+and the other storage shapes are unchanged; a client keeps an unavailable state
+when an older host returns 404.
 
 ### Activity host timing envelopes (additive)
 
@@ -1310,3 +1618,129 @@ Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains
 `retrying: true` at the time it was recorded. The historical cause survives
 recovery and restart; it does not assert a currently blocked turn. Current
 charges remain separate in `retained`. No field changes public `/health`.
+
+
+### Prospective origin enforcement (breaking before 1.0, #3609)
+
+The composed host enables incoming-source and explicit restricted-recipient
+rules for verified exact web origins and explicitly selected opaque tunnel
+authorities. Repository enforcement stays unavailable pending its independent
+read qualification. A CONNECT authority never asserts HTTPS or a Git path.
+Redirects and concurrent traffic receive independent decisions; scheme, port
+and subdomain cannot borrow another selector's permission.
+
+Standing recipient permission bypasses only the taint-network card. Source-only
+trust grants no recipient permission after unrelated input restricts a chat.
+Egress evidence retains `trustedSource` and/or `standingRecipient` markers; a standing recipient decision also records `recipientAdmission` with its rule ID, exact policy hash, trust revision and collection revision. A standing capability alone creates no legacy hostname grant. An explicit
+Network card approval independently records `recipientApproved:true` and
+retains its legacy session grant, including when source trust also matched.
+Transport receipt hosts use lowercase DNS or canonical bare IP literals.
+Deny/allowlists, byte ceilings, provider credentials and outward-action approval
+remain independent. Removing a standing capability affects future admissions;
+source streams revalidate their admitted incoming-content rule when trust changes.
+They stop before later bytes if that same rule no longer matches; unrelated
+recipient edits alone do not revoke that source decision. Historical admission
+facts remain unchanged, and independent recipient/approval fences still apply.
+Approval and recording waits recheck live authority and recipient permission at
+final dispatch. No earlier trigger, verdict or provider message is rewritten.
+
+
+Origin admission also fences a valid disk/projection mismatch while publication
+is being durably projected. The other protected policy publisher joins the same
+trust refresh before reporting its update; each qualified proxy turn refreshes
+this slice before starting. Invalid policy retains last-valid rules and an
+honest error. No ordinary admitted governance setting reloads live.
+
+Both taint-network and outward cards bind committed evidence, independent
+pending/coverage state, trust and authority through later writes and connection
+setup. Only the exact connection's own immutable occurrence may be excluded
+from its marker; another signal never borrows that exclusion. Cancellation
+destroys both tunnel sockets before a delayed connect callback can return 200.
+Managed HTTPS reference traffic carries a host-only verified transport tag for
+recipient matching and audit, independently of its opaque wire accounting; it
+cannot borrow a raw CONNECT selector or grant source/private/write authority.
+
+Pending network cards coalesce only for the same destination and immutable live
+approval context; later evidence cannot join an earlier card. Fork reconstruction
+copies unresolved untrusted occurrences only, with identical admission handling
+before and after detail pruning. CONNECT and relay rechecks revalidate every time
+but notify the host's committed observer exactly once per operation.
+
+Mixed history groups count trusted admissions and human safe verdicts separately.
+An unresolved group names an actually unresolved input for review; a trusted or
+reviewed row cannot supply that label. Historical source trust is not relabelled
+as a human decision, and a human verdict is not relabelled as source trust.
+
+
+## Egress charge failures
+
+Egress charge refusals retain their cause. Before response headers, a changed
+safety/authority decision reports 403 (including `safety_changed`), and unavailable
+recording/admission reports 503 with `egress_unavailable`. These never claim a
+network byte limit was exhausted. A byte ceiling retains its existing refusal.
+A stream which already began terminates; its relay error and connection evidence
+retain the corresponding safety, unavailable or budget classification.
+
+
+Source trust revocation uses one path whether a publication notification or a
+send fence or post-write admission check observes it first: connection evidence records `source_trust_changed`
+and subsequent charge results classify it as safety, never turn cancellation
+or unavailable recording. The turn and unrelated connections remain active.
+
+Active trusted inputs retain a durable source-rule instance (rule ID plus its
+creation revision). Removing, disabling or retargeting that source retires the
+instance even if another publisher restores the same ID before the next chunk.
+Recipient-only edits preserve the source instance. Instance metadata stays out
+of Settings responses and never grants trust independently of policy files.
+
+New egress records carry optional `dispatched` evidence. Charged preparation
+with `dispatched:false` never grants contacted-host permission in later turns;
+older records without the field retain their existing interpretation. Historical
+contacted hosts use the same canonical comparison key as current destinations,
+including legacy bracketed IPv6 literals. This operation's recording
+unavailability is 503 `egress_unavailable`, including initial admission.
+Another recorder's loss or an independent pending input is a safety change,
+403 `safety_changed`.
+
+A shared Network card excludes every occurrence admitted under that exact
+card from its approval-evidence marker, including completed peers, their
+initial collection metadata, and their exact in-flight write reservation IDs.
+The host tracks reservation ownership through occurrence IDs; both local
+overlays and durable pending rows are excluded from only that group's pending
+count, recording-pending reason and recording-availability send fence. Global
+projection/history reads, failures and capacity are unchanged. Host-only read
+arguments are additive and optional; callers that omit them retain the global
+view. Independent inputs, cards, human decisions and
+authority or trust changes still invalidate the pending approval. These host
+exclusions never remove occurrences from safety history or effective taint.
+Inference refusal wire messages retain their existing fixed text (including
+`Inference network admission refused`); the specific cause stays in the host's
+`denialReason`, preserving runtime classification and stored-history readers.
+
+Egress audit records add optional `failureReason` with the stored terminal
+category: `budget`, `safety_changed`, `policy_denied`, `unavailable` or
+`cancelled`. This category is captured before abort listeners run and is shared
+by every caller; reading it never retries admission or recomputes a cause.
+Outward approval markers include the active call-classification generation,
+so a covering call ending or an opaque call starting withdraws its exemption
+even across a durable occurrence write.
+
+Malformed proxy destination fields return HTTP 400 before recording input
+evidence. They cannot poison a safety-history page or stop later valid
+requests in the turn. Authority loss while settling a binding reports 403
+`safety_changed`; an aborted wait reports 499/cancelled. Only pending, failed
+or missing session binding reports 503 `egress_unavailable`, on both initial
+and repeated inference admission. A cancelled cleanup cannot
+send its credentialed DELETE, and cancellation interrupts an in-flight DELETE.
+
+A credential resolver or upstream transport failure is a failed attempt, not
+cancellation caused by the proxy closing its own signal. Before response
+headers it reports 502; cancellation reports 499 and existing admission
+refusals retain their typed cause. Provider receipts keep 0 when no upstream
+HTTP status was observed, or the observed status for interrupted responses.
+
+`egress_connection.accounting: "http_wire_bound"` counts received headers before
+hop-by-hop filtering. The Node proxy meters `rawHeaders`, its actual HTTP start
+line and framing; Fetch relays meter all unfiltered header pairs exposed by
+Fetch with a runtime framing allowance. The bound is not an exact TLS/wire-byte
+measurement and does not reconstruct formatting that Fetch does not expose.

@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { composeStatsAnswer } from "../../ui-react/src/lib/stats/compose-stats";
 import { computeRuntimeStats } from "../src/activity/stats";
 import {
   createActivityStore,
@@ -47,7 +48,7 @@ function finishedRun(
     startedAt: number;
     endedAt: number;
     origin?: "session" | "cron";
-    outcome?: "success" | "error";
+    outcome?: "success" | "error" | "timeout";
     billing?: "subscription" | "api";
     perModel?: Record<string, { inputTokens: number; outputTokens?: number }>;
     usage?: {
@@ -529,4 +530,23 @@ describe("runtime stats route", () => {
     expect((await (await app.request("/activity/stats?days=2.7")).json()).window.days).toBe(2);
     db.close();
   });
+});
+
+test("the stats card reports Activity failures across chat and scheduled runs in the requested window", () => {
+  const {db,store}=fresh();
+  try {
+    const inside={startedAt:NOW-DAY,endedAt:NOW-DAY+1000};
+    for(let n=0;n<4;n++)finishedRun(store,`voyage-${n}`,{...inside,outcome:n===0?"error":"success"});
+    finishedRun(store,"older-journey",{startedAt:NOW-40*DAY,endedAt:NOW-40*DAY+1000,outcome:"error"});
+    const check=(runs:number,failures:number)=>{
+      const runtime=computeRuntimeStats(db,{days:30,now:NOW});
+      expect(runtime.window).toMatchObject({runs,failures});
+      const sections=composeStatsAnswer({corpus:{ok:false,error:"unavailable"},runtime:{ok:true,value:runtime}});
+      const callout=sections.find(section=>section.kind==="callout"&&section.tone==="gold");
+      expect(callout).toMatchObject({title:expect.stringContaining(`${failures} of ${runs} runs failed`),body:expect.stringContaining("chat turns and scheduled jobs")});
+    };
+    check(4,1);
+    for(let n=0;n<3;n++)finishedRun(store,`tide-report-${n}`,{...inside,origin:"cron",outcome:n===0?"timeout":"error"});
+    check(7,4);
+  } finally {db.close();}
 });

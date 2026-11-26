@@ -1,15 +1,16 @@
 import { linkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, heldCustomProviderKeys, startProviderRelay, type ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
+import { sameAuthority, type AdmissionSafetySnapshot, PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, heldCustomProviderKeys, startProviderRelay, type ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 import type { BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { ReferenceRecordingError } from "../../brain/reference-acquisition.js";
 import { prepareTurnEgress } from "../../brain/turn-egress.js";
 import { turnExtractionJudge } from "../../brain/turn-extraction-judge.js";
 import { BudgetExceeded, BudgetUnavailable, inferenceBudgetContext, inferenceBudgetLimits } from "../../brain/turn-budgets.js";
 import { createSafetyCollector } from "../../governance/safety-collector.js";
 import { sessionTaint } from "../../governance/session-taint.js";
 import { withChatFiles } from "../../attachments/context.js";
-import { makeBridge, settleTurnIndex } from "../bridge.js";
+import { makeBridge, settleTurnIndex, hasPendingTurnIndex } from "../bridge.js";
 import { withLocalContext } from "../local-exchanges.js";
 import { acceptRequest } from "../recovery.js";
 import type { WsHost } from "../host.js";
@@ -98,7 +99,8 @@ export async function openTurnBridge(
     promptLabel: () => current.label,
     applicationPolicy: backend.brainApplicationPolicy?.({ profileId,
       ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) }),
-    protectedPaths: governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
+    protectedPaths: governedHold ? [...protectedPaths(governedHold.policy.policy), ...(host.journal?.restrictedCheckouts(turn.turnId) ?? [])] : undefined,
+    workspaceReadOnly: governedHold ? !governedHold.sandbox.areas.some(area => area.name === "workspaces" && (area.mount.writable || area.mount.missing)) : undefined,
     workerProfile: governedHold ? { origin, actualProfile: heldProfile(run),
       ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined,
     onUsage: budget?.observeUsage,
@@ -122,11 +124,23 @@ export async function openTurnBridge(
       historyOwnerId:initial.historyOwnerId,backendId:backend.id,sourceSessionId:handoffSource,policyHash:governedHold?.policy.hash??null,at:Date.now()});
     bridge.inputSafety=createSafetyCollector(safetyDb,safetyWrites,{bindingId,turnId:turn.turnId,backendId:backend.id,
       sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>run.abortController.abort(error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null,
+      ...(governedHold?.sandbox.profile==="strict"&&governedHold.startupView ? {grepCheckpoint:{
+        root:governedHold.startupView.root,masked:[...(governedHold.sandbox.providerMasks?.folders??[]),
+          ...governedHold.sandbox.areas.map(area=>area.rel),
+          ...(governedHold.sandbox.maskPaths??[])],
+      }} : {}),
       referenceReads:host.referenceTools});
   }
   // A failed update is already on each application's Activity record,
   // and its paths stay queued for the next reader; the turn still ends.
-  held.settleIndex = () => settleTurnIndex(bridge).catch(() => {});
+  held.settleIndex = async () => {
+    const indexSettle = { queuedPaths: 0, updates: 0, firstAlreadyRunning: false, updateMs: 0, lastOutcome: null };
+    const pending = hasPendingTurnIndex(bridge);
+    const end = run.lifecycle?.timer("closing", { pending })("index_settle");
+    const observed = () => end?.annotate?.({ indexSettle: { ...indexSettle } });
+    if (!pending) observed();
+    try { await settleTurnIndex(bridge, end ? { turnId: turn.turnId, stats: indexSettle, observed } : undefined); end?.(); } catch { /* Failed flush remains queued; the step stays unended. */ }
+  };
   const fallback = governedHold?.sandbox.fallbackReason;
   if (fallback) {
     const match = /Error: (.+?) is (?:a )?(symlink|hardlinked)/.exec(fallback);
@@ -173,8 +187,12 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
     sessionId: () => turn.sessionId ?? null, ...(host.governedTurns ? { exposures: ids => host.governedTurns!.exposures(ids) } : {}),
     ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}), budgets: host.budgets, observe: observeAttempt,
     stopped: () => abortController.signal.aborted ? "The turn was stopped." : (stops.budget as Error | undefined)?.message ?? null });
+  await host.originTrust?.refresh?.(abortController.signal);
+  abortController.signal.throwIfAborted();
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
+    networkRefusal: toolUseId => host.coordinator.networkRefusal(turn.turnId,toolUseId),
+    trust: host.originTrust,
     profile: heldProfile(run), origin,policyHash:governedHold.policy.hash, brainPath: host.brainPath,
     // A record's commit failure stops the turn, as a synchronous one did (#2850).
     ...(governanceWrites ? { record: (event: Parameters<typeof governanceWrites.record>[0]) => governanceWrites.record(event), governanceWrites }
@@ -187,25 +205,58 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
   // command classifier (#3429).
   recorder?.setEgressProxied();
   const egress = held.turnEgress, hold = governedHold;
-  if (held.referenceTurn) host.referenceTools?.attachEgress(turn.turnId, turn.principalId!, { egress, current: () => {
-    if (abortController.signal.aborted || governanceWrites && !governanceWrites.recordingAvailable(turn.turnId, turn.sessionId ?? null)) return false;
-    try { const safety = bridge.admissionSafety?.read(); return !safety || safety.authorityCurrent && safety.recordingAvailable; }
-    catch { return false; }
-  } });
+  const safety = bridge.admissionSafety, signal = abortController.signal;
+  const recorderCurrent = () => !signal.aborted && (!governanceWrites || governanceWrites.recordingAvailable(turn.turnId, turn.sessionId ?? null));
+  const recordingMessage = "Input recording is unavailable; the turn was stopped.";
+  const unavailable = { allowed: false as const, cause: "egress_unavailable" as const, message: recordingMessage };
+  const changedMessage = "Safety or authority changed before admission.";
+  // Keep the final read in the caller's continuation. The budget check may
+  // run before a metered operation exists, and may itself wait for SQLite.
+  function* pendingRecording(before: AdmissionSafetySnapshot | undefined, callerSignal: AbortSignal = signal) {
+    yield* safety?.pendingRecording?.(before, callerSignal) ?? [];
+  }
+  const recordingRefusal = (before?: AdmissionSafetySnapshot) => {
+    const now = safety?.read();
+    if (now && (!sameAuthority(now, before) || !now.recordingAvailable && now.operationRecordingAvailable === true))
+      return { allowed: false as const, cause: "safety_changed" as const, message: changedMessage };
+    if (!recorderCurrent() || now && !now.recordingAvailable)
+      return { allowed: false as const, ...(now ? { cause: "egress_unavailable" as const } : {}), message: recordingMessage };
+    return null;
+  };
+  if (held.referenceTurn) host.referenceTools?.attachEgress(turn.turnId, turn.principalId!, { egress,
+    *pendingRecording(callerSignal) {
+      let refusal;
+      try {
+        const before = safety?.read();
+        if (!before || before.recordingAvailable) return;
+        yield* pendingRecording(before, callerSignal ? AbortSignal.any([signal, callerSignal]) : signal);
+        refusal = recordingRefusal(before);
+      } catch { refusal = unavailable; }
+      if (refusal) throw new ReferenceRecordingError(refusal.message);
+    },
+    current() {
+      try { return !recordingRefusal(); } catch { return false; }
+    },
+  });
   held.providerRelay = startProviderRelay({ egress, ...(host.cliProviderOrigins ? { origins: host.cliProviderOrigins } : {}),
     admit: async () => {
-      if(abortController.signal.aborted||governanceWrites&&!governanceWrites.recordingAvailable(turn.turnId,turn.sessionId??null))return {allowed:false,message:"Input recording is unavailable; the turn was stopped."};
-      if (stops.budget) return { allowed: false, message: stops.budget.message };
-      if (!host.budgets) return { allowed: true };
       try {
-        const blocked = await host.budgets.providerAdmission(relayTurnId, hold.policy.policy);
-        // Another turn can disable the shared recorder while this budget write waits.
-        if(abortController.signal.aborted||governanceWrites&&!governanceWrites.recordingAvailable(turn.turnId,turn.sessionId??null))return {allowed:false,message:"Input recording is unavailable; the turn was stopped."};
-        // The turn may have stopped while admission waited for earlier budget writes.
+        const before = safety?.read();
+        for (const wait of pendingRecording(before)) await wait;
+        const initial = recordingRefusal(before);
+        if (initial) return initial;
+        if (stops.budget) return { allowed: false, message: stops.budget.message };
+        if (!host.budgets) return { allowed: true };
+        let blocked;
+        try { blocked = await host.budgets.providerAdmission(relayTurnId, hold.policy.policy); }
+        catch { return { allowed: false, message: new BudgetUnavailable().message }; }
+        for (const wait of pendingRecording(before)) await wait;
+        const final = recordingRefusal(before);
+        if (final) return final;
         const stopped = stops.budget as Error | undefined;
         if (stopped) return { allowed: false, message: stopped.message };
         return blocked ? { allowed: false, message: new BudgetExceeded(blocked, "mid_turn").message } : { allowed: true };
-      } catch { return { allowed: false, message: new BudgetUnavailable().message }; }
+      } catch { return unavailable; }
     },
     observe: observeAttempt,
   });
@@ -227,6 +278,7 @@ export function turnRequest(run: TurnRun, prompt: string, bridge: BackendBridge)
       : sessionTaint(governanceDb, turn.turnId, turn.sessionId ?? null) } : governedHold?.sandbox.commandPolicy;
   return {
     applicationAuthority: "server",
+    startupTiming: run.lifecycle?.startupTiming,
     ...(host.journal && governedHold ? { persistClaudeMemory: (change, save) => host.journal!.persistClaudeMemory(turn.turnId, change, save) } : {}),
     ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
     ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),

@@ -139,7 +139,7 @@ test("a Pi result is still reported when the session's own after-hook fails", as
     let stopped = 0;
     const agent = { afterToolCall: async () => { throw new Error("the session's after-hook failed"); }, abort() {} } as unknown as Agent;
     installPiToolSafety(agent, { permission: async () => ({ behavior: "allow" }), stop: () => { stopped++; },
-      result: (name,id,content,complete,details)=>{const observation=safetyResultInput(name,content,complete,details);return f.collector.result(id,name,observation.output,true,observation.segments,observation.outputStatus);} }, () => false);
+      result: (name,id,content,complete,failed,details)=>{const observation=safetyResultInput(name,content,complete,failed,details);return f.collector.result(id,name,observation.output,true,observation.segments,observation.outputStatus);} }, () => false);
     expect((await refusal(agent.afterToolCall!({ toolCall: { name: "grep", id: "call_raft" }, result: { content: [{ type: "text", text: SEARCH }] } } as never, undefined)))?.message)
       .toBe("the session's after-hook failed");
     expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(), "SAFETY_PI_RESULT_SURVIVES_A_FAILED_AFTER_HOOK").toEqual([{source:"workspace_read",detector:"tool_search_output"},{source:"legacy_unknown",detector:"tool_search_output"}]);
@@ -286,7 +286,7 @@ async function runSearchTool(f:Voyage,toolCallId:string,input:Record<string,unkn
 }
 async function searchResult(f:Voyage,toolCallId:string,input:Record<string,unknown>){
  const result=await runSearchTool(f,toolCallId,input);
- return safetyResultInput('grep',result.content,true,result.details);
+ return safetyResultInput('grep',result.content,true,false,result.details);
 }
 async function searchRuns(f:Voyage,toolCallId:string,input:Record<string,unknown>):Promise<string>{return (await searchResult(f,toolCallId,input)).output;}
 
@@ -309,7 +309,9 @@ for (const later of ["replayed", "stopped", "denied", "unrecordable"] as const) 
     const allowedTools = new Set(["grep"]);
     const turn = { bridge: { inputSafety: f.collector, emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Penelope declines the later request" }) },
       signal: f.controller.signal, enforceAllowedTools: false, noGrantSurface: false };
-    const dispatch = createPiWorkerRpcDispatcher({ turn, grants: new Map(), allowedTools, confirmPatterns: [], admitTool() {}, autonomous: false,
+    const dispatch = createPiWorkerRpcDispatcher({ turn, grants: new Map(),
+      executed: (msg: PiWorkerRpc) => ({ name: msg.toolName, input: msg.input, host: false, lock: false, phases: new Set() }),
+      allowedTools, confirmPatterns: [], admitTool() {}, autonomous: false,
       live() { if (f.controller.signal.aborted) throw new Error("Pi worker RPC refused: turn is inactive, cancelled or revoked."); } } as unknown as PiWorkerRpcContext);
     const ask = { type: "rpc", id: 1, method: "permission", toolName: "grep", toolCallId: "call_raft", input: { pattern: "sirens" } } as PiWorkerRpc;
     expect(await dispatch(ask), "SAFETY_PI_CALL_IS_ALLOWED").toEqual({ behavior: "allow" });
@@ -561,7 +563,7 @@ for(const shape of ['exact','image','second-text','incomplete'] as const)test(`P
   await f.collector.begin(id,'grep',input);
   const actual=await runSearchTool(f,id,input),text=actual.content.filter(part=>part.type==='text').map(part=>part.text).join('');expect(text).toBe('No matches.');
   const content=[{type:'text',text},...(shape==='image'?[{type:'image'}]:shape==='second-text'?[{type:'text',text:''}]:[])];
-  const converted=safetyResultInput('grep',content,shape!=='incomplete',actual.details);
+  const converted=safetyResultInput('grep',content,shape!=='incomplete',false,actual.details);
   await dispatcher(f)(report(1,id,converted));
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'ORIGINAL_MIXED_PI_RESULT_RETAINS_UNKNOWN').toEqual(shape==='exact'?[]:[{source:'legacy_unknown',detector:'tool_search_output'}]);
   expect(f.chat().restriction).toBe(shape==='exact'?'normal':'restricted');
@@ -602,8 +604,8 @@ for(const mode of ['file','empty','sentinel','regex','partial','warning'] as con
   let stopped=false,forwarded:unknown;
   const agent={abort(){stopped=true;},streamFunction:async()=>{}} as unknown as Agent;
   const dispatch=dispatcher(f);
-  installPiToolSafety(agent,{permission:async()=>({behavior:'allow'}),stop(){stopped=true;},async result(name,toolId,content,complete,details){
-   const converted=safetyResultInput(name,content,complete,details);forwarded=converted.outputStatus;
+  installPiToolSafety(agent,{permission:async()=>({behavior:'allow'}),stop(){stopped=true;},async result(name,toolId,content,complete,failed,details){
+   const converted=safetyResultInput(name,content,complete,failed,details);forwarded=converted.outputStatus;
    await dispatch(JSON.parse(JSON.stringify(report(1,toolId,converted))));
   }},()=>false);
   await agent.afterToolCall!({toolCall:{name:'grep',id},args:input,result:actual,isError:false} as never,f.controller.signal);
@@ -640,7 +642,7 @@ test('clipped Pi observation checks every marked filename still delivered to the
   const input={pattern:'sirens'},id='clipped';await f.collector.begin(id,'grep',input);
   const result=await runSearchTool(f,id,input,wrapper);
   expect(result.content[0]?.type==='text'&&result.content[0].text,'MARKED_FILENAME_REALLY_REACHED_MODEL').toContain('notes/raft\nloom.md:1:sirens');
-  const observed=safetyResultInput('grep',result.content,true,result.details);
+  const observed=safetyResultInput('grep',result.content,true,false,result.details);
   await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(),'ALL_DELIVERED_PATHS_ARE_CHECKED_DESPITE_FRAME_OVERHEAD').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'},{source:'legacy_unknown',detector:'tool_search_output'}]);
  }finally{await f.close();}
@@ -686,7 +688,7 @@ test('clipped Pi observation checks every marked filename still delivered to the
   const input={pattern:'sirens'},id='whitespace';await f.collector.begin(id,'grep',input);
   const result=await runSearchTool(f,id,input,wrapper);
   expect(result.content[0]?.type==='text'&&result.content[0].text).toBe('notes/loom.md:1:sirens');
-  const observed=safetyResultInput('grep',result.content,true,result.details);
+  const observed=safetyResultInput('grep',result.content,true,false,result.details);
   expect(Buffer.byteLength(observed.output),'HOST_FRAME_IS_BOUNDED_IN_BYTES').toBeLessThanOrEqual(1048576);
   expect(Buffer.byteLength(JSON.stringify(observed))).toBeLessThan(16*1024*1024);
   await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
@@ -701,7 +703,7 @@ test('Pi grep preserves a BOM-prefixed directory in the host filename evidence',
   const folder='\ufeffvoyage',path=`${folder}/log.md`;mkdirSync(join(f.brain,folder));writeFileSync(join(f.brain,path),'sirens\n');
   untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
   const id='bom_search',input={pattern:'sirens',path:folder};await f.collector.begin(id,'grep',input);
-  const actual=await runSearchTool(f,id,input),observed=safetyResultInput('grep',actual.content,true,actual.details);
+  const actual=await runSearchTool(f,id,input),observed=safetyResultInput('grep',actual.content,true,false,actual.details);
   expect(observed.output,'GREP_DECODER_PRESERVES_FILENAME_BOM').toStartWith(path+':\0');
   await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all()).toEqual([{source:'user_marked',detector:'explicit_untrusted_input'}]);
@@ -763,7 +765,7 @@ test('invalid UTF-8 grep filename bytes retain unknown alongside valid marked ro
   const raw=Buffer.concat([Buffer.from('notes/'),Buffer.from([0xff]),Buffer.from('.md\0'+'1:sirens\nnotes/'),Buffer.from([0xfe]),Buffer.from('.md\0'+'1:sirens\nnotes/loom.md\0'+'1:sirens\n')]);
   const wrapper=join(f.brain,'fake-grep');writeFileSync(join(f.brain,'grep-data'),raw);writeFileSync(wrapper,'#!/bin/sh\ncat "$(dirname "$0")/grep-data"\n',{mode:0o755});
   const input={pattern:'sirens'},id='invalid_filename_bytes';await f.collector.begin(id,'grep',input);
-  const result=await runSearchTool(f,id,input,wrapper),observed=safetyResultInput('grep',result.content,true,result.details);
+  const result=await runSearchTool(f,id,input,wrapper),observed=safetyResultInput('grep',result.content,true,false,result.details);
   expect(observed.outputStatus.complete,'DECODING_LOSS_IS_NEVER_COMPLETE').toBe(false);
   await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
   expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all()).toEqual([{source:'user_marked'},{source:'legacy_unknown'}]);

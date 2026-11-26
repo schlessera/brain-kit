@@ -180,6 +180,8 @@ export interface ApifyLedger {
   totals(scope: { account_id: string; brain_id: string; session_id: string; turn_id: string }, now: number): Record<"turn" | "session" | "day" | "brain_day", ApifyScopeTotals>;
   /** An opaque, unforgeable cursor bound to one run and offset. */
   cursor(handle: string, offset: number): string;
+  fragmentCursor(handle: string, offset: number, byte: number, digest: string): string;
+  fragmentPosition(handle: string, cursor: string): {offset:number;byte:number;digest:string} | null;
   /** The offset a cursor names for this run, or null when it is foreign or forged. */
   offset(handle: string, cursor: string): number | null;
   /**
@@ -457,6 +459,17 @@ export function openApifyLedger(path: string): ApifyLedger {
     cursor(handle, offset) {
       const mac = createHmac("sha256", cursorKey).update(`${handle}\u0000${offset}`).digest("base64url").slice(0, 32);
       return `${offset.toString(36)}.${mac}`;
+    },
+    fragmentCursor(handle, offset, byte, digest) {
+      const position = [offset.toString(36), byte.toString(36), digest].join(".");
+      const mac = createHmac("sha256", cursorKey).update(handle + ":" + position).digest("base64url").slice(0, 24);
+      return position + "." + mac;
+    },
+    fragmentPosition(handle, cursor) {
+      const match = /^([0-9a-z]{1,8})\.([0-9a-z]{1,6})\.([0-9a-f]{20})\.([A-Za-z0-9_-]{24})$/u.exec(cursor);
+      if (!match) return null;
+      const offset = parseInt(match[1]!,36), byte = parseInt(match[2]!,36), digest = match[3]!;
+      return this.fragmentCursor(handle,offset,byte,digest) === cursor ? {offset,byte,digest} : null;
     },
     offset(handle, cursor) {
       const match = /^([0-9a-z]{1,8})\.([A-Za-z0-9_-]{32})$/u.exec(cursor);

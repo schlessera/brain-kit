@@ -23,13 +23,15 @@ const VOYAGE_LOG = `Day 1: the fleet leaves Troy.\nDay 9: the lotus-eaters' isla
 /** The host's identity of the one conversation the originals were sent into. */
 export const CONVERSATION = "voyage-ithaca";
 
-export function fixtureAttachmentHost(brain: string, scratch: string) {
+export const LONG_VOYAGE_LOG = VOYAGE_LOG + "Ithaca log\n".repeat(6000) + "Ὀδυσσεύς\n".repeat(500);
+
+export function fixtureAttachmentHost(brain: string, scratch: string, backendId?: "claude") {
   const db = createUiDb(join(scratch, "attachments-ui.db"));
   const store = createDraftStore(db);
   const owner = createPrincipal(db, { authMethod: "password", label: "Odysseus phone", ttlSeconds: 3600 }).id;
   // An unknown extension and no MIME type: detection reads the bytes.
   const files = [storeOriginal(brain, store, owner, "draft-ithaca", "ithaca-permit.pdf", ithacaPermitPdf()),
-    storeOriginal(brain, store, owner, "draft-ithaca", "voyage.log", VOYAGE_LOG)];
+    storeOriginal(brain, store, owner, "draft-ithaca", "voyage.log", backendId ? LONG_VOYAGE_LOG : VOYAGE_LOG)];
   store.save(owner, "draft-ithaca", { ifMatch: 0, idempotencyKey: "save", sessionId: null, text: "What does the permit allow?", attachmentIds: [], fileIds: files.map((f) => f.fileId) });
   store.accept({ draftRef: { draftId: "draft-ithaca", revision: 1 }, sessionId: CONVERSATION, resumed: false, requestId: "send", principalId: owner, fileIds: files.map((f) => f.fileId) });
   const reader = createAttachmentReader(createExtractor());
@@ -38,7 +40,7 @@ export function fixtureAttachmentHost(brain: string, scratch: string) {
     /** The first message exactly as the host sends it: the user's text and the reference block, no contents. */
     prompt: withChatFiles("What does the permit allow?", undefined, files),
     read: (turnId: string, signal: AbortSignal, budget: { used: number }, input: ReadAttachmentInput): Promise<AttachmentReadResult> =>
-      reader.read({ brainRoot: brain, store, sessionId: CONVERSATION, turnId, signal, budget }, input),
+      reader.read({ brainRoot: brain, store, backendId, sessionId: CONVERSATION, turnId, signal, budget }, input),
     reads: () => store.attachmentReads(CONVERSATION).map((r) => [r.fileId, r.outcome]),
     close: () => db.close(),
   };

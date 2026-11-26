@@ -16,12 +16,16 @@
  * in tests/release-manifest.test.ts still sees it on the root script.
  */
 
+import { isDockerTest } from "./docker-test-files";
+import { cleanTestEnvironment, offlineCommand } from "./offline-command";
+export { offlineCommand } from "./offline-command";
 import { constants } from "node:os";
+import { stripVTControlCharacters } from "node:util";
 import { isAbsolute, join, resolve } from "node:path";
-import { realpathSync } from "node:fs";
+import { realpathSync, rmSync, statSync } from "node:fs";
 import { invocationChild } from "./test-invocation-child";
 import { createInvokingTestHome } from "./test-home";
-import { runtimeBuildSelection } from "./runtime-test-builds";
+import { runtimeBrowserSelection, runtimeBuildSelection } from "./runtime-test-builds";
 import { acceptsSpeechDelegation, clearInvocation, prepareCopiedInvocation, prepareInvocation, takePreparedTree } from "./test-invocation";
 import { ensureWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
 import { ensureHostAdmission } from "./host-admission.mjs";
@@ -102,12 +106,12 @@ function shortTakesNext(token: string): boolean {
 }
 
 /** The `bun test` argv for the arguments `bun run test` received. */
-export function testPaths(args: readonly string[]): string[] {
-  const paths: string[] = [];
+function testPathIndexes(args: readonly string[]): number[] {
+  const paths: number[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--") {
-      paths.push(...args.slice(i + 1));
+      paths.push(...args.slice(i + 1).map((_, offset) => i + 1 + offset));
       break;
     }
     // A bare `-` is a positional to Bun, like any other path.
@@ -119,9 +123,85 @@ export function testPaths(args: readonly string[]): string[] {
       }
       continue;
     }
-    paths.push(arg);
+    paths.push(i);
   }
   return paths;
+}
+
+export function testPaths(args: readonly string[]): string[] {
+  return testPathIndexes(args).map(index => args[index]!);
+}
+
+/** Separate ordinary, browser-runtime and host Docker commands before isolation. */
+export async function testCommandBatches(argv: string[], cwd: string): Promise<{ argv: string[]; docker: boolean; browser?: boolean }[]> {
+  const launchCwd = cwd;
+  for (let i = 0; i < argv.length && argv[i] !== "--"; i++) {
+    const arg = argv[i]!;
+    if (arg === "--cwd") cwd = resolve(launchCwd, argv[++i]!);
+    else if (arg.startsWith("--cwd=")) cwd = resolve(launchCwd, arg.slice(6));
+    else if (VALUE_FLAGS.has(arg) || (arg.startsWith("-") && !arg.startsWith("--") && shortTakesNext(arg))) i++;
+  }
+  const paths = testPaths(argv);
+  const { discoverTests } = await import("./test-shards");
+  const files = paths.flatMap(path => {
+    const absolute = resolve(cwd, path);
+    const stat = statSync(absolute, { throwIfNoEntry: false });
+    if (stat?.isDirectory()) return discoverTests(absolute, ["."]).map(file => resolve(absolute, file));
+    if (stat) return [absolute];
+    // Bun path substrings are OR selections, not filenames. Discover their
+    // matches before splitting, without forwarding a filter to another batch.
+    return discoverTests(cwd, ["."]).filter(file => file.includes(path)).map(file => resolve(cwd, file));
+  });
+  const browser = (file: string) => runtimeBrowserSelection(resolve(import.meta.dir, ".."), cwd, [file]).length > 0;
+  const kind = (file: string) => isDockerTest(file, resolve(import.meta.dir, "..")) ? "docker" : browser(file) ? "browser" : "ordinary";
+  if (new Set(files.map(kind)).size < 2) return [{ argv, docker: files.some(file => isDockerTest(file)), browser: files.some(browser) }];
+  const positions = new Set(testPathIndexes(argv));
+  const flags = argv.filter((_, index) => !positions.has(index));
+  const batches = ["ordinary", "browser", "docker"].flatMap(group => {
+    const selected = [...new Set(files.filter(file => kind(file) === group))];
+    return selected.length ? [{ argv: [...flags, ...selected.map(file => resolve(cwd, file))], docker: group === "docker", browser: group === "browser" }] : [];
+  });
+  if (batches.length > 1) for (const batch of batches) {
+    batch.argv = batch.argv.map((arg, index, args) => {
+      const suffix = batch.docker ? ".docker" : batch.browser ? ".browser" : ".ordinary";
+      if (arg.startsWith("--reporter-outfile=")) return arg + suffix + ".xml";
+      if (args[index - 1] === "--reporter-outfile") return arg + suffix + ".xml";
+      if (arg.startsWith("--timings=")) return arg + suffix + ".json";
+      return args[index - 1] === "--timings" ? arg + suffix + ".json" : arg;
+    });
+  }
+  return batches;
+}
+
+const optionValue = (argv: readonly string[], flag: string) => {
+  const index = argv.findIndex(arg => arg === flag || arg.startsWith(flag + "="));
+  return index < 0 ? undefined : argv[index] === flag ? argv[index + 1] : argv[index]!.slice(flag.length + 1);
+};
+
+/** Keep the requested aggregate as well as each command's separate report. */
+export async function mergeBatchReports(argv: readonly string[], batches: readonly { argv: string[]; empty?: boolean }[]) {
+  for (const flag of ["--reporter-outfile", "--timings"]) {
+    const destination = optionValue(argv, flag);
+    if (!destination) continue;
+    const reports = await Promise.all(batches.filter(batch => !batch.empty).map(batch => Bun.file(optionValue(batch.argv, flag)!).text()));
+    if (flag === "--timings") {
+      await Bun.write(destination, JSON.stringify({ version: 1, files: Object.assign({}, ...reports.map(text => JSON.parse(text).files)) }));
+    } else {
+      if (!reports.length) continue; // Bun emits no JUnit when every selection is empty.
+      const totals = { tests: 0, failures: 0, skipped: 0, assertions: 0, time: 0 };
+      for (const xml of reports) {
+        const tag = /<testsuites\b[^>]*>/.exec(xml)?.[0];
+        if (!tag || !/<\/testsuites>\s*$/.test(xml)) throw new Error("Incomplete batch JUnit report");
+        for (const name of Object.keys(totals) as (keyof typeof totals)[]) {
+          const raw = new RegExp(`\\s${name}="([^"]+)"`).exec(tag)?.[1];
+          if (raw === undefined || !Number.isFinite(Number(raw)) || Number(raw) < 0) throw new Error("Invalid batch JUnit total");
+          totals[name] += Number(raw);
+        }
+      }
+      await Bun.write(destination, `<testsuites ${Object.entries(totals).map(([key, value]) => `${key}="${value}"`).join(" ")}>\n` +
+        reports.map(xml => xml.replace(/^[\s\S]*?<testsuites\b[^>]*>/, "").replace(/<\/testsuites>\s*$/, "")).join("\n") + "\n</testsuites>\n");
+    }
+  }
 }
 
 export function testArgv(args: readonly string[]): string[] {
@@ -156,8 +236,6 @@ export function heavyTestReason(root: string, cwd: string, args: readonly string
 }
 
 if (import.meta.main) {
-  const coordinated = await ensureWorkspaceLease(resolve(import.meta.dir, ".."), workspaceTestAccess());
-  if (coordinated !== undefined) process.exit(coordinated);
   let args = process.argv.slice(2);
   let argv: string[];
   let fullPreparation = false, delegatedSpeech = false, help = false, unsupported = realpathSync(process.cwd()) !== realpathSync(resolve(import.meta.dir, ".."));
@@ -189,13 +267,6 @@ if (import.meta.main) {
     }
     args = forwarded;
     argv = testArgv(args);
-    const heavy = help ? undefined : heavyTestReason(resolve(import.meta.dir, ".."), process.cwd(), args);
-    // Inside the workspace lease: a queued command never holds a host slot
-    // while it waits for its own checkout's output.
-    if (heavy) {
-      const admitted = await ensureHostAdmission(`bun run test (${heavy})`);
-      if (admitted !== undefined) process.exit(admitted);
-    }
     if (balanced.length) {
       if (balanced.length !== 1 || argv.length === args.length ||
           args.some((arg) => arg.startsWith("--shard") || arg.startsWith("--cwd"))) {
@@ -209,6 +280,64 @@ if (import.meta.main) {
     process.exit(1);
   }
   const root = resolve(import.meta.dir, "..");
+  const batches = await testCommandBatches(argv, process.cwd());
+  const run = async (command: string[], observe?: (stderr: string) => void) => {
+    const child = invocationChild(command, { stdin: "inherit" });
+    const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+    const listeners = signals.map(signal => () => { void child.stop(signal); });
+    signals.forEach((signal, index) => process.on(signal, listeners[index]!));
+    try {
+      let stderr = "";
+      const decoder = new TextDecoder();
+      const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => {
+        for await (const chunk of stream) { process[channel].write(chunk); if (observe && channel === "stderr") stderr += decoder.decode(chunk, { stream: true }); }
+        if (observe && channel === "stderr") stderr += decoder.decode();
+      };
+      const [code] = await Promise.all([child.exited, relay(child.stdout, "stdout"), relay(child.stderr, "stderr")]);
+      await child.finish();
+      observe?.(stripVTControlCharacters(stderr));
+      return code;
+    } finally { signals.forEach((signal, index) => process.off(signal, listeners[index]!)); }
+  };
+  // Enter before owning a lease or receipt: a new user namespace cannot read
+  // its parent's descriptor through procfs. Nested commands reuse isolation.
+  if (!help && batches.length > 1) {
+    let code = 0;
+    const completed: { argv: string[]; empty?: boolean }[] = [];
+    for (const flag of ["--reporter-outfile", "--timings"]) {
+      const path = optionValue(argv, flag); if (path) rmSync(path, { force: true });
+    }
+    for (const batch of batches) for (const flag of ["--reporter-outfile", "--timings"]) {
+      const path = optionValue(batch.argv, flag); if (path) rmSync(path, { force: true });
+    }
+    for (const [index, batch] of batches.entries()) {
+      console.error(JSON.stringify({ kind: "test-invocation", event: "batch-start", pid: process.pid, batch: index }));
+      code = await run([process.execPath, "--no-env-file", import.meta.path,
+        ...(fullPreparation && index === 0 ? ["--internal-full-preparation"] : []),
+        ...(delegatedSpeech ? ["--internal-external-speech"] : []), ...batch.argv], output => {
+        const changed = batch.argv.some(arg => /^--changed(?:=|$)/.test(arg)) ? /^--changed: .*$/m.exec(output)?.[0] ?? "" : "";
+        const assignment = batch.argv.some(arg => /^--shard(?:=|$)/.test(arg)) ? /^--shard=\d+\/\d+: running (\d+)\/\d+ test files?$/m.exec(output) : null;
+        const empty = assignment?.[1] === "0" || /^--changed: (?:no changed files, nothing to run|\d+ changed files?, but no test files are affected)\.?$/.test(changed);
+        completed.push({ argv: batch.argv, empty });
+      });
+      if (code) break;
+    }
+    await mergeBatchReports(argv, completed);
+    process.exit(code);
+  }
+  const batch = batches[0]!;
+  if (!help && !batch.docker && Bun.spawnSync(offlineCommand(["--check"], batch.browser), { stdout: "ignore", stderr: "ignore" }).exitCode !== 0) {
+    process.exit(await run(offlineCommand([process.execPath, "--no-env-file", import.meta.path, ...process.argv.slice(2)], batch.browser)));
+  }
+  const coordinated = await ensureWorkspaceLease(root, workspaceTestAccess());
+  if (coordinated !== undefined) process.exit(coordinated);
+  const heavy = help ? undefined : heavyTestReason(resolve(import.meta.dir, ".."), process.cwd(), args);
+  // Inside the workspace lease: a queued command never holds a host slot
+  // while it waits for its own checkout's output.
+  if (heavy) {
+    const admitted = await ensureHostAdmission(`bun run test (${heavy})`);
+    if (admitted !== undefined) process.exit(admitted);
+  }
   // Cancellation covers preparation as well as tests; an interrupted build is
   // never retried and cannot launch tests, even if it was just exiting zero.
   let cancelled: NodeJS.Signals | undefined;
@@ -238,17 +367,22 @@ if (import.meta.main) {
     if (!cancelled) {
       const beforeTests = performance.now();
       console.error(JSON.stringify({ kind: "test-invocation", event: "tests-start", pid: process.pid, at: Date.now() }));
-      invokingHome = createInvokingTestHome();
-      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit", env: { ...process.env, HOME: invokingHome.home, CLAUDE_CONFIG_DIR: invokingHome.config, BRAIN_TEST_RESOURCE_ROOT: invokingHome.resources } });
-      started(tests);
-      await tests.ready;
-      const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };
-      const joined = await Promise.allSettled([tests.exited, relay(tests.stdout, "stdout"), relay(tests.stderr, "stderr")]);
-      await tests.finish();
-      invokingHome.assertUnchanged();
-      result = joined[0].status === "fulfilled" ? joined[0].value : 1;
-      if (joined.some(item => item.status === "rejected")) result = result || 1;
-      if (tests.signalCode) result = 128 + (constants.signals[tests.signalCode] ?? 0);
+      for (const batch of batches) {
+        invokingHome = createInvokingTestHome();
+        const testCommand = [process.execPath, "test", "--no-env-file", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...batch.argv];
+        const tests = invocationChild(testCommand, { stdin: "inherit", env: { ...cleanTestEnvironment(process.env), HOME: invokingHome.home, CLAUDE_CONFIG_DIR: invokingHome.config, BRAIN_TEST_RESOURCE_ROOT: invokingHome.resources } });
+        started(tests);
+        await tests.ready;
+        const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };
+        const joined = await Promise.allSettled([tests.exited, relay(tests.stdout, "stdout"), relay(tests.stderr, "stderr")]);
+        await tests.finish();
+        invokingHome.assertUnchanged();
+        result = joined[0].status === "fulfilled" ? joined[0].value : 1;
+        if (joined.some(item => item.status === "rejected")) result = result || 1;
+        if (tests.signalCode) result = 128 + (constants.signals[tests.signalCode] ?? 0);
+        invokingHome.dispose(); invokingHome = undefined;
+        if (result || cancelled) break;
+      }
       console.error(JSON.stringify({ kind: "test-invocation", event: "tests-complete", pid: process.pid, at: Date.now(), code: result,
         elapsedMs: performance.now() - beforeTests }));
     }

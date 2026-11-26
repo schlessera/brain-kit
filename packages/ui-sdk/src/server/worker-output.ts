@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { createOutputStagingStorage } from "./worker-launcher.js";
 import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
+import { ProtectedMaintenanceOutputError } from "./protected-output-error.js";
 
 /** A named writable work area. Configuration executes at the original brain path, read-only. */
 export const WORKER_OUTPUT = "/tmp/brain-maintenance-output";
@@ -83,6 +84,27 @@ function parent(root: string, rel: string): { fd: number; name: string } {
   } catch (error) { closeSync(fd); throw error; }
 }
 
+/** One output file's bytes, opened without following links; null when absent or not a regular file. */
+function readOutputFile(root: string, rel: string, bound: number): Uint8Array | null {
+  let handle: ReturnType<typeof parent>;
+  try { handle = parent(root, rel); }
+  catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return null; throw error; }
+  try {
+    let fd: number;
+    try { fd = openSync(at(handle.fd, handle.name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+    catch (error) { if (["ENOENT", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "")) return null; throw error; }
+    try {
+      const info = fstatSync(fd);
+      if (!info.isFile()) return null;
+      if (info.size > bound) throw new Error(`Refused output ${rel} exceeds ${bound} bytes`);
+      const bytes = Buffer.alloc(info.size);
+      let read = 0;
+      while (read < bytes.length) { const n = readSync(fd, bytes, read, bytes.length - read, null); if (!n) break; read += n; }
+      return bytes.subarray(0, read);
+    } finally { closeSync(fd); }
+  } finally { closeSync(handle.fd); }
+}
+
 function current(root: string, rel: string): Entry | undefined {
   let handle: ReturnType<typeof parent>;
   try { handle = parent(root, rel); }
@@ -102,7 +124,9 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
   let before: Map<string, Entry>;
   try { before = inventory(view.root); }
   catch (error) { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } throw error; }
+  let discardGit = false;
   const publication = {
+    discardGit() { discardGit = true; },
     view, output: { source: output.root, target: WORKER_OUTPUT, storage: output.storage as ReturnType<typeof createOutputStagingStorage> },
     cleanup() { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } },
     /**
@@ -117,8 +141,11 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
       for (const rel of [".git/hooks", ".git/info", ".git/modules"]) {
         if (!before.has(rel) && after.get(rel)?.type === "directory" && ![...after.keys()].some(path => isWithin(rel, path, { includeRoot: false }))) after.delete(rel);
       }
-      const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
+      const selected = (rel: string) => !(discardGit && isWithin(".git", rel)) && (!options.areas || options.areas.some(area => isWithin(area, rel)));
       const changed = [...new Set([...before.keys(), ...after.keys()])].filter(rel => selected(rel) && !equalOutput(before.get(rel), after.get(rel)));
+      // Every refused tier A change, named before anything is written (#4256).
+      const refused = changed.filter(rel => isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(path => isWithin(path, rel)));
+      if (refused.length) throw new ProtectedMaintenanceOutputError(refused, async (rel, bound) => readOutputFile(output.root, rel, bound));
       for (const rel of changed) {
         const previous = before.get(rel);
         const next = after.get(rel);
@@ -248,7 +275,7 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
   return { ...publication,
     async publishLocked(lock: KeyedLock) {
       const after = inventory(output.root);
-      const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
+      const selected = (rel: string) => !(discardGit && isWithin(".git", rel)) && (!options.areas || options.areas.some(area => isWithin(area, rel)));
       const paths = [...new Set([...before.keys(), ...after.keys()])]
         .filter(rel => selected(rel) && !equalOutput(before.get(rel), after.get(rel))).sort();
       const releases: (() => void)[] = [];

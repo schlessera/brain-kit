@@ -812,6 +812,8 @@ describe("principal revocation boundary", () => {
       queuedSocket.ws
     );
     await until(() => host.coordinator.bySession.get("session-queue")?.queue.length === 1);
+    const queuedEntry = host.coordinator.bySession.get("session-queue")!.queue[0]!;
+    expect(store.lifecycle(queuedEntry.lifecycleTurnId!)).toMatchObject({ queuedAt: queuedEntry.queuedAt, dequeuedAt: null });
     queuedHandlers.onClose({ code: 1000, reason: "" } as CloseEvent, queuedSocket.ws);
 
     releaseFirst.resolve();

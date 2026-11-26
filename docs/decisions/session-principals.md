@@ -110,7 +110,7 @@ Both reviewers verified every row below against the source.
 | Sockets | `ClientSet`, `ws/clients.ts:41` | `ClientSet` keyed on `ws.raw` — hono mints a fresh `WSContext` per callback |
 | Activity subscriptions | `activity/stream.ts:153` | a **separate** registry keyed on the wrapper, not `ws.raw` |
 | Rollups | `migrations/007_activity.sql`; `upsertRollup`, `activity/sql.ts:19-24` | `activity_run_rollups` survives span pruning and carries its own origin/session/job |
-| Client logout | `logout: () =>`, `ui-react/src/lib/api-client.ts:724`; `Sign out everywhere`, `passkey-list.tsx:108-108` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
+| Client logout | `logout: () =>`, `packages/ui-react/src/lib/api-client.ts:792-793`; `Sign out everywhere`, `passkey-list.tsx:108-108` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
 | Unauthorized in the UI | `res.status === 401`, `ui-react/src/hooks/use-vpn-status.ts:36` | reached by `/api/vpn-check` returning 401, not by a close code |
 
 Two findings that are true today, independent of this plan:
@@ -130,8 +130,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract/wire.md:248-262`;
-  `Activity stream`, `:621-635`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract/wire.md:257-271`;
+  `Activity stream`, `:702-716`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions

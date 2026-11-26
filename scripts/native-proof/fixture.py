@@ -1,5 +1,5 @@
 """Own one finite loop filesystem, run guarded hosted proof, and release only it."""
-import errno, fcntl, hashlib, json, os, pathlib, signal, stat, struct, subprocess, sys, time
+import errno, fcntl, hashlib, importlib.util, json, os, pathlib, signal, stat, struct, subprocess, sys, time
 
 BACKEND = sys.argv[1] if len(sys.argv) >= 2 else "claude"
 if BACKEND not in ("claude", "pi"): raise RuntimeError("Unknown fixed native backend selection")
@@ -9,7 +9,11 @@ if APP_UID not in ("0", "1000"): raise RuntimeError("Unknown native app UID proo
 os.environ["BRAIN_NATIVE_PROOF_APP_UID"] = APP_UID
 # The #2834 observation cell makes 220 model requests; the #2848 timing cell
 # waits for the earlier turns' index refresh before its turn.
-HOSTED_TIMEOUT = 1800 if os.environ.get("BRAIN_NATIVE_PROOF_OBSERVATION_TIMING") == "1" else 300 if os.environ.get("BRAIN_NATIVE_PROOF_APPLY_TIMING") == "1" else 180
+# The observation matrix also retains 10,000 real changed versions.
+limits_spec = importlib.util.spec_from_file_location("timing_limits", pathlib.Path(__file__).with_name("timing_limits.py"))
+limits = importlib.util.module_from_spec(limits_spec)
+limits_spec.loader.exec_module(limits)
+HOSTED_TIMEOUT = limits.hosted_timeout_seconds(os.environ)
 ROOT = pathlib.Path("/proof")
 STORE = pathlib.Path("/brain-fixture")
 DEVICE = pathlib.Path("/dev/brain-native-proof-loop")
@@ -143,13 +147,14 @@ try:
     STORE.mkdir(mode=0o755)
     run(["mount", "-t", "btrfs", "-o", "nosuid,nodev,nodiscard", str(DEVICE), str(STORE)]); mounted = True
     run(["btrfs", "subvolume", "create", str(STORE / "brain")])
+    # Already in the network-disabled native fixture; retain the test preload and suite cap.
     # The #2834 timing turn alone makes 220 tool calls, each one model request.
-    run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)
+    run(["/usr/local/bin/bun", "--no-env-file", "test", "--timeout", "30000", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)
     # #2783: the media review flow with every review CLI command in a maintenance worker, in this runtime.
     if os.environ.get("BRAIN_NATIVE_PROOF_MEDIA_FLOW") == "1":
         # As the hosted app does, its server, CLI and Git run as the unprivileged app UID.
         os.environ["BRAIN_MEDIA_FLOW_UID"] = APP_UID
-        run(["/usr/local/bin/bun", "run", "test", "/repo/packages/ui-server/tests/media-review-flow.test.ts", "-t", "in maintenance workers"], timeout=120)
+        run(["/usr/local/bin/bun", "--no-env-file", "test", "--timeout", "30000", "/repo/packages/ui-server/tests/media-review-flow.test.ts", "-t", "in maintenance workers"], timeout=120)
 except BaseException as error:
     failure = error
     record("failure", detail=str(error))

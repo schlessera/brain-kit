@@ -4,7 +4,14 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { BrainUiProvider, useRootStore } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
+import type { TrustSettingsRead } from "../../src/lib/trust-settings.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
+
+// Every pane gets its own endpoint DTO; trust facts are not a models response.
+const trustRead = {
+  revision: "0", policyHash: null, error: null, rules: [], origins: [], repositories: [], mutationAllowed: false,
+  capabilities: { originRules: true, recipientRules: true, repositoryRules: false, repositoryIdentity: false, readOnlyReason: null },
+} satisfies TrustSettingsRead;
 
 const panes = ["Appearance & input", "Models", "Voice", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"];
 for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as const) {
@@ -18,6 +25,7 @@ for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as c
     const requests: string[] = [];
     const ui = createBrainUiRoot({ storage: null, request: async url => {
       requests.push(String(url));
+      if (String(url).endsWith("/trust-settings")) return Response.json(trustRead);
       if(String(url).includes("/storage"))return Response.json({error:"Not configured"},{status:503});
       if (String(url).endsWith("/agent-policy")) return Response.json({ error: "Not configured" }, { status: 404 });
       return Response.json({ models: Array.from({ length: 24 }, (_, i) => ({ id: `ithaca-${i}`, label: `Ithaca model ${i + 1}`, hidden: false })), customModels: [], discovery: { enabled: false }, providers: [], configured: false, tools: [], principals: [], credentials: [], skills: [], enabled: [], available: [] });
@@ -76,6 +84,10 @@ for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as c
       if (module === "passkey-tab") await import("../../src/components/settings/passkey-tab.js");
       if (module === "devices-agents-tab") await import("../../src/components/settings/devices-agents-tab.js");
       await expect.poll(() => page.getByRole("tabpanel").element().textContent!.length).toBeGreaterThan(0);
+      if (module === "passkey-tab") {
+        await expect.element(page.getByRole("heading", { name: "Source trust and data sending", exact: true })).toBeVisible();
+        await expect.poll(() => page.getByRole("tabpanel").element().textContent).toContain("No rules configured.");
+      }
       expect(page.getByRole("radiogroup", { name: "Theme" }).elements()).toHaveLength(0);
       const button = page.getByRole("tab", { name, exact: true }).element();
       const b = button.getBoundingClientRect();
@@ -129,6 +141,8 @@ test("moved Accounts flows, Security revocation and device preferences retain th
     if (path === "/api/web-search") return Response.json({ configured: search, order: [], overriddenBy: null, appliesTo: [], providers: [{ id: "voyage", label: "Voyage search", enabled: searchEnabled, hasKeyField: true, keyConfigured, keyFromEnv: false, keyless: false, costNote: "Paid", blurb: "Find sailing notes" }] });
     if (path === "/api/tool-permissions/web_search" && init?.method === "DELETE") { granted = false; return Response.json({ tools: [] }); }
     if (path === "/api/tool-permissions") return Response.json({ tools: granted ? ["web_search"] : [] });
+    if (path === "/api/agent-policy") return Response.json({ error: "Not configured" }, { status: 404 });
+    if (path === "/api/trust-settings") return Response.json(trustRead);
     if (path === "/api/auth/passkey/list") return Response.json({ credentials: [] });
     return Response.json({ providers: [], models: [] });
   };

@@ -166,7 +166,7 @@ describe("the full answer", () => {
 
   test("retention is said once, in the window's footnote, with its count", () => {
     const runtime = receipt(sections, "Runtime");
-    expect(runtime.footnote).toBe("per-run detail is kept 14 days · 38 of these 142 runs are totals only");
+    expect(runtime.footnote).toBe("Chat turns and scheduled jobs · per-run detail is kept 14 days · 38 of these 142 runs are totals only");
     expect(runtime.footTone).toBe("gold");
     const labels = all(sections, "tiles")[1].tiles.map((t) => t.label);
     expect(labels).toEqual(["runs · 30d", "spent · 30d"]);
@@ -285,7 +285,7 @@ describe("unavailable and empty states", () => {
 
   test("no run ever recorded: one plain notice, no runtime receipts, no $0", () => {
     const sections = composeStatsAnswer({ corpus: ok(corpusStats()), runtime: ok(emptyRuntime()) });
-    expect(all(sections, "callout").map((c) => c.title)).toContain("No agent runs recorded yet.");
+    expect(all(sections, "callout").map((c) => c.title)).toContain("No runs recorded yet.");
     expect(all(sections, "tiles").map((t) => t.source)).toEqual(["corpus"]);
     const titles = all(sections, "receipt").map((r) => r.title);
     expect(titles).toEqual(["Corpus", "On disk"]);
@@ -451,4 +451,16 @@ describe("trends from the recorded history (#581)", () => {
     const partial = { dates: h.dates, documents: h.documents } as unknown as typeof h;
     expect(all(compose(ok(partial)), "trend").map((t) => t.label)).toEqual(["documents · 3 snapshots"]);
   });
+});
+
+test("failure totals disclose the combined chat and scheduled-job window", () => {
+  const sections = composeStatsAnswer({ corpus: failed("unavailable"), runtime: ok(runtimeStats({ window: { runs: 18, failures: 7 } })) });
+  const warning = all(sections, "callout").find(c => c.tone === "gold");
+  expect(warning?.title).toContain("7 of 18 runs");
+  expect(warning?.body).toContain("chat turns and scheduled jobs");
+  expect(warning?.body).toContain("timeouts");
+  expect(all(sections, "tiles").flatMap(s => s.tiles).find(t => t.value === "18")?.meta).toContain("all origins");
+  const runtime = receipt(sections, "Runtime");
+  expect(row(runtime, "failed").v).toBe("7");
+  expect(runtime.footnote).toContain("Chat turns and scheduled jobs");
 });

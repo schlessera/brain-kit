@@ -62,7 +62,7 @@ function holdingJournal() {
 function pausableScope() {
   // `whilePaused` counts the checks that saw the pause: the route had an opportunity to commit and declined.
   const state = { paused: false, whilePaused: 0 };
-  const scope = { isPaused: () => { if (state.paused) state.whilePaused++; return state.paused; }, toolCall() {}, bindSession() {}, finish() {}, close() {} };
+  const scope = { isPaused: () => { if (state.paused) state.whilePaused++; return state.paused; }, toolCall() {}, bindSession() {}, async finish() { return true; }, close() {} };
   return { scope: scope as unknown as TurnScope, state };
 }
 

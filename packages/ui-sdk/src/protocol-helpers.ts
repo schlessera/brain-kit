@@ -56,3 +56,24 @@ export function resolveThinkingLevel(
 export function canonicalModelId(id: string): string {
   return id.replace(/-\d{8}$/, "");
 }
+
+/** The SDK uses authored configuration keys, including punctuation and printable display names. */
+export function isMcpTimingServerName(name: unknown, source?: unknown): name is string {
+  if (typeof name !== "string" || name.length > 48 || new TextEncoder().encode(name).byteLength > 48) return false;
+  if (/[\p{C}\p{Zl}\p{Zp}\/\\]/u.test(name)) return false;
+  const safePart = (part: string) => {
+    const key = part.trim();
+    return key.length > 0 && key !== "." && key !== ".." && !/^[A-Za-z]:/.test(key);
+  };
+  if (!safePart(name)) return false;
+  // A configured key is opaque. Only its provenance identifies a CLI-generated
+  // identifier. On older CLIs without provenance, keep checking for embedded paths.
+  const unknownSource = typeof source !== "string" || !source.length;
+  if ((source === "claudeai" || unknownSource) && name.startsWith("claude.ai ")) return safePart(name.slice("claude.ai ".length));
+  if ((source === "plugin" || unknownSource) && name.startsWith("plugin:")) {
+    const parts = name.slice("plugin:".length).split(":");
+    if (parts.length > 2 && parts.slice(0, -1).some(part => /^[A-Za-z]$/.test(part.trim()))) return false;
+    return parts.every(part => (unknownSource && part.length === 0) || safePart(part));
+  }
+  return true;
+}

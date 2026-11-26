@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, captureOffline, history, identical, identicalSystemPromptOptions, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { providerTools, body, captureOffline, history, identical, identicalSystemPromptOptions, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
 
 let captures: Captures;
 beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-probe.ts")); }, 180_000);
@@ -25,7 +25,7 @@ test("Claude typed tools stay byte-identical across repository and device change
 });
 test("Claude tool round trips preserve the complete prefix even in known-break scenarios", () => {
   for (const capture of Object.values(captures)) for (const [a, b] of pairs(capture)) if (a.turn === b.turn) {
-    identical(body(a).tools, body(b).tools, "tools within turn");
+    providerTools(a, b, "tools within turn");
     identical(system(a), system(b), "system within turn");
     history(a, b);
   }
@@ -209,4 +209,20 @@ test("retained legacy policy wording and earlier taint facts stay byte-identical
   // asserts every old message, including that note, remains unchanged.
   expect(exchanges.at(-1)!.raw, "SAFETY_REVIEW_NEVER_REWRITES_EARLIER_FACTS").toContain("This session is tainted");
   expect(JSON.stringify(messages(exchanges.at(-1)!).at(-1)), "SAFETY_REVIEW_CHANGES_ONLY_NEW_TAIL_FACTS").not.toContain("This session is tainted");
+});
+
+
+test("workspace mode changes appear only in the new tail and preserve the provider prefix (#4295)", () => {
+  const capture = captures.facts!;
+  const first = main(capture).find(exchange => exchange.turn === 0)!;
+  expect(first.raw, "INSPECT_FIRST_TAIL_NAMES_WRITE_OPT_IN").toContain("code-changes switch");
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "WORKSPACE_MODE_TOOLS_STABLE");
+    identical(system(a), system(b), "WORKSPACE_MODE_SYSTEM_STABLE");
+    history(a, b);
+  }
+  const changed = main(capture).find(exchange => exchange.turn === 1)!;
+  expect(JSON.stringify(messages(changed).at(-1)), "CHANGE_MODE_IN_NEW_TAIL").toContain("is writable: clone, fetch and commit");
+  const inspect = main(capture).find(exchange => exchange.turn === 2)!;
+  expect(JSON.stringify(messages(inspect).at(-1)), "INSPECT_MODE_RETURNS_IN_NEW_TAIL").toContain("code-changes switch");
 });

@@ -1,4 +1,5 @@
 /** Immutable reference content returned through one authenticated turn and actual backend call. */
+import { type ReferenceOwnerPolicy, type ReferenceOwnerRoot, resolveReferenceOwners } from "./reference-owner-resolution.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { REFERENCE_READ_INPUT_SCHEMA, type ReferenceReadInput, type ReferenceToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -30,10 +31,13 @@ function finalReadText(output: string, segments?: readonly string[]): string | n
 }
 
 export function createReferenceReads(options: {
+  /** Served protected policy root; absent hosts report owner qualification unavailable. */
+  ownerRoot?: Readonly<ReferenceOwnerRoot>;
+  ownerPolicy?(): ReferenceOwnerPolicy | undefined;
   db: Database; brain: string; sources: Pick<ReferenceSources, "request">; pool: Pick<ReferencePool, "poolSeal">;
   transport: Pick<ReferenceTransport, "readBlob">;
 }) {
-  const { db } = options, write = referenceWrites(db);
+  const { db } = options, write = referenceWrites(db), ownerRoot = options.ownerRoot;
   const calls = new Map<string, Set<string>>();
   return {
     end(turnId: string) { calls.delete(turnId); },
@@ -48,6 +52,7 @@ export function createReferenceReads(options: {
         signal?.throwIfAborted();
         if (!context || context.turnId !== turnId || !context.current()) throw new ReferenceSourceError("cancelled", "This reference read's turn ended.");
       };
+      for (const pending of context?.pendingRecording?.(signal) ?? []) await pending;
       live();
       if (!toolCallId || !/^[\x21-\x7e]{1,256}$/.test(toolCallId)) throw new ReferenceSourceError("unavailable", "No authoritative backend call identity is available.");
       let location: ReturnType<typeof githubReferenceRepository>;
@@ -71,12 +76,15 @@ export function createReferenceReads(options: {
         // This API accepts a raw clone location, not an already-normalized
         // authority key. Preserve real repository names ending in `.git`.
         lease = await options.sources.request({ principalId, repository: location.cloneUrl, revision: request.revision, acquisition: { ...context!, operationId }, signal });
-        const assertAuthority = () => { live(); lease!.assertAuthority(); };
-        assertAuthority();
+        function* assertAuthority() {
+          yield* context?.pendingRecording?.(signal) ?? [];
+          live(); lease!.assertAuthority();
+        }
+        for (const pending of assertAuthority()) await pending;
         // Only the selected native sealed root and retained acquisition may
         // select a host directory. A checkout path supplied by a worker cannot.
         const record = await options.pool.poolSeal(lease.rootId, signal);
-        assertAuthority();
+        for (const pending of assertAuthority()) await pending;
         const acquired = db.query("SELECT * FROM reference_acquisitions WHERE root_id = ?").get(lease.rootId) as {
           repository_id: string; owner_id: string; brain: string; acquisition_id: string; commit_id: string; tree_id: string; ref: string; owner: string; repository_name: string;
         } | null;
@@ -94,7 +102,7 @@ export function createReferenceReads(options: {
           offset: request.offset, maximum: request.maximum, signal });
         const blob = { ...returned, bytes: Buffer.from(returned.bytes) };
         const after = await options.pool.poolSeal(lease.rootId, signal);
-        assertAuthority();
+        for (const pending of assertAuthority()) await pending;
         if (after.path !== rootPath || JSON.stringify(after.root) !== nativeRoot || after.publicationRevoked !== false
           || !referenceAcquisitionMatches(db, lease.rootId, after, { brain: options.brain, commit: lease.commit, ref: acquired.ref }))
           throw new ReferenceSourceError("unavailable", "The native source identity changed during the read.");
@@ -109,11 +117,14 @@ export function createReferenceReads(options: {
         const result: ReferenceToolResult = { ok: true, read: { repository: location.canonical, revision: request.revision, commit: lease.commit,
           path: request.path, offset: blob.offset, length: blob.length, totalBytes: blob.totalBytes, encoding: utf8 ? "utf8" : "base64",
           content: utf8 ? text : bytes.toString("base64") }, guidance };
-        await write("referenceReadPrepare", { id: randomUUID(), operationId, turnId, toolCallId, principalId, acquisition: acquisitionSnapshot,
+        const ownerPolicy = options.ownerPolicy?.();
+        await write("referenceReadPrepare", { id: randomUUID(), ownerRoot, ownerPolicy, operationId, turnId, toolCallId, principalId, acquisition: acquisitionSnapshot,
           evidence: JSON.stringify({ version: 1, path: request.path, blob: blob.blob, mode: blob.mode, tree: blob.tree, offset: blob.offset,
             length: blob.length, totalBytes: blob.totalBytes, digest: blob.digest, grantId: lease.readGrantId, detectorVersion: 1,
-            trusted: false, trustRevision: "0", identityObservation }), responseDigest: digest(JSON.stringify(result)), at: Date.now() }, lease.rootId, lease.readGrantId, authority);
-        assertAuthority();
+            trusted: false, trustRevision: "0", identityObservation,
+            // Provisional only: the writer resolves again after its queue wait.
+            ownerResolution: resolveReferenceOwners(db, ownerRoot, identityObservation!, ownerPolicy) }), responseDigest: digest(JSON.stringify(result)), at: Date.now() }, lease.rootId, lease.readGrantId, authority);
+        for (const pending of assertAuthority()) await pending;
         return result;
       } catch (error) {
         if (error instanceof ReferenceTransportError) throw new ReferenceSourceError(error.reason === "denied" ? "unauthorized" : error.reason, error.message);

@@ -20,7 +20,7 @@ import {
 } from "../cron/emit.js";
 import { discoverModules, persistModuleDiscovery, readModuleList } from "../cron/module-discovery.js";
 import { runJob } from "../cron/run-job.js";
-import { createUiDb } from "../db/client.js";
+import { openSharedUiDb } from "../db/client.js";
 import { createHostExecution } from "../brain/host-execution.js";
 import type { Reconciliation } from "../brain/governed-manifest.js";
 
@@ -134,7 +134,7 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
         + `${result.failed.length ? `; could not move ${result.failed.map(f => f.path).join(", ")}` : ""}\n`);
     }
   };
-  let db: ReturnType<typeof createUiDb> | undefined;
+  let db: ReturnType<typeof openSharedUiDb> | undefined;
   let reconciled = true;
   try {
     // A job holds the gate on the database; emitting a crontab only needs
@@ -142,7 +142,7 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
     report(execution.reconcileExisting());
     await execution.boundary.prepare();
     if (options.gate) {
-      db = createUiDb(config.dbPath);
+      db = openSharedUiDb(config.dbPath);
       report(execution.attach(db));
       relayBudgets = createTurnBudgets(db, createModelPricing(resolveStandalonePricingConfig()));
     }
@@ -177,6 +177,8 @@ if (subcommand === "run") {
       // Module jobs only: the operator's allow-list, never the brain, bounds what is fetched (#3380).
       repositories: cronJobRepositories({ boundary: host.boundary, dbPath: config.dbPath, moduleDiscoveryEnv: config.moduleDiscoveryEnv,
         env: config.childEnv, allowList: config.moduleRepositories.allowed }),
+      // Their granted GitHub repositories' API, through the module GitHub relay (#4259).
+      githubRelay: { token: config.moduleGitHub.token, writes: config.moduleGitHub.writes, invalid: config.moduleGitHub.invalid },
     });
   } finally { await host.close(); }
   process.exit(code);

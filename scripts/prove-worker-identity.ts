@@ -91,8 +91,13 @@ export function identityNativeFixture(fixture: string, options: { applicationTim
   applicationQualification: boolean; probeStatePlacement: boolean; applicationScenario?: string; bootPruneCapture: boolean; omitProbeStatePlacement: boolean }): string {
   const { applicationTimeoutMs, sharedGit, privateGitInputs, applicationQualification, probeStatePlacement, applicationScenario, bootPruneCapture, omitProbeStatePlacement } = options;
   let text = changed(fixture,
-    'run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)',
+    'run(["/usr/local/bin/bun", "--no-env-file", "test", "--timeout", "30000", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)',
     `run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts"], timeout=${applicationTimeoutMs / 1000})\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts", "--cleanup-failure"], timeout=180)`);
+  // Variants run without the native fixture's neighboring files. Embed the
+  // pure timeout module under its own name so its CLI entrypoint stays inert.
+  text = changed(text,
+    'limits_spec = importlib.util.spec_from_file_location("timing_limits", pathlib.Path(__file__).with_name("timing_limits.py"))\nlimits = importlib.util.module_from_spec(limits_spec)\nlimits_spec.loader.exec_module(limits)',
+    `limits = type(sys)("timing_limits")\nexec(${JSON.stringify(readFileSync(join(import.meta.dir, "native-proof/timing_limits.py"), "utf8"))}, limits.__dict__)`);
   if (sharedGit) {
     // A separate fresh-brain composition: the original default retains the
     // prior worker-private journal/recovery mutations and its failure evidence.

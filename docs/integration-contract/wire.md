@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1108-1126`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1136-1154`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:55-58`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:48-51`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -132,7 +132,7 @@ reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
 (`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4236-4242`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1983-1985`).
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:2172-2174`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -206,17 +206,21 @@ frame, authenticated history and HTTP journal summary. Its facts are
 The byte count sums captured changed hashed regular-file versions. Ignored
 regular files have no content hash and contribute their largest observed after-size
 once per turn per path, rather than their full size on every observation (#2027).
+Receipt-covered checkout paths likewise contribute their largest observed
+after-size once per path, without retaining file content. Each in-brain checkout
+also has a fixed 16 MiB content ceiling, checked during observation independently
+of the turn byte policy. Exceeding it produces a Stop-only `turn_bytes` scope
+receipt whose reason identifies the checkout ceiling and whose count is that
+checkout's current content size.
 This corrects repeated metadata observations inflating the existing observed-write
-counter; field shapes and scope decisions are unchanged. The brain root's
-disposable index (`.brain-index/brain.db` and its SQLite sidecars, and since
-0.44.0 the embeddings lock database beside it, #2903) is counted
-the same way, ignored or not, and a `.brain-index/.maintenance-<uuid>` publication
-copy that a later observation saw removed is neither a changed path nor bytes;
-one that stays counts like any other file (#2831). Since 0.44.0 every one of
-those index versions is metadata-only (#2873), and a staying publication copy
-counts its largest observed size once, like the index itself. Every host index refresh
-rewrites the whole database, so a strict turn's host applies otherwise charged
-it the index's full size per edit. The counter does not
+counter. Before #4302 the root disposable index and staying publication
+copies counted their largest observed after-size, with metadata-only history.
+New observations omit that family from rows, changed paths and retained turn
+bytes. Instead optional `indexBytes`/`indexLimitBytes` report its independent
+observation-time size cap (4 GiB initially). A cap receipt uses the existing
+`turn_bytes` dimension with optional `result: "index_capacity"`; there is no
+new enum value. Its one-time finite doubling changes only the index ceiling;
+an independent pending content pause remains binding. Unknown size permits no grant. Optional receipt `measurement: "unknown"` identifies an unreadable index; required numeric `count` and `overshoot` then contain zero compatibility placeholders, not observed values. Clients display unknown and offer no Continue grant. Older schemas keep parsing the optional field. The byte counter does not
 claim to capture writes overwritten between observations. Missing snapshots
 remain unknown. Shared windows may include other writers. No autonomous Queue
 counter or budget usage field changes.
@@ -558,17 +562,152 @@ backend run and span tree. Its distinct `lifecycleId` is `lifecycle:<turnId>`; `
 is null until observed, and `backendRunId` is null until a backend root is
 actually recorded. It never owns tokens, costs, spans or rollups. Inference
 aggregation continues to read backend rollups exactly once.
+The whole envelope is host-only: `query_activity` never includes it in a
+provider-facing tool result, including on recent, full, pruned or lifecycle-only
+run queries. The owner-facing Activity API and stream retain the envelope.
+
+#### Client frame-arrival receipt (additive, #4282)
+
+A host whose Activity store supports receipt writes advertises the optional boolean capability
+`server_hello.capabilities.clientTurnReceipts: true`. Without this flag the
+client sends no receipt, so an older host never receives an unknown message.
+Negotiation resets with each socket. After receiving the host's final
+`status: idle` with optional `hostTurnComplete: true`, the initiating client may
+send exactly one best-effort `{ type: "client_turn_receipt", turnId, timing }` frame.
+Backend idle frames do not carry this marker; the host strips any backend-supplied
+marker. It describes completed host cleanup, decided only from in-memory state,
+not a lifecycle database commit. Final idle performs no lifecycle read and never
+waits for timing persistence or a writer lock. A receipt that arrives before its
+terminal commits is held by the receipt handler, off the turn path, until that
+turn's queued lifecycle writes settle. The atomic storage guard still checks
+completion and ownership; a failed commit loses only the optional measurement.
+The host retains at most 256 pending persistence gates, accepts only one waiting
+owner report per gate, and refuses a report whose authorization expires or is
+revoked while it waits. Full gate capacity drops only new optional samples and
+recovers automatically as writes settle.
+Initial thinking, accepted retry acknowledgements, and `session_queue.started`
+correlate by `requestId` before `session_info`. Pending queue entries can establish
+the first acknowledgement without binding a turn identity. `timing` contains non-negative finite millisecond pairs measured entirely on
+the client's monotonic clock:
+
+- `sendToFirstHostFrameMs`: send to the first received host frame for this turn
+  (including its queued acknowledgement and lifecycle Activity frames received before
+  request-to-turn correlation). Send begins at the composer action, before snapshot
+  persistence or upload waits, and stays on that same monotonic clock until dispatch.
+  Capturing Send alone never authorizes a receipt: this client must successfully
+  dispatch that request on its own socket. A peer acknowledgement carrying the
+  same request id before local dispatch disqualifies that saved Send, including
+  queued entries and starts; later local dispatch cannot adopt the peer's turn.
+  Earlier uncorrelated turn arrivals also cannot become its first host frame.
+- Optional `sendToFirstContentFrameMs`: send to the first non-empty
+  `thinking_delta` or `text_delta` frame received.
+- Optional `lastContentFrameToIdleMs`: last such content frame received to
+  the host's final `status: idle` received.
+- Optional `sendToFirstPhaseStatusFrameMs`: reserved for the first phase status
+  frame received; absent until phase-specific statuses are supported (#4311).
+
+These measure frame arrival, not presentation or paint. No host timestamp is
+subtracted from a client timestamp. Missing content boundaries are absent, not
+zero. A request without correlation, or a client disconnected during the turn,
+reports nothing; reconnect/history replay cannot reconstruct arrival evidence.
+The React client caps pending request observations and turn-arrival correlations
+at 256 entries each. If eviction loses a possible first arrival, affected pending
+requests lose their measurement rather than reporting a later frame as first.
+A snapshot dispatched without its original Send boundary also reports nothing;
+dispatch after reload or eviction cannot invent a new Send timestamp. A failed/lost report is never retried and never affects the turn.
+
+Receipt frames are capped at 4096 encoded bytes and have an independent rate
+bucket. A bounded lexical routing probe identifies their message kind before
+JSON decoding; only metered frames are decoded. A rejected or
+schema-invalid receipt is recorded in diagnostics without a chat error or a voice
+capture gap. Unidentifiable or oversized transport input retains the general
+transport guard. Only `turnId` and `timing` are accepted; unknown envelope/timing fields and
+negative or non-finite values are refused. The host binds ownership to the
+accepting principal, independently of the session's creator. A report for a
+missing, unfinished, unowned or differently owned turn is refused. The first
+accepted report wins atomically; all later reports, even identical ones, are
+refused without changing it. The host records refusals in its inbound-frame
+rejection diagnostics; this telemetry message has no reply or turn-control effect.
+Server-read `clientTiming` objects preserve unknown optional keys, while incoming
+receipt timing remains strict.
+
+The receipt is separate from the host envelope, keyed by turn id, and joined
+as optional `ActivityTurnLifecycle.clientTiming` on single, list and stream
+reads. Receipt acceptance advances the lifecycle's stream sequence without
+changing its completed host record. Lifecycle snapshots read the joined record
+and its sequence in one read transaction, so a racing receipt delta cannot be
+marked as already included in an older snapshot. Legacy store readers capture a
+conservative sequence floor before reading data; replay is safe. Its owner binding and receipt are deleted
+with the lifecycle record. Older records without an owner binding accept no
+report and remain readable. Stored receipts are bounded by the original UTF-8 byte length, including bytes
+after any embedded NUL or beyond the bounded read slice. A malformed stored receipt remains retained, omits its
+pairs and exposes optional `clientTimingUnavailable: "invalid_receipt"` on that
+record; the host envelope and other records remain readable. Client pairs and
+receipt diagnostics never enter provider history, inference usage or cost accounting.
+
+#### Turn timing summary
+
+`GET /api/activity/turn-timings/summary` requires an authenticated owner.
+`since` (inclusive) and `before` (exclusive) select by acceptance time in
+epoch milliseconds. The server takes the newest `limit` records in that
+window (default 100, maximum 200), then applies optional `outcome` and
+Activity `origin` filters. Origin comes from the linked backend rollup or
+root span and is `unknown` if neither supplies it.
+
+The response is `{ limit, groups }`. Each group carries `packageVersion`,
+`buildRevision` (null for missing identities), and `turns`. `intervals` maps
+milestone duration names to statistics, including `timeToFirstRelayMs`,
+`terminalToRecorderMs` and `terminalToIdleMs`. `steps` lists statistics by
+`phase` and `name`, including steps seen only in another selected build.
+`count` is the number of completed observations, `median` averages the two
+central values for even counts, `p90` is nearest rank and `max` is the
+largest value. All three are null with no completed observations. `open`
+counts started, unended observations. `absent` counts turns without the
+observation, including milestones omitted by an older build. Historical
+backend observations have the same read limits as a single lifecycle record.
+A queued follow-up records its enqueue timestamp as optional `queuedAt` on its
+first lifecycle write. Its wait is open until dequeue, including when cancelled
+before dequeue. A direct turn has no queue wait. For older turns only a recorded
+dequeue establishes a completed wait from acceptance.
+Repeated steps contribute individual samples. Timing values are
+milliseconds. `measurements` applies the same statistics in native units to
+observed host load, alias scan counts, queue depths, stopped-time fields and
+index breakdowns. Each group includes every measurement observed in the
+selected builds. A group with no samples reports its turn count in `absent`.
+`frequencies` counts journal operation kinds, index states
+and MCP status/source categories. No turn or session identities, hold IDs,
+file paths or transcripts are returned.
+
+#### Host milestones
 
 `acceptedAt` is the observed host acceptance time, before routing/admission.
 Queued requests retain their observed queue acceptance and `dequeuedAt`;
 `queueWaitMs` is null when no queue interval was observed. Milestones are
 `governedStartedAt`/`governedAcquiredAt`, `budgetStartedAt`/`budgetAdmittedAt`,
 `journalStartedAt`/`journalBeganAt`, `backendInvokedAt` and `firstFrameAt`.
-All timestamps are epoch milliseconds. `skippedPhases` explicitly identifies
+All timestamps are epoch milliseconds. Each new lifecycle anchors its host
+observations to one wall-clock reading plus elapsed monotonic time. Its
+admission/backend steps, milestones, receipt points and terminal boundary
+share that basis, so later wall-clock corrections do not reorder them.
+`acceptedAt` retains the observed acceptance time. `skippedPhases` explicitly identifies
 governed/budget/journal phases not configured for this turn. Other null
 milestones mean not reached or unavailable; they never claim zero-duration
 success. A started phase whose completion is null is pending, or incomplete
-when the enclosing record is terminal.
+when the enclosing record is terminal. After a host restart the previous
+monotonic clock is unavailable: interruption closes at the latest persisted
+host observation (milestone, step endpoint or host event), without inventing
+elapsed downtime from the new wall clock.
+
+Backend additions are bounded independently of the original admission steps:
+at most 16 backend steps and 2,048 encoded JSON bytes, plus 8 missing-evidence
+diagnostics and 256 encoded bytes; individual names are at most 96 UTF-8 bytes.
+These bounds also apply when reading earlier backend records. Optional
+`backendEvidenceOmitted` counts step/diagnostic observations removed by those
+limits, including the SDK sampler's omitted observations. Absence on historical
+records means unknown. The Claude sampler reads at most 8 MCP entries and
+retains at most 192 encoded bytes of names, with a counted remainder. No mark
+is invented for an omitted observation, and original governed/journal steps
+and other open phases remain intact.
 
 `totalElapsedMs` measures acceptance to `endedAt`; `timeToFirstFrameMs` measures
 acceptance to the first observed backend frame/Activity event or backend bridge
@@ -586,14 +725,15 @@ phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
 endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
 not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
 measuring to `failureObservedAt` or terminal time once the record is terminal,
-and null before. Every step lies inside its phase's paired milestones, and the
+and null before. Admission steps lie inside their phase's paired milestones, and the
 `observe_*` steps lie inside `observe`. Steps are carried by the record's next
-milestone or terminal write, never written on their own. `name` is open
+milestone or terminal write, never written on their own; the one exception
+is a late `failure_recording` end (below). `name` is open
 vocabulary, so a consumer tolerates names it does not know. A step that does
 not apply to a turn is absent. The current names are:
 
 - `governed`: `inference_origin` (the backend's relay origin, looked up before
-  admission), `gate_acquire`, `startup_checkpoint`, `boundary_prepare`,
+  admission), `gate_acquire`, `gate_reacquire`, `gate_reacquire_refresh`, `startup_release_reserve`, `startup_checkpoint`, `boundary_prepare`,
   `type_translation`, `exposure_settle`, `folder_retention`, `sandbox_resolve`,
   `startup_checkpoint_refresh`, `sandbox_resolve_refresh`,
   `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,
@@ -607,7 +747,227 @@ not apply to a turn is absent. The current names are:
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
 
-Records written before this field have no `subPhases`; nothing is backfilled.
+A journal or closing `hold_wait` can carry `queueAhead: { count, kinds }`.
+The count includes the active operation and all earlier queued operations at
+enqueue. A hold refused before enqueue has no queue snapshot. The list gives the first eight in order, using only `begin`, `finish`,
+`tool`, `periodic`, `scope`, `refresh`, `worktree` or `memory`.
+
+On the closing `index_settle` step, `indexSettle` records the number of
+distinct paths queued by this turn at entry (`queuedPaths`), the number of
+updates the barrier waited through (`updates`), whether the first was already
+running (`firstAlreadyRunning`), and the sum of their receipt durations
+(`updateMs`). `lastOutcome` is null without a receipt, otherwise `complete`,
+`failed`, `index_capacity` or `cancelled`. Failure leaves the step unended
+and preserves the breakdown reached. If a pending batch cannot supply
+receipts, its step omits the breakdown. No paths or other turn identifiers appear.
+
+Optional `admissionLoad` samples host load at dequeue and backend invocation
+(`atDequeue`, `atBackendStart`). Each sample carries the one-minute load
+average (`load1`) and available CPU count (`cpuCount`) when available.
+For direct dispatch, `atDequeue` samples entry to admission and adds no queue milestone.
+`eventLoopMaxMs` and `eventLoopP99Ms` summarize event-loop delay observed
+between those milestones, or until admission fails or authority is revoked before cleanup.
+At a 10 ms cadence each sample takes the larger of the native event-loop
+measurement and the full interval between callbacks. This captures stalls
+before the first native tick and an overdue tick at the admission boundary. Missing samples
+are omitted. These fields ride the existing lifecycle writes.
+
+Inside `boundary_prepare`, `boundary_private_state` checks private state.
+Cold preparation can also record `boundary_output_lock` (time until the lock
+is acquired), `boundary_maintenance_probe` and `boundary_recheck`.
+Each private-state check carries `aliasScan: { scans, entries }`, counting
+alias-check calls and directory entries visited across private and brain
+trees, including retries. Inside `sandbox_resolve` and its refresh,
+`sandbox_workspaces`, `sandbox_scratch`, `sandbox_protection`,
+`sandbox_code_workspaces` and `sandbox_legacy_workspaces` appear when run.
+
+Optional `openSubPhases` (#4285/#4286) carries **all new phases**, using the
+same entry shape `{ phase, name, startedAt, endedAt, elapsedMs }` with an open
+string vocabulary for `phase` as well as `name`. Consumers must tolerate
+unknown phase names. The original `subPhases[].phase` enum is frozen at
+`governed` and `journal`: previously published SDKs reject a whole Activity
+snapshot or delta when that array contains an unknown phase. Their loose
+lifecycle object accepts the new optional field without dropping the frame.
+Never put a new phase into `subPhases`, or widen its enum.
+
+`openSubPhases` has the same pending, null, failure/interruption and persistence
+rules as `subPhases`. Each array is in nondecreasing `startedAt` order, keeping
+observation order for ties. A milestone interval learned after later-starting
+steps is inserted at its start position. The first-frame milestone and its
+step share one clock observation. Open steps are carried by the same milestone
+or terminal writes, except that a `failure_recording` end confirmed after the
+terminal is written on its own, once, and emits a lifecycle change. The current
+open phase names are:
+
+- `backend` (#4285/#4286): host `host_probe`, Claude's separate
+  `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; Pi's
+  `preparation` and `worker_spawn`; worker-reported Pi `bootstrap_imports`,
+  `resources`, `session` and `initialize`; and host `first_backend_frame`
+  and `first_relay_request`. The last two measure from backend invocation
+  to the observed mark. `first_backend_frame` is absent if the first frame
+  follows relay receipt; the existing `backendStartupMs` still records it.
+
+- `closing`: `backend_exit` (zero-width confirmation when the backend returns
+  or throws), `index_settle` (optional `pending` boolean records whether an
+  update was queued), `egress_settle`, `journal_finish`,
+  `worktree_generation_close`, `scope_finish`, `governed_reconcile`,
+  `failure_recording`. The journal finish also carries its existing
+  `hold_wait`, `final_observation` (with the `observe_*` steps above),
+  `finish_worktrees`, `finish_record`, `finish_collect`, `finish_publish`
+  timers. `final_observation` is a lifecycle container only, never an
+  additional leaf in the native observation trace. Repeated cleanup calls
+  remain repeated steps in start order. Absent operations have no step;
+  caught cleanup failures leave their reached step unended. `scope_finish`
+  confirms both successful final scope writes only if their result arrives
+  before the existing lifecycle terminal. An unopened scope, failed write or
+  pending write cannot complete that step. `index_settle` and
+  `failure_recording` also stay unended when the flush, history read or catalog
+  write failed, or a catalog write remains unconfirmed. A `failure_recording`
+  whose catalog writes are confirmed only after the terminal ends then, with
+  its actual end, so its `endedAt` may follow the record's `endedAt`; one
+  that fails stays unended. Catalog confirmation
+checks the stored turn and failure after an ignored insert conflict; an
+unrelated result-reader wait expiring does not invalidate a later successful
+recording. Logging or absorbing
+  an error does not turn it into successful work. These clocks add no
+  close-path wait. Closing steps record reached work on failure/cancellation too; they lie
+  between backend exit (when a backend ran) and status emission, except that a
+  late `failure_recording` end may follow both the terminal and status emission.
+
+
+The backend bracket ends at optional `firstRelayRequestAt` (host epoch
+milliseconds), the first model request received on an authorized inference
+relay route, before admission, body reading and dispatch. Token-count routes
+do not end it. Null means not observed; historical records omit the field.
+Backend steps start only after `backendInvokedAt`; new steps and completions
+after relay receipt are ignored except for the CLI result durations below. An unfinished backend step has a null
+`endedAt`; its elapsed value is bounded by relay receipt when observed,
+otherwise the same failure/interruption rule as other steps. The receipt
+persists a milestone; other startup observations add no writes of their own.
+
+For worker-reported open steps, `timeBase: "worker"` and `workerElapsedMs`
+are additive fields. `elapsedMs` is that observed worker duration, while
+both timestamps are the host's receipt time. They do **not** identify a
+worker start on the host clock. Worker `bootstrap_imports` is measured from
+the worker process's monotonic time origin to its entry after static imports.
+Pi `session` includes resource loading, and `initialize` includes both; steps
+can overlap and must not be summed as disjoint costs. A Pi worker contributes
+at most one observation per startup phase (four total), before readiness;
+duplicate and post-readiness reports are ignored in both timing and debug totals.
+
+Claude's first result supplies up to three worker durations. All start at
+the CLI's monotonic turn-loop sample. `cli_time_to_request` ends at first
+request send, `cli_ttft` at the first top-level assistant message, and
+`cli_ttft_stream` at the first stream message-start event. They arrive
+after relay receipt and before terminal recording. Missing, non-finite,
+negative or longer-than-one-day durations are reported as missing.
+Continuation results do not replace them.
+
+Optional `backendMissingEvidence` lists unavailable SDK marks, rather than
+inventing durations: Claude `first_enqueue`, `prompt_recorded`, and
+`mcp_connect:<server-name>` for the in-process server and each server named by
+system/init. The installed SDK exposes connection state without per-server
+start/end marks. Unknown marks have no timed step; an empty list does not
+claim complete runtime coverage. These observations stay in host storage and
+never enter provider history.
+Names are sampled from the first Claude system/init frame only: at most 8
+server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
+budget. Configured names retain their authored key, including punctuation,
+spaces and repeated colons. The SDK's source identifies plugin and cloud
+connector names. The same path and control exclusions apply inside a scoped
+`plugin:<plugin>:<server>` or a `claude.ai <display name>`, including when an
+older CLI omits the source. Cloud display names retain disambiguating suffixes
+such as `(2)`. A path, control character or empty cloud display name counts as
+omitted.
+An incomplete sample reports `mcp_connect:additional_servers_omitted`
+when that summary label fits the lifecycle's diagnostic budget. The lifecycle
+retains at most 8 diagnostic names within 256 encoded bytes; individual
+lifecycle names are at most 96 UTF-8 bytes. `backendEvidenceOmitted` replaces
+the dropped `additional_missing_evidence_omitted` marker and counts omitted
+observations. Omitted names are not retained for deduplication. Continuation
+init frames do not expand the sample; limits keep missing evidence explicit.
+Optional `backendMcpInit` records sampled external servers from the first init.
+The in-process `brain-ui` keeps its missing connection mark without consuming
+the state sample. An explicitly external config source can use the same name,
+including an unrecognized source string mapped to `other`. For that name a
+missing, empty or non-string source leaves the state omitted and counted.
+Each external entry carries its name with
+`status` (connected, failed, needs-auth, pending, disabled) and `source`
+(sdk, plugin, user, project, local, dynamic, managed, enterprise, claudeai,
+agent). Unknown values become `other`. The array has its own 192-byte JSON
+limit and uses the same bounded name sample. When a sampled state cannot
+fit, `backendEvidenceOmitted` includes it. An observed empty list is `[]`.
+
+Malformed MCP diagnostic lists or entries also mark the sample incomplete.
+Null or absent lists are unavailable evidence; an explicit empty array is an
+observed empty list. These diagnostics cannot fail an otherwise usable stream.
+Without a timing observer, the
+backend does not read the MCP diagnostic list.
+
+Historical records may omit either timing array; neither is backfilled.
+
+Optional nullable `recorderSettledAt` and `idleEmittedAt` milestones follow
+`endedAt`: they confirm recorder settlement and the actual idle emission,
+respectively. They never move the existing end stamp or backend duration.
+Cancelled-before-start status is not idle, so it has no idle timestamp. Only
+these trailing receipts and a late `failure_recording` end may enrich a
+terminal record, once each; restart
+interruption remains terminal and cannot be enriched by a stale writer. Replaying
+an identical terminal or trailing receipt performs no write and emits no delta.
+
+Optional `packageVersion` identifies the running ui-server package. Optional
+`buildRevision` comes only from `BRAIN_UI_BUILD_REVISION`, a host-supplied
+1–64 character ASCII token (`[A-Za-z0-9._+-]`). Unset or invalid input is
+absent. Optional `runtimeVersion` is the selected backend's reported runtime
+version for this turn, absent when it reports none. These are host metadata
+and never enter the provider conversation.
+
+On its first terminal write, a lifecycle records `stoppedTime`. `totalMs`
+is the duration of the union of closed stop/resume intervals. `intervals`
+counts distinct endpoint pairs, `sharedHolds` counts additional holds with
+identical endpoints, and `openHolds` counts stops awaiting resume. An open
+stop contributes no elapsed estimate. Within the union, `inferenceMs`
+counts time covered by a hold reporting inference, `unknownMs` covers
+remaining time with unknown inference, and `noInferenceMs` covers the rest.
+The three durations sum to `totalMs`. New lifecycles start with an empty
+hold list and report zero if no hold was observed. When recovery closes a
+historical record that lacks the hold list, `stoppedTime` stays absent.
+
+Optional `holds` lists observation intervals joinable by `holdId`. Each
+record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),
+`causeTurnId` (this turn when it caused the hold, otherwise null), optional
+`toolUseId` (only on the causing turn), `requestedAt`, nullable `stoppedAt`
+and `resumedAt`, nullable `changedPaths`, `otherTurnsStopped` and
+nullable `inferenceInFlight`. Stop/resume mean **the host's worker control
+acknowledged the stop/resume** under that control's existing confirmation
+semantics (PID namespace, cgroup or broker). During its own begin and finish
+holds, a turn has no running worker to stop. Both marks are null in that case. They do not independently prove
+kernel process state. A false or void return leaves the corresponding mark
+null. Timing adds no `/proc` or cgroup evidence reads and performs no stop-state
+rechecks. Diagnostic callbacks and clock failures are best-effort: a throw
+leaves a missing mark and cannot fail a freeze, kill a worker or prevent thaw.
+Each successful worker acknowledgement is stamped immediately, including a
+resume preceding another worker's failed resume. A completed interval cannot
+acquire a later worker's stop. Nested observations share the earlier stop
+acknowledgement for registered workers held across both intervals. Worker exit
+unregisters that worker; a replacement cannot complete its earlier interval.
+Late-admitted turns join the existing interval with its original `holdId` and
+`requestedAt`. Late workers resample inference overlap at their acknowledged
+stop and update every participant's
+`otherTurnsStopped` count. A scope cap and its ensuing shared observation use
+the same `holdId`, preserving the causing turn's `toolUseId`. Approved policy
+writes and targeted retention keep their known causing turn as well.
+`changedPaths` is the union of distinct paths recorded across this held
+operation's captures, including a managed worktree's qualified path, not the
+turn's cumulative scope count. A cap triggered by an observation retains that
+observation's count; subsequent quiet observations cannot overwrite it. Other turns' identities are never exposed.
+Inference overlap includes request setup and response streaming at the stop
+acknowledgement; null means its callback failed. Evidence accumulates in
+memory and rides the next existing milestone/terminal write; it adds no
+awaited write before the hold or after a tool result. Evidence callbacks are
+unregistered even when teardown fails. A registered callback alone is not an
+observation window: finished journal participants receive no new hold records.
+
 
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
@@ -642,7 +1002,25 @@ Hosts that record agent activity advertise `capabilities.activity` on
 `activity_delta` frames; a server never sends activity frames to a connection
 without a matching subscription. Ordering: a snapshot carries per-run
 high-water `seq`, every delta carries its `seq`, and the client discards
-deltas at or below the snapshot's high-water for that run. Deltas are
+deltas at or below the snapshot's high-water for that run. Snapshots use
+the existing count-based span/event chunks, with the complete scope watermark
+map in every append frame. There are no pagination or refetch marker fields.
+Lifecycle/floor pairs and index roots come from consistent store reads. An
+index floor is the full run sequence unless a run change is still above the
+shared pump cursor; then it stops immediately before that pending change.
+Previously delivered live deltas therefore do not make a reconnect discard a
+current root. Legacy lifecycle stores read the sequence before the row, so
+concurrent writes can advance the row without acknowledging unseen data.
+REST also returns that conservative `lifecycleSeq` when a legacy store lacks
+both atomic lifecycle readers, reading the sequence before the row.
+
+If a lifecycle survives intact in no snapshot chunk, that lifecycle's floor
+is lowered to its paired sequence minus one (not below zero), and its own
+`activity_delta` follows the snapshot on the subscribing socket only. Snapshot
+handling never rewinds the shared pump cursor or scans prior pump history.
+Span/event display shrinking retains its existing behavior. This preserves
+existing client scope and append behavior.
+Deltas are
 append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional
 `usage` block (token totals + per-model breakdown; absent cost means unknown,
@@ -957,6 +1335,18 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   does not update subscription authentication status. Its message names a
   known, unambiguous host denial cause; conflicting observed causes and replay
   with only relay text claim no finer cause.
+  `session_roster_incompatible` means the retained native tool roster cannot
+  satisfy current mandatory exclusions without changing provider history. That
+  resume is refused before SDK startup, with the original roster and context
+  unchanged. A compatible authority can resume it, or the owner can start a new
+  conversation. It carries no authentication action.
+  `settings_conflict` means the native runtime could not honor a retained host
+  setting before prompt release, including an unreadable or rejected native
+  settings-control request after successful initialization. It carries no `authAction`, emits no
+  `auth_failure` event and does not update subscription authentication status.
+  Correcting the conflicting settings permits the next attempt; changing login
+  credentials does not resolve it. It uses the existing free-form failure-class
+  field, with no new frame kind or required field.
   `worker_host_unsupported` means
   the host refused before runtime initialization because its required worker
   boundary probe failed; the message names the requirement and the verified
@@ -1003,6 +1393,12 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   third-party classes still appear as `unknown` in the default outgoing review;
   the wire field remains free-form. This additive SDK export ships in a minor
   release under the contract versioning rules.
+  `code_receipt_malformed` identifies an unusable retained checkout receipt;
+  the journal keeps that turn partial and records the recovery cause.
+  `private_state_unverified` identifies a turn refused because the private-state
+  alias check could not finish. `OperationalStateAliasVerificationUnavailable`
+  identifies its retained status diagnostic and persistent boot refusal. Both
+  are registered so reviewed diagnostics preserve their named causes.
   `input_safety_unavailable` identifies refusal because the runtime's input
   collector is unqualified or unavailable, including externally configured Pi
   extensions. It is a registered host safety failure, not a provider error or
@@ -2469,7 +2865,7 @@ number, with its `html_url` validated by the contract or `null`.
   fact is unknown. A client shows its neutral state ("The host's GitHub
   account"; `repository #number` with no kind and no link) and the approval
   works as before. Clients validate the shape
-  (`approvalDisplaySchema`, `packages/ui-sdk/src/schemas.ts:1386-1391`);
+  (`approvalDisplaySchema`, `packages/ui-sdk/src/schemas.ts:1387-1392`);
   a fact that fails it reads as `null`, never as a refused card.
 - **Re-delivery.** A pending card re-delivered after a reconnect carries the
   host's facts for it again; a client replaces what it had.
@@ -3349,3 +3745,138 @@ These sidecars never change provider messages, tools or system prefixes. The
 host-only verdict store remains separate; this slice changes no effective-taint
 admission semantics or Settings policy. The semantic G6 break remains governed
 by the prior maintainer ruling in the session-safety ADR.
+
+
+Idle journal maintenance records scrub results in the existing `journal_scrub`
+Activity event payload. The optional numeric `capacityBlocked` field counts
+candidates whose quarantine charge could not fit this pass; those verified
+candidates still contribute to `unaccounted` / `unaccountedBytes`. Optional
+`readFailures` is an array of `{ path, errorClass, message }` diagnostics for
+individual stat/open/read refusals; paths are relative to the private object
+root (with `quarantine/` when applicable), and messages are bounded to 2000
+characters. Either condition leaves the result `partial` with the existing
+`quarantine_pending` reason. Read refusals do not assert corruption. No existing
+event, outcome or reason discriminator changes. The optional
+`schemaSkipReason: "quarantine_schema_not_admitted"` names a skipped pass whose
+quarantine schema could not be admitted within quota. That result uses existing
+`state: "skipped"` and `reason: "quarantine_pending"`, lists no files, and retries
+on a later idle pass. Ordinary journal writes remain available. This optional
+metadata ships in a minor.
+
+
+Routine-maintenance cron Activity adds a `git_publication` event and the optional
+`maintenance.git_publication` span attribute (a JSON string). Its small payload
+is `{ state: "published" | "discarded", reason: string | null }`, generated by
+the host after publication selection. Named discard reasons include
+`maintenance_report_incomplete`, `maintenance_report_invalid`,
+`maintenance_report_too_large`, `maintenance_report_read_failed`,
+`maintenance_failed`, `git_step_not_ok`, `publication_disabled` and
+`maintenance_interrupted`. A missing or unusable report ends the cron span with
+the existing `error` outcome and the named `git_publication_discarded` reason;
+the recorded child exit code is unchanged. Other discard conditions retain the
+normal command outcome and carry their cause in this optional metadata. No
+existing outcome or reason enum gains a value. This ships in a minor.
+
+### Historical admission evidence (additive, #3609)
+
+A server advertising `sessionSafetyNonDelivery:true` accepts
+`includeNonDelivery:true` on `safety_read`. This opts the snapshot, all its
+pages and its subscription into the terminal exposure state `not_delivered`
+for a fetch the host proved never ran. Legacy readers receive
+`interrupted_unknown` for that record. The aggregate excludes the proven
+attempt in both cases. The original occurrence remains inspectable (#4514).
+
+A server advertising `sessionSafetyAdmissionEvidence:true` accepts optional
+`includeAdmissions:true` on `safety_read`. Only opted-in snapshot pages and
+their subscriptions include occurrence `admission` evidence. Cursor continuation
+pins this choice alongside entry correlation; changing it requires a fresh
+snapshot. Older readers retain their strict record shape and conservative
+interpretation. New clients omit the field when the server capability is absent.
+HTTP readers explicitly opt in with `admissions=1`; repeated/invalid query values are refused. This affects host UI sidecars only; it never changes provider history.
+
+### Combined single-trigger and future-source review (#3611)
+
+All three combined-review endpoints are supported POST operations in the
+[classified HTTP inventory](../http-api.md#inventory-and-selection), with live
+password-mode owner, exact Origin and bounded JSON authority fences. Status is
+a read-only POST; it adds no GET or implicit HEAD endpoint.
+
+When `capabilities.sessionSafetyFutureRules` and `safetyCapabilities.review`
+are true, a password-mode owner may
+POST `/api/sessions/:id/safety/reviews/future/prepare` with the individual
+review body plus `future: { incomingContent: true, recipientWhileRestricted:
+boolean }`. The recipient flag is independently chosen, off by default.
+Only finalized proxy occurrences with host-attested web-origin or explicitly
+labelled tunnel provenance qualify. Repository choices remain unavailable.
+The response binds a request ID, exact session/occurrence, the proposed policy
+bytes/diff, review ID and SHA-256 reviewed-bytes hash. Clients must display this
+review before POSTing `/future/commit` with `{ version: 1, requestId, reviewId,
+reviewedBytesHash }`. No caller-supplied selector, principal or historical range
+is accepted. Old clients retain the existing individual review endpoints.
+
+The protected Settings operation stores its original single-verdict handle
+before publication. Publication precedes that verdict; publication alone never
+resolves the occurrence. Responses distinguish `verdict_committed`, `partial`,
+`unknown` and `refused`, retain publication evidence and the original verdict
+receipt, and include separate live `currentProjection` and rule presence
+(`present`, `removed`, `changed`, `unknown`). A proved publication can resume
+only its original verdict request; unknown publication requires fresh review.
+Retries never republish a removed rule. All other recorded triggers, including
+later input from the same source, keep their identities and verdicts.
+
+Prepared reviews expire after 15 minutes, with existing 24-hour receipt
+retention and bounded Settings/verdict capacity. Existing live owner epoch,
+Origin/JSON, session generation, evidence revision and protected publication
+fences apply. Auth/session changes discard pending browser work without replay.
+These host sidecars never enter provider history.
+
+POST `/future/status` with `{ version: 1, session, occurrenceId }` reads the
+retained combined operation selected by completion/publication evidence,
+without publishing or committing a verdict.
+It returns the same result envelope, or null when no receipt is retained. Commit and status derive
+completion from the exact operation's durable verdict decision, including after
+a lost acknowledgement or a retry refused by the pending-review quota. A retained
+noncommitted verdict receipt has its internal request/operation IDs redacted on
+both endpoints. Missing verdict receipts do not erase a durable decision.
+Clients correlate prepared and committed responses with the originally requested
+session and occurrence before using a handle or acknowledging completion.
+A failed status read (including a mismatched target) displays explicit
+could-not-verify uncertainty; successful JSON null clears the receipt display.
+Only the newest overlapping status read can update that display. The
+owner UI reads this after reload and on focus to show partial/unknown completion
+and current rule presence separately from the remaining-trigger projection.
+
+#### Combined-review ordering and legacy capability encoding
+
+A verdict handle bound to a combined operation requires that operation's durable
+publication proof inside the FULL verdict transaction, including commits through
+the individual review endpoint and receipt replay. `publication_unproven` refuses
+only that attempt without consuming the handle; equal current policy bytes are
+not publication proof. Prepared/noncommitted status redacts the internal verdict
+request and operation IDs. A separately prepared individual review remains an
+independent human decision and does not finish the combined operation.
+
+For compatibility with the previously shipped strict SDK parser, every
+`server_hello.safetyCapabilities` retains `originRules: false`,
+`repositoryRules: false`, and `recipientRules: false`. Future-rule support is
+instead offered as the additive boolean
+`server_hello.capabilities.sessionSafetyFutureRules`. A new UI enables its local
+future source/recipient controls only when that offer and `safetyCapabilities.review`
+are both true. Old UIs ignore the boolean offer and retain safety history and
+individual review. No protocol revision or breaking schema migration is required.
+
+Operation completion text never asserts current rule presence or current trigger
+resolution. Refreshed status owns current rule presence; the live safety ledger
+owns the selected trigger's verdict and remaining-trigger count. A partial
+combined receipt can coexist with a later independent safe decision.
+
+Status recovery considers only the current principal/served brain/session's
+retained Settings operations, using the same retention clock as Settings reads.
+A committed verdict takes precedence. Otherwise, rule presence in the currently
+verified policy takes precedence, then proved publication ordered by its durable
+trust revision, then unknown publication, then the newest unpublished preparation.
+Preparation expiry is not publication order. Selection and readback share a read transaction
+after the policy lock and refresh waits. Expired or concurrently pruned receipts
+return JSON null without needing another write to prune storage. Authority and
+session fences still apply before delivery. The UI sequences focus reads so an older
+success or failure cannot replace a newer rule-presence result.

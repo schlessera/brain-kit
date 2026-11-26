@@ -399,7 +399,7 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`host.coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/session-run/admission.ts:56` →
+(`host.coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/session-run/admission.ts:57` →
 `drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:993-1012`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
@@ -412,7 +412,7 @@ those two citations and is left to #54. The chat store clears a pending
 approval on `tool_result`
 (`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
 path `abortController.abort()` fires before the drain
-(`abortController.abort()`, `session-run/admission.ts:55`; `drainPendingForTurn`, `session-run/admission.ts:56`),
+(`abortController.abort()`, `session-run/admission.ts:56`; `drainPendingForTurn`, `session-run/admission.ts:57`),
 so whether a `tool_result` still streams for that tool use is a question a live
 turn has to answer. It matters only for the
 wording: if a dead card can survive on screen, the spoken line above is right

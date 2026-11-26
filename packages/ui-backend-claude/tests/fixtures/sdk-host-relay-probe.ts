@@ -31,6 +31,7 @@ let permissionRequests = 0;
 const root = mkdtempSync(join(tmpdir(), "odysseus-native-host-relay-"));
 const host = join(root, "host"), worker = join(root, "worker"), brain = join(worker, "brain"), directory = join(root, "lock");
 for (const path of [host, worker, brain, directory]) mkdirSync(path, { mode: 0o700 });
+process.env.HOME = host; process.env.CLAUDE_CONFIG_DIR = host;
 if (separateIdentity) {
   // Only the worker's projected brain needs shared-group traversal. The host
   // credential store retains owner-only access and is never projected.

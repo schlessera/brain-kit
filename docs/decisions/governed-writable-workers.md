@@ -164,7 +164,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-119`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:148-325`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:135-388`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -207,7 +207,7 @@ server and a read-only `brain policy check --json` command share it.
 **Why that location:**
 
 - `context/policies/` is already denied to the application route
-  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:42`).
+  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:44`).
 - R34 already placed policy there.
 - Scheduled-task definitions set the precedent of host-parsed Markdown under
   `context/`.
@@ -296,7 +296,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:78-317`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:83-322`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -603,6 +603,38 @@ credential sent only to `https://github.com`, and a transport worker that
 never mounts the brain
 ([the contract](../integration-contract/package-api.md#module-repositories)).
 
+**The GitHub API of a granted repository — 2026-11-20
+([#4259](https://github.com/schlessera/brain-kit/issues/4259), maintainer ruling
+option 1).** A module job that must read issues or write to them reaches the
+GitHub API through a host relay, never a token in its worker. The relay's grant
+is the read grant above: only the job's granted `github.com` repositories. A
+dedicated host-only credential, `BRAIN_UI_MODULE_GITHUB_TOKEN`, has no fallback
+to `GITHUB_TOKEN`, the sync token or `BRAIN_UI_GITHUB_TOOLS_TOKEN`. Reads are
+REST `GET` and repository-rooted GraphQL queries. Writes are a fixed operation
+set (`issue_comment`, `issue_state`), each enabled per repository by the
+operator's `BRAIN_UI_MODULE_GITHUB_WRITES` in host configuration, so editing
+`brain.config.ts` cannot widen it. The relay is a per-run Unix socket in a
+private server-owned directory, bound read-only into that one worker: only
+that run's worker can reach it, where a loopback port would answer any process
+on the host. A token placed
+in the job's worker and leaving API writes to the operator's own host jobs
+were both rejected.
+
+A GraphQL read is rooted at a granted repository, as the ruling states.
+Below that root, the relay also refuses fields that select another repository,
+owner or account by name (`repository`, `repositories`, `owner`, `forks`,
+`parent`, `search`, `viewer`, `headRepository` and the like). That denylist
+cannot close every traversal GitHub's schema offers: an author's other issues,
+or a cross-referencing issue elsewhere, still answer with whatever the token
+can read, as the REST timeline does. By the maintainer's 2026-11-20 ruling on #4259,
+the token's own scope is the read boundary below the root. One
+`BRAIN_UI_MODULE_GITHUB_TOKEN` serves every module job, so the operator limits it
+to the union of the repositories module jobs are granted. REST-only reads and a
+token per module were not taken. Every host-view worker, agent and
+maintenance alike, also covers `/etc/environment`. A container writes the cron
+runner's environment there for pam_env, host-only credentials included, and a
+worker builds its environment explicitly and never reads that file.
+
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
 
@@ -617,6 +649,13 @@ permissions in another turn.
 | A — governance, secrets and start-up code | `context/policies/`, `.git/config`, `.git/config.worktree`, `.git/hooks/`, `.git/info/`, `.git/modules/`, `.env*`, `bunfig.toml` | No |
 | B — runtime permission and configuration surfaces | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `brain.config.ts`, `brain.config.json`, `package.json`, `bun.lock`, `node_modules/` | Yes |
 | Added by the policy | Anything listed under `protect` | Yes, by deleting the entry |
+
+Ignored dependencies inside a checkout get no protection; the brain's root
+`node_modules/` keeps its existing read-only bind and admission alias walk,
+because later turns and maintenance execute that code. A module store must
+not activate without bounded installation, provider-aware views, independent
+worker lifetimes and recoverable storage. See the
+[state-boundary ruling](worker-writable-areas.md#state-boundaries-and-root-dependencies--2026-11-20).
 
 **Why the tier A paths are there:**
 
@@ -651,7 +690,7 @@ lists the keys each first-party command reads. The launcher withholds every
 provider credential in the subprocess descriptor from a governed or strict
 turn worker, except what its backend declares for its own inference and what
 an operator admits (`const turnProfile`,
-`packages/ui-sdk/src/server/worker-launcher.ts:708-718`). A relayed turn keeps no
+`packages/ui-sdk/src/server/worker-launcher.ts:733-743`). A relayed turn keeps no
 key. An unrelayed one keeps only its runtime's own inference credential, under
 the 2026-10-22 ruling that hosts without managed native storage keep today's
 inference credentials; pi resolves its own credentials there, so it keeps all
@@ -675,7 +714,7 @@ the key and forwards it as the turn's own egress (G5). A key goes only to its
 built-in first-party origin, or to an exact origin the operator lists for that
 key in `BRAIN_UI_CLI_PROVIDER_ORIGINS`, under the 2026-10-23 ruling on #1673;
 the backends' origin rulings grant the CLI nothing by analogy
-(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:329-334`).
+(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:336-341`).
 The inference relay's placeholder is not a key: the launcher names a key that
 holds it as withheld, so a relayed Claude API-key turn's `anthropic-haiku`
 reaches the host's key instead of failing authentication. The `jev` reranker
@@ -836,6 +875,31 @@ Publication also refuses deletion of a tier A ancestor directory, including an
 empty `context` or `.git` whose protected descendants are currently absent.
 This host-side check applies before any changed output is installed; worker
 namespace mount points alone do not constrain the host publisher.
+
+> **2026-11-20 — An incoming policy change from a sync is reviewed by the owner
+> ([#4256](https://github.com/schlessera/brain-kit/issues/4256), maintainer ruling option 1).**
+> The policy file is versioned host input, so a pull is where a policy change
+> arrives. The refusal above still holds: a hosted sync's worker output never
+> publishes a tier A change. When the only refused paths are
+> `context/policies/governance.md` and the `context/policies` directory a first
+> policy creates with it, on a sync with a remote, the host compares the stage's
+> bytes with the upstream commit's own policy blob. The host transport reads that
+> blob after the integrity check and the fetch, before the sync's worker runs,
+> with replace objects disabled. Only equal bytes are reviewable, so worker output
+> is never a policy source. The host then publishes nothing and opens a host-owned
+> review through the existing policy proposals, the only policy writer, as
+> Settings › Apify does (`createOwnerPolicyReviews`,
+> `packages/ui-server/src/brain/owner-policy-reviews.ts`). A newer sync's review
+> replaces the owner's unanswered one. Only the owner whose UI sync opened it can
+> answer, and only an approval writes, in a `user` journal window. The next sync
+> then merges the identical change cleanly. A scheduled sync opens no review and
+> names the waiting change. Any other tier A change, a merged policy that differs
+> from upstream's, or a sync without a remote keeps the refusal, with next-step
+> text. No agent runtime, worker or autonomous turn proposes or answers these
+> reviews, and the rationale shown is fixed host text. A Settings control for
+> `outward.github.repositories` was not taken: chat's `propose_policy_change`
+> already edits it.
+
 Within one server process, maintenance clients serialize preparation through
 publication per canonical brain. Even readers produce SQLite projections or
 Git attribute objects in their private outputs; concurrent copies of that
@@ -1115,7 +1179,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1175-1203`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1226-1254`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1300,6 +1364,54 @@ Ignored, incomplete, Git metadata and unsupported entries are named exclusions;
 missing or changed parents conflict. No unobserved empty-directory metadata is
 invented.
 
+**2026-11-20 workspace amendment (#4295).** Default governed and strict
+turns bind `workspaces/` read-only after the existing root, symlink and mount
+checks, without the writable-alias walk. A per-session code-changes switch is
+stored with operational session preferences and frozen before admission's
+first await. It survives resume; a save affects only the next turn. Enabled
+sessions retain the existing writable alias scan. **Amended by #4297:** covered
+Git checkouts use one Git change receipt instead of per-file rows, under the
+[receipt ruling](reference-worktrees.md#git-receipt-amendment-2026-11-20-4297)
+and [HTTP definition](../integration-contract/http.md#checkout-change-receipts-4297).
+Both endpoint trees and blobs are owned and pinned beside the journal, charged
+to its quota and invisible to workers. A durable receipt precedes file-coverage
+retirement; a crash leaves partial coverage, never clean history. Capture and
+preview run only in credential-free maintenance workers with repository
+configuration, hooks, filters and fsmonitor disabled. Owner-confirmed revert
+requires a fresh matching endpoint and otherwise shows both states. Notes
+retain their existing before-images. Legacy rows remain readable.
+
+Default turns exclude workspace paths from capture, retained rows, ignore
+policy and observed-byte charges. Shared observations apply that exclusion
+per turn: an overlapping opted-in writer keeps workspace versions and their
+byte charges; notes keep their existing before-images, durability and caps.
+This narrows the older coverage statements below; retained old history stays
+readable. The mode and refusal alternatives reach the worker only in the new
+turn's tail when first applicable or changed, preserving earlier provider
+history. An absent optional workspace keeps the governed writable brain,
+without a workspace overlay or live mountpoint. Creation beneath that absent
+name remains ordinary retained and charged content for the whole turn; the
+next default admission seals it. Exclusion requires a qualified read-only
+workspace mount. Metadata readers omit checkout inventories; bounded delta inode probes recover
+ordinary hard-link aliases before workspace exclusion. Strict and private-index
+data copies leave a qualified inspection workspace on its sealed source. Workspace sealing precedes protected child masks, and its
+ancestor pins remain read-only, preserving quarantine and provider masks.
+Host applications keep workspace protection until a writable mount qualifies,
+even when the saved switch requests one. Inspect participants do not change a
+writer's frozen ignores or participate in workspace conflict attribution.
+Installing or building requires the switch or a managed worktree
+([the install ruling](reference-worktrees.md)).
+
+
+Workspace inspection keeps source-read and destination-write authority separate.
+Strict data roots overlay only a qualified sealed source and reapply every secret
+and provider mask; the copied data tree's exclusions cannot be restored through
+that alias. Status qualifies literal provider folder pins without creating paths.
+If type folder translation still requires checkpoint configuration, its optional
+profile and configuration-view fields remain unknown with an explanatory fallback.
+Each turn keeps its own ignore-based steering classification and journal scope,
+including ordinary root scope for content created beneath an absent workspace.
+
 **Snapshots.** At turn start and at turn end, the server snapshots the brain's
 working tree itself. It runs no git and imports no repository code:
 
@@ -1372,8 +1484,9 @@ runs on the host in a workspace.
 
 **What the journal does not snapshot:**
 
-- **Ignored paths.** Scratch, `brain.db` and staged shares are listed by name
-  and size, not stored.
+- **Ignored paths.** Scratch and staged shares are listed by name and size,
+  not stored. The exact root index family and publication copies have no new
+  journal rows or byte charge after the 2026-11-20 amendment (#4302).
 - **Commits, pushes and other egress.** They are recorded but cannot be
   reverted.
 
@@ -1533,10 +1646,10 @@ starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:273`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:293-314`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:292-313`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
-`packages/ui-server/src/brain/turn-scope.ts:158-166`). Pi's agent loop runs in
+`packages/ui-server/src/brain/turn-scope.ts:193-201`). Pi's agent loop runs in
 its worker, so a frozen worker cannot send its next provider request until the
 resume. On the native fixture the gap between a result and the next request
 tracked the hold, not the bridge call.
@@ -1545,7 +1658,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:614-621`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:605-612`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -1636,8 +1749,10 @@ observation's facts. `files_changed` counts only changed paths outside
 `workspaces/`, by path containment rather than a string prefix, so
 `workspaces-old/` still counts. A reference clone fetched or checked out there
 touches hundreds of files without changing the brain, and that alone paused
-interactive turns. `turn_bytes` and the free-space floor still count every
-workspace write, and the journal summary still reports every changed path
+interactive turns. `turn_bytes` still counts workspace writes for opted-in change turns;
+default inspection turns have no workspace rows or byte charges. The
+free-space floor remains filesystem-wide. The journal summary reports the
+paths covered by that turn
 (#3793). A proven read changes nothing, so it cannot cross a limit.
 A writer's result is still observed, so its own crossing is detected there.
 After an unproven call every result is observed, so a limit that a background
@@ -1695,7 +1810,7 @@ worker does:
 - **Only interactive turns are journaled, and they load project
   configuration.** Evidence is wired only into the session-run turn request
   for a governed turn with a journal (`export function turnRequest`,
-  `packages/ui-server/src/ws/session-run/backend-entry.ts:218-233`). That turn
+  `packages/ui-server/src/ws/session-run/backend-entry.ts:219-234`). That turn
   is never a restricted autonomous one. It runs with `settingSources:
   ["project"]` and without `strictMcpConfig`
   (`const sdkOptions: Options`, `packages/ui-backend-claude/src/sdk-options.ts:406-422`).
@@ -1765,6 +1880,96 @@ a launch mode that loads none. Even then, it would apply only to a brain whose
 turns, or dropping the brain MCP server from them, would change what a brain's
 own configuration does, and that needs a maintainer ruling first.
 
+### Index updates without version history — 2026-11-20 (#4302)
+
+> **Maintainer ruling (2026-11-20).** The index database is a generated,
+> disposable optimization. It needs no history. This amends #2873 and #2903
+> for new observations; existing history keeps its presentation.
+
+The exact root family and publication-copy matcher defined below now excludes
+these paths from new change rows altogether. They contribute neither observed
+bytes nor changed paths to the turn's scope. Another name beside the database,
+a workspace's index and a separately held worktree's index remain ordinary
+content. The worker's index protection is unchanged: omission from history
+never authorizes a worker to modify what a later reader will execute or read.
+
+The host records each application batch, separate credentialed refresh and governed post-turn refresh as an
+`index_update` Activity event on each causing turn: generation, duration and
+outcome (`complete`, `failed`, `index_capacity` or `cancelled`). Cancellation is recorded before shutdown suppresses its warning. A retry has a fresh generation. These
+receipts use tool child spans with their causing session so a result preceding the backend root span is durable and reaches live subscribers. Revert and Undo refreshes carry their own journal turn IDs. Shutdown records a cancelled generation for queued refreshes that never start. Receipts stay in host storage. Existing index-version rows are served in their
+previous metadata-only form, including the existing byte purge and restoration
+exclusions; the upgrade does not erase their history.
+
+**Observation-time bound (maintainer ruling on #4302, 2026-11-21).** Governed
+workers keep their writable live index, including direct `brain index` and CLI
+captures. Every shared observation measures the current logical size of the
+exact root family and publication copies from sealed metadata. Its independent
+cap is 4 GiB, matching the former default byte scope without charging generated
+versions to retained turn bytes. Initialization sums metadata once; changes,
+removals and renames update that total. No index content is read or hashed.
+
+This live-index cap applies only when the actual turn sandbox can write the live root index. Strict and masked/private-index turns read their own sealed or read-only index and cannot be paused by an unrelated live index; their host index writers retain isolated quotas. The independent index cap comes from the host default, even under a custom content policy. Its governance scope event keeps the closed `cap: "turn_bytes"` value and adds optional `result: "index_capacity"` with `source: "default"`.
+
+Past 4 GiB the existing scope pause applies, with optional receipt
+`result: "index_capacity"` under the existing `turn_bytes` dimension. Scope
+summaries add optional `indexBytes` (null when unconfirmed) and
+`indexLimitBytes`. An interactive turn can receive the existing one-time finite
+doubling for this independent resource only; that grant never raises the content
+byte allowance. Independent content and index pauses both require an answer; granting one cannot resume past the other. The prompt names the ceiling Continue raises. A second hit, unknown measurement or absent worker has no
+continuation grant. An unknown index size is explicit as optional `measurement: "unknown"` on receipts and scope events, with numeric compatibility placeholders zero for count/overshoot; these placeholders are not measurements. Current prompts, expanded Turn facts and voice outcomes say unknown, including overshoot. Only the newest open pause offers Continue; older open cards keep Stop available until the newer pause is answered, then expose their remaining accepted actions. A refused continuation never disables Stop. Voice stops by its existing scope rule. Old clients retain
+their enum vocabulary and parse the optional fields without dropping records.
+This is an observation-time guard, so an opaque command can overshoot between
+observations, just as it could under the former byte scope. The separate disk
+free-space floor and native storage admission still apply.
+
+Host index maintenance has independent storage admission. Its maintenance temporary
+allowance and aggregate budget both default to 256 MiB
+(`BRAIN_UI_MAINTENANCE_TEMP_BYTES` and
+`BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`). Output staging has its separate
+256 MiB per-worker allowance (`BRAIN_UI_OUTPUT_STAGING_BYTES`) and configured
+aggregate budget (`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES`). The native manager
+continues charging retained extents until deletion is confirmed. Exhausting a
+worker allowance returns `ENOSPC`; unavailable admission returns
+`worker_state_busy`. The index receipt names either refusal, including SQLite `SQLITE_FULL`, `index_capacity`,
+and queued application paths remain pending. Retrying after capacity returns
+needs no operator judgment. Markdown and note before-images are unaffected.
+
+### Observation commits and startup release — 2026-11-20 (#4294, #4304)
+
+Directly readable changed versions are captured with at most 32 open version reads (16 paths, two sides each). Worker-private files defer fixed-reader fallback until those direct copies settle, then capture one side at a time. This stays within the native reader limit and charges only one temporary staging copy beside its retained object. Ready object reservations share one FULL ledger transaction;
+Those reservations durably pin each expected version to its actual owners before publication: shared observations to their window, private memory and independent worktrees to their holding turn. Ready completions share another FULL transaction that converts the charge and removes copy reservations. A process crash before completion batching cannot make an already published before/after object collectible. Hash publication is serialized and link/unlink runs in
+one event-loop turn, preventing transient multi-link reads. Under temporary
+space pressure reservations shrink to one copy and wait for in-flight copies
+before refusing or expiring history. Every file and its object directory remain synced before completion.
+The observation rows commit before advancing the native checkpoint or resuming
+workers. A failed batch joins all started readers before aborting its roots.
+Startup releases dead native leases before journal recovery. The journal recovers actually published objects with their already committed reservation pins, marks an interrupted turn partial, and never reopens a released checkpoint or fabricates an unpublished version from live bytes. An uncommitted observation has no complete-history guarantee. An absent pending copy with only intent pins has never committed a retained version. Recovery and cancellation release its reservation, intent pins and pending object row together, without quarantine; the same hash can be retained again. A present ledger row or committed version metadata still proves earlier publication, so genuinely missing/corrupt published bytes remain quarantined. Unpublished bytes are never fabricated from the live brain. Recovery discards a dead copy's temporary hardlink before validating the digest, then releases the dead charge and reconciles its object in one admitted transaction, so a dead reservation that exceeds today's cap cannot block its own removal. Existing per-reservation recovery reconciles any interrupted batch;
+a quarantined hash refuses only that version, preserving healthy batch peers. Inode caching shares successful retained hashes only: a directory permission failure at one name never suppresses a readable hardlink. Recovery removes a dead reservation's exact pending hardlink before checking its published digest, so a crash between link and unlink is recoverable. Scheduling ownership settles even if directory sync fails after publication; its durable storage charge remains until recovery.
+
+Active-turn summary and scope counters advance from committed change rows.
+Distinct paths, steering/kept/shared state, repeated hashed versions, ignored
+maxima and disappearing legacy publication copies retain the prior SQL
+semantics. Historical reads use the existing aggregation; restart rebuilds
+active state from durable history rather than trusting a cached total.
+Receipt-only operation writes preserve every cursor; operation changes reset
+only the changed turns. An admitted `(turn_id,path,sequence)` index bounds
+same-path history reads. New writes keep a first after-version per `(turn_id,path,peer_id)` and one first-conflict boundary per `(turn_id,path)` in admitted journal tables. Solo successors perform no version-history query. Shared writes use primary-key point lookups; they never copy a growing conflict list into change rows. History preserves every stored legacy conflict list, including its order and empty lists. A new writer stores its own first per-path baseline as the boundary between legacy and relation-backed rows. For new rows, it materializes the existing per-row `conflict` field from the single durable path relation when serving details, so released clients can keep reading `selected.conflict`. Durable storage remains linear; the existing repeated response size is preserved for compatibility. Operational backups preserve both relation tables and every row, compare their exact canonical definitions when present, accept older images without either table, and refuse a partial pair or altered schema. If the table admission cannot fit, historical reads and expiry remain available and only a new observation refuses until room returns. Table creation and every relation update use the existing FULL accounted writer; no unconditional startup migration allocates their pages. Admitted permanent capacity triggers (`JOURNAL_CONFLICT_GUARDS`, `packages/ui-server/src/db/journal-database.ts:129-134`) protect these tables on every open connection, including one opened before their admission. Backups preserve and validate a complete canonical trigger set, accept earlier images without the set, and refuse partial or altered sets. Capacity failure keeps the previous history readable, records the ordinary journal-capacity result on the uncertain observation, and retries admission automatically after ordinary expiry frees room.
+
+A governed admission that needs no data tree hands its unused startup view to
+a bounded background release owner. The durable native lease remains the same
+through handoff and deletion, so startup recovery still finds an interrupted
+release. Two active qualifying views (`STARTUP_QUALIFICATION_BACKLOG`, `packages/ui-server/src/brain/native-startup-releases.ts:6`) and two reserved/pending releases (`STARTUP_RELEASE_BACKLOG`, `packages/ui-server/src/brain/native-startup-releases.ts:4`) mean at most **four healthy ordinary admission/unused checkpoints** are pinned at once. Deliberately retained strict/data-tree/private-index consumers keep their existing independently admitted lifetimes; they are not unused cleanup backlog. Qualification admission waits before acquiring a writer gate or creating its checkpoint. Every created startup checkpoint has exactly one owner: its qualifying admission, its retaining consumer, or the retried release owner. Failed admissions retain ownership through their own cleanup attempt; a failed deletion transfers immediately to the retry owner.
+
+Only the final governed branch with no data tree selects an admission release slot, after boundary, profile, provider masks and peer folder plans resolve. Empty provider path sets mask nothing; strict fallback and data-tree consumers take no admission release slot. If release capacity is full, the qualifying admission keeps its bounded view but releases its writer gate before waiting. It reacquires the gate, rechecks the current policy and compares the returned folder plan with the sandbox's plan. If a peer added a folder, admission refuses for a fresh retry before policy recording or worker launch. The checkpoint-refresh path makes the same comparison. No qualification-slot or release-slot wait holds a writer gate or shared hold. Strict and private-index consumers delete their own views at `end()`, as do failed admissions and replaced refresh views. These excluded cleanups never reserve or wait for an ordinary release slot. Only a failed deletion transfers, synchronously and without blocking `end()`, to the retried owner. That owner's excluded retry attempts have their own two-attempt execution bound and do not wait behind ordinary release slots. Failed excluded views remain charged by their existing native leases until deletion confirms; they are outside the four healthy ordinary-view bound. Admission observes cancellation without abandoning a created view. Observations request capacity first and
+join a release in `observe_reserve` only after a positive native capacity refusal;
+room already available never waits for deletion. Native deletion persists its `deleting` intent under the request lock, then deletes and syncs outside it. The intent fences reuse, duplicate releases join one owner, and final confirmation reacquires the lock. Unrelated checkpoint admission can proceed during reclamation.
+Failed deletion keeps the lease and physical charge, retries automatically,
+and records `startup_checkpoint_release` in Activity and the last failure in
+`journal.cleanup.lastFailure` with timestamp, error class and retrying state. That cleanup failure alone never fails an
+already running turn. `startup_view_cleanup` measures only handoff; each release
+attempt records its own duration and outcome. Strict and data-tree consumers
+keep their existing checkpoint lifetime.
+
 ### Metadata-only index history — 2026-10-25 (#2873)
 
 > **Maintainer ruling (2026-10-25), Option B.** Record metadata only for the
@@ -1779,7 +1984,7 @@ own configuration does, and that needs a maintainer ruling first.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/session-run/teardown.ts:73`). The refresh usually finishes
+`packages/ui-server/src/ws/session-run/teardown.ts:74`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1792,7 +1997,7 @@ from Markdown, and restoring an old copy over a newer one only makes it stale.
 below), and a `.brain-index/.maintenance-<uuid>` publication copy,
 by journal-relative path in the brain root's own capture, named from the shared
 index location constants (`export function journalMetadataOnlyPath`,
-`packages/ui-server/src/brain/native-journal-policy.ts:32-34`). Another name
+`packages/ui-server/src/brain/native-journal-policy.ts:33-35`). Another name
 inside `.brain-index/`, another root's `.brain-index/` (a workspace or a
 managed worktree) and a similarly named file elsewhere stay ordinary content
 with retained bytes.
@@ -1800,11 +2005,11 @@ with retained bytes.
 **What the journal records.** Observation and before-version capture classify
 these versions as metadata-only and never open them for retention
 (`const retained = (entry`,
-`packages/ui-server/src/brain/native-journal-capture.ts:41`). A version keeps
+`packages/ui-server/src/brain/native-journal-capture.ts:40`). A version keeps
 kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
 its opaque change stamp, with no content hash and no symlink target. Two
 versions of equal size are told apart by that stamp, as ignored ones are
-(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:84`),
+(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:77`),
 so every observed refresh remains a recorded change. A metadata-only version is an intentional
 observation state: it adds no `missing` entry and does not make the turn
 partial. Removal coverage never treats the family as eligible, and history
@@ -1816,16 +2021,16 @@ stays now counts its largest size once too, rather than each version.
 **History.** History presents every index-family version as metadata-only
 however it was recorded, so a version an earlier release retained is no
 longer read
-(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:77-82`).
+(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:70-75`).
 The reader groups these entries as the search index, recorded by size and
 timestamps only, with no review action. Preview reports `metadata_only` and
 download has nothing to serve. History revert and Undo read that same
 presentation and exclude the family as `metadata_only`, so a version retained
 by an earlier release is not restored either
-(`reason = "metadata_only"`, `packages/ui-server/src/brain/turn-revert.ts:46`).
+(`reason = "metadata_only"`, `packages/ui-server/src/brain/turn-revert.ts:47`).
 The operation's ordinary index refresh rebuilds it, so that exclusion alone
 does not make the operation partial
-(`const partial`, `packages/ui-server/src/brain/turn-revert.ts:148`). The bytes
+(`const partial`, `packages/ui-server/src/brain/turn-revert.ts:149`). The bytes
 earlier releases retained for these versions are purged at the journal's next
 open (#2903, below).
 
@@ -1873,11 +2078,11 @@ keeps its bytes.
 
 **The purge.** It runs once, on the journal's write worker, when the journal
 opens, after interrupted turns have been ended
-(`while (await ledger.call`, `packages/ui-server/src/brain/turn-journal.ts:144`),
+(`while (await ledger.call`, `packages/ui-server/src/brain/turn-journal.ts:143`),
 in at most two accounted commits whose progress is recorded in
 `turn_journal_allocation.index_purge`
 (`purgeIndexVersions(): IndexPurgeResult`,
-`packages/ui-server/src/brain/journal-store.ts:186-225`):
+`packages/ui-server/src/brain/journal-store.ts:208-247`):
 
 1. Every recorded index-family version, in history and in revert records, is
    rewritten to the metadata-only form a new one has: kind, mode, size and the
@@ -1973,8 +2178,8 @@ migrations before accounting can admit them.
 
 **Admission before storage.** The upgrade runs on the journal write worker,
 through the same `BEGIN IMMEDIATE`, `synchronous=FULL` accounting as its data
-writes (`function ensureObjectRefIndex`,
-`packages/ui-server/src/brain/journal-accounting.ts:170-199`). Under that lock,
+writes (`function ensureIndex`,
+`packages/ui-server/src/brain/journal-accounting.ts:196-225`). Under that lock,
 it reserves a conservative allowance for index records, b-tree fill/interior
 pages and schema/pointer-map overhead, plus the WAL capacity over the enlarged
 file and all existing WAL debt, objects and reservations. It assumes no reuse
@@ -2004,7 +2209,7 @@ attempts it without making recovery depend on success. Ordinary collection
 tries before deleting, runs the existing integrity-checked path if it was
 refused, and retries after the freed object bytes make room
 (`collectObjects(): void`,
-`packages/ui-server/src/brain/journal-store.ts:159-165`). Freeing rows alone
+`packages/ui-server/src/brain/journal-store.ts:181-187`). Freeing rows alone
 does not credit persistent pages: they remain charged until reclamation is
 observed. Every pin and reservation keeps its object throughout success,
 refusal, failure and restart, and foreign keys remain enabled on every ordinary
@@ -2047,7 +2252,7 @@ fresh globals per request, with the path as its only argument, and answers
 with the program's output, its exit status and the traceback a fresh launch
 printed, without the loop's own frame. The manager turns a failure into the
 same refusal a failed launch produced (`async function inspection`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:215-219`). Every
+`packages/ui-sdk/src/server/native-brain-manager.ts:216-220`). Every
 `qualify` and `verifyOwned` still inspects the live path on every operation;
 nothing is cached between requests. An interrupted, timed-out, oversized or
 malformed exchange, or one with an interpreter that died, kills the
@@ -2084,7 +2289,7 @@ brain and every managed worktree, has its own owner, and each owner keeps at
 most `NATIVE_RELEASE_BACKLOG`, two, previous checkpoints retained, whether
 queued or failed. An observation makes room before it takes its own
 checkpoint (`async function reserveRelease`,
-`packages/ui-server/src/brain/native-journal-observer.ts:361-369`): it waits
+`packages/ui-server/src/brain/native-journal-observer.ts:377-385`): it waits
 inside the hold for the oldest queued release, or, when failed releases fill
 the bound, retries the oldest one inside the hold, as every release ran
 before. If that retry fails, the observation is refused before it takes a
@@ -2092,7 +2297,7 @@ checkpoint, so the bound is never exceeded. Each retained checkpoint is charged 
 it holds that the live root no longer has: the bytes of every file version
 replaced or removed since it was taken
 (`releases(): NativeJournalReleaseAccounting`,
-`packages/ui-server/src/brain/native-journal-observer.ts:520-524`).
+`packages/ui-server/src/brain/native-journal-observer.ts:610-614`).
 Directory and other metadata extents are not counted. The store's free space,
 which the `free_space_floor` scope limit reads, counts the actual extents until
 each release completes. Shutdown waits for every queued release, retries
@@ -2483,7 +2688,7 @@ so nothing in them can be recorded or limited.
 **The design.** A `governed` or `strict` worker gets `--unshare-net` and a
 server-owned egress proxy, bind-mounted as a Unix socket in the same way as
 the inference relay. The relay's `observe` hook already exists but is not
-connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:38`).
+connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:46`).
 Inside the worker, a small loopback listener forwards to the socket, and
 `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` point at it.
 
@@ -2544,7 +2749,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:86-216`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:94-389`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -2557,7 +2762,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:252`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:267`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -2575,7 +2780,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1972`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:2023`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2599,7 +2804,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:411-470`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:430-489`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -2675,9 +2880,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:637-643`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:664-703`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:665-683`).
+`packages/ui-sdk/src/server/worker-launcher.ts:668-674`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:703-742`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:704-722`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -3169,7 +3374,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:219-228`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:226-235`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:68-77`). It starts
@@ -3221,7 +3426,7 @@ every turn without a proven recipient:
   Source inspection finds these retained copies a masked document's text can
   reach:
   - `query_activity` (`runActivityQuery`,
-    `packages/ui-server/src/activity/query.ts:19-180`): run failure reasons
+    `packages/ui-server/src/activity/query.ts:20-181`): run failure reasons
     (`failureReason`, an error's message or a stderr tail), span outcome
     reasons and tool spans of a single run (`scope=run`), subagent transcript
     excerpts, notification intent titles (`scope=inbox`) and
@@ -3562,11 +3767,11 @@ The backend supplies the origin before admission through the optional
 Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only when it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:187-188`). A turn whose startup
+`packages/ui-server/src/brain/governed-turn.ts:194-195`). A turn whose startup
 view is not on managed native storage, where the relay runs, is refused before
 this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
-(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:81-83`),
+(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:89-91`),
 pi refuses a changed endpoint before its credential is read, and a turn that
 has a recipient but no relay refuses to start. A model change inside a turn
 cannot leave the one relay socket the worker has.
@@ -3696,7 +3901,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:73`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:81`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -3709,7 +3914,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:276-310`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:291-325`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -3847,11 +4052,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1138-1166`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1189-1217`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1175-1201`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1226-1252`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1364-1452`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1415-1503`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -4065,6 +4270,16 @@ reconciler's timed retry cannot make a second attempt inside it.
 
 ### Outward actions (G5)
 
+**Google host tools — 2026-11-17 (#4201).** The
+[maintainer ruled](google-workspace.md) that an own-account reversible Google
+write made through the host Google tools (archive, labels, read state, stars,
+brain-made drafts, guest-free events on a calendar verified private), which is
+invisible to anyone else and has a recorded inverse, is not an outward action.
+It may run without a card under the policy's `google` block or a remembered
+approval in an untainted session, or under a session allowance in a tainted
+one. Every other Google write stays outward: it asks every time and is
+journaled as irreversible. The rest of this section is unchanged.
+
 **Inside the brain, nothing is outward.** Journaled edits, commits to the
 local repository and scratch output are free.
 
@@ -4150,7 +4365,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:62-84`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:67-89`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -4164,7 +4379,7 @@ listen on other ports: `gmail.googleapis.com`, `graph.microsoft.com`,
 `smtp.sendgrid.net`, `api.mailgun.net`, `api.eu.mailgun.net`,
 `smtp.mailgun.org`, `smtp.eu.mailgun.org`, `api.postmarkapp.com`,
 `smtp.postmarkapp.com`, `api.resend.com` and `smtp.resend.com`
-(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:22-25`).
+(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:25-28`).
 Microsoft Graph and Exchange Online carry more than mail, so their reads by
 an opaque script also wait on the card. The coordinator chose this list for
 #1665; the maintainer may override it.
@@ -4194,7 +4409,7 @@ and a documented "no GitHub here" were both rejected. The rest of the ruling:
   approves a write, and autonomous turns have no write surface.
 - **The Network card stays.** An unclassified connection to an outward GitHub
   host keeps its `Network` approval card (`approveOutward`,
-  `packages/ui-server/src/brain/turn-egress.ts:256-263`); it is not refused
+  `packages/ui-server/src/brain/turn-egress.ts:386-393`); it is not refused
   outright. The hosted report behind #3791 was a compound shell command that
   ended in `curl` to `api.github.com`. The classifier reads such a command as
   opaque, so no visible-read exception covers it. Its `CONNECT` was held for
@@ -4224,6 +4439,16 @@ and a documented "no GitHub here" were both rejected. The rest of the ruling:
   A session retained before #3799 keeps its earlier append byte for byte.
 
 ### Untrusted input (G6)
+
+**Google structured reads — 2026-11-17 (#4201).** The
+[maintainer ruled](google-workspace.md) that a host Google tool result
+composed only of host-validated structured values (Google-minted Gmail ids,
+label ids and names, host-minted handles, timestamps, counts, size buckets,
+flags, closed enums and free/busy intervals) is not untrusted input and does
+not taint. Every other Google result taints the session as `google_result`
+before it returns. A tainted session follows the rules below as written,
+except that a session allowance the owner granted on a reversible Google card
+admits that operation and entity for a bounded time.
 
 **Prospective supersession — 2026-11-05 (#3599).** The
 [owner-reviewed session-safety decision](session-safety-reviews.md) permits
@@ -4317,9 +4542,9 @@ rules (maintainer ruling, 2026-10-22). Historically the first source was the
 session's one `taint` event; the collection supersession above now records
 every signal. A write that fails stops the turn rather than leaving its
 outward rules loose. Binding, duplicate checks and the write share a SQLite transaction
-(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:21-27`).
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:22-28`).
 The hosted server runs that transaction on its write worker
-(`insertGovernanceEvent`, `packages/ui-server/src/governance/events.ts:376`;
+(`insertGovernanceEvent`, `packages/ui-server/src/governance/events.ts:380`;
 [#2850](https://github.com/schlessera/brain-kit/issues/2850)). A taint counts
 for admission from the moment it is submitted, and a connection's first byte
 waits for its taint's commit.
@@ -4344,7 +4569,7 @@ charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist` (an interactive turn asks first
 since 2026-11-03, see [below](#tainted-destinations-ask)). The taint list
 narrows and never widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:86-242`). Hosts without managed
+`packages/ui-server/src/brain/turn-egress.ts:94-389`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -4389,18 +4614,18 @@ turn's connection passes deny, `allowlist` mode and the byte ceiling but
 matches neither `taint.egress.allow` nor a contacted host, the proxy asks
 through the turn's tool-permission card (`toolName: "Network"`, `kind:
 "command"`, never remembered as a tool grant) before refusing
-(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:198-203`). The
+(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:390-395`). The
 card names the destination, the session's first taint source and the
 consequence of allowing it
-(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:41-46`).
+(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:46-51`).
 Concurrent connections to the same host share one card. An allowed
 connection's admission adds its host to the turn's contacted hosts, and its
 charged `egress_connection` record carries the host into the session's later
 turns, so it is not asked for again; a different host still asks
-(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:172-183`).
+(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:273-284`).
 A decline refuses: the record stays an `egress_denial` with reason
 `taint_allowlist`, and the 403 carries a short reason the tool can print (`function describeRefusal`,
-`packages/ui-sdk/src/server/egress-proxy.ts:88-104`). Stopping the turn while the
+`packages/ui-sdk/src/server/egress-proxy.ts:205-221`). Stopping the turn while the
 card is pending cancels the connection, and a late allow admits nothing. Voice turns, which have no
 grant surface, and autonomous turns, which have no turn proxy, refuse without
 a card as before; deny and `allowlist` mode still refuse first. Maintainer
@@ -4484,14 +4709,14 @@ with a status text and a body that name it: the deny list, `allowlist` mode,
 the byte ceiling, an unapproved outward host, or a tainted session's host
 outside its allow-list, with the session's first taint source and what the
 user can do (`function describeRefusal`,
-`packages/ui-sdk/src/server/egress-proxy.ts:88-104`; the source wording,
-`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:207`). The status
+`packages/ui-sdk/src/server/egress-proxy.ts:205-221`; the source wording,
+`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:320`). The status
 line carries the reason because `curl -v`, `git` and `egress-connect` print
 only that line for a refused CONNECT. The provider relay passes the proxy's
 reason through as the refusal body's `error.message` and an additive
 `error.reason`, using the `egress_denial` reason words plus
 `outward_not_approved` (`const refuse`,
-`packages/ui-sdk/src/server/provider-relay.ts:392-397`). The OpenAI image
+`packages/ui-sdk/src/server/provider-relay.ts:399-404`). The OpenAI image
 provider no longer appends its account hint to a relay refusal
 (`const relayRefusal`, `packages/module-images/src/providers/openai.ts:258-259`).
 A cancelled connection keeps its bare 403. The system prompt's turn-lifecycle
@@ -4586,11 +4811,11 @@ authorization, the byte ceilings, budget admission, cancellation and
 accounting. It keeps its own `egress_connection` record, which carries
 `provider: true` and never `inference: true`. The exemption belongs to the operation, never to a
 hostname. Only the relay's validated routes reach the proxy's provider
-admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:338`), and
+admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:618`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
-(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:196`). Turn egress
+(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:389`). Turn egress
 records neither a taint nor a contacted host for the operation
-(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:216-221`). So in a
+(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:329-334`). So in a
 tainted session, the worker's own traffic stays narrowed away from the
 provider's host.
 
@@ -4598,9 +4823,9 @@ A later turn rebuilds its contacted hosts from the session's earlier
 `egress_connection` records, and a provider record there would look like a
 worker's. So the maintainer added the optional `provider: true` tag, mirroring
 `inference: true`, on the record of every validated provider-relay operation
-(`finish`, `packages/ui-sdk/src/server/egress-proxy.ts:159-166`). The rebuild
+(`observe`, `packages/ui-sdk/src/server/egress-proxy.ts:318-324`). The rebuild
 excludes those records (`contactedHosts`,
-`packages/ui-server/src/governance/session-taint.ts:34-40`), so a provider
+`packages/ui-server/src/governance/session-taint.ts:35-48`), so a provider
 request never gives the worker's own `CONNECT` a contacted-host pass, in the
 same turn or a later one. Records written before the tag existed stay
 unmarked, so they can still count for a session that already has them. That is
@@ -4744,7 +4969,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:430-495`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:439-504`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -4767,8 +4992,8 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:763-793`; destination-bound recovery
-is `const target`, `packages/ui-server/src/brain/turn-revert.ts:113-123`.
+`packages/ui-server/src/brain/turn-journal.ts:755-785`; destination-bound recovery
+is `const target`, `packages/ui-server/src/brain/turn-revert.ts:114-124`.
 
 ### Concurrent edits
 
@@ -4801,7 +5026,7 @@ exclusive "mine" or "theirs" ownership. A conflict requires two distinct
 observed after-versions sharing an overlapping turn; one version remains shared
 attribution. User choices use the existing authenticated history operation,
 comparing current raw state with the reviewed latest observation before effects
-(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:55-78`).
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:56-79`).
 Keep both creates the other version beside the selected file with sync's
 numbered `-remote` convention, using exclusive descriptor-rooted creation,
 existing CAS leases and explicit coverage for its final generated name
@@ -4839,7 +5064,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:592-657`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:625-690`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

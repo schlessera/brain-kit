@@ -106,8 +106,8 @@ export function composeStatsAnswer({ corpus, runtime, software, history }: Stats
       kind: "callout",
       tone: "neutral",
       variant: "plain",
-      title: "No agent runs recorded yet.",
-      body: "Runs and cost appear here after the first chat turn finishes.",
+      title: "No runs recorded yet.",
+      body: "Runs and cost appear here after the first chat turn or scheduled job finishes.",
     });
   } else if (r) {
     out.push({ kind: "tiles", source: "runtime", tiles: runtimeTiles(r) });
@@ -213,8 +213,8 @@ function runtimeRungs(r: ActivityRuntimeStats): Rung[] {
       kind: "callout",
       tone: "gold",
       variant: "boxed",
-      title: `${plural(w.failures, "agent run", "agent runs")} failed in the last ${plural(windowDays(r), "day", "days")}.`,
-      body: `That is ${count(w.failures)} of ${count(w.runs)}. The Activity view shows what each one was doing when it stopped.`,
+      title: `${count(w.failures)} of ${plural(w.runs, "run", "runs")} failed in the last ${plural(windowDays(r), "day", "days")}.`,
+      body: `This total includes chat turns and scheduled jobs. Failures include errors, timeouts and interruptions. Open Activity to inspect individual runs.`,
     },
   ];
 }
@@ -265,7 +265,7 @@ function runtimeTiles(r: ActivityRuntimeStats): StatTile[] {
     {
       label: `runs ${span}`,
       value: count(w.runs),
-      meta: w.failures ? `${count(w.failures)} failed` : "none failed",
+      meta: w.failures ? `${count(w.failures)} failed · all origins` : "none failed · all origins",
     },
     {
       label: `spent ${span}`,
@@ -425,8 +425,8 @@ function windowReceipt(r: ActivityRuntimeStats): StatsSection {
     title: `Runtime · ${day(from)} – ${day(w.until)}`,
     rows,
     footnote: retention.insideWindow
-      ? `per-run detail is kept ${plural(retention.days, "day", "days")} · ${count(w.detailPrunedRuns)} of these ${plural(w.runs, "run is", "runs are")} totals only`
-      : "per-run detail is kept for the whole window",
+      ? `Chat turns and scheduled jobs · per-run detail is kept ${plural(retention.days, "day", "days")} · ${count(w.detailPrunedRuns)} of these ${plural(w.runs, "run is", "runs are")} totals only`
+      : "Chat turns and scheduled jobs · per-run detail is kept for the whole window",
     footTone: retention.insideWindow ? "gold" : "teal",
   };
 }

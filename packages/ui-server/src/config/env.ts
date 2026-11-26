@@ -21,6 +21,7 @@ import { ATTACHMENT_POOL_DEFAULT_BYTES, isThinkingLevel, type ThinkingLevel } fr
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 import { parseRepositoryAllowList } from "../brain/module-repositories.js";
+import { parseModuleGitHubWrites, type ModuleGitHubWrite } from "../github/module-relay.js";
 import { parseProviderRecipientOrigins } from "../brain/provider-recipients.js";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
@@ -91,7 +92,13 @@ export interface EnvVarDescriptor {
  * The env-parity gate (G4) asserts this list equals the package's env
  * documentation in both directions — add here and to the docs together.
  */
+/** Optional host build token. Invalid input is unknown, never guessed. */
+export function parseBuildRevision(raw: string | undefined): string | undefined {
+  return raw !== undefined && /^[A-Za-z0-9._+-]{1,64}$/.test(raw) ? raw : undefined;
+}
+
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  { name: "BRAIN_UI_BUILD_REVISION", description: "Optional build revision token, 1–64 ASCII letters, digits, dot, underscore, plus or hyphen. Invalid values are absent.", default: null, required: false },
   { name: "BRAIN_UI_STORAGE_BACKUP_ROOTS", description: "JSON array of at most four absolute operator-approved local backup directories. Metadata only; no remote stores or automatic cleanup.", default: "[]", required: false },
   { name: "BRAIN_UI_STORAGE_GIT_ROOTS", description: "JSON array of at most sixteen absolute approved external Git directories for human-only Storage inventory.", default: "[]", required: false },
   { name: "BRAIN_WORKER_DATA_ROOT", description: "Internal application-maintenance output root supplied by the trusted launch. Not an operator configuration input.", default: "unset outside maintenance", required: false },
@@ -201,6 +208,28 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "the job's worker reads a host mirror and never holds the credential. Read by " +
       "the cron runner only, never forwarded to a job. Empty refuses every request.",
     default: "(empty — no module repository is fetched)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_MODULE_GITHUB_TOKEN",
+    description:
+      "GitHub token for the module GitHub relay (#4259): the GitHub API calls a module cron job makes to the repositories it was granted " +
+      "(the module's `repositories` and BRAIN_UI_MODULE_REPOSITORIES). Use a fine-grained token limited to those repositories (it is the read boundary for data a GraphQL query reaches through them), with Issues read " +
+      "and, only where BRAIN_UI_MODULE_GITHUB_WRITES enables a write, Issues write. No fallback: GITHUB_TOKEN, the sync token and " +
+      "BRAIN_UI_GITHUB_TOOLS_TOKEN are never used, and without this one every relayed call is refused. Read by the cron runner only, " +
+      "never forwarded to a job or worker, and covered in every worker's view of /etc/environment. The relay exists only where jobs run in " +
+      "maintenance workers: on a host without the worker boundary, repository jobs run as host processes with the runner's own access, " +
+      "like any other runner credential.",
+    default: null,
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_MODULE_GITHUB_WRITES",
+    description:
+      "Operator list of the GitHub writes a module cron job may make through the module GitHub relay (#4259), comma or whitespace separated, " +
+      "each `https://github.com/<owner>/<repo>#<operation>` with operation `issue_comment` or `issue_state`. A repository must also be granted " +
+      "to the job. Read by the cron runner only. Empty enables no write.",
+    default: "(empty — no write)",
     required: false,
   },
   {
@@ -943,6 +972,7 @@ export interface ServerConfig {
   /** Bind host, for the loopback check in auth validation. Empty when unset. */
   host: string;
   sourceCommit: string;
+  buildRevision?: string;
   allowedOrigins: string[];
   maxConcurrentSessions: number;
   /** The host attachment pool in bytes (BRAIN_UI_ATTACHMENT_POOL_BYTES, #3153). */
@@ -1025,6 +1055,8 @@ export interface CronConfig {
   cliProviderOrigins: ReadonlyMap<string, readonly string[]>;
   /** BRAIN_UI_MODULE_REPOSITORIES: the operator's allow-list of repositories a module job may read (#3380). */
   moduleRepositories: { allowed: string[]; invalid: string[] };
+  /** The module GitHub relay's credential and enabled writes (#4259); the token is read only here. */
+  moduleGitHub: { token: () => string | undefined; writes: Map<string, Set<ModuleGitHubWrite>>; invalid: string[] };
 }
 
 function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
@@ -1224,6 +1256,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     schedules: { inferenceOrigins: scheduleInferenceOrigins(env.BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS) },
     cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
     host: env.HOST ?? "",
+    buildRevision: parseBuildRevision(env.BRAIN_UI_BUILD_REVISION),
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
     maxConcurrentSessions,
@@ -1389,6 +1422,7 @@ export function resolveCronConfig(
     exec: execConfig(env),
     cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
     moduleRepositories: parseRepositoryAllowList(env.BRAIN_UI_MODULE_REPOSITORIES),
+    moduleGitHub: { token: moduleGitHubTokenSource(env), ...parseModuleGitHubWrites(env.BRAIN_UI_MODULE_GITHUB_WRITES) },
   };
 }
 
@@ -1479,6 +1513,15 @@ export function apifyTokenSource(env: NodeJS.ProcessEnv = process.env): () => st
  */
 export function githubToolsTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
   const token = env.BRAIN_UI_GITHUB_TOOLS_TOKEN?.trim() || undefined;
+  return () => token;
+}
+
+/**
+ * The module GitHub relay's credential (#4259): `BRAIN_UI_MODULE_GITHUB_TOKEN`
+ * and nothing else, read once into a closure.
+ */
+export function moduleGitHubTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
+  const token = env.BRAIN_UI_MODULE_GITHUB_TOKEN?.trim() || undefined;
   return () => token;
 }
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { timeMcpStartup } from "./cli/mcp-startup-timing.js";
 /**
  * brain MCP server (stdio). Ports scripts/mcp-server.ts verbatim in tool shape:
  * the same 8 `brain_*` tools (plus the six `brain_compute_*` tools, #3107) with identical names, input schemas, annotations,
@@ -226,6 +227,7 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
   server.registerTool(
     "brain_search",
     {
+      _meta: { "anthropic/alwaysLoad": true },
       description:
         `Search the brain knowledge base using hybrid FTS5 + vector search. Returns documents matching a query with optional filters for type, tag, relevance, and search mode. \`limit\` defaults to 10 and returns at most ${MAX_SEARCH_LIMIT} results; a larger value is capped.`,
       inputSchema: {
@@ -291,6 +293,7 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
   server.registerTool(
     "brain_context",
     {
+      _meta: { "anthropic/alwaysLoad": true },
       description:
         "Assemble a topic briefing. `max_tokens` defaults to 4000; output stays within this budget, estimated at about four characters per token. The identity and current-focus documents come first: whole when they fit, otherwise cut at a paragraph or heading boundary with a pointer to read the full file, and left out when not even that fits. Search hits follow as headers and one-line snippets, included whole or skipped for the next one until fewer than 20 tokens remain. Remaining budget expands placed hits in rank order into their matching source section or lead, capped at 40% of the total budget per hit. Longer sections are cut at whole-block boundaries with a read pointer; unavailable or unusable sections retain their snippets. Documents are not repeated.",
       inputSchema: {
@@ -347,6 +350,7 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
   server.registerTool(
     "brain_read",
     {
+      _meta: { "anthropic/alwaysLoad": true },
       description:
         "Read a specific document from the brain knowledge base by its relative path. By default returns the whole file, frontmatter included, however long it is. Pass `section` to get one section by its heading (matched on its visible text, ignoring case; the first of two equal headings wins), or `max_tokens` to get the frontmatter and an outline of headings with their token counts instead of a file larger than that. `max_tokens` is the threshold for switching to the outline, not a cap on the output: a large frontmatter or very many headings make the outline larger than it.",
       inputSchema: {
@@ -377,6 +381,7 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
   server.registerTool(
     "brain_list",
     {
+      _meta: { "anthropic/alwaysLoad": true },
       description:
         `List documents in the brain knowledge base with optional filters for type, tag, status, and relevance. Returns metadata (path, title, type, relevance, status, tags) for matching documents, newest first. \`limit\` is a whole number from 1 to ${MAX_LIST_LIMIT} and defaults to ${DEFAULT_LIST_LIMIT}; any other value is rejected, not capped. ` +
         `Pass \`path_prefix\`, \`overview\` or \`cursor\` for a paged inventory: newest \`updated\` first then path, at most ${DOCUMENT_PAGE_MAX_BYTES} bytes per page, with \`next_cursor\` (null at the end) and \`total\`. \`path_prefix\` matches whole path segments. \`overview\` adds summary, updated (the frontmatter date, not file or project activity), deadline, indexed_at and indexed_body_bytes (UTF-8 bytes of the indexed body, frontmatter excluded; not the file size).`,
@@ -479,7 +484,7 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
 function registerReadManyTool(server: McpServer, t: CoreTools): void {
   server.registerTool(
     "brain_read_many",
-    { description: READ_MANY_DESCRIPTION, inputSchema: readManyInputShape, annotations: { readOnlyHint: true } },
+    { _meta: { "anthropic/alwaysLoad": true }, description: READ_MANY_DESCRIPTION, inputSchema: readManyInputShape, annotations: { readOnlyHint: true } },
     async (params, extra) => {
       try {
         return jsonText(await readMany(t.brain.root, params, { signal: extra.signal, warnings: t.toolWarnings(t.stale()) }));
@@ -735,7 +740,9 @@ export async function startMcpServer(
   const { embeddings, warnings, withheld } = resolveProviders(brain.config);
   if (warnings.embeddings) console.error(`brain MCP: ${warnings.embeddings}`);
 
+  const databaseReady = timeMcpStartup("database");
   const db = openDatabase(brain.dbPath, { embeddingDimensions: embeddings?.dimensions ?? EMBEDDING_DIMENSIONS });
+  databaseReady();
   // Every search/context tool here is read-only. Loading the extension makes
   // stored vectors queryable on this connection; it must not migrate the
   // vector schema, which drops every vector and costs a paid re-embedding run.
@@ -792,11 +799,17 @@ export async function startMcpServer(
     "brain_add", "brain_update", "brain_archive", ...COMPUTE_TOOL_NAMES,
     ...APIFY_OPERATIONS.map(operation => APIFY_TOOL_NAMES[operation]),
   ].map((name) => [name, null]));
+  const modulesReady = timeMcpStartup("moduleTools");
   moduleWarnings.push(...await registerModuleTools(server, brain.modules, brain.root, brain.taxonomy, owners));
 
+  modulesReady();
+  const vectorReady = timeMcpStartup("vector");
   await ensureVec();
+  vectorReady();
+  const connected = timeMcpStartup("connect");
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  connected();
 }
 
 if (import.meta.main) {

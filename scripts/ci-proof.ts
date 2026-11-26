@@ -1,7 +1,11 @@
 /** Complete affected hosted proof. Reuses the opt-in local command inventory. */
+import { mergeBatchReports } from "./test";
+import { validateUnitReports } from "./unit-proof-report";
+import { offlineCommand } from "./offline-command";
+import { DOCKER_TEST_FILES, isDockerTest } from "./docker-test-files";
 import { requireCandidate, validateSelections } from "./candidate-proof";
 import { cpus, freemem, totalmem } from "node:os";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { localChecks, requireRuntimeTools } from "./check-pr";
 import { runCommands, type Command } from "./ci-runner";
@@ -19,7 +23,7 @@ export type ProofCategory = typeof PROOF_CATEGORIES[number];
 export const DETERMINISM_REPORT = "tmp/determinism-report.json";
 export const BROWSER_DETERMINISM_REPORT = "tmp/browser-determinism-report.json";
 /** Bun tests that start the pinned image with `--pull=never`: a partition holding one pulls the image first. */
-export const PINNED_IMAGE_TESTS = ["tests/workspace-lease.test.ts", "tests/browser-determinism-container.test.ts"] as const;
+export const PINNED_IMAGE_TESTS = DOCKER_TEST_FILES;
 
 /** One partition of the planner's added or modified Bun test files, at the count decided over the
  * whole selection (#4117). An empty selection is never a job (#4109), and a shard divisor that is
@@ -78,12 +82,14 @@ export function unitFiles(plan: CheckPlan, root: string, shard = "1/1"): string[
   return balanceTests(files, total)[index - 1]!;
 }
 
-export function categoryCommands(category: ProofCategory, plan: CheckPlan, root: string, shard?: string, unitWorkers = 2): Command[] {
+export function categoryCommands(category: ProofCategory, plan: CheckPlan, root: string, shard?: string, unitWorkers = 2, dockerDrivers = false): Command[] {
   if (![1, 2].includes(unitWorkers)) throw new Error("Unit worker measurement supports 1 or 2 workers");
   const inventory = localChecks(plan, true);
-  if (category === "unit") return [{ name: "complete affected unit and integration suite", argv: unitWorkers === 2
-    ? [process.execPath, join(root, "scripts/unit-workers.ts"), ...unitFiles(plan, root, shard).map(file => join(root, file))]
-    : [process.execPath, "run", "test", ...unitFiles(plan, root, shard).map(file => join(root, file)),
+  const selected = (files: readonly string[]) => files.filter(file => isDockerTest(file, root) === dockerDrivers);
+  if ((category === "unit" || category === "determinism") && !selected(category === "unit" ? unitFiles(plan, root, shard) : determinismFiles(plan, shard)).length) return [];
+  if (category === "unit") return [{ name: "complete affected unit and integration suite", argv: unitWorkers === 2 && !dockerDrivers
+    ? [process.execPath, join(root, "scripts/unit-workers.ts"), ...selected(unitFiles(plan, root, shard)).map(file => join(root, file))]
+    : [process.execPath, "run", "test", ...selected(unitFiles(plan, root, shard)).map(file => join(root, file)),
       "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"],
     env: { BRAIN_REQUIRE_CHROME: "1" } }];
   // The unit job's serial form, repeated: changed files may drive real Chrome too.
@@ -94,7 +100,7 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
     const repetitions = selection.partitions.length > 1 ? selection.repetitions : repetitionsFor(plan.cadence);
     return [{ name: "changed Bun test files repeated under CPU load",
       argv: [process.execPath, join(root, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`,
-        ...(repetitions === undefined ? [] : [`--repetitions=${repetitions}`]), ...partition.files],
+        ...(repetitions === undefined ? [] : [`--repetitions=${repetitions}`]), ...selected(partition.files)],
       env: { BRAIN_REQUIRE_CHROME: "1" } }];
   }
   // The pinned container, entered as `browser` and `layout` enter it. As for the Bun gate, an unsplit
@@ -115,15 +121,36 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
     runtime: ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "shared-process Chrome then child cleanup"],
     runtime_host: ["native managed hosted admission", "native separate-UID worker identity", "native reference pool allocation"],
   };
-  const selected = inventory.filter(command => names[category].includes(command.name));
-  if (selected.length !== names[category].length) throw new Error(`${category}: incomplete command inventory`);
-  if (category === "captures") selected.unshift({ name: "pinned capture fonts and original notices", argv: [process.execPath, "run", "capture:fonts"] });
+  const checks = inventory.filter(command => names[category].includes(command.name));
+  if (checks.length !== names[category].length) throw new Error(`${category}: incomplete command inventory`);
+  if (category === "captures") checks.unshift({ name: "pinned capture fonts and original notices", argv: [process.execPath, "run", "capture:fonts"] });
   if (category === "browser" || category === "layout" || category === "endurance") {
-    selected.find(command => command.name === "workspace build for real browser checks")!.argv.push("--jobs=2");
-    selected.at(-1)!.argv.push("--proof-report");
+    checks.find(command => command.name === "workspace build for real browser checks")!.argv.push("--jobs=2");
+    checks.at(-1)!.argv.push("--proof-report");
   }
-  if (shard && (category === "browser" || category === "layout")) selected.at(-1)!.argv.push(`--shard=${shard}`);
-  return selected;
+  if (shard && (category === "browser" || category === "layout")) checks.at(-1)!.argv.push(`--shard=${shard}`);
+  return checks;
+}
+
+/** The dedicated driver step runs first; the ordinary step publishes the union. */
+export async function completeUnitReport(root: string, files: string[], checkout: { sha: string; tree: string; parents: string[] }, shard: string | undefined, dockerDrivers: boolean) {
+  const drivers = files.filter(file => isDockerTest(file, root));
+  const reportArgv = (prefix = "") => ["--reporter-outfile", join(root, "tmp", prefix + "unit-report.xml"), "--timings", join(root, "tmp", prefix + "unit-timings.json")];
+  if (dockerDrivers) {
+    const report = validateUnitReports(drivers, await Bun.file(reportArgv()[1]!).text(), await Bun.file(reportArgv()[3]!).json());
+    for (const name of ["unit-report.xml", "unit-timings.json"]) copyFileSync(join(root, "tmp", name), join(root, "tmp", `docker-driver-${name}`));
+    copyFileSync(join(root, "tmp/proof-checkout.json"), join(root, "tmp/docker-driver-proof-checkout.json"));
+    return report;
+  }
+  if (drivers.length) {
+    const receipt = await Bun.file(join(root, "tmp/docker-driver-proof-checkout.json")).json();
+    if (receipt.category !== "unit" || JSON.stringify(receipt.checkout) !== JSON.stringify(checkout) || receipt.shard !== shard ||
+        JSON.stringify([...receipt.files].sort()) !== JSON.stringify([...files].sort())) throw new Error("Docker driver proof identity differs");
+    await mergeBatchReports(reportArgv(), [
+      ...(files.length > drivers.length ? [{ argv: reportArgv() }] : []), { argv: reportArgv("docker-driver-") },
+    ]);
+  }
+  return validateUnitReports(files, await Bun.file(reportArgv()[1]!).text(), await Bun.file(reportArgv()[3]!).json());
 }
 
 if (import.meta.main) {
@@ -146,9 +173,11 @@ if (import.meta.main) {
       const category = process.argv[2] as ProofCategory;
       if (!PROOF_CATEGORIES.includes(category)) throw new Error("Unknown proof category");
       const args = process.argv.slice(3);
+      const dockerDrivers = args.includes("--docker-drivers");
+      if (dockerDrivers && category !== "unit" && category !== "determinism") throw new Error("Docker drivers require unit or determinism");
       const shardArg = args.find(arg => arg.startsWith("--shard="));
       const workersArg = args.find(arg => arg.startsWith("--workers="));
-      if (args.length !== Number(Boolean(shardArg)) + Number(Boolean(workersArg)) ||
+      if (args.length !== Number(Boolean(shardArg)) + Number(Boolean(workersArg)) + Number(dockerDrivers) ||
           (workersArg && (category !== "unit" || !/^--workers=[12]$/.test(workersArg)))) throw new Error("Unexpected proof argument");
       const shard = shardArg?.slice("--shard=".length);
       const unitWorkers = workersArg ? Number(workersArg.slice("--workers=".length)) : 2;
@@ -163,15 +192,15 @@ if (import.meta.main) {
       const chrome = requireRuntimeTools({ ...plan, local: { ...plan.local, fullTests: native,
         browser: !native, layout: !native, captures: !native } });
       if (chrome && (category === "unit" || category === "determinism")) await runCommands([{ name: "first real Chrome launch and render",
-        argv: [process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome] }], root);
-      const commands = categoryCommands(category, plan, root, shard, unitWorkers).map(command => ({ ...command,
+        argv: offlineCommand([process.execPath, "--no-env-file", "packages/ui-render-puppeteer/tests/cold-start.ts", chrome], true) }], root);
+      const commands = categoryCommands(category, plan, root, shard, unitWorkers, dockerDrivers).map(command => ({ ...command,
         env: { ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}), ...command.env } }));
       // The host/container lease regression deliberately uses --pull=never
       // under the offline test harness. Prepare its actual pinned image once,
       // only on the partition that discovers that test, before entering tests.
       // The browser repetition gate's own container test starts the same image the same way (#4163).
       const selectedFiles = category === "unit" ? unitFiles(plan, root, shard) : category === "determinism" ? determinismFiles(plan, shard) : [];
-      if (PINNED_IMAGE_TESTS.some(file => selectedFiles.includes(file))) {
+      if (dockerDrivers && PINNED_IMAGE_TESTS.some(file => selectedFiles.includes(file))) {
         if (!Bun.which("docker")) throw new Error("The pinned-container tests require Docker");
         const { image } = await resolveBrowserPin(root);
         commands.unshift({ name: "pinned offline workspace lease container prerequisite", argv: ["docker", "pull", image], env: {} });
@@ -227,10 +256,13 @@ if (import.meta.main) {
         }
         await unitMemory?.stop();
       }
-      if (category === "unit") {
-        const { validateUnitReports } = await import("./unit-proof-report");
-        const report = validateUnitReports(unitFiles(plan, root, shard),
-          await Bun.file(join(root, "tmp/unit-report.xml")).text(), await Bun.file(join(root, "tmp/unit-timings.json")).json());
+      if (dockerDrivers && commands.length && category === "determinism") {
+        for (const name of ["determinism-report.json", "determinism-junit.xml"]) {
+          copyFileSync(join(root, "tmp", name), join(root, "tmp", `docker-driver-${name}`));
+        }
+      }
+      if (category === "unit" && (commands.length || (!dockerDrivers && unitFiles(plan, root, shard).length))) {
+        const report = await completeUnitReport(root, unitFiles(plan, root, shard), { sha, tree, parents }, shard, dockerDrivers);
         await Bun.write(join(root, "tmp/unit-report-summary.json"), JSON.stringify({ checkout: { sha, tree, parents }, shard, unitWorkers, ...report }, null, 2));
       }
     }

@@ -663,6 +663,24 @@ test("a resolved queued announcement is dropped; terminal expiry without tool_re
   expect(s.host.querySelector('[data-approval-card]')).toBe(null);
 });
 
+test("a withdrawn Network card leaves one actionable destination decision", async ctx => {
+  const s = await scene(ctx);
+  const turnId = "ithaca-permission";
+  const card = (id:string,description:string) => s.deliver({type:"tool_approval_request",sessionId:SESSION,turnId,
+    toolUseId:id, toolName:"Network",kind:"command",input:{target:"ithaca.example:443"},description});
+  s.deliver({type:"text_delta",sessionId:SESSION,turnId,text:"Reading harbour charts."});
+  card("earlier","Allow this connection?");
+  await expect.poll(()=>s.host.querySelectorAll("[data-approval-card]").length).toBe(1);
+  s.deliver({type:"tool_resolution",sessionId:SESSION,turnId,toolUseId:"earlier",outcome:"expired",reason:"Safety evidence changed."});
+  card("current","New safety evidence arrived. Allow this connection?");
+  await expect.poll(()=>s.host.textContent).toContain("New safety evidence arrived");
+  expect(s.host.textContent).toContain("Safety evidence changed.");
+  const allow = s.host.querySelectorAll<HTMLElement>('[data-approval-card] [aria-label="Allow"]');
+  expect(allow).toHaveLength(1);
+  await userEvent.click(allow[0]!);
+  expect(s.socket.frames("tool_approval").map(frame=>frame.toolUseId)).toEqual(["current"]);
+});
+
 test("a visual grant winning a voice-refusal race reports the host grant instead of an invented denial", async (ctx) => {
   const s = await scene(ctx); await s.start(); approval(s, "ithaca-race");
   recognition(s, "brain, stop");

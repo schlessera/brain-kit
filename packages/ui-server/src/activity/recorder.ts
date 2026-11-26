@@ -550,6 +550,7 @@ export function createTurnRecorder(
             break;
           }
           case "runtime_observed": {
+            if (event.runtime) turn.lifecycle?.runtimeVersion(event.runtime.version);
             // Observed next to the classification on the root: what ran, the
             // credential it selected, and whether that honours the profile.
             ensureRoot();

@@ -43,8 +43,8 @@ const PUBLIC_MESSAGES: Record<ReferenceToolRefusalCode, string> = {
 const MAINTENANCE_BUSY = "Host maintenance is busy, so nothing ran. Retry this request in a minute.";
 const SOURCE_GUIDANCE = "Read only under path. Shared source is read-only and moves: a later read may see a newer commit. To edit it, or to read one fixed commit across several steps, request a managed worktree.";
 const WORKTREE_GUIDANCE: Record<"request" | "access" | "renew" | "release", string> = {
-  request: "Work only under path. The starting commit never moves. Edits are journaled and count toward this turn's scope limits. Only access or renewal resets the inactivity clock; release the worktree when you are done.",
-  access: "Work only under path. The starting commit never moves. Edits are journaled and count toward this turn's scope limits. Only access or renewal resets the inactivity clock; release the worktree when you are done.",
+  request: "Work only under path. The starting commit never moves. Edits are recorded as a git diff when the worktree is released or the turn ends. Ignored files are not kept; the reference pool's per-operation byte allowance bounds this checkout. Only access or renewal resets the inactivity clock; release the worktree when you are done.",
+  access: "Work only under path. The starting commit never moves. Edits are recorded as a git diff when the worktree is released or the turn ends. Ignored files are not kept; the reference pool's per-operation byte allowance bounds this checkout. Only access or renewal resets the inactivity clock; release the worktree when you are done.",
   renew: "The inactivity clock restarts now. Renewal does not make the worktree available to this turn; access it to work in it.",
   release: "Released for good: it cannot be accessed, renewed or resumed again. Unfinished work in it is kept for the user to decide.",
 };
@@ -133,7 +133,7 @@ export function createReferenceTools(options: {
     attachEgress(turnId: string, principalId: string, input: Omit<ReferenceAcquisitionContext, "turnId">): void {
       const access = turns.get(turnId);
       if (!access || access.principalId !== principalId || access.acquisition) throw new ReferenceSourceError("unavailable", "Reference turn egress cannot be attached.");
-      access.acquisition = { turnId, egress: input.egress, current: () => current(turnId, access) && input.current() };
+      access.acquisition = { turnId, egress: input.egress, pendingRecording: input.pendingRecording, current: () => current(turnId, access) && input.current() };
     },
     /**
      * Record one turn's reference access before its workers start. Opens the

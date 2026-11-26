@@ -344,3 +344,11 @@ test.each([["protected", [".brain-ui"]], ["unprotected", ["lore"]]] as const)("a
     }
   } finally { host.close(); await intake.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 }, 60_000);
+
+
+test("an autonomous exact approval does not bypass the default checkout inspection guard",async()=>{
+ const proposal={operation:"write" as const,path:"workspaces/ithaca/README.md",content:NOTE,expectedBaseHash:null};
+ const {brain,applied}=await autonomousApply([],proposal,brain=>mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true}));
+ expect(applied,"DIRECT_HOST_APPLICATION_DEFAULTS_TO_INSPECTION").toMatchObject({ok:false,code:"policy_denied",message:expect.stringContaining("switch on code changes for this session")});
+ expect(existsSync(join(brain,proposal.path))).toBe(false);
+});

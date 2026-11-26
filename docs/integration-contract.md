@@ -20,6 +20,15 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Storage events timeline (additive, 0.45.0, #4541)
+
+`GET /api/storage/events` returns a bounded, per-kind timeline of warning
+episodes, owner refusals, scope changes and the caller's own maintenance runs,
+paged by recording order with `since`. The SDK gains `StorageEventsResponse`
+and its event types. Existing storage shapes are unchanged. See
+[the HTTP component](integration-contract/http.md#storage-events-timeline-additive-0450-4541).
+This ships in a minor.
+
 ## Per-review line-comment counts (additive, 0.45.0, #4147)
 
 Each review in a `brain_github_issue_read` pull request result gains
@@ -472,8 +481,10 @@ Both first-party backends gain one host-executed bridge tool, `read_attachment`
 interactive session's fixed roster whether or not the session has
 attachments. It reads one original that a message of the calling session was
 sent: PDF text by page, at most 20 pages per call, or a text file by byte
-range, at most 65,536 bytes per call and 262,144 per turn, with a `next`
-cursor for the rest. Its result names its outcome (`read`, `partial`,
+range. Text-file pages on Claude allow 40,000 bytes per call to keep the
+cursor inline. Other reads allow 65,536 bytes per call. Both backends allow
+262,144 bytes per turn and return a `next` cursor for the rest. Its result
+names its outcome (`read`, `partial`,
 `no_text`, `encrypted`, `malformed`, `failed`, `unavailable`, `changed` or
 `refused`) and exactly what it covers; contents are quoted as data. New
 messages' `<brain-attachments>` block names the tool; messages recorded before
@@ -675,6 +686,14 @@ host fetches with its sync credential into a private mirror, and the job's
 worker reads the mirror through a Git URL rewrite without any credential. See
 [the package API component](integration-contract/package-api.md#module-repositories).
 This ships in a minor; no breaking ruling is required.
+
+## Module GitHub relay (additive, 0.45.0, #4259)
+
+A module cron job granted a GitHub repository reaches its API through a per-run
+host relay socket named in `BRAIN_MODULE_GITHUB_SOCKET`. It forwards granted
+reads and only operator-enabled writes (`BRAIN_UI_MODULE_GITHUB_WRITES`) with the
+host's `BRAIN_UI_MODULE_GITHUB_TOKEN`; the worker holds no token. See
+[the package API component](integration-contract/package-api.md#module-github-relay).
 
 ## Module state area (additive, 0.45.0, #3380)
 

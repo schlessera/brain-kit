@@ -1,6 +1,9 @@
 /** Concrete host-only protocol. No request accepts host paths, commands, caller-selected UIDs or mount authority. */
 import { z } from "zod";
 
+/** Worst-case JSON escaping of the longest accepted metadata path plus fixed identities. */
+export const NATIVE_REQUEST_BYTES = 512 * 1024;
+
 export const nativeCheckpointId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 /** One published entry in a view: a plain lowercase name that can never be a root identity or a hidden or relative entry. */
 export const nativePoolName = z.string().regex(/^[a-z0-9][a-z0-9._@+-]{0,127}$/).refine(name => !nativeCheckpointId.safeParse(name).success);
@@ -15,15 +18,15 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("inspectStage"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("releaseStage"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("readCheckpoint"), id: nativeCheckpointId,
-    action: z.enum(["file", "stat", "list"]), path: z.string().max(4096).refine(path => !path.startsWith("/") && !path.includes("\0") &&
-      (!path || path.split("/").length <= 256 && path.split("/").every(part => part && part !== "." && part !== ".."))),
+    action: z.enum(["file", "stat", "list"]), path: z.string().max(65535).refine(path => !path.startsWith("/") && !path.includes("\0") &&
+      (!path || path.split("/").length <= 32768 && path.split("/").every(part => part && part !== "." && part !== ".."))),
     maximum: z.number().int().nonnegative(),
-  }).strict(),
+  }).strict().refine(request => request.action === "stat" || request.path.length <= 4096 && request.path.split("/").length <= 256),
   z.object({ operation: z.literal("readStage"), id: nativeCheckpointId,
-    action: z.enum(["file", "stat", "list"]), path: z.string().max(4096).refine(path => !path.startsWith("/") && !path.includes("\0") &&
-      (!path || path.split("/").length <= 256 && path.split("/").every(part => part && part !== "." && part !== ".."))),
+    action: z.enum(["file", "stat", "list"]), path: z.string().max(65535).refine(path => !path.startsWith("/") && !path.includes("\0") &&
+      (!path || path.split("/").length <= 32768 && path.split("/").every(part => part && part !== "." && part !== ".."))),
     maximum: z.number().int().nonnegative(),
-  }).strict(),
+  }).strict().refine(request => request.action === "stat" || request.path.length <= 4096 && request.path.split("/").length <= 256),
   z.object({ operation: z.literal("cancelCheckpointRead"), id: nativeCheckpointId }).strict(),
   // Turn data trees (#2911): one app-owned directory per turn on the managed
   // volume, outside the live brain and every checkpoint. The manager alone
@@ -55,10 +58,10 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("poolCheckpoint"), id: nativeCheckpointId, from: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolDelta"), from: nativeCheckpointId, to: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolReadCheckpoint"), id: nativeCheckpointId,
-    action: z.enum(["file", "stat", "list"]), path: z.string().max(4096).refine(path => !path.startsWith("/") && !path.includes("\0") &&
-      (!path || path.split("/").length <= 256 && path.split("/").every(part => part && part !== "." && part !== ".."))),
+    action: z.enum(["file", "stat", "list"]), path: z.string().max(65535).refine(path => !path.startsWith("/") && !path.includes("\0") &&
+      (!path || path.split("/").length <= 32768 && path.split("/").every(part => part && part !== "." && part !== ".."))),
     maximum: z.number().int().nonnegative(),
-  }).strict(),
+  }).strict().refine(request => request.action === "stat" || request.path.length <= 4096 && request.path.split("/").length <= 256),
   z.object({ operation: z.literal("poolAccessOpen"), access: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolAccess"), id: nativeCheckpointId, access: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolPark"), id: nativeCheckpointId, expectedAccess: nativeCheckpointId.optional() }).strict(),
@@ -279,6 +282,7 @@ export interface NativePoolGrowth {
 }
 /** The privileged helper inspects only its bounded upper layer after the worker exits. */
 export interface NativeStageChange { pathHex: string; kind: "entry" | "whiteout" | "opaque" }
+/** Control replies, intents and stage rows retain their independent 64 KiB bound. */
 export const NATIVE_CONTROL_BYTES = 64 * 1024;
 export const NATIVE_DATA_CHUNK_BYTES = 64 * 1024;
 /** Transport work bounds, configurable; neither is a history/object/change quota. */

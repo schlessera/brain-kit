@@ -37,7 +37,9 @@ function canonical(path: string, links = 0): string {
 export const within = (root: string, path: string) => isWithin(root, path, { trailingSeparator: "boundary" });
 
 /** An outside name does not move an inode out of the brain if another name or a bind mount remains there. */
-function hasBrainAlias(brain: string, path: string, descendants = false): boolean {
+type AliasScan = { scans: number; entries: number };
+function hasBrainAlias(brain: string, path: string, descendants: boolean, counts?: AliasScan): boolean {
+  if (counts) counts.scans++;
   let state = lstatSync(path, { throwIfNoEntry: false });
   const existing = Boolean(state);
   while (!state && path !== "/") { path = dirname(path); state = lstatSync(path, { throwIfNoEntry: false }); }
@@ -51,6 +53,7 @@ function hasBrainAlias(brain: string, path: string, descendants = false): boolea
   function collect(fd: number, depth: number): void {
     if (depth > 256) throw new Error("Operational state alias verification exceeds the directory depth bound");
     for (const name of readdirSync(`/proc/self/fd/${fd}`, { encoding: "buffer" })) {
+      if (counts) counts.entries++;
       if (++entries > 200_000) throw new Error("Operational state alias verification exceeds 200000 entries");
       const entry = Buffer.concat([Buffer.from(`/proc/self/fd/${fd}/`), name]);
       const info = lstatSync(entry);
@@ -80,6 +83,7 @@ function hasBrainAlias(brain: string, path: string, descendants = false): boolea
   function walk(fd: number, depth: number): boolean {
     if (depth > 256) throw new Error("Operational state alias verification exceeds the directory depth bound");
     for (const name of readdirSync(`/proc/self/fd/${fd}`, { encoding: "buffer" })) {
+      if (counts) counts.entries++;
       if (++entries > 200_000) throw new Error("Operational state alias verification exceeds 200000 entries");
       const entry = Buffer.concat([Buffer.from(`/proc/self/fd/${fd}/`), name]);
       const info = lstatSync(entry);
@@ -110,11 +114,13 @@ export interface OperationalStateLayout {
   privateStatePaths?: readonly { setting: string; path: string }[];
 }
 /** Include real SQLite sidecars and the separately derived quarantine location. */
-function statePaths(input: OperationalStateLayout): { setting: string; path: string }[] {
-  const database = input.dbPath && input.dbPath !== ":memory:" ? canonical(input.dbPath) : undefined;
-  return [...(database ? [input.dbPath!, `${database}-wal`, `${database}-shm`].map(path => ({ setting: "DB_PATH", path })) : []),
+type StatePath = { setting: string; path: string | (() => string) };
+const statePath = (entry: StatePath): string => typeof entry.path === "string" ? entry.path : entry.path();
+function statePaths(input: OperationalStateLayout): StatePath[] {
+  const database = input.dbPath && input.dbPath !== ":memory:" ? input.dbPath : undefined;
+  return [...(database ? [{ setting: "DB_PATH", path: database }, ...["-wal", "-shm"].map(suffix => ({ setting: "DB_PATH", path: () => `${canonical(database)}${suffix}` }))] : []),
     // The journal's own database file and its sidecars (#2789).
-    ...(database ? ["", "-wal", "-shm"].map(suffix => ({ setting: "DB_PATH", path: canonical(`${journalDatabasePath(input.dbPath!)}${suffix}`) })) : []),
+    ...(database ? ["", "-wal", "-shm"].map(suffix => ({ setting: "DB_PATH", path: () => canonical(`${journalDatabasePath(input.dbPath!)}${suffix}`) })) : []),
     ...(input.dbPath === ":memory:" ? [{ setting: "TMPDIR", path: `${tmpdir()}/brain-ui-quarantine` }] : []),
     ...(input.dbPath !== undefined && input.dbPath !== ":memory:" ? [{ setting: "DB_PATH quarantine", path: join(dirname(resolve(input.dbPath)), "brain-ui-quarantine") }] : []),
     ...(input.privateStatePaths ?? [])];
@@ -123,7 +129,8 @@ function statePaths(input: OperationalStateLayout): { setting: string; path: str
 /** Keep the configured directory masks and also cover resolved targets and private siblings. */
 export function operationalStateMasks(input: OperationalStateLayout): string[] {
   const masks = new Set<string>();
-  for (const { path } of statePaths(input)) {
+  for (const entry of statePaths(input)) {
+    const path = statePath(entry);
     masks.add(canonical(dirname(path)));
     masks.add(dirname(canonical(path)));
     if (lstatSync(canonical(path), { throwIfNoEntry: false })?.isDirectory()) masks.add(canonical(path));
@@ -135,32 +142,53 @@ interface OperationalStateRefusal {
   available: false;
   reason: GovernedUnavailableReason;
   detail: string;
+  /** Internal cause; non-enumerable so availability/status retain their wire shape. */
+  cause?: unknown;
 }
 
-/** The boot check and status surface share the exact resolution and migration guidance. */
-export function operationalStateRefusal(input: OperationalStateLayout): OperationalStateRefusal | undefined {
-  const brain = canonical(input.brainPath);
-  const paths = statePaths(input);
-  for (const { setting, path } of paths) {
-    // Both the state file and its directory matter: sibling WAL/quarantine data
-    // share that directory, while a file itself can be a link into the brain.
-    const resolved = canonical(path);
-    const location = within(brain, resolved) || within(brain, canonical(dirname(path))) ? "resolves inside"
-      : hasBrainAlias(brain, resolved, true) || hasBrainAlias(brain, canonical(dirname(path)))
-        || hasBrainAlias(brain, dirname(resolved)) ? "has an inode alias inside" : undefined;
-    if (location) {
-      return { available: false, reason: setting === "DB_PATH" ? "database_in_brain" : "private_state_in_brain",
-        detail: `OperationalStateInBrainError: ${setting} ${location} the brain; stop the server, move the state directory outside the brain (including database WAL/SHM and quarantine siblings), remove any state aliases from the brain, point ${setting === "DB_PATH quarantine" ? "DB_PATH" : setting} at the moved path, then restart. Do not remove the worker masks.` };
+/** Check one path; another path's incomplete scan cannot hide a confirmed exposure. */
+function checkOperationalPath(brain: string, entry: StatePath, counts?: AliasScan): OperationalStateRefusal | undefined {
+  const { setting } = entry, path = statePath(entry);
+  // Both the state file and its directory matter: sibling WAL/quarantine data
+  // share that directory, while a file itself can be a link into the brain.
+  const resolved = canonical(path);
+  const location = within(brain, resolved) || within(brain, canonical(dirname(path))) ? "resolves inside"
+    : hasBrainAlias(brain, resolved, true, counts) || hasBrainAlias(brain, canonical(dirname(path)), false, counts)
+      || hasBrainAlias(brain, dirname(resolved), false, counts) ? "has an inode alias inside" : undefined;
+  if (location) {
+    return { available: false, reason: setting === "DB_PATH" ? "database_in_brain" : "private_state_in_brain",
+      detail: `OperationalStateInBrainError: ${setting} ${location} the brain; stop the server, move the state directory outside the brain (including database WAL/SHM and quarantine siblings), remove any state aliases from the brain, point ${setting === "DB_PATH quarantine" ? "DB_PATH" : setting} at the moved path, then restart. Do not remove the worker masks.` };
+  }
+}
+
+function unverified(cause: unknown): OperationalStateRefusal {
+  return Object.defineProperty({ available: false as const, reason: "private_state_unverified" as const,
+    detail: `OperationalStateAliasVerificationUnavailable: ${cause instanceof Error ? cause.message : String(cause)}; boot or turn admission is refused until a later check can verify private state.` }, "cause", { value: cause });
+}
+
+/** Retry each complete identity comparison, including destinations already visited. */
+export function operationalStateRefusal(input: OperationalStateLayout, counts?: AliasScan): OperationalStateRefusal | undefined {
+  let brain: string;
+  try { brain = canonical(input.brainPath); } catch (error) { return unverified(error); }
+  let incomplete: OperationalStateRefusal | undefined;
+  for (const entry of statePaths(input)) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const refusal = checkOperationalPath(brain, entry, counts);
+        if (refusal) return refusal;
+        break;
+      } catch (error) { if (attempt === 2) incomplete ??= unverified(error); }
     }
   }
+  return incomplete;
 }
 
 /** Refuse before opening state, reconciling manifests or evaluating any brain code. */
 export function assertOperationalStateOutsideBrain(input: OperationalStateLayout): void {
   const refusal = operationalStateRefusal(input);
   if (!refusal) return;
-  const error = new Error(refusal.detail);
-  error.name = "OperationalStateInBrainError";
+  const error = new Error(refusal.detail, refusal.reason === "private_state_unverified" ? { cause: refusal.cause } : undefined);
+  error.name = refusal.reason === "private_state_unverified" ? "OperationalStateAliasVerificationUnavailable" : "OperationalStateInBrainError";
   // An embedder can show the same diagnostic even though a refused app has no HTTP listener.
   throw Object.assign(error, { status: refusal });
 }

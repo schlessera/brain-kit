@@ -28,7 +28,8 @@ const SOCKET_ORIGIN = "http://localhost";
 export function claudeAutonomousEnvelope(
   profile: InferenceProfile,
   turnEnvironment: Readonly<Record<string, string | undefined>>,
-  observe?: (event: InferenceRelayEvent) => void
+  observe?: (event: InferenceRelayEvent) => void,
+  received?: Parameters<typeof startInferenceRelay>[0]["received"]
 ): ClaudeAutonomousEnvelope {
   const value = (name: string): string | undefined => turnEnvironment[name]?.trim() || undefined;
   let credentials: Record<string, string>;
@@ -55,7 +56,7 @@ export function claudeAutonomousEnvelope(
   const pinned = { ...CLEARED_API_CREDENTIALS, ...placeholder,
     ANTHROPIC_UNIX_SOCKET: WORKER_INFERENCE_SOCKET, ANTHROPIC_BASE_URL: SOCKET_ORIGIN };
   const relay = startInferenceRelay({ upstream: value("ANTHROPIC_BASE_URL") ?? "https://api.anthropic.com",
-    routes: ANTHROPIC_INFERENCE_ROUTES, credentials, ...(observe ? { observe } : {}) });
+    routes: ANTHROPIC_INFERENCE_ROUTES, credentials, received, ...(observe ? { observe } : {}) });
   return {
     relay,
     pinned,

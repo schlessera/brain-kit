@@ -15,13 +15,13 @@ type InboxSlice = ReturnType<NonNullable<NonNullable<BridgeContext["host"]["inbo
  * The turn's inbox tools. Opened before the turn's share starts, so it is
  * called on its own ahead of the bridge's other capabilities.
  */
-export function openInbox(ctx: BridgeContext, protectedPaths: readonly string[] | undefined): InboxSlice | undefined {
+export function openInbox(ctx: BridgeContext, protectedPaths: readonly string[] | undefined, workspaceReadOnly?: boolean): InboxSlice | undefined {
   const { host, turn, turnId, principalId, signal, work, isAuthorized, hold, scopePaused, maskGuard } = ctx;
   // Compensation waits only for a hold on brain writes: it runs after
   // revocation or cancellation too, and never during an observation (#2869).
   const writes = { waitMs: hold.waitMs, active: () => !!host.journal?.isHeld() || scopePaused(), settled: () => hold.settled() };
   return host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
-    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive", ...(protectedPaths ? { protectedPaths } : {}),
+    workspaceReadOnly, origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive", ...(protectedPaths ? { protectedPaths } : {}),
     holds: { hold, writes, signal }, ...(maskGuard ? { requalify: () => assertStagingUnmasked(ctx, maskGuard) } : {}) });
 }
 

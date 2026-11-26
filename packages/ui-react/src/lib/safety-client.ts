@@ -5,13 +5,17 @@ import type { BrainUiServices } from "../root.js";
 export function createSafetyClient(root:BrainUiServices,send:(message:ClientMessage)=>boolean){
   let target:SafetyTarget|null=null,requestId:string|null=null,disposed=false,awaitingPage=false,capacityRecoveryUsed=false;
   const store=root.stores.safety;
+  let connected=false,admissions=false,nonDelivery=false;
+  function disconnected():void{connected=false;requestId=null;awaitingPage=true;store.getState().disconnected();}
+  function sendRead(message:ClientMessage):void{if(!send(message))disconnected();}
   function read(next:SafetyTarget):void{
-    if(disposed||!store.getState().supported)return;
+    if(disposed||!connected||!store.getState().supported)return;
     target=next;requestId=crypto.randomUUID();awaitingPage=true;store.getState().begin(requestId);
     send({type:"safety_unsubscribe",version:1});
-    send({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{})});
+    sendRead({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{})});
   }
   function selected(): void {
+    if (!connected) return;
     capacityRecoveryUsed=false;
     const id = root.stores.chat.getState().activeSessionId;
     // Host-only voice histories and older persisted keys are chat selections.
@@ -23,21 +27,32 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       if (store.getState().supported) send({ type: "safety_unsubscribe", version: 1 });
     }
   }
-  const detach=root.stores.chat.subscribe((state,previous)=>{if(state.activeSessionId!==previous.activeSessionId)selected();});
+  const detach=root.stores.chat.subscribe((state,previous)=>{
+    if(state.activeSessionId===previous.activeSessionId)return;
+    if(!connected&&target&&store.getState().reason==="disconnected") {
+      target=null;
+      store.getState().unavailable("disconnected");
+    } else selected();
+  });
   const detachRefresh=store.subscribe((state,previous)=>{if(state.refreshTick!==previous.refreshTick)selected();});
   return {
     frame(msg:ServerMessage):boolean{
       if(disposed)return false;
       if(msg.type==="server_hello"){
-        requestId=null;store.getState().reset(msg.capabilities?.sessionSafetyHistory===true&&msg.safetyCapabilities?.read===true,msg.safetyCapabilities??null,msg.capabilities?.sessionSafetyEntryCorrelation===true,msg.principalKey?`host:${msg.principalKey}`:`unbound:${crypto.randomUUID()}`);selected();return false;
+        connected=true;
+        nonDelivery=msg.capabilities?.sessionSafetyNonDelivery===true;
+        admissions=msg.capabilities?.sessionSafetyAdmissionEvidence===true;
+        const future=msg.capabilities?.sessionSafetyFutureRules===true&&msg.safetyCapabilities?.review===true;
+        const capabilities=msg.safetyCapabilities?{...msg.safetyCapabilities,originRules:future,recipientRules:future}:null;
+        requestId=null;store.getState().reset(msg.capabilities?.sessionSafetyHistory===true&&msg.safetyCapabilities?.read===true,capabilities,msg.capabilities?.sessionSafetyEntryCorrelation===true,msg.principalKey?`host:${msg.principalKey}`:`unbound:${crypto.randomUUID()}`);selected();return false;
       }
       if(msg.type==="chat_retired"){store.getState().retire(msg.sessionId,msg.historyOwnerIds);if(target&&"sessionId" in target&&target.sessionId===msg.sessionId){requestId=null;target=null;store.getState().unavailable("retired");}return false;}
       if(msg.type==="safety_history"){
         if(msg.requestId!==requestId||!target||!awaitingPage)return true;
         if(msg.page.cursor!==store.getState().nextCursor)return true;
         if(!store.getState().page(msg.requestId,msg.page)){read(target);return true;}
-        if(msg.page.nextCursor)send({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor,...(store.getState().entryCorrelation?{includeEntries:true as const}:{})});
-        else{awaitingPage=false;send({type:"safety_subscribe",version:1,requestId:msg.requestId,identity:msg.page.identity,afterRevision:msg.page.highWater,snapshotId:msg.page.snapshotId});}return true;
+        if(msg.page.nextCursor)sendRead({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{})});
+        else{awaitingPage=false;sendRead({type:"safety_subscribe",version:1,requestId:msg.requestId,identity:msg.page.identity,afterRevision:msg.page.highWater,snapshotId:msg.page.snapshotId});}return true;
       }
       if(msg.type==="safety_update"){
         // A previous subscription may still have frames in flight. The new
@@ -66,7 +81,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       return false;
     },
     refresh():void{selected();},
-    disconnected():void{requestId=null;awaitingPage=true;store.getState().disconnected();},
+    disconnected,
     dispose():void{disposed=true;requestId=null;detach();detachRefresh();store.getState().reset();},
   };
 }

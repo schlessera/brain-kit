@@ -45,13 +45,14 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   tool definition or any previously delivered provider history.
 - The turn proxy records each admitted non-provider connection and terminal
   exposure observation (`prepareTurnEgress`,
-  `packages/ui-server/src/brain/turn-egress.ts:87-296`). Relay admissions join
+  `packages/ui-server/src/brain/turn-egress.ts:94-389`). Relay admissions join
+
   this proxy's submitted terminal observations and its own announced session
   binding before reading fresh safety (`settleTurnSessionBinding`,
-  `packages/ui-server/src/ws/bridge-session-binding.ts:14-28`), without excluding
+  `packages/ui-server/src/ws/bridge-session-binding.ts:15-32`), without excluding
   independent pending input. A raw CONNECT reveals
   only an authority and opaque bytes, not a repository path or inner protocol
-  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:200-435`).
+  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:264-608`).
 - Outward decisions read session taint at admission (`prepareOutwardPlan`,
   `packages/ui-sdk/src/server/outward-policy.ts:47-94`). Existing historical
   steering attribution must remain attribution at the time of a write.

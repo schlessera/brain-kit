@@ -1,5 +1,14 @@
 # Integration contract — MCP tools
 
+The core definitions for `brain_search`, `brain_context`, `brain_read`,
+`brain_list` and `brain_read_many` include additive metadata
+`_meta: { "anthropic/alwaysLoad": true }`. This is the server's metadata
+guarantee. Whether those definitions are inline in a particular provider request
+depends on the client's support for the hint and when it loads the server;
+non-blocking startup can send a request before loading them. Names, input
+schemas, annotations and result envelopes are unchanged; other clients may
+ignore the metadata.
+
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
@@ -580,6 +589,12 @@ browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
 `run` | `rollups` | `inbox` | `roadblocks` (additive in 0.42.0); results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
+Host turn lifecycle envelopes are excluded from every `query_activity` result:
+their milestones, phase arrays, host events and missing-evidence diagnostics
+remain on the owner-facing Activity API and stream. A lifecycle-only run query
+returns its `runId` without the envelope. This also removes the pre-existing
+admission/journal lifecycle fields from recent, full and pruned run queries;
+already recorded provider messages are never rewritten.
 The `roadblocks` scope reads retained governance episodes rather than prunable
 Activity details. Optional `hoursBack` is an integer from 1 to 2160 (default
 24), and `limit` is an integer from 1 to 100 (default 20), applied separately
@@ -1248,7 +1263,7 @@ field is invalid. The result is the envelope `{ ok, operation, data }` or
 violation is an error result without it, as for every core tool. Discovered
 Actor schemas, READMEs and results are returned as data marked
 `untrusted: true`; no tool is ever added or removed for an Actor, and the
-roster is fixed for a server process and for a chat session.
+roster is fixed for a server process and for a chat session. Inspection includes declared input shapes, and the run or status returns an optional `results.bounded_cursor` for the byte-bounded pages, item fragments and omission warnings described in the [CLI contract](cli.md).
 
 On the core server the operator's own policy, `APIFY_TOKEN` and
 `BRAIN_APIFY_LEDGER` apply, as for the CLI; the session is `default` and
@@ -1459,8 +1474,9 @@ text was returned, by the text inside an
 
 Every outcome except `read` and `partial` is a tool error. Text pages open with
 `[page N]`, or `[page N, continued]` when a cursor resumes inside a page. Text
-is cut on a code-point boundary at 65,536 UTF-8 bytes per call and 262,144 per
-turn; past the turn's budget the result is `partial` with an empty text and a
+is cut on a code-point boundary. Claude text-file results allow 40,000 UTF-8
+bytes per call so that the cursor stays inline. Other reads allow 65,536
+bytes per call. All reads share the 262,144-byte turn budget. Past that budget the result is `partial` with an empty text and a
 `next` for a later turn.
 
 Only originals a **message of the calling session** references are readable:

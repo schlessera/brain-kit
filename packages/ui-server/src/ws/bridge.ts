@@ -1,3 +1,5 @@
+import { lstatSync } from "node:fs";
+import { join } from "node:path";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
 import { staleReadRefusal } from "../brain/turn-data-tree.js";
@@ -24,15 +26,18 @@ import { retainTurnSessionBinding } from "./bridge-session-binding.js";
 
 export { emitTurnError } from "./bridge-capabilities/turn-error.js";
 
-const turnIndexSettlers = new WeakMap<BackendBridge, () => Promise<void>>();
+type IndexObservation = Parameters<IndexBatch["barrier"]>[1];
+const turnIndexSettlers = new WeakMap<BackendBridge, (observation?: IndexObservation) => Promise<void>>();
+const turnIndexPending = new WeakMap<BackendBridge, () => boolean>();
+export function hasPendingTurnIndex(bridge: BackendBridge): boolean { return turnIndexPending.get(bridge)?.() ?? false; }
 
 /**
  * At turn end: flush the index updates this turn's applications queued.
  * Rejects when that update fails; each application's Activity record has
  * already received the outcome, and its paths stay queued for the next reader.
  */
-export function settleTurnIndex(bridge: BackendBridge): Promise<void> {
-  return turnIndexSettlers.get(bridge)?.() ?? Promise.resolve();
+export function settleTurnIndex(bridge: BackendBridge, observation?: IndexObservation): Promise<void> {
+  return turnIndexSettlers.get(bridge)?.(observation) ?? Promise.resolve();
 }
 
 /**
@@ -40,12 +45,15 @@ export function settleTurnIndex(bridge: BackendBridge): Promise<void> {
  * capability, composed in a fixed order, with the live-authority wrapper last.
  */
 export async function makeBridge(host: WsHost, turn: RunningTurn, options: MakeBridgeOptions): Promise<BackendBridge> {
+  // Hosts without governed admission still expose privileged applications.
+  // Freeze their ordinary default here, before any bridge capability opens.
+  if (options.workspaceReadOnly === undefined && host.brainPath) options = { ...options, workspaceReadOnly: Boolean(lstatSync(join(host.brainPath, "workspaces"), { throwIfNoEntry: false })) };
   const applicationPolicy = options.applicationPolicy ? { ...options.applicationPolicy, lock: host.workerLock } : undefined;
   const ctx = createBridgeContext(host, turn, options);
   const transcript = createTurnTranscript(ctx);
   // Captures the turn's draft and retry fields now, with its identity.
   const emission = createEmission(ctx, transcript, options);
-  const inbox = openInbox(ctx, options.protectedPaths);
+  const inbox = openInbox(ctx, options.protectedPaths, options.workspaceReadOnly);
   if (ctx.work?.posture !== "voice") await host.inboxTools?.shares?.start(ctx.principalId, ctx.turnId, turn.sessionId ?? undefined, turn.shareId, ctx.current);
   // Capabilities that ask for a permission read the composed bridge when they
   // ask, so they reach the wrapped `requestPermission` installed below.
@@ -193,7 +201,8 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
       if (readsIndex(toolName)) await tree.barrier(signal);
     };
   } else if (indexBatch) bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await indexBatch.barrier(signal); };
-  if (indexBatch && turnIndex) turnIndexSettlers.set(bridge, () => turnIndex!.pending() ? turnIndex!.barrier() : Promise.resolve());
+  if (indexBatch && turnIndex) turnIndexPending.set(bridge, () => turnIndex!.pending());
+  if (indexBatch && turnIndex) turnIndexSettlers.set(bridge, observation => turnIndex!.pending() ? turnIndex!.barrier(undefined, observation) : Promise.resolve());
 }
 
 /**

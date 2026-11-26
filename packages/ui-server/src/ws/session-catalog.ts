@@ -85,9 +85,9 @@ export interface SessionCatalog {
   recordStateRoom?(sessionId: string, observation: StateRoomObservation): void;
   readStateRoom?(sessionId: string): StateRoomObservation | undefined;
   /** Scratch links in backend-persisted answers, before next-turn pruning. */
-  recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void;
+  recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): boolean | void | Promise<boolean | void>;
   /** Observed terminal metadata at its backend-normalized assistant position. */
-  recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
+  recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): boolean | void | Promise<boolean | void>;
   attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /**
    * Settles once every catalog write submitted before it has settled
@@ -107,7 +107,7 @@ export interface SessionCatalog {
   /** Whether the catalog holds a row for this session. Throws when the read fails. */
   hasSession?(sessionId: string): boolean;
   /** Observed position of a finished turn's last answer (#964). */
-  recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): void;
+  recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): boolean | void | Promise<boolean | void>;
   /** Replayed history with host-proven turn ids joined onto the answers that ended each turn. */
   attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /** The provider/profile a stored session is pinned to, or null. */
@@ -415,11 +415,11 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       } catch (error) { reportWriteFailure(sessionId, error); return undefined; }
     },
     recordScratchPins(sessionId, backendId, messages) {
-      try { scratchPins?.record(sessionId, backendId, messages); }
-      catch (err) { reportWriteFailure(sessionId, err); }
+      try { scratchPins?.record(sessionId, backendId, messages); return true; }
+      catch (err) { reportWriteFailure(sessionId, err); return false; }
     },
     recordTurnFailure(sessionId, backendId, record) {
-      submit("turnFailure", sessionId, backendId, record).catch(err => reportWriteFailure(sessionId, err));
+      return submit<boolean>("turnFailure", sessionId, backendId, record).then(stored => stored === true, err => { reportWriteFailure(sessionId, err); return false; });
     },
     attachTurnFailures(sessionId, messages) {
       try {
@@ -484,7 +484,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     latestWork,
     hasSession: hasRow,
     recordTurnBoundary(sessionId, backendId, boundary) {
-      submit("turnBoundary", sessionId, backendId, boundary).catch(err => reportWriteFailure(sessionId, err));
+      return submit<boolean>("turnBoundary", sessionId, backendId, boundary).then(stored => stored === true, err => { reportWriteFailure(sessionId, err); return false; });
     },
     attachTurnBoundaries(sessionId, messages) {
       try {

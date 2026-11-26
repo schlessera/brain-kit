@@ -92,7 +92,7 @@ export type PiWorkerMessage = z.infer<typeof piWorkerMessage>;
 export const piOutputStatus=z.object({complete:z.boolean(),exitCode:z.number().int().optional(),stderr:z.boolean().optional(),truncated:z.boolean().optional()}).strict();
 const searchStatus=z.object({decodingLoss:z.boolean().optional(),stdoutEmpty:z.boolean().optional(),exitCode:z.number().int(),stderr:z.boolean(),truncated:z.boolean(),framedOutput:z.string().optional(),visibleText:z.string().optional()}).strict();
 /** Host-only observation. Never alter provider result content to encode status. */
-export function safetyResultInput(tool:string,content:readonly {type:string;text?:unknown}[],complete=true,details?:unknown): {output:string;segments?:string[];outputStatus:z.infer<typeof piOutputStatus>} {
+export function safetyResultInput(tool:string,content:readonly {type:string;text?:unknown}[],complete=true,failed=false,details?:unknown): {output:string;segments?:string[];outputStatus:z.infer<typeof piOutputStatus>;failed?:true} {
  const segments=content.filter(part=>part.type==='text'&&typeof part.text==='string').map(part=>part.text as string),output=segments.join('\n');
  if(tool==='grep'){
   const status=searchStatus.safeParse(details&&typeof details==='object'?(details as Record<string,unknown>).search:undefined);
@@ -103,11 +103,12 @@ export function safetyResultInput(tool:string,content:readonly {type:string;text
   const successful=bound&&status.success&&!status.data.decodingLoss&&!status.data.stderr&&!status.data.truncated&&
    (status.data.exitCode===0&&output.length>0&&output!=='No matches.'||status.data.exitCode===1&&status.data.stdoutEmpty===true&&output==='No matches.');
   const processStatus=status.success?{exitCode:status.data.exitCode,stderr:status.data.stderr,truncated:status.data.truncated}:{};
-  return {output:bound?(framed??output):output,segments,outputStatus:{...processStatus,complete:original&&successful}};
+  return {...(failed?{failed:true as const}:{}),output:bound?(framed??output):output,segments,outputStatus:{...processStatus,complete:original&&successful}};
  }
  // Reference reads require every original segment; omission never proves a read.
- if(tool==='reference_read'&&(!complete||content.some(part=>part.type!=='text'||typeof part.text!=='string')))return {output,outputStatus:{complete:false}};
- return {output,segments,outputStatus:{complete}};
+ if(tool==='reference_read'&&(!complete||content.some(part=>part.type!=='text'||typeof part.text!=='string')))return {...(failed?{failed:true as const}:{}),output,outputStatus:{complete:false}};
+ return {...(failed?{failed:true as const}:{}),output,segments,outputStatus:{complete}};
+
 }
 
 export function sendPipe(pipe: Pick<Writable, "write">, value: unknown): void {

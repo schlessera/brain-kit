@@ -64,7 +64,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:180-248`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:513`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:518`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:507-511`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -390,7 +390,7 @@ until re-measured.
 | `Both hooks exist to rewrite`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:7-14` | A hook's `updatedInput` applies with no decision, and the permission path sees the rewritten input. | Probe case: rewrite with no decision; assert the executed input and the `canUseTool` input. |
 | `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:11-20` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:13-18` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
-| `That third vector is stated here`, `docs/decisions/voice-permission.md:675-701` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
+| `That third vector is stated here`, `docs/decisions/voice-permission.md:676-702` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
 | `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:302-315` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
 
 | `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit/tool-loading.md:21-44` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:82` and `every bridge tool ships ALWAYS LOADED`, `tests/bridge-tools.test.ts:782-797` and `the same tool registered without the flag`, `tests/bridge-tools.test.ts:799-814`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
@@ -471,7 +471,7 @@ into them.
   billing now stays unknown for every origin; server credentials and an
   observed runtime version cannot establish a child's billing. The recorded
   root-span attribute is the source of truth
-  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:554-555`);
+  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:566-567`);
   [cost-tracking.md](cost-tracking.md#recorded-billing-is-the-rollup-source-of-truth-293)
   records the 2026-09-30 ruling and frozen-history semantics.
 - **Model discovery prefers the API key** and describes that as "mirroring the
@@ -1511,3 +1511,111 @@ managed fixture. Fixture SQLite observations are not a new server governance
 event contract. Automatic server selection, canonical connection events,
 approved custom-origin positives, Pi enforcement, command admission and the
 remaining socket/credential cutover stay outside this prepared selection.
+
+## 2026-11-20 — Session request shape and relay qualification (#4306–#4308, #4310)
+
+SDK 0.3.293 bundles CLI 2.1.293 (the installed SDK package and its manifest,
+matching `bun.lock`). The offline request-shape probe uses real core MCP
+registrations, the production SDK assembly and permission hooks, the Unix
+inference relay and a fake upstream. It launches the runtime directly within
+an isolated network namespace; it does not qualify the worker boundary.
+
+The relay's local base URL disables native tool search unless explicitly
+pinned. The pin must be limited to a selected first-party upstream and must
+also enter flag settings, whose env overlay wins over project settings.
+Successful discovery on this pair inserts a referenced deferred definition
+into the sorted MCP group. The maintainer permits insertion at any position:
+every earlier definition retains exact bytes and relative order, nothing is
+removed or edited, and only names referenced by the discovery may be added.
+Ordinary round trips retain exact equality; system and earlier messages stay
+byte-identical. Production non-blocking `.mcp.json` startup, however, omits the
+core reads initially and adds all six core definitions after a graph-only
+search. Tool search stays off for new interactive sessions on every route,
+including direct turns. The prompt gate checks the native effective setting
+before releasing input; managed-policy overrides refuse only that turn.
+Legacy sessions preserve their inherited tool-search environment and original
+unpinned flag input. D44 and [provider history](provider-history.md) record the rule.
+The keyless insertion-versus-append byte-prefix comparison measures no real
+provider cache hits or savings.
+
+New hosted sessions remove these process-local built-ins and retain the
+selection in host prompt-context storage for every later resume:
+
+| Built-in | Hosted reason |
+| --- | --- |
+| `CronCreate`, `CronDelete`, `CronList` | Native jobs belong to a per-turn process; the host owns durable schedules. |
+| `ScheduleWakeup` | Native wakeups end with that process. |
+| `RemoteTrigger` | The pinned runtime reports that the tool is disabled. |
+| `SendMessage` | The maintainer chose removal: hosted Agent calls are foreground, so no live background agent remains to continue. |
+| `ListAgents` | No live background worker remains to address after the foreground Agent call. |
+
+NotebookEdit remains registered for governed typed native writes; a strict-mode
+refusal is not evidence that the governed contract is unusable. Reference tools
+remain registered and retain their existing scoped refusals. Selection and its
+initialization marker share the atomic prompt-context record. A selection digest
+validates the version, recorded session list and tool-search pin independently
+of later removal lists.
+Missing marked selection refuses before state is recreated. A content-free
+provenance marker distinguishes a lost known context from a pre-snapshot legacy
+session with neither context nor provenance; the latter retains its first
+observed post-upgrade append. A genuine legacy
+context without either field uses the legacy disallow list;
+removing built-ins from a deployment-wide list on resume would rewrite its
+roster. Plan/worktree modes, Workflow and ReportFindings remain available:
+the direct-runtime probe does not establish that each is unusable inside the
+hosted boundary, and working built-ins are not removed on assumption.
+
+New interactive appends opt into the existing independent-call batching brief.
+The append is retained once per session, so an older session keeps its wording
+in both the SDK input and the provider request. This is request-assembly proof,
+not evidence of fewer model steps; that requires a paid A/B.
+
+Fast-mode qualification sets flag-tier `settings.fastMode=true`. On this pair
+the local relay still emits `speed: "fast"` for fake API credentials and the
+OAuth placeholder, while the native status reports `on`; omitting the setting
+reports `sdk_opt_in_required`. The explicit disable reports `disabled_by_env`
+and omits wire speed. These are keyless request-assembly observations, not
+account entitlement, pricing, throughput or spend evidence. No session speed
+control or billing change is introduced by this qualification.
+
+The earlier system-role message content array-to-string rewrite observed on
+resume is a provider-history violation (#4324), not an approved normalization.
+Fast-mode product work (#4310) waits for that fix. The qualification capture
+records this exact failure without weakening the strict earlier-message guard;
+no user-facing mode, pricing or budget change ships here.
+
+### 2026-11-21 — Off-state retention and mandatory authority
+
+Interactive turns always pass the production prompt gate, including direct API
+turns without a runtime minimum. A legacy session has no recorded original
+tool-search environment value: its retained pin is explicitly unknown. It keeps
+the pre-upgrade behavior of using the current environment without a host flag
+pin, after relay credential filtering. No environment value is persisted or
+restored from the retention record. A configuration change can therefore alter
+that legacy runtime's roster, as it could before upgrade; migration does not
+claim to recover or qualify its missing original value.
+
+Selection and route validation precede prompt preparation. Prompt ownership is
+persisted only when the gated input is pulled after native-settings checks, so
+refused retries leave the original prompt bytes unchanged. The selection digest
+covers its version, entire roster and tool-search pin. Settings conflicts, including rejected native settings-control reads after a
+successful initialization, use `settings_conflict` without an authentication
+event or login action. Initialization failures remain separate. Every context
+writer checks encoded UTF-8 bytes against the same 64 MiB read limit before
+replacement, including selection migration.
+
+The stored roster records historical membership. If current mandatory
+exclusions are absent from that roster, the resume is refused with
+`session_roster_incompatible` before persistence or SDK startup. In particular,
+a direct session cannot resume under server authority by dropping the three
+project MCP writers. A later compatible resume retains every original tool;
+no roster is rewritten to manufacture compatibility.
+
+Non-blocking tool-search qualification also observes the newly loaded group of
+six intact core definitions changing order on the first resume: the selected
+graph moves before the other five, after the SDK bridge definitions.
+Qualification asserts that exact ordering and every definition's bytes; the
+strict tool guard rejects the reorder. This remains evidence against enablement, not a guard
+exception. The maintainer keeps tool search off in #4319. Follow-up #4325
+registers static host bridge definitions and forwards execution to a per-turn
+sandboxed `brain mcp` process; enablement waits for that path's qualification.

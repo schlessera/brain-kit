@@ -148,10 +148,12 @@ type ApifyErrorCode =
 - `approvals`: `[{ actor_id, actor, approved_at, candidate }]`, scoped to this brain, principal and bound account. `approved_at` is Unix milliseconds. Additive in #3624, `candidate` is an opaque current-session reference accepted by `inspect`, so an approved Actor can be inspected and prepared without `discover`. It is `null` while the provider is unavailable; when more than 200 approvals exist, only the most recent 200 receive references. Older approvals remain listed with `candidate: null`. Listing starts no Actor and grants no execution permission; inspection retains discovery policy, routing and request checks, and execution rechecks the live approval and budgets. Like discovered references, later operations may evict the oldest beyond the session's 200-reference bound.
 - `revoke`: `{ revoked: true }`, idempotently removes that Actor's remembered approval.
 - `discover`: `{ candidates: [{ candidate, actor, title, description, developer, pricing_model, deprecated }], untrusted: true }`.
-- `inspect`: `{ candidate, actor_id, actor, title, description, build_id, build_number, build_tag, memory_mbytes?, schema_sha256, pricing_sha256, permission_level, pricing, input_fields, secret_fields, required_fields, profile_id, eligibility: { executable, reasons }, readme, untrusted: true }`.
+- `inspect`: `{ candidate, actor_id, actor, title, description, build_id, build_number, build_tag, memory_mbytes?, schema_sha256, pricing_sha256, permission_level, pricing, input_fields, input_types, input_shape, secret_fields, required_fields, profile_id, eligibility: { executable, reasons }, readme, untrusted: true }`.
+  `input_types` maps each top-level property to its declared JSON types, or null for a missing or unsupported declaration. A null map means the build supplied no property map. The list describes types only. The optional `input_shape` carries nested property types, required children, array items and the declared `oneOf`, `anyOf` and `allOf` branches. Its `limited` flag reports a size or depth cutoff or an omitted schema construct such as a reference. Actors may impose further constraints.
 - `prepare`: `{ proposal, review, admission: "grant" | "ask", expires_at }`; `review` is what an approval shows.
-- `run` and `status`: `{ run, state, results: { available, partial, expires_at }, abort, remote_outcome_unknown, warnings }`.
+- `run` and `status`: `{ run, state, results: { available, partial, expires_at, bounded_cursor? }, abort, remote_outcome_unknown, warnings }`.
 - `results`: `{ run, items, next_cursor, truncated, partial, warnings, untrusted: true }`.
+  A read without a cursor, or with an ordinary result cursor, returns whole items up to the run policy limits. Pass the optional `results.bounded_cursor` from this run or its status to opt into pages that bound the compact item array to 24,000 UTF-8 bytes. Continue with the returned cursor. A single large item within the transport limit is returned as `item_fragment: {offset, start_byte, total_bytes, json_text}`. Join that item’s JSON text in order. The signed cursor binds each continuation to its run and item contents. A multi-item response above the transport limit returns `dataset_response_too_large`. In bounded mode at limit 1, an oversized dataset response returns no content, an omission warning, `truncated: true` and a cursor past that offset if the policy permits it.
 - `abort`: the run view plus `outcome`: `requested`, `confirmed`, `unresolved` or `not_needed`. No outcome means nothing was charged.
 
 The last two codes are additive to the contract's list. `provider_unavailable`
@@ -278,15 +280,22 @@ called, from its built-in default or its existing endpoint override). The
 server decides whether that key may go to that origin, adds the key and
 forwards the request; the response comes back unchanged except that any copy
 of the key in it is replaced by `[redacted]`. A streamed request (`"stream":
-true`) is refused. A refusal is a `403` JSON error whose `error.type` is
-`budget_exceeded` once a budget scope is blocked, or `brain_provider_refused`
-otherwise. Neither is retried. Additively since #3431, `error.reason` names the
-cause: for a request the turn's egress proxy refused, one of `denied_host`,
-`not_allowlisted`, `byte_cap`, `taint_allowlist` or `outward_not_approved`,
-with `error.message` saying it in words; otherwise the relay's own refusal
-reason, such as `budget_exceeded` or `route_not_allowed`. The OpenAI image
-provider shows such a message without its account hint. A relay that is busy answers `503`, which the
-built-in providers retry as a transient error.
+true`) is refused. A blocked budget returns HTTP 403 with `error.type`
+`budget_exceeded`. Policy and authority refusals also return 403, with
+`error.type` `brain_provider_refused`. Built-in providers treat 403 as final.
+Since #3431, `error.reason` gives the specific cause and `error.message`
+explains it. Egress causes include `denied_host`, `not_allowlisted`, `byte_cap`,
+`taint_allowlist` and `outward_not_approved`. The relay can also report its
+own reason, such as `budget_exceeded` or `route_not_allowed`. The OpenAI image
+provider shows the message without its account hint.
+
+The host checks recording before and after budget admission. When only a
+sibling’s pending evidence write blocks recording, the host waits up to two
+seconds and rereads. A changed authority or expired wait returns 403 with
+`error.reason` `safety_changed`. Loss of the turn’s recording returns 503
+with `error.reason` `egress_unavailable`. Both use `error.type`
+`brain_provider_refused`. A busy relay also returns 503. Built-in providers
+apply their existing transient-error retry policy to 503 responses.
 
 A seam that is only available through the relay counts as configured: hybrid
 `brain search` embeds its query, `brain process` completes, `brain image` lists
@@ -331,15 +340,29 @@ guards; a governed host invokes it only inside its credential-free maintenance
 boundary. There are no arbitrary roots, commands or expiry options.
 
 The JSON result is `{schema_version: 1, action: "pack", state, packed, reason,
-headroom}`. `state` is `complete`, `refused` or `partial`; exit code is 0 for
+headroom, garbage}`. `state` is `complete`, `refused` or `partial`; exit code is 0 for
 complete and 2 otherwise. `packed` counts loose objects packed by the owner or
 is null when no complete count is known. It is not reclaimed bytes. `reason`
-is null, `no_space`, `not_a_git_worktree` or `git_maintenance_unavailable`.
+is null, `no_space`, `not_a_git_worktree` or `git_maintenance_unavailable`;
+these existing values remain unchanged.
 `headroom` is null before capacity inspection, or `{availableBytes, requiredBytes:
 null, reason}`. Availability is a nullable live statfs observation of the Git
-common store. Required temporary bytes depend on the workload; old/new packs
-can coexist, and this command reserves no space. Known zero availability
-refuses before packing. A failure after maintenance started is partial and
+objects filesystem (resolved by `git rev-parse --git-path objects`, which may
+differ from the common directory when objects are relocated). Additive in #4287/#4288: `headroom.packingRequiredBytes`
+is the conservative preflight need: page-rounded three times the sum of raw Git
+object sizes plus 128 bytes per object, and ref text plus 128 bytes per ref,
+plus 16 MiB. `requiredBytes` retains its
+historical null value. Old/new packs coexist; the standalone CLI reserves no
+space. Unknown availability or availability below the conservative need refuses
+before maintenance and adds optional `skipReason: "packing_headroom"`.
+The existing `reason` remains `no_space` for known insufficient space, or
+`git_maintenance_unavailable` for unknown capacity. Known zero retains `no_space`.
+Optional additive `garbage` is null before Git accounting, otherwise `{count, bytes}` from
+`git count-objects -v`'s `garbage` and `size-garbage` (KiB converted to bytes).
+It reports existing garbage; no existing garbage is deleted. Optional
+`brain storage pack --dry-run --json` returns this inspection without running
+Git maintenance (`state: complete`, `packed: null`, exit 0 when inspection
+succeeds); failure keeps the ordinary refused envelope and exit 2. A failure after maintenance started is partial and
 requires remeasurement; it is never reported as a rollback or success.
 
 ## Storage inventory (additive, #2009)
@@ -1460,3 +1483,17 @@ written. Existing fields and dispositions retain their meanings. Preview-only
 new model pass. Use the explicit `propagation --dry-run` to inspect prospective
 automation. The operation exits 0 after reporting outcomes, including unavailable
 and deferred cases; usage/configuration errors retain exit 1.
+
+
+Hosted routine maintenance selects Git output conservatively: only a zero exit
+and a complete JSON report with one successful Git step permit publication.
+The host requests JSON itself for routine maintain and preserves explicit human
+output using the CLI rendering. It drains at most 1 MiB into its result buffer,
+independently of the caller, and allows five seconds after exit for stdout EOF.
+Failed, skipped, malformed, oversized, unreadable or incomplete reports discard
+all `.git/` output while other validated maintenance areas publish. Cron records
+the host-owned publication result and named discard reason in maintenance
+Activity; missing or unusable reports use the existing error outcome. Ordinary
+non-maintenance commands retain coupled Git/worktree publication on nonzero
+exit.
+The successful-output publisher is unchanged by this selection rule.

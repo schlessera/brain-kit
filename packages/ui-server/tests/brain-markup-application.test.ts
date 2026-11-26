@@ -34,10 +34,10 @@ beforeEach(() => {
 });
 afterEach(() => { for (const host of maintenanceOwners.splice(0)) host.cleanup(); rmSync(root, { recursive: true, force: true }); });
 
-function app(protectedPaths?: string[]) {
+function app(protectedPaths?: string[], workspaceReadOnly = false) {
   const maintenance = createFixtureMaintenanceHost(root); maintenanceOwners.push(maintenance);
   return createMarkupApplication({ root, maintenance, principalId: "odysseus", turnId: "raft-turn", signal: controller.signal,
-    lock: createKeyedLock(), isAuthorized: () => authorized, isAvailable: () => available, ...(protectedPaths ? { protectedPaths } : {}),
+    workspaceReadOnly, lock: createKeyedLock(), isAuthorized: () => authorized, isAvailable: () => available, ...(protectedPaths ? { protectedPaths } : {}),
     record: result => records.push(result), beforeCommit: () => beforeCommit?.(), afterLink: () => afterLink?.() });
 }
 function request(overrides: Record<string, unknown> = {}) {
@@ -290,4 +290,25 @@ test("cancellation and revocation recheck immediately before the layer is linked
   records = []; controller = new AbortController();
   beforeCommit = () => { authorized = false; };
   await refused(request(), "authority_revoked");
+});
+
+
+test("workspace inspection protection cannot be bypassed by a scratch markup alias", async () => {
+  mkdirSync(join(root, "workspaces/ithaca"), { recursive: true });
+  symlinkSync(join(root, "workspaces/ithaca"), join(root, dir));
+  const result = await app(undefined,true)(request());
+  expect(result.ok, "INSPECT_MARKUP_ALIAS_REFUSED").toBe(false);
+  expect(result.changes).toEqual([]);
+  expect(readdirSync(join(root, "workspaces/ithaca")), "INSPECT_MARKUP_ALIAS_HAS_NO_BYTES").toEqual([]);
+});
+
+
+test("inspection permits reading a checkout image for a scratch markup layer",async()=>{
+ const checkout="workspaces/ithaca/raft.png";mkdirSync(join(root,"workspaces/ithaca"),{recursive:true});writeFileSync(join(root,checkout),source);
+ const result=await app(undefined,true)(request({imagePath:checkout,base:readMarkupBase(root,checkout)}));
+ expect(result.ok,"INSPECTION_RESTRICTS_LAYER_WRITES_NOT_SOURCE_READS").toBe(true);
+ expect(result.changes.every(change=>change.path.startsWith(".brain/scratch/markup/"))).toBe(true);
+ expect(readFileSync(join(root,checkout))).toEqual(source);
+ const explicit=await app(["workspaces"],false)(request({imagePath:checkout,base:readMarkupBase(root,checkout)}));expect(explicit.code).toBe("policy_denied");
+ symlinkSync(checkout,join(root,".env.athena"));const secret=await app(undefined,true)(request({imagePath:checkout,base:readMarkupBase(root,checkout)}));expect(secret.code,"INSPECTION_SOURCE_READ_STILL_HONOURS_SECRET_TARGETS").toBe("policy_denied");
 });

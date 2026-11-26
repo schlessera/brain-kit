@@ -16,7 +16,8 @@ import { RTK_WORKER_ENV, execWrapperSpawnOptions, WORKER_DATA_ROOT, WORKER_EGRES
 
 import { resolveEnabledWebSearchEnvNames, ambientExecConfig, subprocessEnv } from "./config/env.js";
 import { clip, MAX_READ_BYTES, MAX_OUTPUT_BYTES, textResult, type BrainToolKit } from "./tool-kit.js";
-import { revalidatePiAdmission } from "./tool-admission.js";
+import { pendingPiAdmission, revalidatePiAdmission } from "./tool-admission.js";
+
 
 /** `read_file`: one repo-contained UTF-8 file, remembered as a same-turn base. */
 export function readFileTool(kit: BrainToolKit): ToolDefinition {
@@ -213,6 +214,8 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
         if (signal?.aborted) throw new DOMException("Tool cancelled before subprocess execution", "AbortError");
         if (turn.bridge?.commitToolAdmission) await turn.bridge.commitToolAdmission(_id, "bash", params);
         else {
+          for (const pending of pendingPiAdmission(turn, "bash", _id)) await pending;
+          signal?.throwIfAborted();
           const stale = revalidatePiAdmission(turn, "bash", _id, params, true);
           if (stale) throw new Error(stale);
         }

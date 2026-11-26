@@ -7,11 +7,19 @@ export interface AdmissionSafetySnapshot {
   readonly policyHash: string | null;
   readonly restricted: boolean;
   readonly recordingAvailable: boolean;
+  /** Pending evidence in scope with no known loss or capacity failure. */
+  readonly recordingPending?: boolean;
+  /** False only for this turn recorder; true distinguishes shared safety changes. */
+  readonly operationRecordingAvailable?: boolean;
   readonly authorityCurrent: boolean;
 }
 
 export interface AdmissionSafety {
-  read(): AdmissionSafetySnapshot;
+  /** Host-owned reservations only; exclusions never alter retained evidence or recorder failures. */
+  read(excludedPending?:readonly string[]): AdmissionSafetySnapshot;
+  /** Wait at most two seconds for in-scope evidence, then recheck in the dispatching continuation. */
+  pendingRecording?(before: AdmissionSafetySnapshot | undefined, signal: AbortSignal | undefined,
+    excludedPending?: () => readonly string[] | undefined): Iterable<Promise<void>>;
   /** Invalidation is a hint; every commit still reads synchronously. */
   subscribe(changed: () => void): () => void;
 }
@@ -21,7 +29,12 @@ export const STALE_SAFETY_ADMISSION = "Safety or authority changed before admiss
 export function sameSafetyAdmission(a: AdmissionSafetySnapshot, b: AdmissionSafetySnapshot): boolean {
   return a.evidenceRevision === b.evidenceRevision && a.trustRevision === b.trustRevision && a.authorityEpoch === b.authorityEpoch
     && a.scope === b.scope && a.policyHash === b.policyHash && a.restricted === b.restricted
-    && a.recordingAvailable === b.recordingAvailable && a.authorityCurrent === b.authorityCurrent;
+    && a.operationRecordingAvailable === b.operationRecordingAvailable && a.recordingAvailable === b.recordingAvailable && a.authorityCurrent === b.authorityCurrent;
+}
+
+export function sameAuthority(now: AdmissionSafetySnapshot, before?: AdmissionSafetySnapshot): boolean {
+  return now.authorityCurrent && (!before || now.scope === before.scope &&
+    now.policyHash === before.policyHash && now.authorityEpoch === before.authorityEpoch);
 }
 
 /** Call in the dispatching continuation, after its last await. */
@@ -33,7 +46,6 @@ export function safetyAdmissionRefusal(safety: AdmissionSafety | undefined, befo
 }
 
 export function safetySnapshotRefusal(now: AdmissionSafetySnapshot | undefined, before?: AdmissionSafetySnapshot): string | null {
-  if (now && (!now.authorityCurrent || !now.recordingAvailable || before &&
-    (now.scope !== before.scope || now.policyHash !== before.policyHash || now.authorityEpoch !== before.authorityEpoch))) return STALE_SAFETY_ADMISSION;
+  if (now && (!now.recordingAvailable || !sameAuthority(now, before))) return STALE_SAFETY_ADMISSION;
   return null;
 }

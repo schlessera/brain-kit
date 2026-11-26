@@ -44,7 +44,7 @@ export function setup(db: Database): WriteProcedures {
     safetyBegin: (input:SafetyCollectionInput) => beginSafetyCollection(db,input),
     safetyReady: (turnId:string,backendId:string,version:number) => acknowledgeSafety(db,turnId,backendId,version),
     safetyOblige: (turnId:string,id:string,toolUseId:string,tool:string) => openSafetyObligation(db,turnId,id,toolUseId,tool),
-    safetyDischarge: (turnId:string,id:string) => dischargeSafetyObligation(db,turnId,id),
+    safetyDischarge: (turnId:string,id:string,neverDelivered?:readonly string[]) => dischargeSafetyObligation(db,turnId,id,neverDelivered),
     safetyEnd: (turnId:string,loss=false) => {
       // Never seal an apparently complete epoch if its loss notice rolled
       // back. A failed retry leaves it open for restart classification.
@@ -97,14 +97,14 @@ export interface GovernanceWrites {
   /** The call's result is durably recorded, or the backend's own denial of
    * the only admission under its id, never allowed, proves it never ran. A
    * failure leaves the obligation, and so the gap. */
-  safetyDischarge(turnId:string,obligationId:string):Promise<void>;
+  safetyDischarge(turnId:string,obligationId:string,neverDelivered?:readonly string[]):Promise<void>;
   /** Ends the turn's collection once its result records under way settle. */
   safetyEnd(turnId:string):Promise<void>;
   /** Marks the turn's chat failed (`cause` is error text only); the brain only when that cannot commit. */
   safetyFail(turnId:string,cause?:unknown):Promise<void>;
-  safety(turnId:string|null,sessionId:string|null):SafetyProjection;
+  safety(turnId:string|null,sessionId:string|null,excludedPending?:readonly string[]):SafetyProjection;
   /** Input recording must be settled and healthy before any provider delivery. */
-  recordingAvailable(turnId:string|null,sessionId:string|null):boolean;
+  recordingAvailable(turnId:string|null,sessionId:string|null,excludedPending?:readonly string[]):boolean;
   /**
    * Validates now, throwing `GovernanceEventError` as the synchronous writer
    * did; the returned promise settles once the row commits, or with the
@@ -226,10 +226,12 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       void safetyFail(row.turnId,new SafetyCapacityExhausted("Safety occurrence write capacity exceeded","turn")).catch(()=>{});
       throw new Error("Safety occurrence write capacity exceeded; ingestion must stop");
     }
-    const pending = { turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
+    const reservation=crypto.randomUUID();
+    const payload=JSON.parse(row.payload);
+    const pending = {id:reservation,occurrenceId:input.kind==="taint"?payload.occurrence?.id??null:payload.occurrenceId??null, turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
     pendingTaints.add(pending); shared.bytes += bytes;
     notifySafetyChanged(db);
-    const reservation=crypto.randomUUID();let reserved=false;
+    let reserved=false;
     const stored = call<void>("safetyReserve",row,reservation,bytes,!!options.beforeDelivery)
       .then(()=>{reserved=true;return call<{id:number;recorded:boolean;discharged?:boolean}>("safetyCommit",row,reservation,options.discharge??null);});
     return stored.catch(error => {
@@ -276,7 +278,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
         throw new SafetyRecordingUnavailable(brainFailed(),error);
       }
     },
-    safetyDischarge: (turnId,obligationId)=>call("safetyDischarge",turnId,obligationId),
+    safetyDischarge: (turnId,obligationId,neverDelivered)=>call("safetyDischarge",turnId,obligationId,neverDelivered),
     async safetyEnd(turnId){
       // A tool result's record already under way finishes first: stopping a
       // turn refuses new tools, never the record of one that ran (#3812).
@@ -291,19 +293,19 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       await call<void>("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId));
     },
     safetyFail,
-    safety: (turnId,sessionId)=>snapshot(()=>{
-      const projection=safetyProjection(db,turnId,sessionId);
-      const local=pendingInScope(turnId,sessionId).length,lost=shared.failed||lostInScope(turnId,sessionId);
+    safety: (turnId,sessionId,excludedPending=[])=>snapshot(()=>{
+      const projection=safetyProjection(db,turnId,sessionId,excludedPending);
+      const local=pendingInScope(turnId,sessionId).filter(p=>!excludedPending.includes(p.id)).length,lost=shared.failed||lostInScope(turnId,sessionId);
       if(local||lost){projection.restriction="restricted";projection.pendingCount=Math.max(local,projection.pendingCount);
         if(local&&!projection.reasons.includes("recording_pending"))projection.reasons.push("recording_pending");
         if(lost){projection.coverage.state="incomplete";if(!projection.reasons.includes("recording_failed"))projection.reasons.push("recording_failed");}}
       return projection;
     }),
-    recordingAvailable(turnId,sessionId){
+    recordingAvailable(turnId,sessionId,excludedPending=[]){
       return snapshot(()=>{
         if(covered(turnId))return true;
-        if(shared.failed||lostInScope(turnId,sessionId)||pendingInScope(turnId,sessionId).length)return false;
-        const state=safetyProjection(db,turnId,sessionId);
+        if(shared.failed||lostInScope(turnId,sessionId)||pendingInScope(turnId,sessionId).some(p=>!excludedPending.includes(p.id)))return false;
+        const state=safetyProjection(db,turnId,sessionId,excludedPending);
         return !state.reasons.some(reason=>["recording_failed","recording_pending","capacity"].includes(reason));
       });
     },

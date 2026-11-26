@@ -43,3 +43,20 @@ describe("activity runtime", () => {
     }
   });
 });
+
+test("an incomplete alias check retains its owner-visible cause across recovery and restart", async () => {
+  const db = createUiDb(":memory:");
+  const first = createActivityRuntime(db, { log: quietLog });
+  const detail = "OperationalStateAliasVerificationUnavailable: fixture state I/O unavailable";
+  try {
+    first.runtime.recordGoverned({ hostExecution: "worker", available: false, reason: "private_state_unverified", detail });
+    first.runtime.recordGoverned({ hostExecution: "worker", available: true });
+    expect(first.runtime.snapshot().workerHost?.governed?.available, "RECOVERY_NEVER_REUSES_OLD_REFUSAL").toBe(true);
+    await first.close();
+    const second = createActivityRuntime(db, { log: quietLog });
+    try {
+      expect(second.runtime.snapshot().operationalStateLastFailure, "ALIAS_FAILURE_CAUSE_SURVIVES_RESTART").toMatchObject({ detail,
+        at: expect.any(Number), errorClass: "OperationalStateAliasVerificationUnavailable", callSite: "operationalStateRefusal", scope: "governed" });
+    } finally { await second.close(); }
+  } finally { await first.close(); db.close(); }
+});

@@ -1,3 +1,6 @@
+import { observeDiagnostic } from "@schlessera/brain-ui-sdk/internal";
+import type { ActivityTurnOpenSubPhase } from "@schlessera/brain-ui-sdk/protocol";
+import { recordIndexUpdate, type IndexUpdateReceipt } from "./index-update-receipt.js";
 /**
  * Deferred, batched index updates after host applications (#2835).
  *
@@ -36,13 +39,13 @@ export interface IndexBatch {
    * Queue committed paths. `settle` hears each outcome for them: a failure
    * once, then success once an update covers them. Returns at once.
    */
-  queue(paths: readonly string[], settle?: (outcome: IndexOutcome) => void): void;
+  queue(paths: readonly string[], settle?: (outcome: IndexOutcome) => void, turnId?: string): void;
   /**
    * Resolve once everything queued before this call is indexed. Rejects with
    * {@link IndexFlushError} when the update covering it fails. `signal` stops
    * this wait only; a started update is owned by the batch and still runs.
    */
-  barrier(signal?: AbortSignal): Promise<void>;
+  barrier(signal?: AbortSignal, observation?: { turnId: string; observed?(): void; stats: NonNullable<ActivityTurnOpenSubPhase["indexSettle"]> }): Promise<void>;
   /** Whether queued paths wait for an update. */
   pending(): boolean;
   /** Settles once no update is running; for shutdown. */
@@ -56,11 +59,15 @@ export interface IndexBatch {
   watermark(): { paths(): string[]; release(): void };
 }
 
-interface Entry { seq: number; paths: readonly string[]; settle?: (outcome: IndexOutcome) => void; failed: boolean }
+interface Entry { turnId?: string; seq: number; paths: readonly string[]; settle?: (outcome: IndexOutcome) => void; failed: boolean }
 
 export function createIndexBatch(options: {
   /** One targeted update over exact paths, in the isolated maintenance boundary. */
   index(paths: readonly string[]): Promise<void>;
+  receipt?: (receipt: IndexUpdateReceipt, turnIds: string[]) => unknown;
+  cancellation?: readonly AbortSignal[];
+  /** A separate credentialed refresh keeps the same causing turns. */
+  afterIndex?: (turnIds: string[]) => void;
 }): IndexBatch {
   let queued = 0, indexed = 0;
   let entries: Entry[] = [];
@@ -68,25 +75,36 @@ export function createIndexBatch(options: {
   let history: Entry[] = [];
   const marks = new Set<{ seq: number }>();
   const lowest = () => Math.min(...[...marks].map(mark => mark.seq));
-  let flight: Promise<void> | undefined;
+  type Flight = { work: Promise<void>; receipt?: IndexUpdateReceipt };
+  let flight: Flight | undefined;
   const report = (entry: Entry, outcome: IndexOutcome) => {
     try { entry.settle?.(outcome); } catch { /* A receipt sink cannot fail the update it reports. */ }
   };
-  const flush = (): Promise<void> => flight ??= (async () => {
+  const flush = async (running: Flight): Promise<void> => {
     const through = queued;
     const batch = entries.filter(entry => entry.seq <= through);
     const paths = [...new Set(batch.flatMap(entry => entry.paths))].sort();
-    try { await options.index(paths); }
+    try { await recordIndexUpdate(() => options.index(paths), receipt => {
+      running.receipt = receipt;
+      return options.receipt?.(receipt, [...new Set(batch.flatMap(entry => entry.turnId ? [entry.turnId] : []))]);
+    }, options.cancellation); }
     catch (error) {
       const indexError = error instanceof Error ? error.message : String(error);
       for (const entry of batch) if (!entry.failed) { entry.failed = true; report(entry, { paths: entry.paths, indexed: false, indexError }); }
       throw new IndexFlushError(paths, indexError);
     }
+    options.afterIndex?.([...new Set(batch.flatMap(entry => entry.turnId ? [entry.turnId] : []))]);
     if (marks.size) history.push(...batch.filter(entry => entry.seq > lowest()));
     entries = entries.filter(entry => entry.seq > through);
     indexed = Math.max(indexed, through);
     for (const entry of batch) report(entry, { paths: entry.paths, indexed: true });
-  })().finally(() => { flight = undefined; });
+  };
+  const start = () => {
+    const running: Flight = { work: Promise.resolve() };
+    flight = running;
+    running.work = flush(running).finally(() => { flight = undefined; });
+    return running;
+  };
   const wait = (work: Promise<void>, signal?: AbortSignal): Promise<void> => {
     if (!signal) return work;
     signal.throwIfAborted();
@@ -97,18 +115,40 @@ export function createIndexBatch(options: {
     });
   };
   return {
-    queue(paths, settle) {
+    queue(paths, settle, turnId) {
       if (!paths.length) return;
-      entries.push({ seq: ++queued, paths: [...paths], ...(settle ? { settle } : {}), failed: false });
+      entries.push({ ...(turnId ? { turnId } : {}), seq: ++queued, paths: [...paths], ...(settle ? { settle } : {}), failed: false });
     },
-    async barrier(signal) {
+    async barrier(signal, observation) {
       const target = queued;
+      const stats: NonNullable<ActivityTurnOpenSubPhase["indexSettle"]> | undefined = observation ? {
+        queuedPaths: new Set(entries.filter(entry => entry.turnId === observation.turnId).flatMap(entry => entry.paths)).size,
+        updates: 0, firstAlreadyRunning: indexed < target && flight !== undefined, updateMs: 0, lastOutcome: null,
+      } : undefined;
+      const publish = () => {
+        if (stats && observation) observeDiagnostic(() => {
+          Object.assign(observation.stats, stats);
+          return observation.observed?.();
+        });
+      };
+      publish();
       // A running update may predate the paths this caller waits for: after
       // it settles, the next one covers them.
-      while (indexed < target) await wait(flight ?? flush(), signal);
+      while (indexed < target) {
+        const running = flight ?? start();
+        if (stats) { stats.updates++; publish(); }
+        try { await wait(running.work, signal); }
+        finally {
+          if (stats && running.receipt) {
+            stats.updateMs += running.receipt.durationMs;
+            stats.lastOutcome = running.receipt.outcome;
+            publish();
+          }
+        }
+      }
     },
     pending: () => entries.length > 0,
-    async idle() { while (flight) await flight.catch(() => {}); },
+    async idle() { while (flight) await flight.work.catch(() => {}); },
     watermark() {
       const mark = { seq: indexed };
       marks.add(mark);

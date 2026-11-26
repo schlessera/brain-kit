@@ -3,6 +3,12 @@ import type { Database } from "bun:sqlite";
 import type { NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import type { GitHubReferenceIdentity } from "./github-reference-identity.js";
 import type { createGitHubReferenceAccess } from "./github-reference-access.js";
+import { ReferenceTransportError } from "./reference-transport.js";
+
+/** A turn recording refusal carries no observation about the repository or its other readers. */
+export class ReferenceRecordingError extends ReferenceTransportError {
+  constructor(message: string) { super("unavailable", message); }
+}
 
 export interface ReferenceAcquisitionContext {
   /** Both values come from the admitted host turn, never from tool input. */
@@ -10,6 +16,8 @@ export interface ReferenceAcquisitionContext {
   /** Host read invocation identity, generated before requesting this transport. */
   operationId?: string;
   egress: Parameters<ReturnType<typeof createGitHubReferenceAccess>["open"]>[0]["egress"];
+  /** Pending host evidence to settle immediately before a synchronous authority fence. */
+  pendingRecording?(signal?: AbortSignal): Iterable<Promise<void>>;
   /** Principal/turn and shared recorder health, read again after host waits. */
   current(): boolean;
 }

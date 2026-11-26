@@ -115,7 +115,8 @@ signatures (every public export and the types it is made of)
     };
   ActivityStore (packages/ui-server/src/activity/store.ts)
     export interface ActivityStore {
-        writeLifecycle(record: ActivityTurnLifecycle): void;
+        writeLifecycle(record: ActivityTurnLifecycle, principalId?: string): void;
+        writeClientReceipt?(turnId: string, principalId: string, timing: import("@schlessera/brain-ui-sdk/protocol").ClientTurnTiming): boolean;
         lifecycleChangesSince(cursor: number, limit?: number): Array<{
             changeId: number;
             runId: string;
@@ -124,7 +125,19 @@ signatures (every public export and the types it is made of)
             lifecycle: ActivityTurnLifecycle;
         }>;
         lifecycle(turnId: string): ActivityTurnLifecycle | null;
+        lifecycleSnapshot?(turnId: string): {
+            lifecycle: ActivityTurnLifecycle;
+            highWaterSeq: number;
+        } | null;
         lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
+        snapshotLifecycles?(scope: {
+            turnId?: string;
+            sessionId?: string;
+            limit?: number;
+        }): {
+            lifecycles: ActivityTurnLifecycle[];
+            highWaterSeq: Record<string, number>;
+        };
         readonly writer: string;
         startSpan(input: StartSpanInput): SpanRow;
         endSpan(spanId: string, input: EndSpanInput): boolean;
@@ -147,7 +160,7 @@ signatures (every public export and the types it is made of)
             span: SpanRow;
         }>;
         latestChangeCursor(): number;
-        snapshotRun(runId: string): RunSnapshot | null;
+        snapshotRun(runId: string, rootOnly?: boolean): RunSnapshot | null;
         runHighWaterSeq(runId: string): number;
         getSpan(spanId: string): SpanRow | null;
         previousSessionRoot?(spanId: string, sessionId: string): SpanRow | null;
@@ -174,7 +187,7 @@ signatures (every public export and the types it is made of)
         close(): void;
     }
   ActivityWriteMethod (packages/ui-server/src/activity/store.ts)
-    export type ActivityWriteMethod = "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat" | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
+    export type ActivityWriteMethod = "writeClientReceipt" | "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat" | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
   AgentConfig (packages/ui-server/src/config/env.ts)
     export interface AgentConfig {
         backend: string | null;
@@ -241,7 +254,9 @@ signatures (every public export and the types it is made of)
     type Awaitable<T> = T | Promise<T>;
   AwaitableActivityStore (packages/ui-server/src/activity/store.ts)
     export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
-        [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+        [K in Exclude<ActivityWriteMethod, "writeClientReceipt">]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+    } & {
+        writeClientReceipt?: (...args: Parameters<NonNullable<ActivityStore["writeClientReceipt"]>>) => Awaitable<ReturnType<NonNullable<ActivityStore["writeClientReceipt"]>>>;
     };
   BackendBootFailure (packages/ui-server/src/agent/backend.ts)
     export interface BackendBootFailure {
@@ -676,11 +691,29 @@ signatures (every public export and the types it is made of)
                     http_wire_bound: "http_wire_bound";
                     opaque_bytes: "opaque_bytes";
                 }>;
+                admitMs: z.ZodOptional<z.ZodNumber>;
+                bodyMs: z.ZodOptional<z.ZodNumber>;
                 bytes: z.ZodNumber;
+                cacheCreationTokens: z.ZodOptional<z.ZodNumber>;
+                cacheReadTokens: z.ZodOptional<z.ZodNumber>;
                 connectionId: z.ZodOptional<z.ZodString>;
+                credentialMs: z.ZodOptional<z.ZodNumber>;
+                dispatchMs: z.ZodOptional<z.ZodNumber>;
+                dispatched: z.ZodOptional<z.ZodBoolean>;
                 durationMs: z.ZodNumber;
+                failureReason: z.ZodOptional<z.ZodEnum<{
+                    budget: "budget";
+                    cancelled: "cancelled";
+                    policy_denied: "policy_denied";
+                    safety_changed: "safety_changed";
+                    unavailable: "unavailable";
+                }>>;
+                firstChunkMs: z.ZodOptional<z.ZodNumber>;
+                headersMs: z.ZodOptional<z.ZodNumber>;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
+                inputTokens: z.ZodOptional<z.ZodNumber>;
+                loopLagMaxMs: z.ZodOptional<z.ZodNumber>;
                 managedReference: z.ZodOptional<z.ZodLiteral<true>>;
                 method: z.ZodString;
                 outcome: z.ZodEnum<{
@@ -693,6 +726,16 @@ signatures (every public export and the types it is made of)
                 port: z.ZodNumber;
                 provider: z.ZodOptional<z.ZodLiteral<true>>;
                 reason: z.ZodOptional<z.ZodString>;
+                recipientAdmission: z.ZodOptional<z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    instance: z.ZodOptional<z.ZodString>;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                }, z.core.$strict>>;
+                recipientApproved: z.ZodOptional<z.ZodLiteral<true>>;
+                standingRecipient: z.ZodOptional<z.ZodLiteral<true>>;
+                trustedSource: z.ZodOptional<z.ZodLiteral<true>>;
             }, z.core.$strict>;
             version: number;
         };
@@ -1013,6 +1056,7 @@ signatures (every public export and the types it is made of)
                 }>;
                 frozen: z.ZodBoolean;
                 limit: z.ZodNumber;
+                measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                 observed: z.ZodNumber;
                 outcome: z.ZodEnum<{
                     continued: "continued";
@@ -1022,6 +1066,7 @@ signatures (every public export and the types it is made of)
                     voice_stopped: "voice_stopped";
                 }>;
                 overshoot: z.ZodNumber;
+                result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                 source: z.ZodEnum<{
                     default: "default";
                     policy: "policy";
@@ -1073,11 +1118,17 @@ signatures (every public export and the types it is made of)
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
                 occurrence: z.ZodOptional<z.ZodObject<{
-                    admission: z.ZodOptional<z.ZodObject<{
+                    admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
                         policyHash: z.ZodNullable<z.ZodString>;
-                        trustRevision: z.ZodLiteral<"0">;
+                        trustRevision: z.ZodString;
                         trusted: z.ZodLiteral<false>;
-                    }, z.core.$strict>>;
+                    }, z.core.$strict>, z.ZodObject<{
+                        collectionRevision: z.ZodString;
+                        policyHash: z.ZodString;
+                        ruleId: z.ZodString;
+                        trustRevision: z.ZodString;
+                        trusted: z.ZodLiteral<true>;
+                    }, z.core.$strict>], "trusted">>;
                     detector: z.ZodEnum<{
                         attachment_input: "attachment_input";
                         compute_input: "compute_input";
@@ -1383,6 +1434,7 @@ signatures (every public export and the types it is made of)
     }
   GovernedTurnRoute (packages/ui-server/src/brain/governed-turn.ts)
     export interface GovernedTurnRoute {
+        readonly codeChanges?: boolean;
         readonly inferenceOrigin?: string;
         readonly sessionId?: string;
         readonly inherit?: readonly string[];
@@ -1397,7 +1449,7 @@ signatures (every public export and the types it is made of)
             policyProfile: "governed" | "strict";
             policy: TurnGovernancePolicy;
         };
-        refresh(lock: KeyedLock): void;
+        refresh(lock: KeyedLock, turnId?: string): void;
         close(): Promise<void>;
     }
   HostChatStore (packages/ui-server/src/ws/chat-store-cleanup.ts)
@@ -1418,6 +1470,14 @@ signatures (every public export and the types it is made of)
         emergencyTurns: number;
         timeZone: string;
         unpricedUsdPerToken: number;
+    }
+  JournalHold (packages/ui-server/src/brain/turn-journal.ts)
+    export interface JournalHold {
+        records: Map<string, ActivityTurnHold>;
+        stoppedTurns: Set<string>;
+        paths: Map<string, Set<string>>;
+        inferenceInFlight(turnId: string): boolean | null;
+        participant(turnId: string): ActivityTurnHold | undefined;
     }
   JournalStatement (packages/ui-server/src/brain/journal-store.ts)
     export type JournalStatement = {
@@ -1845,7 +1905,7 @@ signatures (every public export and the types it is made of)
         minSchemaVersion?: number;
     }
   PhaseTimer (packages/ui-server/src/activity/turn-lifecycle.ts)
-    export type PhaseTimer = (name: string) => () => void;
+    export type PhaseTimer = (name: string, details?: StepDetails) => StepEnd;
   Principal (packages/ui-server/src/db/principals.ts)
     export interface Principal {
         id: string;
@@ -2067,6 +2127,7 @@ signatures (every public export and the types it is made of)
         cliProviderOrigins?: ReadonlyMap<string, readonly string[]>;
         host: string;
         sourceCommit: string;
+        buildRevision?: string;
         allowedOrigins: string[];
         maxConcurrentSessions: number;
         attachmentPoolBytes: number;
@@ -2121,15 +2182,15 @@ signatures (every public export and the types it is made of)
         }): number | undefined;
         recordStateRoom?(sessionId: string, observation: StateRoomObservation): void;
         readStateRoom?(sessionId: string): StateRoomObservation | undefined;
-        recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void;
-        recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
+        recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): boolean | void | Promise<boolean | void>;
+        recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): boolean | void | Promise<boolean | void>;
         attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         settled?(): Promise<void>;
         acceptWork?(sessionId: string, requestId: string | null, backendId: string | null, settled?: (stored: boolean) => void): number | null;
         dispatchWork?(sessionId: string, revision: number, turnId: string, backendId: string, startedAt: number): void;
         latestWork?(sessionId: string): work.AcceptedWork | null;
         hasSession?(sessionId: string): boolean;
-        recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): void;
+        recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): boolean | void | Promise<boolean | void>;
         attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredProviderId(sessionId: string): string | null;
         saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
@@ -2229,6 +2290,12 @@ signatures (every public export and the types it is made of)
         attrs?: Record<string, unknown>;
         startedAt?: number;
     }
+  StepDetails (packages/ui-server/src/activity/turn-lifecycle.ts)
+    type StepDetails = Pick<ActivityTurnOpenSubPhase, "aliasScan" | "queueAhead" | "indexSettle">;
+  StepEnd (packages/ui-server/src/activity/turn-lifecycle.ts)
+    type StepEnd = (() => void) & {
+        annotate?(details: StepDetails): void;
+    };
   StorageSettlementIndeterminate (packages/ui-server/src/db/settlement.ts)
     export class StorageSettlementIndeterminate extends Error {
         constructor(readonly operation: string, readonly cleanup?: Promise<unknown>);
@@ -2298,6 +2365,10 @@ signatures (every public export and the types it is made of)
         capBytes?: number;
         now?: () => number;
         nativeManager: NativeJournalManager;
+        codeChanges?: {
+            maintenance: MaintenanceHost;
+            prepare?: (signal?: AbortSignal) => Promise<WorkerStartupView>;
+        };
         referencePool?: ReferenceWorktreeJournalPool;
         referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
@@ -2371,6 +2442,7 @@ signatures (every public export and the types it is made of)
         writable: false;
         reason: string;
         missing?: true;
+        readOnlyPath?: string;
     };
   WorkerOutwardRule (packages/ui-sdk/src/server/outward-policy.ts)
     export interface WorkerOutwardRule {
@@ -2395,6 +2467,7 @@ signatures (every public export and the types it is made of)
         };
         readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
         readonly brain: string;
+        readonly codeChanges?: boolean;
         readonly restricted: boolean;
         readonly profile?: WorkerProfile;
         readonly fallbackReason?: string;
@@ -2634,6 +2707,9 @@ signatures (every public export and the types it is made of)
             policyHash: null | string;
             profile: "governed" | "strict";
             sessionId: null | string;
+            workspaceMissing?: boolean;
+            workspaceReadOnly?: boolean;
+            workspacesWritable?: boolean;
         }, stop: (error: Error) => void, signal?: AbortSignal, timing?: PhaseTimer): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): Promise<void>;
@@ -2648,26 +2724,41 @@ signatures (every public export and the types it is made of)
             retained: import("./native-journal-observer.js").NativeJournalReleaseAccounting;
         };
         close(): Promise<void>;
+        codePreview(sessionId: string, turnId: string, checkout: string): Promise<{
+            diff?: string;
+            inline: boolean;
+            reason?: string;
+        }>;
         configurationCoverage(): ConfigurationCoverageRead;
         coverPaths(turnId: string, paths: readonly string[]): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
-        finish(turnId: string): Promise<void>;
+        evidence(turnId: string, record?: (hold: ActivityTurnHold) => void, inference?: () => boolean): void;
+        finish(turnId: string, lifecycle?: PhaseTimer): Promise<void>;
         finishReserved(turnId: string): Promise<void>;
         hasRetainedVersion(turnId: string, selected: JournalVersion): boolean;
         idle(): Promise<void>;
+        inferenceInFlight(turnId: string): boolean | null;
         isHeld(): boolean;
         maintain: () => Promise<void>;
-        observe(): Promise<void>;
+        observe(cause?: {
+            hold?: ActivityTurnHold;
+            toolUseId?: string;
+            turnId: string;
+        }): Promise<void>;
         observeSettingsPolicy(_operationId: string, operation: (publish?: (write: () => void) => Promise<void>) => Promise<void> | void): Promise<void>;
         observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
             changedPaths: number;
+            checkoutBytes?: number;
+            indexBytes?: null | number;
+            observationChangedPaths?: number;
+            observationToolUseId?: string;
             observedBytes: number;
             partial: boolean;
             workspacePaths: number;
         }) => void, periodic?: {
-            after(completed: boolean): void;
-            before(): void;
+            after(completed: boolean, hold?: JournalHold): void;
+            before(hold?: JournalHold): void;
         }): () => boolean;
         persistClaudeMemory(turnId: string, change: null | {
             after: Uint8Array;
@@ -2684,10 +2775,13 @@ signatures (every public export and the types it is made of)
             note: string;
         }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
         recoveryStatus(): JournalRecoveryStatus;
+        releaseWorktree(turnId: string, worktreeId: string): Promise<void>;
         releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
+        restrictedCheckouts(turnId: string): string[];
         retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;
+        scopeHold(turnId: string, requestedAt: number, toolUseId?: string, changedPaths?: null | number): ActivityTurnHold | undefined;
         summary: (turnId: string) => TurnJournalSummary;
         toolEnded(turnId: string, toolUseId: string): Promise<void>;
         toolExecuted(turnId: string, toolUseId: string, path: ToolExecutionPath): void;
@@ -2700,6 +2794,7 @@ signatures (every public export and the types it is made of)
                 bytes: number;
             }>;
         };
+        withCodeEvidence<T>(sessionId: string, turnId: string, checkout: string, operation: (receipt: CodeChangeReceipt, pack: string) => Promise<T>): Promise<T>;
         withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): Promise<T>;
         withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): Promise<T>;
         worktrees(turnId: string): string[];

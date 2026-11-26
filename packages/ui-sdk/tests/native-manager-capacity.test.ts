@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,6 +28,8 @@ function fixture() {
   fs.mkdirSync(stageRoot, { mode: 0o710 });
   const lstat = fs.lstatSync, stat = fs.statSync, fstat = fs.fstatSync, read = fs.readFileSync, list = fs.readdirSync, exists = fs.existsSync;
   let inspectionError: string | undefined;
+  let deletion: Promise<void> | undefined;
+  const deleteEntered = Promise.withResolvers<void>();
   const faults: Array<{ mockRestore(): void }> = [
     spyOn(process, "geteuid").mockReturnValue(0),
     spyOn(fs, "chownSync").mockImplementation(() => {}),
@@ -59,12 +62,13 @@ function fixture() {
         parentUuid: config.brainUuid, receivedUuid: "0".repeat(32), rootId: "256", transaction: "1", readOnly: path !== join(root, "brain") }) };
     } }),
     spyOn(Bun, "spawn").mockImplementation(((argv: string[]) => {
-      let errors = "", code = 0;
+      let errors = "", code = 0, exited: Promise<number> | undefined;
       if (argv[0] === "/usr/bin/fallocate") fs.writeFileSync(argv[3]!, new Uint8Array(Number(argv[2])));
       else if (argv[1] === "qgroup") { errors = "quota not enabled"; code = 1; }
+      else if (argv[2] === "delete") { deleteEntered.resolve(); exited = (deletion ?? Promise.resolve()).then(() => { fs.rmSync(argv[4]!, { recursive: true, force: true }); return 0; }); }
       else if (argv[2] === "snapshot") fs.mkdirSync(argv[5]!);
       else if (argv[2] !== "list" && argv[2] !== "sync") throw Error(`Unexpected native command: ${argv}`);
-      return { stdout: new Response("").body!, stderr: new Response(errors).body!, exited: Promise.resolve(code), kill() {} };
+      return { stdout: new Response("").body!, stderr: new Response(errors).body!, exited: exited ?? Promise.resolve(code), kill() {} };
     }) as typeof Bun.spawn),
   ];
   let closeStage = async () => {};
@@ -76,7 +80,7 @@ function fixture() {
       async read() { return { async close() {} }; }, async *inspect() {} };
   }));
   cleanups.push(() => { for (const fault of faults.reverse()) fault.mockRestore(); });
-  return { config, state, stageRoot, prepared, setInspectionError(code?: string) { inspectionError = code; },
+  return { config, state, stageRoot, prepared, deleteEntered: deleteEntered.promise, setDeletion(value: Promise<void>) { deletion = value; }, setInspectionError(code?: string) { inspectionError = code; },
     setCloseStage(close: () => Promise<void>) { closeStage = close; },
     async manager(override: Partial<typeof config> = {}) {
       const manager = await createNativeBrainManager({ ...config, ...override });
@@ -188,4 +192,26 @@ test("an unknown quarantine charge does not invent overflow for later valid boun
   const diagnostics = fs.readdirSync(report.diagnosticsPath).map(name => fs.readFileSync(join(report.diagnosticsPath, name), "utf8")).join("\n");
   expect(diagnostics, "NATIVE_UNKNOWN_CHARGE_HAS_NO_FALSE_OVERFLOW").not.toContain("exceeds safe accounting range");
   expect(diagnostics).toContain("recoverStageAllowance");
+});
+
+
+test("native checkpoint admission does not wait for another checkpoint's gated deletion", async () => {
+ const f = fixture(), gate = Promise.withResolvers<void>(); f.setDeletion(gate.promise);
+ const manager = await f.manager();
+ await manager.run({ operation: "checkpoint", id: id(90) });
+ const releasing = manager.run({ operation: "release", id: id(90) });
+ let timer: ReturnType<typeof setTimeout> | undefined;
+ try {
+  await f.deleteEntered;
+  const next = manager.run({ operation: "checkpoint", id: id(91) });
+  const result = await Promise.race([next, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), watchdogMs(5000)); })]);
+  expect(result, "CHECKPOINT_ADMISSION_BYPASSES_NATIVE_DELETION_LOCK").not.toBeNull();
+  clearTimeout(timer);
+  await expect(manager.run({ operation: "checkpoint", id: id(90) }), "DELETING_ID_CANNOT_BE_REUSED").rejects.toThrow("being reclaimed");
+  const duplicate = manager.run({ operation: "release", id: id(90) });
+  const records = await (await manager.run({ operation: "listRecovery", after: null })).json() as { records: { id: string; state: string }[] };
+  expect(records.records.find(record => record.id === id(90))?.state, "PENDING_NATIVE_DELETE_RETAINS_DURABLE_CHARGE").toBe("deleting");
+  gate.resolve(); expect((await (await releasing).json()).state).toBe("deleted");
+  expect(await (await duplicate).json(), "DUPLICATE_RELEASE_JOINS_OWNER").toEqual({ id: id(90), state: "deleted" }); await next;
+ } finally { clearTimeout(timer); gate.resolve(); await releasing; await manager.close(); }
 });

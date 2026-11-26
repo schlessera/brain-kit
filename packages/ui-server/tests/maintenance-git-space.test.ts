@@ -1,12 +1,12 @@
 /**
  * Hosted `brain maintain` packs git inside the maintenance worker's private
  * output stage, which `BRAIN_UI_OUTPUT_STAGING_BYTES` bounds (#3357). A pack
- * larger than that allowance fails with git's own out-of-disk line; the `git`
- * step must name the limit, its size, the setting and the starting headroom.
+ * below conservative headroom skips before Git starts; a large enough
+ * stage packs successfully.
  * Runs under real bubblewrap through the managed native app fixture.
  */
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
@@ -65,30 +65,33 @@ afterEach(async () => {
 });
 afterAll(() => { rmSync(root, { recursive: true, force: true }); });
 
-async function maintain(allowance: number) {
+async function maintain(allowance: number, publish = false) {
   process.env[SETTING] = String(allowance);
   const state = mkdtempSync(join(root, "state-"));
   const native = createNativeAppFixture(brain); cleanup.push(native.close);
   const host = createHostBoundary({ brainPath: brain, dbPath: join(state, "ui.db"), exec: {},
     nativeManager: createNativeBrainManagerClient(native.nativeBrain) });
   const result = await host.run({ argv: [process.execPath, BRAIN_CLI, "maintain", "--json"],
-    env: { PATH: "/usr/bin:/bin", BRAIN_ROOT: brain }, credentials: true, gate: "exclusive", purpose: "Odysseus maintenance cron", publish: false });
+    env: { PATH: "/usr/bin:/bin", BRAIN_ROOT: brain }, credentials: true, gate: "exclusive", purpose: "Odysseus maintenance cron", ...(publish?{}:{publish:false as const}) });
   const report = JSON.parse(result.stdout) as Array<{ step: string; result: string }>;
   return { result, git: report.find(step => step.step === "git")?.result ?? "" };
 }
 
-test("a pack over the output-staging allowance names the limit, its setting and the headroom", async () => {
+test("a pack below conservative headroom skips before Git starts", async () => {
   const { result, git } = await maintain(BELOW_PACK);
-  expect(result.exitCode, result.stderr).toBe(2);
-  expect(git, "MAINTAIN_GIT_NO_SPACE_NAMED").toStartWith("FAILED — no space:");
-  expect(git, "MAINTAIN_GIT_NO_SPACE_STAGE").toContain("maintenance worker's output stage");
-  expect(git, "MAINTAIN_GIT_NO_SPACE_ALLOWANCE").toContain(`allowance ${BELOW_PACK} bytes`);
-  expect(git, "MAINTAIN_GIT_NO_SPACE_SETTING").toContain(SETTING);
-  expect(git, "MAINTAIN_GIT_NO_SPACE_HEADROOM").toMatch(/; \d+ bytes available when the step started/);
+  expect(result.exitCode, result.stderr).toBe(0);
+  expect(git, "MAINTAIN_GIT_HEADROOM_SKIP").toStartWith("skipped — packing_headroom");
+  expect(git).toContain("requires ");
+  expect(git).toContain("available ");
 });
 
 test("the same pack inside the allowance packs every loose object", async () => {
-  const { result, git } = await maintain(ABOVE_PACK);
+  const packDir=join(brain,".git/objects/pack"),before=new Set(readdirSync(packDir));
+  const { result, git } = await maintain(ABOVE_PACK,true);
+  expect(result.exitCode,result.stderr).toBe(0);
+  const added=readdirSync(packDir).filter(name=>name.endsWith(".pack")&&!before.has(name));
+  expect(added.length,"MAINTAIN_SUCCESS_PUBLISHES_LIVE_PACK").toBeGreaterThan(0);
+  for(const name of added)expect(readdirSync(packDir)).toContain(name.replace(/\.pack$/,".idx"));
   // The host's frozen attributes tree is one more loose object beside the blobs.
   expect(git, result.stderr).toMatch(/^ok — packed \d+ loose object\(s\)$/);
   expect(Number(/packed (\d+)/.exec(git)?.[1])).toBeGreaterThanOrEqual(LOOSE_BLOBS);

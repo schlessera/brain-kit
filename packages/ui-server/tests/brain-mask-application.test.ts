@@ -19,10 +19,10 @@ beforeEach(() => {
   controller = new AbortController(); authorized = true; available = true; records = []; beforeCommit = undefined;
 });
 afterEach(() => { for (const host of maintenanceOwners.splice(0)) host.cleanup(); rmSync(root, { recursive: true, force: true }); });
-function app() {
+function app(protectedPaths?: string[], workspaceReadOnly = false) {
   const maintenance = createFixtureMaintenanceHost(root); maintenanceOwners.push(maintenance);
   return createMaskApplication({ root, maintenance, principalId: "odysseus", turnId: "raft-turn", signal: controller.signal,
-    lock: createKeyedLock(), isAuthorized: () => authorized, isAvailable: () => available,
+    protectedPaths, workspaceReadOnly, lock: createKeyedLock(), isAuthorized: () => authorized, isAvailable: () => available,
     record: result => records.push(result), beforeCommit: () => beforeCommit?.() });
 }
 function request(overrides: Record<string, unknown> = {}) {
@@ -220,4 +220,25 @@ test.each(["directory", "image", "mask", "authority", "cancel"] as const)("scrat
   if (["image", "mask"].includes(kind)) expect(result.code).toBe("stale_base");
   if (kind === "authority") expect(result.code).toBe("authority_revoked");
   if (kind === "cancel") expect(result.code).toBe("cancelled");
+});
+
+
+test("workspace inspection protection refuses the host mask write", async () => {
+  const imagePath = "workspaces/ithaca/raft.png", maskPath = "workspaces/ithaca/raft-mask.png";
+  mkdirSync(join(root, "workspaces/ithaca"), { recursive: true });
+  writeFileSync(join(root, imagePath), png);
+  const result = await app(undefined,true)({ principalId: "odysseus", turnId: "raft-turn",
+    base: readMaskBase(root, imagePath), input: { imagePath, maskPath, png } });
+  expect(result.message,"IMPLICIT_INSPECTION_WRITE_NAMES_REMEDIES").toContain("switch on code changes for this session");expect(result.message).toContain("managed worktree");
+  expect(result.code, "INSPECT_HOST_MASK_REFUSED").toBe("policy_denied");
+  expect(result.changes).toEqual([]);
+  expect(existsSync(join(root, maskPath)), "INSPECT_HOST_MASK_HAS_NO_BYTES").toBe(false);
+  expect(readFileSync(join(root, imagePath))).toEqual(png);
+});
+
+
+test("implicit inspection preserves secret target protection outside the checkout",async()=>{
+ const imagePath="assets/raft.png",maskPath="assets/raft-mask.png";mkdirSync(join(root,"assets"),{recursive:true});writeFileSync(join(root,imagePath),png);symlinkSync(maskPath,join(root,".env.athena"));
+ const result=await app(undefined,true)({principalId:"odysseus",turnId:"raft-turn",base:readMaskBase(root,imagePath),input:{imagePath,maskPath,png}});
+ expect(result.code,"IMPLICIT_INSPECTION_RETAINS_SECRET_TARGET_GUARD").toBe("policy_denied");expect(existsSync(join(root,maskPath))).toBe(false);
 });

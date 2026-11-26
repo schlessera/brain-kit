@@ -7,10 +7,12 @@ mockWorkerHostForSdkStream();
  */
 
 import { describe, expect, test } from "bun:test";
+import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import type { AccountInfo, query } from "@anthropic-ai/claude-agent-sdk";
 import { createClaudeBackend, MEASURED_RUNTIME } from "@schlessera/brain-backend-claude";
 
 import { createTurnRecorder } from "../src/activity/recorder";
+import { createTurnLifecycle } from "../src/activity/turn-lifecycle";
 import { createRuntimeStatus } from "../src/activity/runtime-status";
 import { createActivityStore, rowToRunRollup } from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
@@ -50,6 +52,38 @@ async function recordTurn(runId: string, queryFn: typeof query) {
 }
 
 describe("the run record", () => {
+  test.each(["plugin:loom", "plugin:ithaca:sea:loom", "plugin:ithaca::loom", "plugin::", "claude.ai "])("persists MCP states and CLI durations from the first Claude init and result (%s)", async configuredKey => {
+    const db = createUiDb(":memory:");
+    try {
+      const store = createActivityStore(db);
+      const turn = createTurnLifecycle(store, "ithaca", null, Date.now(), () => {});
+      const servers: NonNullable<ActivityTurnLifecycle["backendMcpInit"]> = [
+        { name: "loom", status: "connected", source: "sdk" },
+        { name: configuredKey, status: "pending", source: "project" },
+        { name: "brain-ui", status: "failed", source: "other" },
+      ];
+      const initServers = servers.map(s => s.source === "other" ? { ...s, source: "unrecognized-config-scope" } : s);
+      const queryFn = scripted({ mcp_servers: initServers }, {}, [
+        { type: "system", subtype: "init", session_id: "sess-1", mcp_servers: [] },
+        { type: "result", subtype: "success", session_id: "sess-1", total_cost_usd: 0, duration_ms: 100, num_turns: 1,
+          time_to_request_ms: 17, ttft_ms: 53, ttft_stream_ms: 29 },
+      ]);
+      const backend = createClaudeBackend({ brainPath: "/brain", queryFn, log() {} });
+      turn.mark("backendInvokedAt");
+      await backend.startTurn({ prompt: "Inspect Ithaca.", signal: new AbortController().signal,
+        startupTiming: turn.startupTiming, bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" }) } });
+      turn.finish("success");
+      const record = store.lifecycle("ithaca")!;
+      const cliSteps = record.openSubPhases?.filter(step => step.phase === "backend" && step.name.startsWith("cli_"));
+      expect(cliSteps?.map(step => [step.name, step.timeBase, step.workerElapsedMs, step.elapsedMs])).toEqual([
+        ["cli_time_to_request", "worker", 17, 17], ["cli_ttft", "worker", 53, 53], ["cli_ttft_stream", "worker", 29, 29],
+      ]);
+      expect(record.backendMissingEvidence?.filter(name => name.startsWith("cli_"))).toEqual([]);
+      expect(record.backendMcpInit).toEqual(servers);
+      for (const server of servers) expect(record.backendMissingEvidence).toContain("mcp_connect:" + server.name);
+    } finally { db.close(); }
+  });
+
   test("carries the Claude Code version the turn's init reported and the SDK version the backend loaded", async () => {
     const { store, runtime, rollup } = await recordTurn(
       "run-a",

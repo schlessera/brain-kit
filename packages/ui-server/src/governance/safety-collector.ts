@@ -2,6 +2,8 @@
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { ingestionSignalIdentity, inputTaintSignals, outputTaintSignals, searchOutputComplete, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
+import { checkpointGrepMatches, grepCheckpointDirectory, grepNotePath, type GrepCheckpoint } from "../activity/checkpoint-grep.js";
+
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
@@ -11,13 +13,14 @@ import type { ReferenceTools } from "../brain/reference-tools.js";
 
 export function createSafetyCollector(db:Database,writes:GovernanceWrites,options:{turnId:string;bindingId:string;backendId:string;
  sessionId:()=>string|null;actor?:"interactive"|"voice";brainPath?:string;shellProxied:()=>boolean;signal:AbortSignal;onReady?:()=>void;stop?:(error:Error)=>void;policyHash?:string|null;
- referenceReads?:Pick<ReferenceTools,"observeResult">}):NonNullable<BackendBridge["inputSafety"]> {
+ grepCheckpoint?:GrepCheckpoint;referenceReads?:Pick<ReferenceTools,"observeResult">}):NonNullable<BackendBridge["inputSafety"]> {
  // `admitted`: every input signal of its latest begin() is recorded, and the
  // call owes its result. A result for a call whose begin() failed partway
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean;uncertain:boolean;searchContext?:ReturnType<typeof searchOutputContext>};
+ type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;unqualifiedGrepContent?:boolean;owed:boolean;refused:boolean;uncertain:boolean;searchContext?:ReturnType<typeof searchOutputContext>};
+
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
  // to admit a call under it, for each tool name it came under, and whether
@@ -61,12 +64,12 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // A recorded result discharges an obligation, and so does a denial that
  // proves the call never ran (`refused`). A discharge that cannot commit
  // leaves it, and so its chat's gap when the collection ends.
- const discharge=async(op:Operation)=>{
+ const discharge=async(op:Operation,neverDelivered?:readonly string[])=>{
   if(!op.owed)return;
-  try{await writes.safetyDischarge(options.turnId,op.id);op.owed=false;}catch{/* Still owed: the end gaps it. */}
+  try{await writes.safetyDischarge(options.turnId,op.id,neverDelivered);op.owed=false;}catch{/* Still owed: the end gaps it. */}
  };
  const tails=new Map<string,Promise<void>>();let queued=0;
- // A result record under way, which the turn's end waits for (#3812).
+ // Turn end waits for in-flight results and refusals to settle their obligations.
  const recording=(work:Promise<void>):Promise<void>=>{
   const records=safetyQueue(db).recording;let mine=records.get(options.turnId);
   if(!mine)records.set(options.turnId,mine=new Set());
@@ -121,6 +124,12 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     if(!op.inputHashes.has(inputHash)&&op.inputHashes.size>=16)throw new Error("Safety input revision capacity exceeded");
     op.inputHashes.add(inputHash);op.admitted=false;operations.set(toolUseId,op);
     op.searchContext=searchOutputContext(tool,input,options.backendId);
+    if(tool==="Grep"&&options.backendId==="claude"){
+      if(options.brainPath&&options.grepCheckpoint) op.grepNote=grepNotePath(input,options.brainPath,options.grepCheckpoint);
+      if(input.output_mode==="content"&&input["-n"]===false&&typeof input.path==="string"&&input.path)
+        op.unqualifiedGrepContent ||= !(options.brainPath&&options.grepCheckpoint&&grepCheckpointDirectory(input.path,options.brainPath,options.grepCheckpoint));
+    }
+
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
      if(op.signals.some(prior=>ingestionSignalIdentity(prior)===ingestionSignalIdentity(signal)))continue;
      const item=observed(toolUseId,signal.detector,op.id);
@@ -158,7 +167,16 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     // Record output independently, before the backend releases it to the
     // model. Its bytes already exist, so a refusal here is never "before delivery".
     const outputComplete=searchOutputComplete(output,outputStatus,tool==='grep'&&options.backendId==='pi');
-    for(const signal of outputTaintSignals(tool,output,options.brainPath,marked,{...op.searchContext,outputComplete})){
+    const call=calls.get(toolUseId);
+    const verified=op.grepNote&&options.grepCheckpoint
+      &&outputComplete&&finalized&&!segments&&!op.uncertain&&!op.refused&&op.inputHashes.size===1
+      &&call?.tools.size===1&&call.tools.get(tool)===1&&!marked(op.grepNote)
+      &&checkpointGrepMatches(options.grepCheckpoint,op.grepNote,output);
+    // The checkpoint proves these are lines of note content, including any
+    // path-like text in a numbered context line.
+    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked,{...op.searchContext,outputComplete,unverifiedNote:Boolean(op.grepNote||op.unqualifiedGrepContent)});
+    for(const signal of signals){
+
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }
@@ -200,13 +218,17 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // the id, under the same tool or another (the Claude runtime admits two
   // calls under one id), an allow followed by a refusal, a rejected request
   // (a stopped turn, a replay). Never rejects.
-  refused(toolUseId,denied=false){return serial(toolUseId,async()=>{
+  refused(toolUseId,denied=false){return recording(serial(toolUseId,async()=>{
    const op=operations.get(toolUseId);
    const proves=denied&&once(calls.get(toolUseId));
    if(!op){if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});return;}
    op.refused=true;
-   if(proves&&!op.done)await discharge(op);
-  },true).catch(()=>{});},
+   if(proves&&!op.done){
+    const sameFetch=calls.get(toolUseId)?.tools.has(op.tool)&&!op.uncertain&&op.inputHashes.size===1&&op.admitted
+      &&op.signals.length>0&&op.signals.every(s=>s.source==="web_fetch"&&s.detector==="tool_web_input");
+    await discharge(op,sameFetch?op.occurrences:undefined);
+   }
+  },true).catch(()=>{}));},
   // The backend's last check before it lets this call run, noted so that no
   // later refusal under the id proves the call never ran. A call whose id
   // was refused, or whose latest begin() did not complete, must not run: the

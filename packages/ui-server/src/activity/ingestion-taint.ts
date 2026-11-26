@@ -185,7 +185,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
 }
 
 /** Admitted format only. Invalid or incomplete output always retains unknown coverage. */
-interface SearchOutputContext { displayOnly?:boolean; backendId?: string; outputMode?: string; lineNumbers?: boolean; contextRows?:boolean; offset?: number; limit?: number; outputComplete?: boolean }
+interface SearchOutputContext { unverifiedNote?:boolean; displayOnly?:boolean; backendId?: string; outputMode?: string; lineNumbers?: boolean; contextRows?:boolean; offset?: number; limit?: number; outputComplete?: boolean }
 // Installed SDK: GlobInput/GrepInput and GlobOutput/GrepOutput in
 // @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:905-983,3506-3545. Pi's shipped grep and text
 // envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:44-82)
@@ -219,6 +219,7 @@ function completeSearchFields(prefix:string):unknown {
     if(c==='{'||c==='[')depth++;
     else if(c==='}'||c===']'){if(depth===1){keep(i);break;}depth--;}
     else if(c===','&&depth===1){keep(i);start=i+1;}
+
   }
   // The last top-level field may be an unfinished filenames array. Its
   // independently closed string elements remain identifiable before the cut.
@@ -247,7 +248,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
   try{
   const oversized=Buffer.byteLength(output)>1048576;
   if(oversized)output=Buffer.from(output.slice(0,1048576)).subarray(0,1048576).toString('utf8');
-  unknown=oversized||context?.outputComplete===false;
+  unknown=oversized||context?.outputComplete===false||context?.unverifiedNote===true;
   const add=(path:string)=>{
     if(!path||path.includes('\0')){unknown=true;return;}
     for(const signal of fileSignals(path,brainPath,marked,'tool_search_output')){

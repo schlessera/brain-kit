@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNativeBrainManagerClient, decodeNativeDelta } from "../src/server/native-brain-manager-client";
-import { createNativeBrainManager, nativeStoreMount, validateNativeBrainManagerConfig } from "../src/server/native-brain-manager";
-import { nativeManagerFrame, nativeManagerRequest, type NativeBrainManagerError, type NativeManagerRequest } from "../src/server/native-brain-manager-protocol";
+import { createNativeBrainManager, nativeStoreMount, serveNativeBrainRequests, validateNativeBrainManagerConfig } from "../src/server/native-brain-manager";
+import { nativeManagerFrame, nativeManagerRequest, NATIVE_REQUEST_BYTES, type NativeBrainManagerError, type NativeManagerRequest } from "../src/server/native-brain-manager-protocol";
 
 const ID = "11111111-1111-4111-8111-111111111790";
 const SECOND = "22222222-2222-4222-8222-222222221790";
@@ -204,4 +204,41 @@ test("stage metadata binds its lower checkpoint and requires framed completion",
   expect(changes).toEqual([{pathHex:Buffer.from("notes/odysseus.md").toString("hex"),kind:"entry"}]);
   expect(receipt.checkpointId).toBe(SECOND);expect(await receipt.completed).toEqual({exitCode:0,bytes:row.length});
   expect(seen).toEqual([{operation:"inspectStage",id:ID}]);
+});
+
+
+test("the actual Unix endpoint accepts bounded long escaped stat paths and rejects oversized bodies",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-native-long-stat-")),socketPath=join(root,"manager.sock");cleanups.push(()=>rmSync(root,{recursive:true,force:true}));
+ const seen:string[]=[];const service=serveNativeBrainRequests(socketPath,{run:async (request: NativeManagerRequest)=>{if(request.operation!=="readCheckpoint")throw Error("unexpected operation");seen.push(request.path);return Response.json({id:SECOND,token:ID,socketPath:join(root,"reader.sock"),workerUid:31000,maximum:request.maximum});}} as never);cleanups.push(()=>service.stop(true));
+ const {request}=await import("node:http");
+ const send=(body:string)=>new Promise<{status:number;body:string}>((resolve,reject)=>{const req=request({socketPath,path:"/native-brain",method:"POST",headers:{"content-type":"application/json"}},response=>{let text="";response.setEncoding("utf8");response.on("data",part=>{text+=part;});response.on("end",()=>resolve({status:response.statusCode!,body:text}));});req.on("error",reject);req.end(body);});
+ for(const path of [Array.from({length:260},()=>"ithaca").join("/"),Array.from({length:200},()=>String.fromCharCode(34)+"Ω").join("/"),Array.from({length:10000},()=>String.fromCharCode(1,2,34)+"Ω").join("/")]){
+  expect(nativeManagerRequest.safeParse({operation:"readCheckpoint",id:ID,path,action:"stat",maximum:0}).success).toBe(true);
+  const answer=await send(JSON.stringify({operation:"readCheckpoint",id:ID,path,action:"stat",maximum:0}));expect(answer.status,"SCHEMA_ACCEPTED_STAT_REACHES_ACTUAL_UNIX_ENDPOINT").toBe(200);expect(JSON.parse(answer.body).id).toBe(SECOND);expect(seen.at(-1),"LONG_PATH_IS_A_REQUEST_NOT_A_CONTROL_REPLY").toBe(path);
+ }
+ expect(seen).toHaveLength(3);
+ let refused=false;try{const oversized=await send(JSON.stringify({operation:"readCheckpoint",id:ID,path:"x".repeat(NATIVE_REQUEST_BYTES),action:"stat",maximum:0}));refused=oversized.status>=400;}catch(error){refused=["EPIPE","ECONNRESET"].includes((error as NodeJS.ErrnoException).code??"");}expect(refused,"OVERSIZED_BODY_IS_REFUSED_BEFORE_ENGINE").toBe(true);expect(seen).toHaveLength(3);
+});
+
+
+test("the fixed reader receives escaped long metadata requests over stdin before its identity guard",async()=>{
+ const {startNativeCheckpointRead}=await import("../src/server/native-checkpoint-reader.js");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-reader-stdin-")),fd=openSync(root,"r"),uid=process.getuid!();
+ const path=Array.from({length:10000},()=>String.fromCharCode(1,2,34)+"Ω").join("/");
+ const request={action:"stat" as const,path,maximum:0};expect(Buffer.byteLength(JSON.stringify(request))).toBeGreaterThan(128*1024);
+ try{
+  // An intentionally identical identity must be refused on root and unprivileged
+  // hosts alike. Reaching this guard proves the real helper parsed bounded stdin
+  // without attempting an over-limit single argv; no private read is claimed.
+  await expect(startNativeCheckpointRead({id:ID,socketPath:join(root,"reader.sock"),token:"ithaca",workerUid:uid,appUid:uid,appGid:process.getgid!(),rootFd:fd,timeoutMs:1000,maximum:0,request}),"LONG_REQUEST_REACHES_FIXED_READER_IDENTITY_GUARD").rejects.toThrow("fixed separate reader identity required");
+ }finally{closeSync(fd);rmSync(root,{recursive:true,force:true});}
+});
+
+
+test("the Unix client refuses a control reply above 64 KiB independently of request capacity",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-control-reply-")),socketPath=join(root,"manager.sock");cleanups.push(()=>rmSync(root,{recursive:true,force:true}));
+ let calls=0;const server=Bun.serve({unix:socketPath,fetch:()=>Response.json(++calls===1?{padding:"x".repeat(64*1024)}:{id:ID,state:"deleted"})});cleanups.push(()=>server.stop(true));
+ const client=createNativeBrainManagerClient({socketPath});
+ await expect(client.ready(),"CONTROL_REPLY_BOUND_DOES_NOT_INHERIT_REQUEST_CAPACITY").rejects.toThrow("control response exceeded its bound");
+ expect(await client.release(ID),"OVERSIZED_REPLY_DOES_NOT_LATCH_THE_CLIENT").toEqual({id:ID,state:"deleted"});
 });

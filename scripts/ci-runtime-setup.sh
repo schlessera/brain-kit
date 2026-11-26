@@ -9,6 +9,8 @@ if [ "${1:-}" != "--native" ]; then
 fi
 sudo apt-get update -qq
 sudo apt-get install --yes bubblewrap iproute2 poppler-utils
+# Initialize the browser indicator driver before command-scoped namespace setup.
+sudo modprobe dummy
 # Unit partitions retain their existing prerequisites; the runtime job alone
 # prepares the native image before entering its network-disabled proof.
 if [ "${1:-}" = "--native" ]; then

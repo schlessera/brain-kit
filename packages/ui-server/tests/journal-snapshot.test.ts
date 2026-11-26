@@ -1,3 +1,4 @@
+import { resolveWorkspacesMount } from "@schlessera/brain-ui-sdk/internal";
 /** Legacy raw-history semantics exercised through native capture, not a second walker. */
 import { expect, spyOn, test } from "bun:test";
 import * as asyncFs from "node:fs/promises";
@@ -15,10 +16,11 @@ function fixture() {
   const db = createUiDb(dbPath), native = createNativeJournalFixture(root, directory);
   const journal = createTurnJournal(db, { brainPath: root, dbPath, objectsRoot: join(directory, "objects"), nativeManager: native.manager });
   return { root, directory, db, journal,
-    begin: () => journal.begin("odysseus", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, () => {}),
+    begin: () => { const mount = resolveWorkspacesMount(root, undefined, true); return journal.begin("odysseus", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: !mount.writable && Boolean(mount.readOnlyPath), workspaceMissing: !mount.writable && mount.missing === true }, () => {}); },
     async observe() { await journal.observe(); return journal.details("ithaca", "odysseus")!; },
     bytes(path: string, side: "before" | "after") {
       const change = journal.details("ithaca", "odysseus")!.changes.findLast(item => item.path === path)!;
+      expect(change, "WRITABLE_HISTORY_CONTROL_RETAINS_THE_REQUESTED_PATH").toBeDefined();
       return journal.version("ithaca", "odysseus", change.sequence, side)!.bytes(1024 * 1024);
     },
     async close() { try { await journal.close(); } finally { db.close(); await native.close(); rmSync(directory, { recursive: true, force: true }); } },
@@ -98,10 +100,11 @@ test("native history cannot reinclude a changed file beneath an ignored parent",
   } finally { await f.close(); }
 });
 
-test("a new workspace ignore file cannot hide its new content from an existing native turn", async () => {
+test.each([false,true])("a new workspace ignore file cannot hide its new content from an existing native turn (root initially exists=%s)", async exists => {
   const f = fixture();
   try {
-    await f.begin(); const workspace = join(f.root, "workspaces/ithaca"); mkdirSync(workspace, { recursive: true });
+    const workspace = join(f.root, "workspaces/ithaca"); if(exists)mkdirSync(workspace,{recursive:true});
+    await f.begin(); mkdirSync(workspace, { recursive: true });
     writeFileSync(join(workspace, ".gitignore"), "odysseus.md\n"); writeFileSync(join(workspace, "odysseus.md"), "Ithaca");
     await f.observe(); expect(f.bytes("workspaces/ithaca/odysseus.md", "after"), "NATIVE_HISTORY_LATE_WORKSPACE_RULES_NOT_ADOPTED").toEqual(Buffer.from("Ithaca"));
   } finally { await f.close(); }
