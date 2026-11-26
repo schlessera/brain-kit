@@ -145,6 +145,8 @@ export function StorageBreakdown({
     shown: view.smaller ? shown : null,
     showEmpty,
   });
+  // The chip jumps to the first `?` row that can take focus; a metadata row is text.
+  const unknownTarget = legend.unknown.find((row) => row.action !== "none");
   const trail = (tree?.breadcrumbs ?? [{ id: null, name: "All stores" }]).map((crumb) => ({
     id: crumb.id ?? ROOT,
     label: crumb.name,
@@ -238,7 +240,7 @@ export function StorageBreakdown({
               key={key}
               {...row}
               id={rowId(nodeId)}
-              onActivate={() => activate(nodeId)}
+              onActivate={row.action === "none" ? undefined : () => activate(nodeId)}
               highlighted={highlight === nodeId}
               onHighlight={(active) => setHighlight(active ? nodeId : null)}
             />
@@ -315,11 +317,7 @@ export function StorageBreakdown({
       <StorageMapLegend
         owners={legend.owners}
         unknownCount={legend.unknown.length}
-        onShowUnknown={
-          legend.unknown[0]
-            ? () => document.getElementById(rowId(legend.unknown[0]!.nodeId))?.querySelector<HTMLElement>("button")?.focus()
-            : undefined
-        }
+        onShowUnknown={unknownTarget ? () => document.getElementById(rowId(unknownTarget.nodeId))?.querySelector<HTMLElement>("button")?.focus() : undefined}
       />
       {width > 0 ? (
         <div className={side ? "grid grid-cols-2 items-start gap-6" : "grid grid-cols-1 gap-3"}>

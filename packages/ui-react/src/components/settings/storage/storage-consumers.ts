@@ -127,7 +127,8 @@ export function storageConsumerRows(
       nodeId: head.id,
       name: head.name,
       owner: head.owner,
-      action: head.kind === "root" || head.kind === "directory" ? "drill" : "inspect",
+      // A folder's own metadata has no entry to inspect: its row is text.
+      action: head.kind === "root" || head.kind === "directory" ? "drill" : head.kind === "metadata" ? "none" : "inspect",
       kind: KIND[head.kind],
       size: value === null ? null : format(shared ? own! : value),
       bytes: value,
