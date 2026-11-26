@@ -1,11 +1,16 @@
+import { writesScenario, FIRST, SECOND } from "../../common/tests/support/gmail-write-fixtures.js";
+import { existsSync } from "node:fs";
+import { generateSignedCookie } from "hono/cookie";
+import { runCli } from "../../core/tests/cli-harness.js";
+import { googleBrainId } from "@schlessera/brain-common/internal/google-ledger";
+import { createFakeGog } from "../../common/tests/support/fake-gog.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 /** Both first-party simulated backends through the real WebSocket bridge. No
  * executable Google transport, credentials, network or ambient Google homes. */
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, rm, writeFile, symlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Database } from "bun:sqlite";
 import { handleGoogleTool, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
@@ -32,27 +37,46 @@ const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
 type App = Awaited<ReturnType<typeof createApp>>;
 interface Options {
-  answer?: "allow" | "edit" | "decline" | "stop";
+  concrete?: boolean;
+  googlePolicy?: string;
+  answer?: "allow" | "edit" | "decline" | "stop" | "always" | "voice-grant";
   principal?: "agent";
   voice?: boolean;
   prepare?: (app: App) => void;
   seed?: (db: Database) => Promise<void>;
   script?: (bridge: BackendBridge) => Promise<GoogleToolResult>;
   startupFailure?: boolean;
+  linkedBrain?: boolean;
+  explicitLedger?: boolean;
 }
 async function hosted(backendId: "pi" | "claude", options: Options = {}) {
-  const root = await mkdtemp(resolve(tmpdir(), "google-ws-")), brain = resolve(root, "brain");
+  await mkdir(resolve("tmp"), { recursive: true });
+  const root = await mkdtemp(resolve("tmp/google-ws-")), brain = resolve(root, "brain");
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
   await mkdir(resolve(brain, "context/policies"), { recursive: true });
-  await writeFile(resolve(brain, "context/policies/governance.md"), `---\nschema_version: 1\ngoogle:\n  enabled: true\n  account: ithaca\n  services: [gmail]\n  modes: { reversible: ask }\n---\nIthaca's mail rules.\n`);
-  // This test exercises write admission, never credential/mask discovery.
+  await writeFile(resolve(brain, "context/policies/governance.md"), `---\nschema_version: 1\ngoogle:\n  enabled: true\n  account: ithaca\n  services: [gmail]\n  modes: { reversible: ask }\n${options.googlePolicy ?? ""}---\nIthaca's mail rules.\n`);
+  const fake = createFakeGog({ ...(options.concrete ? writesScenario() : {}), "auth.alias.list": { stdout: { aliases: { ithaca: "odysseus@example.com" } } } });
+  fake.environment.home = resolve(root, "google-home");
+  await mkdir(fake.environment.home, { mode: 0o700 });
+  cleanups.push(() => fake.dispose());
+  // The fake resolves identity; no real credential is ever opened.
   const layout = spyOn(home, "googleHostLayout").mockImplementation(input => ({ brainPath: input.brainPath, dbPath: input.dbPath, workerMounts: [], transportReads: [] }));
   cleanups.push(() => layout.mockRestore());
   const previous = process.env.BRAIN_UI_GOOGLE_HOME;
-  delete process.env.BRAIN_UI_GOOGLE_HOME;
+  process.env.BRAIN_UI_GOOGLE_HOME = fake.environment.home;
+  const password = process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD;
+  process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD = fake.environment.keyringPassword;
+  cleanups.push(() => { if (password === undefined) delete process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD; else process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD = password; });
   cleanups.push(() => { if (previous === undefined) delete process.env.BRAIN_UI_GOOGLE_HOME; else process.env.BRAIN_UI_GOOGLE_HOME = previous; });
-  const dbPath = resolve(root, "ui.db");
+  await mkdir(resolve(root, "data"), { mode: 0o755 });
+  const dbPath = resolve(root, "data/ui.db");
+  const savedLedger = process.env.BRAIN_GOOGLE_LEDGER;
+  const ledgerPath = options.explicitLedger ? resolve(root, "shared-ledger.sqlite") : dbPath + ".google-ledger.sqlite";
+  if (options.explicitLedger) process.env.BRAIN_GOOGLE_LEDGER = ledgerPath; else delete process.env.BRAIN_GOOGLE_LEDGER;
+  cleanups.push(() => { if (savedLedger === undefined) delete process.env.BRAIN_GOOGLE_LEDGER; else process.env.BRAIN_GOOGLE_LEDGER = savedLedger; });
+  if (options.linkedBrain) await symlink(brain, resolve(root, "brain-link"));
+  const brainPath = options.linkedBrain ? resolve(root, "brain-link") + "/" : brain;
   if (options.seed || options.startupFailure) {
     const db = createUiDb(dbPath);
     try {
@@ -78,11 +102,11 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
     finally { bridge.emit({ type: "result", sessionId: SESSION, outcome: "success", durationMs: 1, numTurns: 1, isError: false }); finished = true; }
   } });
   const native = createNativeJournalFixture(brain, root), broker = native.serve();
-  app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brain, DB_PATH: dbPath,
+  app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brainPath, DB_PATH: dbPath,
     HOST: "127.0.0.1", AUTH_MODE: "password", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash("Odysseus strings the bow"),
     COOKIE_SECRET: "odysseus-google-write-cookie-secret", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
-    registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(),
-    googlePreparedWrites: { "gmail.modify": async (_, call) => {
+    googleBinary: fake.binary, registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(),
+    googlePreparedWrites: options.concrete ? undefined : { "gmail.modify": async (_, call) => {
       prepares++;
       return googleModifyPrepared(call, () => {
         // T5: inspect committed storage at the actual transport boundary.
@@ -92,6 +116,19 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
       });
     } } });
   cleanups.push(async () => { await app.close(); broker.close(); await native.close(); });
+  const inverseAtSpawn: unknown[] = [];
+  let restoreSpawn = () => {};
+  if (options.concrete) {
+    const spawn = Bun.spawn;
+    const spy = spyOn(Bun, "spawn").mockImplementation(((...args: Parameters<typeof Bun.spawn>) => {
+      const argv = args[0];
+      if (Array.isArray(argv) && argv[0] === fake.executable && argv.includes("--enable-commands-exact=gmail.batch.modify"))
+        inverseAtSpawn.push(app.db.query("SELECT state,inverse_json FROM google_inverses WHERE state='prepared'").all());
+      return Reflect.apply(spawn, Bun, args);
+    }) as typeof Bun.spawn);
+    restoreSpawn = () => spy.mockRestore();
+    cleanups.push(restoreSpawn);
+  }
   options.prepare?.(app);
   const owner = createPrincipal(app.db, { authMethod: "password", label: "Odysseus", ttlSeconds: 60 });
   const principal = options.principal === "agent" ? createPrincipal(app.db, { authMethod: "delegated", label: "Eurylochus", ttlSeconds: 60, createdBy: owner.id }) : owner;
@@ -111,8 +148,15 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
       if (frame.type !== "tool_approval_request" || answered.has(frame.toolUseId)) continue;
       answered.add(frame.toolUseId); cards.push(frame);
       const ending = options.answer ?? "allow";
-      if (ending === "stop") send({ type: "cancel", sessionId: SESSION });
+      if (ending === "voice-grant") {
+        send({ type: "tool_approval", toolUseId: frame.toolUseId, turnId: frame.turnId, channel: "voice", always: true });
+        await Bun.sleep(20);
+        expect(dispatches, "GOOGLE_VOICE_CANNOT_GRANT").toBe(0);
+        expect(app.wsHost.coordinator.pendingApprovals.has(String(frame.toolUseId)), "GOOGLE_VOICE_LEAVES_CARD_PENDING").toBe(true);
+        send({ type: "tool_denial", toolUseId: frame.toolUseId, turnId: frame.turnId, channel: "card", message: "Keep the message" });
+      } else if (ending === "stop") send({ type: "cancel", sessionId: SESSION });
       else send({ toolUseId: frame.toolUseId, turnId: frame.turnId, channel: "card", type: ending === "decline" ? "tool_denial" : "tool_approval",
+        ...(ending === "always" ? { always: true } : {}),
         ...(ending === "decline" ? { message: "Keep it in the inbox" } : {}),
         ...(ending === "edit" ? { updatedInput: { ...(frame.input as object), payload: { ...GOOGLE_CARD.payload, message_ids: ["19a0c3d2e4f50602"] } } } : {}) });
     }
@@ -123,8 +167,9 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
     await Bun.sleep(20);
     expect(dispatches, "GOOGLE_LATE_APPROVAL_AFTER_STOP_CANNOT_DISPATCH").toBe(0);
   }
+  restoreSpawn();
   if (scriptError) throw scriptError;
-  return { app, result, cards, dispatches, prepares, sent };
+  return { app, result, cards, dispatches, prepares, sent, brain, brainPath, dbPath, ledgerPath, owner, fake, inverseAtSpawn };
 }
 for (const backend of ["claude", "pi"] as const) {
   test(`google ${backend} WebSocket exact card commits decision and inverse before one invocation`, async () => {
@@ -134,7 +179,7 @@ for (const backend of ["claude", "pi"] as const) {
     } });
     expect(f.result, "GOOGLE_WS_SUCCESS").toMatchObject({ ok: true, operation: "gmail.modify", admission: "card", result: GOOGLE_CARD.payload });
     expect(f.cards, "GOOGLE_WS_ONE_CARD").toHaveLength(1);
-    expect(f.cards[0]).toMatchObject({ kind: "google", input: GOOGLE_CARD });
+    expect(f.cards[0]).toMatchObject({ kind: "google", input: { ...GOOGLE_CARD, offers: { allow_always: true, allow_for_session: false } } });
     expect(f.dispatches, "GOOGLE_WS_SINGLE_DISPATCH").toBe(1);
   }, 60_000);
   test(`google ${backend} WebSocket voice shows no needed card and dispatches nothing`, async () => {
@@ -188,4 +233,99 @@ test("google real app startup failure contains writes, leaves reads usable, and 
     if (Date.now() > until) throw new Error("Google startup did not recover");
     await Bun.sleep(20);
   }
+}, 60_000);
+
+for (const backend of ["pi", "claude"] as const) test(`google ${backend} voice-attributed standing choice never grants`, async () => {
+  const f = await hosted(backend, { answer: "voice-grant" });
+  expect(f.result).toMatchObject({ ok: false, error: { reason: "declined" } });
+});
+
+test("google symlinked host grant is listed and revoked by the CLI", async () => {
+  const f = await hosted("pi", { answer: "always", linkedBrain: true, explicitLedger: true });
+  expect(f.result).toMatchObject({ ok: true, admission: "card" });
+  expect(existsSync(f.ledgerPath), "GOOGLE_CONFIGURED_LEDGER_USED").toBe(true);
+  const env = { HOME: process.env.HOME!, BRAIN_GOOGLE_LEDGER: f.ledgerPath };
+  const listed = await runCli(f.brain, ["google", "approvals", "--json"], env);
+  expect(listed.code, listed.stderr).toBe(0);
+  const approvals = JSON.parse(listed.stdout).data.approvals;
+  expect(approvals, "GOOGLE_HOST_CLI_CANONICAL_ID").toHaveLength(1);
+  expect(approvals[0].brain_id).toBe(googleBrainId(f.brain));
+  const revoked = await runCli(f.brain, ["google", "revoke", approvals[0].id, "--json"], env);
+  expect(revoked.code, revoked.stderr).toBe(0);
+  expect(JSON.parse(revoked.stdout).data.revoked, "GOOGLE_HOST_CLI_REVOKE").toBe(true);
+  const cookie = (await generateSignedCookie("brain_ui_session", f.owner.id, "odysseus-google-write-cookie-secret")).split(";")[0]!;
+  const response = await f.app.fetch(new Request("http://localhost/api/google/approvals", { headers: { cookie } }));
+  expect(await response.json()).toEqual({ approvals: [] });
+});
+test("google real app HTTP ownership refuses agents and other session owners", async () => {
+  const f = await hosted("pi");
+  const other = createPrincipal(f.app.db, { authMethod: "password", label: "Penelope", ttlSeconds: 60 });
+  const agent = createPrincipal(f.app.db, { authMethod: "delegated", label: "Eurylochus", ttlSeconds: 60, createdBy: f.owner.id });
+  f.app.db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES('aeaea-agent',1,1)").run();
+  f.app.db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('aeaea-agent',?,1)").run(agent.id);
+  const get = async (id: string, path: string) => {
+    const cookie = (await generateSignedCookie("brain_ui_session", id, "odysseus-google-write-cookie-secret")).split(";")[0]!;
+    return f.app.fetch(new Request("http://localhost" + path, { headers: { cookie } }));
+  };
+  expect((await get(agent.id, "/api/google/approvals")).status, "GOOGLE_REAL_HTTP_NON_OWNER").toBe(403);
+  expect((await get(other.id, "/api/sessions/aeaea-agent/google/allowances")).status, "GOOGLE_REAL_HTTP_OTHER_SESSION").toBe(404);
+  expect((await get(f.owner.id, `/api/sessions/${SESSION}/google/allowances`)).status).toBe(200);
+});
+
+test("google default ledger keeps Allow always beside a 0755 database directory", async () => {
+  const f = await hosted("pi", { answer: "always" });
+  expect(f.result, "GOOGLE_DEFAULT_LEDGER_0755").toMatchObject({ ok: true, admission: "card" });
+  expect(f.result, "GOOGLE_DEFAULT_LEDGER_0755").not.toHaveProperty("standingChoice");
+  const listed = await runCli(f.brain, ["google", "approvals", "--json"],
+    { HOME: process.env.HOME!, BRAIN_GOOGLE_LEDGER: f.ledgerPath });
+  expect(listed.code, listed.stderr).toBe(0);
+  expect(JSON.parse(listed.stdout).data.approvals, "GOOGLE_DEFAULT_LEDGER_0755").toHaveLength(1);
+});
+
+test("google real app removes old allowances before its first turn", async () => {
+  await hosted("pi", {
+    seed: async db => {
+      db.run("INSERT INTO sessions(id,created_at,last_active_at) VALUES('aeaea-old',1,1)");
+      db.run("INSERT INTO google_session_allowances VALUES('aeaea-old','odysseus','brain','odysseus@example.com','gmail.modify','archive','old-epoch','policy','card',1,86400001,100)");
+    },
+    prepare: app => {
+      expect(app.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(),
+        "GOOGLE_APP_STARTUP_OLD_ALLOWANCES").toEqual({ n: 0 });
+    },
+  });
+});
+
+for (const backend of ["claude", "pi"] as const) test(`google ${backend} concrete structured search then archive is card-less; content read then archive asks`, async () => {
+  const results: GoogleToolResult[] = [];
+  const archive = { tool: "brain_google_gmail_modify" as const, input: { message_ids: [FIRST, SECOND], remove_label_ids: ["INBOX"] } };
+  const f = await hosted(backend, { concrete: true, googlePolicy: "  operations: { gmail.modify: allow }\n", script: async bridge => {
+    const search = await bridge.google!({ tool: "brain_google_gmail_search", input: { query: "in:inbox", view: "structured" } });
+    expect(search, "WS_STRUCTURED_SEARCH").toMatchObject({ ok: true, result: { view: "structured" } });
+    results.push(await bridge.google!(archive));
+    expect(await bridge.google!({ tool: "brain_google_gmail_read", input: { target: "message", id: FIRST, view: "content" } })).toMatchObject({ ok: true });
+    return bridge.google!(archive);
+  } });
+  expect(f.inverseAtSpawn, "WS_CONCRETE_INVERSE_AT_SPAWN").toEqual([
+    [{ state: "prepared", inverse_json: expect.any(String) }], [{ state: "prepared", inverse_json: expect.any(String) }],
+  ]);
+  expect(results[0], "WS_CONCRETE_CARDLESS").toMatchObject({ ok: true, admission: "policy" });
+  expect(f.result, "WS_CONTENT_REQUIRES_CARD").toMatchObject({ ok: true, admission: "card" });
+  expect(f.cards).toHaveLength(1); expect(f.fake.callsOf("gmail.batch.modify")).toHaveLength(2);
+  const rows = f.app.db.query("SELECT state,inverse_json FROM google_inverses ORDER BY decision_event_id").all() as { state: string; inverse_json: string }[];
+  expect(rows.map(row => row.state)).toEqual(["confirmed", "confirmed"]);
+  expect(JSON.parse(rows[0]!.inverse_json).changes).toEqual([{ message_id: FIRST, add_label_ids: ["INBOX"], remove_label_ids: [] }]);
+}, 60_000);
+
+test("google concrete WebSocket hidden targets and item limits refuse, turn limit asks", async () => {
+  const archive = { tool: "brain_google_gmail_modify" as const, input: { message_ids: [FIRST, SECOND], remove_label_ids: ["INBOX"] } };
+  for (const extra of ["  gmail: { hidden_labels: [Label_12] }\n", "  limits: { items_per_call: 1 }\n"]) {
+    const f = await hosted("pi", { concrete: true, googlePolicy: "  operations: { gmail.modify: allow }\n" + extra, script: bridge => bridge.google!(archive) });
+    expect(f.result, "WS_CONCRETE_HIDDEN_LIMIT_REFUSAL").toMatchObject({ ok: false, error: extra.includes("hidden_labels") ? { code: "not_found", reason: null } : { code: "policy_denied", reason: "items_per_call" } });
+    expect(f.fake.callsOf("gmail.batch.modify")).toHaveLength(0); expect(f.cards).toHaveLength(0);
+  }
+  const f = await hosted("pi", { concrete: true, googlePolicy: "  operations: { gmail.modify: allow }\n  limits: { reversible_per_turn: 2 }\n", script: async bridge => {
+    expect(await bridge.google!(archive)).toMatchObject({ ok: true, admission: "policy" });
+    return bridge.google!(archive);
+  } });
+  expect(f.result, "WS_CONCRETE_TURN_LIMIT").toMatchObject({ ok: true, admission: "card" }); expect(f.cards).toHaveLength(1);
 }, 60_000);

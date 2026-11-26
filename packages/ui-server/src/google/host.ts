@@ -151,6 +151,8 @@ export interface GoogleCallAudit {
   decision?: "allowed" | "approved" | "declined" | "refused";
   admission?: "policy" | "remembered_approval" | "session_allowance" | null;
   decisionEventId?: number | null;
+  /** Fixed diagnostics for authenticated audit readers; host-only detail stays in logs. */
+  standingFailures?: Array<{ store: "remembered_approvals" | "session_allowances"; site: "read" | "reconcile" | "grant" | "reserve"; errorClass: string; message: string }>;
 }
 
 export interface GoogleToolsHost {

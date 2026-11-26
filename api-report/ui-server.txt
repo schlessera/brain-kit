@@ -762,6 +762,20 @@ signatures (every public export and the types it is made of)
                     returned: "returned";
                 }>;
                 reason: z.ZodNullable<z.ZodString>;
+                standingFailures: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    errorClass: z.ZodString;
+                    message: z.ZodString;
+                    site: z.ZodEnum<{
+                        grant: "grant";
+                        read: "read";
+                        reconcile: "reconcile";
+                        reserve: "reserve";
+                    }>;
+                    store: z.ZodEnum<{
+                        remembered_approvals: "remembered_approvals";
+                        session_allowances: "session_allowances";
+                    }>;
+                }, z.core.$strict>>>;
                 target: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 tool: z.ZodString;
                 view: z.ZodNullable<z.ZodEnum<{

@@ -70,6 +70,7 @@ describe("config/env descriptor", () => {
         "BRAIN_GOOGLE_GOG_PATH",
         "BRAIN_GOOGLE_HOME",
         "BRAIN_GOOGLE_KEYRING_PASSWORD",
+        "BRAIN_GOOGLE_LEDGER",
         "BRAIN_GOOGLE_ROOT_UID",
         "BRAIN_MEDIA_PINNED_PATH_LIMIT",
         "BRAIN_MEDIA_REFERENCE_LIMITS",

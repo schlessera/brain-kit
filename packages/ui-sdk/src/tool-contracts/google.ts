@@ -187,7 +187,7 @@ const success = <Name extends GmailToolName, Payload extends z.ZodType>(name: Na
   z.strictObject({ ok: z.literal(true), tool: z.literal(name), result: payload });
 
 /** Bounded structured write receipts. Never mail text or arbitrary transport output. */
-const writeBase = { ok: z.literal(true), effect: z.enum(["reversible", "irreversible"]),
+const writeBase = { ok: z.literal(true), standingChoice: z.literal("not_kept").optional(), effect: z.enum(["reversible", "irreversible"]),
   admission: z.enum(["card", "policy", "remembered_approval", "session_allowance"]) };
 const changedMessages = z.array(messageId).max(GMAIL_LIMITS.idsPerCall);
 const labelDelta = z.array(labelId).max(GMAIL_LIMITS.labelChangesPerCall);

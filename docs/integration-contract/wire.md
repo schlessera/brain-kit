@@ -3253,8 +3253,8 @@ fields; always sends `always: true`; session sends `forSession: true`.
 Google choices are forwarded distinctly as `PermissionDecision`, including
 when `updatedInput` is present; other kinds retain their existing behavior.
 Neither a generic tool grant nor a generic Always allow answer authorizes or
-persists a Google grant. This contract does not store standing approvals:
-Google ledger behavior belongs to #4212 and dedicated buttons to #4215/#4216.
+persists a Google grant. Additively (#4212), the Google ledger retains remembered approvals and the
+UI-server database retains session allowances; dedicated UI remains separate.
 The write host must validate offered choices, unchanged input and current
 authority before dispatch. Decline retains the existing `tool_denial` shape.
 
@@ -3283,8 +3283,9 @@ and is never shown, so an approval frame is never shrunk in transit), and
 ambiguous failure after dispatch is `outcome_unknown`: the write may have
 happened; the host never retries it.
 
-Until #4212, both card offers are **false**, remembered approvals and session
-allowances are empty, and either standing answer is declined. Canonically
+Additively (#4212), reversible untainted cards offer `allow_always`; reversible
+tainted cards offer `allow_for_session`. Irreversible cards offer neither; an
+answer choosing an unavailable offer or both offers is declined. Canonically
 identical approval input echoes are accepted; any edit is declined. A card
 approves one exact operation, once. Only the brain's owner can answer a Google
 card: an answer from another principal is ignored and the card stays pending. The host rechecks live owner authority,
@@ -3301,7 +3302,28 @@ metadata only. Card-owned send locks end with the card and are cleared at host
 startup. A failed startup cleanup restricts only Google writes and retries
 with bounded backoff; reads and chats remain available.
 
-Production operations still return `writes_unavailable` until #4213/#4214.
+Additively (#4213), production executes modify and draft save. Modify pre-reads
+labels under the account lock and records an opposite delta for each message
+that actually changes; already-satisfied targets are absent from the inverse
+and returned `message_ids`. At most 25 resolved message ids are admitted.
+Only INBOX, UNREAD, STARRED and user label ids are supported; other system
+labels refuse as `policy_denied/unsupported_label`. Hidden threads and hidden
+label deltas refuse as `not_found`.
+
+Draft create/reply cards carry the host-composed recipients, subject and full
+quoted plain text; gog never receives `--reply-all` or `--quote`. The card's
+message digest covers the composed fields, not a raw send. Update pre-reads
+raw bytes and asks unless this session's owner/account records prove a
+brain-created draft with an unchanged last confirmed fingerprint. The old
+raw snapshot commits before every admitted update, including an escalated
+update. Unreadable, HTML, attachment-bearing or unrepresentable sender/Reply-To
+snapshots refuse as `draft_not_displayable`. A post-save raw read must match
+the composed contents before its fingerprint is confirmed. Failure leaves an
+unknown inverse and returns `outcome_unknown`, without retrying the write.
+
+All write pre-reads and dispatches use the resolved account address, so a
+later alias change cannot redirect them. Trash, send and draft delete still
+return `writes_unavailable` until #4214.
 The engine's prepared-operation injection is internal test plumbing, absent
 from the public package API and configuration.
 
@@ -3552,3 +3574,96 @@ after the policy lock and refresh waits. Expired or concurrently pruned receipts
 return JSON null without needing another write to prune storage. Authority and
 session fences still apply before delivery. The UI sequences focus reads so an older
 success or failure cannot replace a newer rule-presence result.
+
+### Google standing admission (additive, #4212)
+
+An unedited screen allow with `always` remembers (principal, brain, resolved
+account identity, operation, entity) in a private common SQLite ledger. Memory
+is inert while tainted, and cannot override deny, hidden labels, routing,
+per-call or per-turn limits. `forSession` on a tainted reversible card grants
+that session alone at most 100 subsequent items, across turns, for at most
+24 hours and only within the granting host epoch. Entities granted on one card
+share its 100-item budget. Reservations commit before execution; an uncertain
+execution or later refusal does not refund them. The per-turn limit still
+applies. Voice may consume standing admission but never grant it.
+
+Allowances become void on a full governance-policy hash change, principal
+loss or return to normal safety policy. They are never transferred to a
+handoff, fork or imported session, and chat deletion scrubs them. Final
+admission rereads grant liveness, policy, safety, authority and routing;
+revocation applies to the next call, including an awaiting dispatch.
+
+The host first resolves the alias using `auth alias list --json` under the
+alias lock, before preparing an approval, then acquires the resolved account
+lock. It re-reads under that account lock before storing a standing choice.
+A session grant awaits the writer and is followed by one final identity read;
+if that read changes or fails, the new session grant is revoked and the call
+refuses. The last identity read is the last await before execution.
+The lowercased address keys grants, inverses and locks; an alias never does.
+A different address refuses that call as `unavailable / account_changed`.
+Missing aliases refuse as `unavailable / account_unresolved`, and malformed
+alias lists as `transport_incompatible / unexpected_shape`. Identity failure
+restricts that write; the next call resolves again. A failed standing store
+removes its card-less admission; an exact once card remains available.
+
+Residual risk: the owner can repoint an alias between the last resolution and
+gog's write spawn. Passing the resolved address to `--account` could close
+this window, but its pinned-gog behavior has not been verified; #4213 must
+resolve it before changing the alias-only argv contract. No provider-facing
+tool, prompt or earlier message changes with a grant.
+
+A `google_call` audit may add `standingFailures`, at most four authenticated-audit-reader
+storage diagnostics with `store` (`remembered_approvals` or
+`session_allowances`), `site` (`read`, `reconcile`, `grant` or `reserve`),
+`errorClass` (128 characters) and fixed `message` (500 characters maximum; no host paths or raw errors).
+The event supplies session, turn and time. A `grant` failure records that the standing choice was not kept. The detailed credential-redacted error is logged only on the host. These diagnostics never enter tool output
+or safety evidence. A database-wide recording failure can also prevent this
+audit; the structured host log remains the fallback in that case.
+
+
+If a standing grant cannot be stored, the exact approved call still runs once
+and its successful write receipt adds `standingChoice: "not_kept"`. A failed
+allowance reservation still refuses before dispatch. Final admission must retain
+the same admission kind, preventing a switch to an unreserved allowance.
+
+The shared ledger uses `BRAIN_GOOGLE_LEDGER` (server default:
+`DB_PATH.google-ledger.sqlite`; standalone requires an explicit absolute path),
+outside the brain and masked from workers. Brain identities are opaque hashes of
+canonical brain paths, shared by host and CLI. Operations reopen the ledger,
+so deletion reads empty and replacement cannot leave old approvals live.
+
+Durable normal transitions clear allowances at the underlying safety tables,
+including recorder-latch recovery and reservation release, even with no Google
+call between normal and restricted states. A grant requires durable restriction;
+in-process-only restriction receives once-only approval if it cannot be kept.
+A null policy hash invalidates only its collection's session. A known differing
+full policy hash invalidates all allowances. An entirely unobserved policy
+A→B→A file edit, with no intervening turn or Google call, cannot be detected.
+
+### Gmail preparation refinements (#4213)
+
+Modify reads the account's label directory under its account lock before
+checking requested label ids. Missing user ids, hidden ids and ids colliding
+case-insensitively with another label's name all answer the same `not_found`
+refusal at that preparation boundary, before admission. The relevant id/name
+set joins the precondition checked on re-preparation. Target-independent
+pre-read failures, including rate limiting and authentication, keep their real
+error codes even with hidden labels configured, and so does any failure of the
+label-directory read itself, which names no target.
+
+Reply cards carry the pre-read Message-ID and ordered References that gog will
+store, raw as gog reads them (encoded words are not decoded); the post-save
+read must match both. Each id must be `<local@domain>` in printable ASCII,
+with no `<` or `>` inside the brackets, padded only by spaces or tabs, and
+References hold at most 100 ids. Anything else, or an
+unsent reply target, refuses as `draft_not_displayable/reply_threading_unreadable`.
+An empty recipient set after excluding the account refuses as
+`invalid_input/reply_no_recipient`. A complete draft body, including any quote,
+exceeding 32,768 characters refuses as `draft_not_displayable/composed_body_too_large`.
+Blank bodies and existing blank subjects refuse before admission as
+`invalid_input/draft_body_blank` and `invalid_input/draft_subject_blank`.
+Updates retain omitted recipients, with their display names (a blank name is
+dropped, as gog drops it), and the stored
+threading under gog's rule: lineage is carried only with an In-Reply-To, and
+an empty References takes the In-Reply-To. The host explicitly supplies the
+current subject because gog requires it. No tool names or wire schemas change.

@@ -27,15 +27,15 @@
  * from reading the thread (plan §5, last bullet). A page with more hits than
  * it asked for (at most 25) is refused before any thread read is scheduled.
  *
- * Write operations have argv and the full write discipline here; their
- * codecs come with the write tasks, and until then `execute` refuses them
- * without running anything.
+ * Reversible writes require a host-resolved account and final admission. Other
+ * writes remain unavailable until their operation-specific codecs land.
  */
 import { GMAIL_LIMITS, type GoogleError, type GoogleOperation } from "../catalog.js";
 import type { GmailLabelRecord, GmailMessageRecord, GmailSearchPageRecord, GmailThreadRecord } from "../records.js";
 import {
   GOG_OPERATION_INPUTS, GOG_THREAD_INPUT, GogArgvError, gogArgv, gogInvocation, isGogAccountAlias, type GogInvocation, type GogOperationInput,
 } from "./argv.js";
+import { GOG_WRITE_CODECS, type GogWriteResults } from "./write-codecs.js";
 import { GOG_READ_CODECS, GogShapeError, searchHitFromThread, type GogDraftRead } from "./codecs.js";
 import { GOG_COMMANDS } from "./commands.js";
 import { gogEnvironment, type GogEnvironment, type GogEnvironmentConfig } from "./environment.js";
@@ -97,11 +97,22 @@ export type GogAvailability =
   | { ok: true; fake: true }
   | { ok: false; error: GoogleError };
 
+export type GogWriteOperation = "gmail.modify" | "gmail.draft.save";
+export type GogExecutableOperation = GogReadOperation | GogWriteOperation;
+export type GogResults = GogReadResults & GogWriteResults;
+export interface GogExecution {
+  /** Host-resolved address; pins all pre-reads and dispatch to the locked identity. */
+  accountIdentity?: string;
+  /** Required for writes. Synchronous, after the semaphore and pin waits, just before spawn. */
+  finalAdmission?: () => GoogleError | null;
+}
 export interface GogTransport {
   readonly account: string;
+  /** Host-only alias resolution. Never exposes an address to the model. */
+  resolveAccount(): Promise<GogResult<string>>;
   /** Runs the pin check now if it has not run (first use runs it anyway). */
   availability(): Promise<GogAvailability>;
-  execute<O extends GogReadOperation>(operation: O, input: GogOperationInput<O>): Promise<GogResult<GogReadResults[O]>>;
+  execute<O extends GogExecutableOperation>(operation: O, input: GogOperationInput<O>, execution?: GogExecution): Promise<GogResult<GogResults[O]>>;
 }
 
 // ------------------------------------------------------------ concurrency
@@ -130,7 +141,10 @@ class Limit {
 export const GOG_CONCURRENCY = Object.freeze({ read: 4, write: 1 });
 const limits = new Map<string, { read: Limit; write: Limit }>();
 
-/** Per account, shared by every transport in the process for that alias. */
+/** Shared per supplied key: ordinary reads use an alias, write pre/post-reads
+ * use its resolved address. These are separate read pools (four each), not a
+ * global per-identity bound. Hosted write preparation serializes under its
+ * account lock. Unifying aliases requires resolving ordinary reads too. */
 function accountLimits(account: string) {
   let found = limits.get(account);
   if (!found) {
@@ -153,7 +167,7 @@ export type GogInvokeResult = { ok: true; stdout: Uint8Array } | { ok: false; er
 
 export interface GogTransportInternals extends GogTransport {
   /** Runs one invocation with the full discipline. Internal: the write codecs and the tests build on it. */
-  invoke(operation: GoogleOperation, call: GogInvocation): Promise<GogInvokeResult>;
+  invoke(operation: GoogleOperation, call: GogInvocation, finalAdmission?: () => GoogleError | null, accountIdentity?: string): Promise<GogInvokeResult>;
 }
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -223,22 +237,25 @@ export function createGogTransportInternals(
     return { ok: true, path: result.path };
   }
 
-  async function invoke(operation: GoogleOperation, call: GogInvocation): Promise<GogInvokeResult> {
+  async function invoke(operation: GoogleOperation, call: GogInvocation, finalAdmission?: () => GoogleError | null, accountIdentity?: string): Promise<GogInvokeResult> {
     if (setup) return { ok: false, error: setup };
     const spec = GOG_COMMANDS[call.command];
     const effect: GogEffect = spec.write ? "write" : "read";
+    if (spec.write && (!finalAdmission || !accountIdentity)) return { ok: false, error: gogError("invalid_input", "missing_admission") };
     let argv: string[];
     try {
-      argv = gogArgv(call, account);
+      argv = gogArgv(call, account, accountIdentity);
     } catch (error) {
       if (error instanceof GogArgvError) return { ok: false, error: gogError("invalid_input", "argv") };
       throw error;
     }
-    const limit = accountLimits(account)[effect];
+    const limit = accountLimits(accountIdentity ?? account)[effect];
     return limit.run(async () => {
       for (let attempt = 1; ; attempt++) {
         const executable = await pinned();
         if (!executable.ok) return executable;
+        const refusal = finalAdmission?.();
+        if (refusal) return { ok: false, error: refusal };
         const run = await runGogProcess(executable.path, argv, {
           env: env!, stdin: call.stdin, timeoutMs: effect === "write" ? writeMs : readMs, stdoutCap: GOG_STDOUT_CAP,
         });
@@ -259,19 +276,19 @@ export function createGogTransportInternals(
     });
   }
 
-  async function decoded<T>(operation: GoogleOperation, call: GogInvocation, decode: (json: unknown) => T | Promise<T>): Promise<GogResult<T>> {
-    const answer = await invoke(operation, call);
+  async function decoded<T>(operation: GoogleOperation, call: GogInvocation, decode: (json: unknown) => T | Promise<T>, execution?: GogExecution): Promise<GogResult<T>> {
+    const answer = await invoke(operation, call, execution?.finalAdmission, execution?.accountIdentity);
     if (!answer.ok) return answer;
     let json: unknown;
     try {
       json = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(answer.stdout));
     } catch {
-      return { ok: false, error: gogError("transport_incompatible", "unexpected_output") };
+      return { ok: false, error: gogError(Object.hasOwn(GOG_WRITE_CODECS, operation) ? "outcome_unknown" : "transport_incompatible", "unexpected_output") };
     }
     try {
       return { ok: true, value: await decode(json) };
     } catch (error) {
-      if (error instanceof GogShapeError) return { ok: false, error: gogError("transport_incompatible", "unexpected_shape") };
+      if (error instanceof GogShapeError) return { ok: false, error: gogError(Object.hasOwn(GOG_WRITE_CODECS, operation) ? "outcome_unknown" : "transport_incompatible", "unexpected_shape") };
       throw error;
     }
   }
@@ -300,12 +317,14 @@ export function createGogTransportInternals(
     return { ok: true, value: { hits, next_page_token: page.value.next_page_token, result_size_estimate: null } };
   }
 
-  async function execute<O extends GogReadOperation>(operation: O, input: GogOperationInput<O>): Promise<GogResult<GogReadResults[O]>> {
+  async function execute<O extends GogExecutableOperation>(operation: O, input: GogOperationInput<O>, execution?: GogExecution): Promise<GogResult<GogResults[O]>> {
     if (setup) return { ok: false, error: setup };
-    if (!(GOG_READ_OPERATIONS as readonly string[]).includes(operation)) {
+    if (!(GOG_READ_OPERATIONS as readonly string[]).includes(operation) && !Object.hasOwn(GOG_WRITE_CODECS, operation)) {
       const known = Object.prototype.hasOwnProperty.call(GOG_OPERATION_INPUTS, operation);
       return { ok: false, error: known ? gogError("transport_incompatible", "no_codec") : gogError("invalid_input", "unknown_operation") };
     }
+    const write = Object.hasOwn(GOG_WRITE_CODECS, operation);
+    if (write && (!execution?.finalAdmission || !execution.accountIdentity)) return { ok: false, error: gogError("invalid_input", "missing_admission") };
     const parsed = GOG_OPERATION_INPUTS[operation].safeParse(input);
     if (!parsed.success) return { ok: false, error: gogError("invalid_input", "schema") };
     const valid = parsed.data as GogOperationInput<O>;
@@ -318,8 +337,8 @@ export function createGogTransportInternals(
     }
     const result: GogResult<unknown> = operation === "gmail.search"
       ? await search(valid as GogOperationInput<"gmail.search">)
-      : await decoded<unknown>(operation, call, GOG_READ_CODECS[operation as GogReadOperation]);
-    return result as GogResult<GogReadResults[O]>;
+      : await decoded<unknown>(operation, call, write ? GOG_WRITE_CODECS[operation as GogWriteOperation] : GOG_READ_CODECS[operation as GogReadOperation], execution);
+    return result as GogResult<GogResults[O]>;
   }
 
   async function availability(): Promise<GogAvailability> {
@@ -331,7 +350,31 @@ export function createGogTransportInternals(
     return result.ok ? { ok: true, fake: false, pin: result } : { ok: false, error: gogError("transport_incompatible", result.reason) };
   }
 
-  return { account, availability, execute, invoke };
+  async function resolveAccount(): Promise<GogResult<string>> {
+    if (setup) return { ok: false, error: setup };
+    return accountLimits(account).read.run(async () => {
+      const executable = await pinned();
+      if (!executable.ok) return executable;
+      // Verified auth.alias.list shape also used by standalone grantOf (#4208).
+      const run = await runGogProcess(executable.path, ["--no-input", "--json", "--color=never",
+        "--enable-commands-exact=auth.alias.list", "--gmail-no-send", "auth", "alias", "list"],
+        { env: env!, stdin: null, timeoutMs: readMs, stdoutCap: 1024 * 1024 });
+      const error = gogProcessError(run.end, "read");
+      if (error) return { ok: false, error };
+      try {
+        const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(run.stdout!));
+        if (!value || typeof value !== "object" || !("aliases" in value) || !value.aliases ||
+            typeof value.aliases !== "object" || Array.isArray(value.aliases) ||
+            !Object.values(value.aliases).every(address => typeof address === "string")) throw new Error("shape");
+        const address = Object.hasOwn(value.aliases, account) ? (value.aliases as Record<string, string>)[account] : undefined;
+        if (!address) return { ok: false, error: gogError("unavailable", "account_unresolved") };
+        if (address.length > 320 || /[\s\p{Cc}]/u.test(address) || !address.includes("@")) throw new Error("shape");
+        return { ok: true, value: address.toLowerCase() };
+      } catch { return { ok: false, error: gogError("transport_incompatible", "unexpected_shape") }; }
+    });
+  }
+
+  return { account, availability, execute, invoke, resolveAccount };
 }
 
 /**

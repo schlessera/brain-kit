@@ -277,6 +277,11 @@ const header = (root: Part | null, name: string): string | null => {
   const value = root?.headers.get(name);
   return value === undefined ? null : headerText(value);
 };
+/** A threading header as gog v0.48.1 replyInfoFromMessage reads it (gmail_reply.go): raw, never unfolded or decoded. */
+const rawHeader = (root: Part | null, name: string): string | null => {
+  const value = root?.headers.get(name);
+  return value === undefined ? null : unwrapGogUntrusted(value);
+};
 
 /** One Gmail Message resource (format full) as a record. */
 export function decodeGmailMessage(value: unknown, path: string): GmailMessageRecord {
@@ -296,6 +301,8 @@ export function decodeGmailMessage(value: unknown, path: string): GmailMessageRe
     bcc: header(root, "bcc"),
     reply_to: header(root, "reply-to"),
     subject: header(root, "subject"),
+    message_id_header: rawHeader(root, "message-id"),
+    references_header: rawHeader(root, "references"),
     date: header(root, "date"),
     snippet: snippet === null ? null : decodeHtmlEntities(unwrapGogUntrusted(snippet)),
     body_text: bodyText(nodes),

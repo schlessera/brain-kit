@@ -6307,3 +6307,49 @@ The prepared-write test factories are not public exports or configuration.
 `GOOGLE_APPROVAL_CARD_BYTES` (256,000) is the most UTF-8 bytes a mail
 approval card's JSON may take; the host refuses a larger card before showing
 it, so replication never shrinks an approval.
+
+## Google standing stores (additive, #4212)
+
+The internal common subpath `@schlessera/brain-common/internal/google-ledger`
+exports `openGoogleLedger`, `googleBrainId`, `googleLedgerPath`, `GoogleLedger`, `GoogleApproval` and
+`GoogleApprovalScope`. The concrete ledger lists, remembers and revokes
+principal/brain/account/operation/entity approvals. It is private host state,
+not an extension seam or brain index. `GogTransport.resolveAccount()` is an
+internal host-only read returning `GogResult<string>` from the validated alias
+list; the returned lowercased address never enters a model-facing result.
+
+UI-server's internal allowance writer uses migration 099's session-owned
+rows; migration 100 adds authority/policy invalidation triggers and migration
+101 clears grants on durable normal transitions. Reservations are serialized
+through the SQLite writer. Google cards retain their shapes; result receipts
+add only the optional standing-choice notice. Standing offers and admission variants now have
+runtime behavior described in [the wire contract](wire.md#google-standing-admission-additive-4212).
+
+
+The Google ledger opener returns a handle that reopens and validates the private
+file per operation. Missing-file reads are empty; only a grant creates it.
+Schema version 1 is checked before accessing authority. `googleBrainId` hashes
+the canonical brain root for consistent host/CLI scope; `googleLedgerPath`
+validates an absolute ledger location outside that root. Additive write receipts
+may contain `standingChoice: "not_kept"` when the exact approved call ran but
+its standing grant failed to persist.
+
+
+## Reversible Gmail implementation (additive, #4213)
+
+The host registers concrete `gmail.modify` and `gmail.draft.save` factories.
+No tools or input/result schemas change; the previously declared success
+shapes now have implementations. The internal `google-gog` transport accepts
+those operations with a host-resolved `accountIdentity` and synchronous
+`finalAdmission`, evaluated after its semaphore/pin waits immediately before
+spawn. Shared preparation reads labels, composes replies, classifies draft
+updates from current and recorded fingerprints, and prepares snapshots and
+inverses. Write codecs are source-derived from pinned gog 44364d31.
+
+`GoogleLedger` additively provides `prepareStandalone` and
+`settleStandalone` for body-free standalone inverses. The session store also
+records snapshots for approved irreversible draft updates in the same
+transaction as their outward-action decision; these do not become reversible
+journal receipts. Draft provenance is scoped to session, principal, brain and
+real account, and missing, expired or unknown records cannot admit an update
+without its card. These are internal concrete facilities, not extension seams.

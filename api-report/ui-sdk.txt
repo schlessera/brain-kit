@@ -11443,6 +11443,7 @@ signatures (every public export and the types it is made of)
                 draft_id: z.ZodString;
                 fingerprint: z.ZodString;
             }, z.core.$strict>;
+            standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
             tool: z.ZodLiteral<"brain_google_gmail_draft">;
         }, z.core.$strict>, z.ZodObject<{
             admission: z.ZodEnum<{
@@ -11457,6 +11458,7 @@ signatures (every public export and the types it is made of)
             result: z.ZodObject<{
                 draft_id: z.ZodString;
             }, z.core.$strict>;
+            standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
             tool: z.ZodLiteral<"brain_google_gmail_draft">;
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
@@ -11564,6 +11566,7 @@ signatures (every public export and the types it is made of)
                     YELLOW_STAR: "YELLOW_STAR";
                 }>]>>;
             }, z.core.$strict>;
+            standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
             tool: z.ZodLiteral<"brain_google_gmail_modify">;
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
@@ -12199,6 +12202,7 @@ signatures (every public export and the types it is made of)
                 message_id: z.ZodString;
                 thread_id: z.ZodNullable<z.ZodString>;
             }, z.core.$strict>;
+            standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
             tool: z.ZodLiteral<"brain_google_gmail_send">;
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
@@ -12243,6 +12247,7 @@ signatures (every public export and the types it is made of)
             result: z.ZodObject<{
                 message_ids: z.ZodArray<z.ZodString>;
             }, z.core.$strict>;
+            standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
             tool: z.ZodLiteral<"brain_google_gmail_trash">;
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
@@ -12404,6 +12409,7 @@ signatures (every public export and the types it is made of)
                 YELLOW_STAR: "YELLOW_STAR";
             }>]>>;
         }, z.core.$strict>;
+        standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
         tool: z.ZodLiteral<"brain_google_gmail_modify">;
     }, z.core.$strict>, z.ZodObject<{
         admission: z.ZodEnum<{
@@ -12418,6 +12424,7 @@ signatures (every public export and the types it is made of)
         result: z.ZodObject<{
             message_ids: z.ZodArray<z.ZodString>;
         }, z.core.$strict>;
+        standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
         tool: z.ZodLiteral<"brain_google_gmail_trash">;
     }, z.core.$strict>, z.ZodObject<{
         admission: z.ZodEnum<{
@@ -12436,6 +12443,7 @@ signatures (every public export and the types it is made of)
             draft_id: z.ZodString;
             fingerprint: z.ZodString;
         }, z.core.$strict>;
+        standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
         tool: z.ZodLiteral<"brain_google_gmail_draft">;
     }, z.core.$strict>, z.ZodObject<{
         admission: z.ZodEnum<{
@@ -12450,6 +12458,7 @@ signatures (every public export and the types it is made of)
         result: z.ZodObject<{
             draft_id: z.ZodString;
         }, z.core.$strict>;
+        standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
         tool: z.ZodLiteral<"brain_google_gmail_draft">;
     }, z.core.$strict>, z.ZodObject<{
         admission: z.ZodEnum<{
@@ -12466,6 +12475,7 @@ signatures (every public export and the types it is made of)
             message_id: z.ZodString;
             thread_id: z.ZodNullable<z.ZodString>;
         }, z.core.$strict>;
+        standingChoice: z.ZodOptional<z.ZodLiteral<"not_kept">>;
         tool: z.ZodLiteral<"brain_google_gmail_send">;
     }, z.core.$strict>]>;
   GeoConfig (packages/geo/src/config.ts) recorded in api-report/geo.txt

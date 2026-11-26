@@ -137,3 +137,91 @@ standalone inverses, which hold no message bodies.
   loaded, and decide availability at call time.
 - **Direct REST from day one.** Most of the work before the first read; kept as
   the per-operation migration path.
+
+## Account-resolution dispatch window (#4212)
+
+The host reads the verified `auth alias list --json` shape before preparing a
+write and again as the last await before execution. Grants and inverses use
+the lowercased resolved address, never the alias. A changed address refuses
+that call and a missing or unreadable identity is unavailable. The final
+admission callback stays synchronous and rereads local grant liveness.
+
+#4213 binds write pre-reads and dispatch to the resolved address. The pinned
+source at 44364d31 (gog v0.48.1), `resolveAccountAlias` in account.go, bypasses alias resolution
+for any value containing `@`; `selectConfiguredAccount` then returns that
+address unchanged. The root schema already accepts a string `--account`.
+Policy remains alias-only; only the host's resolved bare address can enter
+this transport argument. This closes the alias-retargeting window for these
+writes. It does not prevent another mail client changing labels or a draft
+between a pre-read and the write; Google supplies no compare-and-swap here.
+Write response fixtures are source-derived; live disposable-account write
+proof remains a maintainer-run release qualification.
+
+
+## Standing approval storage and continuity (#4212)
+
+Remembered approvals use the host-only `BRAIN_GOOGLE_LEDGER`, defaulting on the
+server to `DB_PATH.google-ledger.sqlite`. Standalone management requires that
+same path explicitly, as Apify does. The ledger lives outside every brain and
+is masked from workers, including its WAL/SHM files. It does not live in the
+Google credential home. Server and CLI use one shared hash of the canonical
+brain root. Reopening on each operation prevents stale authority after deletion
+or replacement; missing-file reads are empty and only a grant creates a file.
+
+A standing grant is written only after the post-card account read agrees.
+Session grants await a transaction and then recheck identity again; mismatch
+withdraws that new grant. Failure to store the standing part preserves the
+owner's exact once-only approval and returns `standingChoice: "not_kept"`.
+Reservation failure still refuses because the finite budget could not be charged.
+
+Normal-state invalidation is enforced on the safety projection's underlying
+tables, not only on selected event producers. Recorder recovery, pending-write
+release, review, coverage repair and canonical-history changes all clear grants
+when they produce normal durable state. In-process-only restriction cannot
+establish a durable allowance episode and therefore retains once-only approval.
+The database check is conservative about an intermediate normal state within a
+transaction. No grant can revive after a recorded normal interval.
+
+A null policy hash is uncertainty about its own chat and invalidates only that
+chat's allowance. A non-null changed full hash still voids allowances brain-wide.
+An unobserved A→B→A file edit, with no intervening turn or Google operation, is
+not detectable from the stored policy hashes.
+
+Governance events can be read by authenticated non-owners. Standing-store
+diagnostics therefore contain only a fixed message and error class; detailed
+credential-redacted causes stay in host logs. Listing allowances never writes.
+
+Continuity checks run only on changes that can restore normal state, scoped
+to the changed collection's session and canonical owner/generation group.
+Collection, record and pending lookups use persistent indexes. Old-epoch
+allowances are cleared at host startup, even when concrete writes are disabled.
+
+Continuity and the safety projection share one rule for a record payload or a
+detector acknowledgement: a value that SQLite's single-argument `json_valid`
+rejects is unreadable. That covers malformed text, and also JSON5, JSONB and
+nesting past SQLite's depth limit, which SQLite's extractors or `JSON.parse`
+could still read (#4631). The check never throws on such a value: it runs
+inside the write it observes, so a throw would refuse that write, brain-wide
+recorder recovery at boot or by the owner included. Its safety scope, every
+chat that shares that canonical history, is never normal to the check, reviewed
+or not, and keeps its allowances. The projection throws for that scope instead
+of reading trust from the value. While the value remains, the scope never reads
+as normal, so no normal interval can pass unseen, and an allowance kept there
+cannot admit a call. Valid JSON that is not an array acknowledges no detector
+in either reader. Nothing here needs SQLite newer than single-argument
+`json_valid`: Bun on macOS uses the system SQLite.
+
+A session restricted only by a pending reservation loses its allowance when
+that reservation commits: `safetyCommit` releases the reservation before
+inserting the occurrence, so the database briefly becomes normal inside the
+transaction. This fail-closed case deliberately preserves safety-store ordering.
+
+The ledger directory may be 0755: it must be host-owned and not writable by
+group or others, matching Apify; the ledger itself remains private (0600).
+An ephemeral UI database needs an explicit absolute `BRAIN_GOOGLE_LEDGER`;
+without it remembered approvals are unavailable.
+
+A lost session-grant reply or failed account-change withdrawal schedules
+idempotent cleanup by card ID. Pending-withdrawal cards are immediately excluded
+from admission until cleanup succeeds; they cannot authorize voice calls while
+the writer recovers.

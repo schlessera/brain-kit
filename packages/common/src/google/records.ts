@@ -38,6 +38,9 @@ export interface GmailMessageRecord {
   bcc: string | null;
   reply_to: string | null;
   subject: string | null;
+  /** Raw RFC threading headers for host composition; never added to projections. */
+  message_id_header?: string | null;
+  references_header?: string | null;
   /** The Date header as written. Untrusted: the sender chose it. */
   date: string | null;
   snippet: string | null;

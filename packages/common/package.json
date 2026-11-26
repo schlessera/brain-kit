@@ -115,6 +115,11 @@
       "bun": "./src/taint-trust.ts",
       "types": "./dist/taint-trust.d.ts",
       "default": "./dist/taint-trust.js"
+    },
+    "./internal/google-ledger": {
+      "bun": "./src/google/ledger.ts",
+      "types": "./dist/google/ledger.d.ts",
+      "default": "./dist/google/ledger.js"
     }
   },
   "files": [

@@ -466,14 +466,26 @@ export function safetyEvidenceSequence(db:Database,turnId:string|null,sessionId:
 }
 function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|null,excludedPending:readonly string[]):SafetyProjection {
  const {s,scope,args}=safetyScope(db,turnId,sessionId);
- const cs=db.query(`SELECT c.* FROM safety_collections c WHERE ${scope} ORDER BY c.rowid`).all(...args) as Collection[];
+ // Migration 101's continuity view shares one rule with this projection: a
+ // detector acknowledgement or occurrence payload that json_valid rejects is
+ // unreadable. SQLite's extractors and JSON.parse read some of those values
+ // (JSON5, JSONB, nesting past SQLite's limit), so neither may decide here.
+ // The whole scope fails closed instead: no normal state exists while such a
+ // value remains, and an allowance continuity keeps on it is unusable (#4631).
+ const cs=db.query(`SELECT c.*,json_valid(c.acknowledged) IS 1 readable,
+   CASE WHEN json_valid(c.acknowledged) THEN json_array_length(c.acknowledged) ELSE 0 END acknowledged_count
+   FROM safety_collections c WHERE ${scope} ORDER BY c.rowid`).all(...args) as (Collection&{readable:number;acknowledged_count:number})[];
+ if(cs.some(c=>!c.readable)||one<{n:number}>(db,`SELECT EXISTS(SELECT 1 FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
+   WHERE r.kind='occurrence' AND json_valid(r.payload) IS NOT 1 AND ${scope}) n`,...args).n)
+  throw new SafetyUnavailable("Safety evidence is unreadable");
  const epochs=cs.slice(0,128).map(c=>{
    const acknowledged=JSON.parse(c.acknowledged) as string[];
    const complete=!c.gap&&!c.failure&&SAFETY_DETECTORS.every(d=>acknowledged.includes(d));
    return {id:c.id,backendId:c.backend_id,startSequence:c.start_revision,endSequence:c.end_revision,mandatory:SAFETY_DETECTORS,
      acknowledged,status:complete?"complete":"incomplete",reason:c.failure??c.gap??(complete?null:"missing_detector_acknowledgement")};
  });
- const unknown=cs.length===0||cs.length>128||cs.some(c=>c.gap||c.failure||JSON.parse(c.acknowledged).length<SAFETY_DETECTORS.length)
+ // Counted as the view counts it: valid JSON that is not an array acknowledges nothing.
+ const unknown=cs.length===0||cs.length>128||cs.some(c=>c.gap||c.failure||c.acknowledged_count<SAFETY_DETECTORS.length)
    ||!!s&&s.classification!=="new";
  const aggregate=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
    WHERE r.kind='occurrence' AND coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) != 1 AND ${scope} AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)`,...args);

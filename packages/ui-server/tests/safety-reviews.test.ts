@@ -1,3 +1,4 @@
+import { createGoogleAllowances } from "../src/google/allowances.js";
 /** Real FULL writer, immutable occurrences and host-only individual verdicts. */
 import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
 import { expect, test } from "bun:test";
@@ -59,7 +60,11 @@ test("individual committed A/B/C verdicts preserve same-source restrictions inde
     expect(f.writer.offloop).toBe(true);
     const [a, b, c] = [await f.add("A"), await f.add("B"), await f.add("C")];
     const before = f.state();
+    await createGoogleAllowances(f.db, f.writer).grant({ sessionId: "ithaca", principalId: f.actor.principalId,
+      brainId: "brain", accountIdentity: "odysseus@example.com", hostEpoch: "epoch", policyHash: "missing",
+      now: Date.now(), tainted: true, authorized: true }, "gmail.modify", ["archive"], "card");
     const result = await f.review(a!);
+    expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(), "GOOGLE_PARTIAL_REVIEW_RETAINS_ALLOWANCE").toEqual({ n: 1 });
     expect(result.stage).toBe("verdict_committed");
     expect(f.state().unresolvedCount, "REVIEW_A_LEAVES_B_AND_SAME_SOURCE_C").toBe(2);
     expect(f.state().earliestUnresolvedId).toBe(b!);
@@ -73,6 +78,7 @@ test("individual committed A/B/C verdicts preserve same-source restrictions inde
     await f.review(b!); expect(f.state().unresolvedCount).toBe(1);
     expect(f.state().restriction).toBe("restricted");
     await f.review(c!); expect(f.state().restriction, "REVIEW_ONLY_COMPLETE_ZERO_UNRESOLVED_RESTORES_NORMAL").toBe("normal");
+    expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(), "GOOGLE_NORMAL_REVIEW_VOIDS_ALLOWANCE").toEqual({ n: 0 });
     expect(f.db.query("SELECT COUNT(*) n FROM safety_decisions").get()).toEqual({ n: 3 });
     expect(() => f.db.query("UPDATE safety_decisions SET verdict='safe'").run()).toThrow("immutable safety decision");
   } finally { await f.close(); }
