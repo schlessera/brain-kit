@@ -1619,8 +1619,8 @@ replacement could split the lock from a process still holding its old inode.
 A live lock held through the bounded wait returns `unavailable/write_busy`.
 
 The shared hosted preparation may also return
-`draft_not_displayable/composed_body_too_large` when adding a quote exceeds
-32,768 characters, `invalid_input/reply_no_recipient` when excluding the account
+`draft_not_displayable/composed_body_too_large` when the complete body,
+including any quote, exceeds 32,768 characters, `invalid_input/reply_no_recipient` when excluding the account
 leaves no recipient, or `draft_not_displayable/reply_threading_unreadable` when
 Message-ID/References cannot be represented exactly or the target is unsent.
 Standalone does not compose replies or expose quote input.

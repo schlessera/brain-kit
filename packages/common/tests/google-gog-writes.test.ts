@@ -244,3 +244,82 @@ for (const kind of ["missing_id", "bad_references", "unsent"]) test(`google repl
     .rejects.toMatchObject({ error: { reason: "reply_threading_unreadable" } });
   expect(fake.callsOf("gmail.drafts.create")).toHaveLength(0);
 });
+
+// Round 3: the directory read keeps its cause, threading follows gog's own
+// rules, and a sender's Message-ID can only refuse before admission.
+test("google hidden policy keeps the label directory's own failure cause", async () => {
+  const { ctx, fake } = setup(["Label_12"]);
+  fake.setScenario({ ...writesScenario(), "gmail.labels.list": { exit: 1 } });
+  await expect(prepareGmailModify(ctx, archive), "LABEL_DIRECTORY_CAUSE").rejects.toMatchObject({ error: { code: "upstream_error", reason: "error" } });
+  expect(fake.callsOf("gmail.get")).toHaveLength(0);
+});
+
+const replyTo = (headers: { name: string; value: string }[]) => {
+  const { ctx, fake } = setup(); const thread = fixture("thread-hall");
+  const source = thread.thread.messages[0];
+  for (const { name, value } of headers) {
+    const at = source.payload.headers.find((h: { name: string }) => h.name === name);
+    if (at) at.value = value; else source.payload.headers.push({ name, value });
+  }
+  fake.setScenario({ ...writesScenario(), [`gmail.thread.get ${FIRST}`]: { stdout: thread } });
+  return { ctx, fake, prepare: () => prepareGmailDraft(ctx, { action: "reply", message_id: FIRST, body: "Home" }, { createdByBrainKit: false, fingerprint: null }) };
+};
+
+for (const [kind, id] of [["non_ascii", "<ü@example.com>"], ["control", "<lo\u0001om@example.com>"], ["bidi", "<lo‮om@example.com>"]] as const)
+  test(`google reply refuses a Message-ID the saved draft cannot read back ${kind}`, async () => {
+    const { fake, prepare } = replyTo([{ name: "Message-ID", value: id }]);
+    await expect(prepare(), `REPLY_ID_UNREADABLE_${kind.toUpperCase()}`).rejects.toMatchObject({ error: { reason: "reply_threading_unreadable" } });
+    expect(fake.callsOf("gmail.drafts.create")).toHaveLength(0);
+  });
+
+test("google reply keeps an encoded-word Message-ID raw, as gog writes it", async () => {
+  const id = "<=?utf-8?q?loom?=@example.com>";
+  const { fake, prepare } = replyTo([{ name: "Message-ID", value: id }]);
+  const p = await prepare();
+  expect(p.payload.message, "REPLY_ID_RAW").toMatchObject({ in_reply_to: [id], references: [id] });
+  fake.setScenario({ ...writesScenario(), [`gmail.drafts.get ${DRAFT}`]: { stdout: rawDraft(p.payload.message.body_text, p.payload.message.subject!, "penelope@example.com", { in_reply_to: [id], references: [id] }) } });
+  expect(await p.execute(() => null), "REPLY_ID_RAW_CONFIRMED").toMatchObject({ ok: true });
+});
+
+test("google reply References follow gog's append rule", async () => {
+  const parent = "<loom-0712@example.com>";
+  expect((await replyTo([]).prepare()).payload.message.references, "REPLY_REFERENCES_FROM_PARENT").toEqual([parent]);
+  expect((await replyTo([{ name: "References", value: `<raft@example.com> ${parent}` }]).prepare()).payload.message.references, "REPLY_REFERENCES_NO_DUPLICATE")
+    .toEqual(["<raft@example.com>", parent]);
+  const many = Array.from({ length: 99 }, (_, i) => `<raft-${i}@example.com>`);
+  expect((await replyTo([{ name: "References", value: many.join(" ") }]).prepare()).payload.message.references, "REPLY_REFERENCES_AT_CARD_LIMIT").toHaveLength(100);
+  await expect(replyTo([{ name: "References", value: [...many, "<raft-99@example.com>"].join(" ") }]).prepare(), "REPLY_REFERENCES_OVER_CARD_LIMIT")
+    .rejects.toMatchObject({ error: { reason: "reply_threading_unreadable" } });
+  // gog writes References trimmed but otherwise raw, and its header check refuses CR/LF.
+  await expect(replyTo([{ name: "References", value: "<raft@example.com>\r\n <helm@example.com>" }]).prepare(), "REPLY_REFERENCES_FOLDED")
+    .rejects.toMatchObject({ error: { reason: "reply_threading_unreadable" } });
+});
+
+test("google update of a one-sided threaded draft expects gog's carried lineage", async () => {
+  const parent = "<loom-0712@example.com>";
+  const oneSided = (header: string) => {
+    const value = rawDraft("The ship is ready.");
+    value.draft.message.raw = Buffer.from(Buffer.from(value.draft.message.raw, "base64url").toString().replace("MIME-Version:", `${header}\r\nMIME-Version:`)).toString("base64url");
+    return value;
+  };
+  for (const [header, expected, written] of [
+    [`In-Reply-To: ${parent}`, { in_reply_to: [parent], references: [parent] }, rawDraft("Home", "Ithaca", "penelope@example.com", { in_reply_to: [parent], references: [parent] })],
+    [`References: ${parent}`, { in_reply_to: [], references: [] }, rawDraft("Home")],
+  ] as const) {
+    const { ctx, fake } = setup();
+    fake.setScenario({ ...writesScenario(), [`gmail.drafts.get ${DRAFT}`]: { stdout: oneSided(header) } });
+    const p = await prepareGmailDraft(ctx, { action: "update", draft_id: DRAFT, body: "Home" }, { createdByBrainKit: false, fingerprint: null });
+    expect(p.payload.message, `UPDATE_CARRIED_LINEAGE ${header}`).toMatchObject(expected);
+    fake.setScenario({ ...writesScenario(), [`gmail.drafts.get ${DRAFT}`]: { stdout: written } });
+    expect(await p.execute(() => null), `UPDATE_CARRIED_LINEAGE_CONFIRMED ${header}`).toMatchObject({ ok: true });
+  }
+});
+
+test("google update card keeps the display names gog keeps for omitted recipients", async () => {
+  const { ctx, fake } = setup();
+  fake.setScenario({ ...writesScenario(), [`gmail.drafts.get ${DRAFT}`]: { stdout: rawDraft("The ship is ready.", "Ithaca", "Penelope <penelope@example.com>") } });
+  const p = await prepareGmailDraft(ctx, { action: "update", draft_id: DRAFT, body: "Home" }, { createdByBrainKit: false, fingerprint: null });
+  expect(p.payload.message.to, "UPDATE_KEPT_DISPLAY_NAME").toMatchObject([{ address: "penelope@example.com", display_name: "Penelope" }]);
+  fake.setScenario({ ...writesScenario(), [`gmail.drafts.get ${DRAFT}`]: { stdout: rawDraft("Home", "Ithaca", "Penelope <penelope@example.com>") } });
+  expect(await p.execute(() => null)).toMatchObject({ ok: true });
+});

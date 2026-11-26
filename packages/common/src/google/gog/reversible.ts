@@ -78,7 +78,10 @@ export async function prepareGmailModify(ctx: GmailWritePreparationContext, inpu
   // key. fetchLabelNameToID mixes ids and lowercase names in that same map.
   // Refuse ambiguous names regardless of response order, even if today's exact
   // id happens to win. Hidden and missing ids follow this same read boundary.
-  const labels = read.value(await ctx.transport.execute("gmail.labels.list", {}, read.execution));
+  // The directory read names no target, so its own failure keeps its cause.
+  const listed = await ctx.transport.execute("gmail.labels.list", {}, read.execution);
+  if (!listed.ok) throw new GooglePreparationError(listed.error);
+  const labels = listed.value;
   const requested = [...add, ...remove];
   const labelSet = labels.filter(label => requested.includes(label.id) || requested.some(id => label.name?.toLowerCase() === id.toLowerCase()))
     .map(label => ({ id: label.id, name: label.name })).sort((a, b) => a.id.localeCompare(b.id));
@@ -121,6 +124,8 @@ function mailbox(address: string): GoogleMailbox {
   // gog takes bare addresses, so the card shows those same addresses.
   return { ...parsed.mailbox, display_name: null };
 }
+/** An omitted update field: gog v0.48.1 keepDraftRecipients keeps the stored mailbox, display name included. */
+const kept = (stored: GoogleMailbox): GoogleMailbox => ({ ...mailbox(stored.address), display_name: stored.display_name });
 function mailboxList(header: string | null): GoogleMailbox[] {
   if (!header) return [];
   const parsed = parseGoogleMailboxList(header);
@@ -155,12 +160,15 @@ export async function prepareGmailDraft(ctx: GmailWritePreparationContext, input
       if (!threadId) return missing();
       targetLabels = (await read.thread(threadId)).messages.flatMap(m => m.label_ids);
     }
-    to = input.to ? to : previous.to.map(m => mailbox(m.address));
-    cc = input.cc ? cc : previous.cc.map(m => mailbox(m.address));
-    bcc = input.bcc ? bcc : previous.bcc.map(m => mailbox(m.address));
+    to = input.to ? to : previous.to.map(kept);
+    cc = input.cc ? cc : previous.cc.map(kept);
+    bcc = input.bcc ? bcc : previous.bcc.map(kept);
     subject = input.subject ?? previous.subject ?? "";
     body = input.body ?? previous.body_text;
-    inReplyTo = previous.in_reply_to; references = previous.references;
+    // gog v0.48.1 buildDraftMessage (gmail_drafts.go) carries lineage only with
+    // an In-Reply-To, and fills an empty References from it.
+    inReplyTo = previous.in_reply_to;
+    references = !inReplyTo.length ? [] : previous.references.length ? previous.references : [...inReplyTo];
   }
   const sourceId = input.action === "reply" ? input.message_id : input.quote_message_id;
   if (sourceId) {
@@ -171,17 +179,21 @@ export async function prepareGmailDraft(ctx: GmailWritePreparationContext, input
     if (source.body_text === null) unreadable();
     if (input.action === "reply") {
       threadId = fetched.thread!.id;
-      // Source-derived: gog v0.48.1 replyInfoFromMessage in gmail_reply.go.
-      // The existing card schema represents RFC Message-IDs as ordered arrays.
-      const parent = source.message_id_header?.trim() ?? "";
+      // Source-derived: gog v0.48.1 replyInfoFromMessage in gmail_reply.go reads
+      // both headers raw, tests membership with the untrimmed Message-ID, and
+      // trims only when it writes them. Each id must also be one the post-save
+      // raw parser reads back (mime.ts MESSAGE_IDS), so a sender's id can never
+      // turn a saved reply into outcome_unknown; the card holds at most 100.
+      const raw = source.message_id_header ?? "";
+      const parent = raw.trim();
       const prior = source.references_header?.trim() ?? "";
-      const ids = (value: string) => value ? value.split(/\s+/) : [];
-      const valid = (id: string) => /^<[^<>\s]+@[^<>\s]+>$/.test(id);
-      if (source.label_ids.includes("DRAFT") || !valid(parent) || !ids(prior).every(valid))
-        fail("draft_not_displayable", "reply_threading_unreadable", "The reply target has no representable Message-ID or References, or is an unsent draft.");
+      const ids = (value: string) => value ? value.split(/[\t ]+/) : [];
+      const valid = (id: string) => id.length <= GMAIL_LIMITS.headerChars && /^<[\x21-\x3b\x3d\x3f-\x7e]+@[\x21-\x3b\x3d\x3f-\x7e]+>$/.test(id);
       inReplyTo = [parent];
       references = ids(prior);
-      if (!prior.includes(parent)) references.push(parent);
+      if (!prior.includes(raw)) references.push(parent);
+      if (source.label_ids.includes("DRAFT") || !valid(parent) || !references.every(valid) || references.length > 100)
+        fail("draft_not_displayable", "reply_threading_unreadable", "The reply target has no representable Message-ID or References, or is an unsent draft.");
       const sender = mailboxList(source.reply_to || source.from);
       if (!sender.length) unreadable();
       const recipients = input.reply_all ? [...sender, ...mailboxList(source.to), ...mailboxList(source.cc)] : sender;
@@ -198,7 +210,7 @@ export async function prepareGmailDraft(ctx: GmailWritePreparationContext, input
   if (!subject) fail("invalid_input", "draft_subject_blank", "gog requires a nonblank subject, including for an update.");
   if (!body.trim()) fail("invalid_input", "draft_body_blank", "A plain-text draft body must not be blank.");
   if (body.length > GMAIL_LIMITS.draftBodyChars)
-    fail("draft_not_displayable", "composed_body_too_large", "The complete reply or quoted body exceeds 32768 characters.");
+    fail("draft_not_displayable", "composed_body_too_large", "The complete draft body, including any quoted text, exceeds 32768 characters.");
   body = body.replace(/\r\n?/g, "\n");
   const composed = { from: mailbox(ctx.accountIdentity), to, cc, bcc, reply_to: [], subject, body_text: body, in_reply_to: inReplyTo, references };
   const serialized = JSON.stringify(composed);
