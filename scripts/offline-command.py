@@ -83,23 +83,29 @@ def setup(data):
         os.setgroups(data['groups'])
         os.setgid(data['gid'])
         os.setuid(data['uid'])
-    if (os.getuid(), os.getgid(), sorted(os.getgroups())) != (
-            data['uid'], data['gid'], sorted(data['groups'])):
+    if (os.getuid(), os.getgid()) != (data['uid'], data['gid']) or (
+            not data.get('unprivileged') and sorted(os.getgroups()) != sorted(data['groups'])):
         raise RuntimeError('caller identity could not be restored')
     os.chdir(data['cwd'])
-    Path(data['started']).touch()
     setpriv = shutil.which('setpriv')
     if not setpriv:
         raise RuntimeError('setpriv executable unavailable')
+    Path(data['started']).touch()
     os.execvpe(setpriv, [setpriv, '--inh-caps=-all', '--ambient-caps=-all',
                        *data['argv']], data['env'])
 
 
 def main(argv):
     if argv[:1] == ['--inside']:
+        data = {}
         try:
-            setup(json.loads(Path(argv[1]).read_text()))
+            data = json.loads(Path(argv[1]).read_text())
+            setup(data)
         except Exception as error:
+            if data.get('unprivileged') and not Path(data['started']).exists():
+                # The launcher retries privileged setup before reporting refusal.
+                Path(data['setup_error']).write_text(str(error))
+                return 125
             return refuse(error)
     browser = argv[:1] == ['--browser-online']
     if browser:
@@ -114,13 +120,14 @@ def main(argv):
         unshare = shutil.which('unshare')
         if not unshare:
             raise RuntimeError('unshare executable unavailable')
-        # Prefer unprivileged setup only when it preserves the complete caller identity.
+        # Supplementary groups may display as overflow IDs in a user namespace.
+        # The kernel still uses the caller's real groups for permission checks.
         probe = subprocess.run([unshare, '--user', '--map-current-user', '--net', '--mount',
             sys.executable, '-I', '-S', '-c',
             'import os,json; print(json.dumps([os.getuid(),os.getgid(),sorted(os.getgroups())]))'],
             capture_output=True)
-        expected = [os.getuid(), os.getgid(), sorted(os.getgroups())]
-        unprivileged = probe.returncode == 0 and json.loads(probe.stdout) == expected
+        expected = [os.getuid(), os.getgid()]
+        unprivileged = probe.returncode == 0 and json.loads(probe.stdout)[:2] == expected
         prefix = [unshare, '--net', '--mount']
         if unprivileged:
             prefix += ['--user', '--map-current-user', '--keep-caps']
@@ -143,14 +150,34 @@ def main(argv):
                     lease_fd = candidate
             except (ValueError, OSError):
                 pass
-            data = dict(lease_fd=lease_fd, launcher_pid=os.getpid(), uid=os.getuid(), gid=os.getgid(), groups=os.getgroups(),
-                        cwd=os.getcwd(), argv=argv, browser=browser, env=env, started=str(Path(scratch, 'started')))
+            data = dict(unprivileged=unprivileged, lease_fd=lease_fd, launcher_pid=os.getpid(), uid=os.getuid(), gid=os.getgid(), groups=os.getgroups(),
+                        cwd=os.getcwd(), argv=argv, browser=browser, env=env, started=str(Path(scratch, 'started')),
+                        setup_error=str(Path(scratch, 'setup-error')))
             record = Path(scratch, 'command.json')
             record.write_text(json.dumps(data))
             record.chmod(0o600)
             result = subprocess.run(prefix + [sys.executable, '-I', '-S',
                                     str(Path(__file__).resolve()), '--inside', str(record)],
                                     pass_fds=() if lease_fd is None else (lease_fd,))
+            if unprivileged and result.returncode != 0 and not Path(data['started']).exists():
+                # A successful identity probe does not prove mount/network capabilities
+                # (for example under AppArmor). Retry only before payload execution.
+                data['unprivileged'] = False
+                record.write_text(json.dumps(data))
+                prefix = [unshare, '--net', '--mount']
+                if os.geteuid() != 0:
+                    sudo = shutil.which('sudo')
+                    if not sudo:
+                        cause = Path(data['setup_error'])
+                        raise RuntimeError((cause.read_text() if cause.exists() else 'unprivileged namespace setup failed') + '; sudo unavailable')
+                    prefix = [sudo, '-n', '--'] + prefix
+                result = subprocess.run(prefix + [sys.executable, '-I', '-S',
+                                        str(Path(__file__).resolve()), '--inside', str(record)],
+                                        pass_fds=() if lease_fd is None else (lease_fd,))
+                if result.returncode != 0 and not Path(data['started']).exists():
+                    cause = Path(data['setup_error'])
+                    if cause.exists():
+                        return refuse(RuntimeError(cause.read_text() + '; privileged setup also failed'))
             if result.returncode != 0 and not Path(data['started']).exists() and result.returncode != 125:
                 # unshare/sudo report their own setup cause on stderr.
                 return refuse(RuntimeError('namespace setup or command failed; see preceding stderr'))
