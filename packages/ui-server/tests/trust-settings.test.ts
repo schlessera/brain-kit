@@ -560,6 +560,49 @@ test("diverged trust refresh queues the held brain lock and publishes a new revi
   expect(BigInt(after.revision)).toBe(BigInt(before.revision) + 1n);
 });
 
+test("errored durable trust row queues the held brain lock even when its policy hash matches disk", async () => {
+  const f = await fixture({ originEnforcement: true });
+  await f.commit(await f.prepare());
+  const valid = readFileSync(f.path, "utf8"), healthy = f.settings.live.read();
+  writeFileSync(f.path, "---\nschema_version: [\n---\n");
+  await f.settings.live.refresh();
+  writeFileSync(f.path, valid);
+  const errored = f.db.query("SELECT policy_hash, error FROM trust_settings_projection").get();
+  expect(errored).toEqual({ policy_hash: hash(valid), error: "policy_unavailable" });
+  const release = await f.lock.acquire(BRAIN_LOCK_KEY);
+  const original = f.lock.withLock.bind(f.lock);
+  let calls = 0, completed = false;
+  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  const pending = f.settings.live.refresh().then(value => { completed = true; return value; });
+  try {
+    expect(calls, "ERRORED_ROW_WITH_MATCHING_HASH_QUEUES_BRAIN_LOCK").toBe(1);
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+  } finally { release(); }
+  expect(await pending).toEqual(healthy);
+  expect(f.db.query("SELECT error FROM trust_settings_projection").get()).toEqual({ error: null });
+});
+
+test("missing durable trust row without a policy file queues the held brain lock", async () => {
+  const f = await fixture({ originEnforcement: true });
+  rmSync(f.path);
+  expect(f.db.query("SELECT count(*) n FROM trust_settings_projection").get()).toEqual({ n: 0 });
+  const release = await f.lock.acquire(BRAIN_LOCK_KEY);
+  const original = f.lock.withLock.bind(f.lock);
+  let calls = 0, completed = false;
+  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  const pending = f.settings.live.refresh().then(value => { completed = true; return value; });
+  try {
+    expect(calls, "MISSING_ROW_IS_NOT_DURABLE_EVIDENCE_AND_QUEUES_BRAIN_LOCK").toBe(1);
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+  } finally { release(); }
+  expect(await pending).toMatchObject({ revision: "0", rules: [], policyHash: null, error: null });
+  expect(f.db.query("SELECT revision, policy_hash, error FROM trust_settings_projection").get()).toEqual({ revision: "0", policy_hash: null, error: null });
+});
+
 test("ADMISSION_NEVER_WAITS_ON_HELD_INDEX_LOCK", async () => {
   const f = await fixture({ originEnforcement: true });
   await f.commit(await f.prepare());
