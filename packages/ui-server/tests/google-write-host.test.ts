@@ -553,3 +553,46 @@ test("google identity changed during session grant withdraws that new authority"
   expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(), "GOOGLE_POST_WRITER_IDENTITY_NO_GRANT").toEqual({ n: 0 });
   expect(f.dispatched()).toBe(0);
 });
+
+for (const fault of ["changed identity", "lost reply"] as const) test(`google session grant cleanup retries after ${fault}`, async () => {
+  const f = fixture(); f.tainted(true);
+  const grant = f.allowances.grant, revoke = f.allowances.revoke;
+  let unavailable = true, attempts = 0;
+  f.allowances.grant = async (...args) => {
+    await grant(...args);
+    if (fault === "changed identity") f.identity("penelope@example.com");
+    else throw new Error("writer reply lost");
+  };
+  f.allowances.revoke = async (...args) => {
+    attempts++;
+    if (unavailable) throw new Error("writer unavailable");
+    return revoke(...args);
+  };
+  f.answer(async () => ({ behavior: "allow", forSession: true }));
+  const result = await f.call();
+  expect(result, "GOOGLE_GRANT_CLEANUP_RESULT").toMatchObject(fault === "changed identity"
+    ? { ok: false, error: { reason: "account_changed" } }
+    : { ok: true, admission: "card", standingChoice: "not_kept" });
+  expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get()).toEqual({ n: 1 });
+  f.identity("odysseus@example.com");
+  expect(await f.call(GOOGLE_MODIFY, { ...f.turn, posture: "voice" }),
+    "GOOGLE_WITHDRAWN_GRANT_UNUSABLE").toMatchObject({ ok: false });
+  unavailable = false;
+  const until = Date.now() + watchdogMs(10_000);
+  while ((f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get() as { n: number }).n) {
+    if (Date.now() > until) throw new Error("GOOGLE_GRANT_WITHDRAWAL_RETRY");
+    await Bun.sleep(20);
+  }
+  expect(attempts, "GOOGLE_GRANT_WITHDRAWAL_RETRY").toBeGreaterThan(1);
+});
+
+test("google startup purges prior epochs before becoming ready", async () => {
+  const f = fixture(); f.tainted(true);
+  f.answer(async () => ({ behavior: "allow", forSession: true }));
+  await f.call();
+  expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get()).toEqual({ n: 1 });
+  const startup = await initializeGoogleWrites(f.state, () => {}, () => f.allowances.clearOldEpochs("new-epoch"));
+  cleanup.unshift(() => startup.close());
+  expect(startup.ready()).toBe(true);
+  expect(f.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(), "GOOGLE_STARTUP_OLD_ALLOWANCES").toEqual({ n: 0 });
+});

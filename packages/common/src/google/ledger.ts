@@ -64,7 +64,7 @@ export function openGoogleLedger(path: string): GoogleLedger {
     if (!create && !lstatSync(path, { throwIfNoEntry: false })) return absent;
     if (create) mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const uid = process.getuid?.() ?? 0, directory = lstatSync(dirname(path));
-    if (!directory.isDirectory() || directory.uid !== uid || (directory.mode & 0o077) !== 0) throw new Error("Google ledger directory must be private");
+    if (!directory.isDirectory() || directory.uid !== uid || (directory.mode & 0o022) !== 0) throw new Error("Google ledger directory must be owned by the host and not writable by others");
     if (create) {
       try { closeSync(openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600)); }
       catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause; }

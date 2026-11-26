@@ -28,6 +28,7 @@ test("google approvals and revoke retain the CLI JSON envelopes and exit codes",
   }
   expect(ledger.approvals(scope)).toEqual([]);
   const unset = await runCli(brain, ["google", "approvals", "--json"], { ...env, BRAIN_GOOGLE_LEDGER: "" });
+  expect(unset.code, "GOOGLE_CLI_UNSET_EXIT").toBe(1);
   expect(JSON.parse(unset.stdout)).toMatchObject({ ok: false, error: { reason: "ledger_unset" } });
   const unavailable = await runCli(brain, ["google", "approvals", "--json"], { ...env, BRAIN_GOOGLE_LEDGER: brain });
   expect(unavailable.code, "GOOGLE_CLI_LEDGER_UNAVAILABLE").toBe(1);

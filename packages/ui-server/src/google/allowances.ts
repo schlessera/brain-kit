@@ -39,6 +39,7 @@ export function setup(db: Database) {
       .run(c.brainId, c.hostEpoch, c.policyHash, c.now, c.principalId, +c.authorized, c.sessionId, +c.tainted);
   };
   return {
+    clearOldEpochs: (epoch: string): void => { id.parse(epoch); db.query("DELETE FROM google_session_allowances WHERE host_epoch<>?").run(epoch); },
     reconcile: (c: GoogleAllowanceContext): void => db.transaction(() => reconcile(c)).immediate(),
     grant: (raw: GoogleAllowanceContext, operation: GoogleOperation, entities: string[], cardId: string): void => db.transaction(() => {
       const c = contextSchema.parse(raw); z.enum(GOOGLE_OPERATIONS).parse(operation); z.array(id).min(1).max(100).parse(entities); id.parse(cardId);
@@ -77,6 +78,7 @@ export function createGoogleAllowances(db: Database, writer?: SqliteWriter) {
   const call = procedureCaller(db, { url, setup }, undefined, writer);
   return {
     read: (c: GoogleAllowanceContext) => read(db, c),
+    clearOldEpochs: (epoch: string) => call<void>("clearOldEpochs", epoch),
     reconcile: (c: GoogleAllowanceContext) => call<void>("reconcile", c),
     grant: (c: GoogleAllowanceContext, operation: GoogleOperation, entities: string[], cardId: string) => call<void>("grant", c, operation, entities, cardId),
     reserve: (c: GoogleAllowanceContext, operation: GoogleOperation, entities: string[], items: number) => call<GoogleAllowanceRow[]>("reserve", c, operation, entities, items),

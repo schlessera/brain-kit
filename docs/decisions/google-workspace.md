@@ -168,7 +168,7 @@ A standing grant is written only after the post-card account read agrees.
 Session grants await a transaction and then recheck identity again; mismatch
 withdraws that new grant. Failure to store the standing part preserves the
 owner's exact once-only approval and returns `standingChoice: "not_kept"`.
-Reservation failure still refuses because no finite budget was charged.
+Reservation failure still refuses because the finite budget could not be charged.
 
 Normal-state invalidation is enforced on the safety projection's underlying
 tables, not only on selected event producers. Recorder recovery, pending-write
@@ -186,3 +186,23 @@ not detectable from the stored policy hashes.
 Governance events can be read by authenticated non-owners. Standing-store
 diagnostics therefore contain only a fixed message and error class; detailed
 credential-redacted causes stay in host logs. Listing allowances never writes.
+
+Continuity checks run only on changes that can restore normal state, scoped
+to the changed collection's session and canonical owner/generation group.
+Collection, record and pending lookups use persistent indexes. Old-epoch
+allowances are cleared at host startup, even when concrete writes are disabled.
+
+A session restricted only by a pending reservation loses its allowance when
+that reservation commits: `safetyCommit` releases the reservation before
+inserting the occurrence, so the database briefly becomes normal inside the
+transaction. This fail-closed case deliberately preserves safety-store ordering.
+
+The ledger directory may be 0755: it must be host-owned and not writable by
+group or others, matching Apify; the ledger itself remains private (0600).
+An ephemeral UI database needs an explicit absolute `BRAIN_GOOGLE_LEDGER`;
+without it remembered approvals are unavailable.
+
+A lost session-grant reply or failed account-change withdrawal schedules
+idempotent cleanup by card ID. Pending-withdrawal cards are immediately excluded
+from admission until cleanup succeeds; they cannot authorize voice calls while
+the writer recovers.

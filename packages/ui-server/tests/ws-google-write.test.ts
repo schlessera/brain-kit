@@ -66,7 +66,7 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
   process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD = fake.environment.keyringPassword;
   cleanups.push(() => { if (password === undefined) delete process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD; else process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD = password; });
   cleanups.push(() => { if (previous === undefined) delete process.env.BRAIN_UI_GOOGLE_HOME; else process.env.BRAIN_UI_GOOGLE_HOME = previous; });
-  await mkdir(resolve(root, "data"), { mode: 0o700 });
+  await mkdir(resolve(root, "data"), { mode: 0o755 });
   const dbPath = resolve(root, "data/ui.db");
   const savedLedger = process.env.BRAIN_GOOGLE_LEDGER;
   const ledgerPath = options.explicitLedger ? resolve(root, "shared-ledger.sqlite") : dbPath + ".google-ledger.sqlite";
@@ -253,4 +253,27 @@ test("google real app HTTP ownership refuses agents and other session owners", a
   expect((await get(agent.id, "/api/google/approvals")).status, "GOOGLE_REAL_HTTP_NON_OWNER").toBe(403);
   expect((await get(other.id, "/api/sessions/aeaea-agent/google/allowances")).status, "GOOGLE_REAL_HTTP_OTHER_SESSION").toBe(404);
   expect((await get(f.owner.id, `/api/sessions/${SESSION}/google/allowances`)).status).toBe(200);
+});
+
+test("google default ledger keeps Allow always beside a 0755 database directory", async () => {
+  const f = await hosted("pi", { answer: "always" });
+  expect(f.result, "GOOGLE_DEFAULT_LEDGER_0755").toMatchObject({ ok: true, admission: "card" });
+  expect(f.result, "GOOGLE_DEFAULT_LEDGER_0755").not.toHaveProperty("standingChoice");
+  const listed = await runCli(f.brain, ["google", "approvals", "--json"],
+    { HOME: process.env.HOME!, BRAIN_GOOGLE_LEDGER: f.ledgerPath });
+  expect(listed.code, listed.stderr).toBe(0);
+  expect(JSON.parse(listed.stdout).data.approvals, "GOOGLE_DEFAULT_LEDGER_0755").toHaveLength(1);
+});
+
+test("google real app removes old allowances before its first turn", async () => {
+  await hosted("pi", {
+    seed: async db => {
+      db.run("INSERT INTO sessions(id,created_at,last_active_at) VALUES('aeaea-old',1,1)");
+      db.run("INSERT INTO google_session_allowances VALUES('aeaea-old','odysseus','brain','odysseus@example.com','gmail.modify','archive','old-epoch','policy','card',1,86400001,100)");
+    },
+    prepare: app => {
+      expect(app.db.query("SELECT COUNT(*) n FROM google_session_allowances").get(),
+        "GOOGLE_APP_STARTUP_OLD_ALLOWANCES").toEqual({ n: 0 });
+    },
+  });
 });

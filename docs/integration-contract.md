@@ -59,7 +59,7 @@ autonomous roster lists the tools. See
 and [the HTTP API](http-api.md#gmail-message-body-internal-0460-4207).
 This ships in a minor.
 
-## Google commands (additive, #4208, #4212)
+## Google commands (additive: #4208 in 0.46.0; #4212 standing approvals)
 
 Google standing approvals (#4212) add shared canonical ledger scope,
 `BRAIN_GOOGLE_LEDGER` for standalone management, and optional

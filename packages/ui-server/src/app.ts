@@ -40,7 +40,7 @@ import { HTTPException } from "hono/http-exception";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
-import { basename, dirname, join, resolve } from "path";
+import { basename, dirname, isAbsolute, join, resolve } from "path";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
@@ -441,9 +441,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // every launcher and a worker can reach it; never a reason to refuse the boot or a launch.
   const googleEnv = googleHostEnv(config.dbPath);
   const googleBrain = googleBrainId(config.brainPath);
-  privateStatePaths.push({ setting: "BRAIN_GOOGLE_LEDGER", path: googleEnv.ledgerPath });
-  privateStatePaths.push({ setting: "Google ledger WAL", path: googleEnv.ledgerPath + "-wal" },
-    { setting: "Google ledger SHM", path: googleEnv.ledgerPath + "-shm" });
+  if (googleEnv.ledgerPath && isAbsolute(googleEnv.ledgerPath)) {
+    privateStatePaths.push({ setting: "BRAIN_GOOGLE_LEDGER", path: googleEnv.ledgerPath });
+    privateStatePaths.push({ setting: "Google ledger WAL", path: googleEnv.ledgerPath + "-wal" },
+      { setting: "Google ledger SHM", path: googleEnv.ledgerPath + "-shm" });
+  }
   // The CLI's environment is the one a hosted sync's SSH transport gets: its HOME and agent socket.
   const cliEnv = subprocessEnv("brainCli");
   const googleLayout = googleHostLayout({ brainPath: config.brainPath, dbPath: config.dbPath, serverHome: cliEnv.HOME, transportEnv: cliEnv });
@@ -876,10 +878,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // session's G6 taint commits before any content view reaches a turn, and a
   // record that is not made withholds it; a structured view records nothing.
   const googleState = createGoogleStateWrites(db, writer);
-  const googleStartup = await initializeGoogleWrites(googleState, message => brainLog.emit({ severityText: "WARN", body: message }));
-  bootCleanup.push(() => googleStartup.close());
   const googleAllowances = createGoogleAllowances(db, writer), googleEpoch = crypto.randomUUID();
-  const openCurrentGoogleLedger = () => openGoogleLedger(googleLedgerPath(googleEnv.ledgerPath, config.brainPath));
+  const googleStartup = await initializeGoogleWrites(googleState, message => brainLog.emit({ severityText: "WARN", body: message }),
+    () => googleAllowances.clearOldEpochs(googleEpoch));
+  bootCleanup.push(() => googleStartup.close());
+  const openCurrentGoogleLedger = () => {
+    if (!googleEnv.ledgerPath) throw new Error("Google standing approvals require an explicit absolute ledger path with an in-memory database");
+    return openGoogleLedger(googleLedgerPath(googleEnv.ledgerPath, config.brainPath));
+  };
   const googlePolicyHash = () => governancePolicyReaderFor(config.brainPath).load().hash ?? "missing";
   const googleTools = createGoogleToolsHost({ writes: {
     brainId: googleBrain, hostEpoch: googleEpoch, ledger: openCurrentGoogleLedger, allowances: googleAllowances,

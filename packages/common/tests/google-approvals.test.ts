@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { decideGoogleCall } from "../src/google/decision.js";
 import { resolveGooglePolicy } from "../src/google/policy.js";
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, existsSync, renameSync } from "node:fs";
+import { chmodSync, statSync, mkdirSync, mkdtempSync, rmSync, existsSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
 import { openGoogleLedger } from "../src/google/ledger.js";
 import { createGogTransport } from "../src/google/gog/index.js";
@@ -75,4 +75,17 @@ test("Google missing ledger reads do not create state", () => {
   expect(ledger.list("ithaca")).toEqual([]);
   expect(existsSync(path), "GOOGLE_READ_NEVER_CREATES").toBe(false);
   ledger.close();
+});
+
+test("Google ledger persists in a 0755 directory and refuses writable parents", () => {
+  const root = scratch(), path = resolve(root, "ledger.sqlite");
+  chmodSync(root, 0o755);
+  const ledger = openGoogleLedger(path);
+  cleanups.push(() => ledger.close());
+  const scope = { brain_id: "ithaca", principal_id: "odysseus", account_identity: "odysseus@example.com" };
+  expect(() => ledger.remember(scope, "gmail.modify", ["archive"], 1), "GOOGLE_LEDGER_0755_PERSISTENCE").not.toThrow();
+  expect(ledger.approvals(scope), "GOOGLE_LEDGER_0755_PERSISTENCE").toHaveLength(1);
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  chmodSync(root, 0o775);
+  expect(() => ledger.approvals(scope), "GOOGLE_LEDGER_WRITABLE_PARENT").toThrow("not writable by others");
 });
