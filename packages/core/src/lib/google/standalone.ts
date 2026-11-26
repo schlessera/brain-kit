@@ -37,7 +37,7 @@ import { acquireLock } from "../compute/lock.js";
  * `gmail.modify`. It then reads back the scopes gog recorded for the grant,
  * removes a grant broader than it asked for, and fails.
  */
-import { mkdirSync, chmodSync } from "node:fs";
+import { mkdirSync, chmodSync, lstatSync, openSync, closeSync, constants } from "node:fs";
 import {
   contentGmailDraft, contentGmailMessageResult, contentGmailSearch, contentGmailThread, decideGoogleCall, effectiveGoogleMode, GMAIL_LIMITS, GMAIL_TOOL_NAMES,
   gmailLabelDirectory, GOOGLE_NOT_FOUND_MESSAGE, GOOGLE_OPERATION_SPECS, GOOGLE_OPERATIONS, GOOGLE_SERVICES, isGmailThreadId, parseGoogleMailbox, parseGoogleToolCall,
@@ -608,10 +608,32 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
     }
   }
 
+  // The lock inode must not be replaceable by another local user. Never
+  // unlink a corrupt mutex: another process may hold that inode, and replacing
+  // it would silently create two writers. The owner must stop writers first.
+  async function writeLock(path: string) {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const uid = process.getuid?.() ?? 0, directory = lstatSync(dirname(path));
+    const unsafe = () => new GooglePreparationError(error("unavailable", "write_lock_unsafe", "The Google ledger lock requires a host-owned directory not writable by others and a private, singly linked regular file."));
+    if (!directory.isDirectory() || directory.uid !== uid || (directory.mode & 0o022) !== 0) throw unsafe();
+    try { closeSync(openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600)); }
+    catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause; }
+    const file = lstatSync(path);
+    if (!file.isFile() || file.uid !== uid || file.nlink !== 1 || (file.mode & 0o077) !== 0) throw unsafe();
+    try { return await acquireLock(path, 30_000); }
+    catch (cause) {
+      if (["SQLITE_NOTADB", "SQLITE_CORRUPT"].includes((cause as { code?: string }).code ?? ""))
+        throw new GooglePreparationError(error("unavailable", "write_lock_corrupt", "The Google write mutex is corrupt. Stop all writers using this ledger, then remove only its .write-lock.sqlite file and retry. Replacing a possibly held lock automatically would allow concurrent writes."));
+      throw cause;
+    }
+  }
+
   async function write(operation: GoogleWriteCommand, input: unknown): Promise<GoogleEnvelope> {
     const call = parseGoogleToolCall(operation === "gmail.modify" ? GMAIL_TOOL_NAMES.modify : GMAIL_TOOL_NAMES.draft, input);
     if (!call.ok) return refused(operation, call.error);
     if (call.call.operation !== operation) return refused(operation, error("invalid_input", "operation_mismatch", "The command requires a reversible Gmail save or modify."));
+    if (call.call.tool === GMAIL_TOOL_NAMES.draft && call.call.input.action === "reply")
+      return refused(operation, error("policy_denied", "standalone_reply_unsupported", "Standalone does not compose replies; use the hosted draft tool."));
     // No snapshot store or card in standalone. Refuse before any credential access.
     if (call.call.tool === GMAIL_TOOL_NAMES.draft && call.call.input.action !== "create")
       return refused(operation, error("policy_denied", "standalone_update_requires_card", "Standalone supports draft create only; a draft update needs hosted approval and a snapshot."));
@@ -630,8 +652,7 @@ export function createStandaloneGoogle(options: StandaloneGoogleOptions): Standa
     let id: string | undefined, dispatched = false, settled = false;
     try {
       const path = googleLedgerPath(coreEnv.googleLedger, options.root);
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      const lock = await acquireLock(path + ".write-lock.sqlite", 30_000);
+      const lock = await writeLock(path + ".write-lock.sqlite");
       if (!lock) return refused(operation, error("unavailable", "write_busy", "Another standalone write is running; try again when it finishes."));
       release = () => lock.release();
       ledger = openGoogleLedger(path);

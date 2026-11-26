@@ -259,11 +259,11 @@ describe("the transport re-checks the binary's identity", () => {
     copyFileSync(fake.executable, copy);
     chmodSync(copy, 0o700);
     renameSync(copy, fake.executable);
-    expect(await transport.invoke("gmail.modify", modify)).toEqual({
+    expect(await transport.invoke("gmail.modify", modify, () => null, "odysseus@example.com")).toEqual({
       ok: false, error: { code: "transport_incompatible", reason: "binary_changed", message: expect.any(String) },
     });
     expect(fake.callsOf("gmail.batch.modify")).toEqual([]);
-    expect((await transport.invoke("gmail.modify", modify)).ok).toBe(true);
+    expect((await transport.invoke("gmail.modify", modify, () => null, "odysseus@example.com")).ok).toBe(true);
     expect(fake.callsOf("schema")).toHaveLength(2);
     expect(fake.callsOf("gmail.batch.modify")).toHaveLength(1);
   });
@@ -304,9 +304,9 @@ describe("the transport re-checks the binary's identity", () => {
     const after = statSync(fake.executable, { bigint: true });
     expect([after.ino, after.size, after.mtimeNs]).toEqual([before.ino, before.size, before.mtimeNs]);
     expect(after.ctimeNs).not.toBe(before.ctimeNs);
-    expect(await transport.invoke("gmail.modify", modify)).toEqual(refusedWith("binary_changed"));
+    expect(await transport.invoke("gmail.modify", modify, () => null, "odysseus@example.com")).toEqual(refusedWith("binary_changed"));
     expect(fake.callsOf("gmail.batch.modify")).toEqual([]);
-    expect((await transport.invoke("gmail.modify", modify)).ok).toBe(true);
+    expect((await transport.invoke("gmail.modify", modify, () => null, "odysseus@example.com")).ok).toBe(true);
     expect(fake.callsOf("schema")).toHaveLength(2);
   });
 

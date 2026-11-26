@@ -10,9 +10,9 @@ export function message(id = FIRST, labels = ["INBOX"]) {
   value.message.id = id; value.message.threadId = FIRST; value.message.labelIds = labels;
   return value;
 }
-export function rawDraft(body = "The ship is ready.", subject = "Ithaca", to = "penelope@example.com") {
+export function rawDraft(body = "The ship is ready.", subject = "Ithaca", to = "penelope@example.com", threading?: { in_reply_to: string[]; references: string[] }) {
   const value = fixture("draft-raw");
-  value.draft.message.raw = Buffer.from(`From: odysseus@example.com\r\nTo: ${to}\r\nSubject: ${subject}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${body.replace(/\n/g, "\r\n")}\r\n`).toString("base64url");
+  value.draft.message.raw = Buffer.from(`From: odysseus@example.com\r\nTo: ${to}\r\nSubject: ${subject}\r\n${threading ? `In-Reply-To: ${threading.in_reply_to.join(" ")}\r\nReferences: ${threading.references.join(" ")}\r\n` : ""}MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${body.replace(/\n/g, "\r\n")}\r\n`).toString("base64url");
   return value;
 }
 export function writesScenario(): FakeGogScenario {

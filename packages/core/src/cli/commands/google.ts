@@ -23,6 +23,7 @@ const USAGE = `brain google <command> [--json]
   gmail draft create --to ADDRESSES --subject TEXT --body TEXT [--cc ADDRESSES] [--bcc ADDRESSES]
                                                    Save a plain-text draft (never send)
   gmail draft update <draft-id> --body TEXT          Refused: requires hosted approval
+  gmail draft reply <message-id> --body TEXT         Refused: use the hosted draft tool
 
 Gmail reads and reversible writes use the hosted brain_google_* schemas, under the governance
 policy's google block, in the standalone posture: there is no session, so no
@@ -156,9 +157,9 @@ export const googleCommand: CoreCommand = {
         if (verb === "draft") {
           only(flags, ["to", "cc", "bcc", "subject", "body"], "gmail draft");
           const [action, id, ...extra] = words;
-          if ((action !== "create" && action !== "update") || extra.length || (action === "create" ? id !== undefined : id === undefined))
-            throw new UsageError("Usage: brain google gmail draft create|update [draft-id] --to ADDRESS --subject TEXT --body TEXT");
-          const input: Record<string, unknown> = { action, ...(id ? { draft_id: id } : {}) };
+          if ((action !== "create" && action !== "update" && action !== "reply") || extra.length || (action === "create" ? id !== undefined : id === undefined))
+            throw new UsageError("Usage: brain google gmail draft create|update|reply [id] --to ADDRESS --subject TEXT --body TEXT");
+          const input: Record<string, unknown> = { action, ...(id ? action === "reply" ? { message_id: id } : { draft_id: id } : {}) };
           for (const key of ["to", "cc", "bcc", "subject", "body"]) {
             const value = text(flags, key);
             if (value !== undefined) input[key] = ["to", "cc", "bcc"].includes(key) ? value.split(",") : value;

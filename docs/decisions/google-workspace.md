@@ -147,7 +147,7 @@ that call and a missing or unreadable identity is unavailable. The final
 admission callback stays synchronous and rereads local grant liveness.
 
 #4213 binds write pre-reads and dispatch to the resolved address. The pinned
-source at 44364d31, `internal/cmd/account.go:188-192`, bypasses alias resolution
+source at 44364d31 (gog v0.48.1), `resolveAccountAlias` in account.go, bypasses alias resolution
 for any value containing `@`; `selectConfiguredAccount` then returns that
 address unchanged. The root schema already accepts a string `--account`.
 Policy remains alias-only; only the host's resolved bare address can enter

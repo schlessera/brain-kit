@@ -3639,3 +3639,24 @@ in-process-only restriction receives once-only approval if it cannot be kept.
 A null policy hash invalidates only its collection's session. A known differing
 full policy hash invalidates all allowances. An entirely unobserved policy
 A→B→A file edit, with no intervening turn or Google call, cannot be detected.
+
+### Gmail preparation refinements (#4213)
+
+Modify reads the account's label directory under its account lock before
+checking requested label ids. Missing user ids, hidden ids and ids colliding
+case-insensitively with another label's name all answer the same `not_found`
+refusal at that preparation boundary, before admission. The relevant id/name
+set joins the precondition checked on re-preparation. Target-independent
+pre-read failures, including rate limiting and authentication, keep their real
+error codes even with hidden labels configured.
+
+Reply cards carry the pre-read Message-ID and ordered References that gog will
+store; the post-save read must match both. Unrepresentable threading or an
+unsent reply target refuses as `draft_not_displayable/reply_threading_unreadable`.
+An empty recipient set after excluding the account refuses as
+`invalid_input/reply_no_recipient`. A complete reply or quote exceeding 32,768
+characters refuses as `draft_not_displayable/composed_body_too_large`.
+Blank bodies and existing blank subjects refuse before admission as
+`invalid_input/draft_body_blank` and `invalid_input/draft_subject_blank`.
+Updates retain omitted recipients; the host explicitly supplies the current
+subject because gog requires it. No tool names or wire schemas change.

@@ -36,6 +36,7 @@ describe("thread", () => {
       internal_date: "2026-07-12T08:15:00.000Z", size_estimate: 4521,
       from: "Penelope <penelope@example.com>", to: "Odysseus <odysseus@example.com>", cc: null, bcc: null, reply_to: null,
       subject: "Suitors at the hall", date: "Sun, 12 Jul 2026 08:15:00 +0000",
+      message_id_header: "<loom-0712@example.com>", references_header: null,
       snippet: "Dearest, the suitors feast again in the hall. I unravel the shroud each night & wait.",
       body_text: "Dearest, the suitors feast again in the hall.\nI unravel the shroud each night & wait.\n",
       attachments: [],
@@ -163,7 +164,7 @@ describe("strictness", () => {
 });
 
 const RECORD_KEYS = [
-  "id", "thread_id", "label_ids", "internal_date", "size_estimate", "from", "to", "cc", "bcc", "reply_to", "subject", "date", "snippet", "body_text",
+  "id", "thread_id", "label_ids", "internal_date", "size_estimate", "from", "to", "cc", "bcc", "reply_to", "subject", "message_id_header", "references_header", "date", "snippet", "body_text",
   "attachments",
 ];
 
@@ -176,6 +177,7 @@ describe("the shapes gog 0.48.1 emits (the live round)", () => {
       id: "19a0c3d2e4f50a01", thread_id: "19a0c3d2e4f50a01", label_ids: ["INBOX", "CATEGORY_UPDATES"],
       internal_date: "2026-07-12T05:30:00.000Z", size_estimate: 6120,
       from: "The Ithaca Herald <herald@example.com>", to: "Penelope <penelope@example.com>", cc: null, bcc: null, reply_to: null,
+      message_id_header: "<herald-0712@example.com>", references_header: null,
       subject: "The Ithaca Herald: news from the hall", date: "Sun, 12 Jul 2026 05:30:00 +0000",
       snippet: "News from the hall: the suitors feast on, and the shroud on the loom is still unfinished.",
       body_text: "News from the hall: the suitors feast on, and the shroud on the loom is still unfinished.\nThe Ithaca Herald\n",

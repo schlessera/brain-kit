@@ -296,6 +296,8 @@ export function decodeGmailMessage(value: unknown, path: string): GmailMessageRe
     bcc: header(root, "bcc"),
     reply_to: header(root, "reply-to"),
     subject: header(root, "subject"),
+    message_id_header: header(root, "message-id"),
+    references_header: header(root, "references"),
     date: header(root, "date"),
     snippet: snippet === null ? null : decodeHtmlEntities(unwrapGogUntrusted(snippet)),
     body_text: bodyText(nodes),

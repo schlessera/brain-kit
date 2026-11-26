@@ -8,7 +8,7 @@ import { isGmailMessageId, isGmailThreadId, isGmailLabelId, GMAIL_REVERSIBLE_SYS
 import type { GmailRawDraft } from "../mime.js";
 import type { GoogleCallFacts } from "../classify.js";
 import type { GmailMessageRecord } from "../records.js";
-import type { GogExecution, GogResult, GogTransport } from "./transport.js";
+import { isTargetIndependentGogFailure, type GogExecution, type GogResult, type GogTransport } from "./transport.js";
 import { GOG_DRAFT_SAVE_INPUT, type GogOperationInput } from "./argv.js";
 
 export class GooglePreparationError extends Error {
@@ -44,7 +44,7 @@ function reader(ctx: GmailWritePreparationContext) {
   const value = <T>(answer: GogResult<T>): T => {
     if (answer.ok) return answer.value;
     // A target's failed pre-read cannot distinguish hidden mail from a miss.
-    if (ctx.hiddenLabels.length || answer.error.code === "not_found") missing();
+    if (answer.error.code === "not_found" || (ctx.hiddenLabels.length && !isTargetIndependentGogFailure(answer.error))) missing();
     throw new GooglePreparationError(answer.error);
   };
   const thread = async (id: string) => {
@@ -74,7 +74,17 @@ export async function prepareGmailModify(ctx: GmailWritePreparationContext, inpu
   const add = input.add_label_ids ?? [], remove = input.remove_label_ids ?? [];
   if ([...add, ...remove].some(id => gmailLabelKind(id) !== "user" && !(GMAIL_REVERSIBLE_SYSTEM_LABELS as readonly string[]).includes(id)))
     fail("policy_denied", "unsupported_label", "Only INBOX, UNREAD, STARRED and user label ids can be modified.");
-  read.hidden([...add, ...remove]);
+  // gog v0.48.1 resolveLabelIDs checks an exact map key before the lowercase
+  // key. fetchLabelNameToID mixes ids and lowercase names in that same map.
+  // Refuse ambiguous names regardless of response order, even if today's exact
+  // id happens to win. Hidden and missing ids follow this same read boundary.
+  const labels = read.value(await ctx.transport.execute("gmail.labels.list", {}, read.execution));
+  const requested = [...add, ...remove];
+  const labelSet = labels.filter(label => requested.includes(label.id) || requested.some(id => label.name?.toLowerCase() === id.toLowerCase()))
+    .map(label => ({ id: label.id, name: label.name })).sort((a, b) => a.id.localeCompare(b.id));
+  if (requested.some(id => ctx.hiddenLabels.includes(id) ||
+      (gmailLabelKind(id) === "user" && !labels.some(label => label.id === id)) ||
+      labels.some(label => label.id !== id && label.name?.toLowerCase() === id.toLowerCase()))) missing();
   let ids = input.message_ids ?? [];
   if (input.thread_ids) {
     ids = [];
@@ -94,7 +104,7 @@ export async function prepareGmailModify(ctx: GmailWritePreparationContext, inpu
   });
   const payload = { message_ids: ids, add_label_ids: add, remove_label_ids: remove };
   const inverse: GmailPreparedInverse = { inverse: { kind: "gmail.modify", changes }, snapshot: null,
-    precondition: { before: messages.map(m => ({ message_id: m.id, label_ids: sorted(m.label_ids) })),
+    precondition: { labels: labelSet, before: messages.map(m => ({ message_id: m.id, label_ids: sorted(m.label_ids) })),
       after: messages.filter(m => changes.some(c => c.message_id === m.id)).map(m => ({ message_id: m.id, label_ids: sorted([...m.label_ids.filter(l => !remove.includes(l)), ...add]) })) } };
   return { payload, inverse, facts: { items: ids.length, target_label_ids: sorted(messages.flatMap(m => m.label_ids)) }, classificationFacts: {} as GoogleCallFacts,
     async execute(finalAdmission: NonNullable<GogExecution["finalAdmission"]>) {
@@ -129,6 +139,7 @@ export async function prepareGmailDraft(ctx: GmailWritePreparationContext, input
   let snapshot: Uint8Array | null = null, previous: GmailRawDraft | null = null;
   let targetLabels: string[] = [], sourceFingerprint: string | null = null;
   let inReplyTo: string[] = [], references: string[] = [];
+  if (input.body !== undefined && !input.body.trim()) fail("invalid_input", "draft_body_blank", "A plain-text draft body must not be blank.");
   if (input.action === "delete") fail("invalid_input", "operation_mismatch", "Draft deletion is not a reversible save.");
   if (input.action === "update") {
     const draft = read.value(await ctx.transport.execute("gmail.draft.get", { draft_id: input.draft_id! }, read.execution));
@@ -160,12 +171,23 @@ export async function prepareGmailDraft(ctx: GmailWritePreparationContext, input
     if (source.body_text === null) unreadable();
     if (input.action === "reply") {
       threadId = fetched.thread!.id;
+      // Source-derived: gog v0.48.1 replyInfoFromMessage in gmail_reply.go.
+      // The existing card schema represents RFC Message-IDs as ordered arrays.
+      const parent = source.message_id_header?.trim() ?? "";
+      const prior = source.references_header?.trim() ?? "";
+      const ids = (value: string) => value ? value.split(/\s+/) : [];
+      const valid = (id: string) => /^<[^<>\s]+@[^<>\s]+>$/.test(id);
+      if (source.label_ids.includes("DRAFT") || !valid(parent) || !ids(prior).every(valid))
+        fail("draft_not_displayable", "reply_threading_unreadable", "The reply target has no representable Message-ID or References, or is an unsent draft.");
+      inReplyTo = [parent];
+      references = ids(prior);
+      if (!prior.includes(parent)) references.push(parent);
       const sender = mailboxList(source.reply_to || source.from);
       if (!sender.length) unreadable();
       const recipients = input.reply_all ? [...sender, ...mailboxList(source.to), ...mailboxList(source.cc)] : sender;
       const seen = new Set<string>([ctx.accountIdentity.toLowerCase()]);
       const unique = recipients.filter(m => { const key = m.address.toLowerCase(); if (seen.has(key)) return false; seen.add(key); return true; });
-      if (!unique.length) unreadable();
+      if (!unique.length) fail("invalid_input", "reply_no_recipient", "The reply has no recipient after removing this account.");
       to = input.reply_all ? unique.filter(m => sender.some(s => s.address === m.address) || mailboxList(source.to).some(s => s.address === m.address)) : unique;
       cc = unique.filter(m => !to.includes(m));
       subject = /^re:/i.test(source.subject ?? "") ? source.subject! : `Re: ${source.subject ?? ""}`;
@@ -173,11 +195,20 @@ export async function prepareGmailDraft(ctx: GmailWritePreparationContext, input
     body += `\n\n${(source.body_text ?? "").split("\n").map(line => `> ${line}`).join("\n")}`;
   }
   subject = subject.trim();
+  if (!subject) fail("invalid_input", "draft_subject_blank", "gog requires a nonblank subject, including for an update.");
+  if (!body.trim()) fail("invalid_input", "draft_body_blank", "A plain-text draft body must not be blank.");
+  if (body.length > GMAIL_LIMITS.draftBodyChars)
+    fail("draft_not_displayable", "composed_body_too_large", "The complete reply or quoted body exceeds 32768 characters.");
   body = body.replace(/\r\n?/g, "\n");
   const composed = { from: mailbox(ctx.accountIdentity), to, cc, bcc, reply_to: [], subject, body_text: body, in_reply_to: inReplyTo, references };
   const serialized = JSON.stringify(composed);
   const message: GmailComposedMessage = { ...composed, digest: digest(composed), bytes: new TextEncoder().encode(serialized).length };
-  const candidate = { action: input.action === "update" ? "update" : "create", to: to.map(m => m.address), cc: cc.map(m => m.address), bcc: bcc.map(m => m.address), subject, body,
+  const candidate = { action: input.action === "update" ? "update" : "create",
+    ...(input.action !== "update" || input.to !== undefined ? { to: to.map(m => m.address) } : {}),
+    ...(input.action !== "update" || input.cc !== undefined ? { cc: cc.map(m => m.address) } : {}),
+    ...(input.action !== "update" || input.bcc !== undefined ? { bcc: bcc.map(m => m.address) } : {}),
+    // Unlike recipients, gog's update validate() requires an explicit subject.
+    subject, body,
     ...(input.action === "update" ? { draft_id: input.draft_id } : {}), ...(input.action === "reply" ? { reply_to_message_id: input.message_id } : {}) };
   const parsed = GOG_DRAFT_SAVE_INPUT.safeParse(candidate);
   if (!parsed.success) unreadable();
@@ -200,7 +231,7 @@ export async function prepareGmailDraft(ctx: GmailWritePreparationContext, input
       // Only claim a post-write fingerprint for the composed contents we observed.
       if (current.from.address !== ctx.accountIdentity || !same(current.to.map(m => m.address), to.map(m => m.address)) ||
           !same(current.cc.map(m => m.address), cc.map(m => m.address)) || !same(current.bcc.map(m => m.address), bcc.map(m => m.address)) ||
-          current.reply_to.length || current.subject !== subject || current.body_text.replace(/\n$/, "") !== body.replace(/\n$/, "")) return unknown();
+          current.reply_to.length || JSON.stringify(current.in_reply_to) !== JSON.stringify(inReplyTo) || JSON.stringify(current.references) !== JSON.stringify(references) || current.subject !== subject || current.body_text.replace(/\n$/, "") !== body.replace(/\n$/, "")) return unknown();
       const receipt = { draft_id: result.value.draft_id, fingerprint: current.digest };
       return { ok: true as const, result: receipt, inverseResult: { id: receipt.draft_id, fingerprint: receipt.fingerprint } };
     } };

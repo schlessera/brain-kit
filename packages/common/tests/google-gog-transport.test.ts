@@ -85,7 +85,7 @@ describe("exit codes", () => {
     const { transport } = setup({ "gmail.labels.list": { exit: 5 }, "gmail.drafts.create": { exit: 6 }, "gmail.get": { exit: 4 } });
     expect(errorOf(await transport.execute("gmail.labels.list", {}))).toEqual(["not_found", null]);
     expect(errorOf(await transport.execute("gmail.message.get", { message_id: HALL }))).toEqual(["unavailable", "auth_required"]);
-    expect(errorOf(await transport.invoke("gmail.draft.save", write()))).toEqual(["forbidden", null]);
+    expect(errorOf(await transport.invoke("gmail.draft.save", write(), () => null, "odysseus@example.com"))).toEqual(["forbidden", null]);
   });
 });
 
@@ -108,7 +108,7 @@ describe("retries", () => {
   });
   test("a write never retries, and exit 8 says it may have happened", async () => {
     const { fake, transport } = setup({ "gmail.drafts.create": { exit: 8 } });
-    expect(errorOf(await transport.invoke("gmail.draft.save", write()))).toEqual(["outcome_unknown", "retryable"]);
+    expect(errorOf(await transport.invoke("gmail.draft.save", write(), () => null, "odysseus@example.com"))).toEqual(["outcome_unknown", "retryable"]);
     expect(fake.callsOf("gmail.drafts.create")).toHaveLength(1);
   });
 });
@@ -133,7 +133,7 @@ describe("timeouts kill the process group", () => {
   test("a timed-out write reports that it may have happened, and nothing it started survives", async () => {
     const { fake, transport } = setup({ "gmail.drafts.create": { delay_ms: 60_000, grandchild: true } }, { timeouts: { writeMs: 300 } });
     const started = performance.now();
-    expect(errorOf(await transport.invoke("gmail.draft.save", write()))).toEqual(["outcome_unknown", "timeout"]);
+    expect(errorOf(await transport.invoke("gmail.draft.save", write(), () => null, "odysseus@example.com"))).toEqual(["outcome_unknown", "timeout"]);
     expect(performance.now() - started).toBeLessThan(watchdogMs(20_000));
     const [call] = fake.callsOf("gmail.drafts.create");
     expect(call!.grandchild_pid).toBeGreaterThan(0);
@@ -195,7 +195,7 @@ describe("what a real gog process receives", () => {
     try {
       const { fake, transport } = setup({ "gmail.labels.list": { stdout: LABELS }, "gmail.drafts.create": { stdout: {} } });
       expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
-      expect((await transport.invoke("gmail.draft.save", write())).ok).toBe(true);
+      expect((await transport.invoke("gmail.draft.save", write(), () => null, "odysseus@example.com")).ok).toBe(true);
       const calls = fake.calls();
       expect(calls).toHaveLength(2);
       for (const call of calls) expect(call.env_names.filter(name => !GUARD.test(name) && !(name === "BUN_OPTIONS" && call.bun_options === "--no-env-file"))).toEqual([...GOG_ENVIRONMENT_NAMES].sort());
@@ -208,7 +208,7 @@ describe("what a real gog process receives", () => {
   test("a write's body arrives on stdin; a read's stdin is empty", async () => {
     const { fake, transport } = setup({ "gmail.labels.list": { stdout: LABELS }, "gmail.drafts.create": { stdout: {} } });
     await transport.execute("gmail.labels.list", {});
-    await transport.invoke("gmail.draft.save", write());
+    await transport.invoke("gmail.draft.save", write(), () => null, "odysseus@example.com");
     const stdin = (command: string) => Buffer.from(fake.callsOf(command)[0]!.stdin_base64, "base64").toString("utf8");
     expect(stdin("gmail.labels.list")).toBe("");
     expect(stdin("gmail.drafts.create")).toBe(BODY);
@@ -234,12 +234,12 @@ describe("per-account concurrency", () => {
   });
 
   test(`at most ${GOG_CONCURRENCY.write} write runs at once, and reads do not wait for it`, async () => {
-    const { fake, transport, account } = setup({});
+    const { fake, transport } = setup({});
     fake.setScenario({ "gmail.drafts.create": { stdout: {}, wait_for: fake.path("open") }, "gmail.labels.list": { stdout: LABELS } });
-    const writes = [transport.invoke("gmail.draft.save", write()), transport.invoke("gmail.draft.save", write())];
+    const writes = [transport.invoke("gmail.draft.save", write(), () => null, "odysseus@example.com"), transport.invoke("gmail.draft.save", write(), () => null, "odysseus@example.com")];
     const deadline = Date.now() + watchdogMs(20_000);
     while (fake.callsOf("gmail.drafts.create").length < 1 && Date.now() < deadline) await Bun.sleep(10);
-    expect(gogConcurrencyState(account).write).toEqual({ active: 1, queued: 1 });
+    expect(gogConcurrencyState("odysseus@example.com").write).toEqual({ active: 1, queued: 1 });
     expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
     expect(fake.callsOf("gmail.drafts.create")).toHaveLength(1);
     await Bun.write(fake.path("open"), "");
@@ -251,10 +251,10 @@ describe("per-account concurrency", () => {
     const first = setup({});
     first.fake.setScenario({ "gmail.drafts.create": { stdout: {}, wait_for: first.fake.path("open") } });
     const second = createGogTransportInternals({ binary: first.fake.binary, account: first.account, environment: first.fake.environment });
-    const writes = [first.transport.invoke("gmail.draft.save", write()), second.invoke("gmail.draft.save", write())];
+    const writes = [first.transport.invoke("gmail.draft.save", write(), () => null, "odysseus@example.com"), second.invoke("gmail.draft.save", write(), () => null, "odysseus@example.com")];
     const deadline = Date.now() + watchdogMs(20_000);
     while (first.fake.callsOf("gmail.drafts.create").length < 1 && Date.now() < deadline) await Bun.sleep(10);
-    expect(gogConcurrencyState(first.account).write).toEqual({ active: 1, queued: 1 });
+    expect(gogConcurrencyState("odysseus@example.com").write).toEqual({ active: 1, queued: 1 });
     await Bun.write(first.fake.path("open"), "");
     await Promise.all(writes);
   });

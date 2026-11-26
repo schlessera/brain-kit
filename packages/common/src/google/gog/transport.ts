@@ -141,7 +141,10 @@ class Limit {
 export const GOG_CONCURRENCY = Object.freeze({ read: 4, write: 1 });
 const limits = new Map<string, { read: Limit; write: Limit }>();
 
-/** Per account, shared by every transport in the process for that alias. */
+/** Shared per supplied key: ordinary reads use an alias, write pre/post-reads
+ * use its resolved address. These are separate read pools (four each), not a
+ * global per-identity bound. Hosted write preparation serializes under its
+ * account lock. Unifying aliases requires resolving ordinary reads too. */
 function accountLimits(account: string) {
   let found = limits.get(account);
   if (!found) {
@@ -238,6 +241,7 @@ export function createGogTransportInternals(
     if (setup) return { ok: false, error: setup };
     const spec = GOG_COMMANDS[call.command];
     const effect: GogEffect = spec.write ? "write" : "read";
+    if (spec.write && (!finalAdmission || !accountIdentity)) return { ok: false, error: gogError("invalid_input", "missing_admission") };
     let argv: string[];
     try {
       argv = gogArgv(call, account, accountIdentity);

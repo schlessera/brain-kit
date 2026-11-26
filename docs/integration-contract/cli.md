@@ -1600,3 +1600,27 @@ Concurrent standalone calls using the same ledger serialize through its
 adjacent `.write-lock.sqlite` mutex, which contains no data and releases on
 process exit. Ledger failure refuses just the call. Dispatch is never retried;
 an ambiguous result is `outcome_unknown`. No undo command is added here.
+
+Reversible-write preparation refusals (#4213): `invalid_input/draft_body_blank`
+rejects an empty or whitespace-only body before admission;
+`invalid_input/draft_subject_blank` rejects an existing blank subject on an
+update (gog requires a subject even when the caller only edits the body).
+Unchanged update recipients are omitted from argv; the existing subject is
+carried explicitly because gog does not preserve an omitted subject.
+`brain google gmail draft reply <message-id> --body TEXT --json` refuses as
+`policy_denied/standalone_reply_unsupported`, before credential access.
+
+The standalone mutex validates the ledger directory before creating or opening
+the lock. An unsafe directory or non-private, linked, foreign-owned or
+non-regular lock returns `unavailable/write_lock_unsafe`. Corrupt SQLite lock
+contents return `unavailable/write_lock_corrupt`: stop all writers using the
+ledger, remove only its adjacent `.write-lock.sqlite`, then retry. Automatic
+replacement could split the lock from a process still holding its old inode.
+A live lock held through the bounded wait returns `unavailable/write_busy`.
+
+The shared hosted preparation may also return
+`draft_not_displayable/composed_body_too_large` when adding a quote exceeds
+32,768 characters, `invalid_input/reply_no_recipient` when excluding the account
+leaves no recipient, or `draft_not_displayable/reply_threading_unreadable` when
+Message-ID/References cannot be represented exactly or the target is unsent.
+Standalone does not compose replies or expose quote input.

@@ -44,7 +44,7 @@ function fixture(mode: "allow" | "ask" = "allow", options: { hidden?: string[]; 
   cleanups.push(() => host.close?.());
   return { db, fake, transport, turn, cards, ledger, owner, policy, state, call: (call: GoogleToolCall) => host.call(turn, call),
     answer: (next: typeof answer) => { answer = next; },
-    change: (kind: string) => { if (kind === "taint") tainted = true; if (kind === "routing") routing = "recipient_restricted";
+    change: (kind: string) => { if (kind === "taint") tainted = true; if (kind === "untaint") tainted = false; if (kind === "routing") routing = "recipient_restricted";
       if (kind === "policy") current = googlePolicy(mode === "ask" ? "allow" : "ask"); if (kind === "safety") safety = { ...safety, recordingAvailable: false }; } };
 }
 const archive: GoogleToolCall = { tool: "brain_google_gmail_modify", input: { message_ids: [FIRST, SECOND], remove_label_ids: ["INBOX"] } };
@@ -76,7 +76,7 @@ test("google read taints the production modify; hidden and item limits refuse wi
   expect(await f.call(archive)).toMatchObject({ ok: true, admission: "card" }); expect(f.cards).toHaveLength(1);
   for (const options of [{ hidden: ["Label_12"] }, { items: 1 }]) {
     const refused = fixture("allow", options);
-    expect(await refused.call(archive), "REAL_FACTORY_HIDDEN_OR_LIMIT").toMatchObject({ ok: false });
+    expect(await refused.call(archive), "REAL_FACTORY_HIDDEN_OR_LIMIT").toMatchObject({ ok: false, error: "hidden" in options ? { code: "not_found", reason: null } : { code: "policy_denied", reason: "items_per_call" } });
     expect(refused.fake.callsOf("gmail.batch.modify")).toHaveLength(0); expect(refused.cards).toHaveLength(0);
   }
   const limited = fixture("allow", { turn: 2 });
@@ -118,20 +118,23 @@ test("google write recording failure refuses only this call and recovers after s
 for (const kind of ["taint", "routing", "policy", "safety"]) test(`google remembered modify rechecks ${kind} at transport dispatch`, async () => {
   const f = fixture("ask");
   f.ledger.remember({ principal_id: f.owner.id, brain_id: "brain", account_identity: "odysseus@example.com" }, "gmail.modify", ["archive"], Date.now());
+  expect(await f.call(archive), "REMEMBERED_POSITIVE_CONTROL").toMatchObject({ ok: true, admission: "remembered_approval" });
+  expect(f.cards, "REMEMBERED_CARDLESS_CONTROL").toHaveLength(0);
   const execute = f.transport.execute.bind(f.transport);
   f.transport.execute = (async (operation, input, execution) => {
     if (operation === "gmail.modify") { await Promise.resolve(); f.change(kind); }
     return execute(operation, input, execution);
   }) as typeof f.transport.execute;
   expect(await f.call(archive), "REMEMBERED_FINAL_RECHECK").toMatchObject({ ok: false });
-  expect(f.fake.callsOf("gmail.batch.modify"), "REMEMBERED_NO_SPAWN").toHaveLength(0);
-  expect(f.db.query("SELECT * FROM google_inverses").all()).toEqual([]);
+  expect(f.fake.callsOf("gmail.batch.modify"), "REMEMBERED_NO_SPAWN").toHaveLength(1);
+  expect(f.cards, "REMEMBERED_NO_FALLBACK_CARD").toHaveLength(0);
+  expect(f.db.query("SELECT state FROM google_inverses").all()).toEqual([{ state: "confirmed" }]);
 });
 
 test("google oversize composed draft refuses even under allow without a card or write", async () => {
   const f = fixture();
   expect(await f.call({ tool: "brain_google_gmail_draft", input: { action: "reply", message_id: FIRST, body: "H".repeat(32_768) } }), "COMPOSED_CARD_BOUND")
-    .toMatchObject({ ok: false, error: { code: "draft_not_displayable", reason: "draft_not_displayable" } });
+    .toMatchObject({ ok: false, error: { code: "draft_not_displayable", reason: "composed_body_too_large" } });
   expect(f.cards).toHaveLength(0); expect(f.fake.callsOf("gmail.drafts.create")).toHaveLength(0);
 });
 
@@ -143,4 +146,62 @@ test("google complete update card byte budget is enforced before asking", async 
   f.fake.setScenario({ ...writesScenario(), [`gmail.drafts.get ${DRAFT}`]: { stdout: raw } });
   expect(await f.call(update("O".repeat(32_768))), "COMPLETE_CARD_BYTE_BUDGET").toMatchObject({ ok: false, error: { code: "draft_not_displayable", reason: "card_too_large" } });
   expect(f.cards).toHaveLength(0); expect(f.fake.callsOf("gmail.drafts.update")).toHaveLength(0);
+});
+
+for (const column of ["session_id", "principal_id", "brain_id", "account_identity", "expires_at"]) test(`google draft provenance isolates ${column}`, async () => {
+  const f = fixture();
+  expect(await f.call(create)).toMatchObject({ ok: true, admission: "policy" });
+  expect(await f.call(update()), "PROVENANCE_MATCHING_CONTROL").toMatchObject({ ok: true, admission: "policy", effect: "reversible" });
+  f.db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES ('aeaea',1,1)").run();
+  if (column === "expires_at") f.db.exec("UPDATE google_inverses SET created_at=1,expires_at=2");
+  else f.db.query(`UPDATE google_inverses SET ${column}=?`).run(column === "account_identity" ? "penelope@example.com" : "aeaea");
+  expect(await f.call(update()), `PROVENANCE_${column.toUpperCase()}_ISOLATED`).toMatchObject({ ok: true, admission: "card", effect: "irreversible" });
+  expect(f.cards).toHaveLength(1);
+});
+
+for (const kind of ["taint", "safety"]) test(`google session allowance concrete modify rechecks ${kind} at dispatch`, async () => {
+  const f = fixture("ask"); f.change("taint");
+  const at = Date.now();
+  f.db.query(`INSERT INTO google_session_allowances
+    (session_id,principal_id,brain_id,account_identity,operation,entity,host_epoch,policy_hash,granted_card_id,granted_at,expires_at,remaining_items)
+    VALUES ('ithaca',?,'brain','odysseus@example.com','gmail.modify','archive','ithaca-epoch','ithaca','voyage',?,?,100)`)
+    .run(f.owner.id, at, at + 60_000);
+  expect(await f.call(archive), "CHAT_ALLOWANCE_POSITIVE_CONTROL").toMatchObject({ ok: true, admission: "session_allowance" });
+  expect(f.cards, "CHAT_ALLOWANCE_CARDLESS_CONTROL").toHaveLength(0);
+  const execute = f.transport.execute.bind(f.transport);
+  f.transport.execute = (async (operation, input, execution) => {
+    if (operation === "gmail.modify") { await Promise.resolve(); f.change(kind === "taint" ? "untaint" : "safety"); }
+    return execute(operation, input, execution);
+  }) as typeof f.transport.execute;
+  expect(await f.call(archive), "CHAT_ALLOWANCE_FINAL_RECHECK").toMatchObject({ ok: false });
+  expect(f.fake.callsOf("gmail.batch.modify"), "CHAT_ALLOWANCE_NO_SECOND_SPAWN").toHaveLength(1);
+  expect(f.cards).toHaveLength(0);
+  expect(f.db.query("SELECT state FROM google_inverses").all()).toEqual([{ state: "confirmed" }]);
+});
+
+test("google hosted blank body refuses before an admitted decision", async () => {
+  const f = fixture();
+  expect(await f.call({ tool: "brain_google_gmail_draft", input: { action: "create", to: ["penelope@example.com"], subject: "Ithaca", body: " \n" } }), "HOST_BLANK_BODY")
+    .toMatchObject({ ok: false, error: { code: "invalid_input", reason: "draft_body_blank" } });
+  expect(f.db.query("SELECT * FROM google_inverses").all()).toEqual([]);
+  expect(f.cards).toHaveLength(0); expect(f.fake.callsOf("gmail.drafts.create")).toHaveLength(0);
+});
+
+test("google hidden and nonexistent label deltas refuse before admission with identical evidence", async () => {
+  const answers: unknown[] = [];
+  for (const id of ["Label_12", "Label_77"]) {
+    const f = fixture("allow", { hidden: ["Label_12"] });
+    const execute = f.transport.execute.bind(f.transport);
+    f.transport.execute = (async (operation, input, execution) => {
+      if (operation === "gmail.labels.list") expect(f.db.query("SELECT * FROM governance_events").all(), "LABEL_CHECK_BEFORE_DECISION").toEqual([]);
+      return execute(operation, input, execution);
+    }) as typeof f.transport.execute;
+    answers.push(await f.call({ tool: "brain_google_gmail_modify", input: { message_ids: [FIRST], add_label_ids: [id] } }));
+    expect(f.fake.callsOf("gmail.labels.list"), "LABEL_REFUSAL_SAME_READ_BOUNDARY").toHaveLength(1);
+    expect(f.fake.callsOf("gmail.get")).toHaveLength(0);
+    expect(f.db.query("SELECT json_extract(payload,'$.decision') decision FROM governance_events").all()).toEqual([{ decision: "refused" }]);
+    expect(f.db.query("SELECT * FROM google_inverses").all()).toEqual([]);
+  }
+  expect(answers[0], "LABEL_HIDDEN_NOT_FOUND").toMatchObject({ ok: false, error: { code: "not_found", reason: null } });
+  expect(answers[1], "LABEL_MISSING_MATCHES_HIDDEN").toEqual(answers[0]);
 });
