@@ -38,7 +38,7 @@ export function bunControl(mode: string, dir: string, ...args: string[]): string
 }
 export function isolatedControl(mode: string, dir: string): string[] {
   return ["bwrap", "--unshare-user", "--unshare-pid", "--unshare-net", "--die-with-parent", "--new-session",
-    "--ro-bind", "/", "/", "--bind", dir, dir, "--proc", "/proc", "--dev", "/dev", "--cap-drop", "ALL",
+    "--ro-bind", "/", "/", "--bind", dir, dir, "--setenv", "TMPDIR", dir, "--proc", "/proc", "--dev", "/dev", "--cap-drop", "ALL",
     ...bunControl(mode, dir)];
 }
 

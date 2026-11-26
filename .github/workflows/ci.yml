@@ -208,6 +208,15 @@ jobs:
         id: runtime_setup
         timeout-minutes: 12
         run: bash scripts/ci-runtime-setup.sh
+      - name: Offline command boundary controls
+        if: matrix.shard == 1
+        timeout-minutes: 3
+        run: sudo -n python3 scripts/offline-command-proof.py --uid "$(id -u)" --gid "$(id -g)" --groups "$(id -G | tr ' ' ',')"
+      - name: Docker-driving tests in network-disabled containers
+        timeout-minutes: 30
+        env:
+          DOCKER_DRIVER_SHARDS: ${{ strategy.job-total }}
+        run: bun scripts/ci-proof.ts unit --docker-drivers --shard=${{ matrix.shard }}/"$DOCKER_DRIVER_SHARDS"
       - name: Complete unit proof
         id: runtime_proof
         timeout-minutes: 30
@@ -233,6 +242,7 @@ jobs:
             tmp/runner-disk.json
             tmp/unit-memory.jsonl
             tmp/unit-report.xml
+            tmp/docker-driver-*
             tmp/unit-report-summary.json
             tmp/unit-worker-*.xml
             tmp/unit-worker-*.json
@@ -306,6 +316,7 @@ jobs:
             tmp/proof-checkout.json
             tmp/proof-resources.json
             tmp/unit-report.xml
+            tmp/docker-driver-*
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -398,6 +409,7 @@ jobs:
             tmp/proof-checkout.json
             tmp/proof-resources.json
             tmp/unit-report.xml
+            tmp/docker-driver-*
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -456,6 +468,7 @@ jobs:
             tmp/proof-resources.json
             tmp/proof-cases.json
             tmp/unit-report.xml
+            tmp/docker-driver-*
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -521,6 +534,7 @@ jobs:
             tmp/proof-resources.json
             tmp/proof-cases.json
             tmp/unit-report.xml
+            tmp/docker-driver-*
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -575,6 +589,7 @@ jobs:
             tmp/proof-checkout.json
             tmp/proof-resources.json
             tmp/unit-report.xml
+            tmp/docker-driver-*
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -629,6 +644,7 @@ jobs:
             tmp/proof-resources.json
             tmp/proof-cases.json
             tmp/unit-report.xml
+            tmp/docker-driver-*
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -685,6 +701,11 @@ jobs:
         id: runtime_setup
         timeout-minutes: 12
         run: bash scripts/ci-runtime-setup.sh
+      - name: Docker-driving tests in network-disabled containers
+        timeout-minutes: 40
+        env:
+          DOCKER_DRIVER_SHARDS: ${{ strategy.job-total }}
+        run: bun scripts/ci-proof.ts determinism --docker-drivers --shard=${{ matrix.shard }}/"$DOCKER_DRIVER_SHARDS"
       - name: Repeat changed Bun test files under CPU load
         id: runtime_proof
         timeout-minutes: 40
@@ -706,6 +727,7 @@ jobs:
           name: determinism-proof-${{ matrix.shard }}
           path: |
             tmp/determinism-report.json
+            tmp/docker-driver-*
             tmp/determinism-junit.xml
             tmp/proof-checkout.json
             tmp/proof-resources.json

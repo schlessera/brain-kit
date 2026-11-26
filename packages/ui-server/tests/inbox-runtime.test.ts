@@ -1,3 +1,4 @@
+import { localNetworkFixture } from "../../../tests/helpers/local-network-fixture";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
@@ -380,6 +381,7 @@ describe("mounted internal poke", () => {
   });
   for (const mode of ["none", "password", "tailscale", "proxy"]) {
     test(`${mode}: actual listener success without cookie; token and actual socket guard refusals`, async () => {
+      if (await localNetworkFixture(import.meta.path, `${mode}: actual listener success without cookie; token and actual socket guard refusals`)) return;
       const { app, server, peer, url } = await boot(mode); const current = token();
       createInboxStore(app.db).ingest({ threadId: "odysseus", itemId: "odysseus", dedupKey: "odysseus",
         stagingId: "odysseus", source: "share", stakes: 2, expiresAt: Date.now() + 86_400_000 });

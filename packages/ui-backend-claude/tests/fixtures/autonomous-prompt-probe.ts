@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Keyless selected-runtime assembly receipt; caller denies all external network. */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -45,7 +46,7 @@ try {
       abortController, allowedTools, confirmPatterns: [],
       turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
     });
-    const timer = setTimeout(() => abortController.abort(), 45_000);
+    const timer = setTimeout(() => abortController.abort(), watchdogMs(45_000));
     try {
       let success = false;
       for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

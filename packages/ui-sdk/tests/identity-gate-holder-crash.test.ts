@@ -37,7 +37,7 @@ async function readLine(stream: ReadableStream<Uint8Array>, deadline: number): P
     while (!text.includes("\n")) {
       const next = await Promise.race([reader.read(), Bun.sleep(Math.max(0, deadline - Date.now())).then(() => "timeout" as const)]);
       if (next === "timeout") throw new Error("the server did not arm in time");
-      if (next.done) break;
+      if (next.done) throw new Error("the server closed stdout before it armed");
       text += new TextDecoder().decode(next.value);
     }
   } finally { reader.releaseLock(); }

@@ -147,13 +147,14 @@ try:
     STORE.mkdir(mode=0o755)
     run(["mount", "-t", "btrfs", "-o", "nosuid,nodev,nodiscard", str(DEVICE), str(STORE)]); mounted = True
     run(["btrfs", "subvolume", "create", str(STORE / "brain")])
+    # Already in the network-disabled native fixture; retain the test preload and suite cap.
     # The #2834 timing turn alone makes 220 tool calls, each one model request.
-    run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)
+    run(["/usr/local/bin/bun", "--no-env-file", "test", "--timeout", "30000", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)
     # #2783: the media review flow with every review CLI command in a maintenance worker, in this runtime.
     if os.environ.get("BRAIN_NATIVE_PROOF_MEDIA_FLOW") == "1":
         # As the hosted app does, its server, CLI and Git run as the unprivileged app UID.
         os.environ["BRAIN_MEDIA_FLOW_UID"] = APP_UID
-        run(["/usr/local/bin/bun", "run", "test", "/repo/packages/ui-server/tests/media-review-flow.test.ts", "-t", "in maintenance workers"], timeout=120)
+        run(["/usr/local/bin/bun", "--no-env-file", "test", "--timeout", "30000", "/repo/packages/ui-server/tests/media-review-flow.test.ts", "-t", "in maintenance workers"], timeout=120)
 except BaseException as error:
     failure = error
     record("failure", detail=str(error))

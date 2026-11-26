@@ -180,6 +180,15 @@ jobs:
         id: runtime_setup
         timeout-minutes: 12
         run: bash scripts/ci-runtime-setup.sh
+      - name: Offline command boundary controls
+        if: matrix.shard == 1
+        timeout-minutes: 3
+        run: sudo -n python3 scripts/offline-command-proof.py --uid "$(id -u)" --gid "$(id -g)" --groups "$(id -G | tr ' ' ',')"
+      - name: Docker-driving tests in network-disabled containers
+        timeout-minutes: 30
+        env:
+          DOCKER_DRIVER_SHARDS: "${{ strategy.job-total }}"
+        run: "bun scripts/ci-proof.ts unit --docker-drivers --shard=${{ matrix.shard }}/\"$DOCKER_DRIVER_SHARDS\""
       - name: Complete unit proof
         id: runtime_proof
         timeout-minutes: 30
@@ -197,7 +206,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: "unit-proof-${{ matrix.shard }}"
-          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/runner-disk.json\ntmp/unit-memory.jsonl\ntmp/unit-report.xml\ntmp/unit-report-summary.json\ntmp/unit-worker-*.xml\ntmp/unit-worker-*.json\ntmp/unit-worker-diagnostics/\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
+          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/runner-disk.json\ntmp/unit-memory.jsonl\ntmp/unit-report.xml\ntmp/docker-driver-*\ntmp/unit-report-summary.json\ntmp/unit-worker-*.xml\ntmp/unit-worker-*.json\ntmp/unit-worker-diagnostics/\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -241,7 +250,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: runtime-proof
-          path: "tmp/native-host-proof/\ntmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/unit-report.xml\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
+          path: "tmp/native-host-proof/\ntmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/unit-report.xml\ntmp/docker-driver-*\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -297,7 +306,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: runtime-host-proof
-          path: "tmp/native-host-proof/\ntmp/reference-pool-proof/\ntmp/worker-identity-proof/\ntmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/unit-report.xml\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
+          path: "tmp/native-host-proof/\ntmp/reference-pool-proof/\ntmp/worker-identity-proof/\ntmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/unit-report.xml\ntmp/docker-driver-*\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -336,7 +345,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: "browser-proof-${{ matrix.shard }}"
-          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/proof-cases.json\ntmp/unit-report.xml\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/diagram-export-native-prepared/*/*/release.svg\ntmp/diagram-export-native-prepared/*/*/release.png\ntmp/diagram-export-native-prepared/*/*/release.pdf\ntmp/diagram-export-native-prepared/*/*/origin.svg\ntmp/diagram-export-native-prepared/*/*/origin.png\ntmp/diagram-export-native-prepared/*/*/origin.pdf\ntmp/diagram-export-native-prepared/*/*/producer.json\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
+          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/proof-cases.json\ntmp/unit-report.xml\ntmp/docker-driver-*\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/diagram-export-native-prepared/*/*/release.svg\ntmp/diagram-export-native-prepared/*/*/release.png\ntmp/diagram-export-native-prepared/*/*/release.pdf\ntmp/diagram-export-native-prepared/*/*/origin.svg\ntmp/diagram-export-native-prepared/*/*/origin.png\ntmp/diagram-export-native-prepared/*/*/origin.pdf\ntmp/diagram-export-native-prepared/*/*/producer.json\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -374,7 +383,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: "layout-proof-${{ matrix.shard }}"
-          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/proof-cases.json\ntmp/unit-report.xml\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/hygiene-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
+          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/proof-cases.json\ntmp/unit-report.xml\ntmp/docker-driver-*\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/hygiene-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -406,7 +415,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: captures-proof
-          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/unit-report.xml\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
+          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/unit-report.xml\ntmp/docker-driver-*\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -438,7 +447,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: endurance-proof
-          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/proof-cases.json\ntmp/unit-report.xml\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
+          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/proof-cases.json\ntmp/unit-report.xml\ntmp/docker-driver-*\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -471,6 +480,11 @@ jobs:
         id: runtime_setup
         timeout-minutes: 12
         run: bash scripts/ci-runtime-setup.sh
+      - name: Docker-driving tests in network-disabled containers
+        timeout-minutes: 40
+        env:
+          DOCKER_DRIVER_SHARDS: "${{ strategy.job-total }}"
+        run: "bun scripts/ci-proof.ts determinism --docker-drivers --shard=${{ matrix.shard }}/\"$DOCKER_DRIVER_SHARDS\""
       - name: Repeat changed Bun test files under CPU load
         id: runtime_proof
         timeout-minutes: 40
@@ -488,7 +502,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: "determinism-proof-${{ matrix.shard }}"
-          path: "tmp/determinism-report.json\ntmp/determinism-junit.xml\ntmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/runner-disk.json\n"
+          path: "tmp/determinism-report.json\ntmp/docker-driver-*\ntmp/determinism-junit.xml\ntmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/runner-disk.json\n"
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
