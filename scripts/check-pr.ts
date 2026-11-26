@@ -7,7 +7,7 @@ import { checkPackages } from "./check-packages";
 import { checkCategories, PREEMPTED_EXIT, RECEIPT_KIND, receiptBlock, UNPROVEN, type CheckReceipt, type Outcome, type ReceiptCheck } from "./check-receipt";
 import { ensureHostAdmission } from "./host-admission.mjs";
 import { discoverTests } from "./test-shards";
-import { DEFAULT_ROOTS } from "./test";
+import { DEFAULT_ROOTS, offlineCommand } from "./test";
 import { localUnitWorkerCount } from "./unit-workers";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -54,10 +54,10 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
     // complete test suite above; a fake allowlist check cannot replace it.
     for (const script of ["measure-claude-runtime", "measure-claude-enforcement"]) checks.push({ name: script,
       argv: ["unshare", "--user", "--map-root-user", "--net", "sh", "-c",
-        `ip link set lo up && bun scripts/${script}.ts --out tmp/${script}.json`] });
+        `ip link set lo up && bun --no-env-file scripts/${script}.ts --out tmp/${script}.json`] });
     checks.push({ name: "native delegation, capabilities and measurement isolation",
       argv: ["unshare", "--user", "--map-current-user", "--keep-caps", "--net", "sh", "-c",
-        "ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all --bounding-set=-all sh -c 'bun scripts/measure-claude-delegation.ts --out tmp/delegation-probe.json && bun scripts/measure-claude-capability.ts > tmp/capability-probe.json && bun scripts/measure-claude-haiku.ts > tmp/haiku-probe.json && bun run test ./tests/measurement-isolation.test.ts ./experiments/turn-surface-runtime-placement.test.ts'"] });
+        "ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all --bounding-set=-all sh -c 'bun --no-env-file scripts/measure-claude-delegation.ts --out tmp/delegation-probe.json && bun --no-env-file scripts/measure-claude-capability.ts > tmp/capability-probe.json && bun --no-env-file scripts/measure-claude-haiku.ts > tmp/haiku-probe.json && bun --no-env-file run test ./tests/measurement-isolation.test.ts ./experiments/turn-surface-runtime-placement.test.ts'"] });
     checks.push({ name: "native managed hosted admission", argv: [bun, "scripts/prove-native-host.ts"] });
     checks.push({ name: "native separate-UID worker identity", argv: [bun, "scripts/prove-worker-identity.ts"] });
     checks.push({ name: "native reference pool allocation", argv: [bun, "scripts/prove-reference-pool.ts"] });
@@ -65,7 +65,8 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
       "packages/ui-react/tests/chat-focus-runtime.test.ts", "packages/ui-react/tests/external-speech-runtime.test.ts"],
       env: { BRAIN_REQUIRE_CHROME: "1" } });
   }
-  return checks;
+  return checks.map(check => ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation"].includes(check.name)
+    ? { ...check, argv: offlineCommand(check.argv) } : check);
 }
 
 /**

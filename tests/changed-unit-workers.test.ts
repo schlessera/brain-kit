@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { dirname, join, resolve } from "node:path";
 import { runUnitWorkers } from "../scripts/unit-workers";
 import { validateChangedUnitReports, validateUnitReports } from "../scripts/unit-proof-report";
+import { watchdogMs } from "../scripts/test-deadlines";
 import { changedSelection, timingSeed } from "../scripts/changed-unit-worker";
 import { localUnitWorkerCount } from "../scripts/unit-workers";
 import { unitInputKey } from "../scripts/unit-worker-inputs";
@@ -117,8 +118,15 @@ test("changed costs use milliseconds and selection receipts fail closed on absen
   expect(timingSeed({ "tests/odysseus.test.ts": 2.5 })).toEqual({ version: 1, files: { "tests/odysseus.test.ts": 2500 } });
   expect(() => timingSeed({ "tests/odysseus.test.ts": -1 })).toThrow("cost");
   expect(changedSelection("--changed: 1 changed file, running 5/12 test files\n--shard=2/3: running 1/5 test files\n", "2/3")).toEqual({ selected: 5, assigned: 1 });
+  expect(changedSelection("--changed: 1 changed file, running 1/1 test file\n--shard=1/1: running 1/1 test file\n", "1/1")).toEqual({ selected: 1, assigned: 1 });
   expect(changedSelection("--changed: 1 changed file, but no test files are affected\n", "1/2")).toEqual({ selected: 0, assigned: 0 });
   expect(changedSelection("\u001b[0m\u001b[2m--changed:\u001b[0m 1 changed file, but no test files are affected\n", "1/2")).toEqual({ selected: 0, assigned: 0 });
+  const start = (pid: number, batch: number) => JSON.stringify({ kind: "test-invocation", event: "batch-start", pid, batch }) + "\n";
+  expect(changedSelection(start(11, 0) + "--changed: 1 changed file, running 2/4 test files\n--shard=1/2: running 1/2 test files\n" +
+    start(22, 0) + "--changed: 1 changed file, running 99/99 test files\n--shard=1/2: running 99/99 test files\n" +
+    start(11, 1) + "--changed: 1 changed file, running 3/4 test files\n--shard=1/2: running 2/3 test files\n", "1/2"), "CHANGED_SELECTION_SUMS_OUTER_BATCHES_ONLY").toEqual({ selected: 5, assigned: 3 });
+  expect(changedSelection("--changed: 1 changed file, running 2/4 test files\n--shard=1/2: running 1/2 test files\n" +
+    start(22, 0) + "--changed: 1 changed file, running 99/99 test files\n--shard=1/2: running 99/99 test files\n", "1/2")).toEqual({ selected: 2, assigned: 1 });
   expect(() => changedSelection("", "2/3")).toThrow("did not report");
   expect(() => changedSelection("--changed: 1 changed file, running 5/12 test files\n--shard=2/3: running 1/12 test files\n", "2/3")).toThrow("complete changed-file selection");
   expect(localUnitWorkerCount(32, 47 * 1024 ** 3)).toBe(8);
@@ -259,3 +267,33 @@ test("${name} keeps copied output, source, lease and generation private",async()
     else console.error(`Prepared queue control retained its owned fixture for diagnosis: ${root}`);
   }
 }, 60_000);
+
+
+test("changed selections with only ordinary files merge successfully and keep wholly empty selection semantics", async () => {
+  const { root, write } = invocationFixture();
+  const git = (...args: string[]) => {
+    const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+    expect(result.exitCode, result.stderr.toString()).toBe(0); return result.stdout.toString().trim();
+  };
+  try {
+    write("scripts/changed-unit-worker.ts", readFileSync(join(import.meta.dir, "../scripts/changed-unit-worker.ts"), "utf8"));
+    // These are selection fixtures, so retain the tiny real compiler target.
+    write("scripts/runtime-test-builds.ts", readFileSync(join(root, "scripts/runtime-test-builds.ts"), "utf8").replaceAll('["ui-react", "ui-server", "core"]', '["ithaca"]'));
+    const ordinary = "tests/ordinary.test.ts";
+    for (const file of [ordinary, "tests/workspace-lease.test.ts", "packages/ui-react/tests/chat-focus-runtime.test.ts"])
+      write(file, 'import {test,expect} from "bun:test";test("Ithaca selection",()=>expect(true).toBe(true));\n');
+    git("init", "-q"); git("add", "."); git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Selection baseline");
+    const base = git("rev-parse", "HEAD"); write(ordinary, readFileSync(join(root, ordinary), "utf8") + "// Changed ordinary fixture.\n");
+    for (const empty of [false, true]) {
+      if (empty) { git("add", "."); git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Selection complete"); }
+      const child = Bun.spawn([process.execPath, "scripts/changed-unit-worker.ts", empty ? "HEAD" : base, "1/1"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(code, "CHANGED_ONLY_ORDINARY_REPORT_MERGES: " + stdout + stderr).toBe(0);
+      const selection = JSON.parse(readFileSync(join(root, "tmp/unit-selection.json"), "utf8"));
+      expect(selection).toMatchObject({ selected: empty ? 0 : 1, assigned: empty ? 0 : 1 });
+      const xml = readFileSync(join(root, "tmp/unit-report.xml"), "utf8");
+      const timings = JSON.parse(readFileSync(join(root, "tmp/unit-timings.json"), "utf8"));
+      expect(validateUnitReports(empty ? [] : [ordinary], xml, timings, empty).tests).toBe(empty ? 0 : 1);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(root + "-output.log", { force: true }); }
+}, watchdogMs(60_000));

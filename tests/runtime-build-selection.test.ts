@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { runtimeBuildInventory, runtimeBuildSelection } from "../scripts/runtime-test-builds";
+import { runtimeBrowserSelection, runtimeBuildInventory, runtimeBuildSelection } from "../scripts/runtime-test-builds";
 import { selectBuildPackages } from "../scripts/publishable-packages";
 import { testArgv, testPaths } from "../scripts/test";
 const root = resolve(import.meta.dir, "..");
@@ -37,4 +37,10 @@ test("build selection shares Bun positional parsing without changing test argv",
   }
   expect(runtimeBuildSelection(root, root, ["share-draft-runtime"])).toEqual(["ui-sdk"]);
   expect(runtimeBuildSelection(root, root, ["haiku-model-runtime"])).toEqual(["ui-react"]);
+});
+
+test("protocol-only browser control gets the online indicator without a package build", () => {
+  const paths = ["browser-rejection-runtime"];
+  expect(runtimeBrowserSelection(root, root, paths)).toEqual(["packages/ui-react/tests/browser-rejection-runtime.test.ts"]);
+  expect(runtimeBuildSelection(root, root, paths)).toEqual([]);
 });
