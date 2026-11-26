@@ -747,6 +747,7 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
         const stale=validate();if(stale)throw new Error(stale);
         ticket=req.bridge.inputSafety?.prepareDispatch?await req.bridge.inputSafety.prepareDispatch(opts.toolUseID):undefined;
         if(!ticket)await req.bridge.inputSafety?.allowed?.(opts.toolUseID,validate);
+        for (const pending of safety?.pendingRecording?.(before,req.signal)??[]) await pending;
         const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
         ticket?.commit(validate);
       }

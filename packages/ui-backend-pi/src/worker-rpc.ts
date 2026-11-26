@@ -185,6 +185,7 @@ async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorker
     // separate final-admission RPC after its rewrite and lock waits.
     ticket=msg.toolName!=="bash"&&bridge.inputSafety?.prepareDispatch?await bridge.inputSafety.prepareDispatch(msg.toolCallId):undefined;
     if(msg.toolName!=="bash"&&!ticket)await bridge.inputSafety?.allowed?.(msg.toolCallId,validate);
+    for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
     const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
     ticket?.commit(validate);
   }catch(error){try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}return {behavior:"deny",message:error instanceof Error?error.message:"Safety recording refused this call."};}
@@ -299,7 +300,8 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
       const stale=validate();if(stale)throw new Error(stale);
       ticket=bridge.inputSafety?.prepareDispatch?await bridge.inputSafety.prepareDispatch(msg.toolCallId):undefined;
       if(!ticket)await bridge.inputSafety?.allowed?.(msg.toolCallId,validate);
-      const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
+      for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
+    const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
       ticket?.commit(validate);
       forgetPiAdmission(context.turn,msg.toolName,msg.toolCallId);
       return {ok:true};

@@ -49,7 +49,7 @@ import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission,
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import type { TurnContext } from "./turn-context.js";
 import { PI_BRAIN_UPDATE_TOOL_NAME } from "./tools.js";
-import { rememberPiAdmission, revalidatePiAdmission } from "./tool-admission.js";
+import { pendingPiAdmission, rememberPiAdmission, revalidatePiAdmission } from "./tool-admission.js";
 
 export interface PermissionGateOptions {
   /** The session's turn holder — the gate reads the CURRENT turn's bridge. */
@@ -133,6 +133,7 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           const stale=validate();if(stale)throw new Error(stale);
           ticket=event.toolName!=="bash"&&safety?.prepareDispatch?await safety.prepareDispatch(event.toolCallId):undefined;
           if(event.toolName!=="bash"&&!ticket)await safety?.allowed?.(event.toolCallId,validate);
+          for (const pending of pendingPiAdmission(turn,event.toolName,event.toolCallId)) await pending;
           const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
           ticket?.commit(validate);
         }catch(error){

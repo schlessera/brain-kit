@@ -204,6 +204,7 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
             const stale=validate();if(stale)throw new Error(stale);
             ticket=turn.bridge?.inputSafety?.prepareDispatch?await turn.bridge?.inputSafety.prepareDispatch(_id):undefined;
             if(!ticket)await turn.bridge?.inputSafety?.allowed?.(_id,validate);
+            for (const pending of pendingPiAdmission(turn,"bash",_id)) await pending;
             const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
             ticket?.commit(validate);
             forgetPiAdmission(turn,"bash",_id);
