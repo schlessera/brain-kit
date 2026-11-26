@@ -54,11 +54,11 @@ for(const [name,tool,input,output,expected] of [
  ['Pi sentinel incomplete original','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],false),['legacy_unknown']],
  ['Pi marked row plus image','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/voyage.md:1:sirens'},{type:'image'}]),['user_marked','legacy_unknown']],
  ['Pi sentinel plus empty block','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'},{type:'text',text:''}]),['legacy_unknown']],
- ['Pi inconsistent frame salvages visible path','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/voyage.md:1:sirens'}],true,{search:{exitCode:0,stderr:false,truncated:false,framedOutput:'notes/loom.md:\0'+'1:echo\n'}}),['user_marked','legacy_unknown']],
- ['Pi truncated frame cannot omit visible paths','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/loom.md:1:echo\nnotes/voyage.md:1:sirens'}],true,{search:{exitCode:0,stderr:false,truncated:true,framedOutput:'notes/loom.md:\0'+'1:echo\n',visibleText:'notes/loom.md:1:echo\nnotes/voyage.md:1:sirens'}}),['user_marked','legacy_unknown']],
- ['Pi exact original sentinel','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],true,{search:{stdoutEmpty:true,exitCode:1,stderr:false,truncated:false}}),[]],
- ['Pi sentinel with missing zero-byte proof','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],true,{search:{exitCode:1,stderr:false,truncated:false}}),['legacy_unknown']],
- ['Pi sentinel with nonempty stdout','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],true,{search:{stdoutEmpty:false,exitCode:1,stderr:false,truncated:false}}),['legacy_unknown']],
+ ['Pi inconsistent frame salvages visible path','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/voyage.md:1:sirens'}],true,false,{search:{exitCode:0,stderr:false,truncated:false,framedOutput:'notes/loom.md:\0'+'1:echo\n'}}),['user_marked','legacy_unknown']],
+ ['Pi truncated frame cannot omit visible paths','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/loom.md:1:echo\nnotes/voyage.md:1:sirens'}],true,false,{search:{exitCode:0,stderr:false,truncated:true,framedOutput:'notes/loom.md:\0'+'1:echo\n',visibleText:'notes/loom.md:1:echo\nnotes/voyage.md:1:sirens'}}),['user_marked','legacy_unknown']],
+ ['Pi exact original sentinel','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],true,false,{search:{stdoutEmpty:true,exitCode:1,stderr:false,truncated:false}}),[]],
+ ['Pi sentinel with missing zero-byte proof','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],true,false,{search:{exitCode:1,stderr:false,truncated:false}}),['legacy_unknown']],
+ ['Pi sentinel with nonempty stdout','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],true,false,{search:{stdoutEmpty:false,exitCode:1,stderr:false,truncated:false}}),['legacy_unknown']],
  ['Grep duplicate per-file count rows','Grep',{output_mode:'count'},grep(['notes/loom.md'],{content:'notes/loom.md:1\nnotes/loom.md:1',numMatches:2}),['legacy_unknown']],
  ['Pi newline filename ambiguity is never healthy legacy evidence','grep',{},'./raft:1:sail\nloom.md:1:sirens',['legacy_unknown']],
  ['Pi NUL newline filename','grep',{},'./raft:1:sail\nloom.md:\0'+'1:sirens\n',['user_marked']],
@@ -110,7 +110,7 @@ for(const [name,tool,input,output,expected] of [
 
 for(const terminated of [false,true])for(const shape of ['incomplete','image'] as const)test(`explicit Pi completeness is independent of row text: ${shape}-${terminated?'terminated':'unterminated'}`,()=>{
  const text='notes/loom.md:\0'+'1:sirens'+(terminated?'\n':'');
- const converted=safetyResultInput('grep',[{type:'text',text},...(shape==='image'?[{type:'image'}]:[])],shape!=='incomplete',{search:{exitCode:0,stderr:false,truncated:false}});
+ const converted=safetyResultInput('grep',[{type:'text',text},...(shape==='image'?[{type:'image'}]:[])],shape!=='incomplete',false,{search:{exitCode:0,stderr:false,truncated:false}});
  expect(converted.output,'STATUS_NEVER_REWRITES_RESULT_TEXT').toBe(text);
  const signals=outputTaintSignals('grep',converted.output,'/srv/odysseus/brain',()=>false,{...searchOutputContext('grep',{}),outputComplete:converted.outputStatus.complete});
  expect(signals.map(signal=>signal.source),'EXPLICIT_INCOMPLETE_RESULT_STAYS_UNKNOWN').toEqual(['legacy_unknown']);
