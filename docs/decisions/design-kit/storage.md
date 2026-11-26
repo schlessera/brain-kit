@@ -563,10 +563,8 @@ When none applies, one line says so: "No owner-supported tool frees space on
 An active write refusal is shown by the refused tool row and the chart's
 markers, with no separate line (maintainer, 2026-11-26).
 
-The list stays equivalent to the map for folded databases: each `-wal`,
-`-shm` or `-journal` member follows its database as its own row, marked
-"part of {database}", with its own drill or inspect action. The database row
-keeps the combined size; the legend counts each row once.
+Sidecars (`-wal`, `-shm`, `-journal`) fold into their database's single row
+and tile, never listed separately (#4546, maintainer 2026-11-26).
 
 The status line's glyph carries its state: `●` complete, `◑` partial (`≥`
 entries, stores not measured), `◷` out of date (from `staleAfter`), `◐`
