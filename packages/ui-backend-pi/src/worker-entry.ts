@@ -202,9 +202,10 @@ async function initialize(init: Init): Promise<void> {
       // Initialization is awaited by the same loop that consumes RPC answers.
       // Refuse startup one-way; the typed error makes the host retain loss.
       unavailable: async()=>{if(initialized)await rpc("safetyUnavailable","","",{});},
-      result: async (name,id,content,complete,failed) => {
-        const result = await rpc("safetyResult",name,id,safetyResultInput(name,content,complete,failed));
+      result: async (name,id,content,complete,failed,details) => {
+        const result = await rpc("safetyResult",name,id,safetyResultInput(name,content,complete,failed,details));
         return result.workspaceNote;
+
       },
       stop: () => controller.abort(),
     },

@@ -3,6 +3,7 @@ import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { z } from "zod";
 import type { Readable, Writable } from "node:stream";
+import { MAX_OUTPUT_BYTES } from "./tool-kit.js";
 
 // Internal protocol. A worker can propose inputs, never a decision or authority.
 export const PI_PIPE_MAX_BYTES = 16 * 1024 * 1024;
@@ -88,14 +89,26 @@ export const piWorkerMessage = z.discriminatedUnion("type", [
 ]);
 export type PiWorkerMessage = z.infer<typeof piWorkerMessage>;
 
-/** Text delivered to the host's safety collector, separate from provider history. */
-export function safetyResultInput(tool: string, content: readonly { type: string; text?: unknown }[], complete = true, failed = false): { output: string; segments?: string[]; failed?: true } {
-  const segments = content.filter(part => part.type === "text").map(part => part.text as string);
-  // Omitted segments mean unprovable read delivery. Filtering an image or
-  // resource out must not turn mixed content into one verified text part.
-  if (tool === "reference_read" && (!complete || content.some(part => part.type !== "text" || typeof part.text !== "string")))
-    return { output: segments.join("\n") };
-  return { output: segments.join("\n"), segments, ...(failed ? {failed:true as const} : {}) };
+export const piOutputStatus=z.object({complete:z.boolean(),exitCode:z.number().int().optional(),stderr:z.boolean().optional(),truncated:z.boolean().optional()}).strict();
+const searchStatus=z.object({decodingLoss:z.boolean().optional(),stdoutEmpty:z.boolean().optional(),exitCode:z.number().int(),stderr:z.boolean(),truncated:z.boolean(),framedOutput:z.string().optional(),visibleText:z.string().optional()}).strict();
+/** Host-only observation. Never alter provider result content to encode status. */
+export function safetyResultInput(tool:string,content:readonly {type:string;text?:unknown}[],complete=true,failed=false,details?:unknown): {output:string;segments?:string[];outputStatus:z.infer<typeof piOutputStatus>;failed?:true} {
+ const segments=content.filter(part=>part.type==='text'&&typeof part.text==='string').map(part=>part.text as string),output=segments.join('\n');
+ if(tool==='grep'){
+  const status=searchStatus.safeParse(details&&typeof details==='object'?(details as Record<string,unknown>).search:undefined);
+  const original=complete&&content.length===1&&content[0]?.type==='text'&&typeof content[0]?.text==='string';
+  const framed=status.success?status.data.framedOutput:undefined;
+  const rendered=framed?.replaceAll('\0','').trim();
+  const bound=framed===undefined?output==='No matches.':status.success&&status.data.truncated?status.data.visibleText===output&&(output.length>MAX_OUTPUT_BYTES?framed.replaceAll('\0','').trimStart()===output.slice(0,MAX_OUTPUT_BYTES):rendered===output):rendered===output;
+  const successful=bound&&status.success&&!status.data.decodingLoss&&!status.data.stderr&&!status.data.truncated&&
+   (status.data.exitCode===0&&output.length>0&&output!=='No matches.'||status.data.exitCode===1&&status.data.stdoutEmpty===true&&output==='No matches.');
+  const processStatus=status.success?{exitCode:status.data.exitCode,stderr:status.data.stderr,truncated:status.data.truncated}:{};
+  return {...(failed?{failed:true as const}:{}),output:bound?(framed??output):output,segments,outputStatus:{...processStatus,complete:original&&successful}};
+ }
+ // Reference reads require every original segment; omission never proves a read.
+ if(tool==='reference_read'&&(!complete||content.some(part=>part.type!=='text'||typeof part.text!=='string')))return {...(failed?{failed:true as const}:{}),output,outputStatus:{complete:false}};
+ return {...(failed?{failed:true as const}:{}),output,segments,outputStatus:{complete}};
+
 }
 
 export function sendPipe(pipe: Pick<Writable, "write">, value: unknown): void {
