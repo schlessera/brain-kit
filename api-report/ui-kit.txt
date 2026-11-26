@@ -160,6 +160,12 @@ export "." (./src/index.ts)
   type GitHubThreadProps
   GitHubWriteNotice
   type GitHubWriteNoticeProps
+  GoogleAllowanceList
+  type GoogleAllowanceListProps
+  GoogleApprovalList
+  type GoogleApprovalListProps
+  type GoogleHostTime
+  type GoogleStandingAction
   type GraphEdge
   type GraphLegendItem
   type GraphNode
@@ -424,6 +430,7 @@ export "." (./src/index.ts)
   followUpLabel
   font
   githubHref
+  googleActionWords
   markupBytesLabel
   markupNotes
   markupReceiptRows
@@ -1569,6 +1576,53 @@ signatures (every public export and the types it is made of)
     export interface GitHubWriteNoticeProps {
         outcome: "declined" | "changed" | "unknown";
     }
+  GoogleAllowanceList (packages/ui-kit/src/google/GoogleAllowanceList.tsx)
+    export function GoogleAllowanceList(p: GoogleAllowanceListProps): import("react").JSX.Element;
+  GoogleAllowanceListProps (packages/ui-kit/src/google/GoogleAllowanceList.tsx)
+    export interface GoogleAllowanceListProps {
+        state: "ready" | "loading" | "unavailable";
+        grants: {
+            id: string;
+            address: string;
+            actions: GoogleStandingAction[];
+            remaining: number;
+            limit: number;
+            until: GoogleHostTime;
+        }[];
+        busy?: string | null;
+        error?: string | null;
+        onRevoke(id: string): void;
+    }
+  GoogleApprovalList (packages/ui-kit/src/google/GoogleApprovalList.tsx)
+    export function GoogleApprovalList(p: GoogleApprovalListProps): import("react").JSX.Element;
+  GoogleApprovalListProps (packages/ui-kit/src/google/GoogleApprovalList.tsx)
+    export interface GoogleApprovalListProps {
+        state: "ready" | "loading" | "unavailable";
+        accounts: {
+            address: string;
+            approvals: {
+                id: string;
+                action: GoogleStandingAction;
+                since: GoogleHostTime;
+            }[];
+        }[];
+        busy?: string | null;
+        error?: string | null;
+        onRevoke(id: string): void;
+    }
+  GoogleHostTime (packages/ui-kit/src/google/shared.tsx)
+    export interface GoogleHostTime {
+        short: string;
+        full: string;
+    }
+  GoogleStandingAction (packages/ui-kit/src/google/shared.tsx)
+    export type GoogleStandingAction = {
+        kind: "archive" | "unarchive" | "mark_read" | "mark_unread" | "star" | "unstar" | "drafts";
+    } | {
+        kind: "label" | "unlabel";
+        labelId: string;
+        labelName: string | null;
+    };
   GraphEdge (packages/ui-kit/src/agents/GraphView.tsx)
     export type GraphEdge = [
         number,
@@ -3394,6 +3448,11 @@ signatures (every public export and the types it is made of)
     };
   githubHref (packages/ui-kit/src/github/shared.tsx)
     export function githubHref(raw: string | null | undefined): string | null;
+  googleActionWords (packages/ui-kit/src/google/shared.tsx)
+    export function googleActionWords(action: GoogleStandingAction): {
+        text: string;
+        mono?: string;
+    };
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   markupBytesLabel (packages/ui-kit/src/images/markup.ts)
     export function markupBytesLabel(bytes: number): string;

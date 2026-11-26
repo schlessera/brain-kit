@@ -1,0 +1,5 @@
+---
+"@schlessera/brain-ui-kit": minor
+---
+
+New `GoogleApprovalList` and `GoogleAllowanceList`, for revoking standing Gmail permissions (#4212). They take props and callbacks only, and the host formats every time. `GoogleApprovalList` lists remembered approvals for Settings, grouped under each account's address, with a Revoke on each row. `GoogleAllowanceList` lists a restricted chat's allowances, one row per card. Each row shows how many changes are left, turning amber at 10 or fewer, and when the allowance ends. Each has its own Revoke button, which reaches 44px under a coarse pointer. Both lists draw loading, empty, unavailable and revoke-error states. A row whose revoke is in flight reads "Revoking…" and stays focusable. When the host drops a revoked row, focus moves to the next row, else the previous one, else the list's heading. `googleActionWords` gives the words for a standing action. A label action uses the host-escaped label name as plain text and falls back to the label id, in mono, when the name is withheld.

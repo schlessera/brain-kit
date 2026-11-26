@@ -3242,3 +3242,29 @@ ol.bk-ut-list { list-style: decimal outside; }
 @container (min-width: 520px) {
   .bk-gh-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ── Google components (#4212) ───────────────────────────────────────────
+ * A remembered approval's row. On a phone the "since" line sits under the
+ * action words and Revoke stays level with them; once the list is 480px or
+ * wider, "since" moves onto the same line, before Revoke. The query container
+ * is the rows' own frame, not the list, so the heading and explainer still
+ * give the list an intrinsic width inside a shrink-to-fit parent. */
+.bk-google-rows { container-type: inline-size; }
+.bk-google-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "icon title action" ". since .";
+  column-gap: 11px;
+  row-gap: 2px;
+  align-items: center;
+}
+.bk-google-row-icon { grid-area: icon; display: inline-flex; }
+.bk-google-row-title { grid-area: title; }
+.bk-google-row-since { grid-area: since; }
+.bk-google-row-action { grid-area: action; display: inline-flex; }
+@container (min-width: 480px) {
+  .bk-google-row {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "icon title since action";
+  }
+}
