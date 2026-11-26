@@ -46,7 +46,7 @@ test("a file tool or search that reads a marked file is a user_marked source; ot
   // An untrusted area still names its own source first.
   expect(inputTaintSource("Read", { file_path: `${brain}/workspaces/${MESSAGE}` }, brain, () => true)).toBe("workspace_read");
   // A search from an ancestor directory taints when its output names the marked file.
-  expect(outputTaintSource("Grep", `${brain}/notes/a.md\n${brain}/${MESSAGE}`, brain, marked), "MARKED_SEARCH_OUTPUT").toBe("user_marked");
+  expect(outputTaintSource("Grep", JSON.stringify({numFiles:2,filenames:[`${brain}/notes/a.md`,`${brain}/${MESSAGE}`]}), brain, marked), "MARKED_SEARCH_OUTPUT").toBe("user_marked");
   expect(outputTaintSource("grep", `${MESSAGE}:3: Ithaca`, brain, marked)).toBe("user_marked");
   expect(outputTaintSource("Glob", `${brain}/${LETTER}`, brain, marked)).toBeNull();
   // The capabilities note names marked files among the untrusted sources.

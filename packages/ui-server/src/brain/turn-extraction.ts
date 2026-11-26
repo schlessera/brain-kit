@@ -28,8 +28,8 @@
  * never written to the record or the provider-facing conversation.
  */
 import { prepareOutwardPlan } from "@schlessera/brain-ui-sdk/internal";
-import { requestToolPermission, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
-import { inputTaintSignals, outputTaintSignals } from "../activity/ingestion-taint.js";
+import { requestToolPermission, type BackendBridge, type InputSafetyOutputStatus } from "@schlessera/brain-ui-sdk/server";
+import { inputTaintSignals, outputTaintSignals, searchOutputContext, searchOutputComplete } from "../activity/ingestion-taint.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { existsSync } from "node:fs";
 import { posix } from "node:path";
@@ -165,11 +165,12 @@ export function createTurnExtraction(options: {
       try { calls.set(toolUseId, await prior.outcome); }
       catch (error) { end(toolUseId); throw error; }
     },
-    async result(toolUseId, tool, output, finalized, segments) {
+    async result(...args:Parameters<InputSafety["result"]>) {
+      const [toolUseId,tool,output,,,outputStatus]=args;
       const input = inputs.get(toolUseId);
       end(toolUseId); inputs.delete(toolUseId);
-      try { await safety.result(toolUseId, tool, output, finalized, segments); }
-      finally { observe(tool, input, output); }
+      try { await safety.result(...args); }
+      finally { observe(tool, input, output, outputStatus); }
     },
     refused(toolUseId, denied) { end(toolUseId); inputs.delete(toolUseId); return safety.refused?.(toolUseId, denied) ?? Promise.resolve(); },
   });
@@ -180,16 +181,20 @@ export function createTurnExtraction(options: {
     return isWithin(root, absolute, { includeRoot: false }) ? absolute.slice(root.length + 1) : absolute;
   };
   /** What the session read, and what its tainting content named. Never fails the call it observes. */
-  const observe = (tool: string, input: unknown, output: string) => {
+  const observe = (tool: string, input: unknown, output: string, outputStatus?:InputSafetyOutputStatus) => {
     try {
       const current = session();
+      const outputComplete=searchOutputComplete(output,outputStatus,tool==='grep');
+      if(["Grep","Glob","grep","find"].includes(tool)&&outputComplete===false)current.complete=false;
       const path = readPath(tool, input);
       if (path !== null) current.read(display(path), readText(output));
       // Content from anywhere the host cannot vouch for: a fetch, a command
       // (its connections taint the session at the proxy), another MCP server,
       // an untrusted area or a marked file.
-      const tainting = !localTool(tool) || inputTaintSignals(tool, input, options.brainPath, options.marked, true).length > 0
-        || outputTaintSignals(tool, output, options.brainPath, options.marked).length > 0;
+      const signals=[...inputTaintSignals(tool,input,options.brainPath,options.marked,true),
+        ...outputTaintSignals(tool,output,options.brainPath,options.marked,{...searchOutputContext(tool,input),outputComplete})];
+      if(signals.some(signal=>signal.source==="legacy_unknown"))current.complete=false;
+      const tainting = !localTool(tool) || signals.length > 0;
       if (tainting) current.tainting(namedHosts(output));
     } catch { state.complete = false; }
   };

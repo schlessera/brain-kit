@@ -45,7 +45,7 @@ import { occurrence } from "../governance/occurrence.js";
 import { recordFirstTaint } from "../governance/session-taint.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
-import { inputTaintSignals, outputTaintSignals, type IngestionSignal, type MarkedLookup } from "./ingestion-taint.js";
+import { inputTaintSignals, outputTaintSignals, searchOutputContext, type IngestionSignal, type MarkedLookup } from "./ingestion-taint.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
 import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "./store.js";
@@ -200,7 +200,7 @@ export function createTurnRecorder(
   // roadblock trace. Record only after a result, when content was ingested.
   let safetyHooked = false;
   const collectionEpoch = crypto.randomUUID();
-  const ingestions = new Map<string, { signals: IngestionSignal[]; tool: string; operationId: string }>();
+  const ingestions = new Map<string, { signals: IngestionSignal[]; tool: string; operationId: string; searchContext: ReturnType<typeof searchOutputContext> }>();
   const usageSamples: UsageSample[] = [];
   let outcomeDetail: string | null = null;
   let cancelledAt: number | null = null;
@@ -362,7 +362,11 @@ export function createTurnRecorder(
               break;
             }
             if (!safetyHooked && turn.origin !== "autonomous") {
-              try { ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID() }); }
+              try {
+                const searchContext=searchOutputContext(msg.toolName,msg.input);
+                if(msg.toolName==="Grep"&&(!msg.input||typeof msg.input!=="object"||!("output_mode" in msg.input)))searchContext.outputMode="legacy";
+                ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID(), searchContext });
+              }
               catch { deps.abort?.(new Error("Safety input detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
             }
             const traced = traceCall(msg.toolUseId, msg.toolName);
@@ -389,7 +393,9 @@ export function createTurnRecorder(
             ingestions.delete(msg.toolUseId);
             let signals:IngestionSignal[]=[];
             if(!safetyHooked&&ingestion){
-              try { signals=[...ingestion.signals,...outputTaintSignals(ingestion.tool,msg.output,deps.brainPath,marked)]; }
+              // Display bytes cannot verify a backend's original result parts.
+              // Only structured collection can establish an empty Pi search.
+              try { signals=[...ingestion.signals,...outputTaintSignals(ingestion.tool,msg.output,deps.brainPath,marked,{...ingestion.searchContext,displayOnly:true,outputComplete:msg.output==="No matches."?false:undefined})]; }
               catch { deps.abort?.(new Error("Safety result detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
             }
             if (!safetyHooked && ingestion && signals.length && !traced?.denied && firstTaint && deps.governance) {

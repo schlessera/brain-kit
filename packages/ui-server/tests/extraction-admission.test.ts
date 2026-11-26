@@ -266,3 +266,13 @@ test("no classifier state, verdict or evidence reaches the conversation: only a 
     expect(f.activity, "CLASSIFIER_REPORTS_NO_ACTIVITY").toEqual([]);
   } finally { proxy.stop(); }
 });
+
+for(const tool of ["bash","read_file"])test(`failed ${tool} preserves search completeness and extraction relaxation`,async()=>{
+ const island=Bun.serve({hostname:"127.0.0.2",port:0,fetch:()=>new Response("Aeaea")}),store=db(),f=fixture(),proxy=await turn(store,f.bridge);
+ try{
+  await safety(proxy).begin("failed",tool,{});
+  await safety(proxy).result("failed",tool,"Tool failed",true,undefined,{complete:false});
+  await safety(proxy).begin("fetch-clean","WebFetch",{url:`${island.url.href}tides?date=2026-07-12`,prompt:"When is high tide?"});
+  expect((await admitted(f,get(proxy.socketPath,`${island.url.href}tides?date=2026-07-12`),"NON_SEARCH_ERROR_PRESERVES_RELAXATION")).status).toBe(200);
+ }finally{f.answer({behavior:"deny",message:"Fixture cleanup"});proxy.stop();island.stop(true);store.close();}
+});

@@ -4,6 +4,7 @@ import type { PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts
 import { useBrainApi, useBrainUiRoot } from "../../root-context.js";
 import { useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { rememberFileEntry } from "../../lib/file-entry-focus.js";
+import { TURN_END_WORDS } from "../../voice/conversation-permissions.js";
 
 /** A policy approval retains the host's receipt in the same transcript slot. */
 export function PolicyChangeCard({ toolCall, onApproval }: {
@@ -55,6 +56,22 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
     if (explicit.current && (busy || review.state !== "pending")) { explicit.current = false; receipt.current?.focus({ preventScroll: true }); }
   }, [busy, review.state]);
   const voiceLocked = toolCall.voicePermission && toolCall.voicePermission.phase !== "pending";
+  // The card's own receipt outranks a permission receipt that says less than
+  // it (#4629); every other receipt still says what happened: a voice refusal,
+  // a posture denial, the host's expiry reason, a grant that overtook a
+  // spoken stop. The host's settled review outranks an on-screen decision;
+  // until it arrives, the decision is newer than an answer still in flight.
+  // The client's turn-end guess ("no answer before the turn ended") is wrong
+  // once this card answered, or once the host's review proves an answer:
+  // only "declined" can also mean nobody answered.
+  const permission = toolCall.voicePermission;
+  const settled = ["updated", "declined", "stale", "invalid", "refused"].includes(review.state);
+  const screenDecision = !!permission && (permission.phase === "granted" && !permission.heardAt
+    || permission.phase === "denied" && !permission.byVoice && !permission.postureDenied);
+  const turnEndGuess = !!permission && permission.phase === "expired" && TURN_END_WORDS.includes(permission.word);
+  const superseded = screenDecision && settled
+    || turnEndGuess && (sent.current ? busy || review.state !== "pending" : settled && review.state !== "declined");
+  const voiceReceipt = voiceLocked && !superseded;
   function decide(approved: boolean) {
     if (voiceLocked || !verified || !current() || busy || sent.current || review.state !== "pending" || !onApproval) return;
     sent.current = true;
@@ -88,7 +105,7 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
       </ApprovalCard>
       <span className="sr-only" role="status">Policy change proposed. Review before approving.</span>
     </div> : <div ref={receipt} tabIndex={-1} data-policy-receipt className="rounded-md border border-border-subtle p-3 outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
-      <p role="status" className="text-sm">{voiceLocked ? toolCall.voicePermission?.word : busy ? review.message : readError || review.message}</p>
+      <p role="status" className="text-sm">{voiceReceipt ? toolCall.voicePermission?.word : busy ? review.message : readError || review.message}</p>
       <p className="font-mono text-xs">{review.state === "updated" ? `${review.baseHash ?? "defaults"} → ${review.proposedHash}` : `Based on ${review.baseHash ?? "no policy file"}`}</p>
       {review.state === "updated" && <Button label="View policy" tone="quiet" size="md" reach onClick={() => { const opener = document.activeElement; if (opener instanceof HTMLElement) openFile(opener, opener.matches(":focus-visible")); }} />}
       {!busy && (review.state === "unknown" || readError) && <Button label="Check again" tone="quiet" size="md" reach onClick={() => { explicit.current = true; void check(); }} />}

@@ -18,7 +18,7 @@ import { pendingPiAdmission, revalidatePiAdmission } from "./tool-admission.js";
 import { workspaceWriteRefusal, safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
 import { syncPiAuth } from "./session-storage.js";
 import type { TurnContext } from "./turn-context.js";
-import type { PiWorkerMessage } from "./worker-protocol.js";
+import { piOutputStatus, type PiWorkerMessage } from "./worker-protocol.js";
 import type { PiWorkerReceipts } from "./worker-receipts.js";
 import type { CallExecution } from "./worker-session.js";
 
@@ -290,15 +290,19 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
     throw new Error("Unqualified Pi input transformations");
   },
   safetyResult: async(msg,bridge,context)=>{
-    if(Object.keys(msg.input).some(key=>!["output","segments","failed"].includes(key))||msg.input.failed!==undefined&&typeof msg.input.failed!=="boolean"||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
+    if(Object.keys(msg.input).some(key=>!["output","segments","outputStatus","failed"].includes(key))||msg.input.failed!==undefined&&typeof msg.input.failed!=="boolean"||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
     const execution=context.executed(msg);
     const bounded=execution.name===msg.toolName&&context.canFinalizeSafety?.(msg.toolName,msg.toolCallId)===true;
+    const parsed=piOutputStatus.safeParse(msg.input.outputStatus);
+    let status=parsed.success?parsed.data:msg.input.outputStatus===undefined?undefined:{complete:false};
+    if(msg.toolName==="grep"&&(!status||status.exitCode===undefined||status.stderr===undefined||status.truncated===undefined))status={complete:false};
     const workspaceNote = msg.input.failed === true && context.sandbox.brain && context.sandbox.areas
       ? workspaceWriteRefusal(context.sandbox as WorkerSandbox, msg.toolName, execution.input, undefined, msg.input.output) : undefined;
     const output = workspaceNote ? `${msg.input.output}\n\n${workspaceNote}` : msg.input.output;
     const segments = msg.input.segments as string[] | undefined;
-    await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,output,bounded,workspaceNote && segments ? [...segments,workspaceNote] : segments);
+    await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,output,bounded,workspaceNote && segments ? [...segments,workspaceNote] : segments,status);
     context.live();return {ok:true,...(workspaceNote ? {workspaceNote} : {})};
+
   },
 };
 
