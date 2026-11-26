@@ -11,7 +11,7 @@ import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/gover
 import type { BackendActivityEvent, BackendBridge, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { MUTATING_TOOL_MATCHER } from "../../ui-backend-claude/src/tool-policy";
-import { createPermissionGate } from "../../ui-backend-pi/src/permission-gate";
+import { createPermissionGate, decidePiToolPermission } from "../../ui-backend-pi/src/permission-gate";
 import { createTurnContext } from "../../ui-backend-pi/src/turn-context";
 import { createBrainAccess } from "../../ui-backend-pi/src/brain-access";
 import { createBrainToolKit } from "../../ui-backend-pi/src/tool-kit";
@@ -1079,8 +1079,8 @@ test('causal revision includes independent pending identities and trust on a per
   releaseSafetyWrite(f.db,'pending_one');reserveSafetyWrite(f.db,'voyage','pending_three',100);
   const replaced=view.read();expect(f.state().pendingCount).toBe(2);
   expect(replaced.evidenceRevision,'REPLACEMENT_PENDING_ID_CANNOT_REUSE_THE_GENERATION').not.toBe(next.evidenceRevision);
-  const queue=safetyQueue(f.db),pending={turnId:'voyage',sessionId:'ithaca',source:'web_fetch' as const,bytes:1};
-  queue.pending.add(pending);const local=view.read();queue.pending.delete(pending);const replacement={...pending};queue.pending.add(replacement);
+  const queue=safetyQueue(f.db),pending={id:'local-pending',occurrenceId:null,turnId:'voyage',sessionId:'ithaca',source:'web_fetch' as const,bytes:1};
+  queue.pending.add(pending);const local=view.read();queue.pending.delete(pending);const replacement={...pending,id:'local-replacement'};queue.pending.add(replacement);
   try{expect(view.read().evidenceRevision,'LOCAL_PENDING_REPLACEMENT_ADVANCES_THE_GENERATION').not.toBe(local.evidenceRevision);}finally{queue.pending.delete(replacement);}
   const trustBefore=view.read();f.remove();expect(view.read().evidenceRevision,'TRUST_ADVANCES_THE_CAUSAL_GENERATION').not.toBe(trustBefore.evidenceRevision);
  }finally{for(const id of ['pending_one','pending_two','pending_three'])if(f.db.query('SELECT 1 FROM safety_pending WHERE id=?').get(id))releaseSafetyWrite(f.db,id);await f.close();}
