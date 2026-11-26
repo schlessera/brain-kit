@@ -1,7 +1,7 @@
 /** Concrete turn-bound pre-delivery collector. All decisions remain restrictive. */
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
-import { ingestionSignalIdentity, inputTaintSignals, outputTaintSignals, searchOutputComplete, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
+import { brainFileLookup, ingestionSignalIdentity, inputTaintSignals, outputTaintSignals, searchOutputComplete, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
 import { checkpointGrepMatches, grepCheckpointDirectory, grepNotePath, type GrepCheckpoint } from "../activity/checkpoint-grep.js";
 
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
@@ -191,7 +191,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
       &&checkpointGrepMatches(options.grepCheckpoint,op.grepNote,output);
     // The checkpoint proves these are lines of note content, including any
     // path-like text in a numbered context line.
-    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked,{...op.searchContext,outputComplete,unverifiedNote:Boolean(op.grepNote||op.unqualifiedGrepContent)});
+    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked,{...op.searchContext,outputComplete,unverifiedNote:Boolean(op.grepNote||op.unqualifiedGrepContent),existingFile:brainFileLookup(options.brainPath)});
     for(const signal of signals){
 
       const item=observed(toolUseId,signal.detector,op.id);

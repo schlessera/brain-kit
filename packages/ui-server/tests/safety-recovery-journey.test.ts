@@ -415,6 +415,24 @@ test("a partial fetch write stays unresolved when its refusal cannot prove non-d
   }
 });
 
+test("a content search row with a clock time resolves against the one existing file it names (#4347)", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    mkdirSync(join(f.root, "notes"), { recursive: true });
+    writeFileSync(join(f.root, "notes/loom.md"), "Penelope sails at 10:30:00.\n");
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude", brainPath: f.root,
+      sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+    const input = { pattern: "sails", output_mode: "content" };
+    for (const [id, file] of [["loom", "notes/loom.md"], ["raft", "notes/raft.md"]] as const) {
+      collector.admitting?.(id, "Grep");
+      await collector.begin(id, "Grep", input);
+      await collector.allowed?.(id);
+      await collector.result(id, "Grep", JSON.stringify({ mode: "content", numFiles: 0, filenames: [], content: `${file}:1:Penelope sails at 10:30:00.`, numLines: 1, totalLines: 1 }), true);
+      expect(f.writes.safety(null, "ithaca").unresolvedCount, `CLOCK_ROW_${id.toUpperCase()}`).toBe(id === "loom" ? 0 : 1);
+    }
+  } finally { await f.close(); }
+});
+
 test("ambiguous refusals and contradictory results stay unresolved", async () => {
   const f = await safetyHistoryFixture();
   try {

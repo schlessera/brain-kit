@@ -2,6 +2,7 @@
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { z } from "zod";
 import type {InputSafetyOutputStatus} from "@schlessera/brain-ui-sdk/server";
+import { statSync } from "node:fs";
 import { posix } from "node:path";
 import { WORKER_AREA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
@@ -185,7 +186,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
 }
 
 /** Admitted format only. Invalid or incomplete output always retains unknown coverage. */
-interface SearchOutputContext { unverifiedNote?:boolean; displayOnly?:boolean; backendId?: string; outputMode?: string; lineNumbers?: boolean; contextRows?:boolean; offset?: number; limit?: number; outputComplete?: boolean }
+interface SearchOutputContext { existingFile?:ExistingFileLookup; unverifiedNote?:boolean; displayOnly?:boolean; backendId?: string; outputMode?: string; lineNumbers?: boolean; contextRows?:boolean; offset?: number; limit?: number; outputComplete?: boolean }
 // Installed SDK: GlobInput/GrepInput and GlobOutput/GrepOutput in
 // @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:905-983,3506-3545. Pi's shipped grep and text
 // envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:44-82)
@@ -196,6 +197,32 @@ const globOutput = z.object({ durationMs: z.number().finite().nonnegative(), num
 const grepOutput = z.object({ mode: z.enum(['content','files_with_matches','count']).optional(), numFiles: natural,
   filenames: z.array(z.string()), content: z.string().optional(), numLines: natural.optional(), numMatches: natural.optional(),
   totalFiles: natural.optional(), totalLines: natural.optional(), appliedLimit: natural.optional(), appliedOffset: natural.optional() }).strict();
+
+/** Host-owned evidence whether a search candidate names an existing file:
+ * `undefined` whenever the host cannot tell. */
+export type ExistingFileLookup = (path: string) => boolean | undefined;
+/** Resolves candidates as the brain-relative paths the worker reports. A
+ * path outside the brain (a worker view the host cannot name) is unknown. */
+export function brainFileLookup(brainPath: string | undefined): ExistingFileLookup {
+  return path => {
+    if (!brainPath || !path || path.includes("\0") || Buffer.byteLength(path) > 1024) return undefined;
+    const relative = brainRelative(posix.normalize(path), brainPath);
+    if (relative === null) return undefined;
+    try { return statSync(posix.join(brainPath, relative)).isFile(); }
+    catch (error) { return (error as { code?: string }).code === "ENOENT" || (error as { code?: string }).code === "ENOTDIR" ? false : undefined; }
+  };
+}
+function soleExisting(candidates: readonly string[], existing: ExistingFileLookup | undefined): boolean {
+  if (!existing) return false;
+  let found = 0;
+  for (const path of candidates) {
+    let exists: boolean | undefined;
+    try { exists = existing(path); } catch { return false; }
+    if (exists === undefined) return false;
+    if (exists) found++;
+  }
+  return found === 1;
+}
 
 /** Process evidence is mandatory for Pi search; omission never proves success. */
 export function searchOutputComplete(output:string,status:InputSafetyOutputStatus|undefined,requireProcess=false):boolean|undefined {
@@ -261,13 +288,16 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     for(const line of text.split('\n')){
       if(line==='--'&&context?.contextRows)continue;
       if(!line){unknown=true;continue;}
-      let count=0;
+      const candidates:string[]=[];
       // No line numbers: every colon could separate the filename and content.
       // With numbers: lookahead preserves overlapping `:2:7:` candidates.
       for(const split of line.matchAll(numbers?(context?.contextRows?/(?=([:-])[1-9][0-9]*\1)/g:/(?=(:)[1-9][0-9]*\1)/g):context?.contextRows?/(?=[:\-])/g:/(?=:)/g)){
-        if(count++>=256){unknown=true;break;}const path=line.slice(0,split.index);contentPaths.add(path);add(path);
+        if(candidates.length>=256){unknown=true;break;}const path=line.slice(0,split.index);candidates.push(path);contentPaths.add(path);add(path);
       }
-      if(count!==1)unknown=true;
+      // Every candidate keeps its marks and areas. Several candidates are
+      // one source only when the host proves exactly one of them is an
+      // existing file and every other one is not (#4347).
+      if(candidates.length!==1&&!(candidates.length>1&&soleExisting(candidates,context?.existingFile)))unknown=true;
     }
   };
   // Validation decides completeness, never whether an independently typed

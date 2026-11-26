@@ -1,6 +1,9 @@
-import {expect,test} from 'bun:test';
+import {afterAll,expect,test} from 'bun:test';
+import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {safetyResultInput} from '../../ui-backend-pi/src/worker-protocol';
-import {outputTaintSignals,searchOutputContext} from '../src/activity/ingestion-taint';
+import {brainFileLookup,outputTaintSignals,searchOutputContext} from '../src/activity/ingestion-taint';
 const glob=(filenames:string[],extra={})=>JSON.stringify({durationMs:1,numFiles:filenames.length,filenames,truncated:false,...extra});
 const grep=(filenames:string[],extra={})=>JSON.stringify({numFiles:filenames.length,filenames,...extra});
 for(const [name,tool,input,output,expected] of [
@@ -209,4 +212,41 @@ for(const [name,input,value] of [
  ['context separator without a source',{output_mode:'content',context:1},{mode:'content',numFiles:0,filenames:[],content:'--',numLines:1,totalLines:1}],
 ] as const)test(`incomplete Grep construction stays unknown: ${name}`,()=>{
  expect(outputTaintSignals('Grep',JSON.stringify(value),undefined,()=>false,searchOutputContext('Grep',input)).map(s=>s.source)).toEqual(['legacy_unknown']);
+});
+
+/** Colon-number-colon candidates against the files the host can see (#4347).
+ * Real installed Claude Grep content rows; the brain holds Odysseus's notes. */
+const odysseusBrain=(()=>{
+ const root=mkdtempSync(join(tmpdir(),'ithaca-brain-'));
+ for(const path of ['notes/loom.md','notes/log:12:00.md','notes/voyage','notes/voyage:2'])mkdirSync(join(root,path,'..'),{recursive:true}),writeFileSync(join(root,path),'Odysseus sails at dawn.\n');
+ mkdirSync(join(root,'notes/harbour:4'),{recursive:true});
+ return root;
+})();
+afterAll(()=>rmSync(odysseusBrain,{recursive:true,force:true}));
+for(const [name,content,marks,lookup,expected] of [
+ ['clock time beside its one existing source','notes/loom.md:3:sails at 10:30:00',[],'brain',[]],
+ ['clock time keeps the marked source','notes/loom.md:3:sails at 10:30:00',['notes/loom.md'],'brain',['user_marked']],
+ ['filename with colon-number-colon','notes/log:12:00.md:4:sails',['notes/log:12:00.md'],'brain',['user_marked']],
+ ['a directory candidate is no source','notes/harbour:4:7:sails',[],'brain',['legacy_unknown']],
+ ['several existing candidates','notes/voyage:2:7:sirens',[],'brain',['legacy_unknown']],
+ ['several existing candidates keep every mark','notes/voyage:2:7:sirens',['notes/voyage','notes/voyage:2'],'brain',['user_marked','user_marked','legacy_unknown']],
+ ['no existing candidate','notes/raft.md:3:sails at 10:30:00',[],'brain',['legacy_unknown']],
+ ['no filesystem evidence','notes/loom.md:3:sails at 10:30:00',[],'none',['legacy_unknown']],
+ ['unknown evidence for one candidate','notes/loom.md:3:sails at 10:30:00',[],'partial',['legacy_unknown']],
+ ['a failing lookup','notes/loom.md:3:sails at 10:30:00',[],'throws',['legacy_unknown']],
+ ['each identifiable marked candidate','notes/loom.md:3:sails at 10:30:00',['notes/loom.md','notes/loom.md:3:sails at 10'],'brain',['user_marked','user_marked']],
+] as const)test(`Grep colon candidates against existing files: ${name}`,()=>{
+ const brain=brainFileLookup(odysseusBrain);
+ const existingFile=lookup==='brain'?brain:lookup==='partial'?(path:string)=>path==='notes/loom.md'?true:undefined
+  :lookup==='throws'?()=>{throw new Error('The loom is unravelled');}:undefined;
+ const output=grep([],{content,numLines:1,totalLines:1});
+ const signals=outputTaintSignals('Grep',output,odysseusBrain,path=>(marks as readonly string[]).includes(path),{...searchOutputContext('Grep',{output_mode:'content'}),existingFile});
+ expect(signals.map(s=>s.source),'COLON_CANDIDATES_RESOLVE_ONLY_AGAINST_ONE_EXISTING_FILE').toEqual([...expected]);
+});
+
+test('brain file evidence is unknown outside the brain and false only for proven absence',()=>{
+ const exists=brainFileLookup(odysseusBrain);
+ expect(['notes/loom.md',`${odysseusBrain}/notes/loom.md`,'notes/raft.md','notes/loom.md/inner','notes/harbour:4','/srv/elsewhere/loom.md','../loom.md','']
+  .map(exists),'HOST_FILE_EVIDENCE_NEVER_GUESSES').toEqual([true,true,false,false,false,undefined,undefined,undefined]);
+ expect(brainFileLookup(undefined)('notes/loom.md')).toBeUndefined();
 });
