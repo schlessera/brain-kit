@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { createKeyedLock, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { createTrustSettings } from "../src/brain/trust-settings.js";
+import { createTrustSettings, TRUST_PROJECTION_LOCK_KEY } from "../src/brain/trust-settings.js";
 import { createTrustSettingsRoutes } from "../src/routes/trust-settings.js";
 import { createUiDb } from "../src/db/client.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
@@ -522,45 +522,69 @@ test('review7: a second reader recovers after the writer commits the same file g
  expect(second.live.read().rules,'SECOND_READER_RECOVERS_WITHOUT_EXPLICIT_REFRESH').toEqual([]);expect(second.live.revision()).toBe('2');
 });
 
-test("unchanged durable trust refresh does not queue the held brain lock", async () => {
+/** Counts withLock calls per key; a live refresh that queues resolves `queued[key]`. */
+function countLocks(lock: ReturnType<typeof createKeyedLock>) {
+  const original = lock.withLock.bind(lock), calls: Record<string, number> = {};
+  const queued: Record<string, Promise<void>> = {}, resolvers: Record<string, () => void> = {};
+  for (const key of [BRAIN_LOCK_KEY, TRUST_PROJECTION_LOCK_KEY]) queued[key] = new Promise<void>(resolve => { resolvers[key] = resolve; });
+  lock.withLock = (key, fn, options) => { calls[key] = (calls[key] ?? 0) + 1; resolvers[key]?.(); return original(key, fn, options); };
+  return { calls: (key: string) => calls[key] ?? 0, queued: (key: string) => queued[key]! };
+}
+
+test("unchanged durable trust refresh queues neither the held brain lock nor the trust projection lock", async () => {
   const f = await fixture({ originEnforcement: true });
   await f.commit(await f.prepare());
   const committed = f.settings.live.read();
   const release = await f.lock.acquire(BRAIN_LOCK_KEY);
-  const original = f.lock.withLock.bind(f.lock);
-  let calls = 0;
-  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  const locks = countLocks(f.lock);
   let pending: ReturnType<typeof f.settings.live.refresh> | undefined;
   try {
     pending = f.settings.live.refresh();
-    expect(calls, "UNCHANGED_REFRESH_NEVER_QUEUES_BRAIN_LOCK").toBe(0);
+    expect(locks.calls(BRAIN_LOCK_KEY), "UNCHANGED_REFRESH_NEVER_QUEUES_BRAIN_LOCK").toBe(0);
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY), "UNCHANGED_REFRESH_NEVER_QUEUES_TRUST_PROJECTION_LOCK").toBe(0);
     expect(await pending).toEqual(committed);
     expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
   } finally { release(); await pending; }
 });
 
-test("diverged trust refresh queues the held brain lock and publishes a new revision after release", async () => {
+test("changed out-of-band trust refresh completes while the brain lock stays held", async () => {
   const f = await fixture({ originEnforcement: true });
   await f.commit(await f.prepare());
   const before = f.settings.live.read();
   writeFileSync(f.path, initial);
   const release = await f.lock.acquire(BRAIN_LOCK_KEY);
-  const original = f.lock.withLock.bind(f.lock);
-  let calls = 0, completed = false;
-  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  const locks = countLocks(f.lock);
+  try {
+    const outcome = await Promise.race([f.settings.live.refresh(), locks.queued(BRAIN_LOCK_KEY).then(() => "queued" as const)]);
+    expect(outcome, "CHANGED_POLICY_REFRESH_NEVER_QUEUES_BRAIN_LOCK").not.toBe("queued");
+    expect(outcome).toMatchObject({ rules: [], policyHash: hash(initial), error: null, revision: String(BigInt(before.revision) + 1n) });
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY)).toBe(1);
+    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+    expect(f.settings.live.read().ruleInstances[rule.id], "REMOVED_RULE_KEEPS_NO_INSTANCE").toBeUndefined();
+  } finally { release(); }
+});
+
+test("diverged trust refresh queues the held trust projection lock and publishes a new revision after release", async () => {
+  const f = await fixture({ originEnforcement: true });
+  await f.commit(await f.prepare());
+  const before = f.settings.live.read();
+  writeFileSync(f.path, initial);
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  const locks = countLocks(f.lock);
+  let completed = false;
   const pending = f.settings.live.refresh().then(value => { completed = true; return value; });
   try {
-    expect(calls, "CHANGED_POLICY_STILL_QUEUES_BRAIN_LOCK").toBe(1);
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY), "CHANGED_POLICY_QUEUES_TRUST_PROJECTION_LOCK").toBe(1);
     await Promise.resolve();
     expect(completed).toBe(false);
-    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+    expect(f.lock.heldKeys).toContain(TRUST_PROJECTION_LOCK_KEY);
   } finally { release(); }
   const after = await pending;
   expect(after.rules).toEqual([]);
   expect(BigInt(after.revision)).toBe(BigInt(before.revision) + 1n);
 });
 
-test("errored durable trust row queues the held brain lock even when its policy hash matches disk", async () => {
+test("errored durable trust row queues the held trust projection lock even when its policy hash matches disk", async () => {
   const f = await fixture({ originEnforcement: true });
   await f.commit(await f.prepare());
   const valid = readFileSync(f.path, "utf8"), healthy = f.settings.live.read();
@@ -569,75 +593,100 @@ test("errored durable trust row queues the held brain lock even when its policy 
   writeFileSync(f.path, valid);
   const errored = f.db.query("SELECT policy_hash, error FROM trust_settings_projection").get();
   expect(errored).toEqual({ policy_hash: hash(valid), error: "policy_unavailable" });
-  const release = await f.lock.acquire(BRAIN_LOCK_KEY);
-  const original = f.lock.withLock.bind(f.lock);
-  let calls = 0, completed = false;
-  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  const locks = countLocks(f.lock);
+  let completed = false;
   const pending = f.settings.live.refresh().then(value => { completed = true; return value; });
   try {
-    expect(calls, "ERRORED_ROW_WITH_MATCHING_HASH_QUEUES_BRAIN_LOCK").toBe(1);
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY), "ERRORED_ROW_WITH_MATCHING_HASH_QUEUES_TRUST_PROJECTION_LOCK").toBe(1);
     await Promise.resolve();
     expect(completed).toBe(false);
-    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+    expect(f.lock.heldKeys).toContain(TRUST_PROJECTION_LOCK_KEY);
   } finally { release(); }
   expect(await pending).toEqual(healthy);
   expect(f.db.query("SELECT error FROM trust_settings_projection").get()).toEqual({ error: null });
 });
 
-test("missing durable trust row without a policy file queues the held brain lock", async () => {
+test("missing durable trust row without a policy file queues the held trust projection lock", async () => {
   const f = await fixture({ originEnforcement: true });
   rmSync(f.path);
   expect(f.db.query("SELECT count(*) n FROM trust_settings_projection").get()).toEqual({ n: 0 });
-  const release = await f.lock.acquire(BRAIN_LOCK_KEY);
-  const original = f.lock.withLock.bind(f.lock);
-  let calls = 0, completed = false;
-  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  const locks = countLocks(f.lock);
+  let completed = false;
   const pending = f.settings.live.refresh().then(value => { completed = true; return value; });
   try {
-    expect(calls, "MISSING_ROW_IS_NOT_DURABLE_EVIDENCE_AND_QUEUES_BRAIN_LOCK").toBe(1);
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY), "MISSING_ROW_IS_NOT_DURABLE_EVIDENCE_AND_QUEUES_TRUST_PROJECTION_LOCK").toBe(1);
     await Promise.resolve();
     expect(completed).toBe(false);
-    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+    expect(f.lock.heldKeys).toContain(TRUST_PROJECTION_LOCK_KEY);
   } finally { release(); }
   expect(await pending).toMatchObject({ revision: "0", rules: [], policyHash: null, error: null });
   expect(f.db.query("SELECT revision, policy_hash, error FROM trust_settings_projection").get()).toEqual({ revision: "0", policy_hash: null, error: null });
 });
 
-test("ADMISSION_NEVER_WAITS_ON_HELD_INDEX_LOCK", async () => {
+test("a Settings commit holds the trust projection lock from its base check through its own projection", async () => {
+  let paused!: () => void, resume!: () => void;
+  const reached = new Promise<void>(resolve => { paused = resolve; }), held = new Promise<void>(resolve => { resume = resolve; });
+  const f = await fixture({ originEnforcement: true, checkpoint: async stage => { if (stage === "renamed") { paused(); await held; } } });
+  const draft = await f.prepare(), committing = f.commit(draft);
+  let refreshing: Promise<unknown> | undefined;
+  try {
+    await reached;
+    expect(readFileSync(f.path, "utf8")).toBe(draft.review.proposed);
+    // Nothing else holds the key: the paused commit itself must.
+    expect(f.lock.heldKeys, "COMMIT_PUBLICATION_SERIALIZES_TRUST_PROJECTION").toContain(TRUST_PROJECTION_LOCK_KEY);
+    const locks = countLocks(f.lock);
+    let completed = false;
+    refreshing = f.settings.live.refresh().then(value => { completed = true; return value; });
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY)).toBe(1);
+    await Promise.resolve();
+    expect(completed).toBe(false);
+  } finally { resume(); await Promise.allSettled([committing, refreshing]); }
+  const saved = await committing, live = await refreshing as { revision: string };
+  expect(saved.receipt).toMatchObject({ stage: "committed", publishedTrustRevision: "1" });
+  expect(live.revision, "LIVE_REFRESH_OBSERVES_THE_COMMITTED_REVISION").toBe("1");
+  const proof = JSON.parse((f.db.query("SELECT proof FROM trust_settings_operations WHERE request_id=?").get(draft.receipt.requestId) as { proof: string }).proof);
+  expect(proof).toMatchObject({ expectedTrustRevision: "0", publishedTrustRevision: "1" });
+});
+
+for (const policy of ["unchanged", "changed"] as const) test(`ADMISSION_NEVER_WAITS_ON_HELD_INDEX_LOCK with ${policy} trust policy`, async () => {
   const f = await fixture({ originEnforcement: true });
   await f.commit(await f.prepare());
+  const before = f.settings.live.read();
+  if (policy === "changed") writeFileSync(f.path, initial);
   const { WsHost } = await import("../src/ws/host");
   const { runSession } = await import("../src/ws/run-session");
   const { createSessionCatalog } = await import("../src/ws/session-catalog");
   const { createStaticBackendRegistry } = await import("../src/agent/backend");
   const { makeFakeBackend } = await import("./helpers/fake-backend");
   const { testAuthorization } = await import("./helpers/principal");
-  let started = 0, queued!: () => void;
-  const blocked = new Promise<void>(resolve => { queued = resolve; });
-  const original = f.lock.withLock.bind(f.lock);
-  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) queued(); return original(key, fn, options); };
-  const policy = createGovernancePolicyReader(f.root).load();
-  const backend = makeFakeBackend({ id: "pi", async startTurn() { started++; } });
+  let started = 0, admitted: ReturnType<typeof f.settings.live.read> | undefined;
+  const locks = countLocks(f.lock);
+  const governance = createGovernancePolicyReader(f.root).load();
+  const backend = makeFakeBackend({ id: "pi", async startTurn() { started++; admitted = f.settings.live.read(); } });
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], "pi"), catalog: createSessionCatalog(() => f.db), originTrust: f.settings.live,
-    governedTurns: { async begin() { return { sandbox: { profile: "strict", areas: [], noteFacts: {} }, policy, async end() { return null; } }; }, refresh() {}, async close() {}, async bindSession() {}, async exposures() { return []; }, facts() { return { policyProfile: "strict", policy }; } } as never });
+    governedTurns: { async begin() { return { sandbox: { profile: "strict", areas: [], noteFacts: {} }, policy: governance, async end() { return null; } }; }, refresh() {}, async close() {}, async bindSession() {}, async exposures() { return []; }, facts() { return { policyProfile: "strict", policy: governance }; } } as never });
   const release = await f.lock.acquire(BRAIN_LOCK_KEY);
   const running = runSession(host, { authorization: testAuthorization(), text: "Plan Ithaca", attachments: [] });
   try {
-    const finished = await Promise.race([running.then(() => true), blocked.then(() => false)]);
+    const finished = await Promise.race([running.then(() => true), locks.queued(BRAIN_LOCK_KEY).then(() => false)]);
     expect(started, "ADMISSION_NEVER_WAITS_ON_HELD_INDEX_LOCK").toBe(1);
     expect(finished, "SESSION_FINISHES_BEFORE_INDEX_LOCK_RELEASE").toBe(true);
     expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+    expect(admitted, "ADMISSION_OBSERVES_THE_CURRENT_DURABLE_TRUST").toMatchObject(policy === "unchanged" ? before
+      : { rules: [], policyHash: hash(initial), error: null, revision: String(BigInt(before.revision) + 1n) });
   } finally { release(); await running; host.close(); }
 });
 
 for(const timeout of [false,true])test(`review10: turn trust refresh releases governed resources before the lock holder on ${timeout?'timeout':'cancel'}`,async()=>{
  const f=await fixture({originEnforcement:true});const {WsHost}=await import('../src/ws/host');const {runSession}=await import('../src/ws/run-session');const {createSessionCatalog}=await import('../src/ws/session-catalog');const {createStaticBackendRegistry}=await import('../src/agent/backend');const {makeFakeBackend}=await import('./helpers/fake-backend');const {testAuthorization}=await import('./helpers/principal');
  await f.commit(await f.prepare());writeFileSync(f.path,initial);
- let held=0,entered!:()=>void,started=0;const reached=new Promise<void>(r=>{entered=r;});const original=f.lock.withLock.bind(f.lock);f.lock.withLock=(key,fn,opts)=>{if(key===BRAIN_LOCK_KEY)entered();return original(key,fn,opts);};
+ let held=0,entered!:()=>void,started=0;const reached=new Promise<void>(r=>{entered=r;});const original=f.lock.withLock.bind(f.lock);f.lock.withLock=(key,fn,opts)=>{if(key===TRUST_PROJECTION_LOCK_KEY)entered();return original(key,fn,opts);};
  const policy=createGovernancePolicyReader(f.root).load();const backend=makeFakeBackend({id:'pi',async startTurn(){started++;}});const host=new WsHost({registry:createStaticBackendRegistry([backend],'pi'),catalog:createSessionCatalog(()=>f.db),turnTimeoutMs:5000,originTrust:f.settings.live,governedTurns:{async begin(){held++;return {sandbox:{profile:'strict',areas:[],noteFacts:{}},policy,async end(){held--;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:'strict',policy};}} as never});
- const release=await f.lock.acquire(BRAIN_LOCK_KEY);let running:Promise<void>|undefined;
+ const release=await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);let running:Promise<void>|undefined;
  try{running=runSession(host,{authorization:testAuthorization(),text:'Plan Ithaca',attachments:[]});await reached;if(!timeout)host.coordinator.cancelAll('Odysseus cancels');const done=await Promise.race([running.then(()=>true),Bun.sleep(timeout?6000:200).then(()=>false)]);
- expect(done,'CANCELLED_REFRESH_NEVER_WAITS_FOR_UNRELATED_HOLDER').toBe(true);expect(held).toBe(0);expect(host.coordinator.isTurnActive()).toBe(false);expect(started).toBe(0);expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+ expect(done,'CANCELLED_REFRESH_NEVER_WAITS_FOR_UNRELATED_HOLDER').toBe(true);expect(held).toBe(0);expect(host.coordinator.isTurnActive()).toBe(false);expect(started).toBe(0);expect(f.lock.heldKeys).toContain(TRUST_PROJECTION_LOCK_KEY);
  }finally{release();await running;host.close();}
 });
 

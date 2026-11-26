@@ -33,6 +33,11 @@ const TrustPrepareSchema = z.strictObject({ version: z.literal(1), expectedTrust
   ]) });
 const TrustCommitSchema = z.strictObject({ version: z.literal(1), requestId: ruleId, reviewId: ruleId, reviewedBytesHash: digest });
 type Prepare = z.output<typeof TrustPrepareSchema>;
+/** Serializes every durable trust projection write apart from `BRAIN_LOCK_KEY`,
+ * so a changed-policy refresh never waits behind a running index (#4404).
+ * Order: a holder of `BRAIN_LOCK_KEY` may take this key; a holder of this key
+ * never waits for `BRAIN_LOCK_KEY`. */
+export const TRUST_PROJECTION_LOCK_KEY = "trust-projection";
 type Commit = z.output<typeof TrustCommitSchema>;
 export class TrustSettingsError extends Error {
   constructor(readonly code: string, readonly status: 400 | 403 | 404 | 409 | 503 = 409) { super(code); }
@@ -168,9 +173,10 @@ export function createTrustSettings(options: {
       } catch (error) {
         if (!(error instanceof TrustSettingsError) || error.code !== "stale_revision") throw error;
       }
-      return options.lock.withLock(BRAIN_LOCK_KEY, () => { signal?.throwIfAborted(); return refresh(); }, { signal });
+      return refresh(signal);
     }, subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
-  const refresh = async (): Promise<Projection> => {
+  /** The durable projection write. Callers hold `TRUST_PROJECTION_LOCK_KEY`. */
+  const project = async (): Promise<Projection> => {
     const old = projection(), value = observePolicy();
     if (value.kind === "unavailable") {
       const instances = await call<Record<string,string>>("projection", brain, old.revision, JSON.stringify(old.rules), old.policyHash, "policy_unavailable");
@@ -186,6 +192,8 @@ export function createTrustSettings(options: {
     if (changed) for (const listener of listeners) listener();
     return freshProjection();
   };
+  const refresh = (signal?: AbortSignal): Promise<Projection> =>
+    options.lock.withLock(TRUST_PROJECTION_LOCK_KEY, () => { signal?.throwIfAborted(); return project(); }, signal ? { signal } : undefined);
   const row = (principal: string, request: string): Row => {
     authority(principal);
     const r = options.db.query("SELECT * FROM trust_settings_operations WHERE request_id=? AND brain_id=? AND principal_id=?").get(request, brain, principal) as Row | null;
@@ -258,11 +266,12 @@ export function createTrustSettings(options: {
     },
     /** Internal binding; ordinary Settings commits cannot publish a combined review. */
     safetyReview(principal: string, request: string) { return (JSON.parse(row(principal, request).payload) as Payload).safetyReview; },
-    /** The other protected publisher already owns the shared brain lock. */
-    refreshLocked: refresh,
+    /** The other protected publisher already owns the shared brain lock; this
+     * takes the trust projection lock inside it. */
+    refreshLocked: () => refresh(),
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
      * remain owned by their admitted turn; this never mutates them. */
-    async snapshot() { return options.lock.withLock(BRAIN_LOCK_KEY, refresh); },
+    async snapshot() { return options.lock.withLock(BRAIN_LOCK_KEY, () => refresh()); },
     /** Historical host publication evidence, not a current identity or source-trust grant. */
     async repositoryApproval(ruleId: string) { return options.lock.withLock(BRAIN_LOCK_KEY, async () => {
       const p = await refresh();
@@ -337,7 +346,9 @@ export function createTrustSettings(options: {
     },
     async commit(principal: string, raw: unknown, signal?: AbortSignal, safety?: { binding: NonNullable<Payload["safetyReview"]>; check(): void }) {
       const input: Commit = TrustCommitSchema.parse(raw); row(principal, input.requestId);
-      await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+      // The trust projection lock spans the base check, publication and the
+      // post-publication projection: no other refresh can interleave a revision.
+      await options.lock.withLock(BRAIN_LOCK_KEY, () => options.lock.withLock(TRUST_PROJECTION_LOCK_KEY, async () => {
         const r = row(principal, input.requestId), payload = JSON.parse(r.payload) as Payload;
         if (JSON.stringify(payload.safetyReview) !== JSON.stringify(safety?.binding)) throw new TrustSettingsError("request_conflict");
         if (payload.reviewId !== input.reviewId || payload.proposedHash !== input.reviewedBytesHash) throw new TrustSettingsError("request_conflict");
@@ -350,7 +361,7 @@ export function createTrustSettings(options: {
           boundary?: { brain: string; ruleId: string; selector: string; identity: string }) =>
           call("stage", input.requestId, stage, JSON.stringify(receipt), proof, now(), boundary);
         try {
-          const p = await refresh(); row(principal, input.requestId);
+          const p = await project(); row(principal, input.requestId);
           if (p.error || p.revision !== payload.input.expectedTrustRevision) throw new TrustSettingsError("stale_revision");
           if (p.policyHash !== payload.input.expectedPolicyHash) throw new TrustSettingsError("stale_base");
           if (BigInt(p.revision) >= MAX_TRUST_REVISION) throw new TrustSettingsError("capacity", 503);
@@ -403,7 +414,7 @@ export function createTrustSettings(options: {
             ...(payload.githubIdentity ? { githubIdentity: payload.githubIdentity } : {}) }), payload.githubIdentity && payload.rule
               ? { brain, ruleId: payload.rule.id, selector: JSON.stringify(payload.rule.selector), identity: JSON.stringify(payload.githubIdentity) } : undefined); proved = true;
           await options.checkpoint?.("file_published");
-          const latest = await refresh(); row(principal, input.requestId);
+          const latest = await project(); row(principal, input.requestId);
           if (latest.policyHash === payload.proposedHash) receipt.publishedTrustRevision = latest.revision;
           const changedRule = payload.rule ?? p.rules.find(rule => rule.id === receipt.ruleId);
           const supported = options.originEnforcement === true && !latest.error && latest.policyHash === payload.proposedHash && (changedRule?.selector.kind === "web_origin" || changedRule?.selector.kind === "tunnel_authority");
@@ -419,7 +430,7 @@ export function createTrustSettings(options: {
             ? "repository_identity_unavailable" : published ? "recording_failed" : "publication_failed";
           await save(receipt.stage);
         } finally { publicationOpen = false; target?.close(); if (!published) for (const path of created.reverse()) { try { rmdirSync(path); } catch { /* Concurrent content remains. */ } } }
-      });
+      }));
       return read(principal, input.requestId);
     },
   };
