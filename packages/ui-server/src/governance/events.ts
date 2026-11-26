@@ -275,6 +275,8 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     callId: googleCallId.optional(), effect: z.enum(["read", "reversible", "irreversible"]).optional(),
     target: text.nullable().optional(), decision: googleDecision.optional(), admission: googleAdmission.optional(),
     decisionEventId: count.nullable().optional(),
+    standingFailures: z.array(z.strictObject({ store: z.enum(["remembered_approvals", "session_allowances"]),
+      site: z.enum(["read", "reconcile", "grant", "reserve"]), errorClass: z.string().max(128), message: z.string().max(500) })).max(4).optional(),
   })),
   /** A provider a worker command needed but could not reach without a key (#1666). */
   provider_unavailable: kind(1, z.strictObject({

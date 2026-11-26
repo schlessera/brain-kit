@@ -41,6 +41,12 @@ short machine string that may grow (`not_enabled`, `policy_invalid`,
 `scopes_broader`, `usage`, `unexpected_shape` and the like); `message` is fixed
 prose that never carries an address, a token, a password or gog's own text.
 
+Google `approvals` and `revoke` use `BRAIN_GOOGLE_LEDGER`, an explicit absolute
+path of the server's shared private ledger outside the brain. An unset value
+refuses with `unavailable/ledger_unset`; an invalid or unreadable ledger with
+`unavailable/ledger_unavailable`. These commands do not resolve a Google home.
+Their `brain_id` is the shared opaque digest of the canonical root.
+
 `data` per command:
 
 - `status` (always `ok: true`): `{ state: "available" | "unavailable", reason, boundary: "standalone" | "host", statement, home: { path, source, exists, ok, reason }, pin: { state: "verified" | "fake" | "refused" | "not_checked", version, commit, sha256, reason }, policy: { status, enabled, account, services, read, standalone_reversible }, account: { alias, connected }, scopes: { granted, needed, broader, missing, write }, warnings }`. `source` is `BRAIN_UI_GOOGLE_HOME`, `BRAIN_GOOGLE_HOME`, `XDG_DATA_HOME` or `HOME`. `statement` is, on the standalone boundary, the plain statement that a local agent with shell access is inside it, and `null` on a host. `granted` is the scopes gog recorded for the alias's grant, `null` when nothing is connected or gog's answer holds a value that is not a scope (`reason: "unexpected_shape"`); `broader` lists any beyond gog's identity scopes (`openid`, `email`, `userinfo.email`), `gmail.readonly` and, while the policy can admit any Gmail write, `gmail.modify`, and adds a warning; `needed` is `gmail.readonly` while the policy lists Gmail, and `missing` what of it the grant lacks. Status never contacts Google.
@@ -1545,3 +1551,22 @@ written. Existing fields and dispositions retain their meanings. Preview-only
 new model pass. Use the explicit `propagation --dry-run` to inspect prospective
 automation. The operation exits 0 after reporting outcomes, including unavailable
 and deferred cases; usage/configuration errors retain exit 1.
+
+### Google approval management (additive, #4212)
+
+`brain google approvals --json` lists remembered approvals for the current
+brain, across principals and connected account identities:
+`{ ok: true, operation: "approvals", data: { approvals: [...] } }`.
+Each row has `id`, `principal_id`, `brain_id`, `account_identity`, `operation`,
+`entity` and `approved_at` (epoch milliseconds). `id` is an opaque revocation
+identifier; `account_identity` is the host-resolved lowercased account address.
+
+`brain google revoke <approval-id> --json` returns
+`{ ok: true, operation: "revoke", data: { id, revoked: boolean } }`.
+An absent or other-brain id returns `revoked: false`. Both commands use the
+same selected Google home as connect/status, without invoking gog or opening
+a keyring. Owner-shell access is the standalone boundary. Neither command
+creates approvals or manages hosted session allowances. Listing/revocation
+works even when Google is disconnected. Success exits 0; storage or home
+failure exits 1 with the existing `{ ok: false, operation, error: { code,
+reason, message } }` envelope (`unavailable / ledger_unavailable` for storage).

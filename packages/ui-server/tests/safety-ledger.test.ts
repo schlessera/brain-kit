@@ -62,6 +62,13 @@ test("real upgrade classifies old sessions both with and without first-taint row
  const f=fixture();await f.writer.close();
  try{
  f.db.exec("PRAGMA foreign_keys=OFF");
+ // A database from before 081 also predates the Google state (099-101), whose
+ // views and triggers read the safety tables, so it goes and replays too.
+ for(const type of ["trigger","view","index","table"]){
+ const google=f.db.query("SELECT name FROM sqlite_master WHERE type=? AND name LIKE 'google_%'").all(type) as {name:string}[];
+ for(const {name} of google)f.db.exec(`DROP ${type.toUpperCase()} IF EXISTS ${name}`);
+ }
+ f.db.query("DELETE FROM _migrations WHERE filename IN ('099_google_session_state.sql','100_google_allowance_invalidation.sql','101_google_restriction_continuity.sql')").run();
  const triggers=f.db.query("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'safety_%'").all() as {name:string}[];
  for(const {name} of triggers)f.db.exec(`DROP TRIGGER ${name}`);
  const tables=f.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'safety_%'").all() as {name:string}[];

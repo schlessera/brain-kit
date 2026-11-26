@@ -803,8 +803,9 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "BRAIN_GOOGLE_LEDGER",
     description:
       "Absolute path of the shared Google ledger, private to the host user and outside every brain. " +
-      "Read once at boot and kept host-only; nothing in this release opens it (the Gmail writes of #4201 will). Never passed to a worker.",
-    default: "DB_PATH.google-ledger.sqlite",
+      "Read once at boot and kept host-only. Remembered Google approvals use this file; standalone approval management (`brain google approvals` / `revoke`) " +
+      "requires this same absolute path explicitly. The file is private (0600) in a host-owned directory that is not group- or other-writable. An in-memory database requires an explicit absolute BRAIN_GOOGLE_LEDGER, otherwise remembered approvals are unavailable. Never passed to a worker.",
+    default: "DB_PATH.google-ledger.sqlite; unset with an in-memory database",
     required: false,
   },
   // voice
@@ -1566,7 +1567,7 @@ export interface GoogleHostEnv {
   /** BRAIN_UI_GOG_PATH, trimmed. */
   gogPath: string | undefined;
   /** BRAIN_GOOGLE_LEDGER, trimmed, or beside the UI database. */
-  ledgerPath: string;
+  ledgerPath: string | undefined;
   /** BRAIN_UI_GOOGLE_KEYRING_PASSWORD, verbatim. */
   keyringPassword: () => string | undefined;
 }
@@ -1576,7 +1577,7 @@ export function googleHostEnv(dbPath: string, env: NodeJS.ProcessEnv = process.e
   return {
     home: env.BRAIN_UI_GOOGLE_HOME?.trim() || undefined,
     gogPath: env.BRAIN_UI_GOG_PATH?.trim() || undefined,
-    ledgerPath: env.BRAIN_GOOGLE_LEDGER?.trim() || `${dbPath}.google-ledger.sqlite`,
+    ledgerPath: env.BRAIN_GOOGLE_LEDGER?.trim() || (dbPath && dbPath !== ":memory:" ? resolve(`${dbPath}.google-ledger.sqlite`) : undefined),
     keyringPassword: () => password,
   };
 }

@@ -1,3 +1,4 @@
+import { redactCredentials } from "../activity/runtime-status.js";
 /** Concrete Google write sequencing. Production has no prepared operations until
  * #4213/#4214; the internal factories exercise the same admission path in tests. */
 import { createHash, randomUUID } from "node:crypto";
@@ -8,6 +9,9 @@ import { decideGoogleCall, type GoogleCallFacts, type GoogleDecision, type Googl
 
 import { GOOGLE_APPROVAL_CARD_BYTES, GOOGLE_MAIL_APPROVAL_SCHEMA, GOOGLE_WRITE_SUCCESS_SCHEMA, type GoogleMailApproval,
   type GoogleToolCall, type GoogleToolResult, type GoogleWriteSuccess } from "@schlessera/brain-ui-sdk/tool-contracts";
+import type { GoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
+import type { GogResult } from "@schlessera/brain-common/internal/google-gog";
+import type { createGoogleAllowances, GoogleAllowanceContext, GoogleAllowanceRow } from "./allowances.js";
 import type { GoogleToolsTurn, GoogleCallAudit } from "./host.js";
 import type { createGoogleStateWrites, GoogleDecisionEvent, GoogleInversePrepared, GoogleInverseResult } from "./state-writes.js";
 
@@ -37,7 +41,7 @@ export interface PreparedGoogleWrite {
   facts: Pick<GoogleDecisionFacts, "items" | "recipients" | "self_addresses" | "target_label_ids">;
   classificationFacts: GoogleCallFacts;
   card: GoogleMailApproval;
-  inverse?: Omit<GoogleInversePrepared, "sessionId" | "turnId" | "principalId" | "brainId" | "callId" | "inverseId" | "operation">;
+  inverse?: Omit<GoogleInversePrepared, "sessionId" | "turnId" | "principalId" | "brainId" | "callId" | "inverseId" | "operation" | "accountIdentity">;
   sendLock?: string;
   execute(finalAdmission: () => GoogleError | null): Promise<
     { ok: true; result: GoogleWriteSuccess["result"]; inverseResult?: GoogleInverseResult } | { ok: false; error: GoogleError }>;
@@ -46,6 +50,12 @@ export type GoogleWriteFactories = Partial<Record<Operation,
   (turn: GoogleToolsTurn, call: WriteCall) => Promise<PreparedGoogleWrite>>>;
 export interface GoogleWriteOptions {
   brainId: string;
+  hostEpoch: string;
+  ledger(): GoogleLedger;
+  allowances: ReturnType<typeof createGoogleAllowances>;
+  resolveAccount(alias: string): Promise<GogResult<string>>;
+  /** Full governance hash, not merely the Google block. */
+  currentPolicyHash(): string;
   state: State;
   ready(): boolean;
   currentPolicy(): GooglePolicy | null | undefined;
@@ -70,9 +80,7 @@ const stale = error("safety_changed", "Safety changed before dispatch. Nothing w
 /** One host epoch and one concrete account lock; never the transport semaphore. */
 export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: (id: string) => GoogleDecisionFacts["principal"],
   report: (message: string) => void, now: () => number) {
-  const hostEpoch = randomUUID(), lock = createKeyedLock();
-  // #4212 resolves account identity. Only the mutex/send locks use policy aliases;
-  // inverse factories must supply an actual identity, never infer one from alias.
+  const hostEpoch = options.hostEpoch, lock = createKeyedLock(), aliasLock = createKeyedLock();
   const counts = new WeakMap<GoogleWriteTurn, number>();
   let closed = false;
   const retries = new Set<ReturnType<typeof setTimeout>>();
@@ -110,15 +118,48 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
     try { before = ctx.safety(); } catch { return refuse(stale); }
     let held: (() => void) | undefined, sendLocked = false, dispatched = false;
     let inverseId: string | null = null, committedInverse: string | null = null;
-    const account = policy?.account ?? "";
+    const alias = policy?.account ?? "";
+    let account = "", resolved = false, releaseAlias: (() => void) | undefined;
+    let grant: "always" | "session" | undefined;
+    let standingChoiceNotKept = false;
+    let reserved: GoogleAllowanceRow[] | undefined;
+    const fullPolicyHash = before.policyHash ?? "missing";
+    const allowanceContext = (): GoogleAllowanceContext => ({ sessionId, principalId: turn.principalId, brainId: options.brainId,
+      accountIdentity: account || "unresolved", hostEpoch, policyHash: options.currentPolicyHash(), now: now(),
+      tainted: turn.tainted() || ctx.safety().restricted, authorized: principal(turn.principalId) === "owner" });
+    const approvalScope = () => ({ principal_id: turn.principalId, brain_id: options.brainId, account_identity: account });
+    const storageFailure = (store: "remembered_approvals" | "session_allowances", site: "read" | "reconcile" | "grant" | "reserve", cause: unknown) => {
+      const diagnostic = { store, site, errorClass: cause instanceof Error && /^[A-Za-z][A-Za-z0-9_]{0,127}$/.test(cause.name) ? cause.name : "Error",
+        message: site === "grant" ? "The standing choice was not kept; this call uses its exact approval." : "Google standing approval storage is unavailable." };
+      const failures = audit.standingFailures ??= [];
+      if (failures.length < 4 && !failures.some(item => item.store === store && item.site === site)) failures.push(diagnostic);
+      report(`Google standing storage unavailable: ${JSON.stringify(diagnostic)}; ${redactCredentials(cause instanceof Error ? cause.message : String(cause))}`);
+    };
+    const grants = (tainted: boolean) => {
+      if (!resolved) return { remembered_approvals: [], session_allowances: [] };
+      try {
+        if (tainted) {
+          const rows = options.allowances.read(allowanceContext());
+          // The reservation already charged this call; only the identical live grant can redeem it.
+          const allowances = reserved ? rows.filter(row => reserved!.some(r => r.operation === row.operation && r.entity === row.entity && r.granted_card_id === row.granted_card_id))
+            .map(row => ({ ...row, remaining_items: 100 })) : rows;
+          return { remembered_approvals: [], session_allowances: allowances };
+        }
+        return { remembered_approvals: options.ledger().approvals(approvalScope()), session_allowances: [] };
+      } catch (cause) {
+        // One store failing removes only its standing admission. An exact card can still run.
+        storageFailure(tainted ? "session_allowances" : "remembered_approvals", "read", cause);
+        return { remembered_approvals: [], session_allowances: [] };
+      }
+    };
     const live = (): GoogleError | null => {
       try {
         if (ctx.signal.aborted || !ctx.isCurrent()) return cancelled;
         if (principal(turn.principalId) !== "owner") return error("not_owner", "The Google tools serve the brain's owner only.");
-        if (hash(options.currentPolicy()) !== policyHash) return changed;
+        if (hash(options.currentPolicy()) !== policyHash || options.currentPolicyHash() !== fullPolicyHash) return changed;
         if (safetyAdmissionRefusal({ read: ctx.safety, subscribe: () => () => {} }, before)) return stale;
         // An exact card is approved against the safety it was decided and shown under; any later change needs a fresh card.
-        if (pinned && !sameSafetyAdmission(pinned, ctx.safety())) return stale;
+        if (pinned && (!sameSafetyAdmission(pinned, ctx.safety()) || (turn.tainted() || ctx.safety().restricted) !== card?.tainted)) return stale;
         if (!options.ready()) return stateUnavailable;
         return null;
       } catch { return stale; }
@@ -126,7 +167,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
     const facts = (routing: GoogleDecisionFacts["routing"]): GoogleDecisionFacts => ({ ...prepared?.facts,
       principal: principal(turn.principalId), posture: turn.posture,
       tainted: turn.tainted() || ctx.safety().restricted, card_available: turn.posture === "interactive" && !!ctx.requestPermission,
-      routing, remembered_approvals: [], session_allowances: [], turn_reversible_items: counts.get(ctx) ?? 0 });
+      routing, ...grants(turn.tainted() || ctx.safety().restricted), turn_reversible_items: counts.get(ctx) ?? 0 });
     const decide = (routing: GoogleDecisionFacts["routing"]) => decideGoogleCall(policy,
       { operation, input: prepared?.input ?? call.input, facts: prepared?.classificationFacts }, facts(routing));
     const record = async (verdict: "allowed" | "approved" | "declined" | "refused"): Promise<boolean> => {
@@ -151,7 +192,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       try {
         if (inverseId && !prepared?.inverse) throw new Error("A reversible Google write requires its inverse");
         const inverse = inverseId && prepared?.inverse ? { ...prepared.inverse, inverseId, callId, sessionId,
-          turnId: turn.turnId, principalId: turn.principalId, brainId: options.brainId, operation } : null;
+          turnId: turn.turnId, principalId: turn.principalId, brainId: options.brainId, accountIdentity: account, operation } : null;
         const receipt = await ctx.record(event, inverse);
         if (!receipt || !Number.isSafeInteger(receipt.eventId) || receipt.inverseId !== inverseId) throw new Error("Google decision did not commit");
         audit.decisionEventId = receipt.eventId;
@@ -177,12 +218,22 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       return p;
     };
     try {
+      // Invalidation runs even on a refused call; a later restoration never revives a grant.
+      try { await options.allowances.reconcile(allowanceContext()); }
+      catch (cause) { storageFailure("session_allowances", "reconcile", cause); }
       // Ownership and policy availability precede every pre-read.
       decision = decide("recipient_unproven");
       if (decision.outcome === "refused" && decision.step <= 2) return await refused(decision.error);
       let failure = live();
       if (failure) return await refused(failure);
+      releaseAlias = await aliasLock.acquire(alias, { signal: ctx.signal });
+      const identity = await options.resolveAccount(alias);
+      if (!identity.ok) return await refused(identity.error);
+      account = identity.value; resolved = true;
       held = await lock.acquire(account, { signal: ctx.signal });
+      releaseAlias(); releaseAlias = undefined;
+      try { await options.allowances.reconcile(allowanceContext()); }
+      catch (cause) { storageFailure("session_allowances", "reconcile", cause); }
       failure = live();
       if (failure) return await refused(failure);
       const draft = "draft_id" in call.input ? call.input.draft_id : undefined;
@@ -195,7 +246,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       decision = decide(routed ?? "allowed");
       if (decision.outcome === "refused") return await refused(decision.error);
       card = GOOGLE_MAIL_APPROVAL_SCHEMA.parse({ ...prepared.card, operation, effect: decision.effect, tainted: decision.tainted,
-        entities: decision.entities, offers: { allow_always: false, allow_for_session: false } });
+        entities: decision.entities, offers: decision.outcome === "needs_card" ? decision.offers : { allow_always: false, allow_for_session: false } });
       if (decision.outcome === "needs_card") {
         pinned = decidedSafety;
         // The approval frame must reach the owner byte for byte; replication shrinks oversized frames.
@@ -234,7 +285,9 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         if (releaseFailed) return await refused(stateUnavailable);
         const edited = answer.behavior === "allow" && answer.updatedInput !== undefined && canonical(answer.updatedInput) !== canonical(card);
         if (answer.behavior !== "allow" || edited) return await refused(error(edited ? "edited" : "declined", "This Google change was declined; nothing was sent.", "approval_declined"), "declined");
-        if (answer.always || answer.forSession) return await refused(error("standing_choice_unavailable", "This card offers approval once only; nothing was sent.", "approval_declined"), "declined");
+        if ((answer.always && !card.offers.allow_always) || (answer.forSession && !card.offers.allow_for_session) || (answer.always && answer.forSession))
+          return await refused(error("standing_choice_unavailable", "This standing choice is not offered by this card; nothing was sent.", "approval_declined"), "declined");
+        grant = answer.always ? "always" : answer.forSession ? "session" : undefined;
         held = await lock.acquire(account, { signal: ctx.signal });
         failure = live();
         if (failure) return await refused(failure);
@@ -264,6 +317,39 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         return refuse(recordingUnavailable);
       }
       committedInverse = inverseId;
+      // Persist only a checked, unedited screen answer, after the decision committed.
+      failure = live();
+      if (failure) return await withdraw(failure);
+      if (admission === "session_allowance") {
+        try { reserved = await options.allowances.reserve(allowanceContext(), operation, decision.entities, decision.items!); }
+        catch (cause) { storageFailure("session_allowances", "reserve", cause); throw cause; }
+      }
+      // Re-read under the account lock before keeping any standing choice.
+      const latestIdentity = await options.resolveAccount(alias);
+      if (!latestIdentity.ok) return await withdraw(latestIdentity.error);
+      if (latestIdentity.value !== account) return await withdraw(error("account_changed", "The Google account changed; call again for a fresh decision.", "unavailable"));
+      failure = live();
+      if (failure) return await withdraw(failure);
+      try {
+        if (grant === "always") options.ledger().remember(approvalScope(), operation, decision.entities, now());
+        if (grant === "session") await options.allowances.grant(allowanceContext(), operation, decision.entities, cardId);
+      } catch (cause) {
+        storageFailure(grant === "always" ? "remembered_approvals" : "session_allowances", "grant", cause);
+        if (grant === "session") {
+          const finishWithdrawal = options.allowances.withdraw(cardId);
+          await cleanup("Google unkept session grant withdrawal", async () => { await options.allowances.revoke(sessionId, turn.principalId, options.brainId, cardId); finishWithdrawal(); });
+        }
+        standingChoiceNotKept = true; // The exact card still authorizes this one call.
+      }
+      // Session grants await the writer; close that wait with another identity read.
+      if (grant === "session") {
+        const confirmed = await options.resolveAccount(alias);
+        if (!confirmed.ok || confirmed.value !== account) {
+          const finishWithdrawal = options.allowances.withdraw(cardId);
+          await cleanup("Google changed-account session grant withdrawal", async () => { await options.allowances.revoke(sessionId, turn.principalId, options.brainId, cardId); finishWithdrawal(); });
+          return await withdraw(confirmed.ok ? error("account_changed", "The Google account changed; call again for a fresh decision.", "unavailable") : confirmed.error);
+        }
+      }
       let finalError: GoogleError | null = null, settled = false;
       const finalAdmission = (): GoogleError | null => {
         if (dispatched) return error("already_dispatched", "This Google change already used its admission.");
@@ -274,6 +360,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         if (!finalError && admission !== "card") {
           const current = decide(ctx.routingNow());
           if (current.outcome !== "admitted") finalError = current.outcome === "refused" ? current.error : stale;
+          else if (current.admission !== admission) finalError = stale;
         }
         if (finalError) return finalError;
         if (admission !== "card") counts.set(ctx, (counts.get(ctx) ?? 0) + (decision?.items ?? 0));
@@ -290,7 +377,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         const ambiguous = outcome.error.code === "outcome_unknown" || outcome.error.code === "upstream_error" || ctx.signal.aborted;
         return refuse(ambiguous ? gogError("outcome_unknown", outcome.error.reason ?? "dispatch_failed") : outcome.error);
       }
-      const result = GOOGLE_WRITE_SUCCESS_SCHEMA.parse({ ok: true, tool: call.tool, operation, effect: decision.effect, admission, result: outcome.result });
+      const result = GOOGLE_WRITE_SUCCESS_SCHEMA.parse({ ok: true, tool: call.tool, operation, effect: decision.effect, admission, result: outcome.result, ...(standingChoiceNotKept ? { standingChoice: "not_kept" } : {}) });
       if (inverseId) await options.state.confirmInverse(sessionId, inverseId, outcome.inverseResult);
       return result;
     } catch (cause) {
@@ -300,7 +387,7 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         return refuse(gogError("outcome_unknown", "dispatch_failed"));
       }
       return await withdraw(ctx.signal.aborted ? cancelled : error("state_unavailable", "Google write preparation or state failed; nothing was sent.", "unavailable"));
-    } finally { held?.(); }
+    } finally { releaseAlias?.(); held?.(); }
   };
   return Object.assign(write, { close: () => { closed = true; for (const timer of retries) clearTimeout(timer); retries.clear(); } });
 }

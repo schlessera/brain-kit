@@ -89,6 +89,8 @@ export interface GoogleCredential {
    * check running.
    */
   transport(account: string | null | undefined): { ok: true; transport: GogTransport } | { ok: false; status: Extract<GoogleAvailabilityStatus, { state: "unavailable" }> };
+  /** Resolve through the verified alias-list command, rechecking the protected home first. */
+  resolveAccount(account: string): Promise<import("@schlessera/brain-common/internal/google-gog").GogResult<string>>;
   /** The full probe: configuration, home, the pinned binary and whether the account is connected. Never rejects. */
   status(account: string | null | undefined): Promise<GoogleAvailabilityStatus>;
 }
@@ -241,5 +243,9 @@ export function createGoogleCredential(options: GoogleCredentialOptions): Google
     return report(key, await running);
   }
 
-  return { maskPaths: masks.paths, transport, status };
+  return { maskPaths: masks.paths, transport, status, resolveAccount: async account => {
+    const opened = transport(account);
+    if (!opened.ok) return { ok: false, error: { code: "unavailable", reason: opened.status.reason, message: opened.status.detail } };
+    return opened.transport.resolveAccount();
+  } };
 }

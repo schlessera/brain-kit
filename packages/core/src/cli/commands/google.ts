@@ -1,3 +1,4 @@
+import { googleApprovals } from "../../lib/google/approvals.js";
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { GOOGLE_VIEWS, type GoogleView } from "@schlessera/brain-common/internal/google-operations";
 import type { GogBinary } from "@schlessera/brain-common/internal/google-gog";
@@ -7,6 +8,8 @@ import type { CoreCommand } from "../types.js";
 
 const USAGE = `brain google <command> [--json]
 
+  approvals                                        List remembered approvals for this brain
+  revoke <approval-id>                             Revoke one remembered approval
   status                                           The home, the pinned gog, the policy, the
                                                    connected alias and its scopes
   connect <address> [--write] [--remote [--auth-url URL]] [--credentials FILE]
@@ -109,6 +112,13 @@ export const googleCommand: CoreCommand = {
     const service = () => googleCommandDeps.create(cli.brain.root, googleCommandDeps.binary);
     let envelope: GoogleEnvelope;
     switch (word) {
+      case "approvals":
+      case "revoke":
+        only(flags, [], word);
+        if ((word === "approvals" && rest.length) || (word === "revoke" && (rest.length !== 1 || !/^[a-zA-Z0-9-]{1,128}$/.test(rest[0]!))))
+          throw new UsageError("Usage: brain google approvals | revoke <approval-id> [--json]");
+        envelope = googleApprovals(cli.brain.root, word, rest[0]);
+        break;
       case "status":
         only(flags, [], "status");
         if (rest.length) throw new UsageError("brain google status takes no arguments.");

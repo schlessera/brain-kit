@@ -158,6 +158,12 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     required: false,
   },
   {
+    name: "BRAIN_GOOGLE_LEDGER",
+    description: "Absolute host-only shared Google approval ledger, outside the brain. Set it to the server ledger for standalone approvals and revoke. Never passed to workers.",
+    default: "unset: standalone approval management refuses as unavailable/ledger_unset",
+    required: false,
+  },
+  {
     name: "BRAIN_GOOGLE_HOME",
     description:
       "Absolute gog home (config and file keyring) of a standalone `brain google` process (#4208). Never inside a brain " +
@@ -263,6 +269,8 @@ export interface CoreEnv {
   apifyToken: string | undefined;
   /** BRAIN_APIFY_LEDGER, trimmed, or undefined when unset or blank. */
   apifyLedger: string | undefined;
+  /** Absolute shared host Google ledger, required for standalone management. */
+  googleLedger: string | undefined;
   /**
    * The Google home, keyring password and gog binary `brain google` uses
    * (#4208): the host's while BRAIN_UI_GOOGLE_HOME is set, else the standalone
@@ -325,6 +333,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
     stateHome: env.XDG_STATE_HOME || join(homedir(), ".local", "state"),
     apifyToken: env.APIFY_TOKEN?.trim() || undefined,
     apifyLedger: env.BRAIN_APIFY_LEDGER?.trim() || undefined,
+    googleLedger: env.BRAIN_GOOGLE_LEDGER?.trim() || undefined,
     google: {
       hostHome: env.BRAIN_UI_GOOGLE_HOME?.trim() || undefined,
       // A password is used as given: gog reads every byte of it.

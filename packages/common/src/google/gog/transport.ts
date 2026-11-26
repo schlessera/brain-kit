@@ -99,6 +99,8 @@ export type GogAvailability =
 
 export interface GogTransport {
   readonly account: string;
+  /** Host-only alias resolution. Never exposes an address to the model. */
+  resolveAccount(): Promise<GogResult<string>>;
   /** Runs the pin check now if it has not run (first use runs it anyway). */
   availability(): Promise<GogAvailability>;
   execute<O extends GogReadOperation>(operation: O, input: GogOperationInput<O>): Promise<GogResult<GogReadResults[O]>>;
@@ -331,7 +333,31 @@ export function createGogTransportInternals(
     return result.ok ? { ok: true, fake: false, pin: result } : { ok: false, error: gogError("transport_incompatible", result.reason) };
   }
 
-  return { account, availability, execute, invoke };
+  async function resolveAccount(): Promise<GogResult<string>> {
+    if (setup) return { ok: false, error: setup };
+    return accountLimits(account).read.run(async () => {
+      const executable = await pinned();
+      if (!executable.ok) return executable;
+      // Verified auth.alias.list shape also used by standalone grantOf (#4208).
+      const run = await runGogProcess(executable.path, ["--no-input", "--json", "--color=never",
+        "--enable-commands-exact=auth.alias.list", "--gmail-no-send", "auth", "alias", "list"],
+        { env: env!, stdin: null, timeoutMs: readMs, stdoutCap: 1024 * 1024 });
+      const error = gogProcessError(run.end, "read");
+      if (error) return { ok: false, error };
+      try {
+        const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(run.stdout!));
+        if (!value || typeof value !== "object" || !("aliases" in value) || !value.aliases ||
+            typeof value.aliases !== "object" || Array.isArray(value.aliases) ||
+            !Object.values(value.aliases).every(address => typeof address === "string")) throw new Error("shape");
+        const address = Object.hasOwn(value.aliases, account) ? (value.aliases as Record<string, string>)[account] : undefined;
+        if (!address) return { ok: false, error: gogError("unavailable", "account_unresolved") };
+        if (address.length > 320 || /[\s\p{Cc}]/u.test(address) || !address.includes("@")) throw new Error("shape");
+        return { ok: true, value: address.toLowerCase() };
+      } catch { return { ok: false, error: gogError("transport_incompatible", "unexpected_shape") }; }
+    });
+  }
+
+  return { account, availability, execute, invoke, resolveAccount };
 }
 
 /**
