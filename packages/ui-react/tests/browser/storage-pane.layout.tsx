@@ -634,6 +634,32 @@ test("Hard-link alias stays named in the list without acquiring map area", async
     "Troy-charts.PDF"
   );
 });
+// A database and its sidecars are one item (#4546, maintainer 2026-11-26):
+// one map tile and one list row at the combined size, no sidecar of its own.
+test("A folded database is one tile and one row in the real pane", async () => {
+  const fixture = storageViewFixture("dense");
+  const wal = "f".repeat(31) + "1";
+  const request: Fixture["request"] = async (url, init) => {
+    const response = await fixture.request(url, init);
+    const query = new URL(url, "http://fixture.invalid");
+    if (!query.pathname.endsWith("/tree") || query.searchParams.get("parentId")) return response;
+    const page = await response.json();
+    const base = page.nodes.find((node: { name: string }) => node.name === "App state");
+    const size = { logical: 1_500_000_000, allocated: 1_500_000_000, coverage: "complete" };
+    page.nodes.push({ ...base, id: wal, rootId: wal, name: "App state-wal", totals: size, area: size });
+    page.totals.allocated += size.allocated;
+    page.totals.logical += size.logical;
+    page.matched += 1;
+    return Response.json(page);
+  };
+  await scene("dense", 1280, "dark", 1, { request });
+  const map = () => page.getByRole("group", { name: /Storage map/ }).element();
+  await expect.poll(() => map().querySelector('[aria-label^="App state, "]')).not.toBeNull();
+  expect(map().querySelector('[aria-label^="App state-wal, "]'), "STORAGE_SIDECAR_NO_TILE").toBeNull();
+  const list = () => page.getByRole("table", { name: /^Contents of / }).element();
+  await expect.poll(() => list().textContent).toContain("with -wal");
+  expect(row("App state-wal").elements(), "STORAGE_SIDECAR_NO_ROW").toHaveLength(0);
+});
 // #4549 review F2 (third round): a row's links come from its removal
 // inspection. An inspection that did not check every reference leaves the
 // count unknown, never "no links"; a complete one states its count.
