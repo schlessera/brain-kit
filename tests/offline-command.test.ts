@@ -205,3 +205,38 @@ with patch.object(m.os,'getuid',return_value=1000), patch.object(m.os,'getgid',r
   const child = Bun.spawnSync(["/usr/bin/python3", "-B", "-I", "-S", "-c", probe, join(import.meta.dir, "../scripts/offline-command.py")], { stdout: "pipe", stderr: "pipe" });
   expect(child.exitCode, child.stderr.toString()).toBe(0);
 });
+
+test("unprivileged loopback setup failure retries sudo before starting the payload", () => {
+  const probe = `import importlib.util,json,sys
+from pathlib import Path
+from unittest.mock import patch
+from types import SimpleNamespace
+spec=importlib.util.spec_from_file_location('launcher',sys.argv[1])
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+calls=[]
+def run(argv,**kwargs):
+ calls.append(argv)
+ if '-c' in argv:return SimpleNamespace(returncode=0,stdout=b'[1000,1000,[65534]]')
+ data=json.loads(Path(argv[-1]).read_text())
+ if '--user' in argv:
+  Path(data['setup_error']).write_text('loopback setup denied')
+  return SimpleNamespace(returncode=125)
+ assert argv[:3]==['/usr/bin/sudo','-n','--'], 'LOOPBACK_FAILURE_MUST_RETRY_SUDO'
+ assert not data['unprivileged'], 'SUDO_MUST_RESTORE_COMPLETE_IDENTITY'
+ Path(data['started']).touch()
+ return SimpleNamespace(returncode=37)
+with patch.object(m.os,'getuid',return_value=1000), patch.object(m.os,'getgid',return_value=1000), patch.object(m.os,'geteuid',return_value=1000), patch.object(m.os,'getgroups',return_value=[1000,27]), patch.object(m.shutil,'which',side_effect=lambda name:'/usr/bin/'+name), patch.object(m.subprocess,'run',side_effect=run):
+ assert m.main(['/bin/true'])==37, 'LOOPBACK_FAILURE_MUST_RETRY_SUDO'
+ assert len(calls)==3
+# A payload failure must never run the payload a second time.
+def payload(argv,**kwargs):
+ if '-c' in argv:return SimpleNamespace(returncode=0,stdout=b'[1000,1000,[65534]]')
+ data=json.loads(Path(argv[-1]).read_text());Path(data['started']).touch()
+ return SimpleNamespace(returncode=37)
+with patch.object(m.os,'getuid',return_value=1000), patch.object(m.os,'getgid',return_value=1000), patch.object(m.subprocess,'run',side_effect=payload) as invoke:
+ assert m.main(['/bin/true'])==37
+ assert invoke.call_count==2, 'PAYLOAD_FAILURE_MUST_NOT_RETRY'
+`;
+  const child = Bun.spawnSync(["/usr/bin/python3", "-B", "-I", "-S", "-c", probe, join(import.meta.dir, "../scripts/offline-command.py")], { stdout: "pipe", stderr: "pipe" });
+  expect(child.exitCode, child.stderr.toString()).toBe(0);
+});

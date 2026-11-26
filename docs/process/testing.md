@@ -66,8 +66,9 @@ removed, and HOME/config storage is private. Setup uses unprivileged namespaces
 when UID and GID match. Supplementary groups may display as the overflow group
 inside that namespace; the kernel still uses the caller’s real supplementary
 groups for permission checks. This is a documented reduction: group names shown
-inside the boundary are not the host’s. Hosts without usable unprivileged user
-namespaces need passwordless sudo for setup, followed by restoration of
+inside the boundary are not the host’s. If unprivileged namespace setup fails before the command starts (including
+mount or loopback setup denied by host policy), the launcher retries with
+passwordless sudo for setup, followed by restoration of
 UID/GID/groups. Both paths remove capabilities. A failed setup
 refuses only that command with exit 125 and `OFFLINE_SETUP_REFUSAL` on stderr;
 the next command retries setup. Descendants inherit the namespaces. This is a
