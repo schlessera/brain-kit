@@ -392,12 +392,16 @@ export function openSafetyObligation(db:Database,turnId:string,id:string,toolUse
  }).immediate();
 }
 /** Its result is durably recorded. Once the collection ended the call's gap
- * is already committed: nothing to do. */
+ * is already committed: nothing to do. `neverDelivered`: the backend's denial
+ * proved the fetch never ran, so its exact inputs gain the terminal
+ * non-delivery fact. That needs no obligation row: the fetch input can commit
+ * while its obligation insert fails, and the same denial still proves it
+ * never ran (#4514). */
 export function dischargeSafetyObligation(db:Database,turnId:string,id:string,neverDelivered?:readonly string[]):void {
  if(neverDelivered?.length){
   db.transaction(()=>{
    const c=collection(db,turnId);
-   if(!c||!db.query("SELECT 1 FROM safety_obligations WHERE id=? AND collection_id=?").get(id,c.id))return;
+   if(!c||c.ended)return;
    live(db,c,true);
    for(const occurrenceId of neverDelivered){
     const row=one<RecordRow|null>(db,"SELECT * FROM safety_records WHERE id=? AND collection_id=?",occurrenceId,c.id);

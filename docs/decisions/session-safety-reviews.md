@@ -138,7 +138,9 @@ running under the tainted policy, not refusing.
 - For a refused web fetch, the collector may prove non-delivery when the
   backend denied the sole admission before allowing execution. The host
   appends that fact to the exact fetch inputs and discharges the obligation
-  in one transaction. The attempts remain in history, contribute zero
+  in one transaction. When the fetch input committed but its obligation
+  insert failed, the same denial still proves non-delivery and appends that
+  fact with no obligation to discharge (#4514). The attempts remain in history, contribute zero
   unresolved inputs, and receive no owner verdict. A later result supersedes
   that fact. A proxy refusal, interrupted connection, timeout, error message
   or missing result alone cannot prove whether the fetch delivered input.

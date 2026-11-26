@@ -361,6 +361,60 @@ test("pre-execution fetch denial retains the audited attempt without a verdict o
   } finally { await f.close(); }
 });
 
+/** The fetch occurrence commits, the obligation insert then fails at the
+ * storage layer, storage recovers, and the backend denies the sole admission
+ * (#4514). The refusal still proves the fetch never ran. */
+async function partialFetchWrite(f: Fixture, id: string) {
+  const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+    sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+  f.db.run("CREATE TRIGGER sirens_jam_the_ledger BEFORE INSERT ON safety_obligations BEGIN SELECT RAISE(ABORT,'disk I/O error'); END");
+  collector.admitting?.(id, "WebFetch");
+  await expectRejection(collector.begin(id, "WebFetch", { url: "https://ithaca.example/harbour" }));
+  f.db.run("DROP TRIGGER sirens_jam_the_ledger");
+  expect(f.db.query("SELECT COUNT(*) n FROM safety_obligations").get()).toEqual({ n: 0 });
+  return collector;
+}
+
+test("a fetch denied after its obligation failed to commit retains the audited attempt without an unresolved input", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const independent = await f.add("connection", true);
+    const collector = await partialFetchWrite(f, "fetch");
+    expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(2);
+    await collector.refused?.("fetch", true);
+    await f.writes.safetyEnd("voyage");
+    expect(f.writes.safety(null, "ithaca").unresolvedCount, "PARTIAL_WRITE_REFUSAL_DELIVERED_NO_INPUT").toBe(1);
+    const restarted = createUiDb(f.path);
+    try {
+      const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);
+      expect(page.projection.unresolvedCount).toBe(1);
+      expect(page.projection.earliestUnresolvedId).toBe(independent.id);
+      expect(page.records.filter(record => record.kind === "occurrence")).toHaveLength(2);
+      expect(page.records.filter(record => record.kind === "exposure").map(record => record.state)).toEqual(["not_delivered"]);
+      expect(page.records.some(record => record.kind === "safe_decision")).toBe(false);
+    } finally { restarted.close(); }
+  } finally { await f.close(); }
+});
+
+test("a partial fetch write stays unresolved when its refusal cannot prove non-delivery", async () => {
+  for (const variant of ["reused", "cancelled", "contradicted"] as const) {
+    const f = await safetyHistoryFixture();
+    try {
+      const collector = await partialFetchWrite(f, "fetch");
+      if (variant === "reused") collector.admitting?.("fetch", "WebFetch");
+      if (variant === "contradicted") {
+        await collector.refused?.("fetch", true);
+        await expectRejection(collector.result("fetch", "WebFetch", "Harbour notes arrived after all", true));
+      } else await collector.refused?.("fetch", variant !== "cancelled");
+      await f.writes.safetyEnd("voyage");
+      const state = f.writes.safety(null, "ithaca");
+      expect(state.restriction, variant).toBe("restricted");
+      if (variant === "contradicted") expect(state.coverage.state, variant).toBe("incomplete");
+      else expect(state.unresolvedCount, variant).toBe(1);
+    } finally { await f.close(); }
+  }
+});
+
 test("ambiguous refusals and contradictory results stay unresolved", async () => {
   const f = await safetyHistoryFixture();
   try {

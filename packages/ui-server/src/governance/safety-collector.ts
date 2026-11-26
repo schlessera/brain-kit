@@ -245,9 +245,15 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    if(!op){if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});return;}
    op.refused=true;
    if(proves&&!op.done){
-    const sameFetch=calls.get(toolUseId)?.tools.has(op.tool)&&!op.uncertain&&op.inputHashes.size===1&&op.admitted
+    const sameFetch=calls.get(toolUseId)?.tools.has(op.tool)&&!op.uncertain&&op.inputHashes.size===1
       &&op.signals.length>0&&op.signals.every(s=>s.source==="web_fetch"&&s.detector==="tool_web_input");
-    await discharge(op,sameFetch?op.occurrences:undefined);
+    if(op.owed)await discharge(op,sameFetch&&op.admitted?op.occurrences:undefined);
+    // begin() committed every fetch input, then its obligation failed: the
+    // call owes nothing, yet its inputs stay open unless this denial, which
+    // proves the call never ran, settles them (#4514). Only inputs whose
+    // write is known to have committed are settled.
+    else if(sameFetch&&!op.admitted)
+     try{await writes.safetyDischarge(options.turnId,op.id,op.occurrences);}catch{/* Still open: the chat stays restricted. */}
    }
   },true).catch(()=>{}));},
   // The backend's last check before it lets this call run, noted so that no

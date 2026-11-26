@@ -756,7 +756,12 @@ The principal binds as its account
 
 A fetch proved refused before execution remains an audited attempt and contributes
 zero unresolved inputs (#4514). This also applies to the first unresolved ID
-and handoff selection. Delivery uncertainty and earlier records without proof
+and handoff selection. The proof rests on the backend's denial of the sole,
+never-allowed admission, not on the host's result obligation: a fetch whose
+input committed while its obligation insert failed is settled the same way
+when that denial follows. A reused ID, a refusal that is not the backend's own
+denial, or output arriving after the denial keeps the chat restricted.
+Delivery uncertainty and earlier records without proof
 remain restricted. On the session safety history route, `nonDelivery=1`
 requests the terminal exposure state `not_delivered`. Without this option
 the attempt has the conservative v1 terminal representation `interrupted_unknown`.
