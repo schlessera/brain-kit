@@ -342,6 +342,24 @@ describe("reading the timeline with since", () => {
     expect(value!.next).toBe(seq);
   });
 
+  test("an event the pane cannot read is dropped; the rest of its page is kept and drawn", async () => {
+    const good = warning(1, sixHour(4), "start", "low");
+    const unreadable = [
+      { seq: 2, at: sixHour(3), kind: "quota", identity: ITHACA, phase: "start" },
+      { ...warning(3, sixHour(3), "step", "low"), severity: "dire" },
+      { seq: 4, at: sixHour(2), kind: "refusal", identity: ITHACA, phase: "refused", target: "t", resource: "air" },
+      { seq: 5, at: sixHour(2), kind: "maintenance", receipt: "pack-ithaca", operation: "pack-git", phase: "finished", state: "lost", reason: null },
+      { seq: 6, at: "noon", kind: "scope", identity: ITHACA, phase: "changed", rootScope: "a", previousRootScope: "b" },
+      null,
+    ] as unknown as StorageEvent[];
+    const read = await readStorageTimeline(async (since) => (since === 0 ? { ...page(0, [good, ...unreadable]), next: 6 } : page(since, [])), null);
+    expect(read?.events).toEqual([good]);
+    expect(read?.next).toBe(6);
+    expect(storageMarkers({ series: steady, identity: ITHACA, timeline: read, now: worldTime, format }).map((m) => m.label)).toEqual([
+      "Low warning started",
+    ]);
+  });
+
   test("an older host's 404, a failure or a malformed page leaves what was read", async () => {
     const before = timeline([warning(1, 1, "start", "low")]);
     const missing = async () => {
