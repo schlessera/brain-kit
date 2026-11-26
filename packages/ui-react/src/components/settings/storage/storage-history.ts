@@ -223,6 +223,13 @@ const touches = (receipt: StorageMaintenanceReceipt, identity: string) =>
     observation?.capacities.some((capacity) => capacity.id === identity)
   );
 
+/**
+ * Whether a receipt observed any volume at all. A run refused before it
+ * measured has no observation, which says nothing about where it ran.
+ */
+const measured = (receipt: StorageMaintenanceReceipt) =>
+  [receipt.before, receipt.after].some((observation) => !!observation?.capacities.length);
+
 const SEVERITY_WORD: Record<StorageSeverity, string> = { observed: "OK", low: "Low", critical: "Very low" };
 const SEVERITY_TONE: Record<StorageSeverity, NonNullable<HistoryMarker["tone"]>> = {
   observed: "teal",
@@ -295,9 +302,10 @@ const isRun = (state: StorageMaintenanceReceipt["state"]) => state === "waiting"
  *
  * - a run is one marker, matched by receipt id and phase, never by time: the
  *   timeline's event wins over the latest receipt for the same phase, and a
- *   finished run hides its request. A run whose loaded receipt did not
- *   observe this volume is not drawn on it; a run the pane has no receipt
- *   for is drawn on every volume, as the timeline returns it for every one;
+ *   finished run hides its request. A run whose loaded receipt observed
+ *   only other volumes is not drawn on this one; a run the pane has no
+ *   receipt for, or whose receipt measured no volume, is drawn from the
+ *   timeline on every volume, as the timeline returns it for every one;
  * - a client refusal is dropped when the timeline's latest event for its
  *   target and resource opened it or resolved it later;
  * - a series scope change is dropped when a timeline scope change falls
@@ -366,7 +374,9 @@ export function storageMarkers(input: {
     const receipt = row.latest;
     if (!receipt) continue;
     if (!touches(receipt, identity)) {
-      elsewhere.add(receipt.id);
+      // Only an observation of other volumes puts a run elsewhere; an
+      // unmeasured one keeps the timeline's marker on every volume.
+      if (measured(receipt)) elsewhere.add(receipt.id);
       continue;
     }
     const at = receipt.completedAt ?? receipt.startedAt ?? receipt.requestedAt;
