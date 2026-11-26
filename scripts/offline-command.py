@@ -83,8 +83,8 @@ def setup(data):
         os.setgroups(data['groups'])
         os.setgid(data['gid'])
         os.setuid(data['uid'])
-    if (os.getuid(), os.getgid(), sorted(os.getgroups())) != (
-            data['uid'], data['gid'], sorted(data['groups'])):
+    if (os.getuid(), os.getgid()) != (data['uid'], data['gid']) or (
+            not data.get('unprivileged') and sorted(os.getgroups()) != sorted(data['groups'])):
         raise RuntimeError('caller identity could not be restored')
     os.chdir(data['cwd'])
     Path(data['started']).touch()
@@ -114,13 +114,14 @@ def main(argv):
         unshare = shutil.which('unshare')
         if not unshare:
             raise RuntimeError('unshare executable unavailable')
-        # Prefer unprivileged setup only when it preserves the complete caller identity.
+        # Supplementary groups may display as overflow IDs in a user namespace.
+        # The kernel still uses the caller's real groups for permission checks.
         probe = subprocess.run([unshare, '--user', '--map-current-user', '--net', '--mount',
             sys.executable, '-I', '-S', '-c',
             'import os,json; print(json.dumps([os.getuid(),os.getgid(),sorted(os.getgroups())]))'],
             capture_output=True)
-        expected = [os.getuid(), os.getgid(), sorted(os.getgroups())]
-        unprivileged = probe.returncode == 0 and json.loads(probe.stdout) == expected
+        expected = [os.getuid(), os.getgid()]
+        unprivileged = probe.returncode == 0 and json.loads(probe.stdout)[:2] == expected
         prefix = [unshare, '--net', '--mount']
         if unprivileged:
             prefix += ['--user', '--map-current-user', '--keep-caps']
@@ -143,7 +144,7 @@ def main(argv):
                     lease_fd = candidate
             except (ValueError, OSError):
                 pass
-            data = dict(lease_fd=lease_fd, launcher_pid=os.getpid(), uid=os.getuid(), gid=os.getgid(), groups=os.getgroups(),
+            data = dict(unprivileged=unprivileged, lease_fd=lease_fd, launcher_pid=os.getpid(), uid=os.getuid(), gid=os.getgid(), groups=os.getgroups(),
                         cwd=os.getcwd(), argv=argv, browser=browser, env=env, started=str(Path(scratch, 'started')))
             record = Path(scratch, 'command.json')
             record.write_text(json.dumps(data))
