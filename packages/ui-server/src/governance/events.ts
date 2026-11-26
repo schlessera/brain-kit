@@ -134,11 +134,15 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     rule: policyRule(["commands.deny"]),
     policyHash,
   })),
-  /** A command that matched `commands.confirm`, with the user's answer (#1661). */
-  policy_confirm: kind(1, z.strictObject({
+  /**
+   * A command that matched `commands.confirm`, with the user's answer (#1661).
+   * Version 2 adds the `host_stopped` decision (#4565); version 1 rows never
+   * carry it.
+   */
+  policy_confirm: kind(2, z.strictObject({
     ...toolInput,
     rule: policyRule(["commands.confirm"]),
-    decision: z.enum(["approved", "declined", "timed_out", "cancelled"]),
+    decision: z.enum(["approved", "declined", "timed_out", "cancelled", "host_stopped"]),
     policyHash,
   })),
   /** A write refused because the path is protected or the profile is read-only. */

@@ -18,6 +18,7 @@ import type {
   ChatImageAttachment,
   ClientEnvironment,
   DraftRef,
+  HostStopCause,
   LocalExchange,
   MessageSource,
   QueuedFollowUpView,
@@ -258,6 +259,13 @@ export interface RunningTurn {
    * because a queued follow-up reuses this slot.
    */
   timedOutTurnId?: string;
+  /**
+   * What made the host itself stop the turn `turnId` (#4565): neither a
+   * cancel nor the time limit. Set by the stopping owner through
+   * `stopTurnForHost`, before its abort, and only when nothing else had
+   * ended the turn first. Keyed like `timedOutTurnId`.
+   */
+  hostStop?: { readonly turnId: string; readonly cause: HostStopCause };
   /**
    * Terminal disposition of the CURRENT turn's `result` frame, when one has
    * streamed. Backends RESOLVE startTurn for runtime failures (the failure

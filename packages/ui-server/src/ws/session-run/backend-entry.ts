@@ -18,6 +18,7 @@ import type { LocalExchange } from "@schlessera/brain-ui-sdk/protocol";
 import { heldProfile, isRelayed, type GovernedAdmission } from "./admission.js";
 import type { TurnBudget } from "./budget.js";
 import type { TurnRun } from "./types.js";
+import { stopTurnForHost } from "../host-stop.js";
 
 /**
  * Record a new conversation's local exchanges against the session its first
@@ -123,7 +124,7 @@ export async function openTurnBridge(
     await safetyWrites.safetyBegin({bindingId,turnId:turn.turnId,principalId:turn.principalId??null,sessionId:resumeId??null,
       historyOwnerId:initial.historyOwnerId,backendId:backend.id,sourceSessionId:handoffSource,policyHash:governedHold?.policy.hash??null,at:Date.now()});
     bridge.inputSafety=createSafetyCollector(safetyDb,safetyWrites,{bindingId,turnId:turn.turnId,backendId:backend.id,
-      sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>run.abortController.abort(error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null,
+      sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>stopTurnForHost(host,turn,run.turnId,run.abortController,"safety_recording",error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null,
       ...(governedHold?.sandbox.profile==="strict"&&governedHold.startupView ? {grepCheckpoint:{
         root:governedHold.startupView.root,masked:[...(governedHold.sandbox.providerMasks?.folders??[]),
           ...governedHold.sandbox.areas.map(area=>area.rel),
@@ -190,6 +191,7 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
   await host.originTrust?.refresh?.(abortController.signal);
   abortController.signal.throwIfAborted();
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
+    stop: error => stopTurnForHost(host, turn, run.turnId, abortController, "egress_record", error),
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
     networkRefusal: toolUseId => host.coordinator.networkRefusal(turn.turnId,toolUseId),
     trust: host.originTrust,

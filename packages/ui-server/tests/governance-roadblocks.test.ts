@@ -159,6 +159,15 @@ describe("roadblock episodes", () => {
     expect(episodes.map((e) => [e.family, e.category])).toEqual([["shell:curl", "network_refused"], ["brain_write", "tool_error"]]);
   });
 
+  test("a confirmation the host stopped is no permission roadblock (#4565)", () => {
+    const events: GovernanceEvent[] = [
+      { id: 11, sessionId: null, turnId: "t", at: T0 + 5, kind: "policy_confirm", schemaVersion: 2, actor: "interactive", model: null, profile: "governed",
+        payload: { tool: "Bash", input: "git push origin main", inputTruncated: false, rule: { list: "commands.confirm", index: 0, pattern: "^git push" }, decision: "host_stopped", policyHash: null } },
+    ];
+    const episodes = classifyRoadblocks(trace([]), events);
+    expect(episodes, "HOST_STOPPED_CONFIRM_NOT_A_DENIAL").toEqual([]);
+  });
+
   test("a denied call is permission_denied, and the policy event that refused it upgrades it to policy_block", () => {
     const events: GovernanceEvent[] = [
       { id: 7, sessionId: null, turnId: "t", at: T0 + 5, kind: "policy_block", schemaVersion: 1, actor: "interactive", model: null, profile: "governed",

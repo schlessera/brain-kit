@@ -12,6 +12,7 @@ import type { HostWork, QueuedFollowUp, RunningTurn } from "../turns.js";
 import type { RunBilling } from "./billing.js";
 import { budgetAttribution, budgetEvent } from "./budget.js";
 import type { SessionSlot, TurnLifecycle, TurnRun } from "./types.js";
+import { hostStopOf, stopTurnForHost } from "../host-stop.js";
 
 type WorkerHostAdmission =
   | { readonly kind: "admitted"; readonly identity: WorkerNoteFacts["identity"] | undefined }
@@ -46,6 +47,9 @@ export async function admitWorkerHost(host: WsHost, backend: AgentBackend, work:
  */
 export function armTurnTimeout(host: WsHost, turn: RunningTurn, abortController: AbortController): ReturnType<typeof setTimeout> {
   const timeoutHandle = setTimeout(() => {
+    // A host stop already ended this turn and drained it (#4565); the
+    // deadline passing while it unwinds is not a timeout.
+    if (hostStopOf(turn)) return;
     host.log.emit({
       severityText: "WARN",
       body: "turn timed out",
@@ -76,6 +80,7 @@ export function createRunRecorder(
   abortController: AbortController,
   work: HostWork | undefined
 ): TurnRecorder | undefined {
+  const turnId = turn.turnId;
   return host.activity
     ? createTurnRecorder(
         {
@@ -87,7 +92,9 @@ export function createRunRecorder(
           ...(host.activity.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
           ...(host.activity.governanceWrites ? { governanceWrites: host.activity.governanceWrites } : {}),
           ...(host.brainPath ? { brainPath: host.brainPath } : {}),
-          abort: error => abortController.abort(error),
+          // Every recorder stop is a safety-recording failure.
+          abort: error => stopTurnForHost(host, turn, turnId, abortController, "safety_recording", error),
+          hostStop: () => hostStopOf(turn, turnId),
         },
         {
           turnId: turn.turnId,
@@ -190,8 +197,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
       // A real timeout/cancel already won; never relabel that terminal.
       if (abortController.signal.aborted || turn.cancelled) return;
       stops.journal = error;
-      abortController.abort(error);
-      host.coordinator.drainPendingForTurn(turn, error.message);
+      stopTurnForHost(host, turn, run.turnId, abortController, "change_journal", error);
     }, abortController.signal, journalTimer);
     restrictFailedCheckouts(governedHold.sandbox, host.journal.restrictedCheckouts(turn.turnId));
     lifecycle?.mark("journalBeganAt");

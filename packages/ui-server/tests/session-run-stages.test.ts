@@ -9,10 +9,12 @@ import { resolveTurnTarget } from "../src/ws/routing";
 import type { WSContext } from "../src/ws/clients";
 import { WsHost } from "../src/ws/host";
 import type { SessionCatalog } from "../src/ws/session-catalog";
-import { REVOKED_REASON, type AuthorizationContext, type HostWork, type QueuedFollowUp } from "../src/ws/turns";
+import { REVOKED_REASON, type AuthorizationContext, type HostWork, type QueuedFollowUp, type RunningTurn } from "../src/ws/turns";
 import { admitWorkerHost, announceTurnStart, armTurnTimeout } from "../src/ws/session-run/admission";
 import { recordDraftExchanges, turnRequest } from "../src/ws/session-run/backend-entry";
 import { budgetAttribution, budgetEvent, createTurnBudget, settleBudgetWrites, type BudgetAttribution } from "../src/ws/session-run/budget";
+import { HOST_STOP_CAUSES } from "@schlessera/brain-ui-sdk/protocol";
+import { HOST_STOP_REASONS, HOST_STOP_UNSPECIFIED_REASON, stopTurnForHost } from "../src/ws/host-stop";
 import {
   AdmissionRevoked,
   classifyCompletedTurn,
@@ -127,7 +129,7 @@ const OBSERVATION: BudgetObservation = {
 const ATTRIBUTION: BudgetAttribution = { turnId: "turn-1", sessionId: "session-1", actor: "interactive", model: "model-a", profile: "governed", source: "policy" };
 
 describe("outcome classification", () => {
-  const facts = (overrides: Partial<TurnFacts> = {}): TurnFacts => ({ cancelled: false, aborted: false, lastResult: "success", stops: {}, ...overrides });
+  const facts = (overrides: Partial<TurnFacts> = {}): TurnFacts => ({ cancelled: false, aborted: false, timedOut: false, hostStop: undefined, lastResult: "success", stops: {}, ...overrides });
   const failed = (overrides: Partial<FailedTurnFacts> = {}): FailedTurnFacts => ({
     ...facts(), error: new Error("boom"), egressFailure: undefined, enteredBackend: true, ...overrides,
   });
@@ -138,7 +140,7 @@ describe("outcome classification", () => {
     expect(classifyCompletedTurn(facts({ lastResult: "cancelled" }))).toMatchObject({ lifecycle: "success", work: "cancelled" });
     expect(classifyCompletedTurn(facts({ cancelled: true, aborted: true }))).toMatchObject({ lifecycle: "cancelled", work: "cancelled" });
     expect(classifyCompletedTurn(facts({ cancelled: true, aborted: true })).reason).toBeUndefined();
-    expect(classifyCompletedTurn(facts({ aborted: true }))).toMatchObject({ lifecycle: "timeout", recorder: "timeout", work: "cancelled", reason: "Turn timed out" });
+    expect(classifyCompletedTurn(facts({ aborted: true, timedOut: true }))).toMatchObject({ lifecycle: "timeout", recorder: "timeout", work: "cancelled", reason: "Turn timed out" });
   });
 
   test("a completed turn stopped by a scope cap keeps the cap's reason", () => {
@@ -167,7 +169,58 @@ describe("outcome classification", () => {
   });
 
   test("a timeout is cancelled host work that keeps its reason", () => {
-    expect(classifyFailedTurn(failed({ aborted: true }))).toMatchObject({ delivery: "reported", lifecycle: "timeout", recorder: "timeout", work: "cancelled", reason: "Turn timed out" });
+    expect(classifyFailedTurn(failed({ aborted: true, timedOut: true }))).toMatchObject({ delivery: "reported", lifecycle: "timeout", recorder: "timeout", work: "cancelled", reason: "Turn timed out" });
+  });
+
+  test("a host stop records its own cause, never a timeout (#4565)", () => {
+    for (const cause of HOST_STOP_CAUSES) {
+      const stopped = { lifecycle: "error", recorder: "error", work: "cancelled", reason: HOST_STOP_REASONS[cause], recorderReason: HOST_STOP_REASONS[cause] };
+      expect(classifyCompletedTurn(facts({ aborted: true, hostStop: cause })), `COMPLETED_${cause}`).toMatchObject(stopped);
+      expect(classifyFailedTurn(failed({ aborted: true, hostStop: cause })), `FAILED_${cause}`).toMatchObject({ ...stopped, delivery: "reported" });
+    }
+    // An abort whose owner named nothing is still the host's, not the time limit.
+    expect(classifyCompletedTurn(facts({ aborted: true }))).toMatchObject({ recorder: "error", reason: HOST_STOP_UNSPECIFIED_REASON, recorderReason: HOST_STOP_UNSPECIFIED_REASON });
+    expect(classifyFailedTurn(failed({ aborted: true }))).toMatchObject({ recorder: "error", reason: HOST_STOP_UNSPECIFIED_REASON, recorderReason: HOST_STOP_UNSPECIFIED_REASON });
+    // A stop is recorded only before any cancel, so a cancel that lands while
+    // it unwinds does not relabel it; a cancel on its own stays a cancel.
+    expect(classifyCompletedTurn(facts({ aborted: true, cancelled: true, hostStop: "inbox_share" })), "LATER_CANCEL_KEEPS_HOST_STOP")
+      .toMatchObject({ recorder: "error", reason: HOST_STOP_REASONS.inbox_share });
+    expect(classifyFailedTurn(failed({ aborted: true, cancelled: true, hostStop: "approval_record" })))
+      .toMatchObject({ recorder: "error", reason: HOST_STOP_REASONS.approval_record });
+    expect(classifyCompletedTurn(facts({ aborted: true, cancelled: true }))).toMatchObject({ recorder: "cancelled" });
+    expect(classifyCompletedTurn(facts({ aborted: true, cancelled: true })).recorderReason).toBeUndefined();
+    // A recorded journal stop keeps the journal's own words, and the run
+    // records them over a runtime's cancelled result.
+    const journal = new Error("journal storage failed");
+    expect(classifyFailedTurn(failed({ aborted: true, hostStop: "change_journal", stops: { journal } })), "JOURNAL_STOP_REASON_RECORDED")
+      .toMatchObject({ recorder: "error", reason: journal.message, recorderReason: journal.message });
+  });
+
+  test("a host stop is kept only when nothing ended the turn first, and keeps its error as the abort reason", () => {
+    const drained: Array<[string, string]> = [];
+    const host = { coordinator: { drainPendingForTurn: (turn: RunningTurn, reason: string) => { drained.push([turn.turnId, reason]); } } };
+    const error = new Error("share binding failed");
+    const turn = { turnId: "turn-1", cancelled: false } as RunningTurn;
+    const first = new AbortController();
+    stopTurnForHost(host, turn, "turn-1", first, "inbox_share", error);
+    expect(first.signal.reason).toBe(error);
+    stopTurnForHost(host, turn, "turn-1", first, "change_journal", new Error("later"));
+    expect(turn.hostStop, "FIRST_STOP_WINS").toEqual({ turnId: "turn-1", cause: "inbox_share" });
+    // Its pending questions and approvals close with the host's reason, once.
+    expect(drained, "HOST_STOP_DRAINS_PENDING").toEqual([["turn-1", HOST_STOP_REASONS.inbox_share]]);
+    // A timeout or cancel already aborted it: that account stands.
+    const timedOut = { turnId: "turn-2", cancelled: false } as RunningTurn, late = new AbortController();
+    late.abort();
+    stopTurnForHost(host, timedOut, "turn-2", late, "safety_recording", error);
+    expect(timedOut.hostStop, "TIMEOUT_NOT_RELABELLED").toBeUndefined();
+    const cancelled = { turnId: "turn-3", cancelled: true } as RunningTurn;
+    stopTurnForHost(host, cancelled, "turn-3", new AbortController(), "safety_recording", error);
+    expect(cancelled.hostStop, "CANCEL_NOT_RELABELLED").toBeUndefined();
+    // A previous turn's late owner never labels or drains the slot's current turn.
+    const current = { turnId: "turn-5", cancelled: false } as RunningTurn;
+    stopTurnForHost(host, current, "turn-4", new AbortController(), "safety_recording", error);
+    expect(current.hostStop, "STALE_OWNER_IGNORED").toBeUndefined();
+    expect(drained, "ONLY_THE_RECORDING_STOP_DRAINS").toHaveLength(1);
   });
 
   test("a scope stop already narrated is not reported again unless something else failed", () => {
@@ -401,6 +454,20 @@ describe("host admission", () => {
     await new Promise(resolve => controller.signal.addEventListener("abort", resolve, { once: true }));
     expect(controller.signal.aborted).toBe(true);
     expect(drained).toEqual(["Turn timed out"]);
+  });
+
+  test("a deadline that passes while a host-stopped turn unwinds is not a timeout", async () => {
+    const { host } = setupHost(undefined, { turnTimeoutMs: 5 });
+    const slot = await openSlot(host);
+    const drained: string[] = [];
+    spyOn(host.coordinator, "drainPendingForTurn", ((_turn: unknown, reason: string) => { drained.push(reason); }) as never);
+    const controller = new AbortController();
+    stopTurnForHost(host, slot.turn, slot.turn.turnId, controller, "change_journal", new Error("journal failed"));
+    armTurnTimeout(host, slot.turn, controller);
+    await Bun.sleep(30);
+    expect(slot.turn.timedOutTurnId, "HOST_STOP_NOT_RELABELLED_BY_DEADLINE").toBeUndefined();
+    expect(drained).toEqual([HOST_STOP_REASONS.change_journal]);
+    clearTimeout(slot.turn.timeoutHandle);
   });
 
   test("announcing a start dispatches the revision and moves the hand-over to started", async () => {

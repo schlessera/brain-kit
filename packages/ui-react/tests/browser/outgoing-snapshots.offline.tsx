@@ -20,6 +20,7 @@ import { UnconfirmedSends } from "../../src/components/chat/unconfirmed-sends.js
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { SESSION, snapshotHost, type SnapshotHost } from "../snapshot-host.js";
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 
 class FixtureSocket {
   static last: FixtureSocket | undefined;
@@ -143,19 +144,19 @@ test("case 22: at ten snapshots Send is refused with nothing sent and the text k
   for (const b of s.bubbles()) expect(indicatorName(b), "no message text in the indicator's name").not.toMatch(/Oar|wind/);
   await typed(s, "Turn the ship for Aeaea.");
   await expect.poll(() => saved(s), { timeout: 5_000 }).toBe(true);
-  // Typing while the creating save is out cannot reach the field, so a
-  // refusal gives the text back alone: never joined to newer words.
+  // Typing while the creating save is out goes into the draft (#4567): a
+  // refusal gives the snapshot's text back first, and the new words follow it.
   const release = fixture.holdSaves();
   s.sendButton().click();
   await expect.poll(() => s.field().value).toBe("");
   await userEvent.type(s.field(), "and more");
-  expect(s.field().value, "no edit while the snapshot is unacknowledged").toBe("");
+  expect(s.field().value, "the words typed meanwhile are shown, not dropped").toBe("and more");
   const before = document.activeElement;
   release();
   await expect.poll(() => s.host.querySelector("[data-outgoing-full]")?.textContent ?? "", { timeout: 5_000 }).toContain(FULL);
   expect(s.messages(), "no chat_message").toHaveLength(0);
   expect(fixture.saves.some((x) => x.status === 409), "the creating save was refused").toBe(true);
-  expect(s.field().value, "the text stays here").toBe("Turn the ship for Aeaea.");
+  await expect.poll(() => s.field().value, { message: "the text stays here, then the new words" }).toBe("Turn the ship for Aeaea.\nand more");
   expect(s.sendButton().getAttribute("aria-disabled")).toBe("true");
   expect(document.activeElement, "focus unchanged").toBe(before);
   expect(fixture.count()).toBe(10);
@@ -176,6 +177,96 @@ test("case 22: at ten snapshots Send is refused with nothing sent and the text k
   await expect.poll(() => fixture.count(), { timeout: 5_000 }).toBe(9);
   await expect.poll(() => s.host.querySelector("[data-outgoing-full]")).toBeNull();
   expect(s.sendButton().getAttribute("aria-disabled")).toBeNull();
+});
+
+test("a typed answer to an open question goes while a Send's snapshot is unacknowledged (#4567)", async () => {
+  const fixture = snapshotHost();
+  const s = await mount(fixture);
+  await typed(s, "Muster the crew at dawn.");
+  await expect.poll(() => saved(s), { timeout: watchdogMs(5_000) }).toBe(true);
+  const release = fixture.holdSaves();
+  s.sendButton().click();
+  await expect.poll(() => s.field().value).toBe("");
+  s.socket.deliver({ type: "ask_user_request", requestId: "ask-harbour", turnId: "turn-harbour", sessionId: SESSION,
+    questions: [{ question: "Which harbour first?", header: "Harbour", multiSelect: false, options: [{ label: "Ithaca", description: "Home" }, { label: "Pylos", description: "Nestor" }] }] });
+  await typed(s, "Ithaca");
+  s.sendButton().click();
+  // An answer goes on its own queue: no draft save holds it.
+  await expect.poll(() => s.root.stores.chat.getState().deliveries["ask-harbour"], { message: "TYPED_ANSWER_NOT_HELD", timeout: watchdogMs(5_000) }).toBeDefined();
+  release();
+});
+
+test("text pasted while a Send's snapshot is unacknowledged is shown in the field and kept once the host holds the send (#4567)", async () => {
+  const fixture = snapshotHost();
+  const s = await mount(fixture);
+  await typed(s, "Muster the crew at dawn.");
+  await expect.poll(() => saved(s), { timeout: watchdogMs(5_000) }).toBe(true);
+  const release = fixture.holdSaves();
+  s.sendButton().click();
+  await expect.poll(() => s.field().value).toBe("");
+  // A real clipboard paste: copied from another field, pasted into the composer.
+  const source = document.createElement("textarea");
+  source.value = "Bring the wine for Polyphemus.";
+  document.body.append(source);
+  source.focus(); source.select();
+  await userEvent.copy();
+  source.remove();
+  s.field().focus();
+  await userEvent.paste();
+  await expect.poll(() => s.field().value, { message: "PASTE_KEPT_VISIBLE" }).toBe("Bring the wine for Polyphemus.");
+  expect(s.draft()!.text, "it is the draft's, so a reload or a sign-out keeps it as any text").toBe("Bring the wine for Polyphemus.");
+  // A second Send waits: one snapshot is created at a time, even with a
+  // late refusal of an older edit on the draft.
+  const d0 = s.draft()!;
+  s.root.stores.drafts.getState().saveFailed(d0.draftId, { kind: "refused", edit: d0.edit - 1, reason: "An older edit was refused." });
+  s.sendButton().click();
+  await expect.poll(() => s.host.textContent ?? "", { message: "SECOND_SEND_WAITS" }).toContain("Send waits until your last message is saved.");
+  expect(s.draft()!.snapshots?.length, "no second snapshot while the first is unacknowledged").toBe(1);
+  // Nor after a refusal of this very edit: the pasted text stays in the composer, where the device keeps it.
+  const d1 = s.draft()!;
+  s.root.stores.drafts.getState().saveFailed(d1.draftId, { kind: "refused", edit: d1.edit, reason: "Refused." });
+  s.sendButton().click();
+  expect(s.draft()!.snapshots?.length, "SECOND_SEND_WAITS_AFTER_REFUSAL").toBe(1);
+  expect(s.field().value).toBe("Bring the wine for Polyphemus.");
+  // Nor beside a Send again replacement alone: the first snapshot as the host
+  // holds it, and its replacement not yet. The first save is still held, so no
+  // other save can go out while the draft is shown this way.
+  const d2 = s.draft()!;
+  const first = d2.snapshots![0]!;
+  const again = { snapshotId: "snap-again", requestId: "req-again", text: "Muster again", files: [], state: "dispatched" as const, createdAt: null, replaces: first.snapshotId };
+  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: { ...d2, failure: null,
+    host: { ...d2.host!, snapshots: [{ snapshotId: first.snapshotId, requestId: first.requestId, text: first.text, fileIds: [], state: first.state }] },
+    snapshots: [first, again] } } }));
+  s.sendButton().click();
+  expect(s.draft()!.snapshots?.length, "SECOND_SEND_WAITS_BESIDE_REPLACEMENT").toBe(2);
+  expect(s.field().value).toBe("Bring the wine for Polyphemus.");
+  // Nor by the direct path an inline image takes (#4567): its message would reach the chat ahead of the one still being saved.
+  const sentBefore = s.messages().length;
+  const image = { attachment: { data: "iVBORw0KGgo=", mediaType: "image/png" as const }, previewUrl: "data:image/png;base64,iVBORw0KGgo=", bytes: 8, name: "ithaca-map.png" };
+  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: { ...st.drafts[d2.draftId]!, attachments: [image] } } }));
+  // The composer renders the image before Send reads it.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  s.sendButton().click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(s.messages().length, "INLINE_SEND_WAITS_FOR_LAST_MESSAGE").toBe(sentBefore);
+  expect(s.draft()!.attachments).toHaveLength(1);
+  // Nor while the draft's delete is out, with every snapshot it shows as the host holds it.
+  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: { ...d2, failure: null,
+    host: { ...d2.host!, snapshots: [{ snapshotId: first.snapshotId, requestId: first.requestId, text: first.text, fileIds: [], state: first.state }] } } } }));
+  s.root.stores.drafts.getState().deleting(d2.draftId, true);
+  s.sendButton().click();
+  expect(s.draft()!.snapshots?.length, "SEND_WAITS_DURING_DELETE").toBe(1);
+  expect(s.field().value).toBe("Bring the wine for Polyphemus.");
+  s.root.stores.drafts.getState().deleting(d2.draftId, false);
+  s.root.stores.drafts.setState((st) => ({ drafts: { ...st.drafts, [d2.draftId]: d2 } }));
+  // An edit clears the refusal for the acknowledgement below.
+  s.root.stores.drafts.getState().saveFailed(d1.draftId, { kind: "unsaved" });
+  expect(s.field().value).toBe("Bring the wine for Polyphemus.");
+  release();
+  await acknowledged(fixture, s, "Muster the crew at dawn.");
+  expect(s.field().value, "the acknowledged send leaves it alone").toBe("Bring the wine for Polyphemus.");
+  expect(fixture.snapshotsOf(s.draft()!.draftId).map((x) => x.text), "only the sent text is the snapshot").toEqual(["Muster the crew at dawn."]);
+
 });
 
 test("case 22: when another device frees a slot, the queue-full notice clears within one re-read interval, from reads alone", async () => {
@@ -418,8 +509,10 @@ test("case 28: Delete… on a returned snapshot drops its references; the host k
     "Delete this unsent message and its 1 file? It stays on this brain for 7 days, then is removed.");
   action(document.querySelector("[data-snapshot-delete]")!, "Delete")!.click();
   await expect.poll(() => fixture.snapshotsOf("draft-ithaca").length, { timeout: 5_000 }).toBe(0);
-  const removing = fixture.saves.filter((x) => x.status === 200).at(-1)!;
-  expect(removing.body.snapshots, "the save leaves it out").toEqual([]);
+  // Nothing else is in this draft: it is deleted, never saved empty, which the
+  // host would refuse (#4566). Deleting it deletes the returned snapshot.
+  expect(fixture.calls.filter((c) => c === "DELETE /api/drafts/draft-ithaca"), "the draft is deleted").toHaveLength(1);
+  expect(fixture.saves.filter((x) => x.body.snapshots && x.body.snapshots.length === 0 && !x.body.text), "never saved empty").toEqual([]);
   expect(fixture.refs.get(fileId)?.size ?? 0, "its references are gone").toBe(0);
   expect(fixture.unreferencedSince.has(fileId), "the grace clock starts").toBe(true);
   expect(fixture.unlinked.size, "nothing is unlinked").toBe(0);
