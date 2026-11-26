@@ -6,6 +6,9 @@ import { GMAIL_DRAFT_ID_PATTERN, GMAIL_MESSAGE_ID_PATTERN, GMAIL_THREAD_ID_PATTE
 import { GMAIL_LIMITS } from "../catalog.js";
 import { GogShapeError } from "./codecs.js";
 
+/** gog echoes the whole written In-Reply-To/References: up to the 100 ids an
+ * approval card holds, each at most one header long, separated by spaces. */
+export const GOG_THREADING_HEADER_CHARS = 100 * (GMAIL_LIMITS.headerChars + 1);
 const messageId = z.string().regex(GMAIL_MESSAGE_ID_PATTERN);
 const threadId = z.string().regex(GMAIL_THREAD_ID_PATTERN);
 const labels = z.array(z.string().refine(isGmailLabelId)).max(GMAIL_LIMITS.labelChangesPerCall).nullable();
@@ -15,8 +18,8 @@ const draft = z.strictObject({
   draftId: z.string().regex(GMAIL_DRAFT_ID_PATTERN),
   message: z.strictObject({ id: messageId, threadId: threadId.optional(), labelIds: z.array(z.string().refine(isGmailLabelId)).optional() }),
   threadId: z.union([threadId, z.literal("")]),
-  inReplyTo: z.string().max(GMAIL_LIMITS.headerChars).nullable(),
-  references: z.string().max(GMAIL_LIMITS.headerChars).nullable(),
+  inReplyTo: z.string().max(GOG_THREADING_HEADER_CHARS).nullable(),
+  references: z.string().max(GOG_THREADING_HEADER_CHARS).nullable(),
   replyContextSource: z.enum(["caller", "carried"]).nullable(),
 });
 export interface GogWriteResults {

@@ -323,3 +323,40 @@ test("google update card keeps the display names gog keeps for omitted recipient
   fake.setScenario({ ...writesScenario(), [`gmail.drafts.get ${DRAFT}`]: { stdout: rawDraft("Home", "Ithaca", "Penelope <penelope@example.com>") } });
   expect(await p.execute(() => null)).toMatchObject({ ok: true });
 });
+
+// Round 4: gog's whole-header echo, edge padding and blank display names.
+test("google reply with a long lineage confirms against gog's own save echo", async () => {
+  const parent = "<loom-0712@example.com>";
+  const many = Array.from({ length: 99 }, (_, i) => `<raft-${i}@example.com>`);
+  const { fake, prepare } = replyTo([{ name: "References", value: many.join(" ") }]);
+  const p = await prepare();
+  const lineage = { in_reply_to: [parent], references: [...many, parent] };
+  fake.setScenario({ ...writesScenario(),
+    "gmail.drafts.create": { stdout: { ...fixture("draft-save"), inReplyTo: parent, references: lineage.references.join(" "), replyContextSource: "caller" } },
+    [`gmail.drafts.get ${DRAFT}`]: { stdout: rawDraft(p.payload.message.body_text, p.payload.message.subject!, "penelope@example.com", lineage) } });
+  expect(lineage.references.join(" ").length).toBeGreaterThan(2000);
+  expect(await p.execute(() => null), "REPLY_LONG_LINEAGE_CONFIRMED").toMatchObject({ ok: true });
+  await expect(replyTo([{ name: "References", value: `<raft@example.com>${" ".repeat(200_100)}<helm@example.com>` }]).prepare(), "REPLY_WRITTEN_REFERENCES_TOO_LONG")
+    .rejects.toMatchObject({ error: { reason: "reply_threading_unreadable" } });
+});
+
+test("google reply ids may be padded only by spaces or tabs", async () => {
+  const parent = "<loom-0712@example.com>";
+  for (const [label, headers] of [
+    ["NBSP_PARENT", [{ name: "Message-ID", value: `\u00a0${parent}` }, { name: "References", value: "<raft@example.com>" }]],
+    ["CRLF_PARENT", [{ name: "Message-ID", value: `${parent}\r\n` }]],
+    ["VT_REFERENCES", [{ name: "References", value: "\u000b<raft@example.com>" }]],
+  ] as const) await expect(replyTo([...headers]).prepare(), `REPLY_EDGE_PADDING_${label}`).rejects.toMatchObject({ error: { reason: "reply_threading_unreadable" } });
+  const padded = (await replyTo([{ name: "Message-ID", value: ` ${parent}\t` }, { name: "References", value: "<raft@example.com>" }]).prepare()).payload.message;
+  expect(padded, "REPLY_ASCII_PADDING_ACCEPTED").toMatchObject({ in_reply_to: [parent], references: ["<raft@example.com>", parent] });
+  // gog tests membership with the untrimmed id, so a padded id is appended again.
+  expect((await replyTo([{ name: "Message-ID", value: ` ${parent}` }, { name: "References", value: parent }]).prepare()).payload.message.references, "REPLY_RAW_MEMBERSHIP")
+    .toEqual([parent, parent]);
+});
+
+test("google update card drops a blank stored display name, as gog does", async () => {
+  const { ctx, fake } = setup();
+  fake.setScenario({ ...writesScenario(), [`gmail.drafts.get ${DRAFT}`]: { stdout: rawDraft("The ship is ready.", "Ithaca", "\"   \" <penelope@example.com>") } });
+  const p = await prepareGmailDraft(ctx, { action: "update", draft_id: DRAFT, body: "Home" }, { createdByBrainKit: false, fingerprint: null });
+  expect(p.payload.message.to, "UPDATE_BLANK_DISPLAY_NAME").toMatchObject([{ address: "penelope@example.com", display_name: null }]);
+});

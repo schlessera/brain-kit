@@ -3653,15 +3653,17 @@ label-directory read itself, which names no target.
 
 Reply cards carry the pre-read Message-ID and ordered References that gog will
 store, raw as gog reads them (encoded words are not decoded); the post-save
-read must match both. Each id must be `<local@domain>` in printable ASCII
-without `<` or `>`, and References hold at most 100 ids. Anything else, or an
+read must match both. Each id must be `<local@domain>` in printable ASCII,
+with no `<` or `>` inside the brackets, padded only by spaces or tabs, and
+References hold at most 100 ids. Anything else, or an
 unsent reply target, refuses as `draft_not_displayable/reply_threading_unreadable`.
 An empty recipient set after excluding the account refuses as
 `invalid_input/reply_no_recipient`. A complete draft body, including any quote,
 exceeding 32,768 characters refuses as `draft_not_displayable/composed_body_too_large`.
 Blank bodies and existing blank subjects refuse before admission as
 `invalid_input/draft_body_blank` and `invalid_input/draft_subject_blank`.
-Updates retain omitted recipients, with their display names, and the stored
+Updates retain omitted recipients, with their display names (a blank name is
+dropped, as gog drops it), and the stored
 threading under gog's rule: lineage is carried only with an In-Reply-To, and
 an empty References takes the In-Reply-To. The host explicitly supplies the
 current subject because gog requires it. No tool names or wire schemas change.

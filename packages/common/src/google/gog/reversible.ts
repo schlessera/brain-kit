@@ -10,6 +10,7 @@ import type { GoogleCallFacts } from "../classify.js";
 import type { GmailMessageRecord } from "../records.js";
 import { isTargetIndependentGogFailure, type GogExecution, type GogResult, type GogTransport } from "./transport.js";
 import { GOG_DRAFT_SAVE_INPUT, type GogOperationInput } from "./argv.js";
+import { GOG_THREADING_HEADER_CHARS } from "./write-codecs.js";
 
 export class GooglePreparationError extends Error {
   constructor(readonly error: GoogleError) { super(error.message); this.name = "GooglePreparationError"; }
@@ -125,7 +126,7 @@ function mailbox(address: string): GoogleMailbox {
   return { ...parsed.mailbox, display_name: null };
 }
 /** An omitted update field: gog v0.48.1 keepDraftRecipients keeps the stored mailbox, display name included. */
-const kept = (stored: GoogleMailbox): GoogleMailbox => ({ ...mailbox(stored.address), display_name: stored.display_name });
+const kept = (stored: GoogleMailbox): GoogleMailbox => ({ ...mailbox(stored.address), display_name: stored.display_name?.trim() ? stored.display_name : null });
 function mailboxList(header: string | null): GoogleMailbox[] {
   if (!header) return [];
   const parsed = parseGoogleMailboxList(header);
@@ -181,18 +182,22 @@ export async function prepareGmailDraft(ctx: GmailWritePreparationContext, input
       threadId = fetched.thread!.id;
       // Source-derived: gog v0.48.1 replyInfoFromMessage in gmail_reply.go reads
       // both headers raw, tests membership with the untrimmed Message-ID, and
-      // trims only when it writes them. Each id must also be one the post-save
-      // raw parser reads back (mime.ts MESSAGE_IDS), so a sender's id can never
-      // turn a saved reply into outcome_unknown; the card holds at most 100.
+      // trims only when it writes them. Only ASCII space or tab may pad an id,
+      // because gog appends the raw Message-ID and any other edge character
+      // would land inside the written References. Each id must be one the
+      // post-save raw parser reads back (mime.ts MESSAGE_IDS), the card holds
+      // at most 100, and gog's echo of the whole header must fit its codec.
+      const pad = (value: string) => value.replace(/^[\t ]+|[\t ]+$/g, "");
       const raw = source.message_id_header ?? "";
-      const parent = raw.trim();
-      const prior = source.references_header?.trim() ?? "";
+      const parent = pad(raw);
+      const prior = pad(source.references_header ?? "");
       const ids = (value: string) => value ? value.split(/[\t ]+/) : [];
       const valid = (id: string) => id.length <= GMAIL_LIMITS.headerChars && /^<[\x21-\x3b\x3d\x3f-\x7e]+@[\x21-\x3b\x3d\x3f-\x7e]+>$/.test(id);
+      const written = pad(prior.includes(raw) ? prior : prior ? `${prior} ${raw}` : raw);
       inReplyTo = [parent];
       references = ids(prior);
       if (!prior.includes(raw)) references.push(parent);
-      if (source.label_ids.includes("DRAFT") || !valid(parent) || !references.every(valid) || references.length > 100)
+      if (source.label_ids.includes("DRAFT") || !valid(parent) || !references.every(valid) || references.length > 100 || written.length > GOG_THREADING_HEADER_CHARS)
         fail("draft_not_displayable", "reply_threading_unreadable", "The reply target has no representable Message-ID or References, or is an unsent draft.");
       const sender = mailboxList(source.reply_to || source.from);
       if (!sender.length) unreadable();
