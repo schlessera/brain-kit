@@ -86,15 +86,20 @@ out". There is no cone and no fill between two lines, because a range is not
 a confidence interval. A line starts only at a measured current bucket: when
 now is a gap or another volume's figure, no line is drawn
 (`scenarioLines`, `packages/ui-kit/src/storage/history-geometry.ts:403-420`;
-`storageScenarios`, `packages/ui-react/src/components/settings/storage/storage-history.ts:129-159`).
+`storageScenarios`, `packages/ui-react/src/components/settings/storage/storage-history.ts:163-199`).
 A changed scope draws no projection and says so.
 
 **History (D3).** The chart draws actual endpoints of the selected volume in
 the selected tier. Gaps break the line and are hatched with "? no observation
 · not zero"; the current bucket is a hollow, provisional point; a point
-measured under another root scope is drawn apart. Markers are derived on the
-client from data the pane already has (gaps, scope changes, owner refusals,
-each tool's latest run) until the events timeline lands (#4541, #4548). The
+measured under another root scope is drawn apart. Markers come from data the
+pane already has (gaps, scope changes, owner refusals, each tool's latest run)
+joined with the server's events timeline (#4541, #4548): warning starts,
+steps, recoveries and ends, refusals and their resolutions, scope changes and
+maintenance runs, at the server's times. An event both report is drawn once,
+and a timeline that pauses a kind says so under the chart. Without a timeline
+(an older host's 404, or any failure) the markers are the client's alone
+(`storageMarkers`, `packages/ui-react/src/components/settings/storage/storage-history.ts:311`). The
 exact endpoints table, including every per-owner figure, scope and collector,
 sits behind **Measurements behind this chart**.
 

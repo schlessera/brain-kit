@@ -9,6 +9,8 @@
  * line and passes its reason through.
  */
 import type {
+  StorageEvent,
+  StorageEventKind,
   StorageEvidenceReason,
   StorageHistoryCapacity,
   StorageHistoryObservation,
@@ -18,6 +20,7 @@ import type {
   StorageMaintenanceRow,
   StoragePressureView,
   StorageScenario,
+  StorageSeverity,
 } from "@schlessera/brain-ui-sdk/protocol";
 import {
   projectionReasonText,
@@ -26,6 +29,7 @@ import {
   type HistoryScenario,
   type HistoryThresholds,
 } from "@schlessera/brain-ui-kit";
+import type { StorageTimeline } from "./storage-timeline.js";
 import {
   DAY_MS,
   NOMINAL_WINDOW_DAYS as NOMINAL_DAYS,
@@ -220,52 +224,185 @@ const touches = (receipt: StorageMaintenanceReceipt, identity: string) =>
   );
 
 /**
- * Markers from data the pane already has: one per gap run and scope change
- * in the series, each owner refusal on the record, and each operation's
- * latest run on this volume. Only markers inside the series' span (to `now`)
- * are kept, numbered in time order.
+ * Whether a receipt observed any volume at all. A run refused before it
+ * measured has no observation, which says nothing about where it ran.
+ */
+const measured = (receipt: StorageMaintenanceReceipt) =>
+  [receipt.before, receipt.after].some((observation) => !!observation?.capacities.length);
+
+const SEVERITY_WORD: Record<StorageSeverity, string> = { observed: "OK", low: "Low", critical: "Very low" };
+const SEVERITY_TONE: Record<StorageSeverity, NonNullable<HistoryMarker["tone"]>> = {
+  observed: "teal",
+  low: "gold",
+  critical: "red",
+};
+/**
+ * The server's operation labels (`descriptors`,
+ * `packages/ui-server/src/storage/maintenance.ts:16-20`), for a run whose
+ * row is not loaded.
+ */
+const OPERATION_LABEL: Record<StorageMaintenanceRow["id"], string> = {
+  "pack-git": "Pack Git objects",
+  "prune-scratch": "Prune eligible scratch",
+  "cleanup-staging": "Settled share staging cleanup",
+};
+const PAUSED_WORD: Record<StorageEventKind, string> = {
+  pressure: "warnings",
+  refusal: "refusals",
+  scope: "scope changes",
+  maintenance: "maintenance runs",
+};
+
+/** What one timeline event says, and its tone. Maintenance labels name the operation. */
+export function storageEventText(
+  event: StorageEvent,
+  operations: readonly StorageMaintenanceRow[] = []
+): { label: string; tone: NonNullable<HistoryMarker["tone"]> } {
+  switch (event.kind) {
+    case "pressure": {
+      const word = SEVERITY_WORD[event.severity];
+      if (event.phase === "start") return { label: `${word} warning started`, tone: SEVERITY_TONE[event.severity] };
+      if (event.phase === "step") return { label: `Warning changed to ${word}`, tone: SEVERITY_TONE[event.severity] };
+      if (event.phase === "recovery-started") return { label: `Recovery from ${word} began`, tone: "blue" };
+      return { label: "Warning ended · back to OK", tone: "teal" };
+    }
+    case "refusal":
+      return event.phase === "refused"
+        ? { label: `Owner refused a write: ${REFUSAL_RESOURCE[event.resource]}`, tone: "red" }
+        : { label: `Owner write succeeded after a refusal: ${REFUSAL_RESOURCE[event.resource]}`, tone: "teal" };
+    case "scope":
+      return { label: "Scope changed", tone: "purple" };
+    case "maintenance": {
+      const name = operations.find((row) => row.id === event.operation)?.label ?? OPERATION_LABEL[event.operation];
+      return event.phase === "requested"
+        ? { label: `${name} · requested`, tone: "neutral" }
+        : { label: `${name} · ${RUN_WORD[event.state]}`, tone: RUN_TONE[event.state] };
+    }
+  }
+}
+
+/** The evidence note for kinds the timeline stopped recording; `null` when none is paused. */
+export function storageTimelineNote(timeline: StorageTimeline | null | undefined): string | null {
+  const kinds = (Object.keys(PAUSED_WORD) as StorageEventKind[]).filter((kind) => timeline?.paused[kind]);
+  if (!kinds.length) return null;
+  return `Event timeline paused for ${kinds.map((kind) => PAUSED_WORD[kind]).join(", ")} · earlier events kept; later ones are not marked`;
+}
+
+const isRun = (state: StorageMaintenanceReceipt["state"]) => state === "waiting" || state === "running";
+
+/**
+ * The chart's markers for one volume and tier, numbered in time order.
+ *
+ * From the data the pane already has: one per gap run and scope change in
+ * the series, each owner refusal on the record, and each operation's latest
+ * run on this volume. With the server's timeline (#4541), its warning
+ * starts, steps, recoveries and ends, refusals and their resolutions, scope
+ * changes and maintenance runs join them at the server's times, and an event
+ * both report appears once:
+ *
+ * - a run is one marker, matched by receipt id and phase, never by time: the
+ *   timeline's event wins over the latest receipt for the same phase, and a
+ *   finished run hides its request. A run whose loaded receipt observed
+ *   only other volumes is not drawn on this one; a run the pane has no
+ *   receipt for, or whose receipt measured no volume, is drawn from the
+ *   timeline on every volume, as the timeline returns it for every one;
+ * - a client refusal is dropped when the timeline's latest event for its
+ *   target and resource opened it or resolved it later;
+ * - a series scope change is dropped when a timeline scope change falls
+ *   after the last observation that held the old scope, up to the one that
+ *   holds the new scope.
+ *
+ * Without a timeline (an older host's 404, or any failure) the markers are
+ * the client's alone. Only markers inside the series' span (to `now`) are
+ * kept.
  */
 export function storageMarkers(input: {
   series: readonly StorageSeriesPoint[];
   identity: string;
   pressure?: StoragePressureView | null;
   maintenance?: readonly StorageMaintenanceRow[];
+  timeline?: StorageTimeline | null;
   now: number;
   format?: StorageFormat;
 }): HistoryMarker[] {
   const format = input.format ?? storageFormat();
-  const { series } = input;
+  const { series, identity } = input;
   if (!series.length) return [];
   const from = series[0]!.at,
     to = Math.max(series.at(-1)!.at, input.now);
-  const found: Array<Omit<HistoryMarker, "n">> = [];
+  const timeline = (input.timeline?.events ?? []).filter((event) => event.kind === "maintenance" || event.identity === identity);
+  // `seq` orders timeline events that share an `at`, as they were recorded.
+  // A time is formatted only once its marker is inside the span, so a time
+  // past it never reaches the formatter, whatever its source.
+  type Found = Omit<HistoryMarker, "n" | "time"> & { seq?: number };
+  const found: Found[] = [];
+  const add = (at: number, tone: NonNullable<HistoryMarker["tone"]>, label: string, seq?: number) =>
+    found.push({ at, tone, label, ...(seq === undefined ? {} : { seq }) });
+
+  const scopes = timeline.filter((event) => event.kind === "scope");
   // Scope transitions are tracked apart from measured points: the observation
-  // that sees a new scope is itself a gap.
-  let scope: string | null = null;
+  // that sees a new scope is itself a gap. A change happened after the last
+  // observation that held the old scope, so a timeline scope change since
+  // then is the same one.
+  let scope: string | null = null,
+    scopeAt = -Infinity;
   series.forEach((value, index) => {
     const previous = series[index - 1];
-    if (value.gap && !previous?.gap)
-      found.push({ at: value.at, tone: "neutral", time: format.time(value.at), label: "Collection gap" });
+    if (value.gap && !previous?.gap) add(value.at, "neutral", "Collection gap");
     if (value.scopeKey === null) return;
-    if (scope !== null && value.scopeKey !== scope)
-      found.push({ at: value.at, tone: "purple", time: format.time(value.at), label: "Scope changed" });
+    if (
+      scope !== null &&
+      value.scopeKey !== scope &&
+      !scopes.some((event) => event.at > scopeAt && event.at <= value.at)
+    )
+      add(value.at, "purple", "Scope changed");
     scope = value.scopeKey;
+    scopeAt = value.at;
   });
-  for (const refusal of input.pressure?.causes.refusals ?? [])
-    found.push({
-      at: refusal.at,
-      tone: "red",
-      time: format.time(refusal.at),
-      label: `Owner refused a write: ${REFUSAL_RESOURCE[refusal.resource]}`,
-    });
+
+  for (const refusal of input.pressure?.causes.refusals ?? []) {
+    const latest = timeline
+      .filter((event) => event.kind === "refusal" && event.target === refusal.target && event.resource === refusal.resource)
+      .at(-1);
+    if (latest && !(latest.phase === "succeeded" && refusal.at > latest.at)) continue;
+    add(refusal.at, "red", `Owner refused a write: ${REFUSAL_RESOURCE[refusal.resource]}`);
+  }
+
+  // One run per receipt; each phase from the timeline when it has it.
+  const runs = new Map<string, { requested?: Found; finished?: Found }>();
+  const elsewhere = new Set<string>();
+  const run = (receipt: string) => runs.get(receipt) ?? (runs.set(receipt, {}), runs.get(receipt)!);
   for (const row of input.maintenance ?? []) {
     const receipt = row.latest;
-    if (!receipt || !touches(receipt, input.identity)) continue;
+    if (!receipt) continue;
+    if (!touches(receipt, identity)) {
+      // Only an observation of other volumes puts a run elsewhere; an
+      // unmeasured one keeps the timeline's marker on every volume.
+      if (measured(receipt)) elsewhere.add(receipt.id);
+      continue;
+    }
     const at = receipt.completedAt ?? receipt.startedAt ?? receipt.requestedAt;
-    found.push({ at, tone: RUN_TONE[receipt.state], time: format.time(at), label: `${row.label} · ${RUN_WORD[receipt.state]}` });
+    run(receipt.id)[isRun(receipt.state) ? "requested" : "finished"] = {
+      at,
+      tone: RUN_TONE[receipt.state],
+      label: `${row.label} · ${RUN_WORD[receipt.state]}`,
+    };
   }
+
+  for (const event of timeline) {
+    if (event.kind === "maintenance") {
+      if (elsewhere.has(event.receipt)) continue;
+      const { label, tone } = storageEventText(event, input.maintenance);
+      run(event.receipt)[event.phase] = { at: event.at, tone, label, seq: event.seq };
+      continue;
+    }
+    const { label, tone } = storageEventText(event, input.maintenance);
+    add(event.at, tone, label, event.seq);
+  }
+  for (const value of runs.values()) found.push((value.finished ?? value.requested)!);
+
   return found
     .filter((marker) => marker.at >= from && marker.at <= to)
-    .sort((a, b) => a.at - b.at || a.label.localeCompare(b.label))
-    .map((marker, index) => ({ ...marker, n: index + 1 }));
+    .sort((a, b) => a.at - b.at || (a.seq ?? Infinity) - (b.seq ?? Infinity) || a.label.localeCompare(b.label))
+    .map(({ seq: _seq, ...marker }, index) => ({ ...marker, time: format.time(marker.at), n: index + 1 }));
 }

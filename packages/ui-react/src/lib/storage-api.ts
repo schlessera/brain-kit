@@ -13,6 +13,7 @@ import type {
   StorageRemovalCapability,
   StorageRemovalReceipt,
   StorageRemovalInspection,
+  StorageEventsResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { ApiRequestError } from "./api-client.js";
@@ -51,6 +52,9 @@ export function storageApi(root: Pick<BrainUiServices, "request" | "apiBase">) {
   return {
     history: (signal?: AbortSignal) => call<StorageHistoryResponse>("/history", signal),
     guidance: (signal?: AbortSignal) => call<StorageGuidanceResponse>("/guidance", signal),
+    /** The events timeline after `since` (#4541); an older host answers 404. */
+    events: (since: number, signal?: AbortSignal) =>
+      call<StorageEventsResponse>(`/events?since=${since}`, signal),
     status: (signal?: AbortSignal) => call<StorageStatus>("", signal),
     scan: (signal?: AbortSignal) =>
       call<StorageStatus>("/scans", signal, "POST", {}),

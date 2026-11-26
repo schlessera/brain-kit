@@ -354,6 +354,36 @@ for (const refused of [401, 403])
       .toBeNull();
     expect(host.textContent).not.toContain("App journal: 4");
   });
+// The events timeline is read in the same owner-scoped batch (#4548): its
+// refusal clears the guidance exactly as a refused inventory read does.
+for (const refused of [401, 403])
+  test(`A refused events read clears accepted guidance (${refused})`, async () => {
+    const f = storageGuidanceFixture();
+    let refuse = false;
+    const fixture = {
+      ...f,
+      request: (url: string, init?: RequestInit) =>
+        refuse &&
+        new URL(url, "http://fixture.invalid").pathname === "/api/storage/events"
+          ? Promise.resolve(
+              Response.json(
+                { error: "Synthetic authority response" },
+                { status: refused }
+              )
+            )
+          : f.request(url, init),
+    };
+    await scene({ fixture });
+    await settled();
+    refuse = true;
+    refresh();
+    await expect
+      .poll(warning, {
+        ...reread,
+        message: "STORAGE_EVENTS_FORBIDDEN_HIDES_INDICATOR",
+      })
+      .toBeNull();
+  });
 test("A late response from the prior account cannot replace current evidence", async () => {
   const f = await scene({ route: true });
   await settled();

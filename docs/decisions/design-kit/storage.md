@@ -526,8 +526,8 @@ The maintainer's [epic rulings](https://github.com/schlessera/brain-kit/issues/4
 for numbers, ownership semantics, eligibility, review, removal, recovery and
 maintenance ownership; where the two differ, this entry controls. The
 components are the kit's (#4542–#4545); the derivations are ui-react's
-(#4546); the pane composes them in `StorageSession`
-(`packages/ui-react/src/components/settings/storage-tab.tsx:63-377`).
+(#4546); the pane composes them
+(`StorageSession`, `packages/ui-react/src/components/settings/storage-tab.tsx:62-413`).
 
 | Ruling | What the pane does | Supersedes |
 | --- | --- | --- |
@@ -539,7 +539,7 @@ components are the kit's (#4542–#4545); the derivations are ui-react's
 | D7 | Volumes are named from their contents on the client (Brain disk, App data disk, Backups for a volume holding only Operator backups, Memory (tmpfs), Unidentified volume), never after the loudest store. A sole volume is Disk. | "Disk · data volume" for every card |
 | D8 | Ownership is tint, edge and label: Brain solid, App dotted, Operator dashed, the smaller aggregate a neutral outline, an owner letter on tiles large enough to carry it. No hatching. | "App uses hatching" (Exploration and selection) |
 | D9 | One dashed line per qualified window, labelled with its window. The volume card's Runway names the window it comes from the same way (`~40 days · 30-day rate`); see [storage guidance](../storage-guidance.md#2026-11-25--scenario-drawing-and-shared-constants-4537-4539-4549). | — |
-| D10 | The UI derives names, threshold bytes, series, markers, unmeasured rows and before → after deltas. The chart ships with derived markers, before the events timeline (#4541, #4548). | — |
+| D10 | The UI derives names, threshold bytes, series, markers, unmeasured rows and before → after deltas. The chart joins those markers with the server's events timeline (#4541, #4548) and keeps the derived ones alone when no timeline is available. | — |
 | D11 | **Find large files** is a mode of the breakdown and the pane's single primary button. | Find large files in the pane heading |
 | D12 | The chart is hand-rolled SVG in ui-kit with pure, unit-tested geometry. | — |
 
@@ -571,15 +571,15 @@ entries, stores not measured), `◷` out of date (from `staleAfter`), `◐`
 measuring (with Cancel in place of Measure again), `○` not measured yet (with
 the primary **Measure**), `!` last measurement failed. A new measurement waits
 behind **New measurement ready · Show**, as before
-(`storageStatusLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:45-99`).
+(`storageStatusLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:49-103`).
 
 The Alerts row follows the server, not the brief's first draft: notices go
 out only at Very low; the 22:00–08:00 quiet hours hold Very low too; an
-unknown timezone sends nothing (`packages/ui-server/src/storage/notify-writes.ts:62-69`).
+unknown timezone sends nothing (`eligible`, `packages/ui-server/src/storage/notify-writes.ts:62-69`).
 The bounds are read from the guidance response's `quietHours`. **Change**
 reveals this device's push switch, the reported devices and, behind a
 disclosure, the delivery receipts
-(`storageAlertsLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:121-137`).
+(`storageAlertsLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:125-141`).
 
 ### Find large files mode
 
