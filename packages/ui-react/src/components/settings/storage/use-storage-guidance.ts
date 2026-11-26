@@ -113,8 +113,9 @@ function createEvidence(root: BrainUiRoot) {
         )
           return;
         // Every read in the batch is owner-scoped: a refusal of any of them,
-        // including the inventory read after accepted guidance, clears it all.
-        const denied = [guidance, history, status].some(
+        // including the inventory read after accepted guidance and the events
+        // timeline, clears it all.
+        const denied = [guidance, history, status, timeline].some(
           (value) =>
             value.status === "rejected" &&
             value.reason instanceof ApiRequestError &&
