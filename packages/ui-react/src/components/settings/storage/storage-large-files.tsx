@@ -132,7 +132,11 @@ export function StorageLargeFiles({
     );
   });
   const blocked = view.busy || operationPending || view.overSelectionLimit;
-  const footer = unavailable ? null : view.selection.length > 0 ? (
+  // Receipt access never depends on removal capability (#4549 review): the
+  // server can report removal unavailable while it still holds the last
+  // receipt, and that receipt is the only way back to its outcome and Undo.
+  const lastRemoval = view.receipt ? <LastRemoval receipt={view.receipt} onReceipt={onReceipt} /> : null;
+  const footer = unavailable ? lastRemoval : view.selection.length > 0 ? (
     <StorageSelectionBar
       count={view.selection.length}
       size={bytes(view.selectedBytes)}
@@ -142,8 +146,8 @@ export function StorageLargeFiles({
         if (!blocked) onReview();
       }}
     />
-  ) : view.receipt ? (
-    <LastRemoval receipt={view.receipt} onReceipt={onReceipt} />
+  ) : lastRemoval ? (
+    lastRemoval
   ) : (
     <StorageSelectionBar count={0} size="" basis="" onClear={view.clearSelection} onReview={onReview} />
   );
