@@ -207,6 +207,12 @@ export "./internal/google-gog" (./src/google/gog/index.ts)
   isTargetIndependentGogFailure
   verifyGogBinary
 
+export "./internal/google-ledger" (./src/google/ledger.ts)
+  type GoogleApproval
+  type GoogleApprovalScope
+  type GoogleLedger
+  openGoogleLedger
+
 export "./internal/google-operations" (./src/google/index.ts)
   GMAIL_DRAFT_ACTIONS
   GMAIL_DRAFT_ID_PATTERN

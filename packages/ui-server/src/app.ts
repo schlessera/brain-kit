@@ -1,3 +1,7 @@
+import { createGoogleApprovalRoutes } from "./routes/google-approvals.js";
+import { safetyProjection } from "./governance/safety-store.js";
+import { openGoogleLedger, type GoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
+import { createGoogleAllowances } from "./google/allowances.js";
 import { CombinedSafetyReviews } from "./governance/combined-safety-reviews.js";
 import { createReferenceOwnerContinuity } from "./brain/reference-owner-resolution.js";
 import { createTrustSettings } from "./brain/trust-settings.js";
@@ -51,7 +55,7 @@ import { initializeGoogleWrites } from "./google/startup.js";
 import { createGoogleToolsHost, googlePrincipalKind } from "./google/host.js";
 import { governancePolicyReaderFor } from "./brain/governance-policy.js";
 import { createGoogleDetailRoutes } from "./routes/google-details.js";
-import { googleHostLayout, googleWorkerMasks } from "./google/home.js";
+import { checkGoogleHome, googleHomeAreas, googleHostLayout, googleWorkerMasks } from "./google/home.js";
 import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, googleHostEnv, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
@@ -871,8 +875,19 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const googleState = createGoogleStateWrites(db, writer);
   const googleStartup = await initializeGoogleWrites(googleState, message => brainLog.emit({ severityText: "WARN", body: message }));
   bootCleanup.push(() => googleStartup.close());
+  const googleAllowances = createGoogleAllowances(db, writer), googleEpoch = crypto.randomUUID();
+  let googleLedger: GoogleLedger | undefined;
+  const openGoogleLedgerOnce = () => {
+    if (!googleEnv.home) throw new Error("Google home is not configured");
+    const checked = checkGoogleHome(googleEnv.home, googleHomeAreas(googleLayout), { mask: googleMasks.home });
+    if (!checked.ok) throw new Error(`Google approval home unavailable: ${checked.reason}`);
+    return googleLedger ??= openGoogleLedger(join(checked.path, "approvals.db"));
+  };
+  const googlePolicyHash = () => governancePolicyReaderFor(config.brainPath).load().hash ?? "missing";
+  bootCleanup.push(() => googleLedger?.close());
   const googleTools = createGoogleToolsHost({ writes: {
-    brainId: config.brainPath, state: googleState, ready: googleStartup.ready,
+    brainId: config.brainPath, hostEpoch: googleEpoch, ledger: openGoogleLedgerOnce, allowances: googleAllowances,
+    resolveAccount: alias => google.resolveAccount(alias), currentPolicyHash: googlePolicyHash, state: googleState, ready: googleStartup.ready,
     currentPolicy: () => governancePolicyReaderFor(config.brainPath).load().policy.google,
     isDraftLocked: (account, draft, epoch, now) => isDraftSendLocked(db, config.brainPath, account, draft, epoch, now),
     preparedWrites: options.googlePreparedWrites,
@@ -1291,6 +1306,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       return (await registry.getBackendForSession(stored?.backendId ?? null)).getHistory(sessionId);
     },
     settled: () => host.historySettled() }));
+  app.route("/api", createGoogleApprovalRoutes({ brainId: config.brainPath, hostEpoch: googleEpoch,
+    ledger: openGoogleLedgerOnce, allowances: googleAllowances, policyHash: googlePolicyHash,
+    authorized: id => googlePrincipalKind(resolvePrincipal(db, id), authMode, Date.now()) === "owner",
+    owns: (id, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && chatOwnedBy(db, chat, id); },
+    tainted: sessionId => safetyProjection(db, null, sessionId).restriction !== "normal" }));
   // Explicit local chat deletion (#3230), on a catalog that can retire chats.
   if (host.catalog.retireChat && host.catalog.cleanChatStore) {
     const chatDeletion = host.chatDeletion = createChatDeletion({ catalog: host.catalog, backends: () => registry.getBackends(),
@@ -1627,6 +1647,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => hostExecution.release());
       // Consumers have drained; close the shared write connection before its reader.
       await attempt(() => googleTools.close?.());
+      await attempt(() => googleLedger?.close());
       await attempt(() => googleStartup.close());
       await attempt(() => writer.close());
       await attempt(() => db.close());

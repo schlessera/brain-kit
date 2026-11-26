@@ -35,8 +35,8 @@ answer `unavailable` (`writes_unavailable`) until their operations land in
 write-success envelope, commit-confirmed decision/inverse storage and journal
 receipts. It rechecks live authority, safety and the current Google block;
 card-less writes re-evaluate admission and G2 routing to recipient `google`
-at dispatch. Cards authorize one exact operation; both standing offers remain
-off until #4212. Startup cleanup failure contains only writes and recovers
+at dispatch. Additively (#4212), reversible cards offer remembered approval in
+untainted sessions or a bounded session allowance in tainted sessions. Startup cleanup failure contains only writes and recovers
 automatically. The engine does not enable concrete operations itself. See
 [write admission and results](integration-contract/wire.md#google-write-results-and-admission-additive-4211). Results are typed
 payloads in two views: `structured`, only host-validated ids, label ids and
@@ -61,7 +61,8 @@ This ships in a minor.
 
 ## Google commands (additive, 0.46.0, #4208)
 
-`brain google status`, `connect` and `gmail search|read|labels` print the
+`brain google status`, `connect`, `approvals`, `revoke <approval-id>` and
+`gmail search|read|labels` print the
 envelope `{ ok, operation, data }` or `{ ok: false, operation, error: { code,
 reason, message } }` and exit `0` or `1`. The reads return the Google
 operations' structured or content results in the standalone posture, with no

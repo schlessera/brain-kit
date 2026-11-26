@@ -170,6 +170,12 @@ export function commitSafetyReview(db: Database, requestId: string, value: Safet
         body.session.sessionId, body.session.historyOwnerId, body.session.historyGeneration, advanceSafetyRevision(db),
         actor.principalId, requestId, at, "safe", actor.channel);
       projection = safetyProjection(db, null, body.session.sessionId);
+      if (projection.restriction === "normal") {
+        // The same canonical history can have several session aliases. None retains tainted-only authority.
+        db.query(`DELETE FROM google_session_allowances WHERE session_id=? OR session_id IN
+          (SELECT session_id FROM safety_sessions WHERE history_owner_id=? AND generation=?)`)
+          .run(body.session.sessionId, body.session.historyOwnerId, body.session.historyGeneration);
+      }
     }
     const result = receipt(body, requestId, row.operation_id, reason, reason ? null : projection, !reason);
     const json = JSON.stringify(result);

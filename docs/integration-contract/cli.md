@@ -1545,3 +1545,22 @@ written. Existing fields and dispositions retain their meanings. Preview-only
 new model pass. Use the explicit `propagation --dry-run` to inspect prospective
 automation. The operation exits 0 after reporting outcomes, including unavailable
 and deferred cases; usage/configuration errors retain exit 1.
+
+### Google approval management (additive, #4212)
+
+`brain google approvals --json` lists remembered approvals for the current
+brain, across principals and connected account identities:
+`{ ok: true, operation: "approvals", data: { approvals: [...] } }`.
+Each row has `id`, `principal_id`, `brain_id`, `account_identity`, `operation`,
+`entity` and `approved_at` (epoch milliseconds). `id` is an opaque revocation
+identifier; `account_identity` is the host-resolved lowercased account address.
+
+`brain google revoke <approval-id> --json` returns
+`{ ok: true, operation: "revoke", data: { id, revoked: boolean } }`.
+An absent or other-brain id returns `revoked: false`. Both commands use the
+same selected Google home as connect/status, without invoking gog or opening
+a keyring. Owner-shell access is the standalone boundary. Neither command
+creates approvals or manages hosted session allowances. Listing/revocation
+works even when Google is disconnected. Success exits 0; storage or home
+failure exits 1 with the existing `{ ok: false, operation, error: { code,
+reason, message } }` envelope (`unavailable / ledger_unavailable` for storage).

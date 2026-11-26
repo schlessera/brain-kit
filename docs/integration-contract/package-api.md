@@ -6278,3 +6278,19 @@ The prepared-write test factories are not public exports or configuration.
 `GOOGLE_APPROVAL_CARD_BYTES` (256,000) is the most UTF-8 bytes a mail
 approval card's JSON may take; the host refuses a larger card before showing
 it, so replication never shrinks an approval.
+
+## Google standing stores (additive, #4212)
+
+The internal common subpath `@schlessera/brain-common/internal/google-ledger`
+exports `openGoogleLedger`, `GoogleLedger`, `GoogleApproval` and
+`GoogleApprovalScope`. The concrete ledger lists, remembers and revokes
+principal/brain/account/operation/entity approvals. It is private host state,
+not an extension seam or brain index. `GogTransport.resolveAccount()` is an
+internal host-only read returning `GogResult<string>` from the validated alias
+list; the returned lowercased address never enters a model-facing result.
+
+UI-server's internal allowance writer uses migration 099's session-owned
+rows; migration 100 adds authority/policy invalidation triggers. Reservations
+are serialized through the SQLite writer. The existing Google card and result
+schemas retain their shapes; standing offers and admission variants now have
+runtime behavior described in [the wire contract](wire.md#google-standing-admission-additive-4212).

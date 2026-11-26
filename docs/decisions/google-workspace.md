@@ -137,3 +137,18 @@ standalone inverses, which hold no message bodies.
   loaded, and decide availability at call time.
 - **Direct REST from day one.** Most of the work before the first read; kept as
   the per-operation migration path.
+
+## Account-resolution dispatch window (#4212)
+
+The host reads the verified `auth alias list --json` shape before preparing a
+write and again as the last await before execution. Grants and inverses use
+the lowercased resolved address, never the alias. A changed address refuses
+that call and a missing or unreadable identity is unavailable. The final
+admission callback stays synchronous and rereads local grant liveness.
+
+Only the owner can repoint the alias in the protected Google home, but a
+window remains between the last alias read and gog's write spawn. The argv
+builder still accepts aliases only: the pinned binary's handling of a
+resolved address in `--account` is not verified. Closing this window is an
+open transport question for #4213; this implementation makes no atomic
+alias-binding claim.

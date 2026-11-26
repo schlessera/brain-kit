@@ -54,7 +54,7 @@ import { checkGoogleHome, selectGoogleHome, type GoogleHomeSelection } from "./h
 export const GOOGLE_RECIPIENT = "google";
 
 export type GoogleReadCommand = "gmail.search" | "gmail.thread.get" | "gmail.message.get" | "gmail.draft.get" | "gmail.labels.list";
-export type GoogleCliOperation = "status" | "connect" | GoogleReadCommand;
+export type GoogleCliOperation = "status" | "connect" | "approvals" | "revoke" | GoogleReadCommand;
 
 export type GoogleEnvelope =
   | { ok: true; operation: GoogleCliOperation; data: unknown }

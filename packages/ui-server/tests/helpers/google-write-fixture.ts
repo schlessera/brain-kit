@@ -15,7 +15,7 @@ export function googleModifyPrepared(call: GoogleToolCall = GOOGLE_MODIFY, dispa
   if (call.tool !== "brain_google_gmail_modify") throw new Error("Expected modify input");
   return { operation: "gmail.modify", input: call.input, facts: { items: 1, target_label_ids: ["INBOX"] },
     classificationFacts: {}, card: structuredClone(GOOGLE_CARD),
-    inverse: { accountIdentity: "account-ithaca", inverse: { message_ids: ["19a0c3d2e4f50601"], add_label_ids: ["INBOX"] },
+    inverse: { inverse: { message_ids: ["19a0c3d2e4f50601"], add_label_ids: ["INBOX"] },
       precondition: { removed: ["INBOX"] }, snapshot: null, createdAt: Date.now(), expiresAt: Date.now() + 60_000 },
     execute: async finalAdmission => { const error = finalAdmission(); if (error) return { ok: false, error }; dispatch(); return { ok: true, result: structuredClone(GOOGLE_CARD.payload) }; } };
 }

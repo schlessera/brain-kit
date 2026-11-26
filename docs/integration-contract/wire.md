@@ -3253,8 +3253,8 @@ fields; always sends `always: true`; session sends `forSession: true`.
 Google choices are forwarded distinctly as `PermissionDecision`, including
 when `updatedInput` is present; other kinds retain their existing behavior.
 Neither a generic tool grant nor a generic Always allow answer authorizes or
-persists a Google grant. This contract does not store standing approvals:
-Google ledger behavior belongs to #4212 and dedicated buttons to #4215/#4216.
+persists a Google grant. Additively (#4212), the Google ledger retains remembered approvals and the
+UI-server database retains session allowances; dedicated UI remains separate.
 The write host must validate offered choices, unchanged input and current
 authority before dispatch. Decline retains the existing `tool_denial` shape.
 
@@ -3283,8 +3283,9 @@ and is never shown, so an approval frame is never shrunk in transit), and
 ambiguous failure after dispatch is `outcome_unknown`: the write may have
 happened; the host never retries it.
 
-Until #4212, both card offers are **false**, remembered approvals and session
-allowances are empty, and either standing answer is declined. Canonically
+Additively (#4212), reversible untainted cards offer `allow_always`; reversible
+tainted cards offer `allow_for_session`. Irreversible cards offer neither; an
+answer choosing an unavailable offer or both offers is declined. Canonically
 identical approval input echoes are accepted; any edit is declined. A card
 approves one exact operation, once. Only the brain's owner can answer a Google
 card: an answer from another principal is ignored and the card stays pending. The host rechecks live owner authority,
@@ -3552,3 +3553,45 @@ after the policy lock and refresh waits. Expired or concurrently pruned receipts
 return JSON null without needing another write to prune storage. Authority and
 session fences still apply before delivery. The UI sequences focus reads so an older
 success or failure cannot replace a newer rule-presence result.
+
+### Google standing admission (additive, #4212)
+
+An unedited screen allow with `always` remembers (principal, brain, resolved
+account identity, operation, entity) in a private common SQLite ledger. Memory
+is inert while tainted, and cannot override deny, hidden labels, routing,
+per-call or per-turn limits. `forSession` on a tainted reversible card grants
+that session alone at most 100 subsequent items, across turns, for at most
+24 hours and only within the granting host epoch. Entities granted on one card
+share its 100-item budget. Reservations commit before execution; an uncertain
+execution or later refusal does not refund them. The per-turn limit still
+applies. Voice may consume standing admission but never grant it.
+
+Allowances become void on a full governance-policy hash change, principal
+loss or return to normal safety policy. They are never transferred to a
+handoff, fork or imported session, and chat deletion scrubs them. Final
+admission rereads grant liveness, policy, safety, authority and routing;
+revocation applies to the next call, including an awaiting dispatch.
+
+The host resolves the alias using `auth alias list --json` before preparing
+an approval and as the last await before execution, under its write lock.
+The lowercased address keys grants, inverses and locks; an alias never does.
+A different address refuses that call as `unavailable / account_changed`.
+Missing aliases refuse as `unavailable / account_unresolved`, and malformed
+alias lists as `transport_incompatible / unexpected_shape`. Identity failure
+restricts that write; the next call resolves again. A failed standing store
+removes its card-less admission; an exact once card remains available.
+
+Residual risk: the owner can repoint an alias between the last resolution and
+gog's write spawn. Passing the resolved address to `--account` could close
+this window, but its pinned-gog behavior has not been verified; #4213 must
+resolve it before changing the alias-only argv contract. No provider-facing
+tool, prompt or earlier message changes with a grant.
+
+A `google_call` audit may add `standingFailures`, at most four owner-only
+storage diagnostics with `store` (`remembered_approvals` or
+`session_allowances`), `site` (`read`, `reconcile`, `grant` or `reserve`),
+`errorClass` (128 characters) and credential-redacted `message` (500 characters).
+The event supplies session, turn and time. This preserves why a call needed a
+card even when that card succeeded. These diagnostics never enter tool output
+or safety evidence. A database-wide recording failure can also prevent this
+audit; the structured host log remains the fallback in that case.

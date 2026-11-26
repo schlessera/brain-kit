@@ -1,3 +1,4 @@
+import { createFakeGog } from "../../common/tests/support/fake-gog.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 /** Both first-party simulated backends through the real WebSocket bridge. No
  * executable Google transport, credentials, network or ambient Google homes. */
@@ -5,7 +6,6 @@ import { installFixtureNativeStartupViews } from "./helpers/fixture-native-start
 installFixtureNativeStartupViews();
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { Database } from "bun:sqlite";
 import { handleGoogleTool, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
@@ -32,7 +32,7 @@ const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
 type App = Awaited<ReturnType<typeof createApp>>;
 interface Options {
-  answer?: "allow" | "edit" | "decline" | "stop";
+  answer?: "allow" | "edit" | "decline" | "stop" | "always" | "voice-grant";
   principal?: "agent";
   voice?: boolean;
   prepare?: (app: App) => void;
@@ -41,18 +41,27 @@ interface Options {
   startupFailure?: boolean;
 }
 async function hosted(backendId: "pi" | "claude", options: Options = {}) {
-  const root = await mkdtemp(resolve(tmpdir(), "google-ws-")), brain = resolve(root, "brain");
+  await mkdir(resolve("tmp"), { recursive: true });
+  const root = await mkdtemp(resolve("tmp/google-ws-")), brain = resolve(root, "brain");
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
   await mkdir(resolve(brain, "context/policies"), { recursive: true });
   await writeFile(resolve(brain, "context/policies/governance.md"), `---\nschema_version: 1\ngoogle:\n  enabled: true\n  account: ithaca\n  services: [gmail]\n  modes: { reversible: ask }\n---\nIthaca's mail rules.\n`);
-  // This test exercises write admission, never credential/mask discovery.
+  const fake = createFakeGog({ "auth.alias.list": { stdout: { aliases: { ithaca: "odysseus@example.com" } } } });
+  fake.environment.home = resolve(root, "google-home");
+  await mkdir(fake.environment.home, { mode: 0o700 });
+  cleanups.push(() => fake.dispose());
+  // The fake resolves identity; no real credential is ever opened.
   const layout = spyOn(home, "googleHostLayout").mockImplementation(input => ({ brainPath: input.brainPath, dbPath: input.dbPath, workerMounts: [], transportReads: [] }));
   cleanups.push(() => layout.mockRestore());
   const previous = process.env.BRAIN_UI_GOOGLE_HOME;
-  delete process.env.BRAIN_UI_GOOGLE_HOME;
+  process.env.BRAIN_UI_GOOGLE_HOME = fake.environment.home;
+  const password = process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD;
+  process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD = fake.environment.keyringPassword;
+  cleanups.push(() => { if (password === undefined) delete process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD; else process.env.BRAIN_UI_GOOGLE_KEYRING_PASSWORD = password; });
   cleanups.push(() => { if (previous === undefined) delete process.env.BRAIN_UI_GOOGLE_HOME; else process.env.BRAIN_UI_GOOGLE_HOME = previous; });
-  const dbPath = resolve(root, "ui.db");
+  await mkdir(resolve(root, "data"));
+  const dbPath = resolve(root, "data/ui.db");
   if (options.seed || options.startupFailure) {
     const db = createUiDb(dbPath);
     try {
@@ -81,7 +90,7 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
   app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brain, DB_PATH: dbPath,
     HOST: "127.0.0.1", AUTH_MODE: "password", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash("Odysseus strings the bow"),
     COOKIE_SECRET: "odysseus-google-write-cookie-secret", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
-    registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(),
+    googleBinary: fake.binary, registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(),
     googlePreparedWrites: { "gmail.modify": async (_, call) => {
       prepares++;
       return googleModifyPrepared(call, () => {
@@ -111,8 +120,15 @@ async function hosted(backendId: "pi" | "claude", options: Options = {}) {
       if (frame.type !== "tool_approval_request" || answered.has(frame.toolUseId)) continue;
       answered.add(frame.toolUseId); cards.push(frame);
       const ending = options.answer ?? "allow";
-      if (ending === "stop") send({ type: "cancel", sessionId: SESSION });
+      if (ending === "voice-grant") {
+        send({ type: "tool_approval", toolUseId: frame.toolUseId, turnId: frame.turnId, channel: "voice", always: true });
+        await Bun.sleep(20);
+        expect(dispatches, "GOOGLE_VOICE_CANNOT_GRANT").toBe(0);
+        expect(app.wsHost.coordinator.pendingApprovals.has(String(frame.toolUseId)), "GOOGLE_VOICE_LEAVES_CARD_PENDING").toBe(true);
+        send({ type: "tool_denial", toolUseId: frame.toolUseId, turnId: frame.turnId, channel: "card", message: "Keep the message" });
+      } else if (ending === "stop") send({ type: "cancel", sessionId: SESSION });
       else send({ toolUseId: frame.toolUseId, turnId: frame.turnId, channel: "card", type: ending === "decline" ? "tool_denial" : "tool_approval",
+        ...(ending === "always" ? { always: true } : {}),
         ...(ending === "decline" ? { message: "Keep it in the inbox" } : {}),
         ...(ending === "edit" ? { updatedInput: { ...(frame.input as object), payload: { ...GOOGLE_CARD.payload, message_ids: ["19a0c3d2e4f50602"] } } } : {}) });
     }
@@ -134,7 +150,7 @@ for (const backend of ["claude", "pi"] as const) {
     } });
     expect(f.result, "GOOGLE_WS_SUCCESS").toMatchObject({ ok: true, operation: "gmail.modify", admission: "card", result: GOOGLE_CARD.payload });
     expect(f.cards, "GOOGLE_WS_ONE_CARD").toHaveLength(1);
-    expect(f.cards[0]).toMatchObject({ kind: "google", input: GOOGLE_CARD });
+    expect(f.cards[0]).toMatchObject({ kind: "google", input: { ...GOOGLE_CARD, offers: { allow_always: true, allow_for_session: false } } });
     expect(f.dispatches, "GOOGLE_WS_SINGLE_DISPATCH").toBe(1);
   }, 60_000);
   test(`google ${backend} WebSocket voice shows no needed card and dispatches nothing`, async () => {
@@ -189,3 +205,8 @@ test("google real app startup failure contains writes, leaves reads usable, and 
     await Bun.sleep(20);
   }
 }, 60_000);
+
+for (const backend of ["pi", "claude"] as const) test(`google ${backend} voice-attributed standing choice never grants`, async () => {
+  const f = await hosted(backend, { answer: "voice-grant" });
+  expect(f.result).toMatchObject({ ok: false, error: { reason: "declined" } });
+});
