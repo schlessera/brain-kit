@@ -1166,7 +1166,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         }
         // A Send made meanwhile, which the host never saw, stays after the host's own.
         const fresh = draftSnapshots(d).filter((x) => !host.some((h) => h.snapshotId === x.snapshotId) && !acknowledged.has(x.snapshotId));
-        const snapshots = [...mergeSnapshots(d.snapshots, host.filter((h) => !unreturnedIds.has(h.snapshotId))), ...unreturned, ...fresh];
+        // One already returned there and deleted here stays deleted: the host lets a save leave it out.
+        const kept = host.filter((h) => !(acknowledged.has(h.snapshotId) && !local.has(h.snapshotId)));
+        const snapshots = [...mergeSnapshots(d.snapshots, kept), ...unreturned, ...fresh];
         put({ ...d, host: hostCopy(draft, -1), snapshots, uncertain: false, edit: d.edit + 1, editedAt: now() });
       },
 
