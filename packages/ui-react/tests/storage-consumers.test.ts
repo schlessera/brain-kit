@@ -3,9 +3,8 @@ import {
   foldSidecarLabels,
   sidecarBase,
   storageConsumerRows,
-  storageListing,
 } from "../src/components/settings/storage/storage-consumers.js";
-import { bytes, mapItems } from "../src/components/settings/storage/storage-model.js";
+import { bytes } from "../src/components/settings/storage/storage-model.js";
 import { GB, appRoots, brainRoots, inventory, node, page, root } from "./fixtures/storage-volumes.js";
 
 describe("sidecar folding", () => {
@@ -39,30 +38,6 @@ describe("sidecar folding", () => {
       ["Operational database-shm", null, "couldn't read file details"],
       ["Operational database-wal", 400_000_000, undefined],
     ]);
-  });
-
-  // #4549 review F3: the map keeps a tile per member, so the list
-  // must reach each member too, with the member's own action.
-  test("every folded member stays reachable from the list as its own part row", () => {
-    const stores = appRoots.map(node);
-    const { rows } = storageConsumerRows(page(stores), "allocated", { inventory: inventory([], appRoots) });
-    const database = rows.find((row) => row.name === "Operational database")!;
-    const id = (name: string) => stores.find((value) => value.name === name)!.id;
-    expect(
-      (database.parts ?? []).map((part) => [part.name, part.nodeId, part.action, part.size, part.meta, part.reason]),
-      "STORAGE_FOLDED_MEMBERS_REACHABLE"
-    ).toEqual([
-      ["Operational database-shm", id("Operational database-shm"), "drill", null, "part of Operational database", "couldn't read file details"],
-      ["Operational database-wal", id("Operational database-wal"), "drill", bytes(400_000_000), "part of Operational database", undefined],
-    ]);
-    const files = [
-      node({ id: 22, rootId: 6, name: "ledger.db", kind: "file", owner: "app", bytes: 2 * GB }),
-      node({ id: 23, rootId: 6, name: "ledger.db-wal", kind: "file", owner: "app", bytes: 1_000_000 }),
-    ];
-    const [ledger] = storageConsumerRows(page(files, appRoots[1]!.id), "allocated").rows;
-    expect(ledger!.parts?.map((part) => [part.name, part.nodeId, part.action])).toEqual([["ledger.db-wal", files[1]!.id, "inspect"]]);
-    // A row with nothing folded has no parts.
-    expect(rows.find((row) => row.name === "App journal")!.parts ?? []).toEqual([]);
   });
 
   test("a folded member's reason survives, and the database's own reason comes first", () => {
@@ -118,58 +93,6 @@ describe("sidecar folding", () => {
       ["ledger", GB, "inspect", 1],
       ["ledger-wal", 100, "inspect", 1],
     ]);
-  });
-});
-
-// #4549 review F3 (third round): the map gathers what it does not draw
-// into "N smaller items", and opening it lists exactly those entries. A
-// folded database drawn as its own tile must not take its smaller
-// sidecar out of that list, nor a drawn sidecar stay inside its row.
-describe("smaller items", () => {
-  function ledger(database: number, wal: number) {
-    const nodes = [
-      node({ id: 22, rootId: 6, name: "ledger.db", kind: "file", owner: "app", bytes: database }),
-      node({ id: 23, rootId: 6, name: "ledger.db-wal", kind: "file", owner: "app", bytes: wal }),
-    ];
-    const tree = { ...page(nodes, appRoots[1]!.id), totals: { logical: database + wal, allocated: database + wal, coverage: "complete" as const } };
-    const tiles = mapItems(tree, "allocated", false);
-    const shown = new Set(tiles.filter((tile) => !tile.smaller).map((tile) => tile.id));
-    const smaller = tiles.find((tile) => tile.smaller)!;
-    const listing = storageListing(storageConsumerRows(tree, "allocated"), { shown });
-    const sum = (rows: typeof listing.counted) => rows.reduce((total, row) => total + (row.bytes ?? 0), 0);
-    return { tiles, smaller, listing, sum };
-  }
-
-  test("a 2 GB database drawn as a tile leaves its 1 MB sidecar in the smaller items it is counted in", () => {
-    const { tiles, smaller, listing, sum } = ledger(2 * GB, 1_000_000);
-    expect(tiles.filter((tile) => !tile.smaller).map((tile) => tile.name)).toEqual(["ledger.db"]);
-    expect(smaller).toMatchObject({ name: "1 smaller items", bytes: 1_000_000 });
-    expect(listing.listed.map((row) => [row.name, row.action, row.size]), "STORAGE_SMALLER_LISTS_SIDECAR").toEqual([
-      ["ledger.db-wal", "inspect", bytes(1_000_000)],
-    ]);
-    // The legend counts what the list shows: the sidecar, once.
-    expect(listing.counted.map((row) => row.name)).toEqual(["ledger.db-wal"]);
-    expect(sum(listing.counted)).toBe(smaller.bytes);
-  });
-
-  test("a sidecar drawn as a tile leaves its database in the smaller items at the database's own size", () => {
-    const { smaller, listing, sum } = ledger(10_000_000, 2 * GB);
-    expect(smaller).toMatchObject({ name: "1 smaller items", bytes: 10_000_000 });
-    expect(listing.listed.map((row) => [row.name, row.size, row.bytes])).toEqual([["ledger.db", bytes(10_000_000), 10_000_000]]);
-    expect(sum(listing.counted)).toBe(smaller.bytes);
-  });
-
-  test("without smaller items the list keeps the folded row and every part, and the legend counts the row once", () => {
-    const nodes = [
-      node({ id: 22, rootId: 6, name: "ledger.db", kind: "file", owner: "app", bytes: 2 * GB }),
-      node({ id: 23, rootId: 6, name: "ledger.db-wal", kind: "file", owner: "app", bytes: 1_000_000 }),
-    ];
-    const listing = storageListing(storageConsumerRows(page(nodes, appRoots[1]!.id), "allocated"));
-    expect(listing.listed.map((row) => [row.name, row.bytes])).toEqual([
-      ["ledger.db", 2 * GB + 1_000_000],
-      ["ledger.db-wal", 1_000_000],
-    ]);
-    expect(listing.counted.map((row) => [row.name, row.bytes])).toEqual([["ledger.db", 2 * GB + 1_000_000]]);
   });
 });
 

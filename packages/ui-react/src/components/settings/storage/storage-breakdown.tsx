@@ -107,7 +107,7 @@ export function StorageBreakdown({
         : { rows: [], empty: [] },
     [tree, view.metric, view.sort, view.direction, snapshot]
   );
-  const { listed, counted: rows } = storageListing(derived, { shown: view.smaller ? shown : null, showEmpty });
+  const rows = storageListing(derived, { shown: view.smaller ? shown : null, showEmpty });
   // Focus after navigation lands once the requested page is the one shown.
   useEffect(() => {
     if (view.loading || !pendingFocus.current || view.tree?.parentId !== (view.parent ?? null)) return;
@@ -238,7 +238,7 @@ export function StorageBreakdown({
             </span>
           }
         >
-          {listed.map(({ id: key, nodeId, members: _members, bytes: _bytes, shared: _shared, parts: _parts, ...row }) => (
+          {rows.map(({ id: key, nodeId, members: _members, bytes: _bytes, shared: _shared, ...row }) => (
             <StorageConsumerRow
               key={key}
               {...row}

@@ -55,12 +55,6 @@ interface StorageConsumer extends Omit<StorageConsumerRowProps, "onActivate" | "
   members: StorageConsumerMember[];
   /** A hard-linked alias: its size is real, its area already counted in another row. */
   shared?: boolean;
-  /**
-   * The folded members other than the database, each a row of its own with
-   * its own action. The map keeps a tile per member, so the list reaches
-   * every member too; their bytes are already in this row's size.
-   */
-  parts?: StorageConsumer[];
 }
 
 interface StorageConsumerRows {
@@ -158,25 +152,6 @@ export function storageConsumerRows(
       bytes: value,
       members,
     };
-    if (nodes.length > 1)
-      row.parts = members.slice(1).map((member): StorageConsumer => {
-        const node = nodes.find((value) => value.id === member.id)!;
-        const part: StorageConsumer = {
-          id: node.id,
-          nodeId: node.id,
-          name: node.name,
-          owner: node.owner,
-          action: node.kind === "root" || node.kind === "directory" ? "drill" : "inspect",
-          kind: KIND[node.kind],
-          meta: `part of ${head.name}`,
-          size: member.bytes === null ? null : format(member.bytes),
-          bytes: member.bytes,
-          members: [member],
-        };
-        if (member.bytes !== null && member.coverage !== "complete") part.atLeast = true;
-        if (member.reason) part.reason = member.reason;
-        return part;
-      });
     if (meta) row.meta = meta;
     if (shared) row.shared = true;
     if (value !== null && !complete) row.atLeast = true;
@@ -190,7 +165,7 @@ export function storageConsumerRows(
     return row;
   });
   const largest = Math.max(0, ...all.map((row) => row.bytes ?? 0));
-  for (const row of all.flatMap((value) => [value, ...(value.parts ?? [])]))
+  for (const row of all)
     if (row.bytes !== null && largest > 0) {
       row.share = row.bytes / largest;
       row.shareLabel = `${Math.round(row.share * 100)}% of largest`;
@@ -208,58 +183,15 @@ export function storageConsumerRows(
   return { rows: ranked.filter((row) => !isEmpty(row)), empty: ranked.filter(isEmpty) };
 }
 
-/** What the list draws, and what the legend counts. */
-interface StorageListed {
-  /** The rows to draw, a folded database's parts after it. */
-  listed: StorageConsumer[];
-  /** The rows the legend counts, each once. */
-  counted: StorageConsumer[];
-}
-
 /**
- * The list for one page. With `shown`, the ids the map draws as tiles of
- * their own, only what the map gathers into "N smaller items" is listed:
- * each folded member on its own terms, so a drawn database keeps its
- * smaller sidecar in the list, and a drawn sidecar leaves its database's row
- * at what the map did not draw.
+ * The rows the list draws and the legend counts, for one page. With `shown`,
+ * the ids the map draws as tiles of their own, only what the map gathers
+ * into "N smaller items" is listed.
  */
 export function storageListing(
   derived: StorageConsumerRows,
-  options: { shown?: ReadonlySet<string> | null; showEmpty?: boolean; format?: (value: number) => string } = {}
-): StorageListed {
-  const format = options.format ?? ((value: number) => bytes(value));
+  options: { shown?: ReadonlySet<string> | null; showEmpty?: boolean } = {}
+): StorageConsumer[] {
   const drawn = (nodeId: string) => !!options.shown?.has(nodeId);
-  const listed: StorageConsumer[] = [],
-    counted: StorageConsumer[] = [];
-  for (const row of [...derived.rows, ...(options.showEmpty ? derived.empty : [])]) {
-    // A folded database's members follow it, each with its own action: the
-    // map has a tile for each, so the list reaches each (#4549 review).
-    const parts = (row.parts ?? []).filter((part) => !drawn(part.nodeId));
-    if (drawn(row.nodeId)) {
-      listed.push(...parts);
-      counted.push(...parts);
-      continue;
-    }
-    const rest = row.members.filter((member) => !drawn(member.id));
-    const head = rest.length === row.members.length ? row : remainder(row, rest, format);
-    listed.push(head, ...parts);
-    counted.push(head);
-  }
-  return { listed, counted };
-}
-
-/** A folded row less the members the map draws as their own tiles. */
-function remainder(row: StorageConsumer, members: StorageConsumerMember[], format: (value: number) => string): StorageConsumer {
-  const { value, complete } = sizeOf(members);
-  const next: StorageConsumer = { ...row, members, bytes: value, size: value === null ? null : format(value) };
-  delete next.atLeast;
-  delete next.share;
-  delete next.shareLabel;
-  if (value !== null && !complete) next.atLeast = true;
-  if (complete) delete next.reason;
-  if (value !== null && row.bytes && row.share !== undefined) {
-    next.share = (row.share * value) / row.bytes;
-    next.shareLabel = `${Math.round(next.share * 100)}% of largest`;
-  }
-  return next;
+  return [...derived.rows, ...(options.showEmpty ? derived.empty : [])].filter((row) => !drawn(row.nodeId));
 }
