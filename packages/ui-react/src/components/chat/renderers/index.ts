@@ -10,6 +10,7 @@ import { genericToolPack, GENERIC_RENDERER } from "./generic.js";
 import { brainUiToolPack } from "./brain-ui-tools.js";
 import { apifyToolPack } from "./apify-tools.js";
 import { githubToolPack } from "./github-tools.js";
+import { gmailToolPack } from "./gmail-tools.js";
 
 /**
  * Register the built-in packs (idempotent).
@@ -23,6 +24,7 @@ export function registerBuiltinRenderers(registry: ToolRendererRegistry = defaul
   registry.register(brainUiToolPack);
   registry.register(apifyToolPack);
   registry.register(githubToolPack);
+  registry.register(gmailToolPack);
   registry.register(claudeToolPack);
   registry.register(piToolPack);
   registry.register(genericToolPack);

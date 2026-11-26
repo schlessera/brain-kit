@@ -197,9 +197,10 @@ if (!childMode) {
     // name rather than by which backend owns the session.
     // The Apify pack (#3163) is global too: its approval cards carry fixed
     // names, and its results arrive under either backend's tool spelling.
-    // So is the GitHub pack (#3795): the host GitHub tools are one contract
-    // per tool under each backend's spelling.
+    // So are the GitHub pack (#3795) and the Gmail pack (#4210): the host
+    // tools are one contract per tool under each backend's spelling.
     expect(distinct.map((pack) => pack.backend ?? "global")).toEqual([
+      "global",
       "global",
       "global",
       "global",
@@ -210,9 +211,10 @@ if (!childMode) {
     expect(distinct[0]).toBe(harness.brainUiToolPack);
     expect(distinct[1]).toBe(harness.apifyToolPack);
     expect(distinct[2]).toBe(harness.githubToolPack);
-    expect(distinct[3]).toBe(harness.claudeToolPack);
-    expect(distinct[4]).toBe(harness.piToolPack);
-    // A pack rebuilt per call would show up as a sixth distinct object above.
+    expect(distinct[3]).toBe(harness.gmailToolPack);
+    expect(distinct[4]).toBe(harness.claudeToolPack);
+    expect(distinct[5]).toBe(harness.piToolPack);
+    // A pack rebuilt per call would show up as an eighth distinct object above.
     // The repeats must still reach the registry (no module latch), so every
     // pack was handed over more than once.
     expect(packs.length).toBeGreaterThan(distinct.length);
