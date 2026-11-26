@@ -1156,9 +1156,10 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           const local = new Set(draftSnapshots(d).map((x) => x.snapshotId));
           const acknowledged = new Set((d.host?.snapshots ?? []).map((x) => x.snapshotId));
           const hostOnly = (draft.snapshots ?? []).filter((h) => !local.has(h.snapshotId) && !acknowledged.has(h.snapshotId));
-          // Cancelled and deleted here before the host had its return: the host keeps a held message
-          // until it is returned, so it comes back returned, to be deleted again once the host has that.
-          const unreturned: ComposerSnapshot[] = (draft.snapshots ?? []).filter((h) => !local.has(h.snapshotId) && acknowledged.has(h.snapshotId) && h.state === "held")
+          // Returned here and then deleted or taken back by Edit before the host had that return: the host
+          // keeps a held or dispatched message until it is returned, so it comes back returned, to be
+          // deleted again once the host has that.
+          const unreturned: ComposerSnapshot[] = (draft.snapshots ?? []).filter((h) => !local.has(h.snapshotId) && acknowledged.has(h.snapshotId) && h.state !== "returned")
             .map((h) => ({ snapshotId: h.snapshotId, requestId: h.requestId, text: h.text, files: h.fileIds.map((fileId) => ({ fileId })), state: "returned", createdAt: h.createdAt, why: { kind: "cancelled" } }));
           put({ ...d, host: hostCopy(draft, -1), snapshots: [...mergeSnapshots(undefined, hostOnly), ...unreturned, ...draftSnapshots(d)], uncertain: false });
           return;
