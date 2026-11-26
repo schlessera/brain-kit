@@ -181,21 +181,29 @@ export function storageListing(
  * The ownership legend for one page: the owners present with their totals,
  * and the unknown rows the legend's `?` chip counts and jumps to. `cursor` is
  * the cursor the page was fetched with; `nextCursor` is the page's own.
+ *
+ * An owner's total counts the page's every row, never the "smaller items"
+ * subset `shown` leaves listed, and only when the page is the whole folder.
+ * A folder of more pages has no complete per-owner evidence on any one of
+ * them, so its owners print without a total.
  */
 export function storageLegend(
   derived: StorageConsumerRows,
   options: { cursor?: string; nextCursor: string | null; shown?: ReadonlySet<string> | null; showEmpty?: boolean }
 ): { owners: StorageMapLegendOwner[]; unknown: StorageConsumer[] } {
-  const rows = storageListing(derived, { shown: options.shown ?? null, showEmpty: options.showEmpty ?? false });
+  const all = storageListing(derived, { showEmpty: options.showEmpty ?? false });
+  const whole = !options.cursor && options.nextCursor === null;
   const owners = (["brain", "app", "operator"] as const)
-    .filter((owner) => rows.some((row) => row.owner === owner))
+    .filter((owner) => all.some((row) => row.owner === owner))
     .map((owner): StorageMapLegendOwner => {
-      const mine = rows.filter((row) => row.owner === owner);
+      if (!whole) return { owner, total: undefined };
+      const mine = all.filter((row) => row.owner === owner);
       const sum = mine.reduce((total, row) => total + (row.bytes ?? 0), 0);
       const partial = mine.some((row) => row.bytes === null || row.atLeast);
       // A measured zero is "none"; an owner with unknown stores has only a lower bound, or none.
       const total = sum > 0 ? `${partial ? "≥ " : ""}${bytes(sum)}` : partial ? undefined : "none";
       return { owner, total };
     });
-  return { owners, unknown: rows.filter((row) => row.bytes === null) };
+  const listed = storageListing(derived, { shown: options.shown ?? null, showEmpty: options.showEmpty ?? false });
+  return { owners, unknown: listed.filter((row) => row.bytes === null) };
 }
