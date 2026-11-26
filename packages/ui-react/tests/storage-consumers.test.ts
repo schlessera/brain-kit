@@ -3,6 +3,7 @@ import {
   foldSidecarLabels,
   sidecarBase,
   storageConsumerRows,
+  storageLegend,
   storageListing,
 } from "../src/components/settings/storage/storage-consumers.js";
 import { bytes, mapItems } from "../src/components/settings/storage/storage-model.js";
@@ -182,6 +183,46 @@ describe("rows", () => {
     expect(storageConsumerRows(page(nodes, brainRoots[0]!.id), "allocated").rows.map((row) => [row.name, row.action, row.kind])).toEqual([
       ["voyage.pdf", "inspect", "file"],
       ["charts", "drill", "folder"],
+    ]);
+  });
+});
+
+describe("the ownership legend counts only complete evidence", () => {
+  const nodes = [
+    node({ id: 50, rootId: 1, name: "charts", kind: "directory", owner: "brain", bytes: 3 * GB }),
+    node({ id: 51, rootId: 1, name: "log.md", kind: "file", owner: "brain", bytes: 2_000_000 }),
+    node({ id: 52, rootId: 1, name: "cache", kind: "directory", owner: "app", bytes: GB }),
+  ];
+  const folder = (nextCursor: string | null) => ({ ...page(nodes, brainRoots[0]!.id), nextCursor });
+  const derived = (value: ReturnType<typeof folder>) => storageConsumerRows(value, "allocated");
+
+  test("a folder of two pages gives its owners no totals, on either page", () => {
+    const first = folder("odysseus-page-2"),
+      last = folder(null);
+    for (const legend of [
+      storageLegend(derived(first), { nextCursor: first.nextCursor }),
+      storageLegend(derived(last), { cursor: "odysseus-page-2", nextCursor: last.nextCursor }),
+    ])
+      expect(legend.owners).toEqual([
+        { owner: "brain", total: undefined },
+        { owner: "app", total: undefined },
+      ]);
+  });
+
+  test("Smaller items does not change the totals of a complete page", () => {
+    const whole = folder(null);
+    const rows = derived(whole);
+    // The map draws charts and cache as tiles; the list shows only log.md.
+    const shown = new Set([nodes[0]!.id, nodes[2]!.id]);
+    expect(storageListing(rows, { shown }).map((row) => row.name)).toEqual(["log.md"]);
+    expect(storageLegend(rows, { nextCursor: null, shown }).owners).toEqual(storageLegend(rows, { nextCursor: null }).owners);
+  });
+
+  test("a complete page keeps its totals", () => {
+    const whole = folder(null);
+    expect(storageLegend(derived(whole), { nextCursor: null }).owners).toEqual([
+      { owner: "brain", total: bytes(3 * GB + 2_000_000) },
+      { owner: "app", total: bytes(GB) },
     ]);
   });
 });
