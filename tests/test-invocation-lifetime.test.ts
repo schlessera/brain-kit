@@ -196,6 +196,9 @@ const child=Bun.spawn([process.execPath,...${JSON.stringify(args)}],{stdout:"inh
       write("watched.test.ts", watched + `\n// Odysseus prepares voyage ${marker}.\n`);
       await until(() => running.output().includes(`WATCH_CONSUMER ${marker}`), () => "SECOND_WATCH_CONSUMER: " + running.output());
     }
+    // The final marker is emitted inside the test body. Wait for teardown
+    // before SIGTERM, so direct-entry afterAll can remove its HOME and ledger.
+    await until(() => /WATCH_CONSUMER 3[\s\S]*Ran 1 test across 1 file/.test(running.output()), () => "FINAL_WATCH_RUN_COMPLETE: " + running.output());
     write("tmp/stop-watch", "stop");
     const result = await running.done; expect(result.code, result.output).toBe(0); expect(result.output).not.toContain("(fail)");
     const records = readFileSync(join(root, "watch-resources.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line) as { home: string; ledger: string; inode: number });
