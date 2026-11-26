@@ -931,10 +931,13 @@ test("a re-read keeps the host's order: a message found only there stays after t
   const s = scene({ snapshots: true, refuse: (body) => (body.snapshots && !body.snapshots.some((x) => x.snapshotId === newer.snapshotId) ? { status: 400, body: { error: "DRAFT_INVALID", message: "A held snapshot is not deleted; return it first." } } : null) });
   s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 2, updatedAt: 9, text: "", attachments: [], snapshots: [older, newer] });
   s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "Muster the crew", attachments: [], files: [], editedAt: 1, edit: 3,
-    snapshots: [{ snapshotId: older.snapshotId, requestId: older.requestId, text: older.text, files: [], state: "held", createdAt: 4, paused: true }],
+    // Made here: no host timestamp yet, though the host has one.
+    snapshots: [{ snapshotId: older.snapshotId, requestId: older.requestId, text: older.text, files: [], state: "held", createdAt: null, paused: true }],
     host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [older].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
   await run(LONG);
   const d = s.drafts.getState().drafts[s.id]!;
   expect(d.snapshots?.map((x) => x.snapshotId), "HOST_ORDER_KEPT").toEqual(["snap-oars", "snap-sail"]);
+  // The transcript orders by the host's timestamp: the older one takes it, so it is not shown last.
+  expect(d.snapshots?.map((x) => x.createdAt), "HOST_TIMESTAMP_ADOPTED").toEqual([4, 6]);
   expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.snapshotId), "HOST_ORDER_SAVED").toEqual(["snap-oars", "snap-sail"]);
 });
