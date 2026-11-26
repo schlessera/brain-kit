@@ -526,8 +526,8 @@ The maintainer's [epic rulings](https://github.com/schlessera/brain-kit/issues/4
 for numbers, ownership semantics, eligibility, review, removal, recovery and
 maintenance ownership; where the two differ, this entry controls. The
 components are the kit's (#4542–#4545); the derivations are ui-react's
-(#4546); the pane composes them in `StorageSession`
-(`packages/ui-react/src/components/settings/storage-tab.tsx:63-377`).
+(#4546); the pane composes them
+(`StorageSession`, `packages/ui-react/src/components/settings/storage-tab.tsx:62-413`).
 
 | Ruling | What the pane does | Supersedes |
 | --- | --- | --- |
@@ -571,15 +571,15 @@ entries, stores not measured), `◷` out of date (from `staleAfter`), `◐`
 measuring (with Cancel in place of Measure again), `○` not measured yet (with
 the primary **Measure**), `!` last measurement failed. A new measurement waits
 behind **New measurement ready · Show**, as before
-(`storageStatusLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:45-99`).
+(`storageStatusLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:49-103`).
 
 The Alerts row follows the server, not the brief's first draft: notices go
 out only at Very low; the 22:00–08:00 quiet hours hold Very low too; an
-unknown timezone sends nothing (`packages/ui-server/src/storage/notify-writes.ts:62-69`).
+unknown timezone sends nothing (`eligible`, `packages/ui-server/src/storage/notify-writes.ts:62-69`).
 The bounds are read from the guidance response's `quietHours`. **Change**
 reveals this device's push switch, the reported devices and, behind a
 disclosure, the delivery receipts
-(`storageAlertsLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:121-137`).
+(`storageAlertsLine`, `packages/ui-react/src/components/settings/storage/storage-pane-model.ts:125-141`).
 
 ### Find large files mode
 
