@@ -150,6 +150,9 @@ export function snapshotSaveList(d: Pick<ComposerDraft, "snapshots" | "host">): 
 }
 
 /** A host list as this tab keeps it: held ones restored are paused, and what this tab knew of each is kept. */
+/** How far a message has gone: the host never takes one back to an earlier stage (#4566). */
+const SNAPSHOT_STAGE: Record<ComposerSnapshot["state"], number> = { held: 0, dispatched: 1, returned: 2 };
+
 function mergeSnapshots(local: readonly ComposerSnapshot[] | undefined, host: readonly DraftSnapshot[] | undefined): ComposerSnapshot[] {
   const known = new Map((local ?? []).map((s) => [s.snapshotId, s]));
   return (host ?? []).map((h) => {
@@ -1163,13 +1166,14 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           }
           // A re-read of the refused edit: what changed here since (a cancel, say) is that edit, and stays.
           // A message neither this tab nor its last host copy knew (one a reload did not keep here) joins, paused.
-          // Unless the host has returned it (on another device, say): a return is never undone.
-          if (options.sameEdit && local && !(h.state === "returned" && local.state !== "returned")) snapshots.push(local.createdAt == null && h.createdAt != null ? { ...local, createdAt: h.createdAt } : local);
+          // Unless the host has moved it further (another device sent or returned it): that is never undone.
+          if (options.sameEdit && local && SNAPSHOT_STAGE[h.state] <= SNAPSHOT_STAGE[local.state]) snapshots.push(local.createdAt == null && h.createdAt != null ? { ...local, createdAt: h.createdAt } : local);
           else snapshots.push(...mergeSnapshots(local ? [local] : undefined, [h]));
         }
         const onHost = new Set(host.map((h) => h.snapshotId));
-        // After them, a Send made here that the host never saw. On a re-read, everything this edit holds.
-        const after = draftSnapshots(d).filter((x) => !onHost.has(x.snapshotId) && (options.sameEdit || !acknowledged.has(x.snapshotId)));
+        // After them, a Send made here that the host never saw. One the host had and no longer lists was
+        // deleted or released there: it is not saved again as new.
+        const after = draftSnapshots(d).filter((x) => !onHost.has(x.snapshotId) && !acknowledged.has(x.snapshotId));
         if (options.sameEdit) {
           // Still the refused edit: a new one would lift its bound, and the same list would go again and again.
           put({ ...d, host: hostCopy(draft, -1), snapshots: [...snapshots, ...after], uncertain: false });

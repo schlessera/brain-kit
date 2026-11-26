@@ -80,10 +80,11 @@ function scene(options: { refuse?: (body: DraftSaveRequest) => Refusal | null; s
     save: async (draftId, ifMatch, _key, body): Promise<DraftCallResult<{ revision: number; updatedAt: number }>> => {
       saves.push({ draftId, body });
       if (saveGate) await saveGate;
-      const refused = refuse(body);
-      if (refused) return { ok: false, ...refused };
+      // As the real store: a stale If-Match is a conflict before the body is read.
       const row = rows.get(draftId);
       if ((row?.revision ?? 0) !== ifMatch) return { ok: false, status: 409, body: { error: "DRAFT_CONFLICT" } };
+      const refused = refuse(body);
+      if (refused) return { ok: false, ...refused };
       const revision = ifMatch + 1;
       const files = (body.fileIds ?? []).map((id) => [PERMIT, CREW].find((f) => f.fileId === id)!);
       if ((body.snapshots?.length ?? 0) > 0) rowsSnapshots.set(draftId, body.snapshots!);
@@ -667,13 +668,15 @@ test("a Send made while the emptied draft's delete is out survives its acknowled
 });
 
 test("a delete the host refuses because a message still waits there is refused once, not repeated", async () => {
-  const s = scene({ snapshots: true, remove: async () => ({ ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "A message of this draft is still waiting or unconfirmed. Cancel it or check it first." } }) });
+  let deletes = 0;
+  const s = scene({ snapshots: true, remove: async () => { deletes++; return { ok: false, status: 409, body: { error: "DRAFT_OUTGOING_PENDING", message: "A message of this draft is still waiting or unconfirmed. Cancel it or check it first." } }; } });
   const held = { snapshotId: "snap-held", requestId: "req-held", text: "Lash the raft", fileIds: [], state: "held" as const };
   s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], snapshots: [], editedAt: 1, edit: 3,
     host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [held], updatedAt: 1 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
   await run(LONG);
   const d = s.drafts.getState().drafts[s.id]!;
   expect(d.failure, "PENDING_DELETE_REFUSED_ONCE").toMatchObject({ kind: "refused", reason: "A message of this draft is still waiting or unconfirmed. Cancel it or check it first." });
+  expect(deletes, "PENDING_DELETE_SENT_ONCE").toBe(1);
 });
 
 test("text erased after a save whose answer was lost is deleted on the host, even with a carried original left", async () => {
@@ -949,10 +952,42 @@ test("a re-read takes a return made elsewhere: a message another device returned
   s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [], snapshots: [returned] });
   s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "Muster the crew", attachments: [], files: [], editedAt: 1, edit: 3,
     snapshots: [{ snapshotId: returned.snapshotId, requestId: returned.requestId, text: returned.text, files: [], state: "held", createdAt: 5, paused: true }],
-    host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ ...returned, state: "held" as const }].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+    // Kept this device's over a conflict: at the host's revision, with this device's (older) list.
+    host: { revision: 3, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ ...returned, state: "held" as const }].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
   await run(LONG);
   const d = s.drafts.getState().drafts[s.id]!;
   expect(d.snapshots?.map((x) => `${x.snapshotId}:${x.state}`), "RETURN_ELSEWHERE_ADOPTED").toEqual(["snap-raft:returned"]);
   expect(d.failure, "NOT_LEFT_REFUSED").toBeNull();
   expect(s.saves.at(-1)!.body.snapshots?.map((x) => x.state), "SAVED_AS_RETURNED").toEqual(["returned"]);
+});
+
+/** This device kept its version over a conflict: at the host's revision 3, with its own older list. */
+function keptOverConflict(s: ReturnType<typeof scene>, local: { snapshotId: string; requestId: string; text: string; state: "held" | "returned" }) {
+  s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "Muster the crew", attachments: [], files: [], editedAt: 1, edit: 3,
+    snapshots: [{ ...local, files: [], createdAt: 5, ...(local.state === "held" ? { paused: true } : { why: { kind: "cancelled" as const } }) }],
+    host: { revision: 3, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [{ ...local, fileIds: [] }], updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+}
+
+test("a re-read takes a dispatch made elsewhere: a held message another device sent is not saved as held again", async () => {
+  const sent = { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", fileIds: [], state: "dispatched" as const, createdAt: 5 };
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.some((x) => x.snapshotId === sent.snapshotId && x.state === "held") ? { status: 400, body: { error: "DRAFT_INVALID", message: "A dispatched snapshot cannot become held." } } : null) });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [], snapshots: [sent] });
+  keptOverConflict(s, { snapshotId: sent.snapshotId, requestId: sent.requestId, text: sent.text, state: "held" });
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.snapshots?.map((x) => `${x.snapshotId}:${x.state}`), "DISPATCH_ELSEWHERE_ADOPTED").toEqual(["snap-raft:dispatched"]);
+  expect(d.failure, "NOT_LEFT_REFUSED").toBeNull();
+  expect(s.rows.get(s.id)?.text, "the text is saved").toBe("Muster the crew");
+});
+
+test("a re-read takes a delete made elsewhere: a returned message another device deleted is not saved again", async () => {
+  // The host no longer lists it; a list naming it is a new returned message, which the host refuses.
+  const s = scene({ snapshots: true, refuse: (body) => (body.snapshots?.some((x) => x.snapshotId === "snap-raft") ? { status: 400, body: { error: "DRAFT_INVALID", message: "A new snapshot is held or dispatched." } } : null) });
+  s.rows.set(s.id, { draftId: s.id, sessionId: SESSION, revision: 3, updatedAt: 9, text: "", attachments: [], snapshots: [] });
+  keptOverConflict(s, { snapshotId: "snap-raft", requestId: "req-raft", text: "Lash the raft", state: "returned" });
+  await run(LONG);
+  const d = s.drafts.getState().drafts[s.id]!;
+  expect(d.snapshots ?? [], "DELETE_ELSEWHERE_ADOPTED").toEqual([]);
+  expect(d.failure, "NOT_LEFT_REFUSED").toBeNull();
+  expect(s.rows.get(s.id)?.text, "the text is saved").toBe("Muster the crew");
 });
