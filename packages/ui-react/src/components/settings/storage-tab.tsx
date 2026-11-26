@@ -24,7 +24,6 @@ import { useStorageGuidance } from "./storage/use-storage-guidance.js";
 import { useStorage } from "./storage/use-storage.js";
 import {
   STORAGE_GAUGE_THRESHOLDS,
-  VOLUME_STATUS_WORD,
   latestInventory,
   storageFormat,
   storageVolumes,
@@ -285,20 +284,6 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
             />
             {volumes.length > 1 && (
               <p className="font-mono text-xs text-muted-foreground">Each volume is measured on its own · never added together</p>
-            )}
-            {/* Retained evidence (#4549): an active refusal is a cause of its
-                volume's status, stated in words whatever the chart can draw. */}
-            {volumes.some((value) => value.refusals.length > 0) && (
-              <ul className="grid gap-1 font-mono text-xs" data-storage-refusals="">
-                {volumes.flatMap((value) =>
-                  value.refusals.map((text) => (
-                    <li key={`${value.id}:${text}`}>
-                      <span aria-hidden="true">⊘ </span>
-                      {value.name} · {VOLUME_STATUS_WORD[value.status]} · {text}
-                    </li>
-                  ))
-                )}
-              </ul>
             )}
           </section>
         )}

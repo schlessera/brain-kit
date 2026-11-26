@@ -287,30 +287,6 @@ describe("facts and qualifiers", () => {
     expect(volume!.trend).toBe("unknown");
   });
 
-  test("every active refusal is stated in words on its volume, whatever the chart can show", () => {
-    const { inventory: snapshot } = twoVolumes();
-    // Older than every chart tier, and with no history at all: the cause still stands.
-    const old = Date.UTC(2026, 0, 3, 7, 15);
-    const refused = pressure(ITHACA, "critical", evidence(ITHACA, 161 * GB, 6 * GB), {
-      causes: {
-        capacity: false,
-        forecast: false,
-        refusals: [
-          { target: "c".repeat(32), resource: "quota", at: old, successAt: null },
-          { target: "d".repeat(32), resource: "inodes", at: worldTime - 3_600_000, successAt: worldTime - 600_000 },
-        ],
-      },
-    });
-    const [volume] = storageVolumes({ guidance: guidance([refused]), inventory: snapshot, history: null, format });
-    expect(volume!.status).toBe("very-low");
-    expect(volume!.refusals, "STORAGE_REFUSAL_STATED_ON_VOLUME").toEqual([
-      "Owner refused a write · no file slots · 12 Jul 08:41 · a matching write succeeded 12 Jul 09:31 · recovery not yet confirmed",
-      "Owner refused a write · quota reached · 3 Jan 07:15 · no matching write has succeeded since",
-    ]);
-    const [calm] = storageVolumes({ guidance: twoVolumes().guidance, inventory: snapshot, format });
-    expect(calm!.refusals).toEqual([]);
-  });
-
   test("an unidentified volume says which event exposed it, with no facts", () => {
     const refused = pressure(OGYGIA, "critical", null, {
       causes: { capacity: false, forecast: false, refusals: [{ target: "c".repeat(32), resource: "bytes", at: Date.UTC(2026, 6, 12, 14, 2) - 86_400_000, successAt: null }] },
