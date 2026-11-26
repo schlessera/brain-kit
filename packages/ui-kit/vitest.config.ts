@@ -75,7 +75,7 @@ const storyProject = (name: string, theme: string) => ({
   test: {
     name,
     provide: { storyTheme: theme },
-    setupFiles: ["./tests/visual/story-theme-setup.ts"],
+    setupFiles: ["./tests/visual/story-theme-setup.ts", "./tests/visual/story-isolation-setup.ts"],
     browser: {
       enabled: true,
       commands: { consumerParityViewport, artifactParityRoute },
