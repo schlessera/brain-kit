@@ -15,8 +15,11 @@ function sources(dir: string): string[] {
   });
 }
 
-// The gog transport (gog/, #4205) is its own Bun-only entry point; nothing here imports it.
-const files = sources(MODULE).filter(file => !file.startsWith(join(MODULE, "gog") + "/"));
+// The gog transport (gog/, #4205) and the approval ledger (ledger.ts,
+// `internal/google-ledger`, #4212) are their own Bun-only entry points; the
+// pure module never imports either.
+const HOST_ONLY = (file: string) => file.startsWith(join(MODULE, "gog") + "/") || file === join(MODULE, "ledger.ts");
+const files = sources(MODULE).filter(file => !HOST_ONLY(file));
 
 describe("@schlessera/brain-common/internal/google-operations is pure", () => {
   test("it has the files of the module", () => {
@@ -28,7 +31,9 @@ describe("@schlessera/brain-common/internal/google-operations is pure", () => {
     const outside = files.flatMap(file => transpiler.scanImports(readFileSync(file, "utf8")).flatMap(({ path }) => {
       if (path.startsWith(".")) {
         const target = resolve(dirname(file), path);
-        return target.startsWith(`${MODULE}/`) ? [] : [`${relative(MODULE, file)} -> ${path}`];
+        const bare = target.replace(/\.js$/, "");
+        const inside = target.startsWith(`${MODULE}/`) && !HOST_ONLY(`${bare}.ts`) && !HOST_ONLY(`${bare}/`);
+        return inside ? [] : [`${relative(MODULE, file)} -> ${path}`];
       }
       const name = path.startsWith("@") ? path.split("/").slice(0, 2).join("/") : path.split("/")[0]!;
       const runtime = path.startsWith("node:") || path.startsWith("bun:") || path === "bun" || BUILTINS.has(name);
