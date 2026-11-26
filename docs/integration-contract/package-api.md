@@ -547,6 +547,36 @@ GitHub tool payloads to them; no tool, wire or payload contract changes here.
 `review-pending`. The package gains the `tldts` runtime dependency. No
 existing export, key, glyph or prop changes. This ships in a minor.
 
+## UI-kit Gmail components (additive, 0.46.0, #4209)
+
+`@schlessera/brain-ui-kit` exports the presentational Gmail components. They
+take props and callbacks only: no client, fetch or store, and the host formats
+every date. #4210 binds the Gmail tool payloads to them; no tool, wire or
+payload contract changes here.
+
+- `GmailResultList` (`GmailResultListProps`: `view` `"structured"` with
+  `GmailStructuredThread[]` or `"content"` with `GmailContentThread[]`, plus
+  optional `query`, `nextPage` and `initial`), `GmailThread`
+  (`GmailThreadProps`), `GmailMessage` (`GmailMessageProps`, with
+  `GmailStructuredMessage`, `GmailContentMessage`, `GmailAttachment`, and
+  `GmailBodyDetail` whose `GmailDetailState` is `"idle" | "loading" |
+  "loaded" | "error" | "rate-limited" | "unavailable" | "gone"`) and
+  `GmailLabels` (`GmailLabelsProps`). Shared types: `GmailDate`
+  (`{ short, full, iso? }`), `GmailFlags`, `GmailLabel` and `GmailSizeBucket`.
+- A structured view has no slot for anything a sender wrote. A content view
+  renders every sender-controlled string as untrusted text; a link opens only
+  through the full-address interstitial. When `bodyTruncated` is true the body
+  counts as cut, whatever `bodyLength` says.
+- `revealInvisibles(text)` and `invisibleSegments(text)` (`InvisibleSegment`)
+  show bidi controls, zero-width, tag and other hidden code points as
+  `‹U+XXXX›` markers, keeping only spelling that needs them: the three
+  recommended subdivision flags, a variation selector after a base it applies
+  to, and a joiner between letters or marks of one joining script.
+
+`GitHubDetailSection` is now a wrapper over an internal shared detail section;
+its API, copy and markup are unchanged. The semantic `IconName` gains `star`.
+No existing export, key, glyph or prop changes. This ships in a minor.
+
 ## Image markup tool (additive, 0.45.0, #3975)
 
 `request_image_markup` is described in
