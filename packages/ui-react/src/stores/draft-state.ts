@@ -1153,9 +1153,14 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           // A re-read of the refused edit: what changed here since (a cancel, a delete) is that edit, and
           // stays. Only a message neither this tab nor its last host copy knew (one a reload did not keep
           // here) joins it, paused (#4566).
-          const known = new Set([...draftSnapshots(d), ...(d.host?.snapshots ?? [])].map((x) => x.snapshotId));
-          const hostOnly = (draft.snapshots ?? []).filter((h) => !known.has(h.snapshotId));
-          put({ ...d, host: hostCopy(draft, -1), snapshots: [...mergeSnapshots(undefined, hostOnly), ...draftSnapshots(d)], uncertain: false });
+          const local = new Set(draftSnapshots(d).map((x) => x.snapshotId));
+          const acknowledged = new Set((d.host?.snapshots ?? []).map((x) => x.snapshotId));
+          const hostOnly = (draft.snapshots ?? []).filter((h) => !local.has(h.snapshotId) && !acknowledged.has(h.snapshotId));
+          // Cancelled and deleted here before the host had its return: the host keeps a held message
+          // until it is returned, so it comes back returned, to be deleted again once the host has that.
+          const unreturned: ComposerSnapshot[] = (draft.snapshots ?? []).filter((h) => !local.has(h.snapshotId) && acknowledged.has(h.snapshotId) && h.state === "held")
+            .map((h) => ({ snapshotId: h.snapshotId, requestId: h.requestId, text: h.text, files: h.fileIds.map((fileId) => ({ fileId })), state: "returned", createdAt: h.createdAt, why: { kind: "cancelled" } }));
+          put({ ...d, host: hostCopy(draft, -1), snapshots: [...mergeSnapshots(undefined, hostOnly), ...unreturned, ...draftSnapshots(d)], uncertain: false });
           return;
         }
         const snapshots = [...mergeSnapshots(d.snapshots, draft.snapshots), ...fresh];

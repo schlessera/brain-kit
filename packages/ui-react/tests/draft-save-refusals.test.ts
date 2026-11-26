@@ -838,10 +838,15 @@ test("a refused list's re-read keeps the messages cancelled and deleted here, an
   s.drafts.setState((st) => ({ drafts: { ...st.drafts, [s.id]: { draftId: s.id, sessionId: SESSION, text: "", attachments: [], files: [], editedAt: 1, edit: 3,
     snapshots: [{ snapshotId: b.snapshotId, requestId: b.requestId, text: b.text, files: [], state: "returned", createdAt: 5, why: cancelled }],
     host: { revision: 2, edit: 2, sessionId: SESSION, attachmentIds: [], snapshots: [a, b].map(({ createdAt: _at, ...w }) => w), updatedAt: 9 }, uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null } } }));
+  const readsBefore = s.gets();
   await run(LONG);
   const d = s.drafts.getState().drafts[s.id]!;
-  expect(s.saves.filter((x) => x.body.snapshots?.length).length, "the re-read happened").toBeGreaterThanOrEqual(1);
-  expect(d.snapshots?.map((x) => `${x.snapshotId}:${x.state}`), "CANCELLED_KEPT_ON_REREAD").toEqual(["snap-oars:returned"]);
+  expect(s.gets() - readsBefore, "REREAD_HAPPENED").toBeGreaterThanOrEqual(1);
+  // The one deleted here before the host had its return comes back returned, so it can be deleted again;
+  // the host takes that list, and the draft is not left refused with nothing to act on.
+  expect(d.snapshots?.map((x) => `${x.snapshotId}:${x.state}`).sort(), "CANCELLED_KEPT_ON_REREAD").toEqual(["snap-oars:returned", "snap-raft:returned"]);
+  expect(s.saves.at(-1)!.body.snapshots?.map((x) => `${x.snapshotId}:${x.state}`).sort(), "UNRETURNED_DELETE_SAVED_RETURNED").toEqual(["snap-oars:returned", "snap-raft:returned"]);
+  expect(d.failure, "NOT_LEFT_REFUSED").toBeNull();
   expect(Object.values(s.drafts.getState().sends).filter((x) => x.requestId === a.requestId || x.requestId === b.requestId), "NO_CANCELLED_MESSAGE_SENT").toEqual([]);
 });
 
