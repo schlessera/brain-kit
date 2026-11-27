@@ -226,6 +226,7 @@ export function noRunnerNotice(run: RunEnvelope, hosted = resolveEnv().agentRunn
 
 export const syncCommand: CoreCommand = {
   summary: "Sync the brain with its git remote (run the whole sync, or one verb of it)",
+  flags: { boolean: ["dry-run", "fix", "plan"], value: ["plan-file"] },
   helpBlock: HELP,
   async run(args, cli): Promise<number | void> {
     const root = cli.brain.root;

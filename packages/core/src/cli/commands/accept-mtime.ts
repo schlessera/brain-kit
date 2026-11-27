@@ -10,6 +10,7 @@ Stops silent-edit checks from flagging deliberate mechanical migrations
 
 export const acceptMtimeCommand: CoreCommand = {
   summary: "Baseline current file mtimes so silent-edit checks stop flagging them",
+  flags: { boolean: [], value: [] },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos } = parseArgs(args);

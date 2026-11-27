@@ -102,6 +102,7 @@ function printApply(report: TagApplyReport & { warnings: string[] }, dryRun: boo
 
 export const tagsCommand: CoreCommand = {
   summary: "Report tag variants, redundant tags and vocabulary drift (read-only)",
+  flags: { boolean: ["apply", "dry-run", "groups", "redundant"], value: ["only"] },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);

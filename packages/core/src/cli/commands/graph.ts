@@ -171,6 +171,10 @@ function printSubgraph(nodes: number, edges: number): void {
 
 export const graphCommand: CoreCommand = {
   summary: "Inspect and rebuild the derived wiki-link graph",
+  flags: {
+    boolean: ["no-isolates"],
+    value: ["center", "community", "depth", "direction", "mode", "root", "stale-days"],
+  },
   helpBlock: HELP,
   async run(args, cli): Promise<number | void> {
     const sub = args[0];

@@ -160,6 +160,7 @@ async function moduleLint(cli: CliContext, name: string): Promise<{ findings: Li
 
 export const moduleCommand: CoreCommand = {
   summary: "List, lint, enable or disable brain-kit modules and edit their settings",
+  flags: { boolean: ["migrate", "preview", "stdin"], value: ["action", "revision", "set"] },
   helpBlock: HELP,
   async run(args, cli): Promise<number | void> {
     const sub = args[0];

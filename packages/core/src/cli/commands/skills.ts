@@ -12,6 +12,7 @@ const HELP = `brain skills <sync|lint>
 
 export const skillsCommand: CoreCommand = {
   summary: "Distribute (sync) or lint the skill suite",
+  flags: { boolean: [], value: [] },
   helpBlock: HELP,
   async run(args, cli): Promise<number | void> {
     const sub = args[0];

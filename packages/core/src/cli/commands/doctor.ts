@@ -1036,6 +1036,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<{ applied: 
 
 export const doctorCommand: CoreCommand = {
   summary: "Run the health check battery (add --fix to auto-repair)",
+  flags: { boolean: ["fix"], value: [] },
   helpBlock: HELP,
   async run(args, cli): Promise<void> {
     const { flags } = parseArgs(args);

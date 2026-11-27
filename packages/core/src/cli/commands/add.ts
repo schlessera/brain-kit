@@ -14,6 +14,7 @@ const HELP = `brain add "<content>" — quick-capture content into the brain
 
 export const addCommand: CoreCommand = {
   summary: "Quick-add content to the brain",
+  flags: { boolean: ["smart"], value: ["tags", "title", "type"] },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);
