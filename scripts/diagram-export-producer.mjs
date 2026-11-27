@@ -9,7 +9,9 @@ import {diagramInstallationIdentity} from "./diagram-export-installation.mjs";
 export const diagramProducerImage="mcr.microsoft.com/playwright:v1.63.0-noble";
 // Qualified Linux x64 manifest reference: Docker launches this exact content.
 export const diagramProducerImageIdentity="mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27";
+/** @type {(bytes:string|Uint8Array)=>string} */
 const hash=bytes=>createHash("sha256").update(bytes).digest("hex");
+/** @returns {{image:string,bun:string,executable:string,bytes:Uint8Array,sha256:string}} */
 export function diagramProducerRuntime(){
  const bun=(process.env.PATH??"").split(delimiter).map(dir=>resolve(dir,"bun")).find(path=>{try{accessSync(path,constants.X_OK);return statSync(path).isFile();}catch{return false;}});
  if(!bun)throw Error("Native diagram producer requires the installed Bun");
@@ -17,20 +19,38 @@ export function diagramProducerRuntime(){
  const executable=realpathSync(bun),bytes=readFileSync(executable),identity={image,bun:hash(bytes)};
  return{...identity,executable,bytes,sha256:hash(Buffer.from(JSON.stringify(identity)))};
 }
-/** Private named volumes carry only audited inputs; no host path is mounted. */
+/** Private named volumes carry only audited inputs; no host path is mounted.
+ * @param {string} repo
+ * @param {string} source
+ * @param {{image:string}} runtime
+ * @param {{source:string,modules:string,output:string,runtime:string}} volumes
+ * @param {string} container
+ * @param {string} program
+ * @returns {string[]} */
 export function diagramNativeDockerArgs(repo,source,runtime,volumes,container,program){
- return ["create","--name",container,"--pull=never","--read-only","--network=none","--shm-size=256m","--user",`${process.getuid()}:${process.getgid()}`,"--tmpfs","/tmp:rw,exec,nosuid,nodev,mode=1777",
+ return ["create","--name",container,"--pull=never","--read-only","--network=none","--shm-size=256m","--user",`${/** @type {()=>number} */ (process.getuid)()}:${/** @type {()=>number} */ (process.getgid)()}`,"--tmpfs","/tmp:rw,exec,nosuid,nodev,mode=1777",
   "--mount",`type=volume,source=${volumes.source},target=${source},readonly`,
   "--mount",`type=volume,source=${volumes.modules},target=${join(repo,"node_modules")},readonly`,
   "--mount",`type=volume,source=${volumes.output},target=/proof`,
   "--mount",`type=volume,source=${volumes.runtime},target=/native-runtime,readonly`,
   "-w",source,"-e","HOME=/tmp/home",runtime.image,"/native-runtime/bun","-e",program];
 }
+/**
+ * @param {string[]} args
+ * @param {Omit<import("node:child_process").SpawnSyncOptions,"encoding">} [options]
+ * @returns {import("node:child_process").SpawnSyncReturns<string>}
+ */
 function dockerChecked(args,options={}){
  const result=spawnSync("docker",args,{encoding:"utf8",maxBuffer:4*1024*1024,...options});
  if(result.error||result.status!==0||result.signal)throw Error(`Native diagram Docker operation failed (${args[0]}): ${result.error??result.signal??result.status}\n${result.stderr}\n${result.stdout}`);
- return result;
+ return /** @type {import("node:child_process").SpawnSyncReturns<string>} */ (result);
 }
+/**
+ * @param {string} directory
+ * @param {string} volume
+ * @param {string} image
+ * @param {string} archive
+ */
 function fillPrivateVolume(directory,volume,image,archive){
  const out=openSync(archive,"wx");
  try{const packed=spawnSync("tar",["-C",directory,"-cf","-","."],{stdio:["ignore",out,"pipe"],encoding:"utf8"});if(packed.error||packed.status!==0)throw Error(`Native diagram input archive failed: ${packed.error??packed.stderr}`);}finally{closeSync(out);}
@@ -40,15 +60,19 @@ function fillPrivateVolume(directory,volume,image,archive){
 
 /** The complete mounted data is private source + filtered installed packages.
  * Readonly image files and Bun are identified separately. /tmp and /dev/shm
- * are fresh container-owned filesystems, not mounts of host state. */
+ * are fresh container-owned filesystems, not mounts of host state.
+ * @param {string} repo
+ * @param {string[]} projects
+ * @returns {string|undefined} */
 export function prepareDiagramNativeArtifacts(repo,projects){
  const engines=[...new Set(projects.filter(name=>name.startsWith("diagrams-")).map(name=>name.slice("diagrams-".length)))];
  if(!engines.length)return;
  if(engines.some(name=>!["chromium","webkit"].includes(name)))throw Error("Unsupported native diagram engine");
  const record=JSON.parse(readFileSync(join(repo,"tmp/diagram-export-source.json"),"utf8")),runtime=diagramProducerRuntime();
  const session=randomUUID(),base=join(repo,"tmp/diagram-export-native-prepared",session);mkdirSync(base,{recursive:true});
- const state=mkdtempSync(join(tmpdir(),"odysseus-native-producer-")),ownedVolumes=[],ownedContainers=[];
+ const state=mkdtempSync(join(tmpdir(),"odysseus-native-producer-")),ownedVolumes=/** @type {string[]} */ ([]),ownedContainers=/** @type {string[]} */ ([]);
  let failure,failed=false;const cleanup=[];
+ /** @type {(label:string)=>string} */
  const volume=label=>{const name=`brain-kit-native-${session}-${label}`;dockerChecked(["volume","create",name]);ownedVolumes.push(name);return name;};
  try{
   const runtimeInput=join(state,"runtime");mkdirSync(runtimeInput);
@@ -83,7 +107,7 @@ export function prepareDiagramNativeArtifacts(repo,projects){
    const code=Number(dockerChecked(["inspect","--format","{{.State.ExitCode}}",container]).stdout.trim());
    if(code!==0)throw Error(`Native diagram producer failed (${code})\n${result.stderr}\n${result.stdout}`);
    dockerChecked(["cp",`${container}:/proof/.`,output]);
-   const results=JSON.parse(result.stdout);
+   const results=/** @type {{release:{format:string}[],origin:{format:string}[]}} */ (JSON.parse(result.stdout));
    if(!Array.isArray(results.release)||results.release.map(item=>item.format).join(",")!=="png,pdf"||!Array.isArray(results.origin)||results.origin.map(item=>item.format).join(",")!=="svg,png,pdf")throw Error("NATIVE_EXPORT_FIXED_RESULTS");
    const artifacts=results.release,origin=results.origin,files=Object.fromEntries(["release","origin"].flatMap(stem=>["svg","png","pdf"].map(format=>{const name=`${stem}.${format}`;return[name,hash(readFileSync(join(output,name)))];})));
    // Publish only after both actual three-format sequences and all descendants

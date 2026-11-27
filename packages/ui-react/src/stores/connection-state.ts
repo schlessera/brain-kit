@@ -80,10 +80,13 @@ export function createConnectionStore() {
     socketOpens: 0,
     lastError: null,
     setWsStatus: (wsStatus) => set({ wsStatus }),
-    setVpnStatus: (vpnStatus, accountKey) => set(
-      vpnStatus === "connected" ? { vpnStatus, accountKey: accountKey ?? null }
+    setVpnStatus: (vpnStatus, accountKey) => set((state) => {
+      const next = vpnStatus === "connected" ? { vpnStatus, accountKey: accountKey ?? null }
         : vpnStatus === "unauthorized" || vpnStatus === "forbidden" ? { vpnStatus, accountKey: null }
-        : { vpnStatus }),
+        : { vpnStatus, accountKey: state.accountKey };
+      // An unchanged poll leaves the state as it is and notifies nobody (#4744).
+      return next.vpnStatus === state.vpnStatus && next.accountKey === state.accountKey ? state : next;
+    }),
     recordWsClose: (opened, lastCloseCode) =>
       set((state) => ({
         lastCloseCode,

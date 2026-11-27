@@ -1,7 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
-import type { WSContext } from "../src/ws/clients";
+import { resultFrame } from "./helpers/fake-backend";
+import { fakeClient } from "./helpers/fake-socket";
 import {
   addClient,
   closeDb,
@@ -12,6 +13,7 @@ import {
 import { QUEUE_MAX_BYTES, QUEUE_WARN_BYTES } from "../src/ws/host";
 import { queuedBytes, queuedFollowUpBytes } from "../src/ws/turns";
 import { testAuthorization } from "./helpers/principal";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 const QUEUE_AUTHORIZATION = testAuthorization();
 
@@ -49,7 +51,7 @@ function makeHangingBackend() {
         resolveDone = r;
       });
       controls.set(sessionId, () => {
-        req.bridge.emit({ type: "result", sessionId, costUsd: 0, durationMs: 1, numTurns: 1, isError: false });
+        req.bridge.emit(resultFrame(sessionId, { outcome: undefined }));
         resolveDone();
       });
       req.signal.addEventListener("abort", () => resolveDone(), { once: true });
@@ -65,19 +67,6 @@ function makeHangingBackend() {
   return { backend, controls };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
-  return { ws, sent };
-}
-
-async function waitFor(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (cond()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error("waitFor timed out");
-}
 
 /** An attachment of a given base64 payload size — what the queue actually holds. */
 function attachmentOf(bytes: number) {

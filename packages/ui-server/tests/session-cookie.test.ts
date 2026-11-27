@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
 import type { Database } from "bun:sqlite";
-import { rmSync } from "fs";
-import { tmpdir } from "os";
 import { join } from "path";
 import { Hono } from "hono";
 import { parseSigned, serializeSigned } from "hono/utils/cookie";
@@ -26,7 +25,7 @@ import { ClientSet, type WSContext } from "../src/ws/clients";
 
 const SECRET = "test-cookie-secret-0123456789abcdef";
 const COOKIE_NAME = "brain_ui_session";
-const DB_PATH = join(tmpdir(), `session-cookie-test-${process.pid}.db`);
+const DB_PATH = join(tempDirs({ scope: "file" })("session-cookie-test-"), "ui.db");
 const BASE_NOW = 2_000_000_000_000;
 
 let db: Database;
@@ -37,9 +36,6 @@ beforeAll(() => {
 
 afterAll(() => {
   db.close();
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(DB_PATH + suffix, { force: true });
-  }
 });
 
 beforeEach(() => {

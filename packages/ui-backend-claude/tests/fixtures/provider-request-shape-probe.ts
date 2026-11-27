@@ -108,7 +108,7 @@ try {
     let turn: ReturnType<typeof createClaudeSdkTurn> | ReturnType<typeof legacySdkTurn>;
     try { turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
       applicationAuthority: scenario === "authority-upgrade" && turnIndex !== 1 ? undefined : "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
-      workerSandbox: prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }),
+      workerSandbox: prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] }),
       bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } },
     }, profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
       turnEnvironment: environment,

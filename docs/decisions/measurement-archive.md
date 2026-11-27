@@ -230,6 +230,16 @@ a date.
 - **SHA-256:** `c4f25c8787ce4ae099795a85ecbfb0bec83adc77a67e53b8c8057b8e49a00dc3` (storage-history-load-2805.json), `1dde979f7c6dde122561df93c83917cda4fb5befbe294c2ad014d1fb648b64aa` (parallel-recovery-load-2806.json).
 - **Files:** [storage-history-load-2805.json](https://github.com/schlessera/brain-kit/blob/753b38eb787b460859857cc95951ca0b2bb296c1/docs/process/evidence/storage-history-load-2805.json), [parallel-recovery-load-2806.json](https://github.com/schlessera/brain-kit/blob/753b38eb787b460859857cc95951ca0b2bb296c1/docs/process/evidence/parallel-recovery-load-2806.json)
 
+#### Unread script inputs (#4705)
+
+- **Path:** `scripts/native-proof/dedupe-experiment.ts`, `scripts/unit-shard-observation.json`
+- **Role:** a finished experiment's source (the owned reference-pool dedupe cells of #3737) and historical output (completed-file observations of the first two-partition hosted unit runs, #1327).
+- **Consumers before removal:** none. Nothing imported `runDedupeExperiment` and the file had no entry point, so nothing could run it; `docs/plans/repository-storage-dedupe.md` cited it. No code read the observation file; `scripts/test-shards.ts` called it historical and `docs/decisions/ci-utility.md` cited it.
+- **Disposition:** archived byte for byte in commit [`d96d8541a49360425070ee316f5fdf00c4d21102`](https://github.com/schlessera/brain-kit/tree/d96d8541a49360425070ee316f5fdf00c4d21102/scripts/measurements/unread-scripts-4705-2026-11-27), copied from main commit `87b96b10ce178f1444bd3163ed95bd2c21ab8940`. The bundle carries its own manifest, checksums and evidence limits.
+- **Measured source:** not recorded. **Introduced by:** `9a1cc6470110` (#3737), `fc3024b1198f` (#1327).
+- **SHA-256:** `23eb915d224b8e019e938a4c8849b1e694f212265a30f73faa2dd87ff2fec8c9` (dedupe-experiment.ts), `07cfb6f73ae5bb7ba111671f0abdd5c78b6d9a9c72be131decb23db497d663a8` (unit-shard-observation.json).
+- **Files:** [dedupe-experiment.ts](https://github.com/schlessera/brain-kit/blob/d96d8541a49360425070ee316f5fdf00c4d21102/scripts/native-proof/dedupe-experiment.ts), [unit-shard-observation.json](https://github.com/schlessera/brain-kit/blob/d96d8541a49360425070ee316f5fdf00c4d21102/scripts/unit-shard-observation.json)
+
 ### Retained in place (241 files)
 
 > **2026-10-10 — #838 spike harnesses removed.** The maintainer ruled the
@@ -303,8 +313,8 @@ lists 240 of them, and the triage answers file under
   default, and its README and `docs/plans/async-collaboration.md` cite it.
   Moving it changes how the runner behaves, so it is outside this archival
   task.
-- `scripts/test-shard-costs.json`, `scripts/browser-shard-costs.json` and
-  `scripts/unit-shard-observation.json` are active CI scheduling inputs.
+- `scripts/test-shard-costs.json` and `scripts/browser-shard-costs.json` are
+  active CI scheduling inputs.
 - `tests/fixtures/policy-boundary-probe.ts` is the current, active proof of
   the policy-write boundary. It is separate from the archived spike and is
   not a snapshot of it.

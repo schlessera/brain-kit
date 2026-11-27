@@ -29,6 +29,7 @@ import type { WSContext } from "../src/ws/clients.js";
 import { createPrincipal } from "../src/db/principals.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { SENTINEL, summary } from "./helpers/compute-host-fixture.js";
+import { until } from "../../../tests/helpers/until";
 
 type Script = (bridge: Parameters<AgentBackend["startTurn"]>[0]["bridge"], signal: AbortSignal, turn: number) => Promise<void>;
 
@@ -65,11 +66,8 @@ async function hosted(backendId: "claude" | "pi", scripts: Script[]) {
   await handlers.onOpen(undefined as never, ws);
   const frames = (): ServerMessage[] => sent.flatMap(text => { const parsed = parseServerMessage(text); return parsed.ok ? [parsed.message] : []; });
   const send = (message: unknown) => handlers.onMessage({ data: JSON.stringify(message) } as MessageEvent, ws);
-  const until = async (check: () => boolean, what: string, ms = 15_000) => {
-    const end = Date.now() + ms;
-    while (!check()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(frames().map(f => f.type))}`); await Bun.sleep(5); }
-  };
-  return { app, fake, vendor, session, frames, send, until, sent,
+  return { app, fake, vendor, session, frames, send, sent,
+    until: (check: () => boolean, what: string) => until(check, () => `${what}: ${JSON.stringify(frames().map(f => f.type))}`, 15_000),
     async close() { await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); } };
 }
 

@@ -25,6 +25,7 @@ import {
   testHost,
   useTestDb,
 } from "./helpers/test-host";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 /**
  * A command the client answers itself (/stats) becomes part of the session
@@ -46,14 +47,6 @@ afterEach(() => {
   closeDb();
   removeDbFile(TEST_DB);
 });
-
-async function waitFor(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    if (condition()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error("waitFor timed out");
-}
 
 /**
  * A backend with a real transcript: every prompt it is handed is stored as a

@@ -6,6 +6,7 @@
  * recovered with its own result once the worker has exited.
  */
 import { randomUUID } from "node:crypto";
+import { textOfParts, textParts } from "@schlessera/brain-ui-sdk/server";
 import type { FileEntry } from "@earendil-works/pi-coding-agent";
 import type { BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
 import { createTurnTempPromoter, sessionReplay, WORKER_SCRATCH, type WorkerSandbox, type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
@@ -83,7 +84,7 @@ export function createPiWorkerReceipts(options: PiWorkerReceiptOptions): PiWorke
           ?? entries?.findLast(entry => entry.type === "message");
         receipt.anchor = typeof prior?.id === "string" ? prior.id : null;
       }
-      const output = receipt.output?.content.filter(part => part.type === "text").map(part => part.text).join("") ?? JSON.stringify(receipt.result);
+      const output = receipt.output ? textOfParts(receipt.output.content, "") : JSON.stringify(receipt.result);
       const isError = !receipt.result.ok, last = retained.get(id);
       if (last?.receipt === receipt && last.anchor === receipt.anchor && last.output === output && last.isError === isError) continue;
       display.retainReceipt({ id, name: receipt.name, input: receipt.input, anchor: receipt.anchor, turnId: replayTurnId, output, isError });
@@ -154,9 +155,7 @@ export function createPiWorkerReceipts(options: PiWorkerReceiptOptions): PiWorke
       if (entry.type !== "message" || resumedIds.has(entry.id)) continue;
       const message = entry.message as { role?: unknown; content?: unknown } | undefined;
       if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
-      for (const part of message.content as Array<{ type?: unknown; text?: unknown }>) {
-        if (part?.type === "text" && typeof part.text === "string") parts.push(part.text);
-      }
+      parts.push(...textParts(message.content));
     }
     return parts.join("\n");
   }

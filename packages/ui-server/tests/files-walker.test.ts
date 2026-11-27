@@ -559,3 +559,38 @@ describe("SVG image classification", () => {
     expect(await raw.text()).toBe(source);
   });
 });
+
+describe("buildWikilinkMap trusts directory entries (#4806)", () => {
+  test("only symlinks are stat-ed, and only in-brain symlinked notes are mapped", async () => {
+    const scan = await realpath(await Bun.$`mktemp -d`.text().then(s => s.trim()));
+    const away = await realpath(await Bun.$`mktemp -d`.text().then(s => s.trim()));
+    try {
+      await mkdir(join(scan, "voyages/aeaea"), { recursive: true });
+      await mkdir(join(scan, "harbor"), { recursive: true });
+      // The harbor is reachable only through its in-brain symlink.
+      await writeFile(join(scan, ".gitignore"), "harbor/\n");
+      await writeFile(join(scan, "ithaca.md"), "# Ithaca");
+      await writeFile(join(scan, "map.png"), "not a note");
+      await writeFile(join(scan, "voyages/troy.md"), "# Troy");
+      await writeFile(join(scan, "voyages/aeaea/circe.md"), "# Circe");
+      await writeFile(join(scan, "harbor/penelope.md"), "# Penelope");
+      await writeFile(join(away, "ogygia.md"), "# Ogygia");
+      await symlink(join(scan, "harbor"), join(scan, "moored"));
+      await symlink(away, join(scan, "beyond"));
+      const original = fsp.stat;
+      const stated: string[] = [];
+      const spy = spyOn(fsp, "stat").mockImplementation(((path: Parameters<typeof fsp.stat>[0], ...rest: unknown[]) => {
+        stated.push(String(path));
+        return (original as (...args: unknown[]) => ReturnType<typeof fsp.stat>)(path, ...rest);
+      }) as typeof fsp.stat);
+      let map: Record<string, string>;
+      try { map = await buildWikilinkMap(scan); } finally { spy.mockRestore(); }
+      expect(fsp.stat).toBe(original);
+      expect(map).toEqual({ ithaca: "ithaca.md", penelope: "moored/penelope.md", troy: "voyages/troy.md", circe: "voyages/aeaea/circe.md" });
+      expect(stated.sort()).toEqual([join(scan, "beyond"), join(scan, "moored")]);
+    } finally {
+      await rm(scan, { recursive: true, force: true });
+      await rm(away, { recursive: true, force: true });
+    }
+  });
+});

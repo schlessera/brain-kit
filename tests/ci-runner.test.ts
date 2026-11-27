@@ -49,6 +49,28 @@ test("a failed check stops its running sibling and remains a failure", async () 
   expect(existsSync(join(dir, "incorrectly-started")), "a failed batch must not start queued work").toBe(false);
 });
 
+test("a check starts without provider credentials unless its own Command.env states one (#4771)", async () => {
+  const credentials = { OPENAI_API_KEY: "odysseus-fictional-openai", AWS_SECRET_ACCESS_KEY: "odysseus-fictional-aws", CLAUDE_CODE_OAUTH_TOKEN: "odysseus-fictional-oauth" };
+  const dir = fixture(), script = join(dir, "dump.ts");
+  writeFileSync(script, `import { writeFileSync } from "node:fs";\nwriteFileSync(process.argv[2]!, JSON.stringify(process.env));\n`);
+  const saved = Object.fromEntries(Object.keys(credentials).map(key => [key, process.env[key]]));
+  Object.assign(process.env, credentials);
+  try {
+    await runCommands([
+      { name: "cleaned", argv: [process.execPath, script, join(dir, "cleaned.json")] },
+      { name: "stated", argv: [process.execPath, script, join(dir, "stated.json")], env: { OPENAI_API_KEY: "odysseus-fictional-stated" } },
+    ], dir);
+  } finally {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  }
+  const cleaned = JSON.parse(readFileSync(join(dir, "cleaned.json"), "utf8")) as Record<string, string>;
+  expect(Object.keys(cleaned).filter(key => key in credentials)).toEqual([]);
+  expect(cleaned.GEMINI_API_KEY, "present but empty keeps a cwd .env key out").toBe("");
+  const stated = JSON.parse(readFileSync(join(dir, "stated.json"), "utf8")) as Record<string, string>;
+  expect(stated.OPENAI_API_KEY).toBe("odysseus-fictional-stated");
+  expect(stated.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+});
+
 test("empty selections do not invoke bun test with its full-suite defaults", () => {
   const plan = planChecks([], []);
   expect(plan.tests).toEqual([]);

@@ -1,9 +1,12 @@
-import { defineModule, type ModuleManifest } from "@schlessera/brain";
+import { type AuditIssue, defineModule, type HygieneContext, type ModuleManifest } from "@schlessera/brain";
 import { z } from "zod";
-import { checkDiagramHygiene } from "./hygiene.js";
 
 export const configSchema = z.object({}).strict();
 export type DiagramsConfig = z.infer<typeof configSchema>;
+
+// Core loads this manifest in every brain process; the check, and the SVG model
+// and YAML parser behind it, load only when an audit runs it.
+const checkDiagramHygiene = async (ctx: HygieneContext): Promise<AuditIssue[]> => (await import("./hygiene.js")).checkDiagramHygiene(ctx);
 
 const diagramsModule: ModuleManifest<DiagramsConfig> = defineModule<DiagramsConfig>({
   name: "diagrams",

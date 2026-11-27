@@ -20,6 +20,45 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Turn rule helpers (additive, 0.45.0, #4721)
+
+`@schlessera/brain-ui-sdk/server` exports the `@experimental` backend toolkit
+helpers `isSessionUuid(id)`, `autonomousYieldLatch(options)` and
+`usageTokenCount(value)`, which both
+first-party backends now use. The Pi backend refuses to save or append a
+transcript under a session id that is not a UUID. See
+[the package API](integration-contract/package-api.md#turn-rule-helpers-additive-0450-4721).
+This ships in a minor.
+
+## Content text helpers (additive, 0.45.0, #4720)
+
+`@schlessera/brain-ui-sdk/server` exports the `@experimental` backend toolkit
+helpers `textParts(content)` and `textOfParts(content, separator)`, which both
+first-party backends use to read the text parts of a runtime content array. A
+replayed Claude tool result of several text blocks now joins them with the
+newline it had live. See
+[the package API](integration-contract/package-api.md#content-text-helpers-additive-0450-4720).
+This ships in a minor.
+
+## Final tool-dispatch admission helper (additive, 0.45.0, #4767)
+
+`@schlessera/brain-ui-sdk/server` exports the `@experimental` backend toolkit
+helper `admitToolDispatch(admission)` and its input type
+`ToolDispatchAdmission`: the host's last admission step for one tool call over
+the bridge's `inputSafety`, which both first-party backends now call. See
+[the package API](integration-contract/package-api.md#final-tool-dispatch-admission-helper-additive-0450-4767).
+
+## Schema 16: an index on `documents(indexed_at)` (additive, 0.45.0, #4787)
+
+`schema_version` goes from 15 to 16. The migration adds only the index
+`idx_documents_indexed_at`, built from the rows already there, so the newest
+index run is a lookup instead of a read of every document body. No table or
+column changed: a direct SQL reader that accepts 15 reads 16 unchanged, and an
+upgraded brain needs no reindex. As with every bump, a reader from an older
+package refuses a database at the newer version. See
+[the index read contract](integration-contract/frontmatter.md#braindb-direct-sql-reads).
+This ships in a minor.
+
 ## Robots.txt cache lifetime (additive, 0.45.0, #4813)
 
 `RobotsCacheOptions` gains optional `maxAgeMs` (default 24 hours),

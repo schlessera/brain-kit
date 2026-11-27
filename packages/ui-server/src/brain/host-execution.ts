@@ -6,7 +6,7 @@
  * brain.
  */
 import type { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
@@ -64,7 +64,11 @@ export interface HostExecution {
   reconcileExisting(): Reconciliation[];
   /** Reconciles every abandoned governed turn on `db` (refusing if any path stayed), then opens the gate and manifests on it. */
   attach(db: Database, writer?: SqliteWriter): Reconciliation[];
-  /** Closes the early handle `reconcileExisting` kept, when a boot refuses before `attach`. */
+  /**
+   * Closes the early handle `reconcileExisting` kept, when a boot refuses
+   * before `attach`, and removes the temporary quarantine an in-memory
+   * database got.
+   */
   release(): void;
 }
 
@@ -81,8 +85,14 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
   let history = false;
   let early: Database | undefined;
   let quarantineDir: string | undefined;
+  /** The quarantine is the temporary directory made for an in-memory database, which `release` removes. */
+  let temporaryQuarantine = false;
+  const quarantine = () => {
+    if (quarantineDir === undefined) { quarantineDir = quarantineDirFor(options.dbPath); temporaryQuarantine = options.dbPath === ":memory:"; }
+    return quarantineDir;
+  };
   const open = (db: Database, writer?: SqliteWriter) => createGovernedManifests(db, { brainPath: options.brainPath,
-    quarantineDir: quarantineDir ??= quarantineDirFor(options.dbPath), ...(options.log ? { log: options.log } : {}), ...(writer ? { writer } : {}) });
+    quarantineDir: quarantine(), ...(options.log ? { log: options.log } : {}), ...(writer ? { writer } : {}) });
   const boundary = createHostBoundary({ profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths,
     ...(options.nativeManager ? { nativeManager: options.nativeManager } : {}),
     ...(options.nativeManager && options.providerRelay ? { providerRelay: options.providerRelay } : {}),
@@ -130,6 +140,12 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
     release() {
       early?.close();
       early = undefined;
+      // A file-backed quarantine beside the database is the owner's and stays.
+      if (temporaryQuarantine && quarantineDir !== undefined) {
+        try { rmSync(quarantineDir, { recursive: true, force: true }); } catch { /* Best effort: a leftover temporary directory never fails a close. */ }
+        quarantineDir = undefined;
+        temporaryQuarantine = false;
+      }
     },
   };
 }

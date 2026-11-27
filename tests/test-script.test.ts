@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DEFAULT_PATH_ARGS, DEFAULT_ROOTS, testArgv } from "../scripts/test";
+import { copyScriptClosure, TEST_RUNNER_INPUTS } from "./helpers/script-closure";
 
 const ROOT = join(import.meta.dir, "..");
 const rootScript = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
@@ -32,10 +33,7 @@ async function run(args: string[], env: Record<string, string> = {}) {
     const script = join(ROOT, "scripts/test.ts");
     if (existsSync(script)) {
       mkdirSync(join(dir, "scripts"));
-      cpSync(script, join(dir, "scripts/test.ts"));
-      for (const helper of ["offline-command.ts", "offline-command.py", "test-credential-names.json", "docker-test-files.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"]) {
-        cpSync(join(ROOT, "scripts", helper), join(dir, "scripts", helper));
-      }
+      copyScriptClosure(dir, ["scripts/test.ts"], TEST_RUNNER_INPUTS);
       // The actual preload also owns cleanup for the shared CLI harness.
       mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
       cpSync(join(ROOT, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));

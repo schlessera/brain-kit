@@ -5,6 +5,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../src/stores/chat-store";
 import { defaultRoot } from "../src/default-root";
+import type { TurnJournalSummary } from "@schlessera/brain-ui-sdk/protocol";
 
 const { handleServerMessage, flushChatDeltas } = defaultRoot.connection;
 
@@ -134,5 +135,73 @@ describe("delta batching", () => {
     expect(activeChat(useChatStore.getState()).messages[0].content).toBe(
       "half a sentence"
     );
+  });
+});
+
+// A host stamps `turnId` on every turn-scoped frame (#4739), so the batching
+// above has to hold for stamped frames too, and so does every write that
+// changes nothing.
+describe("writes that change nothing", () => {
+  function notifications(run: () => void): number {
+    let count = 0;
+    const unsubscribe = useChatStore.subscribe(() => { count++; });
+    try {
+      run();
+    } finally {
+      unsubscribe();
+    }
+    return count;
+  }
+
+  function stampedDelta(text: string): void {
+    handleServerMessage({ type: "text_delta", text, sessionId: "A", turnId: "turn-1" } as ServerMessage);
+  }
+
+  test("stamped deltas after the first frame write the store once per animation frame", () => {
+    useChatStore.getState().setMessages("A", []);
+    stampedDelta("Hello");
+    paint();
+    const N = 50;
+    expect(notifications(() => { for (let i = 0; i < N; i++) stampedDelta(` ${i}`); })).toBe(0);
+    expect(notifications(() => paint())).toBe(1);
+    const msg = useChatStore.getState().buffers.A!.messages[0]!;
+    expect(msg.turnId).toBe("turn-1");
+    expect(msg.content).toBe("Hello" + Array.from({ length: N }, (_, i) => ` ${i}`).join(""));
+  });
+
+  test("stampTurn, setRetry and finishHistoryReplay notify nobody when they change nothing", () => {
+    const store = useChatStore.getState();
+    store.setMessages("A", []);
+    store.startAssistantMessage("A", "turn-1");
+    store.stampTurn("A", "turn-1");
+    const before = useChatStore.getState().buffers.A;
+    expect(before!.messages[0]!.turnId).toBe("turn-1");
+    expect(notifications(() => store.stampTurn("A", "turn-1"))).toBe(0);
+    expect(notifications(() => store.stampTurn("A", "turn-2"))).toBe(0);
+    expect(before!.messages[0]!.retry).toBeUndefined();
+    expect(notifications(() => store.setRetry("A", null))).toBe(0);
+    expect(before!.replay).toBeUndefined();
+    expect(notifications(() => store.finishHistoryReplay("A"))).toBe(0);
+    // Nothing was touched, so the buffer's place in the eviction order holds.
+    expect(useChatStore.getState().buffers.A).toBe(before);
+  });
+
+  test("a call that changes nothing still stamps a journal receipt the message is missing", () => {
+    const receipt = { state: "complete", changedFiles: 1 } as unknown as TurnJournalSummary;
+    const store = useChatStore.getState();
+    store.setMessages("A", []);
+    store.startAssistantMessage("A", "turn-1");
+    store.stampTurn("A", "turn-1");
+    // A replay chunk replaces messages with a direct set that never restamps.
+    const buffer = useChatStore.getState().buffers.A!;
+    useChatStore.setState({ buffers: { A: { ...buffer, journals: { "turn-1": receipt } } } });
+    expect(useChatStore.getState().buffers.A!.messages[0]!.journal).toBeUndefined();
+
+    expect(notifications(() => store.setRetry("A", null))).toBe(1);
+    const msg = useChatStore.getState().buffers.A!.messages[0]!;
+    expect(msg.journal).toBe(receipt);
+    expect(msg.journalLive).toBe(true);
+    // Stamped now, so the same call is a no-op again.
+    expect(notifications(() => store.setRetry("A", null))).toBe(0);
   });
 });

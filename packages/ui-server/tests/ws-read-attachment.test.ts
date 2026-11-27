@@ -7,6 +7,7 @@ import { createPrincipal } from "../src/db/principals";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { httpContractApp } from "./helpers/http-contract-app";
 import { ithacaPermitPdf, PERMIT_FACT } from "./helpers/odysseus-pdf";
+import { until } from "../../../tests/helpers/until";
 
 // read_attachment through a real composition root and socket (#3154): the ws
 // bridge binds the turn's own session, so the agent reads what this
@@ -60,7 +61,6 @@ test("a turn reads its own conversation's PDF page through the ws bridge, and no
     frames.push(frame);
     if (frame.type === "server_hello") resolve();
   }));
-  const until = async (condition: () => boolean) => { for (let i = 0; i < 400 && !condition(); i++) await Bun.sleep(5); expect(condition()).toBe(true); };
   const send = async (draftId: string, file: AttachmentFile) => {
     const saved = await call(`/api/drafts/${draftId}`, { method: "PUT", headers: { "content-type": "application/json", "if-match": "0", "idempotency-key": `${draftId}-save` },
       body: JSON.stringify({ sessionId: null, attachmentIds: [], text: "What does the permit allow?", fileIds: [file.fileId] }) });

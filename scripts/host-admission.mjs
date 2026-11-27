@@ -25,6 +25,40 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inheritWorkspaceLease, liveAncestor, processIdentity } from "./workspace-lease.mjs";
 
+/** @typedef {import("node:child_process").ChildProcess} ChildProcess */
+/** @typedef {Record<string, string | undefined>} Env */
+/**
+ * @typedef {object} AdmissionEntry
+ * @property {string} id
+ * @property {"queued" | "holding"} state
+ * @property {number} pid
+ * @property {string} start
+ * @property {string} worker
+ * @property {string | null} orchestrator
+ * @property {"red-main-fix" | "ordinary"} priority
+ * @property {number | null} fixPR
+ * @property {string} label
+ * @property {number} seq
+ * @property {string} queuedAt
+ * @property {string} [admittedAt]
+ * @property {{pid: number, start: string}} [child]
+ * @property {{reason: string, by: string, at: string, graceMs: number}} [preempt]
+ */
+/** @typedef {{version: 1, seq: number, entries: AdmissionEntry[]}} AdmissionState */
+/**
+ * @typedef {object} AdmissionOptions
+ * @property {Env} [env]
+ * @property {string} [dir]
+ * @property {number} [limit]
+ * @property {string} [worker]
+ * @property {string} [orchestrator]
+ * @property {string | number} [redMainFix]
+ * @property {string} [label]
+ * @property {number} [pollMs]
+ * @property {string} [root]
+ * @property {string} [timingsOut]
+ */
+
 /** Inherited by an admitted command, so its nested heavy commands do not queue behind themselves. */
 export const MARKER = "BRAIN_HOST_ADMISSION";
 /** Distinct from a pass (0) and an ordinary failure: EX_TEMPFAIL. */
@@ -34,15 +68,20 @@ export const DEFAULT_GRACE_MS = 10_000;
 const OPAQUE = /^[A-Za-z0-9_-]{1,100}$/;
 const script = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(script), "..");
+/** @type {(ms: number) => Promise<void>} */
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const now = () => new Date().toISOString();
 
+/** @type {() => number | string} */
 const user = () => typeof process.getuid === "function" ? process.getuid() : "user";
 
 /**
  * A test process's private ledger. The test preload creates it with the same
  * convention, so a descendant whose environment was replaced still finds it
  * through its ancestry and never queues behind the host's real heavy commands.
+ * @param {number} pid
+ * @param {string} start
+ * @returns {string}
  */
 export function testLedgerFor(pid, start) {
   return join(tmpdir(), `brain-host-admission-test-${user()}-${pid}-${start}`);
@@ -50,9 +89,11 @@ export function testLedgerFor(pid, start) {
 
 /** This process's ancestors, nearest first (Linux only). */
 function ancestors() {
+  /** @type {{pid: number, start: string}[]} */
   const found = [];
   if (process.platform !== "linux") return found;
-  let pid = processIdentity(process.pid)?.parent;
+  // A missing parent is undefined, which the loop's `pid > 0` refuses.
+  let pid = /** @type {number} */ (processIdentity(process.pid)?.parent);
   for (let depth = 0; pid > 0 && depth < 128; depth++) {
     const identity = processIdentity(pid);
     if (!identity) break;
@@ -65,6 +106,8 @@ function ancestors() {
 /**
  * One ledger per host user; worktrees and clones on the machine share it.
  * An explicit directory wins, then the nearest ancestor test process's ledger.
+ * @param {Env} [env]
+ * @returns {string}
  */
 export function ledgerDir(env = process.env) {
   if (env.BRAIN_HOST_ADMISSION_DIR) return resolve(env.BRAIN_HOST_ADMISSION_DIR);
@@ -75,7 +118,10 @@ export function ledgerDir(env = process.env) {
   return join(tmpdir(), `brain-host-admission-${user()}`);
 }
 
-/** Heavy suites each use many cores; by default admit one per four CPUs. */
+/** Heavy suites each use many cores; by default admit one per four CPUs.
+ * @param {Env} [env]
+ * @param {number} [cpus]
+ * @returns {number} */
 export function admissionLimit(env = process.env, cpus = availableParallelism()) {
   const raw = env.BRAIN_HOST_ADMISSION_LIMIT;
   if (raw === undefined || raw === "") return Math.max(1, Math.floor(cpus / 4));
@@ -83,28 +129,41 @@ export function admissionLimit(env = process.env, cpus = availableParallelism())
   return Number(raw.trim());
 }
 
+/**
+ * @param {string | undefined} value
+ * @param {string} name
+ * @returns {string | null}
+ */
 function opaque(value, name) {
   if (value === undefined || value === "") return null;
   if (!OPAQUE.test(value)) throw new Error(`${name} must be an opaque ID of letters, digits, '-' or '_'`);
   return value;
 }
 
-/** Linux compares process lifetimes, so a reused PID never keeps a slot. */
+/** Linux compares process lifetimes, so a reused PID never keeps a slot.
+ * @param {number} pid
+ * @param {string} start */
 function alive(pid, start) {
   if (process.platform === "linux") return processIdentity(pid)?.start === start;
   try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; }
 }
 
+/** @param {number} pgid */
 function groupAlive(pgid) {
   try { process.kill(-pgid, 0); return true; } catch (error) { return error.code === "EPERM"; }
 }
 
+/**
+ * @param {number} pgid
+ * @param {NodeJS.Signals} signal
+ */
 function signalGroup(pgid, signal) {
   try { process.kill(-pgid, signal); } catch (error) { if (error.code !== "ESRCH") throw error; }
 }
 
 const identity = () => processIdentity(process.pid)?.start ?? "";
 
+/** @param {string} lock */
 function lockOwnerStale(lock) {
   let owner;
   try { owner = readFileSync(join(lock, "owner"), "utf8"); }
@@ -117,6 +176,7 @@ function lockOwnerStale(lock) {
 }
 
 /** Only one caller removes a dead owner's lock; the guard serializes stealers. */
+/** @param {string} lock */
 function stealStaleLock(lock) {
   const guard = `${lock}.steal`;
   try { mkdirSync(guard); }
@@ -129,6 +189,10 @@ function stealStaleLock(lock) {
   finally { rmSync(guard, { recursive: true, force: true }); }
 }
 
+/**
+ * @param {string} dir
+ * @returns {AdmissionState}
+ */
 function readState(dir) {
   try {
     const state = JSON.parse(readFileSync(join(dir, "state.json"), "utf8"));
@@ -137,22 +201,39 @@ function readState(dir) {
   return { version: 1, seq: 0, entries: [] };
 }
 
+/**
+ * @param {string} dir
+ * @param {AdmissionState} state
+ */
 function writeState(dir, state) {
   const path = join(dir, "state.json"), staged = `${path}.${process.pid}.${randomBytes(4).toString("hex")}`;
   writeFileSync(staged, JSON.stringify(state, null, 2) + "\n", { mode: 0o600 });
   renameSync(staged, path);
 }
 
+/**
+ * Append one event to the ledger's history.
+ * @param {string} dir
+ * @param {Record<string, unknown>} event
+ */
 export function history(dir, event) {
   appendFileSync(join(dir, "history.jsonl"), JSON.stringify({ at: now(), ...event }) + "\n", { mode: 0o600 });
 }
 
+/**
+ * @param {string} dir
+ * @returns {Record<string, unknown>[]}
+ */
 export function readHistory(dir) {
   try { return readFileSync(join(dir, "history.jsonl"), "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)); }
   catch (error) { if (error.code === "ENOENT") return []; throw error; }
 }
 
-/** Run a synchronous ledger transaction under the host-wide lock. */
+/** Run a synchronous ledger transaction under the host-wide lock.
+ * @template T
+ * @param {string} dir
+ * @param {(state: AdmissionState) => T} transaction
+ * @returns {Promise<T>} */
 export async function withLedger(dir, transaction) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const lock = join(dir, "ledger.lock"), me = `${process.pid} ${identity()}`;
@@ -175,6 +256,8 @@ export async function withLedger(dir, transaction) {
  * Forget dead waiters and reclaim dead holders. A holder whose wrapper died
  * while its detached command group still runs keeps the slot until that group
  * has been killed and is gone, so the slot is never handed out twice.
+ * @param {AdmissionState} state
+ * @param {string} dir
  */
 export function prune(state, dir) {
   state.entries = state.entries.filter(entry => {
@@ -189,13 +272,22 @@ export function prune(state, dir) {
   });
 }
 
+/** @type {(entry: AdmissionEntry) => number} */
 const rank = entry => entry.priority === RED_MAIN_FIX ? 0 : 1;
 
-/** Red-main fixes go ahead of every ordinary waiter; otherwise arrival order. */
+/** Red-main fixes go ahead of every ordinary waiter; otherwise arrival order.
+ * @param {readonly AdmissionEntry[]} entries
+ * @returns {AdmissionEntry[]} */
 export function admissionOrder(entries) {
   return entries.filter(entry => entry.state === "queued").sort((a, b) => rank(a) - rank(b) || a.seq - b.seq);
 }
 
+/**
+ * @param {AdmissionState} state
+ * @param {string} dir
+ * @param {string} id
+ * @param {number} limit
+ */
 function tryAdmit(state, dir, id, limit) {
   prune(state, dir);
   const entry = state.entries.find(candidate => candidate.id === id);
@@ -211,7 +303,9 @@ function tryAdmit(state, dir, id, limit) {
     holders: holders.map(holder => `${holder.id} (${holder.label}, worker ${holder.worker}, ${holder.priority})`) };
 }
 
-/** Record a wait boundary through the shared coordination recorder. */
+/** Record a wait boundary through the shared coordination recorder.
+ * @param {string} kind
+ * @param {{worker: string, task: string, timingsOut: string, root: string, ledger: string}} context */
 async function recordWait(kind, { worker, task, timingsOut, root, ledger }) {
   const { spawn } = await import("node:child_process");
   const dir = join(ledger, "events");
@@ -220,6 +314,7 @@ async function recordWait(kind, { worker, task, timingsOut, root, ledger }) {
     const file = join(dir, `${task}-${kind}.json`);
     writeFileSync(file, JSON.stringify({ kind, worker, task, reason: "other" }));
     const bun = process.versions.bun ? process.execPath : "bun";
+    /** @type {number} */
     const code = await new Promise(done => {
       const child = spawn(bun, [join(root, "scripts/ci-timings.ts"), "record", "--event", file, "--out", timingsOut],
         { stdio: ["ignore", "ignore", "inherit"] });
@@ -231,11 +326,19 @@ async function recordWait(kind, { worker, task, timingsOut, root, ledger }) {
   } catch (error) { console.error(`Host admission could not record ${kind}: ${error.message}`); }
 }
 
+/**
+ * @param {number | null} code
+ * @param {NodeJS.Signals | null} signal
+ * @returns {number}
+ */
 function exitCode(code, signal) {
   return signal ? 128 + (constants.signals[signal] ?? 0) : code ?? 1;
 }
 
-/** Wait for a slot, run the command in its own process group, then release. */
+/** Wait for a slot, run the command in its own process group, then release.
+ * @param {readonly string[]} command
+ * @param {AdmissionOptions} [options]
+ * @returns {Promise<number>} */
 export async function runAdmitted(command, options = {}) {
   if (!command.length) throw new Error("Host admission needs a command after --");
   const env = options.env ?? process.env;
@@ -249,21 +352,23 @@ export async function runAdmitted(command, options = {}) {
   const pollMs = options.pollMs ?? 500, root = options.root ?? repoRoot;
   const timingsOut = resolve(options.timingsOut ?? join(root, "tmp", "ci-timings"));
   const start = identity();
-  let id, child, cancelled;
+  let /** @type {string | undefined} */ id, /** @type {ChildProcess | undefined} */ child, /** @type {NodeJS.Signals | undefined} */ cancelled;
   await withLedger(dir, state => {
     state.seq += 1;
     id = `h${state.seq}-${randomBytes(4).toString("hex")}`;
     state.entries.push({ id, state: "queued", pid: process.pid, start, worker, orchestrator, priority, fixPR, label, seq: state.seq, queuedAt: now() });
     history(dir, { kind: "queued", slot: id, worker, orchestrator, priority, fixPR });
   });
+  /** @type {(kind: string) => Promise<boolean>} */
   const release = async kind => withLedger(dir, state => {
     const entry = state.entries.find(candidate => candidate.id === id);
     state.entries = state.entries.filter(candidate => candidate !== entry);
     const preempted = Boolean(entry?.preempt);
     history(dir, { kind: preempted ? "preempted" : kind, slot: id, worker, orchestrator, priority,
-      ...(preempted ? { reason: entry.preempt.reason, by: entry.preempt.by } : {}) });
+      ...(preempted ? { reason: /** @type {NonNullable<AdmissionEntry["preempt"]>} */ (/** @type {AdmissionEntry} */ (entry).preempt).reason, by: /** @type {NonNullable<AdmissionEntry["preempt"]>} */ (/** @type {AdmissionEntry} */ (entry).preempt).by } : {}) });
     return preempted;
   });
+  /** @type {NodeJS.Signals[]} */
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
   const listeners = signals.map(signal => () => {
     if (child?.pid) signalGroup(child.pid, signal);
@@ -276,14 +381,14 @@ export async function runAdmitted(command, options = {}) {
     for (;;) {
       if (cancelled) { await release("cancelled"); return exitCode(null, cancelled); }
       const result = await withLedger(dir, state => {
-        const attempt = tryAdmit(state, dir, id, limit);
-        if (attempt.lost) state.entries.push({ id, state: "queued", pid: process.pid, start, worker, orchestrator, priority, fixPR, label, seq: ++state.seq, queuedAt: now() });
+        const attempt = tryAdmit(state, dir, /** @type {string} */ (id), limit);
+        if (attempt.lost) state.entries.push(/** @type {AdmissionEntry} */ ({ id, state: "queued", pid: process.pid, start, worker, orchestrator, priority, fixPR, label, seq: ++state.seq, queuedAt: now() }));
         return attempt;
       });
       if (result.admitted) break;
       if (result.lost) continue;
       if (!waited) { waited = true; await recordWait("wait-started", { worker, task, timingsOut, root, ledger: dir }); }
-      const line = `Waiting for a host admission slot (${result.limit} on this host): position ${result.position} of ${result.queued}; holders: ${result.holders.join(", ") || "none"}.`;
+      const line = `Waiting for a host admission slot (${result.limit} on this host): position ${result.position} of ${result.queued}; holders: ${/** @type {string[]} */ (result.holders).join(", ") || "none"}.`;
       if (line !== last) { console.error(line); last = line; }
       await sleep(pollMs);
     }
@@ -292,16 +397,17 @@ export async function runAdmitted(command, options = {}) {
     const { spawn } = await import("node:child_process");
     // Pass the workspace lease's descriptor on: a command in a nested user
     // namespace cannot prove its inherited lease through /proc.
-    child = spawn(command[0], command.slice(1), inheritWorkspaceLease({ stdio: ["inherit", "inherit", "inherit"],
-      detached: process.platform !== "win32", env: { ...env, [MARKER]: JSON.stringify({ slot: id, pid: process.pid, start, dir }) } }, "inherit"));
+    child = spawn(command[0], command.slice(1), inheritWorkspaceLease(/** @type {import("node:child_process").SpawnOptions} */ ({ stdio: ["inherit", "inherit", "inherit"],
+      detached: process.platform !== "win32", env: { ...env, [MARKER]: JSON.stringify({ slot: id, pid: process.pid, start, dir }) } }), "inherit"));
+    /** @type {Promise<number>} */
     const exited = new Promise(done => {
-      child.once("error", () => done(127));
-      child.once("exit", (code, signal) => done(exitCode(code, signal)));
+      /** @type {ChildProcess} */ (child).once("error", () => done(127));
+      /** @type {ChildProcess} */ (child).once("exit", (code, signal) => done(exitCode(code, signal)));
     });
     if (child.pid) {
       const pending = await withLedger(dir, state => {
         const entry = state.entries.find(candidate => candidate.id === id);
-        if (entry) entry.child = { pid: child.pid, start: processIdentity(child.pid)?.start ?? "" };
+        if (entry) entry.child = { pid: /** @type {number} */ (/** @type {ChildProcess} */ (child).pid), start: processIdentity(/** @type {number} */ (/** @type {ChildProcess} */ (child).pid))?.start ?? "" };
         return entry?.preempt;
       });
       // A preemption requested before the group existed is delivered now.
@@ -332,6 +438,9 @@ export async function runAdmitted(command, options = {}) {
  * Cancel a holder in the caller's own orchestrator subtree so a waiting
  * red-main fix can start. Its group gets SIGTERM, then SIGKILL after the grace
  * period; the slot is released only after the group has gone.
+ * @param {string} slot
+ * @param {{env?: Env, dir?: string, orchestrator?: string, reason?: string, graceMs?: number}} [options]
+ * @returns {Promise<{slot: string, reason: string, preempted: true, forced: boolean}>}
  */
 export async function preempt(slot, options = {}) {
   const env = options.env ?? process.env, dir = options.dir ?? ledgerDir(env);
@@ -367,6 +476,10 @@ export async function preempt(slot, options = {}) {
 
 export class RefusedError extends Error {}
 
+/**
+ * @param {{env?: Env, dir?: string}} [options]
+ * @returns {Promise<{ledger: string, limit: number, holders: AdmissionEntry[], queue: AdmissionEntry[]}>}
+ */
 export async function status(options = {}) {
   const dir = options.dir ?? ledgerDir(options.env);
   return withLedger(dir, state => {
@@ -380,6 +493,8 @@ export async function status(options = {}) {
  * True when an ancestor already holds a slot for this command tree: through
  * the inherited marker, or, for a descendant whose environment was replaced,
  * through a holder in the ledger that is one of its live ancestors.
+ * @param {Env} [env]
+ * @returns {boolean}
  */
 export function inheritedAdmission(env = process.env) {
   try {
@@ -394,27 +509,31 @@ export function inheritedAdmission(env = process.env) {
 /**
  * Re-enter this heavy command through `run`, unless an ancestor holds a slot.
  * Returns the admitted command's exit code, or undefined to continue inline.
+ * @param {string} label
+ * @returns {Promise<number | undefined>}
  */
 export async function ensureHostAdmission(label) {
   if (inheritedAdmission()) return;
   const { spawn } = await import("node:child_process");
-  let child, pending;
+  let /** @type {ChildProcess | undefined} */ child, /** @type {NodeJS.Signals | undefined} */ pending;
+  /** @type {NodeJS.Signals[]} */
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
   const listeners = signals.map(signal => () => { if (child) child.kill(signal); else pending = signal; });
   signals.forEach((signal, index) => process.on(signal, listeners[index]));
   try {
     child = spawn(process.execPath, [script, "run", "--label", label, "--", process.execPath, ...process.execArgv, ...process.argv.slice(1)],
-      inheritWorkspaceLease({ stdio: ["inherit", "inherit", "inherit"] }, "inherit"));
+      inheritWorkspaceLease(/** @type {import("node:child_process").SpawnOptions} */ ({ stdio: ["inherit", "inherit", "inherit"] }), "inherit"));
     if (pending) child.kill(pending);
     return await new Promise((done, reject) => {
-      child.once("error", reject);
-      child.once("exit", (code, signal) => done(exitCode(code, signal)));
+      /** @type {ChildProcess} */ (child).once("error", reject);
+      /** @type {ChildProcess} */ (child).once("exit", (code, signal) => done(exitCode(code, signal)));
     });
   } finally { signals.forEach((signal, index) => process.off(signal, listeners[index])); }
 }
 
+/** @param {string[]} args */
 function parse(args) {
-  const options = {}, rest = [];
+  const /** @type {AdmissionOptions & {command?: string[], reason?: string, graceMs?: number}} */ options = {}, /** @type {string[]} */ rest = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--") { options.command = args.slice(i + 1); break; }

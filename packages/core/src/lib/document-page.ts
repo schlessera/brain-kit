@@ -207,13 +207,21 @@ export function selectDocumentPage(db: Database, input: DocumentPageInput): Docu
     : "";
 
   return db.transaction(() => {
-    const scopeRow = db
-      .query<{ total: number; newest: string | null }, (string | number)[]>(
-        `SELECT COUNT(*) AS total, MAX(d.indexed_at) AS newest FROM documents d WHERE ${scoped}`
-      )
-      .get(...params)!;
-    const fingerprint = hash16(`${scopeRow.total}|${scopeRow.newest ?? ""}`);
-    const keyset = cursor ? " AND (d.updated < ? OR (d.updated = ? AND d.path > ?))" : "";
+    // Two statements, not one: `indexed_at` is stored behind the body, so a
+    // combined COUNT/MAX read every body in the scope. Apart, the count can
+    // come from a covering index and the newest value from its own index.
+    const total = db
+      .query<{ total: number }, (string | number)[]>(`SELECT COUNT(*) AS total FROM documents d WHERE ${scoped}`)
+      .get(...params)!.total;
+    const newest = db
+      .query<{ newest: string | null }, (string | number)[]>(`SELECT MAX(d.indexed_at) AS newest FROM documents d WHERE ${scoped}`)
+      .get(...params)!.newest;
+    const fingerprint = hash16(`${total}|${newest ?? ""}`);
+    // `updated <= ?` first, so SQLite searches idx_documents_updated for the
+    // range and sorts only within one `updated` value; the equivalent
+    // `updated < ? OR (updated = ? AND path > ?)` collected and sorted every
+    // older row for each page.
+    const keyset = cursor ? " AND d.updated <= ? AND (d.updated < ? OR d.path > ?)" : "";
     const keyParams = cursor ? [cursor.u, cursor.u, cursor.p] : [];
     const rows = db
       .query<DocumentPageSelection["rows"][number], (string | number)[]>(
@@ -228,7 +236,7 @@ export function selectDocumentPage(db: Database, input: DocumentPageInput): Docu
     return {
       rows: rows.slice(0, input.limit),
       more,
-      total: scopeRow.total,
+      total,
       scope,
       fingerprint,
       overview,

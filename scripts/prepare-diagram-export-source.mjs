@@ -5,10 +5,27 @@ import {lstatSync,mkdirSync,mkdtempSync,readFileSync,realpathSync,renameSync,rmS
 import {join,resolve} from "node:path";
 import {diagramSourceDomains,diagramSourceSetup,isDiagramSource,diagramSourceIdentity} from "./diagram-export-source.mjs";
 import {diagramInstallationIdentity} from "./diagram-export-installation.mjs";
+/** @type {(bytes:string|Uint8Array)=>string} */
 const digest=bytes=>createHash("sha256").update(bytes).digest("hex");
+/** @type {(repo:string)=>string} */
 const archivePath=repo=>join(repo,"tmp/diagram-export-source.json");
-/** Development uses current tracked bytes; hosted passing proof requires HEAD bytes. */
+/**
+ * @typedef {object} DiagramSourceArchive
+ * @property {2} version
+ * @property {string} sourceIdentity
+ * @property {import("./diagram-export-installation.mjs").DiagramInstallationIdentity} installation
+ * @property {boolean} immutable
+ * @property {string|null} checkout
+ * @property {string} base
+ * @property {readonly string[]} domains
+ * @property {{path:string,mode:string,sha256:string,bytes:string}[]} inputs
+ */
+/** Development uses current tracked bytes; hosted passing proof requires HEAD bytes.
+ * @param {string} repo
+ * @param {boolean} [immutable]
+ * @returns {DiagramSourceArchive} */
 export function prepareDiagramExportSource(repo,immutable=false){
+ /** @type {(...args:string[])=>string} */
  const git=(...args)=>{const result=spawnSync("git",args,{cwd:repo,encoding:"utf8"});if(result.status!==0)throw Error(`Cannot prepare native diagram source: ${result.stderr}`);return result.stdout;};
  const entries=git("ls-files","--stage","-z").split("\0").filter(Boolean).map(row=>{const tab=row.indexOf("\t"),[mode,oid,stage]=row.slice(0,tab).split(" ");return{mode,oid,stage,path:row.slice(tab+1)};}).filter(entry=>isDiagramSource(entry.path));
  if(!entries.length||diagramSourceSetup.some(path=>!entries.some(entry=>entry.path===path)))throw Error("Missing native diagram source configuration");
@@ -23,5 +40,5 @@ export function prepareDiagramExportSource(repo,immutable=false){
  const head=git("rev-parse","HEAD").trim(),record={version:2,installation,sourceIdentity,immutable,checkout:immutable?head:null,base:head,domains:diagramSourceDomains,inputs};
  mkdirSync(join(repo,"tmp"),{recursive:true});const state=mkdtempSync(join(repo,"tmp/diagram-source-"));
  try{const file=join(state,"archive.json");writeFileSync(file,JSON.stringify(record));renameSync(file,archivePath(repo));}finally{rmSync(state,{recursive:true,force:true});}
- return record;
+ return /** @type {DiagramSourceArchive} */ (record);
 }
