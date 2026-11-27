@@ -33,12 +33,15 @@ const KEYS: Record<string, string> = { ANTHROPIC_API_KEY: "odysseus-host-anthrop
 /** A real turn proxy; `refuse` arms one pre-dispatch refusal for the next attempt. */
 async function harness(origin = upstream.url.origin, committed?: () => void) {
   const rows: EgressRecord[] = [], receipts: ProviderRelayReceipt[] = [], refusals: ProviderRelayRefusal[] = [];
-  let refuse: Refusal | null = null, authority = true;
+  let refuse: Refusal | null = null, authority = true, loseRecording: string | null = null;
   const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], maxBytes: 1 << 20, outwardHosts: [], observe: row => rows.push(row), ...(committed ? { committed } : {}),
     // A host recording refusal at preparation: the proxy's own `preparing` boundary.
     preparing: () => { if (refuse === "prepare") throw new Error("Odysseus recorder unavailable"); },
     admissionSafety: { read: () => ({ evidenceRevision: "1", trustRevision: "1", authorityEpoch: "1", scope: "ithaca", policyHash: null, restricted: false,
-      recordingAvailable: true, authorityCurrent: authority }), subscribe: () => () => {} } });
+      recordingAvailable: true, authorityCurrent: authority }), subscribe: () => () => {},
+      // Armed with a path, a host recording wait rejects once that request
+      // reached the upstream (a late cleanup DELETE of an earlier test never counts).
+      *pendingRecording() { if (loseRecording && seen.some(entry => entry.path === loseRecording)) yield Promise.reject(new Error("Odysseus recorder lost")); } } });
   // The dispatch boundary refusing after the fence passed (a stale send-time check).
   const egress: NonNullable<ProviderRelayOptions["egress"]> = {
     remainingBytes: () => proxy.remainingBytes(),
@@ -72,6 +75,7 @@ async function harness(origin = upstream.url.origin, committed?: () => void) {
   return {
     rows, receipts, refusals, relay, proxy,
     arm(next: Refusal | null) { refuse = next; authority = true; },
+    loseRecordingAfterDispatch(path: string) { loseRecording = path; },
     ordinary: () => send("POST", "/v1/messages", { "x-brain-provider": "anthropic", "x-brain-provider-key": "ANTHROPIC_API_KEY", "x-brain-provider-origin": origin },
       JSON.stringify({ model: "claude-haiku-4-5-20251001", messages: [] })),
     filesStart,
@@ -147,5 +151,20 @@ for (const path of ["ordinary", "cleanup"] as const) test(`#4370: a ${path} requ
     await attempt(h, path);
     expect(h.receipts.map(r => r.outcome), "STARTED_REQUEST_ALWAYS_HAS_ITS_DISPATCH_RECEIPT").toEqual(["dispatched", "cancelled"]);
     expect(new Set(h.receipts.map(r => r.attemptId)).size).toBe(1);
+  } finally { await h.close(); }
+});
+
+for (const path of ["ordinary", "files"] as const) test(`#4370: a ${path} attempt whose recording wait rejects after headers still settles once`, async () => {
+  const h = await harness();
+  try {
+    const sent = path === "ordinary" ? "/v1/messages" : "/upload/v1beta/files";
+    h.loseRecordingAfterDispatch(sent);
+    const status = await attempt(h, path);
+    const reached = seen.filter(entry => entry.path === sent).length;
+    expect(h.receipts.map(r => r.outcome), "REJECTED_RECORDING_AFTER_HEADERS_SETTLES_THE_ATTEMPT").toEqual(["dispatched", "cancelled"]);
+    expect(reached, "THE_ATTEMPT_LEFT_THE_HOST").toBe(1);
+    expect(status).toBe(503);
+    expect(new Set(h.receipts.map(r => r.attemptId)).size).toBe(1);
+    expect(h.rows.at(-1)).toMatchObject({ outcome: "denied", reason: "egress_unavailable", dispatched: true });
   } finally { await h.close(); }
 });

@@ -8,8 +8,8 @@ import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
-import { noteRetainedSafetyLoss, safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
-import { noteSafetyLoss, safetyProjection, safetyEvidenceSequence, safetyLossGenerations, safetyScopeTurns } from "../governance/safety-store.js";
+import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
+import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
 import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
 import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
@@ -184,25 +184,20 @@ export async function prepareTurnEgress(options: {
   // A turn whose collection began restricted carries a permanent gap before
   // any delivery (`covered` in governance/event-writes.ts). Its writer
   // tolerates a lost taint record there with `{id:0,recorded:false}`: the
-  // gap already shows the loss, and it never clears (#4351).
-  const gapped = () => { try { return !!db?.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(options.turnId); } catch { return false; } };
-  /**
-   * A loss this turn tolerated (#4351). The write worker notes its own
-   * losses durably, and the app connection never writes beside it, so with
-   * one the loss raises the in-memory generations; a recorder without one
-   * leaves the durable note to this connection.
-   */
-  const noteLoss = () => {
-    if (!db) return;
-    if (options.governanceWrites) noteRetainedSafetyLoss(db, options.turnId);
-    else noteSafetyLoss(db, options.turnId, options.sessionId());
-  };
+  // gap already shows the loss, and it never clears (#4351). Such a turn
+  // raises no approval card and uses none it holds: a card's marker cannot
+  // see the losses it tolerates. Only a known gap tolerates a loss; an
+  // unreadable one (undefined) still raises no card.
+  const gapRead = (): boolean | undefined => { try { return !!db?.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(options.turnId); } catch { return undefined; } };
+  // A gap that appears after a card opened also changes that card's marker
+  // (its coverage), so an answered outward card is withdrawn at dispatch.
+  const gapped = () => gapRead() === true, noCards = () => gapRead() !== false;
   /** `tolerable`: a taint record, whose tolerated loss on a gapped turn is not an audit failure. */
   const track = (committed: unknown, tolerable = false) => {
     const confirm=(result:unknown)=>{
       // A positive existing id is a durable replay, not a lost write.
       if(result===false||result&&typeof result === "object"&&"recorded" in result&&result.recorded===false&&(!("id" in result)||typeof result.id !== "number"||result.id<=0)){
-        if(tolerable&&typeof result === "object"&&gapped()){noteLoss();return;}
+        if(tolerable&&typeof result === "object"&&gapped())return;
         throw new Error("Egress audit was not durably recorded");
       }
     };
@@ -273,29 +268,12 @@ export async function prepareTurnEgress(options: {
    * (`contactedHosts`).
    */
   const approvalMarkers = new Map<string,{version:string;marker:string}>();
-  /**
-   * The scope's loss generations (#4351): the chat's and the brain's,
-   * durable and in this process. Each only ever increases, so any loss after
-   * a card opened, wherever it was contained, changes them.
-   */
-  const lossState = () => {
-    const queue = safetyQueue(db!), turns = safetyScopeTurns(db!, options.turnId, options.sessionId());
-    let memoryChat = 0;
-    for (const turn of turns) memoryChat += queue.turnLossGenerations.get(turn) ?? 0;
-    const durable = safetyLossGenerations(db!, options.turnId, options.sessionId());
-    return [durable.chat, durable.brain, memoryChat, queue.brainLossGeneration];
-  };
   const approvalRevision = (connectionId?: string,kind: "network" | "outward" = "network") => {
       const callGeneration=kind==="outward"?calls.generation():"0";
       if (!db) return `unrecorded:${callGeneration}`;
       const excludedPending=kind==="network"?pendingReservations(connectionId):[];
       const safety = options.bridge.admissionSafety?.read(excludedPending);
-      // Every loss this chat's scope ever recorded, durably and in this
-      // process (#4351). Any new one after the card opened, its own included,
-      // withdraws it; the counts are part of the cache key, so a loss another
-      // connection committed is never hidden behind a cached marker.
-      const losses = lossState();
-      const key = `${connectionId ?? "global"}:${kind}`, version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString(),callGeneration,losses]);
+      const key = `${connectionId ?? "global"}:${kind}`, version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString(),callGeneration]);
       const cached = approvalMarkers.get(key); if (cached?.version === version) return cached.marker;
       const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId(),excludedPending) ?? safetyProjection(db, options.turnId, options.sessionId(),excludedPending);
       const group=connectionId&&kind==="network"?approvalGroups.get(connectionId):undefined;
@@ -305,8 +283,7 @@ export async function prepareTurnEgress(options: {
       // An uninstrumented turn was already unknown before its first record.
       // Creating its sole incomplete epoch is metadata of this same input.
       const coverage=state.coverage.epochs.length===1&&starts.has(state.coverage.epochs[0]!.id)&&state.coverage.state==="incomplete"?"unknown":state.coverage.state;
-
-      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved"), losses, safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
+      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
         writes?.recordingAvailable?.(options.turnId, options.sessionId(),excludedPending) ?? safety?.recordingAvailable,callGeneration]);
       approvalMarkers.set(key,{version,marker}); return marker;
@@ -438,7 +415,6 @@ export async function prepareTurnEgress(options: {
       // A refused write, such as a full recording queue, never qualifies, and
       // source trust still needs its durable occurrence (#4351).
       if (failed || match || !gapped()) throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
-      noteLoss();
       return;
     }
     if(db&&!hadCollection){
@@ -457,7 +433,7 @@ export async function prepareTurnEgress(options: {
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
-    inputCurrent,
+    inputCurrent, recordingGap: noCards,
     committed:destination=>{
       if(destination.inference||destination.provider)return;
       if(destination.recipientAuthority.kind === "rule")standingRecipients.set(destination.connectionId,destination.recipientAuthority.admission);
@@ -465,6 +441,8 @@ export async function prepareTurnEgress(options: {
     }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;
+      // A gapped turn raises no card; the proxy names the refusal (#4351).
+      if (noCards()) return false;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
         kind: "command", input: destination,
         description: `${destination.method} to ${networkAuthority(destination)}`,

@@ -146,6 +146,15 @@ export interface EgressProxyOptions {
    * `call_not_admitted` when it is an {@link EgressAdmissionRefused}.
    */
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?: string }): unknown;
+  /**
+   * True while the turn carries a permanent recording gap (#4351). It raises
+   * no Network card, a Network answer that arrives once it holds is not used,
+   * and an outward refusal under it is named the same way: each such
+   * connection is refused as `recording_gap`. Allow-listed and
+   * already-contacted destinations need no card and still connect. A throw
+   * refuses as `egress_unavailable`.
+   */
+  recordingGap?(): boolean;
   /** Synchronous notification only after final admission, immediately before dispatch. */
   preparing?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean }): void;
   committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean; recipientAuthority: EgressRecipientAuthority }): void;
@@ -231,7 +240,7 @@ function matches(host: string, patterns: readonly string[]): boolean {
  */
 export interface EgressRefusal {
   cause: "denied_host" | "not_allowlisted" | "byte_cap" | "taint_allowlist" | "outward_not_approved" | "private_destination" | "destination_port"
-    | "call_not_admitted" | "safety_changed" | "egress_unavailable";
+    | "call_not_admitted" | "safety_changed" | "egress_unavailable" | "recording_gap";
   message: string;
 }
 function describeRefusal(reason: string | undefined, host: string, denied: boolean, tainted: string | null | undefined): EgressRefusal | undefined {
@@ -240,6 +249,8 @@ function describeRefusal(reason: string | undefined, host: string, denied: boole
     case "egress_unavailable": return { cause: "egress_unavailable", message: "Blocked: this turn's network admission is unavailable because safety recording could not be verified." };
     case "network_approval_expired": return { cause: "taint_allowlist", message: "The destination approval expired before the owner answered. No connection was made." };
     case "network_approval_unconfirmed": return { cause: "taint_allowlist", message: "The host could not confirm approval for this connection. No connection was made." };
+    case "recording_gap": return { cause: "recording_gap",
+      message: `Blocked: this turn's safety recording has a permanent gap, so it cannot ask to approve a connection to ${host}. Allow-listed and already-reached hosts still work. Do not retry it in this turn; tell the user, who can continue in a new turn.` };
     case "taint_not_approved": return { cause: "taint_allowlist",
       message: "Blocked: this session read untrusted content, this host is outside its allow-list, and the user declined the connection. Do not retry it; say what you needed it for." };
     case "taint_not_allowed": return { cause: "taint_allowlist",
@@ -269,6 +280,7 @@ const REFUSAL_STATUS: Readonly<Record<EgressRefusal["cause"], string>> = {
   private_destination: "Forbidden - not a public web address", destination_port: "Forbidden - destination port not allowed",
   call_not_admitted: "Forbidden - not admitted for this call",
   safety_changed: "Forbidden - safety or authority changed", egress_unavailable: "Service Unavailable - safety recording unavailable",
+  recording_gap: "Forbidden - recording gap, no approval in this turn",
 };
 
 /**
@@ -435,6 +447,13 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       catch { finish("denied","egress_unavailable"); }
     };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
+    /** A permanent recording gap refuses a connection that needs, or holds, an unused card (#4351). */
+    const gapRefused = () => {
+      let gap: boolean;
+      try { gap = options.recordingGap?.() === true; } catch { finish("denied", "egress_unavailable"); return true; }
+      if (gap) finish("denied", "recording_gap");
+      return gap;
+    };
     // Checked again after an approval wait, during which another connection may taint the session.
     // Inference/provider relays retain G5. Managed references retain ordinary
     // G6 recipient narrowing; repository trust never grants outbound authority.
@@ -455,9 +474,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!narrowed()) return true;
       const ask = options.taint?.approve;
       if (!ask) { finish("denied","taint_not_allowed"); return false; }
-      const askNetwork = (replacement:boolean) => {
+      const askNetwork = async (replacement:boolean) => {
+        if (gapRefused()) return false;
         grantRevision = approvalRevision();
-        return approval((destination, signal) => ask(destination, signal, connectionId, replacement));
+        const answer = await approval((destination, signal) => ask(destination, signal, connectionId, replacement));
+        // An owner's denial stays a denial; any other answer meets the gap first.
+        return answer !== false && gapRefused() ? false : answer;
       };
       let beforeCard = readSafety();
       let answer = await askNetwork(false);
@@ -511,7 +533,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
         outwardRevision = approvalRevision(false,true);
         const approveOutward=options.approveOutward;
-        if ((await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) !== true) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
+        if ((await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) !== true) {
+          if (!stopped) gapRefused();
+          finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false;
+        }
         outwardApproved = true;
         if (!grantCurrent()) { refuseStaleApproval(); return false; }
       }
@@ -547,6 +572,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stateRefusal) { finish(stateRefusal==="turn_cancelled"?"cancelled":"denied",stateRefusal);return null; }
       const current = readSafety();
       if (refuseSafety(current,snapshot)) return null;
+      if (granted && !lifecycle.dispatched() && gapRefused()) return null;
       if (!grantCurrent(true)) { refuseStaleApproval(); return null; }
       if (!inputCurrent(connectionId)) { revokeInput(); return null; }
       const authority=recipientDecision(true);

@@ -6357,7 +6357,8 @@ constructor throw publishes no `dispatched` and no terminal receipt, so the
 host books no usage for it. Its caller refusal and `refused` diagnostic are
 unchanged. A started attempt still reports `dispatched` and exactly one
 terminal outcome under its `attemptId`, including when the dispatch fails after
-its request started. Observers that counted those pre-dispatch `cancelled`
+its request started and when a host `pendingRecording()` wait rejects after its
+response headers (503, terminal `cancelled`). Observers that counted those pre-dispatch `cancelled`
 receipts now see none.
 Relayed operations expose `prepare()` and `dispatch(send)` in place of this
 change's provisional `commit()` method. A pending terminal decision during a
@@ -6420,21 +6421,18 @@ policy it already passed, without source trust. A tolerated terminal-exposure
 loss stops neither its operation nor the turn. A source-trusted input still
 needs its durable occurrence, and any other lost write, including a refused
 write such as a full recording queue, a lost connection audit or any loss
-outside a permanent gap, keeps its containment. Every loss such a turn
-tolerates is still recorded, through one function: it raises the brain's,
-the chat's and the turn's durable loss generations, which only ever
-increase and are never filtered, or this process's in-memory generations
-when the store cannot take it. The writer notes every loss it contains, the
-host contains a loss the worker could not, and a recorder without the write
-worker notes its own tolerated losses. An answered Network card captures
-the chat's and the brain's generations, durable and in memory, when it
-opens. Any new loss before its connection dispatches, anywhere in the brain
-and its own included, withdraws the card with 403 safety_changed; a retry
-raises a fresh card (maintainer ruling on #4351, option a). Recovery never
-lowers a generation. While a gapped turn's
-collection stays failed, every own write is lost, so a card-approved
-connection there is withdrawn each time; allow-listed and already-contacted
-destinations still connect.
+outside a permanent gap, keeps its containment. Such a turn raises no
+approval card and uses none it holds, because a card's marker cannot see the
+losses it tolerates (maintainer ruling on #4351, 2026-11-27). A connection
+that would need a Network card, an ordinary destination or a managed GitHub
+fetch, or an outward card is refused without one as `egress_connection`
+`reason: "recording_gap"`, with a 403 whose refusal `cause` is
+`recording_gap`. A Network card that was pending when the gap appeared, or
+answered before it, is never used: its connection is refused the same way
+before dispatch, and an answered outward card is withdrawn at dispatch with
+`safety_changed`. Allow-listed and already-contacted destinations need no
+card and still connect, and a new turn restores approvals. The proxy takes
+the gap from its `recordingGap()` option; an unreadable gap raises no card.
 
 Network approval markers exclude only the approved operation’s own occurrence
 and, when it creates the turn’s first collection, that same collection-start

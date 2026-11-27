@@ -569,7 +569,21 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider upstream unreachable");
     }
     free();
-    for (const pending of operation?.pendingRecording?.() ?? []) await pending;
+    /**
+     * The host's recording waits after dispatch. A rejected wait still
+     * settles this dispatched attempt with one terminal receipt (#4370);
+     * its answer is the refusal to return, undefined when the wait held.
+     */
+    const recordingSettled = async (): Promise<Response | undefined> => {
+      try { for (const pending of operation?.pendingRecording?.() ?? []) await pending; return undefined; }
+      catch {
+        operation?.finish("denied", "egress_unavailable");
+        report("cancelled", null);
+        return chargeDenied(operation?.failure() ?? { ok: false, reason: "unavailable" });
+      }
+    };
+    const headRecording = await recordingSettled();
+    if (headRecording) { await response.body?.cancel().catch(() => {}); return headRecording; }
     const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining,pendingRecording:operation?.pendingRecording,maxBytes:files?MAX_FILES_RESPONSE_BYTES:undefined});
     if(incoming.headerFailure){await incoming.cancel().catch(()=>{});report("cancelled",null);return chargeDenied(incoming.headerFailure);}
     if (response.status >= 300 && response.status < 400) {
@@ -605,7 +619,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
         report(cause.outcome,null);
         return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider response interrupted");
       }
-      for (const pending of operation?.pendingRecording?.() ?? []) await pending;
+      const answerRecording = await recordingSettled();
+      if (answerRecording) return answerRecording;
       const finalFailure=incoming.fence();
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       const answer = Buffer.concat(chunks);
@@ -647,7 +662,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       report(response.ok ? "completed" : "failed", usage);
     };
     if (!response.body) {
-      for (const pending of operation?.pendingRecording?.() ?? []) await pending;
+      const emptyRecording = await recordingSettled();
+      if (emptyRecording) return emptyRecording;
       const finalFailure=incoming.fence();
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       operation?.finish("completed");
@@ -670,7 +686,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
             report(cause.outcome,null);
             release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Provider").message:"Provider response interrupted"));return;
           }
-          for (const pending of operation?.pendingRecording?.() ?? []) await pending;
+          if (await recordingSettled()) { release(); controller.error(new Error("Provider response recording unavailable")); return; }
           let delivered=false;
           const failure=next.deliver(()=>{
             if(next.done){

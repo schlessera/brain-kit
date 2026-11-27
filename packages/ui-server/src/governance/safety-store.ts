@@ -1,6 +1,6 @@
 /** Serialized host-only collection ledger and committed verdict projection. */
 import { Database } from "bun:sqlite";
-import { noteRetainedSafetyLoss, safetyQueue } from "./safety-queue.js";
+import { safetyQueue } from "./safety-queue.js";
 import { assertLive,ChatRetiredError } from "../ws/chat-lifecycle.js";
 import { occurrence, OccurrenceSchema, type Occurrence } from "./occurrence.js";
 import type { GovernanceEventRow } from "./events.js";
@@ -100,28 +100,6 @@ export function logSafetyRecording(body:string,attributes:Record<string,string|n
 const causeAttributes=(scope:string,reason:string,cause:SafetyFailureCause)=>({"safety.scope":scope,"safety.reason":reason,"safety.site":cause.site,
   "safety.turn_id":cause.turnId,"error.class":cause.errorClass,"error.message":cause.message});
 
-const lossKeys=(turnId:string|null,sessionId:string|null)=>["brain",...(sessionId?[`session:${sessionId}`]:[]),...(turnId?[`turn:${turnId}`]:[])];
-/**
- * The one way a contained or tolerated write loss is noted (#4351): it
- * increments the brain's, the chat's and the turn's durable loss
- * generations, which only ever increase. When the store cannot take that,
- * the loss raises this process's in-memory generations instead.
- */
-export function noteSafetyLoss(db:Database,turnId:string|null,sessionId:string|null):void {
-  try{
-    db.transaction(()=>{for(const key of lossKeys(turnId,sessionId))db.query("INSERT INTO safety_loss_generations(key,generation) VALUES(?,1) ON CONFLICT(key) DO UPDATE SET generation=generation+1").run(key);})();
-  }catch{noteRetainedSafetyLoss(db,turnId);}
-}
-/**
- * The scope's durable loss generations: the brain's, and the chat's (its
- * session and every turn in its scope). Each part only ever increases.
- */
-export function safetyLossGenerations(db:Database,turnId:string|null,sessionId:string|null):{brain:number;chat:number} {
-  const read=(key:string)=>db.query<{generation:number},[string]>("SELECT generation FROM safety_loss_generations WHERE key=?").get(key)?.generation??0;
-  let chat=sessionId?read(`session:${sessionId}`):0;
-  for(const turn of safetyScopeTurns(db,turnId,sessionId))chat+=read(`turn:${turn}`);
-  return {brain:read("brain"),chat};
-}
 /** Chat scope: marks only this turn's collection failed, with its first cause.
  * Returns false when the turn has no collection to carry the fact. */
 export function failSafetyCollection(db:Database,turnId:string,reason:SafetyFailureReason,cause:SafetyFailureCause):boolean {
@@ -129,7 +107,6 @@ export function failSafetyCollection(db:Database,turnId:string,reason:SafetyFail
     const c=collection(db,turnId);if(!c)return false;
     db.query(`UPDATE safety_collections SET failure=CASE WHEN failure='capacity' THEN failure ELSE ? END,
       failure_cause=COALESCE(failure_cause,?) WHERE id=?`).run(reason,JSON.stringify(cause),c.id);
-    noteSafetyLoss(db,turnId,c.session_id);
     advance(db);return true;
   }).immediate();
   if(marked)logSafetyRecording("safety recording failed for one chat",causeAttributes("chat",reason,cause));
@@ -145,7 +122,6 @@ export function latchSafety(db:Database,turnId:string|null,reason:SafetyFailureR
     db.query(`INSERT INTO safety_latch(singleton,since,reason,site,turn_id,error_class,message,stack,unscoped,revision) VALUES(1,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(singleton) DO UPDATE SET count=count+1,unscoped=MAX(unscoped,excluded.unscoped)`).run(cause.at,reason,cause.site,cause.turnId,cause.errorClass,cause.message,cause.stack,unscoped?1:0,meta(db).revision);
     if(turnId) db.query("UPDATE safety_collections SET failure=CASE WHEN failure='capacity' THEN failure ELSE ? END,failure_cause=COALESCE(failure_cause,?) WHERE turn_id=?").run(reason,JSON.stringify(cause),turnId);
-    noteSafetyLoss(db,turnId,turnId?collection(db,turnId)?.session_id??null:null);
     if(BigInt(meta(db).revision)<MAX_REVISION)advance(db);
   }).immediate();
   logSafetyRecording("safety recording latched for the brain",causeAttributes("brain",reason,cause));
@@ -447,7 +423,6 @@ function gapOwedResults(db:Database,collectionId:string|null,site:SafetyFailureS
  for(const row of owed){
   const cause=safetyFailureCause(new SafetyUnavailable(`A tool result was never recorded: ${row.tool} (${row.tool_use_id})${row.n>1?` and ${row.n-1} more`:""}`),site,row.turn_id);
   db.query("UPDATE safety_collections SET failure=COALESCE(failure,'recording_failed'),failure_cause=COALESCE(failure_cause,?) WHERE id=?").run(JSON.stringify(cause),row.collection_id);
-  noteSafetyLoss(db,row.turn_id,(db.query("SELECT session_id FROM safety_collections WHERE id=?").get(row.collection_id) as {session_id:string|null}|null)?.session_id??null);
   db.query("DELETE FROM safety_obligations WHERE collection_id=?").run(row.collection_id);
   causes.push(cause);
  }

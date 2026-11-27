@@ -238,16 +238,9 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       .then(()=>{reserved=true;return call<{id:number;recorded:boolean;discharged?:boolean}>("safetyCommit",row,reservation,options.discharge??null);});
     return stored.catch(error => {
       if((error as {code?:string})?.code==="chat_retired")throw error;
-      // Already permanently gapped before delivery: the turn tolerates the
-      // loss and keeps running. The loss is still recorded (#4351): a loss
-      // the worker could not contain itself (a held input's reservation, or
-      // one whose chat and brain facts both failed) is contained here, so
-      // every tolerated loss changes the chat's loss state.
+      // Already permanently gapped before delivery: this loss changes nothing.
       if(restricted){logSafetyRecording("safety evidence not recorded for a restricted turn",{"safety.scope":"turn","safety.turn_id":row.turnId,
-        "error.message":error instanceof Error?error.message:String(error)});
-        const scope=(error as {safetyScope?:string}|null)?.safetyScope;
-        if(scope!=="chat"&&scope!=="brain")void safetyFail(row.turnId,error).catch(()=>{});
-        return {id:0,recorded:false};}
+        "error.message":error instanceof Error?error.message:String(error)});return {id:0,recorded:false};}
       if(!reserved&&options.beforeDelivery)throw new SafetyRecordingUnavailable(brainFailed(),error);
       contained(error,row.turnId);
       throw error;
