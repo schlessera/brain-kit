@@ -4,7 +4,9 @@
 // again; a call replaced by a new object, or a span whose timing moved, must
 // still redraw its row. Props-only, keyless, mounted in happy-dom. Queries
 // come from `render()`, never `screen` — see tests/render/dom.ts for why.
-import { unregisterToolRowsDom } from "./tool-rows-dom.js";
+import { registerToolRowsDom, unregisterToolRowsDom } from "./tool-rows-dom.js";
+
+registerToolRowsDom();
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";

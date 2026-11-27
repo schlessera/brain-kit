@@ -5,10 +5,15 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act } from "react";
 
-if (!GlobalRegistrator.isRegistered) {
-  GlobalRegistrator.register();
+/** Registers the DOM; a repeated evaluation of the test file calls it again, after the last one's unregistration. */
+export function registerToolRowsDom(): void {
+  if (!GlobalRegistrator.isRegistered) {
+    GlobalRegistrator.register();
+  }
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 }
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+registerToolRowsDom();
 
 export async function unregisterToolRowsDom(): Promise<void> {
   if (GlobalRegistrator.isRegistered) {
