@@ -1515,6 +1515,8 @@ export "./internal" (./src/internal.ts)
   type TurnTempPromotionRecord
   type TurnTempPurgeRecord
   UNMANAGED_TURN_STORAGE
+  type UnqualifiedLaunch
+  type UnqualifiedLaunchSite
   VERSION_PROBE_TIMEOUT_MS
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
@@ -1617,6 +1619,7 @@ export "./internal" (./src/internal.ts)
   observeClassification
   observeDiagnostic
   observeOutwardPlan
+  onUnqualifiedLaunch
   outputStagingLimit
   outwardAdmissionRefusal
   ownedNames
@@ -1685,6 +1688,7 @@ export "./internal" (./src/internal.ts)
   toolAdmissionSafety
   turnTempLimit
   turnTempSpace
+  unqualifiedLaunches
   validatedEgressProvenance
   verifiedWorkerIdentity
   webSearchBrief

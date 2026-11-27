@@ -5,13 +5,13 @@
  * synchronous write on the launch path.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createNativeBrainManagerClient, privateStateRefusalOf, registerWorkerPrivateState, WorkerPrivateStateError } from "@schlessera/brain-ui-sdk/internal";
 import { workerPrivateStateProviders } from "../../ui-sdk/src/server/worker-private-state";
 import { createHostBoundary } from "../src/brain/host-boundary";
 import { WorkerIdentityCleanupError } from "../../ui-sdk/src/server/worker-identity";
-import { brainGitSync } from "../../ui-sdk/src/server/maintenance-worker";
+import { brainGitSync, runMaintenanceWorker } from "../../ui-sdk/src/server/maintenance-worker";
 import { createFixtureMaintenanceHost } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { emitTurnError } from "../src/ws/bridge-capabilities/turn-error";
 import { createActivityRuntime } from "../src/activity/runtime";
@@ -27,6 +27,7 @@ import { runSession } from "../src/ws/run-session";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
+import { createRecordingObservability } from "../src/observability";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -171,4 +172,26 @@ describe("review round 1 at the boundary (F1, F2, F13)", () => {
     createHostBoundary({ brainPath: brain, exec: {} });
     expect(workerPrivateStateProviders(brain).length, "F13_TEMPORARY_BOUNDARY_REGISTERS_NOTHING").toBe(0);
   });
+});
+
+describe("an unqualified masked launch is never silent (#4301 Q1 ruling)", () => {
+  test("the skip reaches the host log with its launch site and brain, and runtime status counts it", async () => {
+    const root = mkdtempSync("/var/tmp/odysseus-unqualified-app-"), brain = join(root, "brain"), dbPath = join(root, "ui.db");
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
+    const observability = createRecordingObservability();
+    const app = await createFixtureApp({ observability, config: testServerConfig({ brain, db: dbPath }),
+      registry: createStaticBackendRegistry([makeFakeBackend({ id: "offline" })], "offline") });
+    cleanups.push(() => app.close());
+    // A brain this process registered no layout for, launched with declared masks.
+    const other = join(root, "aeolus"); mkdirSync(other); writeFileSync(join(other, "winds.md"), "# Winds\n");
+    const view = createFixtureMaintenanceHost(other); cleanups.push(view.cleanup);
+    const result = await runMaintenanceWorker({ brainPath: other, startupView: view.startupView, command: ["/bin/sh", "-c", "exit 0"],
+      env: { PATH: "/usr/bin:/bin" }, credentials: false, maskPaths: [join(root, "state")], timeoutMs: 20_000 });
+    expect(result.exitCode, result.stderr).toBe(0);
+    const warning = observability.logs.find({ severity: "WARN" }).find(log => String(log.body).includes("skipped private-state qualification"));
+    expect(warning?.attributes, "UNQUALIFIED_SKIP_LOGGED").toMatchObject({ "launch.site": "maintenance", "launch.brain": realpathSync(other) });
+    const status = await (await app.fetch(new Request("http://localhost/api/status"))).json() as { runtime?: { unqualifiedLaunches?: unknown } };
+    expect(status.runtime?.unqualifiedLaunches, "UNQUALIFIED_SKIP_IN_STATUS").toMatchObject({ count: expect.any(Number), last: { site: "maintenance", brain: realpathSync(other) } });
+  }, watchdogMs(90_000));
 });

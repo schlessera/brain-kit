@@ -1183,7 +1183,8 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     // A synchronous caller reaps the child itself; Bun then rejects `exited`.
     const closeStatus = () => status.close(supervisor);
     void child.exited.then(closeStatus, closeStatus);
-    yield* qualifyWorkerNamespaceSteps(pid, realpathSync(input.brainPath), spawnedAt + STATE_SETUP_MS);
+    yield* qualifyWorkerNamespaceSteps(pid, realpathSync(input.brainPath), spawnedAt + STATE_SETUP_MS,
+      { site: input.transport ? "transport" : "maintenance", masked: launchMasked(input) });
     if (options.signal?.aborted) { aborted = true; throw options.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"); }
     if (options.timeoutMs !== undefined && Date.now() >= spawnedAt + options.timeoutMs) {
       // Its deadline passed during setup: stopped as spawnSync's timeout stopped it, never released.
@@ -1204,6 +1205,11 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     }
     throw error;
   }
+}
+
+/** Whether a launch names private host paths to mask (#4301 Q1). */
+function launchMasked(input: WorkerLaunch): boolean {
+  return Boolean(input.maintenance?.maskPaths?.length || input.sandbox?.maskPaths?.length);
 }
 
 let waitpid: ((pid: number) => void) | null | undefined;
@@ -1607,7 +1613,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       yield* verifyWorkerFolderMountsSteps(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
         identityBroker?.brainView());
     // Every envelope, before release: no host private state reachable here (#4301).
-    yield* qualifyWorkerNamespaceSteps(pid, brain, deadline);
+    yield* qualifyWorkerNamespaceSteps(pid, brain, deadline, { site: input.maintenance ? "maintenance" : "agent", masked: launchMasked(input) });
     // Release the gate: the worker's command starts only now.
     // A separate identity opens both keys: the coordinator's gate, then STATE_GATE's line.
     if (identityBroker) { yield* identityBroker.requestSteps("release"); writeSync(pipes.parent[0], STATE_GATE_OPEN); }

@@ -176,12 +176,41 @@ const report = (provider: WorkerPrivateStateProvider, event: WorkerPrivateStateE
  * its refusal throws with the walk's reason while a pass releases. The walk's
  * time is not counted against `deadline`, which bounds the observation only.
  */
-export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadline: number): WorkerSteps<NamespaceQualification> {
+/** Where an unqualified launch came from: the launch function and the envelope it built. */
+export type UnqualifiedLaunchSite = "agent" | "maintenance" | "transport";
+/** One masked launch that skipped qualification because its brain has no registered layout (#4301 Q1 ruling). */
+export interface UnqualifiedLaunch { at: number; site: UnqualifiedLaunchSite; brain: string }
+/** Process-wide, like the registry: the count and the last one, for status. */
+interface UnqualifiedRecord { count: number; last?: UnqualifiedLaunch; listeners: Set<(launch: UnqualifiedLaunch) => void> }
+const UNQUALIFIED = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-unqualified");
+const unqualified: UnqualifiedRecord = ((globalThis as Record<symbol, unknown>)[UNQUALIFIED] ??= { count: 0, listeners: new Set() }) as UnqualifiedRecord;
+
+/** The masked launches that skipped qualification in this process, for status. */
+export function unqualifiedLaunches(): { count: number; last?: UnqualifiedLaunch } {
+  return { count: unqualified.count, ...(unqualified.last ? { last: { ...unqualified.last } } : {}) };
+}
+/** Be told of each skipped masked launch (the host's diagnostic log); returns the disposer. */
+export function onUnqualifiedLaunch(listener: (launch: UnqualifiedLaunch) => void): () => void {
+  unqualified.listeners.add(listener);
+  return () => { unqualified.listeners.delete(listener); };
+}
+function recordUnqualified(site: UnqualifiedLaunchSite, brain: string): void {
+  const launch = { at: Date.now(), site, brain };
+  unqualified.count++; unqualified.last = launch;
+  for (const listener of unqualified.listeners) { try { listener(launch); } catch { /* A diagnostic never changes the launch. */ } }
+}
+
+export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadline: number,
+  launch: { site: UnqualifiedLaunchSite; masked: boolean }): WorkerSteps<NamespaceQualification> {
   const registered = workerPrivateStateProviders(brain), reporters = workerPrivateStateReporters(brain);
   // No layout registered for this brain in this process (a backend or library
   // used on its own, whose masks are credential files): nothing to judge or
-  // walk, so the launch runs unqualified, as before #4301.
-  if (!registered.length) return { result: "unqualified" };
+  // walk, so the launch runs unqualified, as before #4301. A masked launch is
+  // never skipped silently (maintainer ruling on #4301 Q1).
+  if (!registered.length) {
+    if (launch.masked) recordUnqualified(launch.site, brain);
+    return { result: "unqualified" };
+  }
   let cause: string | undefined;
   try {
     const roots = observeStateRoots(registered.flatMap(provider => provider.roots()));

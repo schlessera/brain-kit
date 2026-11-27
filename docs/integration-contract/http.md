@@ -1264,7 +1264,13 @@ restart: `{ at, reason: "private_state_exposed", setting, path, row, scope:
 "launch" }`, where `path` is the live name and `row` the mount row. It is
 written off the launch path; a failed write never changes a launch.
 `runtime.operationalStateLastFailure` keeps its type and meaning: an exposure is
-never written to it.
+never written to it. The optional authenticated status field
+`runtime.unqualifiedLaunches` counts masked launches that skipped launch
+qualification because no private-state layout is registered for their brain in
+this process (a backend or library used on its own): `{ count, last?: { at,
+site: "agent" | "maintenance" | "transport", brain } }`. It is absent while there
+are none, and each skip also writes a WARN line naming the launch site and brain
+to the host's diagnostic log; a skip is never silent.
 The authenticated status field `runtime.operationalStateLastFailure` retains
 the last incomplete check across recovery and restart: `{ at,
 errorClass: "OperationalStateAliasVerificationUnavailable", callSite:

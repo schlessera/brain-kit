@@ -73,6 +73,12 @@ export interface RuntimeStatusSnapshot {
    * diagnostic, never a verdict any admission or launch reads.
    */
   privateStateLastExposure?: PrivateStateExposure;
+  /**
+   * Masked launches that skipped launch qualification because no private-state
+   * layout is registered for their brain in this process (#4301): how many,
+   * and the last one's launch site and brain. Absent while there are none.
+   */
+  unqualifiedLaunches?: { count: number; last?: { at: number; site: "agent" | "maintenance" | "transport"; brain: string } };
   /** The last turn's own report. */
   lastObserved?: Omit<RuntimeObserved, "kind"> & { runId: string; at: string };
   /** The last turn that failed to authenticate. */

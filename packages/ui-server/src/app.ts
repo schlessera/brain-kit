@@ -45,7 +45,7 @@ import { dirname, join, resolve } from "path";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
-import { prepareNativeWorkerStartupView, type WorkerPrivateStateEvent } from "@schlessera/brain-ui-sdk/internal";
+import { onUnqualifiedLaunch, prepareNativeWorkerStartupView, unqualifiedLaunches, type WorkerPrivateStateEvent } from "@schlessera/brain-ui-sdk/internal";
 import { createCodeChangeHistory } from "./brain/code-change-history.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
@@ -522,6 +522,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary,
     privateStateEvents: event => onPrivateStateEvent(event) });
   bootCleanup.push(() => hostExecution.release());
+  // A masked launch for a brain with no registered layout runs unqualified, never silently (#4301 Q1 ruling).
+  const stopUnqualifiedLog = onUnqualifiedLaunch(launch => brainLog.emit({ severityText: "WARN",
+    body: `a masked ${launch.site} launch skipped private-state qualification: no private-state layout is registered for brain ${launch.brain} in this process`,
+    attributes: { "launch.site": launch.site, "launch.brain": launch.brain } }));
+  bootCleanup.push(stopUnqualifiedLog);
   const boundary = hostExecution.boundary;
   const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {
     for (const result of results) {
@@ -1216,7 +1221,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         const current = !live || !governed ? governed : live.refusal ? (({ profile: _profile, profileFallback: _fallback, ...rest }) => ({ ...rest, available: false as const, ...live.refusal!, stateBoundary: live.stateBoundary }))(governed as typeof governed & { profileFallback?: string })
           : governed.available === false && governed.reason === "private_state_exposed" ? { ...boundary.status(), stateBoundary: live.stateBoundary }
             : { ...governed, stateBoundary: live.stateBoundary };
-        const snapshot = { ...recorded, ...(current && recorded.workerHost ? { workerHost: { ...recorded.workerHost, governed: current } } : {}), compute: computeHost.status() };
+        const skipped = unqualifiedLaunches();
+        const snapshot = { ...recorded, ...(current && recorded.workerHost ? { workerHost: { ...recorded.workerHost, governed: current } } : {}),
+          ...(skipped.count ? { unqualifiedLaunches: skipped } : {}), compute: computeHost.status() };
         try {
           return { ...snapshot, sync: readSyncRuntime(db) };
         } catch {
@@ -1602,6 +1609,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => activity.close());
       await attempt(stopAttachmentSweep);
       await attempt(() => hostExecution.release());
+      await attempt(() => stopUnqualifiedLog());
       // Consumers have drained; close the shared write connection before its reader.
       await attempt(() => writer.close());
       await attempt(() => db.close());

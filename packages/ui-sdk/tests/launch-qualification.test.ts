@@ -16,7 +16,7 @@ import { text as streamText } from "node:stream/consumers";
 import { runMaintenanceWorker, runMaintenanceWorkerSteps, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
 import { launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, probeWorkerHost } from "../src/server/worker-launcher";
 import { parseMountinfo, resolveMount, WORKER_NAMESPACE_SEAL } from "../src/server/namespace-qualification";
-import { privateStateRefusalOf, qualifyWorkerNamespaceSteps, registerWorkerPrivateState, workerPrivateStateProviders, WorkerPrivateStateError, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider } from "../src/server/worker-private-state";
+import { onUnqualifiedLaunch, privateStateRefusalOf, qualifyWorkerNamespaceSteps, registerWorkerPrivateState, unqualifiedLaunches, type UnqualifiedLaunch, workerPrivateStateProviders, WorkerPrivateStateError, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider } from "../src/server/worker-private-state";
 import * as workerStatus from "../src/server/worker-status";
 import { assertScratchMaskAsync } from "../src/server/bridge-tools/mask";
 import { runWorkerStepsAsync, runWorkerStepsSync } from "../src/server/worker-steps";
@@ -171,9 +171,19 @@ describe("an unknown layout runs the walk at the launch (A12)", () => {
     const f = await fixture();
     const other = join(f.root, "other-brain"); mkdirSync(other);
     const view = createFixtureWorkerStartupView(other); cleanups.push(view.cleanup);
+    const seen: UnqualifiedLaunch[] = [], before = unqualifiedLaunches().count;
+    cleanups.push(onUnqualifiedLaunch(launch => seen.push(launch)));
     const result = await runMaintenanceWorker({ ...maintenance(f, [f.markers]), brainPath: other, startupView: view, maskPaths: [join(f.root, "state")] });
     expect(result.exitCode, `UNREGISTERED_BRAIN_RUNS_UNQUALIFIED: ${result.stderr}`).toBe(0);
     expect(f.ran()).toBe(1);
+    // Never silently (maintainer ruling on Q1): the skip is recorded with its launch site and brain.
+    expect(seen, "UNQUALIFIED_SKIP_RECORDED").toEqual([{ at: expect.any(Number), site: "maintenance", brain: realpathSync(other) }]);
+    expect(unqualifiedLaunches(), "UNQUALIFIED_SKIP_COUNTED").toMatchObject({ count: before + 1, last: { site: "maintenance", brain: realpathSync(other) } });
+    // An unmasked launch for an unregistered brain (a library's own) is not a skip of declared private state.
+    const view2 = createFixtureWorkerStartupView(other); cleanups.push(view2.cleanup);
+    const unmasked = await runMaintenanceWorker({ ...maintenance(f, [f.markers]), brainPath: other, startupView: view2 });
+    expect(unmasked.exitCode).toBe(0);
+    expect(unqualifiedLaunches().count, "UNMASKED_LAUNCH_NOT_RECORDED").toBe(before + 1);
   }, watchdogMs(60_000));
 });
 
@@ -207,13 +217,13 @@ describe("qualification never judges an incomplete table (A25)", () => {
   test("reads in order: empty, seal absent, seal with the old root stacked at /, complete: judged only on the last", async () => {
     const f = await fixture();
     const served = injected(reads);
-    expect(runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 5_000)), "RELEASED_ON_COMPLETE").toEqual({ result: "hidden" });
+    expect(runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 5_000, { site: "maintenance", masked: true })), "RELEASED_ON_COMPLETE").toEqual({ result: "hidden" });
     expect(served(), "JUDGED_ONLY_THE_FOURTH_READ").toBe(4);
   }, watchdogMs(30_000));
   test("a stacked root repeated to the deadline is unknown: the walk decides", async () => {
     const f = await fixture();
     injected(reads.slice(0, 3));
-    expect(runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 200)), "STACKED_TO_DEADLINE_UNKNOWN").toEqual({ result: "namespace_unverified" });
+    expect(runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 200, { site: "maintenance", masked: true })), "STACKED_TO_DEADLINE_UNKNOWN").toEqual({ result: "namespace_unverified" });
     expect(f.events.at(-1)).toMatchObject({ kind: "namespace_unverified", cause: "the sandbox's mount table was not complete in time" });
   }, watchdogMs(30_000));
 });
