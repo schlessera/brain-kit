@@ -7,14 +7,16 @@
  * source" would send its owner looking for a typo (#128).
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDirs } from "../../../tests/helpers/temp";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import type { CommandContext } from "@schlessera/brain";
 import command, { selectSources } from "../src/cli";
 import { configSchema, type JobsConfig } from "../src/module";
 import { ALL_SOURCES, BROWSER_SOURCES, DISABLED_BY_DEFAULT, RETIRED_SOURCES, SOURCES } from "../src/types";
+
+const tempDir = tempDirs();
 
 describe("selectSources", () => {
   test("a scrape naming a retired board is refused, and says it was retired", () => {
@@ -115,7 +117,7 @@ describe("jobs scrape <retired board>", () => {
   let errorSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "jobs-retired-"));
+    root = tempDir("jobs-retired-");
     stderr = [];
     errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
       stderr.push(args.join(" "));
@@ -123,7 +125,6 @@ describe("jobs scrape <retired board>", () => {
   });
   afterEach(() => {
     errorSpy.mockRestore();
-    rmSync(root, { recursive: true, force: true });
   });
 
   test("exits non-zero with the retirement message, before any board is fetched", async () => {

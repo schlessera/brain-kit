@@ -31,6 +31,7 @@ import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { createPrincipal, type Principal } from "../src/db/principals.js";
 import { queryGovernanceEvents } from "../src/governance/events.js";
 import { GITHUB_TOOLS_SENTINEL, fakeGithub, routeGithubApi } from "./fixtures/github-host-fixture.js";
+import { until } from "../../../tests/helpers/until";
 
 const SECRET = "odysseus-github-details-cookie-secret-0123";
 
@@ -77,8 +78,7 @@ test("the owner account pages a turn's GitHub object; detail reads leave the ses
       const ws = { send: (frame: string) => { sent.push(frame); }, close() {}, readyState: 1 } as WSContext;
       await handlers.onOpen(undefined as never, ws);
       handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text, requestId: `details-${requests.length}`, ...(sessionId ? { sessionId } : {}) }) } as MessageEvent, ws);
-      const until = Date.now() + 45_000;
-      while (finished === before || app.isTurnActive()) { if (Date.now() > until) throw new Error(`turn did not finish: ${sent.join("\n")}`); await Bun.sleep(10); }
+      await until(() => finished !== before && !app.isTurnActive(), () => `turn did not finish: ${sent.join("\n")}`, 45_000);
       handlers.onClose({ code: 1000 } as CloseEvent, ws);
     }
 
