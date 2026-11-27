@@ -18,6 +18,12 @@ import { safeStartupTiming, type ExecWrapperConfig, type StartTurnRequest } from
 export const BRAIN_TOOL_TIMEOUT_MS = 30_000;
 /** Product bound for the forwarding process to exit at cleanup before its allowance is handed to the reconciler. */
 export const BRAIN_TOOL_EXIT_WAIT_MS = 5_000;
+/**
+ * Product bound for the inventory check before a new chat's first request:
+ * well above a cold `brain module list`, well below the turn budget. A check
+ * that misses it selects the unchanged stdio path (#4325 F3).
+ */
+export const BRAIN_INVENTORY_TIMEOUT_MS = 8_000;
 
 /** Adapt the sandbox launch's existing pipes; never spawn a process in a transport. */
 export function brainWorkerTransport(worker: Pick<LaunchedWorker, "stdin" | "stdout" | "exited" | "kill">): Transport {
@@ -39,8 +45,13 @@ export function brainWorkerTransport(worker: Pick<LaunchedWorker, "stdin" | "std
       });
       worker.stdout.on("error", error => transport.onerror?.(error));
       worker.stdin.on("error", error => transport.onerror?.(error));
-      worker.stdout.on("end", () => transport.onclose?.());
-      void worker.exited.catch(error => transport.onerror?.(error));
+      // The worker's exit closes the transport as its stdout's end does:
+      // under a separate UID the pipe's writer is the identity supervisor,
+      // whose end can follow the exit by the worker's held handles (#4325 F3).
+      let closed = false;
+      const closeOnce = () => { if (!closed) { closed = true; transport.onclose?.(); } };
+      worker.stdout.on("end", closeOnce);
+      void worker.exited.then(closeOnce, error => transport.onerror?.(error));
     },
     async send(message: JSONRPCMessage) {
       await new Promise<void>((resolve, reject) => worker.stdin.write(serializeMessage(message), error => error ? reject(error) : resolve()));
@@ -261,7 +272,7 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
   const controller = new AbortController();
   const ownedSignal = AbortSignal.any([signal, controller.signal]);
   let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
-  const timer = setTimeout(() => controller.abort(), BRAIN_TOOL_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), BRAIN_INVENTORY_TIMEOUT_MS);
   // Every wait races one deadline: the product timeout or the caller's abort.
   // A supervisor that refuses the kill and a stdout that never ends can then
   // only cost the bound, never hold a new chat (#4325 round 2 F3).
@@ -277,11 +288,17 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
     const worker = started.worker;
     const reading = (async () => {
       let text = "";
+      // Release the turn-temp handle once the helper exits: under a separate
+      // UID its stdout ends only when the identity broker closes, and the
+      // broker closes only when no handle holds it (#4325 F3). Idempotent
+      // with the release in `finally`.
+      const exit = worker.exited.finally(() => worker.turnTemp?.closeAsync().catch(() => {}));
+      void exit.catch(() => {});
       for await (const chunk of worker.stdout) {
         text += String(chunk);
         if (Buffer.byteLength(text) > 1024 * 1024) throw new Error("brain_bridge_inventory_oversized");
       }
-      return { text, code: await worker.exited };
+      return { text, code: await exit };
     })();
     const read = await Promise.race([reading, deadline]);
     if (read === "deadline") { void reading.catch(() => {}); return "unavailable"; }

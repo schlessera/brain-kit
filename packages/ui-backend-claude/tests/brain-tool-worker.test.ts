@@ -5,7 +5,7 @@ import { isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
 import * as internal from "@schlessera/brain-ui-sdk/internal";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder, bridgeBrainVersion } from "../src/brain-tool-forwarder.js";
+import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder, bridgeBrainVersion, BRAIN_INVENTORY_TIMEOUT_MS } from "../src/brain-tool-forwarder.js";
 import * as promptContext from "../src/prompt-context.js";
 import { createBridgedTurnReservation } from "../src/brain-tool-reservation.js";
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
@@ -29,7 +29,9 @@ function worker(root: string) {
   void exit.promise.catch(() => {});
   let closed = 0, released = 0;
   const stdin = new PassThrough(), stdout = new PassThrough(), stderr = new PassThrough();
-  const handle = { root, space: () => ({ total: 1024 * 1024, free: 1024 * 1024 }), async closeAsync() { closed++; } };
+  // Idempotent like the launcher's handle: `closed` counts the one release.
+  let handleReleased = false;
+  const handle = { root, space: () => ({ total: 1024 * 1024, free: 1024 * 1024 }), async closeAsync() { if (!handleReleased) { handleReleased = true; closed++; } } };
   const launched = { stdin, stdout, stderr, exited: exit.promise, turnTemp: handle, state: handle,
     kill() { stdout.end(); stderr.end(); exit.resolve(0); }, async released() { released++; }, limitReport: () => ({ hits: [], fatal: false }) };
   return { launched: launched as unknown as internal.LaunchedWorker, exit, stdin, stdout, stderr, get closed() { return closed; }, get released() { return released; } };
@@ -166,7 +168,7 @@ for (const failure of ["launch", "nonzero", "malformed", "shape", "timeout"] as 
   let timeoutMs: number | undefined;
   const nativeTimer = globalThis.setTimeout;
   const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
-    if (failure === "timeout" && ms === 30_000) { timeoutMs = ms; return nativeTimer(callback, 0, ...args); }
+    if (failure === "timeout" && ms === BRAIN_INVENTORY_TIMEOUT_MS) { timeoutMs = ms; return nativeTimer(callback, 0, ...args); }
     return nativeTimer(callback, ms, ...args);
   }) as typeof setTimeout);
   const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async () => {
@@ -179,7 +181,7 @@ for (const failure of ["launch", "nonzero", "malformed", "shape", "timeout"] as 
   });
   try {
     expect(await probeBrainBridgeInventory(f.input, f.signal), `FAILED_INVENTORY_${failure}_NEVER_SELECTS_CORE_BRIDGE`).toBe("unavailable");
-    if (failure === "timeout") expect(timeoutMs, "INVENTORY_PRODUCT_TIMEOUT_REMAINS_30_SECONDS").toBe(30_000);
+    if (failure === "timeout") expect(timeoutMs, "INVENTORY_PRODUCT_TIMEOUT_IS_ITS_OWN_SHORT_BOUND").toBe(8_000);
     if (failure !== "launch") expect(child.closed, "FAILED_INVENTORY_RELEASES_TEMP").toBe(1);
   } finally { timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
 });
@@ -349,7 +351,7 @@ for (const cause of ["deadline", "caller abort"] as const) test(`a hung inventor
   const nativeTimer = globalThis.setTimeout;
   // The product deadline (cause "deadline") and the exit wait fire at once; the caller variant keeps the deadline.
   const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) =>
-    nativeTimer(callback, ms === 5_000 || (cause === "deadline" && ms === 30_000) ? 0 : ms, ...args)) as typeof setTimeout);
+    nativeTimer(callback, ms === 5_000 || (cause === "deadline" && ms === BRAIN_INVENTORY_TIMEOUT_MS) ? 0 : ms, ...args)) as typeof setTimeout);
   try {
     const probe = probeBrainBridgeInventory({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits) }, controller.signal);
     if (cause === "caller abort") { await Bun.sleep(10); controller.abort(); }
@@ -358,4 +360,43 @@ for (const cause of ["deadline", "caller abort"] as const) test(`a hung inventor
     expect([child.stdout.destroyed, child.stderr.destroyed], "HUNG_INVENTORY_PIPES_DISPOSED").toEqual([true, true]);
     expect(ledger.turnTempHeld, "HUNG_INVENTORY_ALLOWANCE_HELD").toBe(f.input.turnTempLimits.allowanceBytes);
   } finally { child.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4325 F3: under a separate UID the inventory helper's stdout is the identity
+// supervisor's, which ends only once the broker closes, and the broker closes
+// only when the worker's last handle is released. The probe releases its
+// turn-temp handle on the helper's exit, so the verdict arrives at once
+// instead of at the deadline.
+test("a supervised inventory helper whose stdout ends only after its handle is released yields its verdict at exit", async () => {
+  const f = fixture(), child = worker(f.state);
+  const handle = (child.launched as unknown as { turnTemp: { closeAsync(): Promise<void> } }).turnTemp;
+  const release = handle.closeAsync.bind(handle);
+  handle.closeAsync = async () => { await release(); child.stdout.end(); };
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async () => {
+    child.stdout.write('{"enabled":[],"available":[]}'); child.exit.resolve(0);
+    return child.launched;
+  });
+  try {
+    const verdict = await Promise.race([probeBrainBridgeInventory(f.input, f.signal), Bun.sleep(2_000).then(() => "STILL_WAITING")]);
+    expect(verdict, "SUPERVISED_INVENTORY_RELEASES_ITS_HANDLE_AT_EXIT").toBe("core-only");
+    expect(child.closed, "SUPERVISED_INVENTORY_RELEASES_TEMP_ONCE").toBe(1);
+  } finally { child.stdout.end(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4325 F3 R2: the forwarder's transport closes at the worker's exit too, so a
+// crashed supervised `brain mcp` fails its calls at once, not at their timeout.
+test("the brain worker transport closes when the worker exits before its stdout ends", async () => {
+  const f = fixture(), child = worker(f.state);
+  try {
+    const transport = brainWorkerTransport(child.launched);
+    let closes = 0;
+    transport.onclose = () => { closes++; };
+    await transport.start();
+    child.exit.resolve(1);
+    await Bun.sleep(0);
+    expect(closes, "WORKER_EXIT_CLOSES_THE_TRANSPORT").toBe(1);
+    child.stdout.end();
+    await Bun.sleep(0);
+    expect(closes, "TRANSPORT_CLOSES_ONCE").toBe(1);
+  } finally { child.stdout.end(); rmSync(f.root, { recursive: true, force: true }); }
 });

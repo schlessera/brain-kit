@@ -10,3 +10,5 @@ Bridge only a project `brain` entry that is exactly `bun node_modules/.bin/brain
 Apply the runtime exec-wrapper and shell-startup environment policy to brain subprocesses, keep restricted version probes credential-free, and share one turn-temp allowance between the runtime and forwarding process with cleanup on rejected exit observers.
 
 The static read definitions ship as `@schlessera/brain/internal/read-definitions`, which loads under Node without `bun:sqlite`, so `@schlessera/brain-backend-claude` still imports under Node.
+
+The inventory check now has its own 8-second bound before a new chat's first request, falling back to stdio, and releases its turn-temp handle when the helper exits, so under a separate worker UID the verdict arrives at exit instead of after a 30-second wait. The forwarder treats the worker's exit as the end of its transport, so a crashed sandboxed `brain mcp` fails its calls at once.
