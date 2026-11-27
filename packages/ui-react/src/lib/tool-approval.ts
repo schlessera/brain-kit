@@ -44,9 +44,15 @@ export function replyToNetworkApproval(
   if (item.sending || item.readOnly) return false;
   const chat = root.stores.chat.getState();
   const advertised = item.network?.scopes;
-  const scope = decision.approved && decision.scope && (!advertised || advertised.includes(decision.scope))
-    ? decision.scope
-    : undefined;
+  let scope: NetworkApprovalScope | undefined;
+  if (decision.approved && decision.scope !== undefined) {
+    const valid =
+      advertised !== undefined
+      && advertised.includes(decision.scope)
+      && !(item.network?.managedReference && decision.scope !== "once");
+    if (!valid) return false;
+    scope = decision.scope;
+  }
   chat.markNetworkApprovalSending(sessionId, item.toolUseId, scope);
   const frame: ClientMessage = decision.approved
     ? {

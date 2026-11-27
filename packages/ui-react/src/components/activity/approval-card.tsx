@@ -136,8 +136,14 @@ export function ApprovalCard(p: ApprovalCardProps) {
     if (key !== "a" && key !== "d") return;
     event.preventDefault();
     if (key === "a") {
-      // Keyboard shortcut `a` stays the narrowest choice (`once` for network cards, #3595).
-      const narrowest = networkScopes?.includes("once") ? "once" : networkScopes?.[0];
+      // Keyboard shortcut `a` stays the narrowest advertised choice: once < origin < session (#3595).
+      const narrowest: NetworkApprovalScope | undefined = networkScopes?.includes("once")
+        ? "once"
+        : networkScopes?.includes("origin")
+          ? "origin"
+          : networkScopes?.includes("session")
+            ? "session"
+            : undefined;
       decide(event.currentTarget, true, undefined, narrowest);
     } else {
       decide(event.currentTarget, false);
@@ -180,7 +186,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
                   size="sm"
                   block={false}
                   disabled={sending}
-                  style={{ minHeight: 44 }}
+                  style={{ minHeight: 44, maxWidth: "100%", whiteSpace: "normal", overflowWrap: "anywhere", textAlign: "left" }}
                   onClick={() => decide(cardOf(), true, undefined, "origin")}
                 />
               )}

@@ -203,8 +203,17 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
         resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
         return;
       }
+      let delivered = false;
       const invalidate = () => {
         if (networkCard) {
+          // A claimed card awaiting grant commit must never absorb a new taint class (#4966).
+          if (!coordinator.pendingApprovals.has(req.toolUseId)) {
+            const refusal = revalidate();
+            if (refusal) {
+              coordinator.expireApproval(req.toolUseId, refusal, "safety_changed", p => p.turn === turn && p.request.toolUseId === req.toolUseId);
+            }
+            return;
+          }
           let action: ReturnType<typeof networkCard.evaluateChange>;
           try { action = networkCard.evaluateChange(); }
           catch { action = { action: "withdraw", reason: STALE_SAFETY_ADMISSION }; }
@@ -215,7 +224,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
               description: action.description,
               ...(action.network ? { network: action.network } : {}),
             });
-            if (updated) {
+            if (updated && delivered) {
               host.sendToClients(
                 withTurnScope(
                   approvalRequestFrame(updated.request, host.toolPermissions !== null),
@@ -263,9 +272,11 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
           attributes: { "tool.name": req.toolName, "toolUse.id": req.toolUseId },
         });
       }
+      const liveRequest = coordinator.pendingApprovals.get(req.toolUseId)?.request ?? req;
+      delivered = true;
       host.sendToClients(
         withTurnScope(
-          approvalRequestFrame(req, host.toolPermissions !== null),
+          approvalRequestFrame(liveRequest, host.toolPermissions !== null),
           turn,
           turnId
         )

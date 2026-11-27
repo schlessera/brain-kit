@@ -8,6 +8,47 @@
 import type { NetworkGrantView } from "@schlessera/brain-ui-sdk/protocol";
 import { canonicalEgressHost } from "@schlessera/brain-ui-sdk/internal";
 import type { Database } from "bun:sqlite";
+import { GOVERNANCE_EVENT_SCHEMAS } from "./events.js";
+import { principalAccount } from "../middleware/account-partition.js";
+
+/**
+ * Resolve the canonical account owner for a session, checking `dialogue_owners`,
+ * `safety_sessions` (plus its `history_owner_id`), and `chat_session_owners`
+ * (including stored `principal_account`). Returns `null` when ownership cannot
+ * be proven so callers fail closed (#3595).
+ */
+export function resolveSessionOwner(db: Database, sessionId: string): { principalId: string; account: string | null } | null {
+  const dialogue = db.query<{ principal_id: string | null; principal_account: string | null }, [string]>(
+    "SELECT principal_id, principal_account FROM dialogue_owners WHERE session_id=?"
+  ).get(sessionId);
+  if (dialogue?.principal_id) {
+    return { principalId: dialogue.principal_id, account: dialogue.principal_account };
+  }
+  const safety = db.query<{ principal_id: string | null; principal_account: string | null; history_owner_id: string | null }, [string]>(
+    "SELECT principal_id, principal_account, history_owner_id FROM safety_sessions WHERE session_id=?"
+  ).get(sessionId);
+  if (safety?.principal_id) {
+    return { principalId: safety.principal_id, account: safety.principal_account };
+  }
+  if (safety?.history_owner_id) {
+    const owner = db.query<{ principal_id: string | null; principal_account: string | null }, [string]>(
+      "SELECT principal_id, principal_account FROM dialogue_owners WHERE id=?"
+    ).get(safety.history_owner_id);
+    if (owner?.principal_id) {
+      return { principalId: owner.principal_id, account: owner.principal_account };
+    }
+  }
+  const catalog = db.query<{ principal_id: string; principal_account: string | null }, [string]>(
+    "SELECT principal_id, principal_account FROM chat_session_owners WHERE session_id=?"
+  ).get(sessionId);
+  if (catalog?.principal_id) {
+    return {
+      principalId: catalog.principal_id,
+      account: catalog.principal_account ?? principalAccount(db, catalog.principal_id),
+    };
+  }
+  return null;
+}
 
 interface CanonicalNetworkOrigin {
   /** Grouping key: `[managed:]scheme://host:port`. */
@@ -61,38 +102,48 @@ interface StoredGrant {
  * one for the same target, revoking the newer grant never resurrects the old.
  */
 function readCurrentGrants(db: Database, sessionId: string, historyGeneration: string): StoredGrant[] {
-  const rows = db.query<{ kind: string; at: number; payload: string }, [string]>(
-    `SELECT kind, at, payload FROM governance_events
+  const rows = db.query<{ kind: string; schema_version: number; at: number; payload: string }, [string]>(
+    `SELECT kind, schema_version, at, payload FROM governance_events
       WHERE session_id = ? AND kind IN ('network_grant', 'network_grant_revoked')
       ORDER BY id ASC`
   ).all(sessionId);
 
   const revoked = new Set<string>();
   const latestByTarget = new Map<string, StoredGrant>();
+  const grantSpec = GOVERNANCE_EVENT_SCHEMAS.network_grant;
+  const revokeSpec = GOVERNANCE_EVENT_SCHEMAS.network_grant_revoked;
 
   for (const row of rows) {
-    let payload: Record<string, unknown>;
-    try { payload = JSON.parse(row.payload) as Record<string, unknown>; } catch { continue; }
+    let parsedJson: unknown;
+    try { parsedJson = JSON.parse(row.payload); } catch { continue; }
     if (row.kind === "network_grant_revoked") {
-      if (typeof payload.grantId === "string") revoked.add(payload.grantId);
+      if (row.schema_version !== revokeSpec.version) continue;
+      const checked = revokeSpec.payload.safeParse(parsedJson);
+      if (checked.success) revoked.add(checked.data.grantId);
       continue;
     }
+    if (row.kind !== "network_grant" || row.schema_version !== grantSpec.version) continue;
+    const checked = grantSpec.payload.safeParse(parsedJson);
+    if (!checked.success) continue;
+    const payload = checked.data;
     if (payload.historyGeneration !== historyGeneration) continue;
-    const scope = payload.scope === "origin" || payload.scope === "session" ? payload.scope : null;
-    if (!scope || typeof payload.grantId !== "string") continue;
-    if (scope === "origin" && typeof payload.origin !== "string") continue;
-    const targetKey = scope === "session" ? "session" : `origin:${payload.origin}`;
+    if (payload.scope === "origin") {
+      if (!payload.origin || payload.origin.startsWith("managed:") || !payload.transport || !payload.scheme || !payload.host || payload.port === undefined) {
+        continue;
+      }
+    } else if (payload.origin !== undefined || payload.transport !== undefined || payload.scheme !== undefined || payload.host !== undefined || payload.port !== undefined) {
+      continue;
+    }
+    const targetKey = payload.scope === "session" ? "session" : `origin:${payload.origin}`;
     latestByTarget.set(targetKey, {
       grantId: payload.grantId,
-      scope,
-      ...(typeof payload.origin === "string" ? { origin: payload.origin } : {}),
-      ...(payload.transport === "http" || payload.transport === "connect" ? { transport: payload.transport } : {}),
-      ...(payload.scheme === "http" || payload.scheme === "https" || payload.scheme === "connect" ? { scheme: payload.scheme } : {}),
-      ...(typeof payload.host === "string" ? { host: payload.host } : {}),
-      ...(typeof payload.port === "number" ? { port: payload.port } : {}),
-      grantedClasses: Array.isArray(payload.grantedClasses)
-        ? payload.grantedClasses.filter((c): c is string => typeof c === "string")
-        : [],
+      scope: payload.scope,
+      ...(payload.origin !== undefined ? { origin: payload.origin } : {}),
+      ...(payload.transport !== undefined ? { transport: payload.transport } : {}),
+      ...(payload.scheme !== undefined ? { scheme: payload.scheme } : {}),
+      ...(payload.host !== undefined ? { host: payload.host } : {}),
+      ...(payload.port !== undefined ? { port: payload.port } : {}),
+      grantedClasses: [...payload.grantedClasses],
       historyGeneration,
       createdAt: row.at,
     });

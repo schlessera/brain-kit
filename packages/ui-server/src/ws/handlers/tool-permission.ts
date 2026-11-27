@@ -118,12 +118,16 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
   }
   // Host-owned network scope persistence & sibling settlement (#3595, #4966).
   if (claimed.request.networkCard?.commitScope) {
-    const committed = await claimed.request.networkCard.commitScope(msg.networkScope, connection.authorization.principalId);
+    const committed = await claimed.request.networkCard.commitScope(
+      msg.networkScope,
+      connection.authorization.principalId,
+      () => coordinator.isApprovalClaimed(msg.toolUseId, claimed)
+    );
     if (!committed.ok) {
       coordinator.expireApproval(msg.toolUseId, committed.reason, committed.cause, p => p === claimed);
       return;
     }
-    coordinator.settleApproval(
+    const settled = coordinator.settleApproval(
       msg.toolUseId,
       claimed,
       { behavior: "allow", ...(committed.scope ? { networkScope: committed.scope } : {}) },
@@ -133,6 +137,11 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
         ...(committed.scope ? { networkScope: committed.scope } : {}),
       }
     );
+    if (settled) {
+      committed.onSettled?.();
+    } else {
+      await committed.onAborted?.();
+    }
     return;
   }
   // Remember-on-approve. Kind "command" never persists (the client

@@ -127,6 +127,37 @@ export function ActivityPage() {
    */
   const [receipt, setReceipt] = useState<{ text: string; target: string; effect: string } | null>(null);
   const [drained, setDrained] = useState(false);
+  const pendingNetworkReceipts = useRef(new Map<string, { target: string }>());
+  const networkReceipts = useChatStore(useShallow((s) =>
+    [...Object.values(s.buffers), ...(s.draft ? [s.draft] : [])].flatMap((b) => b.networkReceipts ?? [])
+  ));
+  useEffect(() => {
+    if (pendingNetworkReceipts.current.size === 0) return;
+    for (const item of networkReceipts) {
+      const pending = pendingNetworkReceipts.current.get(item.toolUseId);
+      if (!pending) continue;
+      pendingNetworkReceipts.current.delete(item.toolUseId);
+      const text = item.reason ?? (
+        item.state === "granted"
+          ? item.scope === "once"
+            ? "Allowed once"
+            : item.scope === "session"
+              ? "Allowed all sites for this chat"
+              : `Allowed ${item.originLabel} for this chat`
+          : item.state === "unknown"
+            ? "This request had already closed — nothing ran"
+            : item.state === "withdrawn"
+              ? `Withdrawn · ${item.originLabel}`
+              : `Expired · ${item.originLabel}`
+      );
+      setReceipt({
+        text,
+        target: pending.target,
+        effect: item.state === "granted" ? "Confirmed by host" : "Nothing ran",
+      });
+      setDrained(inbox.length + approvals.length === 0);
+    }
+  }, [networkReceipts, inbox.length, approvals.length]);
   const loadInbox = useActivityStore((s) => s.loadInbox);
   const acknowledgeIntent = useActivityStore((s) => s.acknowledgeIntent);
   const acknowledgeAllIntents = useActivityStore((s) => s.acknowledgeAllIntents);
@@ -407,6 +438,7 @@ export function ActivityPage() {
         chatState.resetNetworkApprovalSending(key, toolUseId);
         return;
       }
+      pendingNetworkReceipts.current.set(toolUseId, { target: receipt.target });
       return;
     }
     // A refused send keeps the card open and produces no decision receipt.

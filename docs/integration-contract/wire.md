@@ -3950,19 +3950,21 @@ ignore unknown fields):
 ### In-place network card updates and arming (#4966)
 
 A `tool_approval_request` for `toolName: "Network"` may carry optional
-`revision` (positive integer), `origin` (canonical origin key string), and
-`network` (`NetworkApprovalOffer`: `{ origin, transport, scheme, host, port,
-scopes, managedReference?, armingMs?, updateNotice? }`). When a new taint class
-arrives or trust policy changes without removing restriction while a `Network`
-card is waiting, a capable connection receives an updated
-`tool_approval_request` with the same `toolUseId`, incremented `revision`,
-updated `description`/`network.updateNotice`, and `network.armingMs` (500 ms).
-`tool_approval` and `tool_denial` accept optional `revision` (and
-`tool_approval` accepts optional `networkScope`). The host rejects a reply
-whose `revision` does not match the card's current `revision` or that arrives
-during the host-enforced arming window, answering with an `error` frame without
-settling the card. Older clients that do not advertise `approvalUpdates` keep
-legacy withdrawal (`safety_changed`) and single legacy approval semantics.
+`revision` (opaque revision string computed from the card's origin, method,
+restriction state, sorted taint classes, coverage state and non-pending loss
+reasons), `origin` (canonical origin key string, e.g.
+`https://host:port` or `managed:connect://host:port`), and `network`
+(`NetworkApprovalOffer`: `{ transport, scheme, host, port, scopes,
+managedReference?, suspendedGrant?, classes? }`). When a new taint class
+arrives while a `Network` card is waiting, the host updates the pending card in
+place and broadcasts an updated `tool_approval_request` with the same
+`toolUseId`, new `revision` string, updated `description` and updated `network`
+offer. `tool_approval` and `tool_denial` accept optional `revision` (and
+`tool_approval` accepts optional `networkScope`). The host enforces a 500 ms
+arming window after each revision update: a reply whose echoed `revision` does
+not match the card's current `revision`, or a revisionless reply arriving during
+the arming window, is refused without settling the card and the host redelivers
+the current `tool_approval_request`.
 
 If the waiting proxy connection closes before the user answers, the host
 records `safety_admission_expired` with `reason: "operation_cancelled"` and
@@ -3990,15 +3992,17 @@ denials:
 
 Interactive tainted-destination `Network` cards offer `scopes: ["once",
 "origin", "session"]` (or `["once"]` for `managedReference` GitHub
-acquisitions). The host rejects an unadvertised `networkScope` on
-`tool_approval` with an error frame without settling the card. Settling a card
-emits `tool_resolution` with optional `networkScope` and, for sibling cards
-settled by a standing grant, `grantedByGrant: true`.
+acquisitions). The host refuses an unadvertised `networkScope` on
+`tool_approval` without settling the card and redelivers the current
+`tool_approval_request`. Settling a card emits `tool_resolution` with optional
+`networkScope` and, for sibling cards or subsequent connections covered by a
+standing grant, `grantedByGrant: true`.
 
-Approving with `origin` or `session` records a `network_grant` governance event
-and pushes `{ type: "network_grants", sessionId, grants }` (`ServerNetworkGrants`)
-to connections that advertised `networkGrants` and belong to the session's
+Approving with `origin` or `session` persists a `network_grant` governance
+event bound to the session and its `historyGeneration`, and pushes
+`{ type: "network_grants", sessionId, grants }` (`ServerNetworkGrants`) only to
+connections that advertised `networkGrants` and belong to the session's
 account. Grants suspend automatically whenever a new taint class arrives that
 was not in `grantedClasses`, never bypass `network.deny` or voice restrictions,
-and can be revoked through the HTTP grant routes. Nothing here enters provider
-history.
+and can be revoked through the HTTP grant routes (affecting later connections
+only). Nothing here enters provider history.

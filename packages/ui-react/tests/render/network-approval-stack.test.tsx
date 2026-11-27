@@ -17,6 +17,8 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ClientMessage, NetworkApprovalOffer } from "@schlessera/brain-ui-sdk/protocol";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
+import { openRestoredCards } from "../../src/lib/restored-approvals.js";
+import { replyToNetworkApproval } from "../../src/lib/tool-approval.js";
 import { pendingApprovals } from "../../src/stores/chat-store.js";
 import { ChatApprovalStack } from "../../src/components/chat/approval-stack.js";
 import { NetworkApprovalReceipts } from "../../src/components/chat/network-receipts.js";
@@ -440,6 +442,51 @@ describe("network approval stack (#4967, #3595)", () => {
       expect(activityView.getByText("Deny")).toBeTruthy();
       fireEvent.keyDown(activityView.container.querySelector("[data-approval-card]")!, { key: "a" });
       expect(decided, "ACTIVITY_KEYBOARD_A_PICKS_ONCE").toEqual([[true, "once"]]);
+
+      // Restored Network approvals join openRestoredCards / close / reopen / revoke,
+      // and replyToNetworkApproval refuses unadvertised scopes when network metadata is absent.
+      const root2 = createBrainUiRoot({ storage: null });
+      try {
+        const chat2 = root2.stores.chat.getState();
+        chat2.setActiveSession("pylos");
+        chat2.requestToolApproval(
+          "pylos",
+          "net-restored-1",
+          "Network",
+          { host: "pylos.example", port: 443 },
+          "Allow pylos.example?",
+          "command",
+          false,
+          "turn-9",
+          undefined,
+          { origin: "https://pylos.example:443", revision: "rev-r1", network: offer("pylos.example", { scopes: ["session", "origin"] }) }
+        );
+        expect(openRestoredCards(root2.stores.chat.getState().buffers["pylos"])).toEqual([
+          { toolUseId: "net-restored-1", turnId: "turn-9" },
+        ]);
+        chat2.closeRestoredApprovals("pylos", [{ toolUseId: "net-restored-1", closure: "unlisted" }]);
+        expect(openRestoredCards(root2.stores.chat.getState().buffers["pylos"])).toHaveLength(1);
+        chat2.reopenRestoredApprovals("pylos", ["net-restored-1"]);
+        expect(root2.stores.chat.getState().buffers["pylos"]!.networkApprovals![0]!.readOnly).toBeUndefined();
+        chat2.revokeRestoredApprovals();
+        expect(root2.stores.chat.getState().buffers["pylos"]!.networkApprovals![0]!.readOnly).toBe("revoked");
+        expect(openRestoredCards(root2.stores.chat.getState().buffers["pylos"])).toEqual([]);
+
+        const sent2: ClientMessage[] = [];
+        expect(
+          replyToNetworkApproval(
+            root2,
+            "pylos",
+            (m) => { sent2.push(m); return true; },
+            { toolUseId: "net-no-meta", revision: "rev-0", network: undefined },
+            { approved: true, scope: "session" }
+          ),
+          "UNADVERTISED_WITHOUT_METADATA_REFUSED"
+        ).toBe(false);
+        expect(sent2).toEqual([]);
+      } finally {
+        root2.dispose();
+      }
     } finally {
       if (realWidth) Object.defineProperty(window, "innerWidth", realWidth);
       if (realHeight) Object.defineProperty(window, "innerHeight", realHeight);

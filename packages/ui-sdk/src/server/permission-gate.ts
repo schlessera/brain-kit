@@ -353,8 +353,22 @@ function snapshotEdit(request: PermissionRequest, decision: PermissionDecision):
     return { behavior: "deny", message: typeof message === "string" ? message : "Denied." };
   }
   const rawScope = (decision as { networkScope?: unknown }).networkScope;
-  const networkScope: "once" | "origin" | "session" | undefined =
-    rawScope === "once" || rawScope === "origin" || rawScope === "session" ? rawScope : undefined;
+  let networkScope: "once" | "origin" | "session" | undefined;
+  if (rawScope !== undefined) {
+    const advertised = request.network?.scopes;
+    const allowedScope =
+      (rawScope === "once" || rawScope === "origin" || rawScope === "session")
+      && advertised !== undefined
+      && advertised.includes(rawScope)
+      && !(request.network?.managedReference && rawScope !== "once");
+    if (!allowedScope) {
+      return {
+        behavior: "deny",
+        message: "The selected network approval scope is not offered for this request.",
+      };
+    }
+    networkScope = rawScope;
+  }
   const grantedByGrant = (decision as { grantedByGrant?: unknown }).grantedByGrant === true ? true : undefined;
   const extra = {
     ...(networkScope ? { networkScope } : {}),

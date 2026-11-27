@@ -357,9 +357,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // Matching may ignore a DNS root dot; resolution must preserve it.
     const dialHost = url.hostname.startsWith("[") ? url.hostname.slice(1, -1) : url.hostname;
     const host = canonicalEgressHost(dialHost), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
-    let bytes = 0, granted = false, onceApproved = false;
+    let bytes = 0, granted = false;
     let approvalScope: "once" | "origin" | "session" | "legacy" | undefined;
-    let standingApplied: { scope: "origin" | "session"; grantId: string } | undefined;
+    let standingApplied: { scope: "origin" | "session"; grantId: string } | null = null;
+    let dispatchedByStandingGrant = false;
     let standingNotified = false;
     /** The checked address this connection is pinned to, under a destination policy. */
     let pinned: { address: string; family: number } | undefined;
@@ -375,10 +376,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       abort:()=>controller.abort(),
       observe({outcome,reason,dispatched}) {
         lifecycles.delete(lifecycle);
-        const effectiveScope = approvalScope ?? standingApplied?.scope;
+        const effectiveScope = approvalScope ?? (dispatchedByStandingGrant ? standingApplied?.scope : undefined);
         // Records never contain request headers, content, credentials or query strings.
         try { options.observe({connectionId,...(inference?{inference:true}:{}),...(provider?{provider:true}:{}),...(managedReference?{managedReference:true}:{}),method,host,port,dispatched,
-          ...(failure?{failureReason:failure.reason}:{}),...(dispatched&&(granted||standingApplied)?{recipientApproved:true,...(effectiveScope?{approvalScope:effectiveScope}:{})}:{}),...(method==="CONNECT"?{}:{path:url.pathname}),bytes,
+          ...(failure?{failureReason:failure.reason}:{}),...(dispatched&&(granted||dispatchedByStandingGrant)?{recipientApproved:true,...(effectiveScope?{approvalScope:effectiveScope}:{})}:{}),...(method==="CONNECT"?{}:{path:url.pathname}),bytes,
           accounting:method==="CONNECT"?"opaque_bytes":"http_wire_bound",...(inference ? { ...marks, ...usage } : {}),durationMs:performance.now()-started,outcome,...(reason?{reason}:{})}); } catch { /* A recorder cannot keep a connection alive. */ }
       },
     });
@@ -441,11 +442,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       try {
         if (outwardApproved && outwardRevision !== approvalRevision(own, true)) return false;
         if (!granted) return true;
-        // After handoff, once is per-connection and legacy/standing grants keep running (#3595, #4966).
+        // After handoff, an approved connection (once, origin, session, or legacy) is already dispatched;
+        // grant revocation or a new taint class affects later connections only (#3595, #4966).
         if (lifecycle.dispatched()) {
-          if (onceApproved) return true;
-          if (options.taint?.grantCurrent) return options.taint.grantCurrent(connectionId, recipient, approvalScope) === "ok";
-          return options.taint?.contacted(host) === true || grantRevision === approvalRevision(own);
+          return true;
         }
         if (options.taint?.grantCurrent) return options.taint.grantCurrent(connectionId, recipient, approvalScope) === "ok";
         return grantRevision === approvalRevision(own);
@@ -462,10 +462,16 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // Inference/provider relays retain G5. Managed references retain ordinary
     // G6 recipient narrowing; repository trust never grants outbound authority.
     const recipientDecision = (final = false): EgressRecipientAuthority | null => {
-      if(granted)return {kind:"approval"};
-      if(inference||provider)return {kind:"allowance"};
-      const rule=options.taint?.recipient?.(recipient);
-      if(rule)return typeof rule === "object" ? {kind:"rule",admission:rule} : {kind:"allowance"};
+      if (granted) { standingApplied = null; return { kind: "approval" }; }
+      if (inference || provider) { standingApplied = null; return { kind: "allowance" }; }
+      const rule = options.taint?.recipient?.(recipient);
+      if (rule) { standingApplied = null; return typeof rule === "object" ? { kind: "rule", admission: rule } : { kind: "allowance" }; }
+      // Check clean / allowlisted / legacy contacted BEFORE standing grants so clean or
+      // allowlisted traffic never consumes a standing grant or emits a false grant receipt (#3595).
+      if (!options.taint?.tainted(final ? connectionId : undefined) || matches(host, options.taint.allow) || (!managedReference && options.taint.contacted(host))) {
+        standingApplied = null;
+        return { kind: "allowance" };
+      }
       if (!managedReference) {
         const standing = options.taint?.standingGrant?.(recipient);
         if (standing?.kind === "standing") {
@@ -473,7 +479,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           return { kind: "allowance" };
         }
       }
-      if(!options.taint?.tainted(final?connectionId:undefined)||matches(host,options.taint.allow)||(!managedReference && options.taint.contacted(host)))return {kind:"allowance"};
+      standingApplied = null;
       return null;
     };
     const narrowed = (final = false) => recipientDecision(final) === null;
@@ -485,10 +491,6 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           if (!lifecycle.active() || refuseSafety(readSafety(), snapshot, allowPending)) return false;
         }
         if (!narrowed(final)) {
-          if (standingApplied && !standingNotified) {
-            standingNotified = true;
-            try { options.taint?.onStandingGrantApplied?.({ connectionId, destination: recipient, ...standingApplied }); } catch { /* Receipt emission cannot break an admitted connection. */ }
-          }
           return true;
         }
         const ask = options.taint?.approve;
@@ -516,11 +518,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         }
         granted = true;
         approvalScope = answer === true ? "legacy" : answer;
-        onceApproved = approvalScope === "once";
         if (options.taint?.grantCurrent) {
           const verdict = options.taint.grantCurrent(connectionId, recipient, approvalScope);
           if (verdict === "new_class" && !lifecycle.dispatched()) {
-            granted = false; approvalScope = undefined; onceApproved = false;
+            granted = false; approvalScope = undefined;
             continue;
           }
           if (verdict !== "ok") { refuseStaleApproval(allowPending); return false; }
@@ -601,7 +602,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       // or a new class arrived before first byte, ask a card instead of refusing without one (#4966 RC8).
       if (!inference && !provider) {
         const needsNewClassCard = granted && options.taint?.grantCurrent?.(connectionId, recipient, approvalScope) === "new_class";
-        if (needsNewClassCard) { granted = false; approvalScope = undefined; onceApproved = false; }
+        if (needsNewClassCard) { granted = false; approvalScope = undefined; }
         if (needsNewClassCard || narrowed(true)) {
           if (!await narrowing(true) || !lifecycle.active()) return false;
         }
@@ -612,7 +613,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const recheckBeforeDispatch = async (): Promise<boolean> => {
       if (!lifecycle.active() || lifecycle.dispatched() || inference || provider || outwardApproved) return lifecycle.active();
       const needsNewClassCard = granted && options.taint?.grantCurrent?.(connectionId, recipient, approvalScope) === "new_class";
-      if (needsNewClassCard) { granted = false; approvalScope = undefined; onceApproved = false; }
+      if (needsNewClassCard) { granted = false; approvalScope = undefined; }
       if (needsNewClassCard || narrowed(true)) {
         if (!options.taint?.approve) return true;
         return await narrowing(true);
@@ -642,7 +643,11 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (refuseSafety(current, snapshot, allowPending)) return null;
       if (!grantCurrent(true)) { refuseStaleApproval(allowPending); return null; }
       if (!inputCurrent(connectionId)) { revokeInput(); return null; }
-      const authority=recipientDecision(true);
+      // Already-dispatched connections authorized by a standing network grant keep streaming;
+      // revoking a standing grant or a new taint class affects later connections only (#3595).
+      const authority = lifecycle.dispatched() && dispatchedByStandingGrant
+        ? ({ kind: "allowance" } as const)
+        : recipientDecision(true);
       if (!authority) { finish("denied", "taint_not_allowed"); return null; }
       usedBytes += count; bytes += count;
       return authority;
@@ -655,8 +660,18 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const dispatch = (send:()=>void): EgressChargeResult => {
       const prepared=prepare();if(!prepared.ok)return prepared;
       let authority:EgressRecipientAuthority|null=null;
-      const effectiveScope = approvalScope ?? standingApplied?.scope;
-      try{return lifecycle.dispatch(options.maxBytes-usedBytes,()=>Boolean(authority=maySendNow(0)),send,()=>options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted,...(effectiveScope?{approvalScope:effectiveScope}:{}),recipientAuthority:authority!}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
+      try{return lifecycle.dispatch(options.maxBytes-usedBytes,()=>Boolean(authority=maySendNow(0)),send,()=>{
+        const applied = !granted ? standingApplied : null;
+        if (applied) {
+          dispatchedByStandingGrant = true;
+          if (!standingNotified) {
+            standingNotified = true;
+            try { options.taint?.onStandingGrantApplied?.({ connectionId, destination: recipient, ...applied }); } catch { /* Receipt emission cannot break an admitted connection. */ }
+          }
+        }
+        const effectiveScope = approvalScope ?? applied?.scope;
+        options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted,...(effectiveScope?{approvalScope:effectiveScope}:{}),recipientAuthority:authority!});
+      })?{ok:true}:failure??{ok:false,reason:"cancelled"};}
       catch(error){if(error instanceof TransportHandoffFailed)throw error;finish("failed","upstream_unreachable");throw new Error("Egress transport could not start");}
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */

@@ -263,6 +263,6 @@ async function beginTurnScope(run: TurnRun): Promise<void> {
       stops.scope = reason; turn.cancelled = true;
       const frame = withTurnScope({ type: "text_delta", text: reason }, turn, turn.turnId);
       host.sendToClients(frame); work?.observe(frame);
-      abortController.abort(new Error(reason)); host.coordinator.drainPendingForTurn(turn, reason);
+      host.coordinator.drainPendingForTurn(turn, reason); abortController.abort(new Error(reason));
     } });
 }

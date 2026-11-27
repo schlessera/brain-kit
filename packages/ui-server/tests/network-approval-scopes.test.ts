@@ -484,4 +484,117 @@ describe("network approval scopes (#3595)", () => {
       await h.close();
     }
   });
+
+  test("security & streaming invariants: account-isolated broadcasts, fail-closed unowned sessions, strict grant schema, in-flight survives revoke", async () => {
+    const h = await openScopeHarness();
+    const t1 = await h.openTurn({ turnId: "t1", sessionId: "session-sec", createSession: true });
+    let releaseStream1!: () => void;
+    const gate1 = new Promise<void>((r) => { releaseStream1 = r; });
+    let chunk1Ready!: () => void;
+    const chunk1Sent = new Promise<void>((r) => { chunk1Ready = r; });
+    const upstream1 = Bun.serve({
+      hostname: "127.0.0.2",
+      port: 0,
+      fetch() {
+        return new Response(new ReadableStream({
+          async start(controller) {
+            controller.enqueue(new TextEncoder().encode("part-1:"));
+            chunk1Ready();
+            await gate1;
+            controller.enqueue(new TextEncoder().encode("part-2"));
+            controller.close();
+          },
+        }));
+      },
+    });
+    let releaseStream2!: () => void;
+    const gate2 = new Promise<void>((r) => { releaseStream2 = r; });
+    let chunk2Ready!: () => void;
+    const chunk2Sent = new Promise<void>((r) => { chunk2Ready = r; });
+    const upstream2 = Bun.serve({
+      hostname: "127.0.0.3",
+      port: 0,
+      fetch() {
+        return new Response(new ReadableStream({
+          async start(controller) {
+            controller.enqueue(new TextEncoder().encode("live-1:"));
+            chunk2Ready();
+            await gate2;
+            controller.enqueue(new TextEncoder().encode("live-2"));
+            controller.close();
+          },
+        }));
+      },
+    });
+    try {
+      await h.addTaint("t1", "session-sec", "web_fetch");
+      // Attach a foreign delegated agent socket that declares networkGrants.
+      const foreign = createPrincipal(h.db, { authMethod: "delegated", createdBy: h.principal.id, label: "ForeignAgent", ttlSeconds: 3600 });
+      const foreignFrames: ServerMessage[] = [];
+      const foreignWs = { send(text: string) { foreignFrames.push(JSON.parse(text) as ServerMessage); } };
+      h.host.clients.add(foreignWs, foreign.id);
+      h.host.clients.setCapabilities(foreignWs as never, { networkGrants: true });
+
+      // Insert future-schema-version, managed:, and malformed grantedClasses rows directly.
+      h.db.query(`INSERT INTO governance_events (session_id, turn_id, at, kind, schema_version, actor, payload) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run("session-sec", "t1", Date.now(), "network_grant", 99, "user", JSON.stringify({
+          grantId: "ng_future_v99", scope: "session", grantedClasses: ["web_fetch"], historyGeneration: "0", toolUseId: "t-v99", principalId: h.principal.id,
+        }));
+      h.db.query(`INSERT INTO governance_events (session_id, turn_id, at, kind, schema_version, actor, payload) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run("session-sec", "t1", Date.now(), "network_grant", 1, "user", JSON.stringify({
+          grantId: "ng_bad_managed", scope: "origin", origin: "managed:connect://api.github.com:443", transport: "connect", scheme: "connect", host: "api.github.com", port: 443, grantedClasses: ["web_fetch"], historyGeneration: "0", toolUseId: "t-bad", principalId: h.principal.id,
+        }));
+      h.db.query(`INSERT INTO governance_events (session_id, turn_id, at, kind, schema_version, actor, payload) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run("session-sec", "t1", Date.now(), "network_grant", 1, "user", JSON.stringify({
+          grantId: "ng_bad_classes", scope: "session", grantedClasses: "not-an-array", historyGeneration: "0", toolUseId: "t-bad2", principalId: h.principal.id,
+        }));
+
+      // Invalid rows must not create a standing grant, so request 1 still asks for a card.
+      const firstReq = fetchViaProxy(t1.egress.socketPath, upstream1.url);
+      await waitFor(() => h.cards().length === 1, "card raised despite invalid rows");
+      const c1 = h.cards()[0]!;
+      await handleToolApproval(h.ctx, {
+        type: "tool_approval",
+        toolUseId: c1.toolUseId,
+        turnId: "t1",
+        channel: "card",
+        revision: c1.revision,
+        networkScope: "session",
+      });
+      await chunk1Sent;
+      releaseStream1();
+      expect((await firstReq).body).toBe("part-1:part-2");
+
+      // Owner received broadcast with only the valid grant; foreign account received zero network_grants frames.
+      const ownerGrants = h.frames.filter((f): f is Extract<ServerMessage, { type: "network_grants" }> => f.type === "network_grants");
+      expect(ownerGrants.length).toBeGreaterThanOrEqual(1);
+      const ids = ownerGrants.at(-1)!.grants.map((g) => g.grantId);
+      expect(ids).not.toContain("ng_future_v99");
+      expect(ids).not.toContain("ng_bad_managed");
+      expect(ids).not.toContain("ng_bad_classes");
+      expect(foreignFrames.filter((f) => f.type === "network_grants"), "FOREIGN_ACCOUNT_NO_GRANT_LEAK").toEqual([]);
+
+      // Unowned session fails closed (404).
+      h.db.query("INSERT INTO sessions (id, backend_id, created_at, last_active_at) VALUES (?, ?, ?, ?)")
+        .run("session-unowned", "scripted-3595", Date.now(), Date.now());
+      const unownedRes = await h.routes.request("/api/sessions/session-unowned/network-grants");
+      expect(unownedRes.status, "UNOWNED_SESSION_FAILS_CLOSED").toBe(404);
+
+      // In-flight request covered by standing grant completes even if the grant is revoked mid-stream (#3595).
+      const inFlight = fetchViaProxy(t1.egress.socketPath, upstream2.url);
+      await chunk2Sent;
+      const activeGrantId = ownerGrants.at(-1)!.grants[0]!.grantId;
+      const del = await h.routes.request(`/api/sessions/session-sec/network-grants/${activeGrantId}`, { method: "DELETE" });
+      expect(del.status).toBe(200);
+      releaseStream2();
+      const inFlightResult = await inFlight;
+      expect(inFlightResult.status, "IN_FLIGHT_SURVIVES_REVOKE").toBe(200);
+      expect(inFlightResult.body).toBe("live-1:live-2");
+    } finally {
+      await t1.stop();
+      upstream1.stop(true);
+      upstream2.stop(true);
+      await h.close();
+    }
+  });
 });

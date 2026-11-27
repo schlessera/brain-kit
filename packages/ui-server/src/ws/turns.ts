@@ -961,18 +961,23 @@ export class TurnCoordinator {
     return true;
   }
 
-  /** Answer a claimed permission request and record its outcome. */
+  /** Whether `claimed` is still the live claimed approval for `toolUseId`. */
+  isApprovalClaimed(toolUseId: string, claimed: PendingApproval): boolean {
+    return this.#claimedApprovals.get(toolUseId) === claimed;
+  }
+
+  /** Answer a claimed permission request and record its outcome. Returns true iff settled. */
   settleApproval(
     toolUseId: string,
     claimed: PendingApproval,
     decision: PermissionDecision,
     response: { principalId: string; always?: boolean; channel?: ApprovalChannel; networkScope?: NetworkApprovalScope }
-  ): void {
-    if (this.#claimedApprovals.get(toolUseId) !== claimed) return;
+  ): boolean {
+    if (this.#claimedApprovals.get(toolUseId) !== claimed) return false;
     const refusal = decision.behavior === "allow" ? claimed.revalidate?.() : null;
     if (refusal) {
       this.expireApproval(toolUseId, refusal, "safety_changed", p => p === claimed);
-      return;
+      return false;
     }
     this.#claimedApprovals.delete(toolUseId);
     this.recordApprovalOutcome(toolUseId, {
@@ -983,6 +988,7 @@ export class TurnCoordinator {
       ...(response.networkScope ? { networkScope: response.networkScope } : {}),
     });
     claimed.resolve(decision, response);
+    return true;
   }
 
   /** Open a location request unless another turn holds its id; says whether it opened. */

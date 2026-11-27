@@ -11627,10 +11627,12 @@ signatures (every public export and the types it is made of)
             reason: string;
         };
         revalidate(expectedRevision?: string): string | null;
-        commitScope?(scope: import("../protocol.js").NetworkApprovalScope | undefined, principalId: string): Promise<{
+        commitScope?(scope: import("../protocol.js").NetworkApprovalScope | undefined, principalId: string, stillClaimed?: () => boolean): Promise<{
             ok: true;
             scope?: import("../protocol.js").NetworkApprovalScope;
             grantedByGrant?: boolean;
+            onSettled?: () => void;
+            onAborted?: () => Promise<void> | void;
         } | {
             ok: false;
             reason: string;

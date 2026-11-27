@@ -203,8 +203,11 @@ export function NetworkApprovalCard(p: NetworkApprovalCardProps) {
   const secondaryMount: CSSProperties = {
     flex: "1 1 140px",
     minWidth: 0,
+    maxWidth: "100%",
     minHeight: 44,
     width: "auto",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
     ...(armed ? { opacity: 0.72, cursor: "wait" } : null),
   };
 

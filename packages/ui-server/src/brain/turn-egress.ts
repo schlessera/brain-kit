@@ -423,31 +423,40 @@ export async function prepareTurnEgress(options: {
           connectionGrantedClasses.set(connectionId, new Set(grantedClasses ?? currentClasses));
         }
       },
-      async commitScope(scope, principalId) {
+      async commitScope(scope, principalId, stillClaimed) {
         if (signal.aborted) {
           return { ok: false, cause: "operation_cancelled", reason: "The network request stopped waiting." };
         }
-        const refusal = networkCard.revalidate();
+        if (stillClaimed && !stillClaimed()) {
+          return { ok: false, cause: "safety_changed", reason: STALE_SAFETY_ADMISSION };
+        }
+        const approvedRev = currentRev;
+        const approvedClasses = [...currentClasses];
+        const refusal = networkCard.revalidate(approvedRev);
         if (refusal) return { ok: false, cause: "safety_changed", reason: refusal };
         // Approving a network connection explicitly covers `egress_connection` so
         // the approved connection's own exposure (and concurrent settled siblings)
         // never self-suspend the grant just created (#4966, #3595).
-        const grantedClasses = [...new Set([...currentClasses, "egress_connection"])].sort();
+        const grantedClasses = [...new Set([...approvedClasses, "egress_connection"])].sort();
         if (connectionId) connectionGrantedClasses.set(connectionId, new Set(grantedClasses));
         if (origin.managedReference || scope === "once") {
           return { ok: true, scope: "once" };
         }
         if (scope === undefined) {
           // Legacy reply without scope preserves hostname/session grant and settles same-host siblings (#4966, #3595).
-          contacted.add(origin.host);
-          options.settleSiblings?.(
-            (req) => req.network?.host === origin.host,
-            undefined,
-            `Allowed · ${origin.host}`,
-            toolUseId,
-            grantedClasses
-          );
-          return { ok: true };
+          return {
+            ok: true,
+            onSettled: () => {
+              contacted.add(origin.host);
+              options.settleSiblings?.(
+                (req) => req.network?.host === origin.host,
+                undefined,
+                `Allowed · ${origin.host}`,
+                toolUseId,
+                grantedClasses
+              );
+            },
+          };
         }
         // Origin or session grant: persist as host-owned `network_grant` off the event loop (#3595).
         const sid = options.sessionId();
@@ -460,6 +469,19 @@ export async function prepareTurnEgress(options: {
         }
         const grantId = `ng_${crypto.randomUUID().replace(/-/g, "")}`;
         const historyGeneration = sessionHistoryGeneration(db, options.turnId, sid);
+        const compensateRevoke = async () => {
+          try {
+            await recordGrant({
+              ...base(),
+              sessionId: sid,
+              actor: "user",
+              kind: "network_grant_revoked",
+              dedupeKey: `revoke:${grantId}`,
+              payload: { grantId, principalId },
+            });
+            options.onGrantsChanged?.(sid);
+          } catch { /* Best-effort rollback if the card expired while recording. */ }
+        };
         try {
           const result = await recordGrant({
             ...base(),
@@ -490,34 +512,50 @@ export async function prepareTurnEgress(options: {
           return { ok: false, cause: "grant_storage_failed", reason: "The network grant could not be retained; nothing ran." };
         }
         if (signal.aborted) {
+          await compensateRevoke();
           return { ok: false, cause: "operation_cancelled", reason: "The network request stopped waiting." };
         }
-        const postRefusal = networkCard.revalidate();
-        if (postRefusal) return { ok: false, cause: "safety_changed", reason: postRefusal };
+        if (stillClaimed && !stillClaimed()) {
+          await compensateRevoke();
+          return { ok: false, cause: "safety_changed", reason: STALE_SAFETY_ADMISSION };
+        }
+        const postRefusal = networkCard.revalidate(approvedRev);
+        const liveClasses = readClasses();
+        if (postRefusal || liveClasses.some((cls) => !approvedClasses.includes(cls))) {
+          await compensateRevoke();
+          return { ok: false, cause: "safety_changed", reason: postRefusal ?? STALE_SAFETY_ADMISSION };
+        }
         const confirmed = listActiveNetworkGrants(db, sid, historyGeneration, grantedClasses)
           .some((g) => g.grantId === grantId && !g.suspended);
         if (!confirmed) {
+          await compensateRevoke();
           return { ok: false, cause: "grant_storage_failed", reason: "The network grant could not be confirmed; nothing ran." };
         }
-        if (scope === "origin") {
-          options.settleSiblings?.(
-            (req) => req.origin === origin.key,
-            "origin",
-            `Allowed by your grant for ${origin.host}`,
-            toolUseId,
-            grantedClasses
-          );
-        } else {
-          options.settleSiblings?.(
-            () => true,
-            "session",
-            "Allowed by your session grant",
-            toolUseId,
-            grantedClasses
-          );
-        }
-        options.onGrantsChanged?.(sid);
-        return { ok: true, scope };
+        return {
+          ok: true,
+          scope,
+          onSettled: () => {
+            if (scope === "origin") {
+              options.settleSiblings?.(
+                (req) => req.origin === origin.key,
+                "origin",
+                `Allowed by your grant for ${origin.host}`,
+                toolUseId,
+                grantedClasses
+              );
+            } else {
+              options.settleSiblings?.(
+                () => true,
+                "session",
+                "Allowed by your session grant",
+                toolUseId,
+                grantedClasses
+              );
+            }
+            options.onGrantsChanged?.(sid);
+          },
+          onAborted: compensateRevoke,
+        };
       },
     };
     const decision = await requestToolPermission(options.bridge, {

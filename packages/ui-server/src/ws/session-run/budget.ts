@@ -82,13 +82,13 @@ export function createTurnBudget(run: TurnRun): TurnBudget {
   const unavailable = () => {
     stops.budget = new BudgetUnavailable();
     recorder?.recordBudgetStop(stops.budget.message, "budget_unavailable");
-    abortController.abort(stops.budget); host.coordinator.drainPendingForTurn(turn, "Inference budget accounting became unavailable.");
+    host.coordinator.drainPendingForTurn(turn, "Inference budget accounting became unavailable."); abortController.abort(stops.budget);
   };
   const block = (item: BudgetObservation, backstop: boolean) => {
     host.activity?.governance?.(budgetEvent("budget_block", item, budgetAttribution(run), backstop ? "sdk_backstop" : "mid_turn"));
     stops.budget = new BudgetExceeded(item, backstop ? "sdk_backstop" : "mid_turn");
     recorder?.recordBudgetStop(stops.budget.message);
-    abortController.abort(stops.budget); host.coordinator.drainPendingForTurn(turn, stops.budget.message);
+    host.coordinator.drainPendingForTurn(turn, stops.budget.message); abortController.abort(stops.budget);
   };
   const warn = (warnings: readonly BudgetObservation[]) => {
     for (const item of warnings) host.activity?.governance?.(budgetEvent("budget_warning", item, budgetAttribution(run)));

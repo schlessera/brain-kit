@@ -17,18 +17,18 @@ Its [shared scope and versioning policy](../integration-contract.md) apply to ev
   `networkApprovalOfferSchema`, `networkGrantViewSchema`,
   `sessionNetworkGrantsResponseSchema` and `serverNetworkGrantsSchema`, and
   validates the additive fields on approval and capability frames.
-- `@schlessera/brain-ui-sdk/client` extends `BrainUiClient.approveTool` with an
-  optional options argument (`{ revision?, networkScope? }`) and `denyTool`
-  with an optional `{ revision? }` options argument, and advertises
-  `approvalUpdates`, `networkApprovalScopes` and `networkGrants` in
-  `client_hello`.
-- `@schlessera/brain-ui-sdk/server` exports `NetworkCardController`, and adds
-  optional `revision`, `network`, `networkCard` and `orphanSignal` on
-  `PermissionRequest` and `networkScope` / `expiryCause` / `grantedByGrant` on
-  `PermissionDecision` and `PermissionResolution`.
+- `@schlessera/brain-ui-sdk/client` advertises `approvalUpdates`,
+  `networkApprovalScopes` and `networkGrants` in `client_hello` and accepts
+  the extended `ClientToolApproval` / `ClientToolDenial` frames via
+  `BrainUiClient.send`.
+- `@schlessera/brain-ui-sdk/server` exports `NetworkCardController` (whose
+  optional `signal` aborts orphaned waits), and adds optional `revision`,
+  `origin`, `network` and `networkCard` on `PermissionRequest` and
+  `networkScope` / `grantedByGrant` on `PermissionDecision`.
 - `@schlessera/brain-ui-kit` exports presentational `NetworkApprovalCard`
-  (`NetworkApprovalCardProps`, `NetworkApprovalCardState`,
-  `NetworkApprovalScopeChoice`) and `ApprovalStack` (`ApprovalStackProps`).
+  (`NetworkApprovalCardProps`, `NetworkApprovalState`,
+  `NetworkApprovalScopeChoice`, `defaultNetworkOutcomeLabel`) and
+  `ApprovalStack` (`ApprovalStackProps`).
 - `@schlessera/brain-ui-react` adds `BrainApi.listNetworkGrants(sessionId)` and
   `BrainApi.revokeNetworkGrant(sessionId, grantId)`, extends approval state
   with in-place revision updates, arming-window protection, sending state,

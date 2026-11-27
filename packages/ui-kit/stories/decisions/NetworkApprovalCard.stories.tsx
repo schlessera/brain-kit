@@ -77,29 +77,53 @@ export const Updated = Pending.extend({
 
 export const UpdatedWide = Updated.extend({ parameters: wide });
 
+const receiptPlay = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+  const receipt = canvasElement.querySelector("[data-kit-network-receipt]") as HTMLElement | null;
+  await expect(receipt).not.toBeNull();
+  await expect(overflowing(receipt!)).toEqual([]);
+};
+
 export const GrantedOnce = Pending.extend({
   args: { state: "granted", grantedScope: "once" },
+  play: receiptPlay,
 });
+
+export const GrantedOnceWide = GrantedOnce.extend({ parameters: wide });
 
 export const GrantedOrigin = Pending.extend({
   args: { state: "granted", grantedScope: "origin" },
+  play: receiptPlay,
 });
+
+export const GrantedOriginWide = GrantedOrigin.extend({ parameters: wide });
 
 export const GrantedSession = Pending.extend({
   args: { state: "granted", grantedScope: "session" },
+  play: receiptPlay,
 });
+
+export const GrantedSessionWide = GrantedSession.extend({ parameters: wide });
 
 export const Withdrawn = Pending.extend({
   args: { state: "withdrawn" },
+  play: receiptPlay,
 });
+
+export const WithdrawnWide = Withdrawn.extend({ parameters: wide });
 
 export const Expired = Pending.extend({
   args: { state: "expired" },
+  play: receiptPlay,
 });
+
+export const ExpiredWide = Expired.extend({ parameters: wide });
 
 export const Unknown = Pending.extend({
   args: { state: "unknown" },
+  play: receiptPlay,
 });
+
+export const UnknownWide = Unknown.extend({ parameters: wide });
 
 export const GroupedThreeConnections = Pending.extend({
   args: {
@@ -131,6 +155,8 @@ export const ManagedAcquisition = Pending.extend({
     await expect(canvas.getByText("Allow once")).toBeTruthy();
   },
 });
+
+export const ManagedAcquisitionWide = ManagedAcquisition.extend({ parameters: wide });
 
 export const SeveralOriginsStack = meta.story({
   render: () => (

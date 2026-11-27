@@ -24,7 +24,7 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 
 Tainted-destination `Network` approval cards stay open across parallel
 connections and further occurrences of already-shown taint classes, update in
-place with a monotonic `revision` and 500 ms arming window when a new taint
+place with a new `revision` digest and 500 ms arming window when a new taint
 class arrives, and expire with `operation_cancelled` if their waiting
 connection closes before the user answers. Approval expiry attribution now
 distinguishes `timeout`, `host_stopped` and safety/turn expiry from explicit
@@ -32,9 +32,10 @@ user `denied` across `tool_resolution` (`outcome: "expired"`, optional
 `expiryCause`), Activity spans (`outcome: "timeout" | "cancelled"`) and
 roadblock accounting. Interactive `Network` cards support explicit
 `once`, `origin` and `session` scopes (managed GitHub acquisitions keep `once`
-only), backed by per-session standing grants that suspend on any new taint
-class and are inspectable/revocable via `GET /api/sessions/:id/network-grants`
-and `DELETE /api/sessions/:id/network-grants/:grantId`. Governance events add
+only), backed by persisted per-session `network_grant` records that suspend on
+any new taint class and are inspectable/revocable via
+`GET /api/sessions/:id/network-grants` and
+`DELETE /api/sessions/:id/network-grants/:grantId`. Governance events add
 `network_grant` and `network_grant_revoked`, plus optional `approvalScope` on
 `egress_connection` and `operation_cancelled` on `safety_admission_expired`.
 `@schlessera/brain-ui-kit` adds `NetworkApprovalCard` and `ApprovalStack`.

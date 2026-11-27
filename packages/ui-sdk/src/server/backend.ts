@@ -128,9 +128,16 @@ export interface NetworkCardController {
   /** Host-side grant persistence and sibling settlement for a chosen network scope (#3595). */
   commitScope?(
     scope: import("../protocol.js").NetworkApprovalScope | undefined,
-    principalId: string
+    principalId: string,
+    stillClaimed?: () => boolean
   ): Promise<
-    | { ok: true; scope?: import("../protocol.js").NetworkApprovalScope; grantedByGrant?: boolean }
+    | {
+        ok: true;
+        scope?: import("../protocol.js").NetworkApprovalScope;
+        grantedByGrant?: boolean;
+        onSettled?: () => void;
+        onAborted?: () => Promise<void> | void;
+      }
     | { ok: false; reason: string; cause: "grant_storage_failed" | "safety_changed" | "operation_cancelled" }
   >;
   /** Called synchronously when this card is settled by a sibling or standing grant. */

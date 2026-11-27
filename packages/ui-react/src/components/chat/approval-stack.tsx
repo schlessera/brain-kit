@@ -204,9 +204,15 @@ export function ChatApprovalStack({
     if (key !== "a" && key !== "d") return;
     event.preventDefault();
     if (key === "a") {
-      // Keyboard shortcut `a` ALWAYS picks the narrowest choice (`once` when advertised).
-      const narrowest: NetworkApprovalScopeChoice = group.scopes.includes("once") ? "once" : group.scopes[0] ?? "once";
-      decideGroup(group, { approved: true, scope: narrowest });
+      // Keyboard shortcut `a` ALWAYS picks the narrowest advertised choice: once < origin < session (#3595).
+      const narrowest: NetworkApprovalScopeChoice | undefined = group.scopes.includes("once")
+        ? "once"
+        : group.scopes.includes("origin")
+          ? "origin"
+          : group.scopes.includes("session")
+            ? "session"
+            : undefined;
+      if (narrowest) decideGroup(group, { approved: true, scope: narrowest });
     } else {
       decideGroup(group, { approved: false });
     }

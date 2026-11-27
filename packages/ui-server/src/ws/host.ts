@@ -4,8 +4,9 @@ import type { DialogueOwner } from "./dialogue-storage.js";
 import { type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/client";
 import { CHAT_DELETION_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, NETWORK_GRANTS_CAPABILITY, type ServerMessage, type ServerSessionQueue } from "@schlessera/brain-ui-sdk/protocol";
-import { listActiveNetworkGrants } from "../governance/network-grants.js";
+import { listActiveNetworkGrants, resolveSessionOwner } from "../governance/network-grants.js";
 import { sessionHistoryGeneration, unresolvedTaintClasses } from "../governance/safety-store.js";
+import { sameAccount } from "../middleware/account-partition.js";
 import { ChatRetiredError, type RetiredChatIdentities } from "./chat-lifecycle.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnClassifier } from "../classification/classify-turn.js";
@@ -544,19 +545,30 @@ export class WsHost {
     this.authorizationExpiryTimer.unref?.();
   }
 
-  /** Broadcast active network grants for one session to capable clients (#3595). */
+  /** Broadcast active network grants for one session to capable clients of that session's account (#3595). */
   broadcastNetworkGrants(sessionId: string): void {
     const db = this.activity?.governanceDb;
     if (!db) return;
     try {
+      const owner = resolveSessionOwner(db, sessionId);
+      if (!owner) return;
       const generation = sessionHistoryGeneration(db, null, sessionId);
       const classes = unresolvedTaintClasses(db, null, sessionId);
       const grants = listActiveNetworkGrants(db, sessionId, generation, classes);
-      this.sendToCapable(NETWORK_GRANTS_CAPABILITY, {
+      const msg: ServerMessage = {
         type: "network_grants",
         sessionId,
         grants,
-      });
+      };
+      this.observeHistoryProgress(msg);
+      this.clients.broadcast(
+        msg,
+        () => {
+          this.framesDropped.add(1, { reason: "broadcast_send_failed", direction: "outbound" });
+        },
+        NETWORK_GRANTS_CAPABILITY,
+        (principalId) => sameAccount(db, owner, principalId)
+      );
     } catch { /* Retired or unreadable session broadcasts nothing. */ }
   }
 

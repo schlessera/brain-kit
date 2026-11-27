@@ -9,9 +9,9 @@ import type { Database } from "bun:sqlite";
 import type { AppEnv } from "../app-env.js";
 import type { Principal } from "../db/principals.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
-import { listActiveNetworkGrants } from "../governance/network-grants.js";
+import { listActiveNetworkGrants, resolveSessionOwner } from "../governance/network-grants.js";
 import { sessionHistoryGeneration, unresolvedTaintClasses } from "../governance/safety-store.js";
-import { principalAccount, sameAccount } from "../middleware/account-partition.js";
+import { sameAccount } from "../middleware/account-partition.js";
 import { assertLive, ChatRetiredError } from "../ws/chat-lifecycle.js";
 
 export function createNetworkGrantRoutes(deps: {
@@ -31,19 +31,10 @@ export function createNetworkGrantRoutes(deps: {
     }
     const exists = db.query("SELECT 1 FROM sessions WHERE id=?").get(sessionId);
     if (!exists) return "not_found";
-    const safetyOwner = db.query<{ principal_id: string | null; principal_account: string | null }, [string]>(
-      "SELECT principal_id, principal_account FROM safety_sessions WHERE session_id=?"
-    ).get(sessionId);
-    const catalogOwner = db.query<{ principal_id: string }, [string]>(
-      "SELECT principal_id FROM chat_session_owners WHERE session_id=?"
-    ).get(sessionId);
-    const ownerId = safetyOwner?.principal_id ?? catalogOwner?.principal_id ?? null;
-    if (ownerId) {
-      const bound = safetyOwner?.principal_id
-        ? { principalId: safetyOwner.principal_id, account: safetyOwner.principal_account }
-        : { principalId: ownerId, account: principalAccount(db, ownerId) };
-      if (!sameAccount(db, bound, principal.id)) return "forbidden";
-    }
+    const owner = resolveSessionOwner(db, sessionId);
+    // Fail closed: an unowned or unproven session grants no read/revoke access (#3595).
+    if (!owner) return "not_found";
+    if (!sameAccount(db, owner, principal.id)) return "forbidden";
     return "ok";
   }
 
