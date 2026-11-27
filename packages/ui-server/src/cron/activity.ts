@@ -5,7 +5,7 @@ import { observeWrite } from "../activity/store-writes.js";
 import { resolveSystemPrincipal } from "../db/principals.js";
 
 /** A cron run's root span in the activity store. */
-export interface CronSpan {
+interface CronSpan {
   runId: string;
   rootSpanId: string;
 }

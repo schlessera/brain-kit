@@ -221,7 +221,7 @@ Stated before the requirements because five of them derive from it.
 
 ### Execution
 
-- R18. **The drain ticks in-server.** (`// manual triggers (triggerJob)`, `packages/ui-server/src/cron/scheduler.ts:11-14`) owns only manual triggers and
+- R18. **The drain ticks in-server.** (`// only provides that recorder and the run history`, `packages/ui-server/src/cron/scheduler.ts:6-7`) owns only the crontab's run recorder and
   history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:66-246`) already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
