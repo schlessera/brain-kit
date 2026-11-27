@@ -32,11 +32,8 @@ import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
-import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./subprocess-env.js";
-import { INFERENCE_RELAY_PLACEHOLDER, WITHHELD_KEYS_ENV } from "@schlessera/brain-common/internal/provider-unavailable";
-import { PROVIDER_RELAY_SOCKET_ENV } from "@schlessera/brain-common/internal/provider-relay";
+import { workerEnvironmentArgs } from "./worker-environment.js";
 import { PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET } from "./provider-relay.js";
-import { hostProviderCredentialNames } from "../config/env.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -401,7 +398,7 @@ export const WORKER_PROVIDER_RELAY_DIR = "/run/brain-providers";
 /** Where a module cron job's worker reaches the host GitHub relay (#4259). */
 export const WORKER_MODULE_GITHUB_DIR = "/run/brain-github";
 /** The variable naming that relay's socket inside the worker. */
-export const MODULE_GITHUB_SOCKET_ENV = "BRAIN_MODULE_GITHUB_SOCKET";
+export { MODULE_GITHUB_SOCKET_ENV } from "./worker-environment.js";
 /**
  * A private server-owned directory holding one server-owned socket, outside
  * the brain: never a path a worker or the brain could have supplied.
@@ -770,28 +767,13 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (emptyHome) argv.push("--tmpfs", WORKER_EMPTY_HOME, "--remount-ro", WORKER_EMPTY_HOME);
   // A governed or strict turn worker holds no provider credential its own
   // inference does not need (#1666); the CLI's providers name what is missing.
-  const turnProfile = !maintenance && !transport && !input.restricted
-    && (input.sandbox?.profile === "governed" || input.sandbox?.profile === "strict");
-  const credentials = turnProfile ? workerProviderCredentials(input.env, input.credentialEnv ?? []) : undefined;
-  for (const [key, value] of Object.entries(input.env)) {
-    if (credentials && (key === WITHHELD_KEYS_ENV || WORKER_PROVIDER_CREDENTIAL_ENV.includes(key) && !(input.credentialEnv ?? []).includes(key))) continue;
-    // Only the server's own relay may name the socket: never a value carried from the host environment.
-    if (key === PROVIDER_RELAY_SOCKET_ENV) continue;
-    if (transport || !HOST_GIT_CREDENTIAL_ENV.includes(key)) argv.push("--setenv", key, value);
-  }
-  // Names only: what the host or this launch had that the worker does not.
-  // A relay placeholder is not a key: the CLI reaches that key through the
-  // provider relay instead of sending the placeholder (#1673).
-  const placeholders = credentials ? credentials.kept.filter(name => input.env[name] === INFERENCE_RELAY_PLACEHOLDER) : [];
-  const withheld = credentials && [...new Set([...credentials.withheld,
-    ...hostProviderCredentialNames(WORKER_PROVIDER_CREDENTIAL_ENV).filter(name => !credentials.kept.includes(name) || placeholders.includes(name)),
-    // An operator-listed custom key the relay holds, unless the worker was given it.
-    ...relayedKeyNames.filter(name => !input.env[name])])].sort();
-  if (dataTree) argv.push("--setenv", "BRAIN_ROOT", WORKER_DATA_ROOT, "--setenv", "BRAIN_WORKER_DATA_ROOT", WORKER_DATA_ROOT, "--setenv", "BRAIN_WORKER_CONFIG_ROOT", brain);
-  if (withheld?.length) argv.push("--setenv", WITHHELD_KEYS_ENV, withheld.join(","));
-  if (providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, WORKER_PROVIDER_RELAY_SOCKET);
-  else if (maintenance?.providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, `${WORKER_PROVIDER_RELAY_DIR}/relay.sock`);
-  if (maintenance?.githubRelay) argv.push("--setenv", MODULE_GITHUB_SOCKET_ENV, `${WORKER_MODULE_GITHUB_DIR}/github.sock`);
+  argv.push(...workerEnvironmentArgs({ env: input.env, ...(input.credentialEnv ? { credentialEnv: input.credentialEnv } : {}),
+    turnProfile: !maintenance && !transport && !input.restricted && (input.sandbox?.profile === "governed" || input.sandbox?.profile === "strict"),
+    transport: Boolean(transport), relayedKeyNames,
+    ...(providerRelay ? { providerRelaySocket: WORKER_PROVIDER_RELAY_SOCKET }
+      : maintenance?.providerRelay ? { providerRelaySocket: `${WORKER_PROVIDER_RELAY_DIR}/relay.sock` } : {}),
+    ...(dataTree ? { dataTree: { root: WORKER_DATA_ROOT, configRoot: brain } } : {}),
+    ...(maintenance?.githubRelay ? { githubSocket: `${WORKER_MODULE_GITHUB_DIR}/github.sock` } : {}) }));
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
     ...payloadCommand(input));
