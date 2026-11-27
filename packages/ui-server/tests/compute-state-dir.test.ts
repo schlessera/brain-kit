@@ -7,9 +7,9 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveServerConfig } from "../src/config/env";
 import { createSilentObservability } from "../src/observability/index";
 import { createFixtureApp } from "./helpers/native-app-fixture.js";
+import { testServerConfig } from "./helpers/test-config";
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const step of cleanup.splice(0).reverse()) await step(); });
@@ -22,8 +22,7 @@ async function boot(env: Record<string, string>, dbPath: string) {
   // The environment's DB_PATH names a different file from the one the app opens.
   const envDb = join(root, "elsewhere", "env.db");
   const resolvedDbPath = dbPath.replace("<tmp>", root);
-  const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", BRAIN_PATH: brainPath, DB_PATH: envDb,
-    BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0", BRAIN_UI_COMPUTE_KEYS: "boat", ...env });
+  const config = testServerConfig({ brain: brainPath, db: envDb }, { BRAIN_UI_COMPUTE_KEYS: "boat", ...env });
   const app = await createFixtureApp({ config, dbPath: resolvedDbPath, observability: createSilentObservability() });
   cleanup.push(() => app.close());
   const status = async () => (await (await app.fetch(new Request("http://localhost/api/status"))).json()).runtime.compute;

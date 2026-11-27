@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
@@ -234,7 +234,7 @@ describe("route-local limits on the shared byte reader", () => {
   });
 
   test("share: a body over the share cap plus framing is 413; exactly that much reaches the multipart parser", async () => {
-    const brainRoot = join(tmpdir(), `brain-ui-share-limit-${process.pid}`);
+    const brainRoot = mkdtempSync(join(tmpdir(), "brain-ui-share-limit-"));
     const share = createShareRoutes({ brainRoot, allowedOrigins: [], trustProxy: false });
     try {
       const limit = SHARE_MAX_TOTAL_BYTES + 1_000_000;
