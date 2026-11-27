@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { sessionReplay } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
-import { createClaudeWorkerState, rewriteAppendedAnswers, SessionTooLargeError, workerStateLimit } from "../src/worker-state.js";
+import { appendedAnswerTexts, createClaudeWorkerState, SessionTooLargeError, workerStateLimit } from "../src/worker-state.js";
 import { createStateLedger, type StateLedger } from "../src/worker-state-budget.js";
 import { resumedSessionId } from "../src/worker-spawn.js";
 
@@ -212,14 +212,14 @@ test("persist preserves runtime answer bytes while promoting only this turn (#20
   expect(fs.readFileSync(join(saved, project, ID, "agent.jsonl"), "utf8")).toBe(`${line("assistant", "[x](/tmp/x)")}\n${line("assistant", "[y](/tmp/y)")}\n`);
   expect(fs.readFileSync(join(saved, project, `${NEW}.jsonl`), "utf8")).toBe(`${line("assistant", "New: [report](/tmp/report.pdf)")}\n`);
 });
-test("a transcript whose saved prefix changed is not rewritten", () => {
-  const record = (text: string) => JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] } });
-  const before = Buffer.from(`${record("a")}\n`);
-  const changed = Buffer.from(`${record("b")}\n${record("c")}\n`);
+test("appended answer texts come in order with their message id and part, and a changed prefix yields none (#4688)", () => {
+  const record = (uuid: string, ...texts: string[]) => JSON.stringify({ type: "assistant", uuid, message: { content: texts.flatMap(text => [{ type: "thinking", thinking: "Athena advises." }, { type: "text", text }]) } });
+  const before = Buffer.from(`${record("a", "a")}\n`);
+  const changed = Buffer.from(`${record("b", "b")}\n${record("c", "c")}\n`);
   const prefix = { length: before.length, hash: createHash("sha256").update(before).digest("hex") };
-  expect(rewriteAppendedAnswers(changed, prefix, () => "rewritten")).toBe(changed);
-  expect(rewriteAppendedAnswers(Buffer.concat([before, Buffer.from(`${record("c")}\n`)]), prefix, () => "rewritten").toString())
-    .toBe(`${record("a")}\n${record("rewritten")}\n`);
+  expect(appendedAnswerTexts(changed, prefix), "CHANGED_PREFIX_YIELDS_NO_TEXTS").toEqual([]);
+  const appended = Buffer.concat([before, Buffer.from(`${JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "u" }] } })}\n${record("c", "c1", "c2")}\n${record("d", "d")}\n`)]);
+  expect(appendedAnswerTexts(appended, prefix)).toEqual([{ messageId: "c", part: 1, text: "c1" }, { messageId: "c", part: 3, text: "c2" }, { messageId: "d", part: 1, text: "d" }]);
 });
 
 test("host inference state omits the native credential store while retaining exact settings, account metadata, memory and resumed history", () => {
