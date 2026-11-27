@@ -54,9 +54,9 @@ export { SEARCH_SORTS } from "./lib/types.js";
 export type { IngestInput, SearchOptions } from "./lib/types.js";
 export type { ValidationIssue } from "./lib/validate.js";
 
-// Shared by the opt-in video module; these remain first-party implementation APIs.
+// First-party implementation APIs like the rest of this entry. The opt-in
+// video module takes its completion helpers from `./module`, not from here.
 export { getContext } from "./lib/context.js";
-export { resolveCompletionProvider } from "./lib/registry.js";
 export { GEMINI_FLASH_MODEL } from "./lib/llm-defaults.js";
 export { checkGovernancePolicy, parseGovernancePolicy, resolveGovernancePolicy, GovernancePolicySchema, GOVERNANCE_POLICY_PATH, BUILTIN_GOVERNANCE_POLICY } from "./lib/governance-policy.js";
 export type { GovernancePolicyInput, EffectiveGovernancePolicy, GovernancePolicyCheck } from "./lib/governance-policy.js";
