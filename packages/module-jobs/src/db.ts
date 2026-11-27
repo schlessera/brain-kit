@@ -130,23 +130,6 @@ function initSchema(db: Database): void {
       db.query("UPDATE jobs_metadata SET value = ? WHERE key = 'schema_version'").run("2");
     }
   }
-
-  // Seed neutral classification-threshold fallbacks (idempotent). These are
-  // overridden by the criteria file's `queueThreshold`/`dismissThreshold`.
-  const seedDefault = db.query("INSERT OR IGNORE INTO jobs_metadata (key, value) VALUES (?, ?)");
-  seedDefault.run("queue_threshold", "60");
-  seedDefault.run("dismiss_threshold", "35");
-}
-
-export function getMetadata(db: Database, key: string): string | null {
-  const row = db.query("SELECT value FROM jobs_metadata WHERE key = ?").get(key) as
-    | { value: string }
-    | null;
-  return row?.value ?? null;
-}
-
-export function setMetadata(db: Database, key: string, value: string): void {
-  db.query("INSERT OR REPLACE INTO jobs_metadata (key, value) VALUES (?, ?)").run(key, value);
 }
 
 export function getLastCursor(db: Database, source: string): string | null {
