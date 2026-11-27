@@ -405,9 +405,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const config: ServerConfig & { exec: ExecWrapperConfig } = {
     ...resolved,
     // A compute state directory derived from the resolved DB_PATH follows the
-    // folded path, like every other path derived from it below (#4821).
+    // folded path, like every other path derived from it below (#4821), and
+    // the handle reports the settings compute uses (#4904).
     ...(options.dbPath !== undefined ? { dbPath: options.dbPath,
-      ...(resolved.compute ? { compute: computeConfigForDbPath(resolved.compute, options.dbPath) } : {}) } : {}),
+      compute: resolved.compute ? computeConfigForDbPath(resolved.compute, resolved.dbPath, options.dbPath) : resolveComputeConfig({}, options.dbPath) } : {}),
     exec: resolved.exec ?? ambientExecConfig(),
   };
   const speechProviders = createSpeechProviderRegistry(config.voice, options);
