@@ -3,11 +3,12 @@
  * receipt persistence and replay, the protocol reader and the worker's
  * lifecycle supervision, each without a worker process.
  */
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
+import * as sdkInternal from "@schlessera/brain-ui-sdk/internal";
 import type { LaunchedWorker, NativeFileVersions, Reservation, WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
 
 import type { SessionEnv } from "../src/backend-options";
@@ -55,6 +56,93 @@ test("an autonomous session persists nothing", () => {
   store.latestEntries = [header(), toolCall("call-1")];
   store.persist(true);
   expect(existsSync(join(sessionDir, `${SESSION}.jsonl`))).toBe(false);
+});
+
+type ReplayReceipt = Parameters<ReturnType<typeof sdkInternal.sessionReplay>["retainReceipt"]>[0];
+/** Counts the receipts persist() writes to the replay file; `failNext` makes the next write throw. */
+function spyRetains() {
+  const original = sdkInternal.sessionReplay, written: ReplayReceipt[] = [], control = { failNext: false };
+  const spy = spyOn(sdkInternal, "sessionReplay").mockImplementation((...args: Parameters<typeof original>) => {
+    const store = original(...args);
+    return { ...store, retainReceipt(receipt: ReplayReceipt) {
+      if (control.failNext) { control.failNext = false; throw new Error("The replay disk is full"); }
+      written.push(receipt); store.retainReceipt(receipt);
+    } };
+  });
+  return { written, control, restore: () => spy.mockRestore() };
+}
+const assistantCalling = (ids: string[]) => ({ type: "message", id: "a1", parentId: "u1", message: { role: "assistant",
+  content: [{ type: "text", text: "Sailing." }, ...ids.map(id => ({ type: "toolCall", id }))] } });
+const userTurn = { type: "message", id: "u1", parentId: null, message: { role: "user", content: "Steer past Scylla." } };
+
+test("persist retains each receipt once while it is unchanged", () => {
+  const spy = spyRetains();
+  try {
+    const store = receipts(), ids = ["c1", "c2", "c3", "c4", "c5"];
+    for (const id of ids) store.applications.set(id, { name: "brain_add", input: { content: id }, result: { ok: true } as never });
+    store.latestEntries = [header(), userTurn, assistantCalling(ids)];
+    store.persist();
+    expect(spy.written).toHaveLength(5);
+    for (let i = 0; i < 20; i++) store.persist();
+    expect(spy.written, "PI_RECEIPT_RETAINED_ONLY_WHEN_CHANGED").toHaveLength(5);
+  } finally { spy.restore(); }
+});
+
+test("persist retains a receipt again when its anchor or its output changes", () => {
+  const spy = spyRetains();
+  try {
+    const store = receipts();
+    store.applications.set("c1", { name: "brain_add", input: { content: "Ithaca" }, result: { ok: true } as never });
+    store.latestEntries = [header(), userTurn];
+    store.persist();
+    expect(spy.written.map(r => r.anchor)).toEqual(["u1"]);
+    store.latestEntries = [header(), userTurn, assistantCalling(["c1"])];
+    store.persist();
+    expect(spy.written.map(r => r.anchor), "PI_RECEIPT_RETAINED_ON_ANCHOR_CHANGE").toEqual(["u1", "a1"]);
+    store.applications.get("c1")!.output = { content: [{ type: "text", text: "Added to the log." }], details: undefined } as never;
+    store.persist();
+    expect(spy.written.map(r => [r.output, r.isError]), "PI_RECEIPT_RETAINED_ON_OUTPUT_CHANGE")
+      .toEqual([['{"ok":true}', false], ['{"ok":true}', false], ["Added to the log.", false]]);
+    store.applications.set("c1", { name: "brain_add", input: { content: "Ithaca" }, result: { ok: false } as never });
+    store.persist();
+    expect(spy.written.at(-1)).toMatchObject({ output: '{"ok":false}', isError: true });
+    expect(spy.written).toHaveLength(4);
+  } finally { spy.restore(); }
+});
+
+test("a receipt whose write failed is retained by the next persist", () => {
+  const spy = spyRetains();
+  try {
+    const store = receipts();
+    store.applications.set("c1", { name: "brain_add", input: { content: "Ithaca" }, result: { ok: true } as never });
+    store.latestEntries = [header(), userTurn, assistantCalling(["c1"])];
+    spy.control.failNext = true;
+    expect(() => store.persist()).toThrow("The replay disk is full");
+    expect(spy.written).toHaveLength(0);
+    store.persist();
+    expect(spy.written.map(r => r.id), "PI_RECEIPT_RETRIED_AFTER_FAILED_WRITE").toEqual(["c1"]);
+  } finally { spy.restore(); }
+});
+
+test("a scripted turn stores the same replay receipts", () => {
+  const store = receipts();
+  store.latestEntries = [header(), userTurn];
+  store.applications.set("c1", { name: "brain_add", input: { content: "Ithaca" }, result: { ok: true } as never });
+  store.persist();
+  store.latestEntries = [header(), userTurn, assistantCalling(["c1", "c2"])];
+  store.persist();
+  store.applications.set("c2", { name: "brain_update", input: { path: "voyage.md" }, result: { ok: false } as never });
+  store.persist();
+  store.applications.get("c1")!.output = { content: [{ type: "text", text: "Added to the log." }, { type: "image" }, { type: "text", text: " Again." }], details: undefined } as never;
+  store.persist();
+  store.persist(true);
+  const stored = sdkInternal.sessionReplay(sessionDir, brain, SESSION).receipts();
+  expect(new Set(stored.map(r => r.turnId)).size).toBe(1);
+  // Captured from the tree before #4855, without the per-turn random id.
+  expect(stored.map(({ turnId: _turnId, ...rest }) => rest)).toEqual([
+    { id: "c1", name: "brain_add", input: { content: "Ithaca" }, anchor: "a1", output: "Added to the log. Again.", isError: false },
+    { id: "c2", name: "brain_update", input: { path: "voyage.md" }, anchor: "a1", output: '{"ok":false}', isError: true },
+  ]);
 });
 
 function fakeChild() {

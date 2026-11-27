@@ -6,6 +6,7 @@ import type {
   ProviderInfo,
 } from "@schlessera/brain-ui-sdk/server";
 import { defineBackendModule } from "@schlessera/brain-ui-sdk/server";
+import { isThinkingLevel, THINKING_LEVELS } from "@schlessera/brain-ui-sdk/protocol";
 
 import { hasStoredCredential } from "./auth.js";
 import { createPiBackend } from "./backend.js";
@@ -21,17 +22,6 @@ function discoversExtensions(config: Readonly<Record<string, unknown>>): boolean
 const PROFILE_SOURCE = "BRAIN_UI_PI_PROFILES";
 const CLAUDE_PROFILE_SOURCE = "BRAIN_UI_CLAUDE_PROFILES";
 const CREDENTIAL_MEMO_MS = 5_000;
-
-export const PI_THINKING_LEVELS = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const;
-export type PiThinkingLevel = (typeof PI_THINKING_LEVELS)[number];
 
 function failure(error: BackendProfileError): BackendProfileParseResult {
   return { ok: false, errors: [error] };
@@ -126,14 +116,14 @@ function parseProfiles(
     seen.add(input.id);
     if (
       input.thinkingLevel !== undefined &&
-      !PI_THINKING_LEVELS.includes(input.thinkingLevel as PiThinkingLevel)
+      !isThinkingLevel(input.thinkingLevel)
     ) {
       return failure({
         code: "invalid_entry",
         profileId: input.id,
         message:
           `${PROFILE_SOURCE} entry "${input.id}" has invalid thinkingLevel ` +
-          `"${input.thinkingLevel}" (expected one of ${PI_THINKING_LEVELS.join(", ")}).`,
+          `"${input.thinkingLevel}" (expected one of ${THINKING_LEVELS.join(", ")}).`,
       });
     }
   }
@@ -199,8 +189,8 @@ export const backendModule: BackendModule = defineBackendModule({
         const overrides = context.settings.getThinkingOverrides?.() ?? {};
         return profiles.map((profile) => {
           const override = overrides[profile.id];
-          return override && PI_THINKING_LEVELS.includes(override as PiThinkingLevel)
-            ? { ...profile, thinkingLevel: override as PiThinkingLevel }
+          return isThinkingLevel(override)
+            ? { ...profile, thinkingLevel: override }
             : profile;
         });
       };
