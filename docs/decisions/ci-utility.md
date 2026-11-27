@@ -528,7 +528,7 @@ three browser and two layout partitions
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
 still making progress. Completed-file observations in
-`scripts/unit-shard-observation.json` update underestimated weights; unfinished
+[`scripts/unit-shard-observation.json`](https://github.com/schlessera/brain-kit/blob/d96d8541a49360425070ee316f5fdf00c4d21102/scripts/unit-shard-observation.json) (archived at `d96d8541a493`) update underestimated weights; unfinished
 files are not passing proof. Four partitions retain the deadlines and reduce
 that measured critical path. After #1298 added the pinned native evaluation
 controls, run38045497058/attempt1 again exhausted the outer20-minute cap in
@@ -1805,7 +1805,7 @@ Proof content does not change.
   (`unitPartitionLimit("confirmation")`, `scripts/integration-proof.ts:142-143`).
   `bun run lint` refuses a literal matrix, a second matrix dimension or a
   literal divisor (`The unit partition count has one owner`,
-  `scripts/check-ci-workflows.ts:100-108`). The weight refresh takes its job
+  `scripts/check-ci-workflows.ts:177-185`). The weight refresh takes its job
   count from the same table.
 - **Fewer files than partitions.** A selected inventory smaller than the cap
   gets one partition per file. No partition is empty and no file runs twice

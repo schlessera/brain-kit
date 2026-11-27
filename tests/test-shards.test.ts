@@ -3,6 +3,9 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { assertPartition, balanceTests, discoverTests } from "../scripts/test-shards";
+import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
+import { FLOOR_REPETITIONS } from "../scripts/determinism-plan";
+import { copyScriptClosure, TEST_RUNNER_INPUTS } from "./helpers/script-closure";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -59,9 +62,7 @@ describe("balanced shards run the root command for real", () => {
       mkdirSync(join(dir, "scripts"));
       const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
       writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture", scripts: { test: manifest.scripts.test } }));
-      for (const script of ["test.ts", "offline-command.ts", "offline-command.py", "test-credential-names.json", "docker-test-files.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"]) {
-        cpSync(join(ROOT, "scripts", script), join(dir, "scripts", script));
-      }
+      copyScriptClosure(dir, ["scripts/test.ts"], TEST_RUNNER_INPUTS);
       mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
       cpSync(join(ROOT, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));
       for (const file of files) addTest(dir, file);
@@ -130,4 +131,56 @@ describe("balanced shards run the root command for real", () => {
     expect(result.code).not.toBe(0);
     expect(result.output).toContain(`(fail) ${failedFile}`);
   }));
+});
+
+describe("a Bun test file fits half a determinism partition (#4842)", () => {
+  /** Files above the bound today, each with the issue that splits it. */
+  const EXEMPT: Record<string, string> = {
+    "packages/ui-react/tests/parallel-sessions-runtime.test.ts": "#2793 splits it by scenario group",
+    "packages/ui-react/tests/association-signout-runtime.test.ts": "#2793 splits it by scenario group",
+  };
+  const COSTS = join(ROOT, "scripts/test-shard-costs.json");
+
+  /** A file whose floor repetitions exceed one partition runs alone, past the job's step. */
+  function weightBound(costs: Record<string, number>, exempt: Record<string, string>, capacitySeconds: number, floor: number) {
+    const bound = capacitySeconds / floor;
+    const over = Object.entries(costs).filter(([, weight]) => weight > bound).map(([file]) => file).sort();
+    return {
+      bound,
+      unexempt: over.filter(file => !(file in exempt)).map(file => `${file}: ${costs[file]} s > ${bound} s`),
+      stale: Object.keys(exempt).filter(file => !over.includes(file)).sort(),
+    };
+  }
+  const reviewed = () => JSON.parse(readFileSync(COSTS, "utf8")) as Record<string, number>;
+
+  test("no reviewed weight exceeds the bound except the named exemptions", () => {
+    const result = weightBound(reviewed(), EXEMPT, DETERMINISM_PARTITIONS.capacitySeconds, FLOOR_REPETITIONS);
+    expect(result.bound).toBe(DETERMINISM_PARTITIONS.capacitySeconds / FLOOR_REPETITIONS);
+    expect(result.unexempt).toEqual([]);
+    expect(result.stale).toEqual([]);
+    expect(Object.keys(EXEMPT)).toHaveLength(2);
+  });
+
+  test("a weight above the bound fails naming the file and both numbers", () => {
+    const costs = { ...reviewed(), "packages/ui-react/tests/connection-continuity-runtime.test.ts": 151 };
+    expect(weightBound(costs, EXEMPT, 300, 2).unexempt).toEqual(["packages/ui-react/tests/connection-continuity-runtime.test.ts: 151 s > 150 s"]);
+  });
+
+  test("an exemption removed while its file is still above the bound fails", () => {
+    const { "packages/ui-react/tests/association-signout-runtime.test.ts": _, ...fewer } = EXEMPT;
+    expect(weightBound(reviewed(), fewer, 300, 2).unexempt).toEqual(["packages/ui-react/tests/association-signout-runtime.test.ts: 194.306 s > 150 s"]);
+  });
+
+  test("an exemption whose file dropped to the bound or disappeared is stale", () => {
+    const costs: Record<string, number> = { ...reviewed(), "packages/ui-react/tests/association-signout-runtime.test.ts": 150 };
+    delete costs["packages/ui-react/tests/parallel-sessions-runtime.test.ts"];
+    expect(weightBound(costs, EXEMPT, 300, 2).stale).toEqual(Object.keys(EXEMPT).sort());
+  });
+
+  test("the bound follows the partition capacity and the repetition floor", () => {
+    const costs = { "a.test.ts": 140, "b.test.ts": 260, "c.test.ts": 90 };
+    expect(weightBound(costs, {}, 300, 2)).toEqual({ bound: 150, unexempt: ["b.test.ts: 260 s > 150 s"], stale: [] });
+    expect(weightBound(costs, {}, 600, 2).unexempt).toEqual([]);
+    expect(weightBound(costs, {}, 300, 3).unexempt).toEqual(["a.test.ts: 140 s > 100 s", "b.test.ts: 260 s > 100 s"]);
+  });
 });

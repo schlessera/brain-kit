@@ -8,13 +8,90 @@ import { actionPinProblems, pinned } from "./action-pins";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
-type Step = { id?: string; "continue-on-error"?: unknown; uses?: string; run?: string; if?: string; "timeout-minutes"?: unknown; env?: Record<string, unknown>; with?: Record<string, unknown> };
+type Step = { id?: string; name?: string; "continue-on-error"?: unknown; uses?: string; run?: string; if?: string; "timeout-minutes"?: unknown; env?: Record<string, unknown>; with?: Record<string, unknown> };
 type Workflow = {
   name?: string;
   on?: Record<string, unknown>;
   permissions?: Record<string, unknown>;
   jobs?: Record<string, { name?: string; "runs-on"?: unknown; "timeout-minutes"?: unknown; if?: string; needs?: unknown; permissions?: unknown; steps?: Step[] }>;
 };
+
+/**
+ * The diagnostic upload seven ci.yml jobs end with (#4675): the shared path
+ * list, in order, and each job's own additions, in order. A job's list must
+ * hold the shared entries as an ordered subsequence and nothing else but its
+ * own additions, so a new diagnostic path missed in one copy fails here. Order
+ * matters: a `!` negation only excludes what a glob before it matched.
+ */
+export const DIAGNOSTIC_UPLOAD = {
+  step: "Proof receipts and failure diagnostics",
+  settings: { if: "always()", "include-hidden-files": true, "if-no-files-found": "warn", "retention-days": 7 },
+  shared: [
+    "tmp/proof-checkout.json", "tmp/proof-resources.json", "tmp/unit-report.xml", "tmp/docker-driver-*", "tmp/unit-timings.json",
+    "tmp/measure-claude-*.json", "tmp/*-probe.json", "tmp/feature-capture-verification/",
+    "packages/ui-kit/.vitest-attachments/", "packages/ui-react/.vitest-attachments/", ".vitest-attachments/",
+    "tmp/diagram-renderer-proof/", "tmp/mermaid-renderer-proof/", "tmp/diagram-export-proof/",
+    "tmp/cold-capture/", "tmp/share-review/", "tmp/svg-proof/",
+    "packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png", "packages/ui-react/**/__screenshots__/**/*-[0-9]*.png",
+    "!packages/ui-kit/**/__screenshots__/**/*-linux.png", "!packages/ui-react/**/__screenshots__/**/*-linux.png",
+  ],
+  own: {
+    unit: ["tmp/runner-disk.json", "tmp/unit-memory.jsonl", "tmp/unit-report-summary.json", "tmp/unit-worker-*.xml", "tmp/unit-worker-*.json", "tmp/unit-worker-diagnostics/"],
+    runtime: ["tmp/native-host-proof/"],
+    runtime_host: ["tmp/native-host-proof/", "tmp/reference-pool-proof/", "tmp/worker-identity-proof/"],
+    browser: ["tmp/proof-cases.json",
+      ...["release", "origin"].flatMap(kind => ["svg", "png", "pdf"].map(ext => `tmp/diagram-export-native-prepared/*/*/${kind}.${ext}`)),
+      "tmp/diagram-export-native-prepared/*/*/producer.json"],
+    layout: ["tmp/proof-cases.json", "tmp/hygiene-proof/"],
+    captures: [],
+    endurance: ["tmp/proof-cases.json"],
+  } as Record<string, string[]>,
+};
+
+/**
+ * The environment of the planner step every proof job reruns on its own
+ * checkout (#4675). RED_MAIN_OID makes every job of one run read the same
+ * coordination snapshot; a copy without it resolves the ref again by itself.
+ */
+export const PLAN_RECOMPUTE = {
+  jobs: ["verify", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"],
+  env: {
+    BASE_SHA: "${{ github.event.pull_request.base.sha }}",
+    BEFORE_SHA: "${{ github.event.before }}",
+    HEAD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}",
+    RED_MAIN_OID: "${{ needs.changeset.outputs.red_main_oid }}",
+  } as Record<string, string>,
+};
+
+/** Problems with the repeated diagnostic upload and planner steps of ci.yml. */
+function repeatedBlockProblems(workflow: Workflow, fail: (message: string) => void) {
+  for (const [name, own] of Object.entries(DIAGNOSTIC_UPLOAD.own)) {
+    const step = workflow.jobs?.[name]?.steps?.find(s => s.name === DIAGNOSTIC_UPLOAD.step);
+    if (!step?.uses?.startsWith("actions/upload-artifact@")) { fail(`${name}: "${DIAGNOSTIC_UPLOAD.step}" upload step is missing`); continue; }
+    for (const [key, value] of Object.entries(DIAGNOSTIC_UPLOAD.settings)) {
+      if ((key === "if" ? step.if : step.with?.[key]) !== value) fail(`${name}: diagnostic upload ${key} must be ${JSON.stringify(value)}, as in every copy`);
+    }
+    const lines = String(step.with?.path ?? "").split("\n").map(line => line.trim()).filter(Boolean);
+    const rest: string[] = [];
+    let next = 0;
+    for (const line of lines) {
+      if (next < DIAGNOSTIC_UPLOAD.shared.length && line === DIAGNOSTIC_UPLOAD.shared[next]) next++;
+      else rest.push(line);
+    }
+    for (const missing of DIAGNOSTIC_UPLOAD.shared.slice(next)) fail(`${name}: diagnostic upload lacks shared path ${missing} (or lists it out of order)`);
+    if (next === DIAGNOSTIC_UPLOAD.shared.length && JSON.stringify(rest) !== JSON.stringify(own)) {
+      fail(`${name}: diagnostic upload's own paths must be exactly ${JSON.stringify(own)} in order, found ${JSON.stringify(rest)}; a path every job needs belongs in DIAGNOSTIC_UPLOAD.shared`);
+    }
+  }
+  for (const name of PLAN_RECOMPUTE.jobs) {
+    const step = workflow.jobs?.[name]?.steps?.find(s => s.run === "bun scripts/ci-plan.ts");
+    if (!step) { fail(`${name}: planner recompute step is missing`); continue; }
+    for (const [key, value] of Object.entries(PLAN_RECOMPUTE.env)) {
+      if (step.env?.[key] === undefined) fail(`${name}: planner recompute step lacks ${key}`);
+      else if (step.env[key] !== value) fail(`${name}: planner recompute step must set ${key} to ${value}, as every copy does`);
+    }
+  }
+}
 
 export function workflowProblems(text: string, file: string): string[] {
   const problems: string[] = [];
@@ -142,6 +219,7 @@ export function workflowProblems(text: string, file: string): string[] {
     const discovery = metadata.findIndex(step => step.run === "bun scripts/proof-inventory.ts");
     if (admission <= planning || discovery <= admission || metadata[admission]?.if !== "steps.plan.outputs.cadence == 'confirmation'" ||
         metadata[admission]?.env?.GH_TOKEN !== "${{ github.token }}") fail("metadata: confirmation admission must validate identity after planning and before product discovery");
+    repeatedBlockProblems(workflow, fail);
   }
   if (file === "contract.yml") {
     // The event's base is wrong for native stack layers on some triggers (#2650).
