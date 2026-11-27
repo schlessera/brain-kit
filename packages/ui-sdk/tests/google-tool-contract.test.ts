@@ -158,3 +158,13 @@ test("google write success receipts are bounded structured metadata with matchin
     { ...receipt, result: { ...receipt.result, message_ids: Array(101).fill("19a0c3d2e4f50601") } },
   ]) expect(c.GOOGLE_WRITE_SUCCESS_SCHEMA.safeParse(invalid).success).toBe(false);
 });
+
+
+test("google send cleanup receipts distinguish confirmed, refused and unknown deletion", () => {
+  const receipt = { ok: true, tool: "brain_google_gmail_send", operation: "gmail.draft.send", effect: "irreversible", admission: "card",
+    result: { draft_id: "r-1234567890123456789", message_id: "19a0c3d2e4f50601", thread_id: null } };
+  expect(c.GOOGLE_WRITE_SUCCESS_SCHEMA.safeParse(receipt).success, "SEND_LEGACY_RECEIPT").toBe(true);
+  for (const draft_deleted of [true, false, null])
+    expect(c.GOOGLE_WRITE_SUCCESS_SCHEMA.safeParse({ ...receipt, result: { ...receipt.result, draft_deleted } }).success, "SEND_NULLABLE_CLEANUP").toBe(true);
+  expect(c.GOOGLE_WRITE_SUCCESS_SCHEMA.safeParse({ ...receipt, result: { ...receipt.result, draft_deleted: "unknown" } }).success).toBe(false);
+});

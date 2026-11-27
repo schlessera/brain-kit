@@ -53,8 +53,10 @@ export function setup(db: Database) {
       return "acquired";
     }).immediate(),
     // Owner-matched cleanup also runs for a retired chat, so a card that ends with its chat never leaves a retry loop.
-    releaseSendLock: (sessionId: string, cardId: string): void => db.transaction(() => {
+    releaseSendLock: (sessionId: string, cardId: string, requireLive = false): void => db.transaction(() => {
       id.parse(sessionId); id.parse(cardId);
+      if (requireLive && !db.query("SELECT 1 FROM google_send_locks WHERE session_id=? AND card_id=? AND expires_at>?").get(sessionId, cardId, Date.now()))
+        throw new Error("Google send card lost its live lock");
       db.query("DELETE FROM google_send_locks WHERE session_id=? AND card_id=?").run(sessionId, cardId);
     }).immediate(),
     // Cleanup is intentionally allowed for retired sessions too, like chat cleanup.
@@ -120,7 +122,7 @@ export function createGoogleStateWrites(db: Database, writer?: SqliteWriter) {
     call<ReturnType<ReturnType<typeof setup>[K]>>(name, ...args);
   return {
     acquireSendLock: (lock: GoogleSendLock) => invoke("acquireSendLock", lock),
-    releaseSendLock: (sessionId: string, cardId: string) => invoke("releaseSendLock", sessionId, cardId),
+    releaseSendLock: (sessionId: string, cardId: string, requireLive = false) => invoke("releaseSendLock", sessionId, cardId, requireLive),
     clearSendLocksAtHostStart: () => invoke("clearSendLocksAtHostStart"),
     commitGoogleDecision: (event: GoogleDecisionEvent, inverse: GoogleInversePrepared | null) => invoke("commitGoogleDecision", event, inverse),
     confirmInverse: (sessionId: string, inverseId: string, result?: GoogleInverseResult) => invoke("confirmInverse", sessionId, inverseId, result),
