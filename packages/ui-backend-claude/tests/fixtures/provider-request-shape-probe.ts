@@ -239,15 +239,20 @@ try {
  // route scenarios release the prompt whatever the gate says, so they prove
  // the RUNTIME refuses the route; the unpinned controls show the same route
  // reaches the fake upstream without the pin.
+ //
+ // The CLI takes its transport socket from its process environment, not from
+ // a settings `env` block, so the socket pair injects it after assembly (which
+ // names an inherited socket itself): pinned, the runtime refuses it; unpinned,
+ // the same socket reaches the fake upstream.
  for (scenario of process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? [] : ["fast-direct-policy", "fast-direct-socket-env", "fast-direct-socket-project",
-   "fast-direct-gateway", "fast-direct-socket-unpinned", "fast-direct-gateway-unpinned"]) {
+   "fast-direct-gateway", "fast-direct-socket-injected", "fast-direct-socket-unpinned", "fast-direct-gateway-unpinned"]) {
   const brain = fixtureBrain(scratch, scenario), home = join(scratch, `home-${scenario}`);
   mkdirSync(join(home, ".claude"), { recursive: true });
   mkdirSync(join(brain, ".claude"), { recursive: true });
   // The relay serves plain HTTP on its socket, as production's relayed turns use it.
   const socketRoute = { ANTHROPIC_UNIX_SOCKET: relay.socketPath, ANTHROPIC_BASE_URL: "http://localhost" };
   const projectEnv = scenario.startsWith("fast-direct-gateway") ? { ANTHROPIC_BASE_URL: model.url.origin }
-    : scenario === "fast-direct-socket-project" || scenario === "fast-direct-socket-unpinned" ? socketRoute : {};
+    : scenario === "fast-direct-socket-project" ? socketRoute : {};
   writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ env: projectEnv }));
   const qualification: Record<string, unknown> = { watchdogMs: watchdogMs(45_000) };
   capture = captures[scenario] = { sessions: [], exchanges: [], appends: [], budgets: [], calls: [], qualification };
@@ -271,12 +276,16 @@ try {
   }
   delete turn.options.spawnClaudeCodeProcess;
   if (scenario.endsWith("-unpinned")) delete turn.options.managedSettings;
+  if (scenario === "fast-direct-socket-injected" || scenario === "fast-direct-socket-unpinned") Object.assign(turn.options.env!, socketRoute);
   qualification.managedSettings = turn.options.managedSettings ?? null;
   turn.options.stderr = text => console.error(text);
-  const terminal = new TurnTerminal({ frames: new TurnFrames({ emit() {}, async requestPermission() { return { behavior: "deny", message: "Qualification cannot approve permission prompts." }; } }, null),
-    hostSignal: new AbortController().signal, abortController: controller, startedAt: Date.now(), pendingFailure: () => null });
-  let runtime!: ReturnType<typeof query>;
   const release = scenario !== "fast-direct-policy";
+  // A released scenario records the gate's verdict without letting it stop
+  // the runtime: a withheld prompt aborts the terminal's controller, so the
+  // terminal gets its own there, and only the runtime's policy can refuse.
+  const terminal = new TurnTerminal({ frames: new TurnFrames({ emit() {}, async requestPermission() { return { behavior: "deny", message: "Qualification cannot approve permission prompts." }; } }, null),
+    hostSignal: new AbortController().signal, abortController: release ? new AbortController() : controller, startedAt: Date.now(), pendingFailure: () => null });
+  let runtime!: ReturnType<typeof query>;
   const prompt = gatedPrompt(turn.prompt, async () => {
     const check = promptGateCheck({ queryHandle: Promise.resolve(runtime), initialize: value => value.initializationResult(), sdkTurn: turn, relay: undefined,
       terminal, runtimeRequirements: [], phase: "qualification", abortController: new AbortController(), profileId: "fixture", log() {}, reportActivity() {}, reportRuntime() {} });

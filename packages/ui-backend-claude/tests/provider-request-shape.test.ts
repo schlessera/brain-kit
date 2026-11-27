@@ -260,7 +260,7 @@ test("a direct fast turn's provider policy is in force and the runtime itself re
   const q = (name: string) => captures[name]!.qualification as Record<string, any>;
   const exchanges = (name: string) => captures[name]!.exchanges.length;
   console.log("FAST_DIRECT_QUALIFICATION", JSON.stringify(Object.fromEntries(["fast-direct-policy", "fast-direct-socket-env", "fast-direct-socket-project",
-    "fast-direct-gateway", "fast-direct-socket-unpinned", "fast-direct-gateway-unpinned"].map(name => [name, { ...q(name), exchanges: exchanges(name) }]))));
+    "fast-direct-gateway", "fast-direct-socket-injected", "fast-direct-socket-unpinned", "fast-direct-gateway-unpinned"].map(name => [name, { ...q(name), exchanges: exchanges(name) }]))));
   // Policy in force: assembly pins it, the runtime reports it, the gate admits on that proof.
   expect(q("fast-direct-policy").managedSettings, "FAST_DIRECT_ASSEMBLY_PINS_FIRST_PARTY").toEqual({ allowedProviders: ["anthropic"] });
   expect(q("fast-direct-policy").effectiveAllowedProviders, "FAST_DIRECT_POLICY_IN_FORCE").toEqual(["anthropic"]);
@@ -270,9 +270,10 @@ test("a direct fast turn's provider policy is in force and the runtime itself re
   expect(q("fast-direct-socket-env").assemblyRefusal, "FAST_DIRECT_SOCKET_ENV_REFUSED_BY_NAME").toMatchObject({ errorClass: "fast_output_unavailable",
     message: expect.stringContaining("ANTHROPIC_UNIX_SOCKET") });
   expect(exchanges("fast-direct-socket-env")).toBe(0);
-  // A route chosen by project settings is refused by the runtime itself, even
-  // with the prompt released, and the same route works without the pin.
-  for (const name of ["fast-direct-socket-project", "fast-direct-gateway"]) {
+  // A route chosen by project settings, or a socket that reached the runtime's
+  // environment, is refused by the runtime itself, even with the prompt
+  // released, and the same route works without the pin.
+  for (const name of ["fast-direct-socket-project", "fast-direct-gateway", "fast-direct-socket-injected"]) {
     expect(exchanges(name), `FAST_DIRECT_${name}_NO_REQUEST_LEAVES`).toBe(0);
     const named = (q(name).results as Array<{ startup_failure_reason: unknown }>).some(result => result.startup_failure_reason === "provider_not_allowed")
       || q(name).gateRefusal?.failure?.errorClass === "fast_output_unavailable";
