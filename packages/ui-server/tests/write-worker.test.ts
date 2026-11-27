@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
-import { openSqliteWriter } from "../src/db/write-worker.js";
+import { openSqliteWriter, trackedCaller, type ProcedureCall } from "../src/db/write-worker.js";
 import * as probe from "./fixtures/write-worker-probe.js";
 
 /** A flag a held probe procedure sets once it runs, and a promise for that moment. */
@@ -160,4 +160,38 @@ await voyage.call("log", "Ithaca"); console.log("committed");\n`);
     expect(exited, "WRITE_WORKER_IDLE_DOES_NOT_HOLD_PROCESS").toBe(0);
     expect(await new Response(child.stdout).text()).toBe("committed\n");
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+/** Runs every queued microtask and timer callback that is already due. */
+const drain = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
+/**
+ * The write-tail contract (#4724): `settled()` waits for a write submitted
+ * while it waits. `writes` wraps `forward`, whose replies the test settles.
+ */
+async function settledWaitsForLateWrite(writes: (forward: ProcedureCall) => { call: ProcedureCall; settled(): Promise<void> }) {
+  const replies = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+  let next = 0;
+  const tracked = writes((() => replies[next++]!.promise) as ProcedureCall);
+  void tracked.call("record", "Ithaca");
+  let settled = false;
+  const waiting = tracked.settled().then(() => { settled = true; });
+  void tracked.call("record", "Penelope").catch(() => {});
+  replies[0]!.resolve();
+  await drain();
+  expect(settled, "SETTLED_WAITS_FOR_WRITE_SUBMITTED_WHILE_WAITING").toBe(false);
+  replies[1]!.reject(new Error("refused"));
+  await waiting;
+  expect(settled, "SETTLED_ONCE_THE_LATE_WRITE_HAS_SETTLED").toBe(true);
+}
+
+test("a tracked caller's settled() waits for every write submitted before it settles, including one submitted while it waits", async () => {
+  await settledWaitsForLateWrite(forward => trackedCaller(forward));
+});
+
+test("a tracked caller turns a synchronous throw into a rejected write that does not poison the tail", async () => {
+  const tracked = trackedCaller(() => { throw new Error("no write channel for Ithaca"); });
+  await expectRejection(tracked.call("record", "Ithaca"), "no write channel for Ithaca");
+  await tracked.settled();
+  await tracked.tail();
 });

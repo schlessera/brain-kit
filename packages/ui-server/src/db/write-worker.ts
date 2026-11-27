@@ -67,6 +67,62 @@ export function procedureCaller<O>(db: Database, module: WriteModule<O>, options
   };
 }
 
+/** Settles once `tail()` stops changing: every write it named, and any that replaced it while waiting, has settled. */
+export async function untilStable(tail: () => Promise<unknown>): Promise<void> {
+  let waiting: Promise<unknown>;
+  do { waiting = tail(); await waiting; } while (waiting !== tail());
+}
+
+/** One caller's writes and their settlement (#4724). */
+export interface TrackedCaller {
+  /** Forwards; a synchronous throw becomes a rejected call. */
+  call: ProcedureCall;
+  /** Settles once every write submitted before it, and any submitted while it waits, has settled. */
+  settled(): Promise<void>;
+  /** The latest write's settlement as it is now; it never rejects. */
+  tail(): Promise<void>;
+  /** Makes `done` the latest settlement, for a write submitted another way. */
+  record(done: Promise<unknown>): void;
+}
+
+/**
+ * Tracks the writes `forward` submits. The tail holds only the latest call's
+ * settlement, and a rejected write does not poison it: the channel settles one
+ * caller's calls in submission order, so once the latest has settled, so has
+ * every call submitted before it.
+ */
+export function trackedCaller(forward: ProcedureCall): TrackedCaller {
+  let tail: Promise<void> = Promise.resolve();
+  const record = (done: Promise<unknown>) => { tail = done.then(() => {}, () => {}); };
+  return {
+    call<T>(name: string, ...args: unknown[]): Promise<T> {
+      let done: Promise<T>;
+      try { done = forward<T>(name, ...args); } catch (error) { done = Promise.reject(error); }
+      record(done);
+      return done;
+    },
+    settled: () => untilStable(() => tail),
+    tail: () => tail,
+    record,
+  };
+}
+
+/**
+ * Keeps `effect` among `sessionId`'s pending effects until `done` settles, so
+ * a read can apply a submitted write before it commits; the list goes once
+ * empty. Returns `done`.
+ */
+export function trackPendingEffect<E, T>(effects: Map<string, E[]>, sessionId: string, effect: E, done: Promise<T>): Promise<T> {
+  const list = effects.get(sessionId) ?? [];
+  list.push(effect);
+  effects.set(sessionId, list);
+  void done.then(() => {}, () => {}).then(() => {
+    list.splice(list.indexOf(effect), 1);
+    if (list.length === 0 && effects.get(sessionId) === list) effects.delete(sessionId);
+  });
+  return done;
+}
+
 export class SqliteWriterClosed extends Error {
   constructor(message = "The SQLite write worker is closed.") { super(message); }
 }
