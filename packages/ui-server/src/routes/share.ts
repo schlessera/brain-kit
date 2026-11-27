@@ -1,5 +1,6 @@
 import type { Logger } from "@opentelemetry/api-logs";
 import { Hono, type Context } from "hono";
+import { readBodyBytes } from "../middleware/body-limit.js";
 import type { AppEnv } from "../app-env.js";
 import { IntakeAuthorizationError, type InboxIntake } from "../inbox/intake.js";
 import {
@@ -21,48 +22,6 @@ import {
  */
 const BODY_SLACK_BYTES = 1_000_000;
 const HARD_BODY_LIMIT = SHARE_MAX_TOTAL_BYTES + BODY_SLACK_BYTES;
-
-/**
- * Read the body, refusing to buffer more than `limit` bytes.
- *
- * `content-length` is only a hint — HTTP/2 and chunked transfer encoding omit
- * it entirely, and a client is free to lie — so the cap has to be counted off
- * the stream itself. Calling `formData()` first would hand an unbounded body to
- * the multipart parser and let an authenticated caller exhaust memory well
- * inside the advertised limits.
- *
- * Returns null when the body exceeds the limit.
- */
-async function readCappedBody(
-  request: Request,
-  limit: number
-): Promise<Blob | null> {
-  const stream = request.body;
-  if (!stream) return new Blob([]);
-
-  const reader = stream.getReader();
-  const chunks: BlobPart[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.byteLength;
-      if (total > limit) return null;
-      // Copy out of the reader's view: the underlying buffer may be reused.
-      chunks.push(value.slice().buffer as ArrayBuffer);
-    }
-  } finally {
-    reader.releaseLock();
-    // Nothing more is wanted from an over-limit body; let the peer find out.
-    if (total > limit) await stream.cancel().catch(() => {});
-  }
-
-  // Hand the chunks to the parser as they are. Concatenating them into one
-  // buffer first would copy the whole payload a second time, for nothing.
-  return new Blob(chunks);
-}
 
 /**
  * Answer a share that reached the SERVER — which means no service worker was
@@ -147,15 +106,15 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
     const tooLarge = () =>
       c.json({ error: "share_too_large", limit: SHARE_MAX_TOTAL_BYTES }, 413);
 
-    // Cheap early-out for a client that declares its size honestly; the streamed
-    // count below is what actually enforces the cap.
-    const declaredLength = Number(c.req.header("content-length") ?? "0");
-    if (Number.isFinite(declaredLength) && declaredLength > HARD_BODY_LIMIT) {
-      return tooLarge();
-    }
-
-    const raw = await readCappedBody(c.req.raw, HARD_BODY_LIMIT);
-    if (raw === null) return tooLarge();
+    // Count the body before the multipart parser sees it: formData() first
+    // would hand an unbounded body to the parser and let an authenticated
+    // caller exhaust memory well inside the advertised limits. Each chunk is
+    // copied out of the reader's view, whose buffer may be reused, and the
+    // chunks go to the parser as they are: concatenating them first would copy
+    // the whole payload a second time, for nothing.
+    const read = await readBodyBytes(c.req.raw, HARD_BODY_LIMIT, { copyChunks: true });
+    if (read === null) return tooLarge();
+    const raw = new Blob(read.chunks as BlobPart[]);
 
     let form: FormData;
     try {

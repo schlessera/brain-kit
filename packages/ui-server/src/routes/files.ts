@@ -4,6 +4,7 @@ import { Hono, type Context } from "hono";
 import type { Database } from "bun:sqlite";
 import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import type { AppEnv } from "../app-env.js";
+import { readJsonBody } from "../middleware/body-limit.js";
 import type { Principal } from "../db/principals.js";
 import { getUntrustedMark, listUntrustedMarks, markKey, type UntrustedMark } from "../files/untrusted-marks.js";
 import { createUntrustedMarkWrites } from "../files/untrusted-mark-writes.js";
@@ -356,7 +357,9 @@ function mountUntrustedMarks(app: Hono<AppEnv>, brainRoot: string, store: NonNul
   });
 
   app.put("/files/untrusted", async (c) => {
-    const body = await c.req.json().catch(() => null) as { path?: unknown } | null;
+    const read = await readJsonBody(c).catch(() => null);
+    if (read instanceof Response) return read;
+    const body = read as { path?: unknown } | null;
     if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ error: "invalid_body" }, 400);
     if (body.path !== undefined && typeof body.path !== "string") return c.json({ error: "invalid_path" }, 400);
     try {
