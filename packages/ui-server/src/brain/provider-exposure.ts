@@ -12,10 +12,10 @@
  * folder refuses to continue it.
  */
 import type { Database } from "bun:sqlite";
-import { maskedInBoth } from "./governance-policy.js";
 import type { ProviderExposure } from "./governance-policy.js";
-import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import { procedureCaller, trackedCaller, type SqliteWriter } from "../db/write-worker.js";
 import { url as GOVERNED_TURN_WRITES, setup as governedTurnWriteSetup } from "./governed-turn-writes.js";
+import { folders } from "./exposure-writers.js";
 
 export interface ProviderExposures {
   /** Record what an admitted turn's recipient sees; `sessionId` is null until a new session is named. */
@@ -40,57 +40,14 @@ export interface ProviderExposures {
   settled(): Promise<void>;
 }
 
-const folders = (raw: string): string[] => {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.every(item => typeof item === "string")) return parsed;
-  } catch { /* refused below */ }
-  throw new Error("A recorded provider exposure is unreadable; refusing rather than guessing what it showed");
-};
-
-/** The synchronous writers, run on whichever connection commits them. */
-export function exposureWriters(db: Database) {
-  return {
-    record(turnId: string, sessionId: string | null, exposure: ProviderExposure, at: number) {
-      db.query(`INSERT INTO session_provider_exposure (turn_id, session_id, recipient, visible, hidden, recorded_at) VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(turnId, sessionId, exposure.recipient, JSON.stringify(exposure.visible), JSON.stringify(exposure.hidden), at);
-    },
-    bind(turnId: string, sessionId: string) {
-      db.transaction(() => {
-        db.query("UPDATE session_provider_exposure SET session_id = ? WHERE turn_id = ? AND session_id IS NULL").run(sessionId, turnId);
-        db.query("UPDATE session_masked_lineage SET session_id = ? WHERE turn_id = ? AND session_id IS NULL").run(sessionId, turnId);
-      })();
-    },
-    startMasked(turnId: string, masked: readonly string[], at: number) {
-      db.query("INSERT INTO session_masked_lineage (turn_id, session_id, masked, recorded_at) VALUES (?, NULL, ?, ?)")
-        .run(turnId, JSON.stringify([...masked]), at);
-    },
-    narrowMasked(turnId: string, sessionId: string, masked: readonly string[], at: number) {
-      // One row per session, narrowed in place: it never widens, and a lost
-      // row is no lineage rather than an older, wider one.
-      db.transaction(() => {
-        const row = db.query("SELECT masked FROM session_masked_lineage WHERE session_id = ?").get(sessionId) as { masked: string } | null;
-        if (!row) return;
-        db.query("UPDATE session_masked_lineage SET turn_id = ?, masked = ?, recorded_at = ? WHERE session_id = ?")
-          .run(turnId, JSON.stringify(maskedInBoth(folders(row.masked), masked)), at, sessionId);
-      })();
-    },
-  };
-}
-
 /**
  * Exposures read on `db`; every write commits on `writer` when there is one
  * (#2850), else on `db` at once. Each write settles once committed, and
  * `settled()` once every write submitted before it has.
  */
 export function createProviderExposures(db: Database, writer?: SqliteWriter): ProviderExposures {
-  const call = procedureCaller(db, { url: GOVERNED_TURN_WRITES, setup: governedTurnWriteSetup }, undefined, writer);
-  let tail: Promise<void> = Promise.resolve();
-  const submit = (name: string, ...args: unknown[]): Promise<void> => {
-    const done = call<void>(name, ...args);
-    tail = done.then(() => {}, () => {});
-    return done;
-  };
+  const writes = trackedCaller(procedureCaller(db, { url: GOVERNED_TURN_WRITES, setup: governedTurnWriteSetup }, undefined, writer));
+  const submit = (name: string, ...args: unknown[]): Promise<void> => writes.call<void>(name, ...args);
   return {
     record: (turnId, sessionId, exposure) => submit("exposureRecord", turnId, sessionId, exposure, Date.now()),
     bind: (turnId, sessionId) => submit("exposureBind", turnId, sessionId),
@@ -107,6 +64,6 @@ export function createProviderExposures(db: Database, writer?: SqliteWriter): Pr
       const row = db.query("SELECT masked FROM session_masked_lineage WHERE session_id = ?").get(sessionId) as { masked: string } | null;
       return row ? folders(row.masked) : undefined;
     },
-    async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
+    settled: writes.settled,
   };
 }

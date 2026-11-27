@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import type { StorageMaintenanceReceipt } from "@schlessera/brain-ui-sdk/protocol";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { StorageUnavailable } from "./coordinator.js";
-import { STORAGE_MAINTENANCE_LIMITS } from "./maintenance.js";
+import { STORAGE_MAINTENANCE_LIMITS } from "./maintenance-limits.js";
 import { recordStorageEvent } from "./events.js";
 import { hashScope } from "./history-model.js";
 export const url = import.meta.url;

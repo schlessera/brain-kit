@@ -5,7 +5,7 @@ import type { AwaitableActivityStore } from "./store.js";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { startAdmissionLoad } from "./admission-load.js";
 import { serverActivityDeltaSchema } from "@schlessera/brain-ui-sdk/schemas";
-import { orderedWrites } from "./store-writes.js";
+import { orderedWrites } from "./ordered-writes.js";
 
 /**
  * Starts one named lifecycle step and returns its end (#3355, #4285, #4286).

@@ -13,7 +13,8 @@ import { createPrincipal } from "../src/db/principals.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
 import { createSettingsWrites } from "../src/db/settings-writes.js";
 import { getSetting } from "../src/db/settings.js";
-import { createDraftStore, DraftAuthError, DraftError } from "../src/drafts/store.js";
+import { DraftAuthError, DraftError } from "../src/drafts/store.js";
+import { createDraftWrites } from "../src/drafts/writes.js";
 import { createDraftRoutes } from "../src/routes/drafts.js";
 import { acceptDraft } from "../src/ws/drafts.js";
 import type { WsHost } from "../src/ws/host.js";
@@ -59,7 +60,7 @@ const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 test("draft save, upload, remove, bind and accept commit on the worker at FULL; refusals keep their class and body", async () => {
   const f = await fixture();
   try {
-    const drafts = createDraftStore(f.db, { now: () => NOW }, f.writer);
+    const drafts = createDraftWrites(f.db, { now: () => NOW }, f.writer);
     const uploaded = await drafts.upload(f.owner.id, "ithaca-draft", { idempotencyKey: "oar-image", mime: "image/png", name: "oar.png", bytes: png });
     expect(uploaded.attachmentId, "DRAFT_UPLOAD_COMMITS_ON_WORKER").toBeString();
     expect(await drafts.save(f.owner.id, "ithaca-draft", { ...save("oar-save"), attachmentIds: [uploaded.attachmentId] }), "DRAFT_SAVE_COMMITS_ON_WORKER").toEqual({ revision: 1, updatedAt: NOW });
@@ -83,7 +84,7 @@ test("draft save, upload, remove, bind and accept commit on the worker at FULL; 
 test("draft acceptance returns immediately behind a slow write; reads wait and a later save cannot overwrite its tombstone", async () => {
   const f = await fixture();
   try {
-    const drafts = createDraftStore(f.db, { now: () => NOW }, f.writer);
+    const drafts = createDraftWrites(f.db, { now: () => NOW }, f.writer);
     await drafts.save(f.owner.id, "ithaca-draft", save("first"));
     const app = new Hono<AppEnv>();
     app.use("*", async (c, next) => { c.set("principal", f.owner); await next(); });
