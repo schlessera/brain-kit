@@ -150,11 +150,19 @@ test("doctor --fix re-runs the mcp check after the symlinks fix restores the fil
 test("doctor --fix re-runs the git checks after the deps fix runs the brain's install scripts (#4885)", async () => {
   const root = makeTempBrain();
   temps.push(root);
-  // No node_modules, so the deps fix runs `bun install`. The test network
-  // guard keeps a real install out of tests, so a `bun` stub stands in for
-  // one whose postinstall stages a tool leftover and a chart (new loose
-  // objects and index entries); every other `bun` call runs the real one.
+  // No node_modules, so the deps fix runs `bun install`. A `bun` stub stands
+  // in for one whose postinstall stages a tool leftover and a chart (new
+  // loose objects and index entries); every other `bun` call runs the real
+  // one. Without node_modules the config's `@schlessera/brain` import would
+  // make Bun fetch the package from a registry, so this brain's config
+  // defines its own identity `defineConfig` and imports nothing.
   rmSync(join(root, "node_modules"));
+  const config = join(root, "brain.config.ts");
+  const source = readFileSync(config, "utf8");
+  const importLine = 'import { defineConfig } from "@schlessera/brain";\n';
+  expect(source.startsWith(importLine)).toBe(true);
+  writeFileSync(config, `const defineConfig = <T,>(value: T): T => value;\n${source.slice(importLine.length)}`);
+  expect(readFileSync(config, "utf8")).not.toContain("@schlessera/");
   git(root, "init", "-q", "-b", "main");
   const bin = tempDir("brain-doctor-install-");
   writeFileSync(join(bin, "bun"), [
@@ -173,6 +181,9 @@ test("doctor --fix re-runs the git checks after the deps fix runs the brain's in
   const fixed = await doctor(root, ["--fix"], env);
   expect(fixed.fixesApplied).toContain("deps");
   const fresh = await doctor(root, [], env);
+  // The brain's config still loads without node_modules: nothing here
+  // resolves a package, so nothing can reach a registry.
+  for (const checks of [before.checks, fixed.checks, fresh.checks]) expect(check(checks, "config")?.status).toBe("pass");
   expect(check(fresh.checks, "tracked-leftovers")?.detail).toBe("1 committed tool leftover(s): .DS_Store");
   expect(check(fresh.checks, "tracked-media")?.detail).toContain("aegean.png");
   expect(fixed.checks).toEqual(fresh.checks);
