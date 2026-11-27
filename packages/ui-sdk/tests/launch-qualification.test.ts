@@ -16,7 +16,9 @@ import { text as streamText } from "node:stream/consumers";
 import { runMaintenanceWorker, runMaintenanceWorkerSteps, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
 import { launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, probeWorkerHost } from "../src/server/worker-launcher";
 import { parseMountinfo, resolveMount, WORKER_NAMESPACE_SEAL } from "../src/server/namespace-qualification";
-import { qualifyWorkerNamespaceSteps, registerWorkerPrivateState, WorkerPrivateStateError, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider } from "../src/server/worker-private-state";
+import { privateStateRefusalOf, qualifyWorkerNamespaceSteps, registerWorkerPrivateState, workerPrivateStateProviders, WorkerPrivateStateError, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider } from "../src/server/worker-private-state";
+import * as workerStatus from "../src/server/worker-status";
+import { assertScratchMaskAsync } from "../src/server/bridge-tools/mask";
 import { runWorkerStepsAsync, runWorkerStepsSync } from "../src/server/worker-steps";
 import { createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
@@ -49,16 +51,19 @@ async function fixture(options: { stateUnder?: "root" | "home" | "tmp" } = {}) {
   cleanups.push(() => new Promise<void>(done => server.close(() => done())));
   const startupView = createFixtureWorkerStartupView(brain); cleanups.push(startupView.cleanup);
   const events: WorkerPrivateStateEvent[] = [];
-  let walk: ReturnType<WorkerPrivateStateProvider["walk"]>;
+  let walk: ReturnType<WorkerPrivateStateProvider["walk"]>, onWalk: (() => void) | undefined;
   let roots = [{ setting: "turn journal", path: state }];
-  const dispose = registerWorkerPrivateState(brain, { roots: () => roots, walk: () => walk, report: event => events.push(event) });
+  const dispose = registerWorkerPrivateState(brain, { roots: () => roots, walk: () => { onWalk?.(); return walk; }, report: event => events.push(event) });
   cleanups.push(dispose);
   // Exits once connected: a synchronous launch blocks this thread, so the server accepts only afterwards.
   const payload = [BUN, "-e", `require("node:net").connect(${JSON.stringify(socket)}).on("connect", () => process.exit(0)).on("error", () => process.exit(9))`];
   const settle = () => new Promise(done => setTimeout(done, 100));
   const view = () => { const fresh = createFixtureWorkerStartupView(brain); cleanups.push(fresh.cleanup); return fresh; };
   return { root, brain, home, state, markers, startupView, events, payload, settle, view, ran: () => ran,
-    setWalk: (value: typeof walk) => { walk = value; }, setRoots: (value: typeof roots) => { roots = value; } };
+    setWalk: (value: typeof walk) => { walk = value; }, setRoots: (value: typeof roots) => { roots = value; },
+    duringWalk: (hook: typeof onWalk) => { onWalk = hook; },
+    /** A layout the host cannot read: every launch walks at its closed gate. */
+    unknownLayout: () => { const file = join(root, "not-a-directory"); writeFileSync(file, "x"); roots = [{ setting: "turn journal", path: join(file, "journal") }]; } };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 const maintenance = (f: Fixture, readPaths: string[], extra: Record<string, unknown> = {}) => ({ brainPath: f.brain, startupView: f.startupView,
@@ -231,4 +236,90 @@ describe("resolveMount equals the kernel in a real sandbox (A8)", () => {
     }
     expect(Object.values(ids).filter(id => typeof id === "number").length).toBeGreaterThanOrEqual(6);
   }, watchdogMs(60_000));
+});
+
+/** Count start-gate releases of every launch in this test. */
+function countReleases() {
+  let releases = 0;
+  const create = workerStatus.createWorkerStatusPipeSteps;
+  const spy = spyOn(workerStatus, "createWorkerStatusPipeSteps").mockImplementation(function* () {
+    const channel = yield* create();
+    const release = channel.release.bind(channel);
+    channel.release = () => { releases++; release(); };
+    return channel;
+  } as typeof create);
+  cleanups.push(() => spy.mockRestore());
+  return () => releases;
+}
+
+describe("review round 1: the start gate never releases a launch its caller gave up on (C2, F5-F7)", () => {
+  test("G5b (F5): a deadline that passes during setup stops the launch unreleased, in both L3 forms", async () => {
+    const f = await fixture();
+    f.unknownLayout(); f.duringWalk(() => Bun.sleepSync(1_500));
+    const released = countReleases();
+    expect(runMaintenanceWorkerSync(maintenance(f, [f.markers], { timeoutMs: 500 })), "G5B_SYNC_TIMED_OUT").toMatchObject({ exitCode: 1, killed: true });
+    expect(await runWorkerStepsAsync(runMaintenanceWorkerSteps(maintenance(f, [f.markers], { timeoutMs: 500 }))), "G5B_STEPPED_TIMED_OUT").toMatchObject({ exitCode: 1, killed: true });
+    expect(released(), "G5B_NEVER_RELEASED").toBe(0);
+    await f.settle();
+    expect(f.ran()).toBe(0);
+  }, watchdogMs(60_000));
+
+  test("G3b (F6): an abort that arrives while the launch waits at its gate rejects and never releases the payload", async () => {
+    const f = await fixture();
+    const controller = new AbortController();
+    f.unknownLayout(); f.duringWalk(() => controller.abort());
+    const released = countReleases();
+    await expect(runMaintenanceWorker({ ...maintenance(f, [f.markers]), signal: controller.signal }), "G3B_ABORT_WHILE_GATED_REJECTS").rejects.toThrow();
+    expect(released(), "G3B_NEVER_RELEASED").toBe(0);
+    await f.settle();
+    expect(f.ran()).toBe(0);
+  }, watchdogMs(60_000));
+
+  test("G9b (F7): consecutive synchronous launches leave no zombie children, as spawnSync did", async () => {
+    const f = await fixture();
+    f.setRoots([]);
+    // Only the launches' own supervisors: other tests' children may exit meanwhile.
+    const launched: number[] = [], spawn = Bun.spawn;
+    const spy = spyOn(Bun, "spawn").mockImplementation(((...args: Parameters<typeof Bun.spawn>) => {
+      const child = (spawn as (...a: unknown[]) => ReturnType<typeof Bun.spawn>)(...args);
+      if ((args[1] as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH) launched.push(child.pid);
+      return child;
+    }) as typeof Bun.spawn);
+    cleanups.push(() => spy.mockRestore());
+    for (let i = 0; i < 24; i++) expect(runMaintenanceWorkerSync(maintenance(f, [], { command: ["/bin/sh", "-c", "exit 0"] })).exitCode).toBe(0);
+    const zombies = launched.filter(pid => {
+      try { const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8"); return stat.slice(stat.lastIndexOf(") ") + 2).startsWith("Z "); }
+      catch { return false; }
+    });
+    expect(launched.length).toBe(24);
+    expect(zombies.length, "G9B_NO_ZOMBIES_IN_ONE_SYNCHRONOUS_STRETCH").toBe(0);
+  }, watchdogMs(120_000));
+});
+
+describe("review round 1: one registry and one refusal per process (F11-F13)", () => {
+  test("F12: another loaded copy of the SDK sees the same providers and its refusals are recognised", async () => {
+    const f = await fixture();
+    const copy = await import("../src/server/worker-private-state.ts?another-copy") as typeof import("../src/server/worker-private-state");
+    expect(copy.registerWorkerPrivateState === registerWorkerPrivateState, "SEPARATE_MODULE_INSTANCE").toBe(false);
+    expect(copy.workerPrivateStateProviders(f.brain).length, "F12_SHARED_REGISTRY").toBe(1);
+    const foreign = new copy.WorkerPrivateStateError("private_state_exposed", "turn journal is reachable at /opt/aeolus");
+    expect(privateStateRefusalOf(Object.assign(new Error("wrapped"), { cause: foreign })), "F12_FOREIGN_REFUSAL_RECOGNISED").toBe(foreign as never);
+  });
+  test("F13: registrations of one layout are one entry", async () => {
+    const f = await fixture();
+    const layout = JSON.stringify(["/srv/ithaca/ui.db"]);
+    const first = registerWorkerPrivateState(f.brain, { roots: () => [], walk: () => undefined }, layout);
+    const second = registerWorkerPrivateState(f.brain, { roots: () => [], walk: () => undefined }, layout);
+    expect(workerPrivateStateProviders(f.brain).length, "F13_ONE_ENTRY_PER_LAYOUT").toBe(2);
+    first(); second();
+    expect(workerPrivateStateProviders(f.brain).length).toBe(1);
+  });
+  test("F11: a scratch-ignore query refused for private state keeps its typed cause", async () => {
+    const f = await fixture();
+    fs.mkdirSync(join(f.brain, ".brain/scratch"), { recursive: true });
+    const refusal = new WorkerPrivateStateError("private_state_exposed", "turn journal is reachable at /opt/aeolus");
+    const rejected = await assertScratchMaskAsync(realpathSync(f.brain), ".brain/scratch/raft-mask.png", join(realpathSync(f.brain), ".brain/scratch/raft-mask.png"),
+      { scratchIgnoreQuery: async () => { throw refusal; } }).catch(error => error);
+    expect(rejected, "F11_SCRATCH_QUERY_KEEPS_REFUSAL").toBe(refusal);
+  });
 });

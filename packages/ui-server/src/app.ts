@@ -508,10 +508,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     ...(config.cliProviderOrigins ? { origins: config.cliProviderOrigins } : {}), budgets: () => relayBudgets,
     report: message => brainLog.emit({ severityText: "WARN", body: message }) }) : undefined;
   // Bound once Activity exists: the durable record of a refused launch (#4301).
-  let onPrivateStateEvent: ((event: WorkerPrivateStateEvent) => void) | undefined;
+  // Events before Activity exists are kept and recorded once it does (F9).
+  const bootPrivateStateEvents: { event: WorkerPrivateStateEvent; at: number }[] = [];
+  let onPrivateStateEvent: ((event: WorkerPrivateStateEvent, at?: number) => void) = event => { bootPrivateStateEvents.push({ event, at: Date.now() }); };
   const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, ...(providerRelay ? { providerRelay } : {}), profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary,
-    privateStateEvents: event => onPrivateStateEvent?.(event) });
+    privateStateEvents: event => onPrivateStateEvent(event) });
   bootCleanup.push(() => hostExecution.release());
   const boundary = hostExecution.boundary;
   const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {
@@ -684,11 +686,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     writer,
     pricingConfig: { brainPath: config.brainPath, enabled: config.pricing.enabled, ttlMs: config.pricing.ttlMs },
   });
-  onPrivateStateEvent = event => {
+  onPrivateStateEvent = (event, at = Date.now()) => {
     if (event.kind !== "refused" || event.reason !== "private_state_exposed" || !event.exposure) return;
-    activity.runtime.recordPrivateStateExposure({ at: Date.now(), reason: "private_state_exposed", setting: event.exposure.setting,
+    activity.runtime.recordPrivateStateExposure({ at, reason: "private_state_exposed", setting: event.exposure.setting,
       path: event.exposure.name, row: event.exposure.row, scope: "launch" });
   };
+  for (const { event, at } of bootPrivateStateEvents.splice(0)) onPrivateStateEvent(event, at);
   bootCleanup.push(() => activity.close());
   activity.runtime.setBoot(runtimeProbes);
   const cron = createCronScheduler({ db });
@@ -1198,7 +1201,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Chat's runtime beside what scheduled syncs ran (#290). A failed read
       // leaves the sync half out rather than failing the status.
       getRuntime: () => {
-        const snapshot = { ...activity.runtime.snapshot(), compute: computeHost.status() };
+        const recorded = activity.runtime.snapshot();
+        // Launch-qualification diagnostics are live, not the copy recorded at boot or recheck (#4301 F8).
+        const live = boundary.privateStateStatus?.(), governed = recorded.workerHost?.governed;
+        const current = !live || !governed ? governed : live.refusal ? (({ profile: _profile, profileFallback: _fallback, ...rest }) => ({ ...rest, available: false as const, ...live.refusal!, stateBoundary: live.stateBoundary }))(governed as typeof governed & { profileFallback?: string })
+          : governed.available === false && governed.reason === "private_state_exposed" ? { ...boundary.status(), stateBoundary: live.stateBoundary }
+            : { ...governed, stateBoundary: live.stateBoundary };
+        const snapshot = { ...recorded, ...(current && recorded.workerHost ? { workerHost: { ...recorded.workerHost, governed: current } } : {}), compute: computeHost.status() };
         try {
           return { ...snapshot, sync: readSyncRuntime(db) };
         } catch {

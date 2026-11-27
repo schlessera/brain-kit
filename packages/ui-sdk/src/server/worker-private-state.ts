@@ -6,7 +6,7 @@
  */
 import { closeSync, lstatSync, openSync, readFileSync, realpathSync, statSync, constants } from "node:fs";
 import { resolve } from "node:path";
-import { evaluateNamespace, holdsPath, namespaceComplete, parseMountinfo, type MountRow, type NamespaceExposure, type StateRootObservation } from "./namespace-qualification.js";
+import { evaluateNamespace, holdsPath, namespaceComplete, parseMountinfo, resolveMount, type MountRow, type NamespaceExposure, type StateRootObservation } from "./namespace-qualification.js";
 import { workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 
 /** What a launch refused for private state reports, at its top level. */
@@ -18,8 +18,11 @@ export type WorkerPrivateStateReason = "private_state_exposed" | "private_state_
  * fallback walk refused (its own reason). Not a `WorkerHostError`: it never
  * reads as an unavailable worker host and never selects strict.
  */
+/** Shared by every loaded copy of this SDK in one process (#4301 F12). */
+const REFUSAL_BRAND = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-refusal");
 export class WorkerPrivateStateError extends Error {
   readonly errorClass: WorkerPrivateStateReason;
+  readonly [REFUSAL_BRAND] = true;
   constructor(readonly reason: WorkerPrivateStateReason, message: string, readonly exposure?: NamespaceExposure) {
     super(message);
     this.name = "WorkerPrivateStateError";
@@ -27,10 +30,14 @@ export class WorkerPrivateStateError extends Error {
   }
 }
 
-/** The refusal carried by this error or by any error in its `cause` chain. */
+/**
+ * The refusal carried by this error or by any error in its `cause` chain,
+ * including one thrown by another loaded copy of this SDK.
+ */
 export function privateStateRefusalOf(error: unknown): WorkerPrivateStateError | undefined {
   for (let depth = 0, current = error; depth < 16 && current; depth++) {
-    if (current instanceof WorkerPrivateStateError) return current;
+    if (current instanceof WorkerPrivateStateError || (typeof current === "object" && (current as Record<symbol, unknown>)[REFUSAL_BRAND] === true))
+      return current as WorkerPrivateStateError;
     current = typeof current === "object" && "cause" in current ? (current as { cause?: unknown }).cause : undefined;
   }
   return undefined;
@@ -52,25 +59,56 @@ export interface WorkerPrivateStateProvider {
   report?(event: WorkerPrivateStateEvent): void;
 }
 
-const providers = new Map<string, Set<WorkerPrivateStateProvider>>();
+/**
+ * Brain -> layout key -> providers with that layout. One registry per process,
+ * whichever copy of this SDK a caller loaded (#4301 F12). Providers sharing a
+ * key are one layout: it is judged once, and each is told the result.
+ */
+const REGISTRY = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-registry");
+const providers: Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>> =
+  ((globalThis as Record<symbol, unknown>)[REGISTRY] ??= new Map()) as Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>>;
 const brainKey = (brain: string) => { try { return realpathSync(brain); } catch { return resolve(brain); } };
 
-/** Register the private-state layout of one brain; returns its disposer. */
-export function registerWorkerPrivateState(brain: string, provider: WorkerPrivateStateProvider): () => void {
+/**
+ * Register the private-state layout of one brain; returns its disposer. A
+ * `layout` key makes registrations of the same layout one entry, so repeated
+ * boundaries add no work to later launches.
+ */
+export function registerWorkerPrivateState(brain: string, provider: WorkerPrivateStateProvider, layout: unknown = Symbol("layout")): () => void {
   const key = brainKey(brain);
-  const set = providers.get(key) ?? new Set();
-  set.add(provider); providers.set(key, set);
+  const layouts = providers.get(key) ?? new Map<unknown, Set<WorkerPrivateStateProvider>>();
+  const set = layouts.get(layout) ?? new Set<WorkerPrivateStateProvider>();
+  set.add(provider); layouts.set(layout, set); providers.set(key, layouts);
   let disposed = false;
   return () => {
     if (disposed) return;
     disposed = true; set.delete(provider);
-    if (!set.size && providers.get(key) === set) providers.delete(key);
+    if (!set.size && layouts.get(layout) === set) layouts.delete(layout);
+    if (!layouts.size && providers.get(key) === layouts) providers.delete(key);
   };
 }
 
-/** The providers of a brain, if any registered. */
+/** One provider per registered layout of a brain, if any registered. */
 export function workerPrivateStateProviders(brain: string): readonly WorkerPrivateStateProvider[] {
-  return [...providers.get(brainKey(brain)) ?? []];
+  return [...providers.get(brainKey(brain))?.values() ?? []].flatMap(set => [...set].slice(0, 1));
+}
+/** Every registered provider of a brain: each is told what a launch saw. */
+function workerPrivateStateReporters(brain: string): readonly WorkerPrivateStateProvider[] {
+  return [...providers.get(brainKey(brain))?.values() ?? []].flatMap(set => [...set]);
+}
+
+/**
+ * Host mounts strictly inside a directory state root that the host itself
+ * reaches (`resolveMount` on its own table): a row stacked under another is
+ * not what that path shows, so its coordinates never stand for the path
+ * (#4301 F4).
+ */
+export function liveDescendantMounts(rows: readonly MountRow[], path: string): MountRow[] {
+  return rows.filter(row => {
+    if (row.point === path || !holdsPath(path, row.point)) return false;
+    const reached = resolveMount(rows, row.point);
+    return "row" in reached && reached.row.id === row.id;
+  });
 }
 
 const O_PATH = 0o10000000;
@@ -106,7 +144,7 @@ export function observeStateRoots(roots: readonly { setting: string; path: strin
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
     observed.push({ setting: root.setting, path, ...coordinates(path, hostRow(path, rows)) });
     if (!lstatSync(path).isDirectory()) continue;
-    for (const row of rows) if (row.point !== path && holdsPath(path, row.point))
+    for (const row of liveDescendantMounts(rows, path))
       observed.push({ setting: root.setting, path: row.point, sb: row.sb, fspath: row.root });
   }
   return observed;
@@ -145,7 +183,7 @@ const report = (provider: WorkerPrivateStateProvider, event: WorkerPrivateStateE
  * time is not counted against `deadline`, which bounds the observation only.
  */
 export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadline: number, declared: boolean): WorkerSteps<NamespaceQualification> {
-  const registered = workerPrivateStateProviders(brain);
+  const registered = workerPrivateStateProviders(brain), reporters = workerPrivateStateReporters(brain);
   if (!registered.length) {
     if (declared) throw new Error(UNDECLARED);
     return { result: "unqualified" };
@@ -172,11 +210,11 @@ export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadlin
     if (verdict.result === "exposed") {
       const { result: _result, ...exposure } = verdict;
       const detail = `WorkerPrivateStateError: ${exposure.setting} is reachable in the worker's namespace at ${exposure.name} (mount ${exposure.row}); remove or mask that mount or alias, or make the state owner-only for a separate worker identity. The next launch is checked again.`;
-      for (const provider of registered) report(provider, { kind: "refused", reason: "private_state_exposed", detail, exposure });
+      for (const provider of reporters) report(provider, { kind: "refused", reason: "private_state_exposed", detail, exposure });
       throw new WorkerPrivateStateError("private_state_exposed", detail, exposure);
     }
     if (verdict.result === "ownership_only") {
-      for (const provider of registered) report(provider, { kind: "ownership_only", entries: verdict.entries });
+      for (const provider of reporters) report(provider, { kind: "ownership_only", entries: verdict.entries });
       return { result: "ownership_only" };
     }
     if (verdict.result === "hidden") return { result: "hidden" };
@@ -189,10 +227,10 @@ export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadlin
   for (const provider of registered) {
     const refusal = provider.walk();
     if (refusal) {
-      for (const each of registered) report(each, { kind: "refused", ...refusal });
+      for (const each of reporters) report(each, { kind: "refused", ...refusal });
       throw new WorkerPrivateStateError(refusal.reason, refusal.detail);
     }
   }
-  for (const provider of registered) report(provider, { kind: "namespace_unverified", cause: cause! });
+  for (const provider of reporters) report(provider, { kind: "namespace_unverified", cause: cause! });
   return { result: "namespace_unverified" };
 }

@@ -28,6 +28,7 @@ import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas"
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   diagnosticInterval, observeDiagnostic, WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
@@ -197,7 +198,8 @@ export const hostExecution = {
     return workerHostBoundary.probe(brainPath, directory ? { identitySentinelDirectory: directory } : undefined);
   },
   /** A credential-free maintenance worker, network namespace included, which the ordinary probe does not cover. */
-  maintenanceProbe: (brainPath: string, tempLimits: WorkerStateLimits, tempDomain: MaintenanceCommand["tempDomain"] | undefined, startupView: WorkerStartupView, signal?: AbortSignal): WorkerHostProbe | Promise<WorkerHostProbe> => probeNativeMaintenanceWorker(brainPath, tempLimits, tempDomain, startupView, signal),
+  maintenanceProbe: (brainPath: string, tempLimits: WorkerStateLimits, tempDomain: MaintenanceCommand["tempDomain"] | undefined, startupView: WorkerStartupView, signal?: AbortSignal,
+    maskPaths?: readonly string[]): WorkerHostProbe | Promise<WorkerHostProbe> => probeNativeMaintenanceWorker(brainPath, tempLimits, tempDomain, startupView, signal, maskPaths),
   cwd: () => process.cwd(),
 };
 
@@ -253,6 +255,8 @@ export interface HostBoundary {
    * the version requirement error once the version is known and fails.
    */
   deferPreflight?(check: () => Promise<Error | undefined>): void;
+  /** @internal Live launch-qualification diagnostics for status (#4301 F8). */
+  privateStateStatus?(): { stateBoundary: NonNullable<GovernedStatus["stateBoundary"]>; refusal?: { reason: GovernedUnavailableReason; detail: string } };
   governed(startupView?: WorkerStartupView): GovernedAvailability;
   /** Qualifies maintenance with a fresh native input lease, then awaits release. */
   prepare(signal?: AbortSignal, startupView?: WorkerStartupView, timing?: PhaseTimer): Promise<GovernedAvailability>;
@@ -413,6 +417,9 @@ const probeSlot = globalThis as { [MAINTENANCE_PROBES]?: Map<string, Extract<Wor
 const passedMaintenanceProbes = probeSlot[MAINTENANCE_PROBES] ??= new Map();
 
 
+/** Marks the executions a deferred boot check makes itself (#4301 F1). */
+const preflightContext = new AsyncLocalStorage<true>();
+
 export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const maintenanceTemp = options.maintenanceTemp ? resolveMaintenanceTempLimits(options.maintenanceTemp) : hostMaintenanceTempLimits();
   const brain = real(options.brainPath);
@@ -476,7 +483,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const maskPaths = [...operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths }), ...(options.nativeMaskPaths ?? [])];
   // Every launch for this brain is qualified against the same layout, resolved per launch (#4301).
   const stateLayout = { brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths };
-  const disposePrivateState = registerWorkerPrivateState(brain, {
+  // A boundary with no layout and no masks (a temporary CLI-version or planner
+  // boundary) declares nothing to qualify; equal layouts are one registry entry (F13).
+  const declaresState = Boolean(options.dbPath || options.privateStatePaths?.length || maskPaths.length);
+  const disposePrivateState = !declaresState ? () => {} : registerWorkerPrivateState(brain, {
     roots: () => operationalStatePaths(stateLayout),
     walk: () => {
       const refusal = operationalStateRefusal(stateLayout);
@@ -487,20 +497,30 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       if (event.kind === "ownership_only") stateBoundary.ownershipOnly = [...new Set(event.entries.map(entry => entry.name))];
       options.privateStateEvents?.(event);
     },
-  });
+  }, JSON.stringify([stateLayout.dbPath ?? null, stateLayout.privateStatePaths ?? []]));
   // In memory only: what status reports. A launch's result changes nothing for any other turn (#4301).
   const stateBoundary: { checkedAt: number | null; lastRefusal?: { at: number; reason: string; path?: string }; ownershipOnly?: string[] } = { checkedAt: null };
   const boundaryStatus = () => ({ stateBoundary: { mode: "walk" as const, ...stateBoundary } });
-  let deferredPreflight: (() => Promise<Error | undefined>) | undefined, preflightRunning = false;
-  /** Repeat a deferred boot check; its own executions skip it. A pass clears it, a version failure keeps it. */
+  /**
+   * The admission probe's last private-state refusal, for status only (F14):
+   * no admission reads it, and a passing probe clears it.
+   */
+  let probeRefusal: { reason: GovernedUnavailableReason; detail: string } | undefined;
+  let deferredPreflight: (() => Promise<Error | undefined>) | undefined, pendingPreflight: Promise<void> | undefined;
+  /**
+   * Repeat a deferred boot check before any execution. Concurrent callers wait
+   * for the same check (F1); only the check's own executions, marked by its
+   * async context, pass through. A pass clears it, a version failure keeps it.
+   */
   async function preflight(): Promise<void> {
-    if (!deferredPreflight || preflightRunning) return;
-    preflightRunning = true;
-    let refused: Error | undefined;
-    try { refused = await deferredPreflight(); }
-    finally { preflightRunning = false; }
-    if (refused) throw refused;
-    deferredPreflight = undefined;
+    if (!deferredPreflight || preflightContext.getStore()) return;
+    const check = deferredPreflight;
+    const pending = pendingPreflight ??= preflightContext.run(true, async () => {
+      const refused = await check();
+      if (refused) throw refused;
+      if (deferredPreflight === check) deferredPreflight = undefined;
+    }).finally(() => { pendingPreflight = undefined; });
+    await pending;
   }
   /**
    * A credentialed run's own CLI provider relay (#1673), where the host relays
@@ -625,6 +645,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         maintenance: { tempLimits: maintenanceTemp, maskPaths, ...(tempDomain ? { tempDomain } : {}) } }) },
     isolated,
     disposePrivateState,
+    privateStateStatus: () => ({ ...boundaryStatus(), ...(probeRefusal && !passedMaintenanceProbes.has(maintenanceKey) ? { refusal: probeRefusal } : {}) }),
     deferPreflight(check) { deferredPreflight = check; },
     governed,
     async prepare(signal, preparedView, timing) {
@@ -668,15 +689,15 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       try {
         signal?.throwIfAborted();
         endProbe = diagnosticInterval(() => timing?.("boundary_maintenance_probe"));
-        const checked = await hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain, view, signal);
+        const checked = await hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain, view, signal, maskPaths);
         endProbe(); endProbe = undefined;
         maintenanceResourceRefused = false; maintenance = { probe: checked, at: Date.now() };
-        if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
+        if (checked.ok) { passedMaintenanceProbes.set(maintenanceKey, checked); probeRefusal = undefined; }
         return recheck();
       } catch (error) {
         // A private-state refusal answers this admission only; nothing is stored (#4301).
         const refusal = privateStateRefusalOf(error);
-        if (refusal) { endProbe?.(); return { available: false as const, reason: refusal.reason, detail: refusal.message }; }
+        if (refusal) { endProbe?.(); probeRefusal = { reason: refusal.reason, detail: refusal.message }; return { available: false as const, ...probeRefusal }; }
         if (!(error instanceof WorkerStateError)) throw error;
         signal?.throwIfAborted();
         endProbe?.();
@@ -692,6 +713,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     status: () => {
       const availability = governed();
       if (!availability.available && availability.reason === "private_state_unverified") return { hostExecution: "worker", ...availability, ...boundaryStatus() };
+      // Refused for exposure and never qualified since: that cause, and no strict fallback (F14).
+      if (probeRefusal && !passedMaintenanceProbes.has(maintenanceKey)) return { hostExecution: "worker", available: false, ...probeRefusal, ...boundaryStatus() };
       const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
       let configuredIdentity = false;
       try { configuredIdentity = Boolean(workerIdentityHelper()); } catch { configuredIdentity = true; }

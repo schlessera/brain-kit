@@ -13,6 +13,7 @@ import { BRAIN_SCRATCH_DIR } from "@schlessera/brain-common/internal/worker-area
 import { resolveInRepo } from "./resolve-in-repo.js";
 import { brainGitSteps } from "../maintenance-worker.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, type WorkerSteps } from "../worker-steps.js";
+import { privateStateRefusalOf } from "../worker-private-state.js";
 
 /**
  * Options for `handleRequestImageMask`; the adapter owns the mask filename.
@@ -236,7 +237,8 @@ export async function assertScratchMaskAsync(rootReal: string, maskRel: string, 
   if (!maintenance?.scratchIgnoreQuery) return runWorkerStepsAsync(assertScratchMaskSteps(rootReal, maskRel, maskAbs, maintenance, noun));
   let result: { exitCode: number; killed: boolean };
   try { result = await maintenance.scratchIgnoreQuery(signal); }
-  catch { throw scratchIgnoreUnavailable(); }
+  // A private-state refusal keeps its cause and diagnostic (#4301).
+  catch (error) { if (privateStateRefusalOf(error)) throw error; throw scratchIgnoreUnavailable(); }
   signal?.throwIfAborted();
   // The directory may have changed while the native worker was running.
   assertScratchMaskDirectory(rootReal, maskRel, maskAbs, noun);

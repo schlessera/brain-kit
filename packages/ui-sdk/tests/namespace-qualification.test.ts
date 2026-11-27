@@ -1,6 +1,7 @@
 /** The pure half of launch qualification (#4301): parser, completeness, the kernel's walk, the verdict. */
 import { describe, expect, test } from "bun:test";
-import { evaluateNamespace, namespaceComplete, parseMountinfo, resolveMount, WORKER_NAMESPACE_SEAL, type MountRow, type NamespaceInspector, type StateRootObservation } from "../src/server/namespace-qualification";
+import { liveDescendantMounts } from "../src/server/worker-private-state";
+import { evaluateNamespace, namespaceComplete, overlayLayers, parseMountinfo, resolveMount, WORKER_NAMESPACE_SEAL, type MountRow, type NamespaceInspector, type StateRootObservation } from "../src/server/namespace-qualification";
 
 /** One mountinfo line: id parent sb root point options - fstype source superOptions. */
 const line = (id: number, parent: number, sb: string, root: string, point: string, fstype = "ext4", options = "rw", superOptions = "rw") =>
@@ -130,5 +131,18 @@ describe("evaluateNamespace", () => {
       expect(evaluateNamespace(overlay("ro,lowerdir=state/brain-ui.db.journal"), [STATE], [1000], inspect), "RELATIVE_LAYER_NOT_COVERED")
         .toEqual({ result: "hidden", nonCoverage: ["overlay layer state/brain-ui.db.journal at /opt/aeolus"] });
     });
+  });
+});
+
+describe("review round 1 (#4301)", () => {
+  test("F3: one-layer overlay options keep their colons; lowerdir splits only on unescaped colons, before decoding", () => {
+    expect(overlayLayers("ro,lowerdir+=/srv/ithaca:state,datadir+=/srv/aeolus:bag"), "F3_SINGLE_LAYER_OPTIONS_NOT_SPLIT").toEqual(["/srv/ithaca:state", "/srv/aeolus:bag"]);
+    expect(overlayLayers("ro,lowerdir=/srv/a\\:b:/srv/c,upperdir=/srv/up\\:per,workdir=/srv/work"), "F3_ESCAPED_COLONS").toEqual(["/srv/a:b", "/srv/c", "/srv/up:per", "/srv/work"]);
+    expect(overlayLayers("ro,lowerdir=/srv/raft\\134:/srv/oar"), "F3_DECODED_BACKSLASH_IS_NOT_AN_ESCAPE").toEqual(["/srv/raft\\", "/srv/oar"]);
+  });
+  test("F4: a host mount stacked under another below a state root is not what that path shows", () => {
+    const rows = table(line(1, 0, "8:1", "/@", "/"), line(2, 1, "8:1", "/state", "/srv/state"),
+      line(3, 2, "8:2", "/objects", "/srv/state/objects"), line(4, 3, "0:60", "/", "/srv/state/objects", "tmpfs"), line(5, 2, "8:3", "/cache", "/srv/state/cache"));
+    expect(liveDescendantMounts(rows, "/srv/state").map(row => row.id), "F4_ONLY_LIVE_DESCENDANTS").toEqual([4, 5]);
   });
 });

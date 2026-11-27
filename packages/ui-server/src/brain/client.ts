@@ -318,7 +318,7 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
     const requiredVersion = maintenance?.minimumVersion ?? minimumVersion;
     if (requiredVersion !== undefined) {
       try { await probeBrainCliVersion(brainPath, log, { exec, minimumVersion: requiredVersion, phase: "invocation", command, signal, boundary, admissionSignal: maintenance?.admissionSignal, ...(maintenance?.bounded ? { outputBytes: 1024 * 1024 } : {}), ...(maintenance?.assertAuthorized ? { assertAuthorized: maintenance.assertAuthorized } : {}) }); }
-      catch (error) { signal?.throwIfAborted(); maintenance?.admissionSignal?.throwIfAborted(); if (maintenance?.minimumVersion) throw new BrainMaintenanceUnavailable("Storage packing requires a qualified core CLI at " + maintenance.minimumVersion + " or newer.", "core_upgrade_or_probe_required"); throw error; }
+      catch (error) { signal?.throwIfAborted(); maintenance?.admissionSignal?.throwIfAborted(); if (privateStateRefusalOf(error)) throw error; if (maintenance?.minimumVersion) throw new BrainMaintenanceUnavailable("Storage packing requires a qualified core CLI at " + maintenance.minimumVersion + " or newer.", "core_upgrade_or_probe_required"); throw error; }
       signal?.throwIfAborted();
     }
     // Every brain CLI launch goes through the host boundary, not only the

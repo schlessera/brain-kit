@@ -126,16 +126,21 @@ export type NamespaceVerdict =
 
 const describe = (row: MountRow) => `${row.id} ${row.parent} ${row.sb} ${row.root} ${row.point} ${row.fstype}`;
 
-/** Overlay layer paths, decoded; colons inside a path are escaped as `\:`. */
-function overlayLayers(superOptions: string): string[] {
+/**
+ * Overlay layer paths. `lowerdir` lists layers separated by unescaped colons;
+ * `lowerdir+`, `datadir+`, `upperdir` and `workdir` each name one layer. The
+ * raw value is split before anything is decoded, so a decoded byte can never
+ * become a separator, and `\:` is a colon inside a path.
+ */
+export function overlayLayers(superOptions: string): string[] {
   const layers: string[] = [];
+  const unescape = (part: string) => decode(part.replace(/\\:/g, ":"));
   for (const option of superOptions.split(",")) {
     const eq = option.indexOf("=");
     if (eq < 0) continue;
-    const key = option.slice(0, eq), value = decode(option.slice(eq + 1));
-    if (key === "upperdir" || key === "workdir") layers.push(value);
-    else if (key === "lowerdir" || key === "lowerdir+" || key === "datadir+")
-      layers.push(...value.split(/(?<!\\):/).map(part => part.replace(/\\:/g, ":")).filter(Boolean));
+    const key = option.slice(0, eq), raw = option.slice(eq + 1);
+    if (key === "lowerdir") layers.push(...raw.split(/(?<!\\):/).filter(Boolean).map(unescape));
+    else if (["lowerdir+", "datadir+", "upperdir", "workdir"].includes(key)) layers.push(unescape(raw));
   }
   return layers;
 }

@@ -314,7 +314,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
     pipes = yield* createWorkerPipesSteps();
     // The payload starts only once the host releases its start gate (#4301).
     yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] },
-      spawned => { child = spawned; registerWorker(spawned); });
+      spawned => { child = spawned; registerWorker(spawned); }, { signal: (input as { signal?: AbortSignal }).signal });
     pipes.closeChild();
     const ends = pipes.take();
     let inputClosed = false;
@@ -370,8 +370,8 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       void Promise.all([running.exited, workerStopCompletion(running)]).then(() => {
         try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
       }).catch(() => { /* Unconfirmed cleanup retains ownership. */ });
-      // A private-state refusal's sandbox has already exited: it leaves as itself (#4301).
-      if (privateStateRefusalOf(error)) throw error;
+      // A private-state refusal's or an abort's sandbox has already exited: it leaves as itself (#4301).
+      if (privateStateRefusalOf(error) || (input as { signal?: AbortSignal }).signal?.aborted) throw error;
       throw Object.assign(new WorkerIdentityCleanupError("maintenance_worker_launch_cleanup_pending"), { cause: error });
     }
     try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
@@ -432,13 +432,15 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
 }
 
 /** Native writable qualification prepares asynchronously and awaits ownership cleanup. */
-export async function probeNativeMaintenanceWorker(brainPath: string, tempLimits: WorkerStateLimits | undefined, tempDomain: MaintenanceTempDomain | undefined, startupView: WorkerStartupView, signal?: AbortSignal): Promise<{ ok: true } | { ok: false; requirement: string }> {
+export async function probeNativeMaintenanceWorker(brainPath: string, tempLimits: WorkerStateLimits | undefined, tempDomain: MaintenanceTempDomain | undefined, startupView: WorkerStartupView, signal?: AbortSignal,
+  /** The host's own masks: the probe sees what every maintenance worker of this host sees (#4301 F2). */
+  maskPaths?: readonly string[]): Promise<{ ok: true } | { ok: false; requirement: string }> {
   let outputs: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
   try {
     outputs = await prepareNativeWorkerOutput(realpathSync(brainPath), { startupView, signal });
     const result = await runMaintenanceWorker({ brainPath, startupView: outputs.view, output: { ...outputs.output, target: "/tmp/brain-maintenance-output" },
       command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" }, credentials: false, tempKind: "probe",
-      ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), signal, timeoutMs: 5_000 });
+      ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), ...(maskPaths?.length ? { maskPaths } : {}), signal, timeoutMs: 5_000 });
     if (result.exitCode === 0) return { ok: true };
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${result.stderr.trim().slice(0,300) || `exit ${result.exitCode}`})` };
   } catch (error) {
@@ -513,11 +515,12 @@ export function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeout
     let spawned: ReturnType<typeof Bun.spawn> | undefined;
     let gated: GatedWorkerSpawn;
     // The payload starts only once the host releases its start gate (#4301).
-    try { gated = yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] }, child => { spawned = child; }); }
+    try { gated = yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] }, child => { spawned = child; },
+      { timeoutMs: input.timeoutMs }); }
     catch (error) { if (spawned) yield* awaitWorkerExitSteps(spawned); throw error; }
     pipes.closeChild();
-    // The caller's deadline counts from the spawn, as it did for spawnSync.
-    const { exitCode } = yield* awaitWorkerExitSteps(gated.child, gated.spawnedAt + input.timeoutMs);
+    // The caller's deadline counts from the spawn, as it did for spawnSync; one that passed during setup never released the payload.
+    const { exitCode } = yield* awaitWorkerExitSteps(gated.child, gated.timedOut ? undefined : gated.spawnedAt + input.timeoutMs);
     pipes.closeInput();
     return { stdout: readFileSync(pipes.parent[1], "utf8"), stderr: readFileSync(pipes.parent[2], "utf8"),
       exitCode: exitCode ?? 1, killed: exitCode === null };
