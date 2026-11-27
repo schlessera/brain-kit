@@ -67,8 +67,6 @@ export const ALLOWLIST: AllowlistEntry[] = [
   { file: "packages/ui-react/src/stores/tracker-state.ts", name: "TrackerStoreState", reason: INFERRED("createBrainStores") },
   { file: "packages/ui-server/src/inbox/cleanup.ts", name: "CleanupReport", reason: INFERRED("createInboxRuntime") },
   { file: "packages/ui-server/src/inbox/cleanup.ts", name: "CleanupRequest", reason: INFERRED("createInboxRuntime") },
-  // Readers of source text rather than importers.
-  { file: "packages/ui-server/src/bin/brain-ui-cron.ts", name: "USAGE", reason: "tests/release-manifest.test.ts reads the subcommand list from the `export const USAGE` source text" },
 ];
 
 export interface Finding { file: string; line: number; name: string; kind: "declaration" | "re-export" }
