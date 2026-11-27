@@ -146,7 +146,7 @@ export function createClaudeSdkTurn(options: ClaudeSdkTurnOptions): ClaudeSdkTur
   // An autonomous turn gets the restricted envelope (#676): only the relay
   // route out, a placeholder credential and no ambient project configuration.
   const envelope = options.req.autonomous?.containment === "restricted"
-    ? claudeAutonomousEnvelope(options.profile, turnEnv(options.profile), undefined,
+    ? claudeAutonomousEnvelope(options.profile, turnEnv(options.profile),
       path => { if (!path.endsWith("/count_tokens")) options.req.startupTiming?.received(); }) : undefined;
   try {
     const turn = assembleClaudeSdkTurn(options, envelope);

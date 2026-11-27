@@ -3,7 +3,7 @@
  * itself, it retries the things worth retrying, and it identifies itself
  * honestly. No network — `fetch` is stubbed per test.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { DEFAULT_USER_AGENT } from "../src/config/env.js";
 import { ScrapeClient, parseRetryAfterMs } from "../src/fetch/http.js";
@@ -749,6 +749,122 @@ describe("the proxy path", () => {
 
     expect(requested).toEqual(["https://example.com/jobs", "https://example.com/[1-3]"]);
     expect(page.body).toBe("page");
+  });
+});
+
+describe("maxBytes bounds the bodies the helpers read (#4768)", () => {
+  const MAX = 64 * 1024;
+  /**
+   * Only an unbounded reader on the tree before #4768 waits this out: it
+   * releases a held body so that reader resolves and the rows fail on their
+   * assertions instead of hanging. A bounded reader cancels first.
+   */
+  const HOLD_RELEASE_MS = 3_000;
+  type Served = { cancelled: boolean; finished: boolean; settled: Promise<void> };
+  let served: Served[] = [];
+  let route: (path: string) => { size: number; status?: number; hold?: boolean; location?: string } = () => ({ size: 0 });
+  let server: ReturnType<typeof Bun.serve>;
+  let origin = "";
+
+  /** A JSON string literal of exactly `size` bytes, streamed in 8 KiB chunks with no Content-Length. */
+  function streamed(size: number, hold: boolean): { body: ReadableStream<Uint8Array>; record: Served } {
+    const text = new TextEncoder().encode(`"${"o".repeat(size - 2)}"`);
+    let settle!: () => void;
+    const record: Served = { cancelled: false, finished: false, settled: new Promise<void>((resolve) => { settle = resolve; }) };
+    let sent = 0;
+    let release!: () => void;
+    const cancelled = new Promise<void>((resolve) => { release = resolve; });
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (sent < text.byteLength) {
+          const next = text.subarray(sent, sent + 8192);
+          sent += next.byteLength;
+          controller.enqueue(next);
+          return;
+        }
+        // Every byte is out; the stream ends only when nothing cancelled it.
+        if (hold) await Promise.race([cancelled, Bun.sleep(HOLD_RELEASE_MS)]);
+        if (record.cancelled) return;
+        record.finished = true;
+        controller.close();
+        settle();
+      },
+      cancel() {
+        record.cancelled = true;
+        release();
+        settle();
+      },
+    });
+    return { body, record };
+  }
+
+  beforeEach(() => {
+    served = [];
+    globalThis.fetch = realFetch;
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        const answer = route(new URL(request.url).pathname);
+        if (answer.location) return new Response(null, { status: 302, headers: { location: answer.location } });
+        const { body, record } = streamed(answer.size, answer.hold ?? false);
+        served.push(record);
+        return new Response(body, { status: answer.status ?? 200 });
+      },
+    });
+    origin = `http://127.0.0.1:${server.port}`;
+  });
+  afterEach(() => { server.stop(true); });
+
+  const client = () => new ScrapeClient({ respectRobots: false, rateLimiter: new RateLimiter({ defaultDelayMs: 0 }) });
+  const call = {
+    getPage: (c: ScrapeClient, url: string, maxBytes?: number) => c.getPage(url, { retries: 0, maxBytes }).then((page) => page.body),
+    getText: (c: ScrapeClient, url: string, maxBytes?: number) => c.getText(url, { retries: 0, maxBytes }),
+    getJson: (c: ScrapeClient, url: string, maxBytes?: number) => c.getJson<string>(url, { retries: 0, maxBytes }).then((value) => JSON.stringify(value)),
+  };
+
+  test.each(Object.keys(call) as Array<keyof typeof call>)("%s refuses a body one byte over maxBytes, and the server sees the read stop before its end", async (name) => {
+    route = () => ({ size: MAX + 1, hold: true });
+    const scraper = client();
+    const outcome = await call[name](scraper, `${origin}/${name}`, MAX).then((body) => `resolved with ${body.length} bytes`, (error: Error) => error.message);
+    expect(outcome, `${name}_REFUSES_PAST_MAX_BYTES`).toBe(`response body exceeds ${MAX} bytes`);
+    const record = served.at(-1)!;
+    await record.settled;
+    expect({ cancelled: record.cancelled, finished: record.finished }, `${name}_CLOSED_BEFORE_THE_SERVER_FINISHED`).toEqual({ cancelled: true, finished: false });
+    // The refusal costs that request only: the same client reads the next body.
+    route = () => ({ size: 16 });
+    expect(await call[name](scraper, `${origin}/next`, MAX), `${name}_CLIENT_STAYS_USABLE`).toHaveLength(16);
+  });
+
+  test("a body of exactly maxBytes is read whole, and without maxBytes a larger one is too", async () => {
+    route = () => ({ size: MAX });
+    const scraper = client();
+    for (const [name, read] of Object.entries(call)) {
+      expect((await read(scraper, `${origin}/${name}`, MAX)).length, `${name}_READS_EXACTLY_MAX_BYTES`).toBe(MAX);
+    }
+    route = () => ({ size: 4 * MAX });
+    for (const [name, read] of Object.entries(call)) {
+      expect((await read(scraper, `${origin}/${name}`)).length, `${name}_UNBOUNDED_WITHOUT_MAX_BYTES`).toBe(4 * MAX);
+    }
+  });
+
+  test.each(Object.keys(call) as Array<keyof typeof call>)("%s does not read a non-2xx body past maxBytes, and its error keeps the status", async (name) => {
+    route = () => ({ size: MAX + 1, status: 404, hold: true });
+    const outcome = await call[name](client(), `${origin}/${name}`, MAX).then(() => "resolved", (error: Error) => error.message);
+    expect(outcome, `${name}_NON_2XX_REFUSED`).toBe(`HTTP 404 from ${origin}/${name}: (response body exceeds ${MAX} bytes)`);
+    const record = served.at(-1)!;
+    await record.settled;
+    expect({ cancelled: record.cancelled, finished: record.finished }, `${name}_NON_2XX_CLOSED_EARLY`).toEqual({ cancelled: true, finished: false });
+  });
+
+  test("get with maxBytes returns the Response itself: final url, redirect state and an unread, unbounded body", async () => {
+    route = (path) => (path === "/start" ? { size: 0, location: "/final" } : { size: 4 * MAX });
+    const bounded = await client().get(`${origin}/start`, { retries: 0, maxBytes: MAX });
+    const unbounded = await client().get(`${origin}/start`, { retries: 0 });
+    expect(bounded.url, "GET_REPORTS_THE_FINAL_URL").toBe(`${origin}/final`);
+    expect([bounded.url, bounded.redirected], "GET_UNCHANGED_BY_MAX_BYTES").toEqual([unbounded.url, unbounded.redirected]);
+    expect((await bounded.text()).length, "GET_BODY_IS_NOT_BOUNDED").toBe(4 * MAX);
+    await unbounded.body?.cancel();
   });
 });
 

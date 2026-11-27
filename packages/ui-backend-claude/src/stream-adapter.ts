@@ -468,11 +468,3 @@ function errorDetail(subtype: string): string {
       return "execution";
   }
 }
-
-/**
- * Stateless convenience for tests and one-off message adaptation.
- * For production streaming, use a StreamAdapter instance instead.
- */
-export function adaptStreamEvent(msg: SDKMessage): ServerMessage[] {
-  return new StreamAdapter().adapt(msg);
-}

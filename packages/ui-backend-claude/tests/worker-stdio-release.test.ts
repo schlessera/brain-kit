@@ -11,7 +11,7 @@ import { join } from "node:path";
 import type { SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { prepareWorkerSandbox, type LaunchedWorker } from "@schlessera/brain-ui-sdk/internal";
 import { createWorkerSpawn } from "../src/worker-spawn.js";
-import { createStateLedger } from "../src/worker-state-budget.js";
+import { createStateLedger } from "@schlessera/brain-ui-sdk/internal";
 import { holdWorkPool, ownedWorkerFifos } from "../../ui-sdk/tests/helpers/work-pool.js";
 
 const MiB = 1024 * 1024;

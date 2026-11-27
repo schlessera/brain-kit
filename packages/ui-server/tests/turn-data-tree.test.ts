@@ -15,7 +15,7 @@ import type { BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/s
 import { launchAgentWorker, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import * as startup from "../../ui-sdk/src/server/worker-startup-view";
 import * as output from "../../ui-sdk/src/server/worker-native-output";
-import { createFixtureWorkerStartupView, prepareFixtureNativeWorkerOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
+import { createFixtureWorkerStartupView, prepareFixtureLaunchOutput, prepareFixtureNativeWorkerOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend";
 import { createUiDb } from "../src/db/client";
 import { createHostExecution } from "../src/brain/host-execution";
@@ -403,7 +403,8 @@ test("a masked turn's image mask enters its tree under the provenance rule, and 
 test("the brain's MCP server on the read-only tree stays fresh across in-place index updates", async () => {
   const f = fixture(false);
   await hostedTurn(f, "strict", async ({ bridge, request, brain }) => {
-    const worker = launchAgentWorker({ brainPath: brain, startupView: request.workerStartupView!, sandbox: request.workerSandbox!,
+    const preparedOutput = prepareFixtureLaunchOutput(brain, request.workerStartupView!, request.workerSandbox!.areas.filter(area => area.mount.writable).map(area => area.rel));
+    const worker = launchAgentWorker({ brainPath: brain, preparedOutput, sandbox: request.workerSandbox!,
       env: { PATH, BRAIN_ROOT: brain, HOME: "/tmp", NO_COLOR: "1" }, command: [...CLI, "mcp"] });
     const waiting = new Map<number, (message: { result?: { content?: { text: string }[]; isError?: boolean }; error?: unknown }) => void>();
     let buffer = "", id = 0;
