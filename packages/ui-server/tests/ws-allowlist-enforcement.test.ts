@@ -29,6 +29,7 @@ import {
   testHost,
 } from "./helpers/test-host";
 import { testAuthorization, testPrincipal } from "./helpers/principal";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 const REMEMBERED_TOOL = "mcp__github__create_issue";
 
@@ -90,14 +91,6 @@ function fakeClient() {
   const sent: ServerMessage[] = [];
   const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
   return { ws, sent };
-}
-
-async function waitFor(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (cond()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error("waitFor timed out");
 }
 
 /** In-memory grants store mirroring the app's db-backed one. */

@@ -12,6 +12,7 @@ import {
 import { QUEUE_MAX_BYTES, QUEUE_WARN_BYTES } from "../src/ws/host";
 import { queuedBytes, queuedFollowUpBytes } from "../src/ws/turns";
 import { testAuthorization } from "./helpers/principal";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 const QUEUE_AUTHORIZATION = testAuthorization();
 
@@ -69,14 +70,6 @@ function fakeClient() {
   const sent: ServerMessage[] = [];
   const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
   return { ws, sent };
-}
-
-async function waitFor(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (cond()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error("waitFor timed out");
 }
 
 /** An attachment of a given base64 payload size — what the queue actually holds. */

@@ -196,11 +196,12 @@ that are changed with it.
   timeout, a timer that stops its child processes. Set it well above the
   test's normal duration, about ten times, so that only a real hang trips it,
   and write an in-test one as `watchdogMs(n)` (`scripts/test-deadlines.ts`) so
-  a run under deliberate load scales it. When one trips on a slow run, raise
-  it or let the run scale it: that is not a failed proof, and the work is not
-  squeezed to fit. Raising one needs no proof-system lane. A *product timing*
-  is a time the product promises: a 0.6-second hold, a one-second guard, a
-  five-second readiness limit. Never loosen it to make a test pass, and never
+  a run under deliberate load scales it. A Bun test waits for a condition with
+  `until` from `tests/helpers/until.ts`, whose bound is such a watchdog. When
+  one trips on a slow run, raise it or let the run scale it: that is not a
+  failed proof, and the work is not squeezed to fit. Raising one needs no
+  proof-system lane. A *product timing* is a time the product promises: a
+  0.6-second hold, a one-second guard, a five-second readiness limit. Never loosen it to make a test pass, and never
   assert it through a test timeout: advance a controlled clock, or compare a
   measured duration with the promise (D1, D2). To tell them apart, ask what a
   user would notice if the number doubled. A test that needs a minute of real
