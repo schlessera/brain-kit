@@ -221,12 +221,28 @@ export function ChatPage() {
     return () => doc.removeEventListener("focusin", release);
   }, [readingKey]);
   const [requestTarget, setRequestTarget] = useState<string | null>(null);
-  const revealRequest = (key: string) => {
-    const at = entries.findIndex(e => e.key === key);
+  // Stable across renders (#4752): a task row hands it to a memoized
+  // bubble, and it reads the entries as they are when it is called.
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const revealRequest = useCallback((key: string) => {
+    const current = entriesRef.current;
+    const at = current.findIndex(e => e.key === key);
     if (at < 0) return;
-    setVisibleCount(n => Math.max(n, entries.length - at));
+    setVisibleCount(n => Math.max(n, current.length - at));
     setRequestTarget(key);
-  };
+  }, []);
+  // Whether each recognition row is the first of its activation, once per entries (#4752).
+  const recognitionIntroductions = useMemo(() => {
+    const seen = new Set<unknown>();
+    const introductions = new Set<string>();
+    for (const entry of entries) {
+      if (entry.kind !== "recognition") continue;
+      if (!seen.has(entry.fragments[0]!.activation)) introductions.add(entry.key);
+      for (const fragment of entry.fragments) seen.add(fragment.activation);
+    }
+    return introductions;
+  }, [entries]);
   useLayoutEffect(() => {
     if (!requestTarget) return;
     const node = [...(columnRef.current?.querySelectorAll<HTMLElement>("[data-arrival-key]") ?? [])].find(n => n.dataset.arrivalKey === requestTarget);
@@ -779,9 +795,7 @@ export function ChatPage() {
                       ? <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationEndDivider label={conversationEndLabel(entry.durationMs)} /></div>
                       : <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
                     if (entry.kind === "recognition") {
-                      const first = entry.fragments[0]!;
-                      const preceding = entries.slice(0, entries.indexOf(entry)).filter(e => e.kind === "recognition").flatMap(e => e.kind === "recognition" ? e.fragments : []);
-                      return <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1}><ConversationRecognitionRow fragments={entry.fragments} introduction={!preceding.some(f => f.activation === first.activation)} /></div>;
+                      return <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1}><ConversationRecognitionRow fragments={entry.fragments} introduction={recognitionIntroductions.has(entry.key)} /></div>;
                     }
                     const msg = transcriptMessage(entry);
                     const index = entry.index;
@@ -789,7 +803,7 @@ export function ChatPage() {
                     <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1}>
                       <MessageBubble
                         message={msg}
-                        taskContext={msg.source === "voice-context" ? <ConversationTaskContext message={entry.message} sessionId={sessionId} entries={entries} onReveal={revealRequest} /> : undefined}
+                        {...(msg.source === "voice-context" ? { taskSessionId: sessionId, onRevealTask: revealRequest } : {})}
                         arrival={transcriptRange(entry)}
                         journalVisible={entry.section !== "answer" && (!(msg.turnId ?? msg.streamTurnId) || !messages.slice(index + 1).some(later => later.role === "assistant" && (later.turnId ?? later.streamTurnId) === (msg.turnId ?? msg.streamTurnId)))}
                         onToolApproval={handleToolApproval}
@@ -803,7 +817,7 @@ export function ChatPage() {
                         closing={entry.section !== "progress" && entry.message === messages[messages.length - 1] && (entry.section !== "answer" || entry.end === entry.message.parts.filter(p => p.kind === "text").reduce((n, p) => n + p.text.length, 0))}
                         anchor={entry.section === "answer" ? undefined : String(index)}
                       />
-                      {entry.section === "answer" && <ConversationTaskContext message={entry.message} sessionId={sessionId} result entries={entries} onReveal={revealRequest} />}
+                      {entry.section === "answer" && <ConversationTaskContext message={entry.message} sessionId={sessionId} result onReveal={revealRequest} />}
                       {/* Where this conversation was continued elsewhere (#61). */}
                       {forward
                         .filter((link) => entry.section !== "answer" && markerAfter(link, messages) === index + 1)

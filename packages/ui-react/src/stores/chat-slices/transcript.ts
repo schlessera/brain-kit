@@ -95,12 +95,19 @@ export function textsOf(m: ChatMessage): string[] {
   return m.parts.flatMap((part) => (part.kind === "text" ? [part.text] : []));
 }
 
-function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">, partial = true): Pick<SessionChat, "messages" | "isStreaming"> {
+/**
+ * `kept` are the leading messages an earlier chunk of the same replay
+ * already reconciled (#4747): they are taken as they are, and only the
+ * messages after them are reconciled. The rules below that look at the whole
+ * replay still see every message.
+ */
+function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">, partial = true, kept: ChatMessage[] = []): Pick<SessionChat, "messages" | "isStreaming"> {
   // Only the transcript's tail can still be streaming: a message after it
   // (a follow-up that started) means its turn is over.
   const tail = next.length - 1;
   let streaming = false;
-  const messages = next.map((received, i) => {
+  const messages = [...kept, ...next.slice(kept.length).map((received, at) => {
+    const i = kept.length + at;
     const old = previous.messages[i];
     if (!old || old.role !== received.role) return received;
     const toolsElided = received.content.match(/\n…\[(\d+) tool calls elided\]$/);
@@ -163,7 +170,7 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       return { ...mergeLive(old, m), isStreaming: false };
     }
     return { ...m, id: old.id, timestamp: old.timestamp, ...(old.attachments ? { attachments: old.attachments } : {}) };
-  });
+  })];
   // Another client can start a turn whose user message this page learns only
   // from history. Its live answer moves across that one inserted user, but
   // only when the whole earlier prefix repeats. Apply the same answer guards
@@ -378,16 +385,27 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
         }
         const existing = state.buffers[key] ?? emptyChat();
         if (existing.replay) {
-          // A later chunk of the same replay: reconcile the whole replay so
-          // far against the transcript it replaced, so a message the first
-          // chunk kept back as still being written is not drawn twice. The
-          // answer as it stands now (deltas since) is the live one.
+          // A later chunk of the same replay: reconcile it against the
+          // transcript the replay replaced, so a message an earlier chunk
+          // kept back as still being written is not drawn twice. The answer
+          // as it stands now (deltas since) is the live one.
           const { base, received } = existing.replay;
           const now = existing.messages.at(-1);
           const live = base.messages.at(-1);
           const current = now && live && now.id === live.id ? { ...base, messages: [...base.messages.slice(0, -1), now] } : base;
           const all = [...received, ...messages];
-          const drawn = keepDrawnMessages(withKnownTurns(all, current.messages), current);
+          // What earlier chunks reconciled stays as it is (#4747): only this
+          // chunk's messages are reconciled, plus the earlier chunk's last
+          // message when that chunk held it back as the live answer (it was
+          // the tail then, and is not any more) or moved the live answer
+          // there across an inserted user message. `base` is the transcript
+          // that earlier chunk reconciled against.
+          const boundary = received.length - 1;
+          const held = boundary >= 0 && base.isStreaming
+            && (base.messages[boundary]?.isStreaming === true || boundary === base.messages.length);
+          const kept = existing.messages.slice(0, held ? boundary : received.length);
+          const next = [...all.slice(0, kept.length), ...withKnownTurns(all.slice(kept.length), current.messages)];
+          const drawn = keepDrawnMessages(next, current, true, kept);
           revokeAttachmentUrls(existing.messages, drawn.messages);
           return {
             buffers: {

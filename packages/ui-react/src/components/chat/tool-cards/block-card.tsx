@@ -42,6 +42,7 @@ import {
 } from "@schlessera/brain-ui-kit";
 import { classifyLink } from "@schlessera/brain-ui-kit/links";
 import type { Block, ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
+import { memo } from "react";
 
 import { SupportingFiles } from "./supporting-files.js";
 
@@ -196,11 +197,13 @@ function BlockView({ block, isStatic, trackDisplay }: { block: Block; isStatic: 
 /**
  * Bound to `SHOW_BLOCK_CONTRACT`; receives the parsed payload as props.
  * `isStatic` is for a render nothing will update (the share document).
+ * Memoized (#4749): the answer hands it the same cached payload on every
+ * frame, so an unchanged block renders once.
  */
-export function BlockCard({ block, isStatic = false, trackDisplay }: ShowBlockPayload & { isStatic?: boolean; trackDisplay?: TrackDisplay }) {
+export const BlockCard = memo(function BlockCard({ block, isStatic = false, trackDisplay }: ShowBlockPayload & { isStatic?: boolean; trackDisplay?: TrackDisplay }) {
   return (
     <div data-block={block.kind}>
       <BlockView block={block} isStatic={isStatic} trackDisplay={trackDisplay} />
     </div>
   );
-}
+});

@@ -4,7 +4,7 @@ import { PolicyChangeCard } from "./policy-change-card.js";
 import { ToolSafetyIndicator } from "./safety-indicator.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { TextButton } from "@schlessera/brain-ui-kit";
-import { useState, useEffect, useRef, type CSSProperties } from "react";
+import { memo, useMemo, useState, useEffect, useRef, type CSSProperties } from "react";
 import {
   Check,
   X,
@@ -20,6 +20,7 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { getToolLabel, getTouchedFile, formatTokenCount } from "./tool-views.js";
 import { formatDuration } from "../../lib/duration.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
+import { linkToolView } from "./renderers/payload-cache.js";
 import type { ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { useShallow } from "zustand/react/shallow";
 import { ToolPermissionCard } from "./tool-permission-card.js";
@@ -206,7 +207,12 @@ type EntryProps = {
   turnId?: string;
 };
 
-function ToolCallEntry(props: EntryProps) {
+/**
+ * Memoized (#4748): the store keeps a tool call's object identity until that
+ * call changes, and the other props are stable, so a frame that only grows
+ * the answer's text re-renders no completed row.
+ */
+const ToolCallEntry = memo(function ToolCallEntry(props: EntryProps) {
   const { toolCall } = props;
   // Above the boundary: a caught throw remounts the row, and the row a user
   // just opened should stay open in its generic view.
@@ -237,7 +243,7 @@ function ToolCallEntry(props: EntryProps) {
       )}
     </ToolRendererBoundary>
   );
-}
+});
 
 function ToolCallEntryView({
   toolCall,
@@ -255,13 +261,17 @@ function ToolCallEntryView({
   // span itself (a stable reference) rather than a derived timing object
   // keeps every other entry from re-rendering on every activity delta.
   const span = useActivityStore((s) => spanForTool(s, toolCall.id));
-  const timed: ToolCall = span
-    ? {
+  // Memoized with its source, so a re-render that changed nothing hands the
+  // renderer the same object; linked, so a payload parsed for the header is
+  // the one the expanded output reads from the store object.
+  const timed: ToolCall = useMemo(() => span
+    ? linkToolView({
         ...toolCall,
         startedAt: span.waitUntil ?? span.startedAt,
         ...(span.endedAt !== undefined ? { endedAt: span.endedAt } : {}),
-      }
-    : toolCall;
+      }, toolCall)
+    : toolCall, [toolCall, span]);
+  const ownCall = useMemo(() => [toolCall], [toolCall]);
   // Resolve the renderer for this tool (backend-scoped exact -> global exact ->
   // shape-sniffing predicate). Falls back to the generic renderer.
   const renderer: ToolRenderer = fallback
@@ -286,7 +296,7 @@ function ToolCallEntryView({
   const Input = renderer.Input;
   const Output = renderer.Output;
 
-  if (toolCall.policyChange) return <div data-tool-call={toolCall.id}><ToolSafetyIndicator turnId={turnId} toolCalls={[toolCall]}/><PolicyChangeCard toolCall={toolCall} onApproval={onApproval} /></div>;
+  if (toolCall.policyChange) return <div data-tool-call={toolCall.id}><ToolSafetyIndicator turnId={turnId} toolCalls={ownCall}/><PolicyChangeCard toolCall={toolCall} onApproval={onApproval} /></div>;
   return (
     <div className="relative" data-tool-call={toolCall.id}>
       {/* Timeline dot: a bare mark with no content, so it takes the MARK
@@ -359,7 +369,7 @@ function ToolCallEntryView({
           )}
         </span>
       </button>
-      <ToolSafetyIndicator turnId={turnId} toolCalls={[toolCall]}/>
+      <ToolSafetyIndicator turnId={turnId} toolCalls={ownCall}/>
       </div>
 
       {/* Why a restored card is read-only (D52 §4 R3), on its own line so the
