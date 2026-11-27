@@ -100,7 +100,7 @@ class ScheduleCliError extends Error {
 // ---------------------------------------------------------------------------
 
 const COMMON = ["server", "credential-file", "json", "human", "root"];
-const ALLOWED: Record<string, string[]> = {
+export const ALLOWED: Record<string, string[]> = {
   add: [...COMMON, "key", "prompt", "at", "cron", "time-zone", "client-time-zone", "end-at", "scope-file",
     "attempt-timeout-ms", "max-operations", "notify-success", "approve"],
   list: [...COMMON, "id", "state", "limit", "cursor"],
@@ -276,6 +276,10 @@ async function add(host: Host, values: Record<string, string | undefined>, flags
 
 export const scheduleCommand: CoreCommand = {
   summary: "Manage scheduled tasks on a UI host (no local runner)",
+  flags: {
+    boolean: ["approve", "notify-success"],
+    value: ["at", "attempt-timeout-ms", "client-time-zone", "credential-file", "cron", "cursor", "end-at", "id", "key", "limit", "max-operations", "prompt", "root", "scope-file", "server", "state", "time-zone"],
+  },
   helpBlock: [
     "  brain schedule add --server ORIGIN [--credential-file FILE] --key KEY --prompt TEXT (--at ISO|--cron EXPR)",
     "      [--time-zone ZONE] [--client-time-zone ZONE] [--end-at ISO] --scope-file FILE",

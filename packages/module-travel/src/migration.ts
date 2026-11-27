@@ -1,3 +1,11 @@
+/**
+ * `brain travel migrate`: moves the legacy `speaking.travelParty` field into
+ * the travel module's config block by editing brain.config as source text.
+ * The literal-config checks below (`unwrap`, `object`, `properties` and the
+ * default-export and `defineConfig` walk) mirror core's front end in
+ * `packages/core/src/lib/config-literal.ts`, which a module may not import;
+ * `tests/config-literal-parity.test.ts` holds the two equal.
+ */
 import ts from "typescript";
 import { isDeepStrictEqual } from "node:util";
 import { configSchema } from "./module.js";

@@ -38,6 +38,10 @@ export function parseListLimit(raw: Flags[string] | undefined): number {
 
 export const listCommand: CoreCommand = {
   summary: "List/browse documents",
+  flags: {
+    boolean: ["include-archived", "overview"],
+    value: ["cursor", "limit", "path-prefix", "relevance", "status", "tag", "type"],
+  },
   helpBlock: HELP,
   async run(args, cli) {
     const { flags } = parseArgs(args);

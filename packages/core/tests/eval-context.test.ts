@@ -11,7 +11,7 @@ import { appendFileSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { assembleContext, emptyAssembleReport, estimateTokens } from "../src/lib/context-assembler";
-import { initContext, setContext } from "../src/lib/context";
+import { initContext } from "../src/lib/context";
 import { parseBudgets, percentile } from "../src/lib/retrieval-eval";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
@@ -58,9 +58,7 @@ describe("brain eval --context", () => {
   test("budget_used is the assembler's own output measured by its own estimator", async () => {
     const { at } = await contextRun(writeSet("knee-4000.jsonl", [KNEE]), "--budgets", "1000,4000");
 
-    const previous = setContext(null);
     const brain = await initContext({ root });
-    setContext(previous);
     const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     try {
       const output = await assembleContext(db, brain, { query: KNEE.q, maxTokens: 4000, now: new Date(NOW) });
@@ -198,9 +196,7 @@ describe("what counts as the answer", () => {
   });
 
   test("a document only in the Related list is not the answer", async () => {
-    const previous = setContext(null);
     const brain = await initContext({ root });
-    setContext(previous);
     const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     const report = emptyAssembleReport();
     try {

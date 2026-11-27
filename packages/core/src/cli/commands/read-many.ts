@@ -76,6 +76,7 @@ function human(items: ReadManyItem[]): void {
 
 export const readManyCommand: CoreCommand = {
   summary: "Read several documents or sections under one size cap",
+  flags: { boolean: ["stdin"], value: ["input", "max-item-chars", "max-total-chars"] },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);

@@ -28,7 +28,7 @@ import { SCHEMA_VERSION } from "@schlessera/brain";
 import * as queries from "@schlessera/brain/queries";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { auditWithModules } from "../packages/core/src/lib/auditor";
-import { initContext, setContext, type BrainContext } from "../packages/core/src/lib/context";
+import { initContext, type BrainContext } from "../packages/core/src/lib/context";
 import type { AuditIssue } from "../packages/core/src/lib/types";
 import { runCli } from "../packages/core/tests/cli-harness";
 import { createBrainAccess } from "../packages/ui-backend-pi/src/brain-access";
@@ -142,7 +142,6 @@ beforeAll(async () => {
 
 afterEach(() => setCoreModuleLoaderForTesting(null));
 afterAll(() => {
-  setContext(null);
   for (const dir of temporary) rmSync(dir, { recursive: true, force: true });
 });
 
