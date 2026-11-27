@@ -5,6 +5,7 @@ import {
   getShareStore,
   type StoredShare,
 } from "@schlessera/brain-ui-sdk/share-target";
+import { formatBytes } from "../../lib/format-bytes.js";
 
 /**
  * Dev-only stand-in for the system share sheet.
@@ -26,12 +27,6 @@ import {
  *     but never the browser rendering the landing page — and it cannot tell you
  *     anything about how an UNAUTHENTICATED share behaves.
  */
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export function ShareHarness({
   path = DEFAULT_SHARE_TARGET_PATH,

@@ -40,7 +40,7 @@ describe("readCopy", () => {
   });
   test("text reads by byte range: whole, cut short, and continued to the end", () => {
     expect(readCopy([text("read", [0, 1_843])])).toEqual({ text: "read", tone: "teal" });
-    expect(readCopy([text("partial", [0, 1_024])])).toEqual({ text: "read stopped at 1.0 KB", tone: "amber" });
+    expect(readCopy([text("partial", [0, 1_024])])).toEqual({ text: "read stopped at 1 KB", tone: "amber" });
     expect(readCopy([text("partial", [0, 1_024]), text("read", [1_024, 1_843])])!.text).toBe("read");
   });
   test("failures show only when nothing was read, and say what the record knows", () => {
@@ -63,7 +63,7 @@ describe("attachmentRowProps", () => {
   });
   test("with records, an unread readable file is not read yet and an unreadable one has no reader", () => {
     expect(meta(PERMIT, [])).toBe("PDF · 2.4 MB · not read yet");
-    expect(meta(CREW, [])).toBe("Text · 1.8 KB · not read yet");
+    expect(meta(CREW, [])).toBe("Text · 2 KB · not read yet");
     expect(meta(SIRENS, [])).toBe("3.1 MB · no reader for this kind of file");
   });
   test("a recorded read drives the meta and tone", () => {

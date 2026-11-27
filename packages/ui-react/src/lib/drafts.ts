@@ -3,6 +3,7 @@ import type { PendingAttachment } from "./image-attachments.js";
 import type { ComposerDraft, DraftStoreState } from "../stores/draft-state.js";
 import type { StagedTracks } from "./draft-tracks.js";
 import { base64DecodedLength } from "./base64.js";
+import { formatBytes } from "./format-bytes.js";
 
 /**
  * The words and small rules of per-session drafts (D52 §5, #951): what a
@@ -64,13 +65,6 @@ type DraftSaveView =
 /** A saving state is printed only once a save has been out this long (D52 §5). */
 export const SAVING_SHOWN_AFTER_MS = 600;
 
-function bytesLabel(n: number): string {
-  if (n >= 1024 * 1024 && n % (1024 * 1024) === 0) return `${n / (1024 * 1024)} MB`;
-  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
-  return `${n} bytes`;
-}
-
 /**
  * What the line under the composer says. `saved` is printed only when the
  * host acknowledged this exact edit, images included; nothing claims the
@@ -89,13 +83,13 @@ export function draftSaveView(
   if (store.supported === false) return { state: "unavailable", copy: `draft · this host doesn't keep drafts${kept}`, word: store.localFailed ? "not saved yet" : "kept on this device" };
   if (d.host && d.host.edit === d.edit) return { state: "saved", copy: "draft · saved", word: "saved" };
   if (d.failure?.kind === "too_large") {
-    const limit = d.failure.bound === "imageCount" ? `${d.failure.limit} images` : bytesLabel(d.failure.limit);
+    const limit = d.failure.bound === "imageCount" ? `${d.failure.limit} images` : formatBytes(d.failure.limit);
     return { state: "too_large", copy: `draft · too large to save (${limit} max)${kept}`, word: "too large to save" };
   }
   if (d.failure?.kind === "full") {
     const copy = d.failure.bound === "drafts"
       ? `draft · ${d.failure.limit} drafts saved · delete one to save this`
-      : `draft · ${bytesLabel(d.failure.limit)} of drafts saved · delete one to save this`;
+      : `draft · ${formatBytes(d.failure.limit)} of drafts saved · delete one to save this`;
     return { state: "full", copy, word: "host full" };
   }
   if (d.failure?.kind === "refused" && d.failure.edit === d.edit) return { state: "refused", copy: `draft · not saved · refused by the brain${kept}`, word: "refused" };

@@ -211,6 +211,7 @@ export function validateAttachments(pending: PendingAttachment[]): {
   return { accepted, errors };
 }
 
+// Not the shared `formatBytes` rule (#4735): image limits are stated in decimal megabytes.
 function mb(bytes: number): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }

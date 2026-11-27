@@ -9,12 +9,12 @@ import { recordingTime, TRANSCRIPT_CHANGED, RECORDING_UNAVAILABLE, type Recordin
 import type { VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
 import { freshDiscovery, invalidateDiscovery, loadDiscovery, providerLabel, type DictationProvider } from "../../voice/dictation-providers.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
+import { formatBytes } from "../../lib/format-bytes.js";
 
 export const SAVED_AUDIO_UNAVAILABLE = "Transcribing saved recordings isn\u0027t available on this server yet. Your recording is kept. Play it back and type, or keep it for later.";
 const RETRY_PROVIDER_UNAVAILABLE = "The service that made the failed attempt isn\u0027t available on this host, so it can\u0027t be retried. Your recording is kept.";
 export const ACCEPT_FAILED = "Couldn\u0027t save your draft on this device. The recording is kept.";
 const EMPTY_ROWS: Recording[] = [];
-const size = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 export function recordingClock(row: Recording): string {
   if (row.createdAt === undefined) return "unknown time";
   const date = new Date(row.createdAt);
@@ -127,7 +127,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
     {rows.length > 0 && <div ref={tray} className="mb-2" data-recordings-tray="" style={{ maxWidth: 720, marginInline: "auto" }}>
       {/* A bounded panel whose header carries the count and size (#3253). Its
           body stays mounted while closed, so playback and edits survive. */}
-      <Tray ref={header} icon="mic" label={`On this device · ${rows.length} ${rows.length === 1 ? "recording" : "recordings"} · ${size(rows.reduce((n, r) => n + r.bytes, 0))}`} open={open} onOpenChange={setOpen} maxHeight="40vh">
+      <Tray ref={header} icon="mic" label={`On this device · ${rows.length} ${rows.length === 1 ? "recording" : "recordings"} · ${formatBytes(rows.reduce((n, r) => n + r.bytes, 0))}`} open={open} onOpenChange={setOpen} maxHeight="40vh">
         <p className="px-1 text-xs text-muted-foreground">Kept in this browser. Not protected from someone who can use this device.</p>
         {rows.map((row, i) => <Fragment key={`${row.partition}/${row.id}`}>
           {row.partition === "unassigned" && rows[i - 1]?.partition !== "unassigned" && <p className="px-1 text-xs text-muted-foreground">Not linked to an account</p>}
@@ -277,7 +277,7 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
       </div>}
       {uploadConfirm && provider && !offline && <div role="group" aria-label={`Upload ${name}`} className="mt-2">
         {route.kind === "choose" ? <fieldset className="min-w-0">
-          <legend className="text-xs">{route.lead} Upload this recording ({recordingTime(row.durationMs)} · {size(row.bytes)}) to your server, which sends it to the service you choose. Transcribe with:</legend>
+          <legend className="text-xs">{route.lead} Upload this recording ({recordingTime(row.durationMs)} · {formatBytes(row.bytes)}) to your server, which sends it to the service you choose. Transcribe with:</legend>
           <div className="mt-1 flex flex-col">
             {route.options.map(option => <label key={option.id} className="flex min-h-11 items-center gap-2 text-sm">
               <input type="radio" name={`transcribe-with-${row.id}`} checked={target?.id === option.id} disabled={busy} onChange={() => setChosen(option.id)} className="h-5 w-5" />
@@ -285,7 +285,7 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
             </label>)}
           </div>
         </fieldset>
-        : <p className="text-xs">Upload this recording ({recordingTime(row.durationMs)} · {size(row.bytes)}) to your server for transcription? Your server sends it to {target ? providerLabel(target) : "your dictation service"}.</p>}
+        : <p className="text-xs">Upload this recording ({recordingTime(row.durationMs)} · {formatBytes(row.bytes)}) to your server for transcription? Your server sends it to {target ? providerLabel(target) : "your dictation service"}.</p>}
         <div className="mt-2 flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
           <Button label="Upload and transcribe" block={false} reach disabled={busy || !target} onClick={() => {
             if (!target) return;

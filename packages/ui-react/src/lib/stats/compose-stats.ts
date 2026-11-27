@@ -538,6 +538,7 @@ function tokens(n: number): string {
 }
 
 /** The CLI's byte scale (`packages/core/src/cli/commands/stats.ts`, `bytes`). */
+// Not the shared `formatBytes` rule (#4735): the stats page mirrors the CLI it reports on.
 function bytes(n: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = n;

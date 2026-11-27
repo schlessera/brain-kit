@@ -102,7 +102,7 @@ describe("the rev 4 §1 matrix", () => {
   test("a space refusal: refused, with Open Storage; another refusal has no Storage action", () => {
     const v = view(draft(), { queued: [queued("crew-roster.xlsx", "refused", { refusal: "space" })] });
     expect(v).toMatchObject({ key: "upload_refused", state: "refused", summary: "Draft not saved: attachment space is full.", action: "storage" });
-    expect(v.key !== "none" && v.facts).toEqual([{ key: "Not stored", value: "crew-roster.xlsx, 4.1 KB" }, { key: "Space", value: "attachment space full" }]);
+    expect(v.key !== "none" && v.facts).toEqual([{ key: "Not stored", value: "crew-roster.xlsx, 4 KB" }, { key: "Space", value: "attachment space full" }]);
     const size = view(draft(), { queued: [queued("crew-roster.xlsx", "refused", { refusal: "size" })] });
     expect(size).toMatchObject({ state: "refused", summary: "Draft not saved: 1 file wasn't stored." });
     expect(size.key !== "none" && size.action).toBeUndefined();

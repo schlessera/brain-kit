@@ -3,6 +3,7 @@ import { Button } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { accountPartition } from "../../lib/local-partitions.js";
 import { RECORDING_MAX_MS, recordingTime, type RecordingStore } from "../../lib/recordings.js";
+import { formatBytes } from "../../lib/format-bytes.js";
 
 /** Local variant: only state changes and limits announce; timer and meter do not. */
 export function LocalRecordingSheet({ open, onStop, onDiscard, store, inline = false }: {
@@ -49,7 +50,7 @@ export function LocalRecordingSheet({ open, onStop, onDiscard, store, inline = f
     <div className="flex items-center justify-between gap-2 text-sm"><b>Recording on this device</b><span className="font-mono">{recordingTime(elapsed)}</span></div>
     <div role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(level * 100)} className="my-2 h-2 overflow-hidden rounded bg-border"><div className="h-full bg-primary-mark" style={{ width: `${Math.round(level * 100)}%` }} /></div>
     <p className="text-xs text-muted-foreground">Stays on this device. Nothing is uploaded until you tap Transcribe.</p>
-    <p className="my-2 text-xs font-mono text-muted-foreground">{recordingTime(Math.max(0, RECORDING_MAX_MS - elapsed))} left{bytes === null ? "" : ` · ${(bytes / (1024 * 1024)).toFixed(1)} MB free for audio`}</p>
+    <p className="my-2 text-xs font-mono text-muted-foreground">{recordingTime(Math.max(0, RECORDING_MAX_MS - elapsed))} left{bytes === null ? "" : ` · ${formatBytes(bytes)} free for audio`}</p>
     <p role="status" className="text-xs text-muted-foreground">{message}</p>
     {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
     {confirm ? <>

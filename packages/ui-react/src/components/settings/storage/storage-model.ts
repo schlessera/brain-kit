@@ -7,6 +7,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StorageMapItem } from "@schlessera/brain-ui-kit";
 export type StorageMetric = "allocated" | "logical";
+// Not the shared `formatBytes` rule (#4735): storage reports decimal units, as the host measures them.
 export const bytes = (value: number | null) => {
   if (value === null || !Number.isFinite(value)) return "Unknown";
   const units = ["bytes", "kB", "MB", "GB", "TB"],
