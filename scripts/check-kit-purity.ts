@@ -25,6 +25,7 @@
 import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
+import { parse } from "./lib/source";
 
 const KIT_SOURCES = "packages/ui-kit/src/**/*.{ts,tsx}";
 
@@ -85,13 +86,7 @@ function isGlobalReference(node: ts.Identifier): boolean {
 }
 
 export function scanSource(file: string, text: string): Finding[] {
-  const source = ts.createSourceFile(
-    file,
-    text,
-    ts.ScriptTarget.ESNext,
-    true,
-    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
+  const source = parse(file, text);
   const findings: Finding[] = [];
   const record = (node: ts.Node, rule: number, symbol: string, message: string) => {
     const { line, character } = source.getLineAndCharacterOfPosition(node.getStart(source));
@@ -168,12 +163,12 @@ export function scanKit(root: string): Finding[] {
   return findings;
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? process.cwd());
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
   const findings = scanKit(root);
   if (findings.length === 0) {
     console.log("packages/ui-kit/src is prop-driven: no store, no I/O, no ambient globals.");
-    process.exit(0);
+    return 0;
   }
 
   console.error("ui-kit purity violations found:");
@@ -188,5 +183,7 @@ if (import.meta.main) {
       "(D13): props in, callbacks out. Anything ambient belongs in " +
       "@schlessera/brain-ui-react, which composes the kit."
   );
-  process.exit(1);
+  return 1;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? process.cwd())));

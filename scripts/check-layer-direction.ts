@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import ts from "typescript";
+import { parse } from "./lib/source";
 
 const SRC = "packages/ui-react/src";
 const LOWER = [`${SRC}/stores/`, `${SRC}/lib/`, `${SRC}/connection.ts`, `${SRC}/ws-client/`];
@@ -19,7 +20,7 @@ export function isLowerLayer(file: string): boolean {
 
 /** Findings for one lower-layer file; `file` is repo-relative. */
 export function checkLayerDirection(source: string, file: string): string[] {
-  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const tree = parse(file, source, ts.ScriptKind.TSX);
   const findings: string[] = [];
   const check = (literal: ts.Node) => {
     if (!ts.isStringLiteralLike(literal) || !literal.text.startsWith(".")) return;
@@ -39,8 +40,8 @@ export function checkLayerDirection(source: string, file: string): string[] {
   return findings;
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? ".");
+/** Findings for every lower-layer file under `root`, and how many files were checked. */
+export function scanLayerDirection(root: string): { checked: number; findings: string[] } {
   const findings: string[] = [];
   let checked = 0;
   for (const file of new Bun.Glob(`${SRC}/**/*.{ts,tsx}`).scanSync(root)) {
@@ -48,14 +49,23 @@ if (import.meta.main) {
     checked++;
     findings.push(...checkLayerDirection(readFileSync(resolve(root, file), "utf8"), file));
   }
+  return { checked, findings };
+}
+
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
+  const { checked, findings } = scanLayerDirection(root);
   if (checked === 0) {
     // A glob that matches nothing would pass forever.
     console.error(`layer-direction: no files under ${LOWER.join(", ")}; the gate checked nothing`);
-    process.exit(1);
+    return 1;
   }
   if (findings.length) {
     console.error(findings.join("\n"));
-    process.exit(1);
+    return 1;
   }
   console.log(`layer-direction: ${checked} lower-layer files import no components`);
+  return 0;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? ".")));

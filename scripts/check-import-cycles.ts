@@ -29,6 +29,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import ts from "typescript";
+import { parse } from "./lib/source";
 import { isTestFile, makeResolver } from "./check-unused-exports.ts";
 
 export interface CycleAllowlistEntry { files: string[]; reason: string }
@@ -93,8 +94,7 @@ function listFiles(root: string): string[] {
 
 /** The specifiers of `file`'s static value imports and re-exports. */
 export function valueImports(text: string, file: string): string[] {
-  const kind = /\.[cm]?tsx$|\.jsx$/.test(file) ? ts.ScriptKind.TSX : /\.[cm]?jsx?$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, false, kind);
+  const source = parse(file, text);
   const out: string[] = [];
   for (const statement of source.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
@@ -189,26 +189,33 @@ export function checkImportCycles(root: string, options: CycleCheckOptions = {})
   };
 }
 
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
+  const report = checkImportCycles(root);
+  const empty = report.scannedFiles === 0;
+  const failed = empty || report.findings.length > 0 || report.staleAllowlist.length > 0;
+  // A scan that matches nothing would pass forever.
+  if (empty) console.error("import-cycles: no source files under packages/*/src; the gate checked nothing");
+  for (const component of report.findings) {
+    console.error(`import-cycles: these files import each other at runtime — cut the cycle (move the shared code into a leaf module, or make one edge \`import type\`):\n  ${component.join("\n  ")}`);
+  }
+  for (const entry of report.staleAllowlist) {
+    console.error(`scripts/check-import-cycles.ts: stale allowlist entry — no cycle has exactly these files; remove or correct the entry:\n  ${entry.files.join("\n  ")}`);
+  }
+  if (!failed) {
+    console.log(`import-cycles: ${report.scannedFiles} files in packages/*/src, ${report.components.length} cycles, all allowlisted`);
+  }
+  return failed ? 1 : 0;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const json = args.includes("--json");
   const root = resolve(args.find(arg => !arg.startsWith("--")) ?? join(import.meta.dir, ".."));
-  const report = checkImportCycles(root);
-  const empty = report.scannedFiles === 0;
-  const failed = empty || report.findings.length > 0 || report.staleAllowlist.length > 0;
-  if (json) console.log(JSON.stringify(report, null, 2));
-  else {
-    // A scan that matches nothing would pass forever.
-    if (empty) console.error("import-cycles: no source files under packages/*/src; the gate checked nothing");
-    for (const component of report.findings) {
-      console.error(`import-cycles: these files import each other at runtime — cut the cycle (move the shared code into a leaf module, or make one edge \`import type\`):\n  ${component.join("\n  ")}`);
-    }
-    for (const entry of report.staleAllowlist) {
-      console.error(`scripts/check-import-cycles.ts: stale allowlist entry — no cycle has exactly these files; remove or correct the entry:\n  ${entry.files.join("\n  ")}`);
-    }
-    if (!failed) {
-      console.log(`import-cycles: ${report.scannedFiles} files in packages/*/src, ${report.components.length} cycles, all allowlisted`);
-    }
+  if (json) {
+    const report = checkImportCycles(root);
+    console.log(JSON.stringify(report, null, 2));
+    process.exit(report.scannedFiles === 0 || report.findings.length > 0 || report.staleAllowlist.length > 0 ? 1 : 0);
   }
-  process.exit(failed ? 1 : 0);
+  process.exit(lintGate(root));
 }

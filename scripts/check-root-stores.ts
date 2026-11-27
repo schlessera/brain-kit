@@ -3,9 +3,10 @@
 import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import ts from "typescript";
+import { parse } from "./lib/source";
 
 export function checkRootStores(source: string, file = "source.tsx"): string[] {
-  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const tree = parse(file, source, ts.ScriptKind.TSX);
   const hooks = new Set<string>();
   const namespaces = new Set<string>();
   const isHook = (name: string) => /^use\w+Store$/.test(name);
@@ -43,15 +44,24 @@ export function checkRootStores(source: string, file = "source.tsx"): string[] {
   return findings;
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? ".");
+/** Findings for every ui-react source file under `root`. */
+export function scanRootStores(root: string): string[] {
   const findings: string[] = [];
   for (const file of new Bun.Glob("packages/ui-react/src/**/*.{ts,tsx}").scanSync(root)) {
     findings.push(...checkRootStores(readFileSync(resolve(root, file), "utf8"), relative(root, resolve(root, file))));
   }
+  return findings;
+}
+
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
+  const findings = scanRootStores(root);
   if (findings.length) {
     console.error(findings.join("\n"));
-    process.exit(1);
+    return 1;
   }
   console.log("root-stores: internal store access is root-bound");
+  return 0;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? ".")));

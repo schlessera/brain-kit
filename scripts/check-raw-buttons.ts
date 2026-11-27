@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
+import { parse } from "./lib/source";
 
 const SOURCES = "packages/ui-react/src/**/*.tsx";
 const CODES = ["row", "select", "surface", "canvas", "kit", "api", "dev"];
@@ -19,7 +20,7 @@ export interface Finding {
 }
 
 export function scanSource(file: string, text: string): Finding[] {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TSX);
+  const source = parse(file, text, ts.ScriptKind.TSX);
   const buttons: { start: number; end: number; position: number }[] = [];
   const comments = new Map<number, ts.CommentRange>();
   const literals: ts.TextRange[] = [];
@@ -95,16 +96,20 @@ export function scanRoot(root: string): Finding[] {
   return files.flatMap(file => scanSource(file, readFileSync(resolve(root, file), "utf8")));
 }
 
-if (import.meta.main) {
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
   try {
-    const findings = scanRoot(resolve(process.argv[2] ?? process.cwd()));
+    const findings = scanRoot(root);
     for (const finding of findings) {
       console.error(`${finding.file}:${finding.line}:${finding.column} ${finding.message}`);
     }
-    if (findings.length) process.exit(1);
+    if (findings.length) return 1;
     console.log("raw-buttons: every native button in ui-react has an intentional-raw marker (D55).");
+    return 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
+    return 1;
   }
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? process.cwd())));

@@ -60,7 +60,7 @@ function harness(setup: Partial<World> = {}) {
       head: { sha: world.head, repo: { full_name: REPO } }, base: { ref: "main", sha: BASE, repo: { full_name: REPO } }, milestone: { title: "0.46.0" },
       body: `Odysseus builds a raft.\n\n${receiptBlock(receipt)}\n` };
     if (path.endsWith("git/ref/heads/main")) return { object: { sha: world.mainSha } };
-    if (/issues\/9$/.test(path)) return { milestone: { title: "0.46.0" } };
+    if (path.endsWith("issues/9")) return { milestone: { title: "0.46.0" } };
     if (path.includes("actions/workflows/contract.yml/runs")) return { workflow_runs: [world.contract === "success" ? run(92, "contract") : run(92, "contract", "in_progress", null)] };
     if (path.includes("actions/workflows/ci.yml/runs?event=push")) return { workflow_runs: [] };
     if (path.includes("actions/workflows/ci.yml/runs")) return { workflow_runs: [world.requested && world.ciCompletes ? run(91, "ci") : run(90, "ci")] };

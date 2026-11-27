@@ -28,6 +28,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import ts from "typescript";
+import { parse } from "./lib/source";
 
 interface Finding {
   file: string;
@@ -69,13 +70,7 @@ function isContextConfigValue(expr: ts.Expression): boolean {
 }
 
 export function scanText(file: string, text: string): Finding[] {
-  const source = ts.createSourceFile(
-    file,
-    text,
-    ts.ScriptTarget.ESNext,
-    true,
-    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
+  const source = parse(file, text);
   const findings: Finding[] = [];
 
   const record = (node: ts.Node) => {
@@ -115,12 +110,12 @@ export function scanModules(root: string): Finding[] {
   return findings;
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? process.cwd());
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
   const findings = scanModules(root);
   if (findings.length === 0) {
     console.log("No config casts in module sources.");
-    process.exit(0);
+    return 0;
   }
 
   console.error("Type assertions on module-contract config values found:");
@@ -134,5 +129,7 @@ if (import.meta.main) {
       "`CommandModule<MyConfig>` (or use `HygieneContext<MyConfig>` / `ToolContext<MyConfig>`) " +
       "and drop the assertion."
   );
-  process.exit(1);
+  return 1;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? process.cwd())));

@@ -43,6 +43,7 @@
 import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
+import { parse } from "./lib/source";
 
 type Role = "helper" | "serializer" | "cache-probe" | "engine-probe";
 
@@ -133,8 +134,7 @@ function loadedModule(node: ts.Node): string | undefined {
 }
 
 export function scanSource(file: string, text: string): Finding[] {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true,
-    file.endsWith(".tsx") ? ts.ScriptKind.TSX : /\.[mc]?js$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+  const source = parse(file, text);
   const allowed = ALLOWED.find((entry) => entry.pattern.test(file));
   const findings: Finding[] = [];
   const record = (node: ts.Node, rule: 1 | 2 | 3, message: string) => {
@@ -261,12 +261,12 @@ export function scanTree(root: string): Finding[] {
   return findings;
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? process.cwd());
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
   const findings = scanTree(root);
   if (findings.length === 0) {
     console.log("All frontmatter parsing goes through parseFrontmatter; gray-matter is loaded only by its designated files; no package source finds a fence by hand.");
-    process.exit(0);
+    return 0;
   }
   console.error("Frontmatter parsing that can reach gray-matter's global cache, or a fence found by hand:");
   for (const f of findings) {
@@ -277,5 +277,7 @@ if (import.meta.main) {
       "(@schlessera/brain-common/internal/frontmatter) and find fences with frontmatterBlock " +
       "(@schlessera/brain-common/internal/frontmatter-block); see docs/decisions/frontmatter-parsing.md."
   );
-  process.exit(1);
+  return 1;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? process.cwd())));

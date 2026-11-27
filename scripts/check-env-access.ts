@@ -29,6 +29,7 @@
 import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
+import { parse } from "./lib/source";
 
 // `env.ts` is the per-package chokepoint; `env-core.ts` is the shared core
 // they are built on (@schlessera/brain-common), whose `readEnvVar` defaults
@@ -123,8 +124,7 @@ function isModuleScopeFreeze(node: ts.Node): boolean {
 }
 
 export function scanSource(file: string, text: string): Finding[] {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true,
-    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const source = parse(file, text);
   const findings: Finding[] = [];
   const record = (node: ts.Node, rule: 1 | 2 | 3 | 4, message: string) => {
     const { line, character } = source.getLineAndCharacterOfPosition(node.getStart(source));
@@ -178,15 +178,15 @@ export function scanPackages(root: string): Finding[] {
   return findings;
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? process.cwd());
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
   const findings = scanPackages(root);
   if (findings.length === 0) {
     console.log(
       "All process.env access goes through the per-package chokepoints, and no " +
         "package reads import.meta.env."
     );
-    process.exit(0);
+    return 0;
   }
 
   console.error("Ambient environment access found:");
@@ -201,5 +201,7 @@ if (import.meta.main) {
       "environment in exactly one file, src/config/env.ts, which exports a typed " +
       "descriptor of every variable."
   );
-  process.exit(1);
+  return 1;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? process.cwd())));
