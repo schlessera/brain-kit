@@ -1670,7 +1670,15 @@ would be a separate session-roster change.
 
 Module MCP tools have no static inventory yet (#4381). Every new hosted
 session runs `brain module list --json` in a credential-filtered sandbox worker
-with the same turn view, before retaining its roster. The host neither reads
+with the same turn view, before retaining its roster. The helper runs it only
+when the project `brain` entry is exactly `bun node_modules/.bin/brain mcp`,
+with no environment, working directory or other option, and under the
+tool-search setting the bridged session pins; any other entry keeps stdio.
+A turn whose host login lies inside the brain skips the helper. The forwarder
+serves read tools only: it keeps the turn's profile, view, data tree and masks
+but mounts no writable area and stages no output, names the brain entry
+relative to the worker's brain root so the host plans no runtime path inside
+the live brain, and adds its limit hits to the turn's limit report. The host neither reads
 brain bytes nor resolves brain paths for this inventory, and keeps no cache.
 The maintainer's 2026-11-21 ruling rejects host-side hashing: its input set
 cannot safely prove that executable configuration selects the same modules,

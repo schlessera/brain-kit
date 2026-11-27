@@ -463,20 +463,31 @@ reference discovery mechanism. Its existing sandboxed reads have no project
 MCP startup race; switching their schemas and execution to a second process
 would be a separate session-roster change.
 
-Module MCP tools have no static inventory yet (#4381). Before selecting a new
-hosted session's roster, a successful inventory is reused from disposable host
-memory when its configuration content hash matches. On a miss, a
-credential-filtered worker with the same turn view runs
-`brain module list --json` alongside runtime version and route-input
-preparation. A proven empty module-tool inventory permits
-the bridge. Config-selected module tools, an unavailable inventory, or malformed
-output retain the original project stdio entry and pin search off. The owner
-log records `brain_bridge_fallback_module_tools` or
-`brain_bridge_fallback_inventory_unavailable`; neither diagnostic enters the
-provider conversation. Only a miss runs the sandboxed inventory command; a hit
-skips it, concurrent misses share the helper, and resumes use their retained
-selection. The extra command is not a
-`brain mcp` process. Pi keeps its existing in-worker reads.
+Module MCP tools have no static inventory yet (#4381). Every new hosted
+session resolves its inventory in a credential-filtered sandbox worker with
+the same turn view, before retaining its roster. The host reads no brain bytes,
+resolves no brain paths and keeps no cache: the maintainer's 2026-11-21 ruling
+rejects host-side configuration hashing, because its input set cannot prove
+that executable configuration selects the same modules and reading those
+inputs on the host bypasses the worker boundary. The helper first requires the
+project `brain` entry to be exactly `bun node_modules/.bin/brain mcp`, with no
+environment, working directory or other option, since the bridge reproduces
+only that entry; it then runs `brain module list --json` under the tool-search
+setting the bridged session pins. A proven empty module-tool inventory permits
+the bridge. Another project entry, config-selected module tools, helper
+failure, timeout or malformed output retain the original project stdio entry
+and pin search off. The owner log records `brain_bridge_fallback_module_tools`
+or `brain_bridge_fallback_inventory_unavailable`; neither diagnostic enters the
+provider conversation. A turn whose host login lies inside the brain skips the
+helper, so brain configuration never runs before the prompt gate refuses it.
+Resumes use their retained selection and skip the helper. The extra command is
+not a `brain mcp` process. Pi keeps its existing in-worker reads.
+
+The forwarding worker serves read tools only. It keeps the turn's profile,
+startup view, data tree and masks but mounts no writable area and stages no
+output: a strict worker's writable areas are aliased outside the brain root
+that `brain mcp` reads, and a second output stage would take a staging slot
+the runtime needs.
 
 The pinned runtime can start a project stdio server even when an SDK server
 uses the same name. Bridge sessions therefore reject only the project `brain`

@@ -1,11 +1,12 @@
 import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
 import * as internal from "@schlessera/brain-ui-sdk/internal";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { startBrainToolWorker, probeBrainBridgeInventory } from "../src/brain-tool-forwarder.js";
+import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder } from "../src/brain-tool-forwarder.js";
+import * as promptContext from "../src/prompt-context.js";
 import { createBridgedTurnReservation } from "../src/brain-tool-reservation.js";
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
 import { installTestHome } from "../../../scripts/test-home.js";
@@ -14,6 +15,7 @@ import { createWorkerSpawn } from "../src/worker-spawn.js";
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "ithaca-brain-worker-")), brain = join(root, "brain"), state = join(root, "state");
   mkdirSync(brain); mkdirSync(state); writeFileSync(join(brain, "brain.config.json"), "{}");
+  mkdirSync(join(brain, "node_modules/.bin"), { recursive: true }); writeFileSync(join(brain, "node_modules/.bin/brain"), "");
   const input = { brainPath: brain, exec: { wrapper: "/usr/bin/env" },
     sandbox: { brain, profile: "governed" as const, restricted: false, areas: [], scratchAliasesRemoved: [] },
     env: { HOME: root, PATH: "/usr/bin:/bin", BASH_ENV: "/operator/startup", ENV: "/operator/env", ZDOTDIR: "/operator/zsh",
@@ -29,7 +31,7 @@ function worker(root: string) {
   const stdin = new PassThrough(), stdout = new PassThrough(), stderr = new PassThrough();
   const handle = { root, space: () => ({ total: 1024 * 1024, free: 1024 * 1024 }), async closeAsync() { closed++; } };
   const launched = { stdin, stdout, stderr, exited: exit.promise, turnTemp: handle, state: handle,
-    kill() { stdout.end(); stderr.end(); exit.resolve(0); }, async released() { released++; }, limitReport: () => ({}) };
+    kill() { stdout.end(); stderr.end(); exit.resolve(0); }, async released() { released++; }, limitReport: () => ({ hits: [], fatal: false }) };
   return { launched: launched as unknown as internal.LaunchedWorker, exit, stdin, stdout, stderr, get closed() { return closed; }, get released() { return released; } };
 }
 
@@ -47,7 +49,11 @@ for (const mode of ["inventory", "forwarder"] as const) test(`${mode} shares the
     else resource = await startBrainToolWorker(f.input)(f.signal);
     expect(calls).toHaveLength(1);
     const input = calls[0]!;
-    expect(input.command, "BRAIN_SUBPROCESS_USES_OPERATOR_WRAPPER").toEqual(["/usr/bin/env", process.execPath, join(f.brain, "node_modules/.bin/brain"), ...(mode === "inventory" ? ["module", "list", "--json"] : ["mcp"])]);
+    expect(input.command, "BRAIN_SUBPROCESS_USES_OPERATOR_WRAPPER").toEqual(["/usr/bin/env", process.execPath,
+      ...(mode === "inventory" ? [Bun.resolveSync("../src/brain-bridge-inventory-entry", import.meta.dir)] : ["node_modules/.bin/brain", "mcp"])]);
+    // The launcher plans an absolute existing argument as a host runtime
+    // path; nothing in the live brain may become one (#4325 F19).
+    expect(input.command.filter(part => isAbsolute(part) && (part === f.brain || part.startsWith(`${f.brain}/`))), "BRAIN_LAUNCH_PLANS_NO_LIVE_BRAIN_PATH").toEqual([]);
     expect(input.env.PATH, "BRAIN_SUBPROCESS_USES_WORKER_PATH").toBe(brainWorkerPath(f.brain, f.input.env.PATH));
     expect(input.env.HOME).toBe(internal.WORKER_EMPTY_HOME);
     expect(input.hostHome).toBe(f.root);
@@ -143,6 +149,10 @@ test("SDK assembly runs a bridged turn with a one-session temp budget and report
     expect(ledger.turnTempHeld - baseline, "ASSEMBLED_BRIDGE_CHARGES_ONE_ALLOWANCE").toBe(1024 * 1024);
     const message = await (turn.prompt as AsyncIterable<{ message: { content: string } }>)[Symbol.asyncIterator]().next();
     expect(message.value.message.content, "RUNTIME_NOTE_REPORTS_ACTUAL_MOUNT_ALLOWANCE").toContain("0.5 MiB");
+    // #4325 F27: the brain worker launched first; its hit joins the turn's report.
+    const hit = { source: "cgroup", limit: "pids", events: 1 } as never;
+    (children[0]!.launched as { limitReport: unknown }).limitReport = () => ({ hits: [hit], fatal: false });
+    expect(turn.workerLimits.current().hits, "TURN_LIMITS_INCLUDE_FORWARDER_HITS").toContainEqual(hit);
   } finally {
     for (const child of children) child.launched.kill("SIGKILL");
     try { await turn.finishWorker(); expect(ledger.turnTempHeld).toBe(baseline); }
@@ -171,4 +181,115 @@ for (const failure of ["launch", "nonzero", "malformed", "shape", "timeout"] as 
     if (failure === "timeout") expect(timeoutMs, "INVENTORY_PRODUCT_TIMEOUT_REMAINS_30_SECONDS").toBe(30_000);
     if (failure !== "launch") expect(child.closed, "FAILED_INVENTORY_RELEASES_TEMP").toBe(1);
   } finally { timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4325 F20: the read-only forwarder never stages output, so it cannot take
+// the staging slot a strict writer's runtime needs.
+test("a strict turn with a writable area launches the forwarder read-only with no output stage", async () => {
+  const f = fixture(), child = worker(f.state), calls: internal.WorkerLaunch[] = [];
+  mkdirSync(join(f.brain, "notes"));
+  const view = { root: f.brain } as unknown as internal.WorkerStartupView;
+  const sandbox = { ...f.input.sandbox, profile: "strict" as const, areas: [
+    { name: "notes", rel: "notes", mount: { writable: true, path: join(f.brain, "notes") } },
+    { name: "workspaces", rel: "workspaces", mount: { writable: false, missing: true } }] } as unknown as internal.WorkerSandbox;
+  const stage = spyOn(internal, "prepareNativeWorkerOutput");
+  const retain = spyOn(internal, "retainWorkerStartupView").mockImplementation(value => value);
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async input => { calls.push(input); return child.launched; });
+  let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
+  try {
+    resource = await startBrainToolWorker({ ...f.input, sandbox, startupView: view })(f.signal);
+    expect(stage, "FORWARDER_STAGES_NO_OUTPUT").not.toHaveBeenCalled();
+    expect(calls[0]!.preparedOutput, "FORWARDER_HAS_NO_PREPARED_OUTPUT").toBeUndefined();
+    expect(calls[0]!.sandbox!.profile, "FORWARDER_KEEPS_TURN_PROFILE").toBe("strict");
+    expect(calls[0]!.sandbox!.areas.map(area => [area.name, area.mount.writable]), "FORWARDER_HAS_NO_WRITABLE_AREA").toEqual([["workspaces", false]]);
+    expect(calls[0]!.startupView, "FORWARDER_KEEPS_TURN_VIEW").toBe(view);
+  } finally { await resource?.close(); stage.mockRestore(); retain.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4325 F25: a wrapper refused before launch leaves no retained view behind.
+test("an invalid exec wrapper is refused before the startup view is retained", async () => {
+  const f = fixture();
+  const sandbox = { ...f.input.sandbox, profile: "strict" as const } as internal.WorkerSandbox;
+  const retain = spyOn(internal, "retainWorkerStartupView").mockImplementation(value => value);
+  const launch = spyOn(internal, "launchAgentWorkerAsync");
+  try {
+    await expect(startBrainToolWorker({ ...f.input, sandbox, startupView: { root: f.brain } as never, exec: { wrapper: "ithaca-wrapper" } })(f.signal))
+      .rejects.toThrow("must be an absolute path");
+    expect(retain, "REFUSED_WRAPPER_RETAINS_NO_VIEW").not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
+  } finally { retain.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4325 F24: a refused signal request still runs every cleanup step.
+for (const during of ["close", "abort"] as const) test(`a kill that throws during ${during} still releases pipes, temp and reservation`, async () => {
+  const f = fixture(), child = worker(f.state), ledger = internal.createStateLedger(), controller = new AbortController();
+  const kill = child.launched.kill;
+  (child.launched as { kill: unknown }).kill = () => { kill(); throw new Error("Ithaca supervisor refused the signal."); };
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockResolvedValue(child.launched);
+  try {
+    const resource = await startBrainToolWorker({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits) })(controller.signal);
+    if (during === "abort") expect(() => controller.abort(), "ABORT_LISTENER_CONTAINS_KILL_FAILURE").not.toThrow();
+    await resource.close();
+    expect([child.stdin.writableEnded, child.stdout.destroyed, child.stderr.destroyed], "THROWING_KILL_DISPOSES_STREAMS").toEqual([true, true, true]);
+    expect([child.released, child.closed], "THROWING_KILL_RELEASES_PIPES_AND_TEMP").toEqual([1, 1]);
+    expect(ledger.turnTempHeld, "THROWING_KILL_RELEASES_RESERVATION").toBe(0);
+  } finally { launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4325 F28: like the pinned stdio transport, one bad line never drops the next.
+test("a malformed stdout line is reported and later lines in the same chunk are delivered", async () => {
+  const f = fixture(), child = worker(f.state);
+  try {
+    const transport = brainWorkerTransport(child.launched);
+    const messages: unknown[] = [], errors: unknown[] = [];
+    transport.onmessage = message => messages.push(message);
+    transport.onerror = error => errors.push(error);
+    await transport.start();
+    child.stdout.write('Odysseus starts the brain server.\n{"jsonrpc":"2.0","id":1,"result":{}}\n');
+    await Bun.sleep(0);
+    expect(errors, "MALFORMED_LINE_REPORTED").toHaveLength(1);
+    expect(messages, "LATER_LINE_DELIVERED").toEqual([{ jsonrpc: "2.0", id: 1, result: {} }]);
+  } finally { child.launched.kill("SIGKILL"); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4325 F27: a forwarded read's limit hit reaches the turn's limit report.
+test("the forwarding worker's limit hits are reported with the runtime's", async () => {
+  const hit = { source: "brain", limit: "pids", events: 1 } as never;
+  const forward = createBrainToolForwarder(async () => ({ transport: brainWorkerTransport(worker("/tmp").launched),
+    worker: { limitReport: () => ({ hits: [hit], fatal: false }) }, async close() {} }), new AbortController().signal, () => {});
+  try {
+    expect(forward.limitReports(), "NO_REPORT_BEFORE_START").toEqual([]);
+    forward.start();
+    for (let tries = 0; forward.limitReports().length === 0 && tries < 100; tries++) await Bun.sleep(1);
+    expect(forward.limitReports(), "FORWARDER_LIMIT_REPORT_COLLECTED").toEqual([{ hits: [hit], fatal: false }]);
+  } finally { await forward.close().catch(() => {}); }
+});
+
+// #4325 F26: a failed forwarder cleanup never withholds the acknowledgement of
+// what the runtime already saved; the failure is still reported.
+test("a forwarder cleanup failure still acknowledges the delivered context and then fails", async () => {
+  const f = fixture(), home = installTestHome();
+  const children: ReturnType<typeof worker>[] = [];
+  const first = Promise.withResolvers<void>();
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async () => {
+    const child = worker(f.state); children.push(child); first.resolve(); return child.launched;
+  });
+  const acknowledge = spyOn(promptContext, "acknowledgeClaudeContext").mockImplementation(() => {});
+  const controller = new AbortController();
+  const turn = createClaudeSdkTurn({ backend: { brainPath: f.brain, turnTemp: { allowanceBytes: 1024 * 1024, budgetBytes: 1024 * 1024 } },
+    brainBridgeInventory: "core-only", req: { prompt: "Odysseus checks Ithaca.", applicationAuthority: "server", workerSandbox: f.input.sandbox,
+      signal: controller.signal, bridge: { emit() {}, async requestPermission() { return { behavior: "deny", message: "The fixture cannot grant." }; } } },
+    profile: { id: "fixture", label: "Fixture", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
+    turnEnvironment: { HOME: process.env.HOME }, abortController: controller, allowedTools: [], confirmPatterns: [],
+    turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, log() {} });
+  try {
+    turn.startBrainTools!(); await first.promise;
+    await (turn.prompt as AsyncIterable<unknown>)[Symbol.asyncIterator]().next();
+    children[0]!.exit.reject(new Error("Ithaca supervisor lost the brain worker."));
+    await expect(turn.finishWorker(), "FORWARDER_CLEANUP_FAILURE_IS_REPORTED").rejects.toThrow("Ithaca supervisor lost the brain worker.");
+    expect(acknowledge, "DELIVERED_CONTEXT_STILL_ACKNOWLEDGED").toHaveBeenCalledTimes(1);
+  } finally {
+    for (const child of children) child.launched.kill("SIGKILL");
+    controller.abort(); acknowledge.mockRestore(); launch.mockRestore(); home.dispose(); rmSync(f.root, { recursive: true, force: true });
+  }
 });

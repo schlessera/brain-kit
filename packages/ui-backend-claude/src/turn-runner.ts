@@ -11,7 +11,7 @@ import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { createClaudeSdkTurn, prepareClaudeTurnSandbox, turnEnv, turnChildEnvironment, computeToolRoster } from "./sdk-options.js";
+import { bridgedToolSearch, createClaudeSdkTurn, prepareClaudeTurnSandbox, turnEnv, turnChildEnvironment, computeToolRoster } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { probeClaudeRuntime } from "./runtime-probe.js";
 import type { ActiveTurn, TurnLockBinding } from "./turn-lock.js";
@@ -332,6 +332,17 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
   }
 }
 
+/**
+ * Whether a turn resolves the brain bridge inventory: only a new hosted,
+ * sandboxed, interactive session. A login the worker could read is refused at
+ * the prompt gate, and brain configuration never runs before that refusal
+ * (#4325 F18).
+ */
+export function checksBrainInventory(req: Pick<StartTurnRequest, "sessionId" | "autonomous" | "workerSandbox">,
+  hostLogin: { inBrain: boolean } | undefined, hosted: boolean): boolean {
+  return !req.sessionId && !req.autonomous && !hostLogin?.inBrain && hosted && Boolean(req.workerSandbox);
+}
+
 /** The SDK turn, from the claimed turn and its relay. */
 async function buildSdkTurn(runner: TurnRunnerState, claim: ClaimedTurn, relay: TurnInferenceRelay,
   own: Awaited<ReturnType<typeof prepareClaudeTurnSandbox>>): Promise<ReturnType<typeof createClaudeSdkTurn>> {
@@ -351,10 +362,12 @@ async function buildSdkTurn(runner: TurnRunnerState, claim: ClaimedTurn, relay: 
     ...(relay.apiCredential ? { placeholders: relay.apiCredential.placeholders } : {}) } : undefined;
   const turnEnvironment = own?.turnEnvironment ?? claim.turnEnvironment;
   let brainBridgeInventory: "core-only" | "module-tools" | "unavailable" | undefined;
-  if (!req.sessionId && !req.autonomous && computeToolRoster(turnReq, allowedTools).hosted && turnReq.workerSandbox) {
+  if (checksBrainInventory(turnReq, relay.hostLogin, computeToolRoster(turnReq, allowedTools).hosted)) {
     const environment = turnChildEnvironment({ profile, turnEnvironment, hostInference }, undefined);
+    // Configuration is evaluated under the setting the bridged session keeps.
+    const env = { ...environment.childEnv, ENABLE_TOOL_SEARCH: bridgedToolSearch(hostInference, environment.inheritedEnv) };
     brainBridgeInventory = await probeBrainBridgeInventory({ brainPath: options.backend.brainPath, exec: options.backend.exec ?? ambientExecConfig(),
-      sandbox: turnReq.workerSandbox, startupView: req.workerStartupView, env: environment.childEnv,
+      sandbox: turnReq.workerSandbox!, startupView: req.workerStartupView, env,
       limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits(options.backend.turnTemp ?? {}),
       req: turnReq, egress: hostInference, credentialEnv: environment.credentialEnv }, claim.abortController.signal);
   }

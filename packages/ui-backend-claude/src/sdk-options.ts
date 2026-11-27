@@ -38,7 +38,7 @@ import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { CLAUDE_INFERENCE_ENV, createWorkerSpawn } from "./worker-spawn.js";
-import { launchLimits, resolveTurnTempLimits, resolveWorkerStateLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
+import { launchLimits, mergeLimitReports, resolveTurnTempLimits, resolveWorkerStateLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
 import { createTurnTempPressureHook, createTurnTempTool, TURN_TEMP_TOOL_NAME } from "./turn-temp-tool.js";
 import { workerStateLimit } from "./worker-state.js";
 import { claudeAutonomousEnvelope } from "./autonomous-envelope.js";
@@ -122,6 +122,15 @@ export function firstPartyInferenceUpstream(env: Readonly<Record<string, string 
     const url = new URL(selectedInferenceUpstream(env));
     return url.origin === "https://api.anthropic.com" && !url.username && !url.password && !url.search && !url.hash;
   } catch { return false; }
+}
+
+/**
+ * The tool-search setting a new bridged session retains, and so the one its
+ * brain subprocesses evaluate configuration under: on only behind a relay to
+ * the first-party origin (#4306, #4325 F23).
+ */
+export function bridgedToolSearch(hostInference: unknown, inheritedEnv: Readonly<Record<string, string | undefined>>): "true" | "false" {
+  return hostInference && firstPartyInferenceUpstream(inheritedEnv) ? "true" : "false";
 }
 
 interface ClaudeSdkTurnOptions {
@@ -459,7 +468,7 @@ function assembleClaudeSdkTurn(
     // Validate before prepare() persists this turn. Refused retries must leave
     // the saved prompt and pending-turn journal byte-identical.
     retained = retainSessionRequestShape(backend.brainPath, id, req.sessionId !== undefined,
-      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, bridgeEligible && options.hostInference && firstPartyInferenceUpstream(inheritedEnv) ? "true" : "false", bridgeEligible ? 1 : undefined);
+      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, bridgeEligible ? bridgedToolSearch(options.hostInference, inheritedEnv) : "false", bridgeEligible ? 1 : undefined);
     if (retained.toolSearch === "true") {
       if (!firstPartyInferenceUpstream(inheritedEnv))
         throw new Error("This session's tool search requires its qualified first-party inference upstream.");
@@ -610,10 +619,18 @@ function assembleClaudeSdkTurn(
     finishWorker: envelope
       ? () => worker.finish().finally(() => envelope.relay.stop())
       : async () => {
-        try { await brainTools?.close(); } finally { try { await worker.finish(); } finally { bridgeReservation?.close(); } }
+        // A forwarder cleanup failure never withholds the acknowledgement of a
+        // transcript the runtime saved: the next turn would resend its facts (#4325 F26).
+        let forwarder: { error: unknown } | undefined;
+        try { await brainTools?.close(); } catch (error) { forwarder = { error }; }
+        try { await worker.finish(); } finally { bridgeReservation?.close(); }
         if (owned) acknowledgeClaudeContext(backend.brainPath, contextId, owned, childEnv);
+        if (forwarder) throw forwarder.error;
       },
-    workerLimits: { current: worker.limits, settled: worker.settledLimits },
+    workerLimits: brainTools ? {
+      current: () => mergeLimitReports([worker.limits(), ...brainTools.limitReports()]),
+      settled: async () => mergeLimitReports([await worker.settledLimits(), ...brainTools.limitReports()]),
+    } : { current: worker.limits, settled: worker.settledLimits },
     sdkInitialized: worker.sdkInitialized,
     workerFailure: worker.failure,
     workerStartFailure: worker.startFailure,
