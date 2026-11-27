@@ -7,7 +7,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { safeResolve } from "@schlessera/brain/internal";
-import { BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, bashLockKey, BRAIN_LOCK_KEY, isCompletedAutonomousToolCall,
+import { admitToolDispatch, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, bashLockKey, BRAIN_LOCK_KEY, isCompletedAutonomousToolCall,
   type BackendBridge, type compileConfirmPatterns, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import type { LaunchedWorker, NativeFileVersions, WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 
@@ -177,20 +177,21 @@ async function permission(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWo
 async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerRpcContext, decision: unknown,
   refusal: () => string | null, grant?: { name: string; input: string }): Promise<unknown> {
   const validate=()=>{context.turn.signal?.throwIfAborted();context.live();return refusal();};
-  let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
+  // A throw from the exposure comes after the commit: it rejects the request
+  // rather than answering a deny.
+  let exposing=false;
   try {
-    for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
-    const stale=validate();if(stale)throw new Error(stale);
-    // Bash cannot execute with this permission ticket: it must consume a
-    // separate final-admission RPC after its rewrite and lock waits.
-    ticket=msg.toolName!=="bash"&&bridge.inputSafety?.prepareDispatch?await bridge.inputSafety.prepareDispatch(msg.toolCallId):undefined;
-    if(msg.toolName!=="bash"&&!ticket)await bridge.inputSafety?.allowed?.(msg.toolCallId,validate);
-    for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
-    const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
-    ticket?.commit(validate);
-  }catch(error){try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}return {behavior:"deny",message:error instanceof Error?error.message:"Safety recording refused this call."};}
-  context.live();
-  if (grant) { context.grants.set(msg.toolCallId, grant); context.executed(msg).input = JSON.parse(grant.input); }
+    await admitToolDispatch({inputSafety:bridge.inputSafety,toolUseId:msg.toolCallId,validate,
+      pending:()=>pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId),
+      // Bash cannot execute with this permission ticket: it must consume a
+      // separate final-admission RPC after its rewrite and lock waits.
+      dispatchesNow:msg.toolName!=="bash",
+      expose:()=>{
+        exposing=true;
+        context.live();
+        if (grant) { context.grants.set(msg.toolCallId, grant); context.executed(msg).input = JSON.parse(grant.input); }
+      }});
+  }catch(error){if(exposing)throw error;return {behavior:"deny",message:error instanceof Error?error.message:"Safety recording refused this call."};}
 
   return decision;
 }
@@ -294,19 +295,13 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
     // Consume the server ticket before any wait; no concurrent RPC can replay it.
 
     context.grants.delete(msg.toolCallId);
-    let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
     try{
       const validate=()=>{context.turn.signal?.throwIfAborted();context.live();return revalidatePiAdmission(context.turn,msg.toolName,msg.toolCallId,msg.input);};
-      const stale=validate();if(stale)throw new Error(stale);
-      ticket=bridge.inputSafety?.prepareDispatch?await bridge.inputSafety.prepareDispatch(msg.toolCallId):undefined;
-      if(!ticket)await bridge.inputSafety?.allowed?.(msg.toolCallId,validate);
-      for (const pending of pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId)) await pending;
-    const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
-      ticket?.commit(validate);
+      await admitToolDispatch({inputSafety:bridge.inputSafety,toolUseId:msg.toolCallId,validate,
+        pending:()=>pendingPiAdmission(context.turn, msg.toolName, msg.toolCallId),dispatchesNow:true});
       forgetPiAdmission(context.turn,msg.toolName,msg.toolCallId);
       return {ok:true};
     }catch(error){
-      try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}
       forgetPiAdmission(context.turn,msg.toolName,msg.toolCallId);
       await bridge.inputSafety?.refused?.(msg.toolCallId,true);
       throw error;

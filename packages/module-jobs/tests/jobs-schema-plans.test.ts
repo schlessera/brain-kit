@@ -1,8 +1,7 @@
 /** Schema v3: duplicate lookups plan through real indexes, the migration runs once, dedup marks atomically (#4810). */
 import { afterEach, expect, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/db";
 import { runDedup } from "../src/dedup";
@@ -10,16 +9,15 @@ import { searchJobs } from "../src/review";
 import { ingestJobs } from "../src/scrape";
 import type { RawJob } from "../src/types";
 
-const dirs: string[] = [];
+const tempDir = tempDirs();
+
 const handles: Database[] = [];
 afterEach(() => {
   for (const db of handles.splice(0)) db.close();
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 function tempPath(): string {
-  const dir = mkdtempSync(join(tmpdir(), "jobs-schema-"));
-  dirs.push(dir);
+  const dir = tempDir("jobs-schema-");
   return join(dir, "jobs.db");
 }
 

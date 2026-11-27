@@ -14,13 +14,10 @@ import { createWsHandlers } from "../src/ws/connection.js";
 import { createPrincipal } from "../src/db/principals.js";
 import type { WSContext } from "../src/ws/clients.js";
 import { queryGovernanceEvents } from "../src/governance/events.js";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 const promotion = (source: string) => ({ kind: "promotion_refused" as const, source,
   originalLink: source, reason: "missing" as const, bytes: null, limitBytes: null });
-const waitFor = async (predicate: () => boolean) => {
-  const until = Date.now() + 10000;
-  while (!predicate()) { if (Date.now() > until) throw Error("main-model fixture timed out"); await Bun.sleep(5); }
-};
 
 for (const cancel of [false, true]) test(`runtime main identity preserves earlier unknown events through ${cancel ? "cancellation" : "completion and resume"}`, async () => {
   const root = await mkdtemp(resolve(tmpdir(), "odysseus-main-model-")), brain = resolve(root, "brain");
@@ -40,7 +37,7 @@ for (const cancel of [false, true]) test(`runtime main identity preserves earlie
     oldBridge = req.bridge;
     req.bridge.activity?.(promotion(`before-${started}`));
     // The row's attribution is taken when it is raised; it commits off the event loop (#2850).
-    await waitFor(() => queryGovernanceEvents(app.db, { limit: 100, turnId: req.turnId, kinds: ["promotion_refused"] }).length > 0);
+    await waitFor(() => queryGovernanceEvents(app.db, { limit: 100, turnId: req.turnId, kinds: ["promotion_refused"] }).length > 0, undefined, 10_000);
     const before = queryGovernanceEvents(app.db, { limit: 100, turnId: req.turnId, kinds: ["promotion_refused"] });
     expect(before[0]?.model, "MODEL_LIVE_EARLY_UNKNOWN").toBeNull();
     const adapter = new StreamAdapter(req.bridge.activity);
@@ -62,11 +59,11 @@ for (const cancel of [false, true]) test(`runtime main identity preserves earlie
     const handlers = createWsHandlers(app.wsHost, principal); await handlers.onOpen(undefined as never, ws);
     const send = (message: object) => handlers.onMessage({ data: JSON.stringify(message) } as MessageEvent, ws);
     send({ type: "chat_message", text: "Record Ithaca" });
-    await waitFor(() => queryGovernanceEvents(app.db, { limit: 100, kinds: ["promotion_refused"] }).length === 2);
+    await waitFor(() => queryGovernanceEvents(app.db, { limit: 100, kinds: ["promotion_refused"] }).length === 2, undefined, 10_000);
     expect(admissions, "MODEL_ADMISSION_PRECEDES_RUNTIME").toEqual(["recording"]);
     expect(helperModels, "MODEL_HELPER_CANNOT_CHOOSE_MAIN").toEqual([null]);
     if (cancel) send({ type: "cancel", sessionId: "ithaca" });
-    release(); await waitFor(() => !app.wsHost.coordinator.isTurnActive());
+    release(); await waitFor(() => !app.wsHost.coordinator.isTurnActive(), undefined, 10_000);
     const turnId = queryGovernanceEvents(app.db, { limit: 100, kinds: ["promotion_refused"] })[0]!.turnId!;
     oldBridge!.activity?.({ kind: "main_model", model: "post-finish", sessionId: "ithaca" });
     const expected = cancel ? null : "runtime-main";
@@ -82,13 +79,13 @@ for (const cancel of [false, true]) test(`runtime main identity preserves earlie
     if (!cancel) {
       expect(queryGovernanceEvents(app.db, { limit: 100, turnId, kinds: ["roadblock"] }).at(-1)?.model, "MODEL_MIXED_USAGE_ROADBLOCK_MAIN").toBe("runtime-main");
       send({ type: "chat_message", sessionId: "ithaca", text: "Continue Ithaca" });
-      await waitFor(() => started === 2 && !app.wsHost.coordinator.isTurnActive());
+      await waitFor(() => started === 2 && !app.wsHost.coordinator.isTurnActive(), undefined, 10_000);
       expect(resumedIdentity, "MODEL_RESUMED_TURN_NOT_ENRICHED_BY_OLD_BRIDGE").toBeNull();
       expect(admissions).toEqual(["recording", "recording"]);
       expect(helperModels).toEqual([null, null]);
       app.db.query("INSERT INTO activity_run_rollups(run_id,origin,name,session_id,started_at,cost_usd,effective_cost_usd,input_tokens) VALUES('retained','session','invoke_agent','ithaca',?,4000,0,1)").run(Date.now());
       send({ type: "chat_message", sessionId: "ithaca", text: "Review Ithaca", requestId: "refused" });
-      await waitFor(() => sent.some(text => { const frame = JSON.parse(text); return frame.type === "error" && frame.requestId === "refused"; }) && !app.wsHost.coordinator.isTurnActive());
+      await waitFor(() => sent.some(text => { const frame = JSON.parse(text); return frame.type === "error" && frame.requestId === "refused"; }) && !app.wsHost.coordinator.isTurnActive(), undefined, 10_000);
       expect(started, "MODEL_DEFAULT_REFUSAL_PRECEDES_RUNTIME").toBe(2);
       expect(queryGovernanceEvents(app.db, { limit: 100, kinds: ["budget_block"] }).at(-1)?.model, "MODEL_DEFAULT_ADMISSION_REFUSAL_STAYS_NULL").toBeNull();
     }

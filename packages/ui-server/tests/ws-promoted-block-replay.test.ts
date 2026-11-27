@@ -11,20 +11,13 @@ import { WsHost } from "../src/ws/host.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { testAuthorization, testPrincipal } from "./helpers/principal.js";
+import { until } from "../../../tests/helpers/until";
 
 const TABLE = "| | Ithaca | Pylos |\n|---|---|---|\n| Days at sea | 0 | 4 |\n| Host | Penelope | Nestor |";
 const SOURCE = "/tmp/brain-worker-scratch/voyage.pdf";
 const SECOND_SOURCE = "/tmp/brain-worker-scratch/ports.pdf";
 const ALIAS = "$BRAIN_WORKER_SCRATCH/voyage.pdf#page=2";
 const TEXTS = [`[Voyage](${SOURCE}) and [ports](${SECOND_SOURCE})\n\n${TABLE}`, `[Second page](${ALIAS})\n\n${TABLE}`, `Ports:\n\n${TABLE}`];
-
-async function until(predicate: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (predicate()) return;
-    await Bun.sleep(5);
-  }
-  throw new Error("Promoted-block turn did not settle.");
-}
 
 for (const order of ["classification-first", "promotion-first", "no-promotion"] as const) {
   test(`WebSocket replay keeps classified blocks at the stored words: ${order} (#1704)`, async () => {

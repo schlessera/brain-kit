@@ -1,5 +1,6 @@
 import { usageEvents } from "../../ui-backend-claude/tests/helpers/usage-events.js";
 import { mockWorkerHostForSdkStream } from "../../ui-backend-claude/tests/helpers/worker-host";
+import { until } from "../../../tests/helpers/until";
 mockWorkerHostForSdkStream();
 /**
  * Session handoff (#61), through the real socket path and both real
@@ -42,14 +43,6 @@ function socket(): WSContext & { frames: Frame[]; drop: boolean } {
     send(data: string) { if (!s.drop) s.frames.push(JSON.parse(data)); },
   };
   return s as unknown as WSContext & { frames: Frame[]; drop: boolean };
-}
-
-async function until(cond: () => boolean, ms = 3000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!cond()) {
-    if (Date.now() > deadline) throw new Error("condition not met in time");
-    await Bun.sleep(5);
-  }
 }
 
 function gate() {
