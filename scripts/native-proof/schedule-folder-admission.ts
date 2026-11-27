@@ -59,7 +59,8 @@ export async function proveScheduleFolderAdmission(artifacts: string): Promise<v
       assert.equal((await boundary.prepare()).available, true, "ACTUAL_NATIVE_MAINTENANCE_QUALIFIES");
       hold = await gate.acquire("shared", "turn:odysseus");
       hold.assertPeerFolderPlans!(["group/private"]);
-      const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: hold.folderPaths });
+      // The host's own masks, as a server's turns get them: its UI database is private state (#4301).
+      const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: hold.folderPaths, maskPaths: boundary.maintenance?.maskPaths ?? [] });
       assert.equal(sandbox.profile, "governed");
       peer = launchAgentWorker({ brainPath: brain, sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
         'printf ready > reader-ready.md; IFS= read -r go || exit 46; if mv group/private group/moved 2>/dev/null; then exit 41; fi; if mv group group-moved 2>/dev/null; then exit 42; fi; printf Penelope > group/private/peer.md; printf Odysseus > notes/peer.md; printf ROOTS_RETAINED'] });

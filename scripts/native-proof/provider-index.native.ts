@@ -55,7 +55,8 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       const reports: string[] = [];
       const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, nativeMaskPaths: privatePaths, profile, requireGate: true });
       execution.attach(db);
-      const turns = createProviderIndexTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: privatePaths,
+      // The host's own masks, as a server's turns get them: its UI database is private state (#4301).
+      const turns = createProviderIndexTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: execution.boundary.maintenance?.maskPaths ?? privatePaths,
         index: async () => {}, report: message => reports.push(message),
         privateIndexCommand: [process.execPath, "/repo/packages/core/src/cli/brain.ts"] });
       let hold: Awaited<ReturnType<typeof turns.begin>> | undefined;
@@ -166,7 +167,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
       const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, profile, requireGate: true });
       execution.attach(db);
-      const turns = createProviderIndexTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: [],
+      const turns = createProviderIndexTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: execution.boundary.maintenance?.maskPaths ?? [],
         index: async () => {}, report: () => {}, privateIndexCommand: [process.execPath, "/repo/packages/core/src/cli/brain.ts"],
         exposures: createProviderExposures(db) });
       let hold: Awaited<ReturnType<typeof turns.begin>> | undefined;
@@ -213,7 +214,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
       const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, profile, requireGate: true });
       execution.attach(db);
-      const turns = createProviderIndexTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: [],
+      const turns = createProviderIndexTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: execution.boundary.maintenance?.maskPaths ?? [],
         index: async () => {}, report: () => {}, privateIndexCommand: [process.execPath, "/repo/packages/core/src/cli/brain.ts"] });
       let refusal: unknown;
       try {
