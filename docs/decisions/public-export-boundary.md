@@ -299,6 +299,18 @@ Amended 2026-11-27 (#4690): the list above also named the process-wide context
 getter. It was removed with the module-level state it read: the video module
 never imported it, and every consumer passes the context `initContext` returns.
 
+Later dropped from `@schlessera/brain/internal` because no other package
+imported them from it (#4691, 2026-11-27): `COMPUTE_JOB_ID`,
+`ComputeStateError`, `GEMINI_FLASH_MODEL`, `GovernancePolicySchema`,
+`WriteRefusedError`, `assertScratchWritable`, `collectModuleRenderers`,
+`collectStats`, `computeBrainKey`, `computeJobView`, `createComputeDriver`,
+`geminiCompletions`, `inertGeneratedText`, `isInScratch`, `isWriteRefusal`,
+`jobOutput`, `jobSettled`, `loadComputePackage`, `resolveComputeStateDir`,
+`resolveWritable`, `rewriteGeneratedRegion`, `runRegistry`, `scratchName` and
+`splitFrontmatterBlock`. The modules, the video module included, take the
+helpers they use from `@schlessera/brain/module`. The declarations stay in
+their source modules, and the third migration path applies.
+
 An internal-only package (#1396): `@schlessera/brain-common` has no root
 entry. Its entries, `./internal/env`, `./internal/frontmatter` and
 `./internal/worker-areas`, `./internal/protected-paths`,
