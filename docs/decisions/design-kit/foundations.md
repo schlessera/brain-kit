@@ -56,7 +56,7 @@ and relationships with [other subjects](../design-kit.md#subjects).
   gets to introduce.
 - **All 11 zustand stores are plain module singletons — there is no context
   provider anywhere.** A Storybook decorator cannot inject a mock store; it has
-  to `setState()` on the real one, which `render-smoke.test.tsx` already does.
+  to `setState()` on the real one, which the render smoke harness (`packages/ui-react/tests/render/smoke-harness.tsx`) already does.
   Two further module singletons stories must set: `uiConfig` (via
   `configureBrainUi()`) and `apiBase()`. This is the strongest argument for
   `ui-kit` components being prop-driven and store-free.
