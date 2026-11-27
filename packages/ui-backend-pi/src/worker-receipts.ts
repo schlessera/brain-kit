@@ -58,6 +58,8 @@ export function createPiWorkerReceipts(options: PiWorkerReceiptOptions): PiWorke
   const display = sessionReplay(sessionDir, brainPath, sessionId);
   const applications = new Map<string, PiApplicationReceipt>();
   let latestEntries: Record<string, unknown>[] = [];
+  /** What each receipt last retained, so an unchanged one is not written again (#4855). */
+  const retained = new Map<string, { receipt: PiApplicationReceipt; anchor: string | null | undefined; output: string; isError: boolean }>();
   function persist(recoverMissing = false): void {
     if (autonomous) return;
     // Receipt ownership survives even when no runtime call or snapshot exists.
@@ -73,9 +75,12 @@ export function createPiWorkerReceipts(options: PiWorkerReceiptOptions): PiWorke
           ?? entries?.findLast(entry => entry.type === "message");
         receipt.anchor = typeof prior?.id === "string" ? prior.id : null;
       }
-      display.retainReceipt({ id, name: receipt.name, input: receipt.input, anchor: receipt.anchor, turnId: replayTurnId,
-        output: receipt.output?.content.filter(part => part.type === "text").map(part => part.text).join("") ?? JSON.stringify(receipt.result),
-        isError: !receipt.result.ok });
+      const output = receipt.output?.content.filter(part => part.type === "text").map(part => part.text).join("") ?? JSON.stringify(receipt.result);
+      const isError = !receipt.result.ok, last = retained.get(id);
+      if (last?.receipt === receipt && last.anchor === receipt.anchor && last.output === output && last.isError === isError) continue;
+      display.retainReceipt({ id, name: receipt.name, input: receipt.input, anchor: receipt.anchor, turnId: replayTurnId, output, isError });
+      // Recorded only once written: a failed write is attempted again next time.
+      retained.set(id, { receipt, anchor: receipt.anchor, output, isError });
     }
     if (!latestEntries.some(entry => entry.type === "message")) return;
     const saved = [...latestEntries];
