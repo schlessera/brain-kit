@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { IN_PROCESS, runLints } from "../scripts/lint";
+import { git } from "../packages/core/tests/git-fixture";
 
 const SCRIPTS = resolve(import.meta.dir, "../scripts");
 const imported = 'import { useChatStore } from "./stores/chat-store.js";\n';
@@ -51,10 +52,7 @@ beforeAll(() => {
     mkdirSync(join(root, dirname(file)), { recursive: true });
     writeFileSync(join(root, file), text);
   }
-  for (const args of [["init", "-q"], ["add", "."]]) {
-    const git = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
-    expect(git.exitCode, git.stderr.toString()).toBe(0);
-  }
+  git(root, "init", "-q"); git(root, "add", ".");
 });
 afterAll(() => { if (root) rmSync(root, { recursive: true, force: true }); });
 
@@ -115,10 +113,7 @@ describe("one view of the tree for every gate but leakage (#4674)", () => {
       "evals/voyage/matter.ts": 'import matter from "gray-matter";\nexport const parse = matter;\n',
     };
     for (const [file, text] of Object.entries(files)) { mkdirSync(join(tree, dirname(file)), { recursive: true }); writeFileSync(join(tree, file), text); }
-    for (const args of [["init", "-q"], ["add", "."]]) {
-      const git = Bun.spawnSync(["git", ...args], { cwd: tree, stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
-      expect(git.exitCode, git.stderr.toString()).toBe(0);
-    }
+    git(tree, "init", "-q"); git(tree, "add", ".");
     // Untracked and not ignored; ignored under a package's src/; tracked but deleted in the working tree.
     writeFileSync(join(tree, "packages/core/src/untracked.ts"), `export const sail = "w${zeroWidth}ind";\n`);
     mkdirSync(join(tree, "packages/core/src/tmp"), { recursive: true });
