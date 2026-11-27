@@ -2,24 +2,20 @@
 import { Hono } from "hono";
 import { ZodError } from "zod";
 import type { AppEnv } from "../app-env.js";
-import { requireJson } from "../middleware/origin.js";
+import { requireExactOrigin, requireJson } from "../middleware/origin.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { TrustSettingsError, type TrustSettings } from "../brain/trust-settings.js";
 export function createTrustSettingsRoutes(deps: { settings: TrustSettings; trustProxy: boolean }) {
   const routes = new Hono<AppEnv>();
   const active = new Map<string, number>(); let total = 0;
+  const exactOrigin = requireExactOrigin(deps.trustProxy);
   routes.use("/trust-settings*", async (c, next) => {
     c.header("Cache-Control", "private, no-store");
     if (!c.get("principal")) return c.json({ code: "unauthorized", reason: "Authentication required", retryable: false }, 401);
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       // Require the actual Origin, independent of spoofed fetch metadata and
       // the broader legacy API allowlist. Reverse-proxy TLS uses trusted proto.
-      let expected: string;
-      try {
-        const proto = deps.trustProxy ? c.req.header("x-forwarded-proto")?.split(",")[0]?.trim() : undefined;
-        expected = new URL(`${proto ? `${proto}:` : new URL(c.req.url).protocol}//${c.req.header("host") ?? new URL(c.req.url).host}`).origin;
-      } catch { return c.json({ code: "unauthorized", reason: "Same-origin request required", retryable: false }, 403); }
-      if (c.req.header("origin") !== expected) return c.json({ code: "unauthorized", reason: "Same-origin request required", retryable: false }, 403);
+      if (!exactOrigin(c)) return c.json({ code: "unauthorized", reason: "Same-origin request required", retryable: false }, 403);
     }
     const principal = c.get("principal")!.id, count = active.get(principal) ?? 0;
     if (count >= 32 || total >= 256) return c.json({ code: "busy", reason: "Too many Settings requests are active. Try again when one finishes.", retryable: true }, 503);

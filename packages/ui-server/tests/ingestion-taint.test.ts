@@ -1,19 +1,22 @@
 import { expect, test } from "bun:test";
 import {StreamAdapter} from "../../ui-backend-claude/src/stream-adapter";
-import { inputTaintSource, outputTaintSource } from "../src/activity/ingestion-taint";
+import { inputTaintSource, outputTaintSignals, searchOutputContext } from "../src/activity/ingestion-taint";
 import { createTurnRecorder } from "../src/activity/recorder";
 import { createActivityStore } from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
 import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events";
 
 const brain = "/srv/odysseus/brain";
+/** The sources a search's output reports, as the turn extractor reads them. */
+const outputSources = (tool: string, output: string, brainPath: string) =>
+  outputTaintSignals(tool, output, brainPath, undefined, searchOutputContext(tool, {})).map(signal => signal.source);
 
 test("unqualified managed reference and worktree file reads retain ordinary workspace restrictions", () => {
   for (const path of ["/tmp/brain-reference/public/ithaca/README.md", "/tmp/brain-reference/private/loom/README.md",
     "/tmp/brain-worktrees/ithaca/README.md", "/tmp/brain-reference/public/ithaca/../loom/README.md"]) {
     expect(inputTaintSource("Read", { file_path: path }, brain), "REFERENCE_PATH_IS_NOT_A_TRUST_EXEMPTION").toBe("workspace_read");
     expect(inputTaintSource("read_file", { path }, brain)).toBe("workspace_read");
-    expect(outputTaintSource("grep", `${path}:1: Odysseus`, brain)).toBe("workspace_read");
+    expect(outputSources("grep", `${path}:1: Odysseus`, brain)).toEqual(["workspace_read", "legacy_unknown"]);
   }
   expect(inputTaintSource("Read", { file_path: "/tmp/brain-reference-other/README.md" }, brain)).toBeNull();
 });
@@ -59,14 +62,14 @@ test("a brain whose own path contains an area name does not taint its ordinary r
   const nested = "/home/odysseus/workspaces/brain";
   expect(inputTaintSource("Read", { file_path: `${nested}/notes/a.md` }, nested), "G6_BRAIN_PATH_NOT_AN_AREA").toBeNull();
   expect(inputTaintSource("Read", { file_path: `${nested}/workspaces/a.md` }, nested)).toBe("workspace_read");
-  expect(outputTaintSource("Grep", `${nested}/notes/a.md`, nested)).toBeNull();
+  expect(outputSources("Grep", `${nested}/notes/a.md`, nested)).toEqual(["legacy_unknown"]);
 });
 
 test("a search from an ancestor directory taints only when its output names an untrusted-area file", () => {
-  expect(outputTaintSource("Grep", JSON.stringify({numFiles:2,filenames:[`${brain}/notes/a.md`,`${brain}/workspaces/voyage/b.md`]}), brain), "G6_GREP_OUTPUT_WORKSPACE").toBe("workspace_read");
-  expect(outputTaintSource("grep", "notes/a.md:3: Ithaca\n.brain-ui/inbox/share-1/n.md:1: Ithaca", brain)).toBe("staged_share");
-  expect(outputTaintSource("Glob", `${brain}/notes/a.md`, brain)).toBeNull();
-  expect(outputTaintSource("Read", "workspaces/voyage/b.md", brain), "G6_OUTPUT_ONLY_FOR_SEARCH").toBeNull();
+  expect(outputSources("Grep", JSON.stringify({numFiles:2,filenames:[`${brain}/notes/a.md`,`${brain}/workspaces/voyage/b.md`]}), brain), "G6_GREP_OUTPUT_WORKSPACE").toEqual(["workspace_read"]);
+  expect(outputSources("grep", "notes/a.md:3: Ithaca\n.brain-ui/inbox/share-1/n.md:1: Ithaca", brain)).toEqual(["staged_share", "legacy_unknown"]);
+  expect(outputSources("Glob", `${brain}/notes/a.md`, brain)).toEqual(["legacy_unknown"]);
+  expect(outputSources("Read", "workspaces/voyage/b.md", brain), "G6_OUTPUT_ONLY_FOR_SEARCH").toEqual([]);
 });
 
 test("the real recorder keeps independent sources and excludes a denied fetch", () => {

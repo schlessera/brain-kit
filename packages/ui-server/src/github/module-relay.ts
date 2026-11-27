@@ -21,10 +21,10 @@
  *   message naming the setting, and bounds request size, response size and
  *   calls per run. It reports each write, never the token.
  */
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
+import { createPrivateSocketDirectory, securePrivateSocket, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import { GITHUB_API_ORIGIN } from "@schlessera/brain-ui-sdk/tool-contracts";
 
 /** The relay's socket name in its private directory. */
@@ -231,9 +231,8 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
   const stopSettleMs = options.stopSettleMs ?? STOP_SETTLE_MS;
   let calls = 0;
   // Private to this server user; the one worker of this run sees only the bound socket.
-  const dir = mkdtempSync(join(tmpdir(), "brain-module-github-"));
   const separateIdentity = Boolean(workerIdentityHelper());
-  chmodSync(dir, separateIdentity ? 0o750 : 0o700);
+  const dir = createPrivateSocketDirectory(join(tmpdir(), "brain-module-github-"), separateIdentity);
   const socketPath = join(dir, MODULE_GITHUB_RELAY_SOCKET_NAME);
   const repositoryOf = (owner: string, name: string): string => {
     const key = lower(`${owner}/${name}`);
@@ -347,7 +346,8 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
       } finally { active--; }
     },
   });
-  chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
+  try { securePrivateSocket(dir, socketPath, separateIdentity); }
+  catch (error) { void server.stop(true); throw error; }
   let stopped: Promise<void> | undefined;
   return {
     dir, socketPath,

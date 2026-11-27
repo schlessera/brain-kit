@@ -12,7 +12,7 @@ import type { Database } from "bun:sqlite";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { realpathSync } from "node:fs";
 
-import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
+import { isHumanOwner, isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
 import { encodeError, type SqliteWriter } from "../db/write-worker.js";
 import { scheduleWrites } from "./service-writes.js";
 import { ScheduleError } from "./errors.js";
@@ -121,10 +121,6 @@ function newId(prefix: string): string {
   return `${prefix}_${randomBytes(16).toString("hex")}`;
 }
 
-function isOperator(principal: Principal): boolean {
-  return principal.kind === "owner" || principal.kind === "ambient";
-}
-
 /**
  * Git's own answer; outside a repository nothing is ignored. Git reads the
  * brain's configuration and ignore files, so while the host execution
@@ -221,7 +217,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     return current;
   }
   function canSee(principal: Principal, creatorId: string): boolean {
-    return isOperator(principal) || principal.id === creatorId;
+    return isHumanOwner(principal) || principal.id === creatorId;
   }
 
   async function currentPolicy(): Promise<ExecutionPolicy> {
@@ -317,7 +313,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     const approval = db.query("SELECT approver_principal_id, approver_kind FROM schedule_approvals WHERE id = ?")
       .get(row.approval_id) as { approver_principal_id: string; approver_kind: string } | null;
     const approver = approval ? usable(approval.approver_principal_id) : null;
-    return Boolean(approver && isOperator(approver) && approver.kind === approval!.approver_kind);
+    return Boolean(approver && isHumanOwner(approver) && approver.kind === approval!.approver_kind);
   }
 
   /** The host's current execution policy as canonical JSON, or null when it has none. */
@@ -537,7 +533,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     if (!proposal || !canSee(actor, proposal.principal_id)) throw new ScheduleError("not_found", "No such schedule proposal.");
     // Normal authentication is not operator approval: delegated agent
     // credentials can propose and query, never approve.
-    if (!isOperator(actor)) throw new ScheduleError("unauthorized", "Only the operator can approve a schedule.");
+    if (!isHumanOwner(actor)) throw new ScheduleError("unauthorized", "Only the operator can approve a schedule.");
     if (proposal.fingerprint !== fingerprint) throw new ScheduleError("definition_conflict", "The fingerprint does not match this proposal.");
     const policy = await currentPolicy();
     return write<{ approvalId: string }>("approve", actor, proposal, fingerprint, policy);
@@ -709,7 +705,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
       throw new ScheduleError("invalid_request", "Reconciliation needs {key, decision: \"reopen\"}.");
     const row = SCHEDULE_ID.test(taskId) ? taskRow(taskId) : null;
     if (!row || !canSee(actor, row.creator_principal_id)) throw new ScheduleError("not_found", "No such scheduled task.");
-    if (!isOperator(actor)) throw new ScheduleError("unauthorized", "Only the operator can reconcile a schedule.");
+    if (!isHumanOwner(actor)) throw new ScheduleError("unauthorized", "Only the operator can reconcile a schedule.");
     const replay = () => {
       const receipt = db.query("SELECT task_id FROM schedule_reconciliations WHERE principal_id = ? AND request_key = ?")
         .get(actor.id, key) as { task_id: string } | null;

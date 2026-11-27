@@ -10,7 +10,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { workerOutwardNote } from "@schlessera/brain-ui-sdk/internal";
-import { inputTaintSource, outputTaintSource } from "../src/activity/ingestion-taint";
+import { inputTaintSource, outputTaintSignals, searchOutputContext } from "../src/activity/ingestion-taint";
 import { createPrincipal, type Principal } from "../src/db/principals";
 import { queryGovernanceEvents } from "../src/governance/events";
 import { createStaticBackendRegistry } from "../src/agent/backend";
@@ -46,9 +46,11 @@ test("a file tool or search that reads a marked file is a user_marked source; ot
   // An untrusted area still names its own source first.
   expect(inputTaintSource("Read", { file_path: `${brain}/workspaces/${MESSAGE}` }, brain, () => true)).toBe("workspace_read");
   // A search from an ancestor directory taints when its output names the marked file.
-  expect(outputTaintSource("Grep", JSON.stringify({numFiles:2,filenames:[`${brain}/notes/a.md`,`${brain}/${MESSAGE}`]}), brain, marked), "MARKED_SEARCH_OUTPUT").toBe("user_marked");
-  expect(outputTaintSource("grep", `${MESSAGE}:3: Ithaca`, brain, marked)).toBe("user_marked");
-  expect(outputTaintSource("Glob", `${brain}/${LETTER}`, brain, marked)).toBeNull();
+  const outputSources = (tool: string, output: string) =>
+    outputTaintSignals(tool, output, brain, marked, searchOutputContext(tool, {})).map(signal => signal.source);
+  expect(outputSources("Grep", JSON.stringify({numFiles:2,filenames:[`${brain}/notes/a.md`,`${brain}/${MESSAGE}`]})), "MARKED_SEARCH_OUTPUT").toEqual(["user_marked"]);
+  expect(outputSources("grep", `${MESSAGE}:3: Ithaca`)).toEqual(["user_marked", "legacy_unknown"]);
+  expect(outputSources("Glob", `${brain}/${LETTER}`)).toEqual(["legacy_unknown"]);
   // The capabilities note names marked files among the untrusted sources.
   for (const egress of [false, true]) expect(workerOutwardNote(egress, null), "NOTE_NAMES_MARKED_FILES").toContain("or of a file the user marked untrusted");
 });

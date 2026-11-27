@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
+import { Hono } from "hono";
+
+import { isSameOriginRequest } from "../src/middleware/origin";
 import { createTestApp, type TestApp } from "./helpers/test-app";
 
 const FORM_SHAPED_JSON = '{"formPadding":"="}\r\n';
@@ -316,5 +319,26 @@ describe("WebSocket origin policy", () => {
     expect(secure.status).not.toBe(403);
     expect(plain.status).not.toBe(403);
     expect(crossed.status).toBe(403);
+  });
+});
+
+// The Origin comparison keeps its own host and scheme rules beside the
+// exact-Origin check (#4759): no fallback to the request URL's host, and a
+// host-and-port comparison without a trusted proxy.
+describe("isSameOriginRequest Origin comparison", () => {
+  const accepts = async (trustProxy: boolean, headers: Record<string, string>) => {
+    const app = new Hono();
+    app.all("*", c => c.json({ accepted: isSameOriginRequest(c, [], trustProxy) }));
+    const response = await app.request("http://ithaca.example/api/probe", { method: "POST", headers });
+    return ((await response.json()) as { accepted: boolean }).accepted;
+  };
+
+  test("a request with no Host header is not matched by its request URL", async () => {
+    expect(await accepts(false, { origin: "http://ithaca.example" })).toBe(false);
+    expect(await accepts(true, { origin: "http://ithaca.example" })).toBe(false);
+  });
+
+  test("without a trusted proxy only host and port are compared, not the scheme", async () => {
+    expect(await accepts(false, { host: "ithaca.example", origin: "https://ithaca.example" })).toBe(true);
   });
 });
