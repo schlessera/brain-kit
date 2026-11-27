@@ -4,7 +4,9 @@
 // that mounts late still gets its listener. Keyless: a root with no host,
 // scripted frames, and Odysseus's voyage for the sessions. Queries come from
 // `render()`, never `screen` (tests/render/dom.ts says why).
-import { unregisterTrackerSeenDom } from "./tracker-seen-dom.js";
+import { registerTrackerSeenDom, unregisterTrackerSeenDom } from "./tracker-seen-dom.js";
+
+registerTrackerSeenDom();
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";

@@ -7,7 +7,9 @@
 // tree (a re-render replaces it, a skipped one keeps it). Odysseus's voyage
 // supplies the sessions. Queries come from `render()`, never `screen`
 // (tests/render/dom.ts says why).
-import { unregisterStoreSubscriptionsDom } from "./store-subscriptions-dom.js";
+import { registerStoreSubscriptionsDom, unregisterStoreSubscriptionsDom } from "./store-subscriptions-dom.js";
+
+registerStoreSubscriptionsDom();
 
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";

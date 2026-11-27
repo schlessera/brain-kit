@@ -4,7 +4,9 @@
 // no host, 200 of Odysseus's sessions and the pinned clock; a Profiler
 // counts the commits. Queries come from `render()`, never `screen`
 // (tests/render/dom.ts says why).
-import { unregisterSessionsPaneDom } from "./sessions-pane-dom.js";
+import { registerSessionsPaneDom, unregisterSessionsPaneDom } from "./sessions-pane-dom.js";
+
+registerSessionsPaneDom();
 
 import { afterAll, afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
