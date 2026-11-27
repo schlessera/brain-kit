@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../app-env.js";
 import { requireJson } from "../middleware/origin.js";
+import { requireHumanOwner } from "../middleware/require-owner.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { StorageUnavailable } from "../storage/coordinator.js";
 import type { StorageMaintenance } from "../storage/maintenance.js";
@@ -9,13 +10,7 @@ const request = z.object({ id: z.string().regex(/^[a-zA-Z0-9_-]{16,96}$/), opera
 export function createStorageMaintenanceRoutes(maintenance: StorageMaintenance): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
   routes.onError((error, c) => c.json({ error: error instanceof StorageUnavailable ? error.message : "Maintenance unavailable; read the original receipt before considering another operation." }, error instanceof StorageUnavailable ? error.status : 503));
-  routes.use("/storage/maintenance*", async (c, next) => {
-    c.header("Cache-Control", "private, no-store");
-    const principal = c.get("principal");
-    if (!principal) return c.json({ error: "Authentication required." }, 401);
-    if (!["owner", "ambient"].includes(principal.kind)) return c.json({ error: "Maintenance requires human-owner access." }, 403);
-    await next();
-  });
+  routes.use("/storage/maintenance*", requireHumanOwner("Maintenance requires human-owner access."));
   routes.get("/storage/maintenance", async c => c.json(await maintenance.list(c.get("principal")!.id)));
   routes.get("/storage/maintenance/:id", async c => c.json(await maintenance.receipt(c.get("principal")!.id, c.req.param("id"))));
   routes.post("/storage/maintenance", requireJson(), async c => {

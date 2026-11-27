@@ -1,34 +1,16 @@
-import type { Context, MiddlewareHandler } from "hono";
+import type { Context } from "hono";
 import { getConnInfo } from "hono/bun";
 
 /**
- * Restrict access to Tailscale VPN clients (CGNAT range 100.64.0.0/10) or
- * localhost.
+ * True when the request's client IP is a Tailscale VPN client (CGNAT range
+ * 100.64.0.0/10) or loopback address. `authGuard` admits tailscale mode
+ * through it.
  *
  * SECURITY: header trust is OFF by default. An exposed port lets anyone spoof
  * `x-forwarded-for`, so the real socket address is used unless the resolved
  * config says `trustProxy` (TRUST_PROXY=1) — set that ONLY when a trusted
  * reverse proxy in front of brain-ui sets the forwarding header.
  */
-interface TailscaleGuardOptions {
-  /** Trust x-forwarded-for / x-real-ip. */
-  trustProxy: boolean;
-  /** How many trusted proxies front the app (default 1). */
-  trustProxyHops?: number;
-}
-
-export function tailscaleGuard(options: TailscaleGuardOptions): MiddlewareHandler {
-  const { trustProxy, trustProxyHops } = options;
-  return async (c, next) => {
-    if (isTailscaleAllowed(c, trustProxy, trustProxyHops)) {
-      await next();
-    } else {
-      return c.json({ error: "VPN access required" }, 403);
-    }
-  };
-}
-
-/** True when the request's client IP is a Tailscale or loopback address. */
 export function isTailscaleAllowed(
   c: Context,
   trustProxy: boolean,

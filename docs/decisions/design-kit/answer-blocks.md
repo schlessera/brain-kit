@@ -188,9 +188,8 @@ in one call, with the code doing every extraction and every render.
    about, its kind, the question, the answer, its confidence, the line that
    confidence had to clear, and whether the candidate ended up drawn —
    written after the call has resolved, so it takes none of the call's
-   budget. It is read back with `confidenceDistribution`
-   (`packages/ui-server/src/classification/confidence-store.ts`, exported
-   from the package root), or straight off the file:
+   budget. No reader ships with the package; the rows are read straight
+   off the file:
 
    ```sql
    SELECT candidate_kind, question, threshold,

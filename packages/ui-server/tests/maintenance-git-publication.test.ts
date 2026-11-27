@@ -1,13 +1,13 @@
 import {expect,test} from "bun:test";
-import {routineMaintenance,gitPublicationAllowed,captureMaintenanceStdout,maintenanceResult,routineMaintenanceRequest} from "../src/brain/maintenance-git-publication.js";
+import {routineMaintenance,captureMaintenanceStdout,maintenanceResult,routineMaintenanceRequest} from "../src/brain/maintenance-git-publication.js";
 const ok=JSON.stringify([{step:"git",result:"ok — packed 7 loose object(s)"}]);
 test("maintain argv matches the executable and immediate subcommand only",()=>{
  for(const argv of [["brain","maintain","--json"],["/ithaca/.bin/brain","maintain"],["bun","scripts/brain-cli.ts","maintain"],[process.execPath,"--config=/dev/null","--no-env-file","/ithaca/brain.ts","maintain"]])expect(routineMaintenance(argv),"MAINTAIN_ARGV_ACCEPTS_CLI").toBe(true);
  for(const argv of [["git","-C","/ithaca/brain","tag","maintain"],["brain","read","maintain"],["bun","-e","brain","maintain"],["bun","other.ts","brain","maintain"],["brain","module","maintain"]])expect(routineMaintenance(argv),"MAINTAIN_ARGV_REJECTS_OTHER_COMMANDS").toBe(false);
 });
 test("only a zero exit and a complete parsed Git-ok report permit Git publication",()=>{
- expect(gitPublicationAllowed(0,ok)).toBe(true);
- for(const [code,output]of [[1,ok],[2,ok],[0,ok.slice(0,-2)],[0,'{"step":"git","result":"ok — packed 7 loose object(s)'],[0,"Maintenance run:\n  git        ok — packed 7 loose object(s)"],[0,JSON.stringify([{step:"git",result:"skipped — packing_headroom"}])],[0,JSON.stringify([{step:"git",result:"FAILED — refused"}])],[0,JSON.stringify([{step:"git",result:"ok — packed 7 loose object(s)"},{step:"git",result:"FAILED"}])]] as const)expect(gitPublicationAllowed(code,output),"GIT_PUBLICATION_REQUIRES_COMPLETE_ZERO_EXIT").toBe(false);
+ expect((maintenanceResult(0,ok).reason===null)).toBe(true);
+ for(const [code,output]of [[1,ok],[2,ok],[0,ok.slice(0,-2)],[0,'{"step":"git","result":"ok — packed 7 loose object(s)'],[0,"Maintenance run:\n  git        ok — packed 7 loose object(s)"],[0,JSON.stringify([{step:"git",result:"skipped — packing_headroom"}])],[0,JSON.stringify([{step:"git",result:"FAILED — refused"}])],[0,JSON.stringify([{step:"git",result:"ok — packed 7 loose object(s)"},{step:"git",result:"FAILED"}])]] as const)expect((maintenanceResult(code,output).reason===null),"GIT_PUBLICATION_REQUIRES_COMPLETE_ZERO_EXIT").toBe(false);
 });
 test("host requests JSON while preserving explicit human presentation",()=>{
  expect(routineMaintenanceRequest(["brain","maintain"])?.argv).toEqual(["brain","maintain","--json"]);

@@ -4,6 +4,7 @@ import type { resolveTurnTarget } from "../routing.js";
 import type { QueuedFollowUp, RunningTurn, StartingSession } from "../turns.js";
 import { REVOKED_REASON } from "../turns.js";
 import type { RunSessionInput, SessionSlot, TurnLifecycle } from "./types.js";
+import { bindTurnRequest, releaseRevokedRequest, takeNextRequest } from "./turn-state.js";
 
 /** Why a follow-up leaves when its session's slot ends without running it (#1002). */
 export const SLOT_ENDED_REASON = "The session stopped before it ran.";
@@ -168,21 +169,14 @@ export function requestLifecycle(
  */
 export function bindRequest(slot: SessionSlot, current: QueuedFollowUp, lifecycle: TurnLifecycle | undefined): "bound" | "revoked" {
   const { host, turn } = slot;
-  turn.revision = current.revision;
-  turn.startedAt = undefined;
-  turn.principalId = current.principalId;
-  turn.authorization = current.authorization;
+  bindTurnRequest(turn, current);
   if (!turn.authorization.valid) {
     lifecycle?.finish("cancelled", REVOKED_REASON);
     releaseActive(slot);
     host.budgets?.end(turn.turnId);
-    turn.revision = undefined;
+    releaseRevokedRequest(turn);
     return "revoked";
   }
-  turn.requestId = current.requestId;
-  turn.draftRef = current.draftRef;
-  turn.attachmentFileIds = current.attachmentFiles?.map((f) => f.fileId);
-  turn.work = current.work;
   return "bound";
 }
 
@@ -198,13 +192,7 @@ export function releaseActive(slot: SessionSlot): void {
  */
 export function dequeueRequest(turn: RunningTurn): QueuedFollowUp | null {
   const entry = turn.queue.shift() ?? null;
-  turn.handingOver = entry ?? undefined;
-  if (entry) {
-    // A queued follow-up is its own turn — give it a fresh identity, and
-    // its own terminal disposition.
-    turn.turnId = entry.lifecycleTurnId ?? crypto.randomUUID();
-    turn.lastResult = null;
-  }
+  takeNextRequest(turn, entry);
   return entry;
 }
 

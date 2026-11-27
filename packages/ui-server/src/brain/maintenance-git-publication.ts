@@ -46,7 +46,6 @@ export function maintenanceResult(code:number,text:string,human=false,readState:
   }
   return {reason,stdout};
 }
-export function gitPublicationAllowed(code:number,stdout:string):boolean {return maintenanceResult(code,stdout).reason===null;}
 
 /** Drain independently of the caller. Hold at most 1 MiB, then discard excess
  * while draining. After process exit, allow five seconds for owned stdout EOF;
