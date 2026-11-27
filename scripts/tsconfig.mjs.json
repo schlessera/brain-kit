@@ -1,0 +1,15 @@
+{
+  "//": "Type-checks the plain-JavaScript modules the pinned browser image runs under Node (#4672). Their JSDoc is the declaration TypeScript callers read; bun run typecheck runs this project after the root one. Catch variables stay untyped as in ordinary JavaScript.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "allowJs": true, "checkJs": true, "useUnknownInCatchVariables": false },
+  "include": [
+    "browser-determinism-inside.mjs",
+    "diagram-export-installation.mjs",
+    "diagram-export-producer.mjs",
+    "diagram-export-source.mjs",
+    "host-admission.mjs",
+    "prepare-diagram-export-source.mjs",
+    "proof-case-report.mjs",
+    "workspace-lease.mjs"
+  ]
+}

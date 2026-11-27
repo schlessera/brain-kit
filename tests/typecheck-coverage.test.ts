@@ -49,6 +49,33 @@ function trackedSources(): string[] {
   return run.stdout.toString().split("\0").filter(Boolean);
 }
 
+/** Plain-JavaScript modules under scripts/ outside the checkJs project (#4672), each with its reason. */
+const MJS_EXCLUSIONS: Array<{ path: string; reason: string }> = [
+  { path: "scripts/visual.mjs", reason: "the browser launcher entry point; no declaration file, not yet annotated" },
+  { path: "scripts/ci-pack-probe.mjs", reason: "the packed-consumer probe entry point; no declaration file, not yet annotated" },
+  { path: "scripts/probes/audio-commit-boundary/probe.mjs", reason: "a standalone probe entry point; not yet annotated" },
+];
+const MJS_PROJECT = "scripts/tsconfig.mjs.json";
+
+/** Tracked scripts/ .mjs files the checkJs project neither checks nor excludes, and stale exclusions. */
+function mjsCoverage(tracked: string[], checked: Set<string>, exclusions: Array<{ path: string }>) {
+  return {
+    unchecked: tracked.filter(file => !checked.has(file) && !exclusions.some(entry => entry.path === file)),
+    stale: exclusions.filter(entry => !tracked.includes(entry.path) || checked.has(entry.path)).map(entry => entry.path),
+  };
+}
+function checkJsFiles(config: unknown): Set<string> {
+  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, join(ROOT, "scripts"));
+  expect(parsed.options.checkJs && parsed.options.allowJs, "the .mjs project type-checks JavaScript").toBe(true);
+  return new Set(parsed.fileNames.map(file => relative(ROOT, file)));
+}
+const mjsConfig = () => ts.readConfigFile(join(ROOT, MJS_PROJECT), ts.sys.readFile).config as { include: string[] };
+function trackedMjs(): string[] {
+  const run = Bun.spawnSync(["git", "ls-files", "-z", "--", "scripts/*.mjs"], { cwd: ROOT });
+  expect(run.exitCode).toBe(0);
+  return run.stdout.toString().split("\0").filter(Boolean);
+}
+
 const rootConfig = () => ts.readConfigFile(join(ROOT, "tsconfig.json"), ts.sys.readFile).config as { include: string[] };
 
 describe("typecheck coverage", () => {
@@ -80,5 +107,24 @@ describe("typecheck coverage", () => {
       expect(entry.reason.length).toBeGreaterThan(20);
       if (entry.path.startsWith("packages/")) expect(entry.reason).toMatch(/#\d+/);
     }
+  });
+
+  test("every tracked .mjs under scripts/ is in the checkJs project or a named exclusion", () => {
+    const tracked = trackedMjs();
+    expect(tracked.length).toBeGreaterThan(8);
+    const { unchecked, stale } = mjsCoverage(tracked, checkJsFiles(mjsConfig()), MJS_EXCLUSIONS);
+    expect(unchecked).toEqual([]);
+    expect(stale).toEqual([]);
+  });
+
+  test("removing a module from the checkJs project uncovers exactly that module", () => {
+    const config = mjsConfig();
+    const without = { ...config, include: config.include.filter(file => file !== "host-admission.mjs") };
+    expect(mjsCoverage(trackedMjs(), checkJsFiles(without), MJS_EXCLUSIONS).unchecked).toEqual(["scripts/host-admission.mjs"]);
+  });
+
+  test("an .mjs exclusion that is gone or already checked is stale", () => {
+    expect(mjsCoverage(["scripts/a.mjs", "scripts/b.mjs"], new Set(["scripts/a.mjs"]), [{ path: "scripts/a.mjs" }, { path: "scripts/b.mjs" }, { path: "scripts/gone.mjs" }]).stale)
+      .toEqual(["scripts/a.mjs", "scripts/gone.mjs"]);
   });
 });
