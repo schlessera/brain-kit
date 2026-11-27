@@ -1588,6 +1588,18 @@ withhold input until the bounded SDK handshake completes. A contradictory
 later init version ends the turn through the existing error/result envelopes;
 compatibility adds no wire fields and changes no measured verdict.
 
+**Additive static cache policy (#4815):** `CreateAppOptions.staticImmutablePrefix?: string`
+names one URL path prefix under `staticRoot` (such as `"/assets/"`) whose files
+the build names by content hash. It has no default and no effect without
+`staticRoot`. `createApp` rejects a value that does not start and end with `/`,
+and `/` itself, before it creates any resource. A static file found under the
+prefix is served with `Cache-Control: public, max-age=31536000, immutable`;
+every other found file and the `index.html` deep-link fallback carry
+`Cache-Control: no-cache`. A `.br`, `.zst` or `.gz` sibling is served with
+`Content-Encoding` and `Vary: Accept-Encoding` to a request that accepts it.
+The `GET /*` row stays Internal in the HTTP inventory; the headers are
+described there but are not themselves a compatibility promise.
+
 <a id="html-renderer-budgets"></a>
 
 ## HTML renderer budgets
