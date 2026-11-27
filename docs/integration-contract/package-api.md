@@ -6367,7 +6367,11 @@ host books no usage for it. Its caller refusal and `refused` diagnostic are
 unchanged. A started attempt still reports `dispatched` and exactly one
 terminal outcome under its `attemptId`, including when the dispatch fails after
 its request started and when a host `pendingRecording()` wait rejects after its
-response headers (503, terminal `cancelled`). Observers that counted those pre-dispatch `cancelled`
+response headers or during a body read (503 where no response was sent yet,
+terminal `cancelled`, never `failed`). Each post-dispatch recording check and
+the header, body or end charge after it run in one synchronous segment, with no
+await between them, on the headers, Files answer, empty body and stream
+fences. Observers that counted those pre-dispatch `cancelled`
 receipts now see none.
 Relayed operations expose `prepare()` and `dispatch(send)` in place of this
 change's provisional `commit()` method. A pending terminal decision during a
@@ -6387,8 +6391,11 @@ A synchronous transport-handoff throw is classified by the same caller path
 as an asynchronous upstream rejection. A synchronous throw publishes no
 dispatched fact or contacted-host grant. Dispatch does not abort or store an
 admission refusal before the caller classifies
-that transport error. Both report failed upstream attempts (502 before response
-headers), with provider receipt status 0 when no upstream response was seen.
+that transport error. Both answer the caller as failed upstream attempts (502
+before response headers). Only the asynchronous rejection, whose request
+started, publishes provider receipts: `dispatched`, then `failed` with status 0
+when no upstream response was seen. A synchronous constructor throw publishes
+none (#4370, above).
 The final fence and transport invocation remain synchronous. Proxy HTTP and
 CONNECT use their ordinary upstream-failure handler for either failure order.
 
@@ -6436,12 +6443,16 @@ losses it tolerates (maintainer ruling on #4351, 2026-11-27). A connection
 that would need a Network card, an ordinary destination or a managed GitHub
 fetch, or an outward card is refused without one as `egress_connection`
 `reason: "recording_gap"`, with a 403 whose refusal `cause` is
-`recording_gap`. A Network card that was pending when the gap appeared, or
-answered before it, is never used: its connection is refused the same way
-before dispatch, and an answered outward card is withdrawn at dispatch with
-`safety_changed`. Allow-listed and already-contacted destinations need no
-card and still connect, and a new turn restores approvals. The proxy takes
-the gap from its `recordingGap()` option; an unreadable gap raises no card.
+`recording_gap`. The proxy reads its `recordingGap()` option before invoking
+any approval callback, Network or outward, so no host callback can raise or
+answer a card there; an outward host on such a turn is refused even when a
+classified call would have covered it. A card pending when the gap appeared,
+or answered before it, is never used: its connection, of either kind, is
+refused as `recording_gap` before dispatch. Allow-listed and already-contacted
+destinations need no card and still connect, and a new turn restores
+approvals. An unreadable gap raises no card. A managed GitHub acquisition
+refused this way tells its caller about the gap and that a new turn restores
+approvals.
 
 Network approval markers exclude only the approved operation’s own occurrence
 and, when it creates the turn’s first collection, that same collection-start

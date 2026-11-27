@@ -189,8 +189,8 @@ export async function prepareTurnEgress(options: {
   // see the losses it tolerates. Only a known gap tolerates a loss; an
   // unreadable one (undefined) still raises no card.
   const gapRead = (): boolean | undefined => { try { return !!db?.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(options.turnId); } catch { return undefined; } };
-  // A gap that appears after a card opened also changes that card's marker
-  // (its coverage), so an answered outward card is withdrawn at dispatch.
+  // The proxy reads `noCards` before every approval callback and again at
+  // dispatch, so no card of any kind is raised or used on a gapped turn.
   const gapped = () => gapRead() === true, noCards = () => gapRead() !== false;
   /** `tolerable`: a taint record, whose tolerated loss on a gapped turn is not an audit failure. */
   const track = (committed: unknown, tolerable = false) => {
@@ -441,8 +441,6 @@ export async function prepareTurnEgress(options: {
     }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;
-      // A gapped turn raises no card; the proxy names the refusal (#4351).
-      if (noCards()) return false;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
         kind: "command", input: destination,
         description: `${destination.method} to ${networkAuthority(destination)}`,

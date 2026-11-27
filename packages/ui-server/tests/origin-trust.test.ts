@@ -579,7 +579,7 @@ test("#4351: an outward card answered before the gap is not used at dispatch", a
     gappedTurn(f);
     const prepared = op.prepare();
     const sent = prepared.ok ? op.dispatch(() => {}) : prepared;
-    expect(sent.ok, "OUTWARD_CARD_MARKER_SEES_THE_GAP").toBe(false);
-    expect(op.reason()).toBe("safety_changed");
+    expect(sent.ok).toBe(false);
+    expect(op.reason(), "GAP_BEFORE_DISPATCH_REFUSES_AN_ANSWERED_OUTWARD_CARD").toBe("recording_gap");
   } finally { await f.close(); }
 });

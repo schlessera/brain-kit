@@ -147,10 +147,11 @@ export interface EgressProxyOptions {
    */
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?: string }): unknown;
   /**
-   * True while the turn carries a permanent recording gap (#4351). It raises
-   * no Network card, a Network answer that arrives once it holds is not used,
-   * and an outward refusal under it is named the same way: each such
-   * connection is refused as `recording_gap`. Allow-listed and
+   * True while the turn carries a permanent recording gap (#4351). The proxy
+   * reads it before any approval callback, Network or outward, and raises no
+   * card while it holds; an answer that arrives once it holds is not used,
+   * and a card-approved connection not yet dispatched is refused at dispatch.
+   * Each such connection is refused as `recording_gap`. Allow-listed and
    * already-contacted destinations need no card and still connect. A throw
    * refuses as `egress_unavailable`.
    */
@@ -402,6 +403,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
     const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean | "superseded" | "expired" | "unconfirmed">) | undefined) => {
       if (!ask || !lifecycle.active()) return false;
+      // A gapped turn raises no card of any kind, whatever the host's callback would answer (#4351).
+      if (gapRefused()) return false;
       let answer: boolean | "superseded" | "expired" | "unconfirmed" = "unconfirmed";
       let cancelled: (() => void) | undefined;
       try {
@@ -413,7 +416,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         answer = await Promise.race([ask({ host, port, method, protocol: url.protocol, managedReference }, controller.signal), cancellation]);
       } catch { /* A failed approval denies. */ }
       finally { if (cancelled) controller.signal.removeEventListener("abort", cancelled); }
-      return controller.signal.aborted || stopped ? false : answer;
+      if (controller.signal.aborted || stopped) return false;
+      // Whatever the answer, a card answered once the gap appeared is never used.
+      return gapRefused() ? false : answer;
     };
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
@@ -474,12 +479,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!narrowed()) return true;
       const ask = options.taint?.approve;
       if (!ask) { finish("denied","taint_not_allowed"); return false; }
-      const askNetwork = async (replacement:boolean) => {
-        if (gapRefused()) return false;
+      const askNetwork = (replacement:boolean) => {
         grantRevision = approvalRevision();
-        const answer = await approval((destination, signal) => ask(destination, signal, connectionId, replacement));
-        // An owner's denial stays a denial; any other answer meets the gap first.
-        return answer !== false && gapRefused() ? false : answer;
+        return approval((destination, signal) => ask(destination, signal, connectionId, replacement));
       };
       let beforeCard = readSafety();
       let answer = await askNetwork(false);
@@ -534,7 +536,6 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         outwardRevision = approvalRevision(false,true);
         const approveOutward=options.approveOutward;
         if ((await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) !== true) {
-          if (!stopped) gapRefused();
           finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false;
         }
         outwardApproved = true;
@@ -570,9 +571,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!lifecycle.active() || stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return null; }
       const stateRefusal=lifecycle.sendRefusal(count,options.maxBytes-usedBytes);
       if (stateRefusal) { finish(stateRefusal==="turn_cancelled"?"cancelled":"denied",stateRefusal);return null; }
+      // Before any other recheck, so a gap is always named as one (#4351).
+      if ((granted || outwardApproved) && !lifecycle.dispatched() && gapRefused()) return null;
       const current = readSafety();
       if (refuseSafety(current,snapshot)) return null;
-      if (granted && !lifecycle.dispatched() && gapRefused()) return null;
       if (!grantCurrent(true)) { refuseStaleApproval(); return null; }
       if (!inputCurrent(connectionId)) { revokeInput(); return null; }
       const authority=recipientDecision(true);

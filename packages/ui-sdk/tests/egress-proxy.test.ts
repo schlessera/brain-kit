@@ -616,3 +616,27 @@ test("a superseded Network card reports a byte budget spent by a concurrent conn
     expect(records.at(-1)).toMatchObject({ reason: "max_bytes_per_turn", dispatched: false });
   } finally { answer.resolve("superseded"); proxy.stop(); }
 });
+
+// #4351: the proxy itself reads `recordingGap()` before any approval callback
+// and again at dispatch for every card-approved kind, whatever the host's
+// callback answers, and names each refusal `recording_gap`.
+for (const kind of ["network", "outward"] as const) for (const when of ["before the card", "after the answer"] as const)
+  test(`a recording gap ${when} refuses a ${kind} card-approved connection as recording_gap`, async () => {
+    const records: EgressRecord[] = [];
+    let gap = when === "before the card", asks = 0, hits = 0;
+    const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+    const approve = async () => { asks++; return true as const; };
+    const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => gap,
+      // The answer is already in; the gap appears in the last step before dispatch.
+      admitted: () => { if (when === "after the answer") gap = true; },
+      ...(kind === "outward" ? { outwardHosts: ["127.0.0.1"], approveOutward: approve }
+        : { taint: { allow: [], tainted: () => true, contacted: () => false, approve } }) });
+    try {
+      const response = await get(proxy.socketPath, origin.url.href);
+      await recorded(records, 1);
+      expect(response.status).toBe(403);
+      expect(hits).toBe(0);
+      expect(asks, when === "before the card" ? "GAP_RAISES_NO_CARD_WHATEVER_THE_HOST_ANSWERS" : "THE_CARD_WAS_ANSWERED").toBe(when === "before the card" ? 0 : 1);
+      expect(records.at(-1), when === "before the card" ? "GAP_REFUSAL_IS_NAMED" : "GAP_AFTER_THE_ANSWER_REFUSES_AT_DISPATCH").toMatchObject({ outcome: "denied", reason: "recording_gap", dispatched: false });
+    } finally { proxy.stop(); origin.stop(true); }
+  });
