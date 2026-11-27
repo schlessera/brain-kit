@@ -25,8 +25,12 @@
     "packages/*/stories/**/*.tsx",
     "packages/*/tools/**/*.ts",
     "scripts/**/*.ts",
+    "scripts/**/*.tsx",
     "tests/**/*.ts",
-    "experiments/**/*.ts"
+    "tests/**/*.tsx",
+    "experiments/**/*.ts",
+    "evals/**/*.ts",
+    "template/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

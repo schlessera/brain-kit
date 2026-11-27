@@ -27,7 +27,7 @@ export function data(raw = ""): Record<string, unknown> {
   return Object.fromEntries(Object.entries(parseFrontmatter(raw).data).map(([k,v]) => [k,v instanceof Date ? v.toISOString().slice(0,10) : v]));
 }
 function row(raw: string, name: string, conference?: string): string {
-  const lines = raw.split("\n"), header = lines.find(s => /^\|/.test(s) && s.split("|").some(v => /^(status|outcome|speaking_outcome)$/i.test(v.trim())));
+  const lines = raw.split("\n"), header = lines.find(s => s.startsWith("|") && s.split("|").some(v => /^(status|outcome|speaking_outcome)$/i.test(v.trim())));
   const column = header?.split("|").findIndex(v => /^(status|outcome|speaking_outcome)$/i.test(v.trim())) ?? -1;
   const entity = (s:string) => s.trim().toLowerCase().replace(/[-_]/g," ");
   return lines.filter(s => s.startsWith("|") && s.split("|").some(v => entity(v) === entity(name)) && (!conference || s.split("|").some(v => entity(v) === entity(conference)))).map(s => column >= 0 ? s.split("|")[column] : s).join("\n");

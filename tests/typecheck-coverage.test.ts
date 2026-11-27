@@ -1,0 +1,84 @@
+/**
+ * The root typecheck (`tsc --noEmit` over tsconfig.json's `include`) sees a
+ * file only if a pattern matches it or a checked file imports it. A new source
+ * directory outside the patterns is unchecked until someone notices (#4671).
+ * This test expands the patterns with TypeScript's own config parser and fails
+ * when a tracked `.ts` or `.tsx` file matches none of them and is not under a
+ * named exclusion.
+ */
+import { describe, expect, test } from "bun:test";
+import { join, relative } from "node:path";
+import ts from "typescript";
+
+const ROOT = join(import.meta.dir, "..");
+
+/** Paths (a directory ending in `/`, or a file) the root typecheck does not include, each with its reason. */
+const EXCLUSIONS: Array<{ path: string; reason: string }> = [
+  { path: "website/", reason: "its own project (website/tsconfig.json), type-checked by the publication workflow" },
+  // Package-level tooling outside the include patterns. A fix there can land in
+  // a core package, so each is its own follow-up.
+  { path: "packages/core/fixtures/corpus/brain.config.ts", reason: "corpus fixture config; #4864 brings it into a typecheck" },
+  { path: "packages/ui-kit/.storybook/", reason: "Storybook config; #4864 brings it into a typecheck" },
+  { path: "packages/ui-kit/vite.config.ts", reason: "Vite config; #4864 brings it into a typecheck" },
+  { path: "packages/ui-kit/vitest.config.ts", reason: "Vitest config; #4864 brings it into a typecheck" },
+  { path: "packages/ui-kit/vitest.shims.d.ts", reason: "Vitest browser shims; #4864 brings it into a typecheck" },
+  { path: "packages/ui-server/evals/triage/", reason: "triage eval harness; #4864 brings it into a typecheck" },
+  { path: "packages/module-diagrams/scripts/", reason: "module maintenance scripts; #4865 brings them into a typecheck" },
+  { path: "packages/module-jobs/scripts/", reason: "module maintenance scripts; #4865 brings them into a typecheck" },
+  { path: "packages/ui-backend-pi/scripts/", reason: "backend measurement script; #4865 brings it into a typecheck" },
+];
+
+/** Repository-relative files the config's `include`/`exclude` patterns select. */
+function includedFiles(root: string, config: unknown): Set<string> {
+  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, root);
+  return new Set(parsed.fileNames.map(file => relative(root, file)));
+}
+
+/** Tracked files no pattern includes and no exclusion covers, and exclusions that cover nothing. */
+function coverage(tracked: string[], included: Set<string>, exclusions: Array<{ path: string }>) {
+  const covers = (path: string, file: string) => path.endsWith("/") ? file.startsWith(path) : file === path;
+  return {
+    uncovered: tracked.filter(file => !included.has(file) && !exclusions.some(entry => covers(entry.path, file))),
+    stale: exclusions.filter(entry => !tracked.some(file => covers(entry.path, file))).map(entry => entry.path),
+  };
+}
+
+function trackedSources(): string[] {
+  const run = Bun.spawnSync(["git", "ls-files", "-z", "--", "*.ts", "*.tsx"], { cwd: ROOT });
+  expect(run.exitCode).toBe(0);
+  return run.stdout.toString().split("\0").filter(Boolean);
+}
+
+const rootConfig = () => ts.readConfigFile(join(ROOT, "tsconfig.json"), ts.sys.readFile).config as { include: string[] };
+
+describe("typecheck coverage", () => {
+  test("every tracked .ts and .tsx file is in the root typecheck's include patterns or a named exclusion", () => {
+    const tracked = trackedSources();
+    expect(tracked.length).toBeGreaterThan(1000);
+    const { uncovered, stale } = coverage(tracked, includedFiles(ROOT, rootConfig()), EXCLUSIONS);
+    expect(uncovered).toEqual([]);
+    expect(stale).toEqual([]);
+  });
+
+  test("the expansion is TypeScript's: dropping a pattern uncovers exactly its files", () => {
+    const config = rootConfig();
+    const without = { ...config, include: config.include.filter(pattern => pattern !== "evals/**/*.ts") };
+    const { uncovered } = coverage(trackedSources(), includedFiles(ROOT, without), EXCLUSIONS);
+    expect(uncovered.length).toBeGreaterThan(0);
+    expect(uncovered.every(file => file.startsWith("evals/"))).toBe(true);
+  });
+
+  test("an exclusion with no tracked source file under it is stale", () => {
+    const { uncovered, stale } = coverage(["website/a.ts", "evals/x/run.ts"], new Set(["evals/x/run.ts"]),
+      [{ path: "website/" }, { path: "packages/odysseus/scripts/" }, { path: "packages/odysseus/vite.config.ts" }]);
+    expect(uncovered).toEqual([]);
+    expect(stale).toEqual(["packages/odysseus/scripts/", "packages/odysseus/vite.config.ts"]);
+  });
+
+  test("every exclusion carries a reason, and each package-level one names its follow-up issue", () => {
+    for (const entry of EXCLUSIONS) {
+      expect(entry.reason.length).toBeGreaterThan(20);
+      if (entry.path.startsWith("packages/")) expect(entry.reason).toMatch(/#\d+/);
+    }
+  });
+});
