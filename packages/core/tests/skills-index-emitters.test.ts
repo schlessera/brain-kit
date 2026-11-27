@@ -577,24 +577,30 @@ describe("geminiEmitter GEMINI.md contract", () => {
     writeFileSync(join(root, "GEMINI.md"), text);
     const res = syncSkills({ root, modules: [] }, { emitters: [geminiEmitter], coreSkillsDir: join(root, "none") });
     expect(readFileSync(join(root, "GEMINI.md"), "utf8")).toBe(text);
-    const warning = "gemini emitter: GEMINI.md has 1 start and 0 end marker(s)";
+    const warning = "gemini emitter: GEMINI.md has 1 start and 0 end marker(s), expected one of each for the contract block;";
     expect(res.warnings.map((w) => w.slice(0, warning.length))).toContain(warning);
   });
 });
 
 /** An isolated installed source layout: upgrades/failures never mutate the real package. */
 function installedGemini() {
+  return installedEmitter("gemini", "GEMINI.md");
+}
+
+function installedEmitter(agent: "gemini" | "codex", target: string) {
   const root = mkRepo();
   const pkg = join(root, "package");
   const emitters = join(pkg, "src", "lib", "skills", "emitters");
   cpSync(join(dirname(CONTRACT_FILE), "src", "lib", "skills", "emitters"), emitters, { recursive: true });
+  // The codex emitter imports a workspace package; resolve it from the repository.
+  symlinkSync(join(dirname(CONTRACT_FILE), "..", "..", "node_modules"), join(pkg, "node_modules"));
   const contract = join(pkg, "CONTRACT.md");
   writeFileSync(contract, contractBody);
   const repo = join(root, "brain");
   mkdirSync(repo);
-  const file = join(repo, "GEMINI.md");
+  const file = join(repo, target);
   const emit = () => {
-    const code = `import { geminiEmitter } from ${JSON.stringify(join(emitters, "gemini.ts"))}; console.log(JSON.stringify(geminiEmitter.emit([], ${JSON.stringify(repo)})));`;
+    const code = `import { ${agent}Emitter } from ${JSON.stringify(join(emitters, `${agent}.ts`))}; console.log(JSON.stringify(${agent}Emitter.emit([], ${JSON.stringify(repo)})));`;
     const child = Bun.spawnSync(["bun", "-e", code], { stdout: "pipe", stderr: "pipe", timeout: 5000 });
     if (child.exitCode !== 0) throw new Error(new TextDecoder().decode(child.stderr));
     return JSON.parse(new TextDecoder().decode(child.stdout)) as { written: string[]; removed: string[]; warnings?: string[] };
@@ -628,6 +634,23 @@ describe("Gemini installed contract refresh and read failure", () => {
       expect(res.written).toEqual([]);
       expect(res.warnings?.join(" ")).toContain("installed CONTRACT.md");
       expect(res.warnings?.join(" ")).toContain("left GEMINI.md unchanged");
+    });
+  }
+});
+
+describe("Codex installed contract read failure", () => {
+  for (const initial of [undefined, "# Rules\r\nKeep this text.  ", `${INDEX_START}\nold\n${INDEX_END}`]) {
+    test(`missing installed contract preserves ${JSON.stringify(initial)} and reports the failed read`, () => {
+      const { contract, file, emit } = installedEmitter("codex", "AGENTS.md");
+      if (initial !== undefined) writeFileSync(file, initial);
+      rmSync(contract);
+      const res = emit();
+      if (initial === undefined) expect(existsSync(file)).toBe(false);
+      else expect(readFileSync(file, "utf8")).toBe(initial);
+      expect(res.written).toEqual([]);
+      expect(res.removed).toEqual([]);
+      expect(res.warnings?.join(" ")).toContain("installed CONTRACT.md");
+      expect(res.warnings?.join(" ")).toContain("left AGENTS.md unchanged");
     });
   }
 });
