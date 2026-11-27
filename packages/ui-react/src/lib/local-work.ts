@@ -390,10 +390,17 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       // So is one whose first save got no answer: the host may hold it (#1214).
       if (!hasContent(d) && d.host === null && !d.deviceConflict && !d.uncertain) continue;
       next.set(d.draftId, d);
+      const forced = acceptance?.draft.draftId === d.draftId;
+      // The draft store replaces a draft object on every edit: the object
+      // last written here is still what the device holds, so it is neither
+      // rebuilt nor serialized again (#4746). Every path that resets its
+      // committed text also forgets the object (written holds null).
+      const baseline = committed.get(d.draftId);
+      if (!forced && baseline !== undefined && written.get(d.draftId) === d) { nextCommitted.set(d.draftId, baseline); continue; }
       const value = storeDraft(d);
       const serialized = JSON.stringify(value);
       nextCommitted.set(d.draftId, serialized);
-      if (committed.get(d.draftId) !== serialized || acceptance?.draft.draftId === d.draftId) changes.push({ put: draftKey(d.draftId), value });
+      if (baseline !== serialized || forced) changes.push({ put: draftKey(d.draftId), value });
     }
     for (const [id, serialized] of retained) if (!next.has(id)) {
       next.set(id, null);
@@ -419,8 +426,12 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     let forks: Fork[] = [];
     let writtenHere = new Set<string>();
     const nextVersions = new Map(versions);
+    // Only the context moved: it is written without reading any stored
+    // draft (#4746). A draft change, deletion or receipt goes through mutate.
+    const contextOnly = !acceptance && changes.every(c => "put" in c && (c.put === contextKey || c.put === sharedContextKey));
+    const writeContext = async () => { checkGeneration(); await writingPartition.write(changes); return { forks: [] as Fork[], written: [] as string[] }; };
     try {
-      const outcome = await writingPartition.mutate(`${scope}/draft/`, stored => {
+      const outcome = contextOnly ? await writeContext() : await writingPartition.mutate(`${scope}/draft/`, stored => {
         checkGeneration();
         const actual = new Map(stored.map(r => [r.key, r.value as StoredDraft]));
         const planned: PartitionWrite[] = [];
