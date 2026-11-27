@@ -317,9 +317,22 @@ interface PrivateIndexCache {
   close(): Promise<void>;
 }
 
+/** The idle-expiry clock. Internal fixture wiring, never a package extension interface. */
+export interface PrivateIndexTimers {
+  setTimeout: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  clearTimeout: (timer: ReturnType<typeof setTimeout> | undefined) => void;
+}
+
 export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; report: (message: string) => void;
-  entries?: number; idleMs?: number; onAdvance?: (results: PrivateIndexAdvance[]) => void } = { report() {} }): PrivateIndexCache {
+  entries?: number; idleMs?: number; onAdvance?: (results: PrivateIndexAdvance[]) => void;
+  /** Internal fixture wiring, never a package extension interface; production passes neither. */
+  now?: () => number; timers?: PrivateIndexTimers } = { report() {} }): PrivateIndexCache {
   const differ = options.differ ?? nativePrivateIndexDiffer;
+  const now = options.now ?? (() => Date.now());
+  const { setTimeout: arm, clearTimeout: disarm } = options.timers ?? {
+    setTimeout: (callback, ms) => setTimeout(callback, ms),
+    clearTimeout: (timer) => clearTimeout(timer),
+  } satisfies PrivateIndexTimers;
   const limit = options.entries ?? PRIVATE_INDEX_CACHE_ENTRIES, idleMs = options.idleMs ?? PRIVATE_INDEX_CACHE_IDLE_MS;
   const bases = new Map<string, Base>(), chains = new Map<string, Promise<unknown>>();
   const swept = new Set<string>(), refused = new Set<string>();
@@ -333,7 +346,7 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
   /** Remove a base from the map at once, then release what it holds. */
   async function drop(base: Base): Promise<void> {
     if (bases.get(base.key) === base) bases.delete(base.key);
-    clearTimeout(base.timer);
+    disarm(base.timer);
     try { rmSync(base.dir, { recursive: true, force: true }); } finally { await base.view.cleanup(); }
   }
   const dropQuietly = (base: Base) => drop(base).catch(error => options.report(`private index cache release failed: ${String(error)}`));
@@ -345,7 +358,7 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
    */
   async function trim(): Promise<void> {
     const idle = (base: Base) => bases.get(base.key) === base && !chains.has(base.key);
-    for (const base of [...bases.values()]) if (idle(base) && (closed || Date.now() - base.used >= idleMs)) await dropQuietly(base);
+    for (const base of [...bases.values()]) if (idle(base) && (closed || now() - base.used >= idleMs)) await dropQuietly(base);
     for (;;) {
       const candidates = [...bases.values()].filter(idle).sort((a, b) => a.used - b.used);
       if (bases.size <= limit || !candidates.length) return;
@@ -354,12 +367,12 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
   }
   /** Expire `base` `idleMs` after a turn last used it. */
   function schedule(base: Base): void {
-    clearTimeout(base.timer);
-    base.timer = setTimeout(() => void trim(), Math.max(0, base.used + idleMs - Date.now()) + 1);
+    disarm(base.timer);
+    base.timer = arm(() => void trim(), Math.max(0, base.used + idleMs - now()) + 1);
     base.timer.unref?.();
   }
   /** A turn used `base`; an advance never does, so an unused base still expires. */
-  function touch(base: Base): void { base.used = Date.now(); schedule(base); }
+  function touch(base: Base): void { base.used = now(); schedule(base); }
   function intact(base: Base): boolean {
     try {
       const names = readdirSync(base.dir).sort();
@@ -386,7 +399,7 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
       await copyFiles(index, dir, names, 0o400);
       const stamps = new Map(names.map(name => [name, stampOf(lstatSync(join(dir, name), { bigint: true }))] as const));
       retained = retainWorkerStartupView(view);
-      await install({ dir, stamps, view: retained, key, used: Date.now(), folders, ...(runner ? { runner } : {}) });
+      await install({ dir, stamps, view: retained, key, used: now(), folders, ...(runner ? { runner } : {}) });
     } catch (error) {
       rmSync(dir, { recursive: true, force: true });
       await retained?.cleanup();

@@ -32,31 +32,6 @@ import type { QuestionObservation } from "@schlessera/brain-ui-sdk/internal";
 /** How long a recorded confidence is kept. Long enough to tune on, bounded. */
 const CONFIDENCE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** How many buckets the 0-1 range is cut into for the distribution. */
-const CONFIDENCE_BUCKETS = 10;
-
-/**
- * One bucket of the distribution: how many answers to this question about
- * this candidate kind landed in it, how many cleared their threshold, and how
- * many belonged to a candidate that was drawn as a block.
- */
-interface ConfidenceBucket {
-  candidateKind: string;
-  question: string;
-  /** The line these rows were compared against, or null when ungated. */
-  threshold: number | null;
-  /** The bucket's lower bound: 0.6 covers [0.6, 0.7). */
-  bucket: number;
-  count: number;
-  cleared: number;
-  swapped: number;
-}
-
-interface ConfidenceReadOptions {
-  /** Only rows recorded at or after this epoch-ms. Default: everything kept. */
-  since?: number;
-}
-
 /**
  * Record one pass's answers. All-or-nothing, so a partial pass never skews a
  * distribution, and pruned in the same transaction.
@@ -102,34 +77,4 @@ export function recordQuestionConfidence(
     }
     prune.run(now - CONFIDENCE_RETENTION_MS);
   }).immediate();
-}
-
-/**
- * The distribution, bucketed 0.1 wide, per candidate kind and question. The
- * grouping keeps the threshold, so rows recorded either side of a threshold
- * change are not averaged together.
- */
-export function confidenceDistribution(
-  db: Database,
-  options: ConfidenceReadOptions = {}
-): ConfidenceBucket[] {
-  const rows = db
-    .query(
-      // The bucket index is computed in SQL so the grouping can use it; the
-      // only interpolation is this module's own constant.
-      `SELECT candidate_kind AS candidateKind,
-              question,
-              threshold,
-              CAST(MAX(0, MIN(confidence, 0.99999)) * ${CONFIDENCE_BUCKETS} AS INTEGER) AS bucket,
-              COUNT(*) AS count,
-              SUM(cleared) AS cleared,
-              SUM(outcome = 'swapped') AS swapped
-         FROM classification_confidence
-        WHERE recorded_at >= ?
-        GROUP BY candidate_kind, question, threshold, bucket
-        ORDER BY candidate_kind, question, threshold, bucket`
-    )
-    .all(options.since ?? 0) as Array<Omit<ConfidenceBucket, "bucket"> & { bucket: number }>;
-  // The bucket comes back as its index; the caller wants its lower bound.
-  return rows.map((row) => ({ ...row, bucket: row.bucket / CONFIDENCE_BUCKETS }));
 }

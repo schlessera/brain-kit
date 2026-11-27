@@ -126,18 +126,6 @@ export const ALLOWLIST: AllowlistEntry[] = [
 
   // #4682 wires or removes safety-detail pruning.
   { file: "packages/ui-server/src/governance/safety-store.ts", name: "pruneSafetyDetail", kind: "test-only", owner: "#4682", reason: "nothing in production prunes safety detail; #4682 wires or removes it" },
-
-  // #4678 removes ui-server exports only tests reach.
-  { file: "packages/ui-server/src/activity/ingestion-taint.ts", name: "outputTaintSource", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
-  { file: "packages/ui-server/src/activity/ingestion-taint.ts", name: "INGESTION_DETECTOR_MANIFEST", kind: "test-only", owner: "#4678", reason: "only tests read it; #4678 removes it" },
-  { file: "packages/ui-server/src/brain/journal-steering.ts", name: "journalSteeringInputs", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
-  { file: "packages/ui-server/src/brain/maintenance-git-publication.ts", name: "gitPublicationAllowed", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
-  { file: "packages/ui-server/src/brain/origin-trust.ts", name: "originTrustMatch", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
-  { file: "packages/ui-server/src/classification/confidence-store.ts", name: "confidenceDistribution", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
-  { file: "packages/ui-server/src/governance/events.ts", name: "GOVERNANCE_EVENT_KINDS", kind: "test-only", owner: "#4678", reason: "only tests read it; #4678 removes it" },
-  { file: "packages/ui-server/src/middleware/tailscale.ts", name: "tailscaleGuard", kind: "test-only", owner: "#4678", reason: "only tests mount it; #4678 removes it" },
-  { file: "packages/ui-server/src/share/staging.ts", name: "shareStagingRoot", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
-  { file: "packages/ui-server/src/voice/conversation-history.ts", name: "conversationHistory", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
 ];
 
 export interface Finding { file: string; line: number; name: string; kind: "declaration" | "re-export" | "test-only" }

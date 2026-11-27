@@ -1,7 +1,7 @@
 /** Schedule ledger steps; SQL stays ordered around the app's file/Git work (#3003). */
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
-import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
+import { isHumanOwner, isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
 import { procedureCaller, type SqliteWriter, type WireError, type WriteProcedures } from "../db/write-worker.js";
 import { canonicalJson, scheduleFingerprint, sha256Hex } from "./canonical.js";
 import type { StoredDefinition } from "./definition.js";
@@ -26,7 +26,6 @@ export function setup(db: Database, root: Root): WriteProcedures {
   const now = () => suppliedNow ?? Date.now();
   const rootInfo = () => root;
   const newId = (prefix: string) => `${prefix}_${randomBytes(16).toString("hex")}`;
-  const isOperator = (principal: Principal) => principal.kind === "owner" || principal.kind === "ambient";
   function usable(id: string): Principal | null {
     const current = resolvePrincipal(db, id);
     return current && isUsablePrincipal(current, now()) ? current : null;
@@ -49,7 +48,7 @@ export function setup(db: Database, root: Root): WriteProcedures {
     const approval = db.query("SELECT approver_principal_id, approver_kind FROM schedule_approvals WHERE id = ?")
       .get(row.approval_id) as { approver_principal_id: string; approver_kind: string } | null;
     const approver = approval ? usable(approval.approver_principal_id) : null;
-    return Boolean(approver && isOperator(approver) && approver.kind === approval!.approver_kind);
+    return Boolean(approver && isHumanOwner(approver) && approver.kind === approval!.approver_kind);
   }
   function finished(row: TaskRow, at: number): boolean {
     const { when } = JSON.parse(row.definition_json) as StoredDefinition;
@@ -98,7 +97,7 @@ export function setup(db: Database, root: Root): WriteProcedures {
         if (proposal.expires_at <= at) throw new ScheduleError("approval_expired", "This approval expired before publication; propose again with a new key.");
         assertWritable();
         const approver = usable(approval.approver_principal_id);
-        if (!approver || !isOperator(approver) || approver.kind !== approval.approver_kind)
+        if (!approver || !isHumanOwner(approver) || approver.kind !== approval.approver_kind)
           throw new ScheduleError("unauthorized", "The approving operator is no longer usable.");
         if (approval.fingerprint !== proposal.fingerprint || proposal.root_identity !== rootInfo().identity)
           throw new ScheduleError("definition_conflict", "The approval no longer matches this proposal.");
