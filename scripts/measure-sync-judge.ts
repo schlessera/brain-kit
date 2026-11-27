@@ -6,7 +6,7 @@
 //
 // It asks exactly what a sync asks — the same questions, batching and gates,
 // from `packages/core/src/lib/sync/judge.ts` — and scores the answers with
-// `packages/core/src/lib/sync/judge-score.ts`. The number that decides whether
+// `scripts/sync-judge-score.ts`. The number that decides whether
 // acting on the judge is safe is precision AT the thresholds: of the decisions
 // the judge would return, how many are right, and how many of the wrong ones
 // lose content.
@@ -39,7 +39,7 @@ import {
   scoreJudge,
   type JudgeSample,
   type JudgeScore,
-} from "../packages/core/src/lib/sync/judge-score.ts";
+} from "./sync-judge-score.ts";
 import {
   FILE_DECISIONS,
   PAIR_DECISIONS,

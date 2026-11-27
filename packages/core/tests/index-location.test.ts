@@ -8,7 +8,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, lstatSync, readFileSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { INDEX_DB_PATH } from "@schlessera/brain-common/internal/index-location";
-import { initContext, setContext } from "../src/lib/context";
+import { initContext } from "../src/lib/context";
 import { openDatabase } from "../src/lib/db";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
@@ -19,7 +19,6 @@ function tempBrain(): string {
   return dir;
 }
 afterEach(() => {
-  setContext(null);
   while (temps.length) cleanup(temps.pop()!);
 });
 
