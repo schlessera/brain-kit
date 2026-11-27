@@ -1,7 +1,7 @@
 // A destructive-command approval says what the command will do (#112): the
 // matched confirm pattern's effect reaches the card as the request's
 // description, and both places a pending approval is drawn show it. Same
-// containment contract as render-smoke.test.tsx: the DOM module first,
+// containment contract as the smoke-*.test.tsx files: the DOM module first,
 // `afterAll(unregisterDom)`, queries off `render()` and never `screen`.
 import { unregisterApprovalEffectDom as unregisterDom } from "./approval-effect-dom.js";
 

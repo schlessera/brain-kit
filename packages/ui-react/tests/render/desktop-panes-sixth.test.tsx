@@ -1,6 +1,6 @@
 // The sixth pass's rulings on the desktop panes (design README, "Sixth pass —
 // rulings" §3, §4, §7, §8), rendered in happy-dom. Same containment contract
-// as render-smoke.test.tsx: the DOM module first, `afterAll(unregisterDom)`, queries
+// as the smoke-*.test.tsx files: the DOM module first, `afterAll(unregisterDom)`, queries
 // off `render()` and never `screen`. The test window is 1024px wide, so the
 // `laptop:` shapes render; the `wide:` evidence rails are in the tree behind
 // a CSS class, which is exactly what §3a asks to be true.
