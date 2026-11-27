@@ -6426,7 +6426,8 @@ past the list's bound too. An answered Network card treats its own
 operation's tolerated loss as its own input: neither that reservation nor a
 collection failure whose every counted loss is its own withdraws the card.
 Any other loss, including a new one under a failure that already stood,
-still does.
+still does. A loss held only in this process has no durable count and is
+never the card's own.
 
 Network approval markers exclude only the approved operation’s own occurrence
 and, when it creates the turn’s first collection, that same collection-start

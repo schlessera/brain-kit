@@ -286,7 +286,11 @@ export async function prepareTurnEgress(options: {
       // input only when no other loss stands (#4351).
       const losses=state.reasons.includes("recording_failed")?safetyFailureLosses(db,options.turnId,options.sessionId()):{listed:[],total:0};
       const others=losses.total-losses.listed.filter(loss=>loss!==""&&!!group?.lost.has(loss)).length;
-      const ownFailure=state.reasons.includes("recording_failed")&&others===0;
+      // A loss held only in this process has no durable count and is never
+      // the card's own: while one stands, the failure is never dropped.
+      const queue=safetyQueue(db);
+      const retained=state.reasons.includes("recording_failed")&&(queue.failed||queue.lostTurns.has(options.turnId)||[...safetyScopeTurns(db,options.turnId,options.sessionId())].some(turn=>queue.lostTurns.has(turn)));
+      const ownFailure=state.reasons.includes("recording_failed")&&losses.total>0&&others===0&&!retained;
       const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved" && !(ownFailure && reason === "recording_failed")), others, safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
         writes?.recordingAvailable?.(options.turnId, options.sessionId(),excludedPending) ?? safety?.recordingAvailable,callGeneration]);
