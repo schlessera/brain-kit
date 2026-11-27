@@ -3829,6 +3829,13 @@ existing outcome or reason enum gains a value. This ships in a minor.
 
 ### Historical admission evidence (additive, #3609)
 
+A server advertising `sessionSafetyAttribution:true` accepts
+`includeAttribution:true` on `safety_read`. This opts the snapshot, all its
+pages and its subscription into `attribution` records: the host observed
+differently named calls under that tool-use ID in the binding's turn, so every
+input joined to it has unknown attribution (#4513). Older readers never
+receive the record kind. The client takes attribution only from these records.
+
 A server advertising `sessionSafetyNonDelivery:true` accepts
 `includeNonDelivery:true` on `safety_read`. This opts the snapshot, all its
 pages and its subscription into the terminal exposure state `not_delivered`

@@ -16762,6 +16762,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>, z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
+        includeAttribution: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
@@ -16930,6 +16931,7 @@ signatures (every public export and the types it is made of)
     const clientSafetyReadSchema: z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
+        includeAttribution: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
@@ -22216,6 +22218,16 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>;
             turnId: z.ZodString;
             verdict: z.ZodLiteral<"safe">;
+        }, z.core.$strict>, z.ZodObject<{
+            attribution: z.ZodLiteral<"unknown">;
+            bindingId: z.ZodString;
+            detailPruned: z.ZodBoolean;
+            id: z.ZodString;
+            kind: z.ZodLiteral<"attribution">;
+            observedAt: z.ZodNumber;
+            sequence: z.ZodString;
+            toolUseId: z.ZodString;
+            turnId: z.ZodString;
         }, z.core.$strict>], "kind">>;
         snapshotComplete: z.ZodBoolean;
         snapshotId: z.ZodString;
@@ -22374,6 +22386,16 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>;
         turnId: z.ZodString;
         verdict: z.ZodLiteral<"safe">;
+    }, z.core.$strict>, z.ZodObject<{
+        attribution: z.ZodLiteral<"unknown">;
+        bindingId: z.ZodString;
+        detailPruned: z.ZodBoolean;
+        id: z.ZodString;
+        kind: z.ZodLiteral<"attribution">;
+        observedAt: z.ZodNumber;
+        sequence: z.ZodString;
+        toolUseId: z.ZodString;
+        turnId: z.ZodString;
     }, z.core.$strict>], "kind">;
   safetyReviewBodySchema (packages/ui-sdk/src/safety.ts)
     const safetyReviewBodySchema: z.ZodObject<{
@@ -22883,6 +22905,16 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>;
             turnId: z.ZodString;
             verdict: z.ZodLiteral<"safe">;
+        }, z.core.$strict>, z.ZodObject<{
+            attribution: z.ZodLiteral<"unknown">;
+            bindingId: z.ZodString;
+            detailPruned: z.ZodBoolean;
+            id: z.ZodString;
+            kind: z.ZodLiteral<"attribution">;
+            observedAt: z.ZodNumber;
+            sequence: z.ZodString;
+            toolUseId: z.ZodString;
+            turnId: z.ZodString;
         }, z.core.$strict>], "kind">>;
         toRevision: z.ZodString;
         version: z.ZodLiteral<1>;
@@ -28362,6 +28394,16 @@ signatures (every public export and the types it is made of)
                 }, z.core.$strict>;
                 turnId: z.ZodString;
                 verdict: z.ZodLiteral<"safe">;
+            }, z.core.$strict>, z.ZodObject<{
+                attribution: z.ZodLiteral<"unknown">;
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"attribution">;
+                observedAt: z.ZodNumber;
+                sequence: z.ZodString;
+                toolUseId: z.ZodString;
+                turnId: z.ZodString;
             }, z.core.$strict>], "kind">>;
             snapshotComplete: z.ZodBoolean;
             snapshotId: z.ZodString;
@@ -28532,6 +28574,16 @@ signatures (every public export and the types it is made of)
                 }, z.core.$strict>;
                 turnId: z.ZodString;
                 verdict: z.ZodLiteral<"safe">;
+            }, z.core.$strict>, z.ZodObject<{
+                attribution: z.ZodLiteral<"unknown">;
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"attribution">;
+                observedAt: z.ZodNumber;
+                sequence: z.ZodString;
+                toolUseId: z.ZodString;
+                turnId: z.ZodString;
             }, z.core.$strict>], "kind">>;
             toRevision: z.ZodString;
             version: z.ZodLiteral<1>;
@@ -29223,6 +29275,16 @@ signatures (every public export and the types it is made of)
                 }, z.core.$strict>;
                 turnId: z.ZodString;
                 verdict: z.ZodLiteral<"safe">;
+            }, z.core.$strict>, z.ZodObject<{
+                attribution: z.ZodLiteral<"unknown">;
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"attribution">;
+                observedAt: z.ZodNumber;
+                sequence: z.ZodString;
+                toolUseId: z.ZodString;
+                turnId: z.ZodString;
             }, z.core.$strict>], "kind">>;
             snapshotComplete: z.ZodBoolean;
             snapshotId: z.ZodString;
@@ -29409,6 +29471,16 @@ signatures (every public export and the types it is made of)
                 }, z.core.$strict>;
                 turnId: z.ZodString;
                 verdict: z.ZodLiteral<"safe">;
+            }, z.core.$strict>, z.ZodObject<{
+                attribution: z.ZodLiteral<"unknown">;
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"attribution">;
+                observedAt: z.ZodNumber;
+                sequence: z.ZodString;
+                toolUseId: z.ZodString;
+                turnId: z.ZodString;
             }, z.core.$strict>], "kind">>;
             toRevision: z.ZodString;
             version: z.ZodLiteral<1>;

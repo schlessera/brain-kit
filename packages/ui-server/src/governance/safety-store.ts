@@ -369,6 +369,25 @@ export function appendSafetyEvent(db:Database,row:GovernanceEventRow,reserved=fa
   return null;
  }
 }
+/** A collection may hold this many tool-use IDs with differently named calls. */
+const TOOL_REUSE = 2048;
+/**
+ * The collector observed differently named calls under this tool-use ID in
+ * this collection (#4513), from any hook, result or loss report, nested
+ * calls included. Durable and idempotent; recorded after the collection
+ * ended too, since a late report is still an observation. An ID that can
+ * carry no entry join qualifies no input and is not kept.
+ */
+export function recordSafetyToolReuse(db:Database,turnId:string,toolUseId:string,at=Date.now()):void {
+ if(!/^[A-Za-z0-9_-]{1,128}$/.test(toolUseId))return;
+ db.transaction(()=>{
+  const c=collection(db,turnId);if(!c)return;
+  if(db.query("SELECT 1 FROM safety_tool_reuse WHERE collection_id=? AND tool_use_id=?").get(c.id,toolUseId))return;
+  if(one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_tool_reuse WHERE collection_id=?",c.id).n>=TOOL_REUSE)
+   throw new SafetyCapacityExhausted("Safety tool reuse capacity exhausted","turn");
+  db.query("INSERT INTO safety_tool_reuse(id,collection_id,tool_use_id,sequence,observed_at) VALUES(?,?,?,?,?)").run(crypto.randomUUID(),c.id,toolUseId,advance(db),at);
+ }).immediate();
+}
 /** A collection may hold this many calls that still owe their results. */
 const OBLIGATIONS = 2048;
 const clipText=(text:string)=>clip(text.replace(/[\u0000-\u001f\u007f]/g," "),128);
