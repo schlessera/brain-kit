@@ -144,10 +144,12 @@ which validates the scope (`parseContextScope`,
   }], omittedMore, budgetExhausted }`. `lane` is `identity`, `focus`, `search`
   or `related`; `form` is `whole`, `cut`, `section`, `snippet` or `summary`.
   `lines` (additive in 0.45.0, #3683) is present only on a `search` excerpt
-  widened to a folded chunk's span: a hit whose best chunk merged a short
-  section into its neighbour and whose match no single section holds becomes
-  every section of that chunk, in source order and held to the chunk's own
-  extent, taken whole or not at all. `lines` is `[start, end]`, the 1-based
+  widened to a folded chunk's span: a hit whose best chunk is made of whole
+  sections, a short one merged into its neighbour, and whose match no single
+  section holds becomes every section of that chunk, in source order, taken
+  whole or not at all. The chunk is placed by chunking those sections again
+  and getting it back exactly, once in the file. A piece of a section the
+  indexer split over several chunks keeps its snippet. `lines` is `[start, end]`, the 1-based
   file lines from the span's first heading (or first line) to its last line.
   `budgetExhausted` is true when an in-scope candidate was cut or left out for
   lack of budget, including a hit that kept its snippet because its section

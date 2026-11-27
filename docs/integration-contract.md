@@ -45,8 +45,9 @@ This ships in a minor.
 
 A scoped `brain_context` coverage excerpt may carry `lines: [start, end]`,
 the 1-based source file lines it holds, both inclusive. Only a search excerpt
-widened to a folded chunk's span carries it: a hit whose best chunk merged a
-short section into its neighbour and whose match no single section holds.
+widened to a folded chunk's span carries it: a hit whose best chunk is made of
+whole sections, a short one merged into its neighbour, and whose match no
+single section holds. A piece of a split section keeps its snippet.
 Every other excerpt has no field, so a reader must treat it as optional.
 `budgetExhausted` is now also true when such a span, or a hit's section, did
 not fit and the hit kept its snippet. See

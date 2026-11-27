@@ -962,19 +962,46 @@ describe("sections from chunks", () => {
     /** The 1-based line of `file` that starts with `text`. */
     const lineOf = (file: string, text: string) => file.split("\n").findIndex((line) => line.startsWith(text)) + 1;
 
-    test("a span ends where its chunk ends, not where its last section does", async () => {
+    test("a piece of a section split over several chunks keeps its snippet", async () => {
       const file = study("Folded", `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 120)}\n`);
-      const { hit, chunks, coverage } = await unplaced({ "studies/folded.md": file }, 3000, { include: ["studies/"] });
+      const { hit, chunks, coverage } = await unplaced({ "studies/folded.md": file }, 20000, { include: ["studies/"] });
       // The premise: Signal and the first part of Tides are one chunk, the rest of Tides others.
       expect(chunks.length).toBeGreaterThan(1);
       expect(chunks.map((c) => c.heading)).toEqual(["Tides", ...chunks.slice(1).map(() => "Tides (cont.)")]);
-      const last = Math.max(...[...chunks[0]!.content.matchAll(/Tide paragraph (\d+) /g)].map((m) => Number(m[1])));
-      expect(hit).toContain("#### Signal\nThe beacon code is violet.\n\n#### Tides\nTide paragraph 1 ");
-      expect(hit).toEndWith(`Tide paragraph ${last} fills out the section with plain field notes.`);
-      expect(hit).not.toContain(`Tide paragraph ${last + 1} `);
-      // Its source lines are in the coverage record, from Signal's heading to the chunk's last line.
-      const excerpt = coverage.excerpts.find((e) => e.path === "studies/folded.md");
-      expect(excerpt).toEqual({ path: "studies/folded.md", lane: "search", form: "section", lines: [lineOf(file, "## Signal"), lineOf(file, `Tide paragraph ${last} `)] });
+      expect(hit.split("\n")).toHaveLength(2);
+      expect(hit).not.toContain("####");
+      expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")).toEqual({ path: "studies/folded.md", lane: "search", form: "snippet" });
+    });
+
+    // Review round 3 of #3683: the chunker repacks an oversized section and
+    // strips a paragraph's indentation, so the chunk's text matches a later,
+    // unindented copy; re-chunking the source finds no run of whole sections
+    // that gives the chunk back, so the hit keeps its snippet.
+    const LAMP = "The lamp code for tonight is violet over green.";
+    const block = (topic: string, n: number) =>
+      Array.from({ length: n }, (_, i) => `${topic} line ${i + 1} runs along the chart margin with plain field notes for the pilot to read at the lead.`).join("\n");
+    test.each([
+      ["under other headings", `## Harbour\n\n${LAMP}\n\n## Channel\n\n${block("Shoal", 18)}\n`],
+      ["under the same headings", `## Signal\n\n${LAMP}\n\n## Soundings\n\n${block("Shoal", 18)}\n`],
+    ])("a repacked chunk whose text the file repeats %s keeps its snippet", async (_, later) => {
+      const file = study("Folded", `## Signal\n\n  ${LAMP}\n\n## Soundings\n\n${block("Shoal", 18)}\n\n${block("Reef", 30)}\n\n${later}`);
+      const { ctx, db } = await brainWith({ "studies/folded.md": file });
+      try {
+        // The premise: the first chunk is Signal folded into a packed piece of Soundings, its indentation gone.
+        const first = db
+          .prepare("SELECT c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? AND c.chunk_index = 0")
+          .get("studies/folded.md") as { content: string };
+        expect(first.content).toStartWith(`## Signal\n\n${LAMP}\n\nShoal line 1 `);
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query: "Soundings", maxTokens: 20000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/folded.md"] }, coverage });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toBeDefined();
+        expect(hit).not.toContain("#### Harbour");
+        expect(hit).not.toContain("#### Channel");
+        expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")?.lines).toBeUndefined();
+      } finally {
+        db.close();
+      }
     });
 
     test("a level-one heading inside a section is not a folded section", async () => {
