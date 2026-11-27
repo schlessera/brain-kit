@@ -38,7 +38,7 @@ function fixture() {
  * only the worker program substituted, after `before` resolves; the blocking
  * one is counted and passes through.
  */
-function observe(options: { script: string; before?: (input: Launch) => Promise<void> }) {
+function observe(options: { script: string; before?: (input: Launch) => Promise<void>; killFailsOnce?: boolean }) {
   const ticks = { count: 0, timer: setInterval(() => { ticks.count++; }, 1) };
   const seen = { awaitable: 0, blocking: 0, ticksWhilePending: 0, children: [] as Launched[], signals: [] as string[], retained: 0, cleaned: 0 };
   const realAsync = worker.launchAgentWorkerAsync, realSync = worker.launchAgentWorker, realRetain = worker.retainWorkerStartupView;
@@ -52,7 +52,13 @@ function observe(options: { script: string; before?: (input: Launch) => Promise<
       // The signals the run sends this worker before it exits.
       const kill = child.kill.bind(child);
       let exited = false; void child.exited.finally(() => { exited = true; });
-      child.kill = (signal) => { if (!exited) seen.signals.push(signal ?? "SIGTERM"); kill(signal); };
+      let failing = options.killFailsOnce === true;
+      child.kill = (signal) => {
+        if (!exited) seen.signals.push(signal ?? "SIGTERM");
+        // As the identity broker's signal request can fail.
+        if (failing) { failing = false; throw new Error("Odysseus: the signal request failed"); }
+        kill(signal);
+      };
       cleanup.push(async () => { child.kill("SIGKILL"); child.stdin.end(); await child.exited; await child.released(); });
       return child;
     } finally { seen.ticksWhilePending += ticks.count - before; }
@@ -115,6 +121,19 @@ for (const path of ["masked CLI", "turn tree"] as const) {
     expect(seen.children).toHaveLength(1);
     expect(seen.signals, "SIGKILL is sent as soon as the launch resolves").toEqual(["SIGKILL"]);
     expect(result.error, "the run reports the abort").toBeInstanceOf(DOMException);
+    expect({ retained: seen.retained, cleaned: seen.cleaned }).toEqual({ retained: 1, cleaned: 1 });
+  });
+
+  test(`${path}: a failed kill after an abort during launch still cleans up and reports the abort`, async () => {
+    const f = fixture(), controller = new AbortController();
+    const tree = path === "turn tree" ? await treeFor(f) : undefined;
+    const seen = observe({ script: path === "masked CLI" ? "printf Ithaca; exec sleep 3" : "IFS= read -r request; exec sleep 3",
+      before: async () => { controller.abort(); }, killFailsOnce: true });
+    const result = await outcome(tree ? tree.planAdd({ title: "Ithaca" }, controller.signal)
+      : runMaskedBrainCli({ ...f, signal: controller.signal, command: ["/bin/sh"] }));
+    expect(result.error, "the abort, not the failed signal request").toBeInstanceOf(DOMException);
+    // The run's own cleanup ran: the worker was signalled again and its view released.
+    expect(seen.signals.length).toBeGreaterThanOrEqual(2);
     expect({ retained: seen.retained, cleaned: seen.cleaned }).toEqual({ retained: 1, cleaned: 1 });
   });
 

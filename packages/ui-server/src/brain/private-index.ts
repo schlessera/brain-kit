@@ -104,9 +104,9 @@ export async function runMaskedBrainCli(options: {
   const stop = () => worker.kill("SIGKILL");
   const timer = setTimeout(() => { timedOut = true; stop(); }, options.timeoutMs);
   options.signal.addEventListener("abort", stop, { once: true });
-  // An abort that landed while the launch was pending fired no listener.
-  if (options.signal.aborted) stop();
   try {
+    // An abort that landed while the launch was pending fired no listener.
+    if (options.signal.aborted) stop();
     const [stdout, stderr, exit] = await Promise.all([bounded(worker.stdout, options.outputBytes ?? OUTPUT_BYTES), bounded(worker.stderr, OUTPUT_BYTES), worker.exited]);
     options.signal.throwIfAborted();
     if (timedOut) return { ok: false, detail: `${options.label} did not finish within ${options.timeoutMs / 1000} s` };

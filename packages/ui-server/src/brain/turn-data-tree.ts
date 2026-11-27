@@ -325,9 +325,9 @@ async function runOnTree(options: {
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; stop(); }, timeoutMs);
   options.signal?.addEventListener("abort", stop, { once: true });
-  // An abort that landed while the launch was pending fired no listener.
-  if (options.signal?.aborted) stop();
   try {
+    // An abort that landed while the launch was pending fired no listener.
+    if (options.signal?.aborted) stop();
     worker.stdin.end(JSON.stringify({ ...options.request, root: WORKER_DATA_ROOT }));
     const read = async (stream: unknown) => {
       const kept: Uint8Array[] = []; let length = 0;
