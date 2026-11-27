@@ -205,6 +205,8 @@ describe("documents.indexed_at index", () => {
 
     const dbCheck = async () => {
       const result = await runCli(root, ["doctor", "--json"]);
+      // A warning is not a failure: doctor exits 0 in both states here.
+      expect(result.code, result.stderr).toBe(0);
       const checks = JSON.parse(result.stdout).checks as { id: string; status: string; detail: string }[];
       return checks.find((c) => c.id === "db")!;
     };
