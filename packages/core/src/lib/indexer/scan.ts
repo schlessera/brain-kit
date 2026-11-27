@@ -12,7 +12,7 @@ import { resolve } from "path";
 
 import { CHUNKER_VERSION } from "../chunker.js";
 import { gitIgnoredMatcher, isAssetPath } from "../git-ignore.js";
-import { nameKeys } from "../name-key.js";
+import { nameKey } from "../name-key.js";
 import { aliasKeys } from "./parse.js";
 import { ASSET_EXTENSIONS } from "../types.js";
 import type { Asset } from "../types.js";
@@ -182,26 +182,39 @@ interface CorpusRow {
 }
 
 /**
+ * Could one of a row's aliases span lines? An alias that does is a run of
+ * two or more adjacent lines, and its name key (whitespace, line breaks
+ * included, collapsed to one space) is among the row's name keys, which were
+ * written from the whole aliases. No such run means every line is an alias of
+ * its own. A run that matches may also be a separate alias or the title that
+ * happens to equal those lines joined; that costs one file read, never a
+ * wrong key.
+ */
+function mayHoldMultiLineAlias(lines: readonly string[], storedKeys: ReadonlySet<string>): boolean {
+  for (let first = 0; first < lines.length - 1; first++) {
+    for (let last = first + 1; last < lines.length; last++) {
+      if (storedKeys.has(nameKey(lines.slice(first, last + 1).join("\n")))) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * A row's alias keys, as a parse of its file gives them.
  *
  * The `aliases` column holds one alias per line, so an alias that itself
- * holds a line break reads back as two. The row's name keys tell such a row
- * apart: they were written from the whole aliases, so they differ from the
- * keys of the lines exactly when an alias spans lines. That file's aliases
- * are read from the file itself, as a fresh build reads them; a file that is
- * gone or no longer parses leaves the lines, for the run that reads it next.
+ * holds a line break reads back as two. When one may (see
+ * `mayHoldMultiLineAlias`), the aliases are read from the file itself, as a
+ * fresh build reads them; a file that is gone or no longer parses leaves the
+ * lines, for the run that reads it next.
  */
 function storedAliasKeys(run: IndexRun, row: CorpusRow): string[] {
   const lines = (row.aliases ?? "").split("\n");
-  if (row.name_keys !== null) {
-    const stored = new Set(row.name_keys.split("\n"));
-    const fromLines = nameKeys(row.title, lines);
-    if (fromLines.length !== stored.size || fromLines.some((key) => !stored.has(key))) {
-      try {
-        return aliasKeys(parseFrontmatter(readFileSync(resolve(run.root, row.path), "utf-8"), { dataOnly: true }).data.aliases);
-      } catch {
-        // Gone or unparseable: the lines are what the index has.
-      }
+  if (row.name_keys !== null && mayHoldMultiLineAlias(lines, new Set(row.name_keys.split("\n")))) {
+    try {
+      return aliasKeys(parseFrontmatter(readFileSync(resolve(run.root, row.path), "utf-8"), { dataOnly: true }).data.aliases);
+    } catch {
+      // Gone or unparseable: the lines are what the index has.
     }
   }
   return aliasKeys(lines);

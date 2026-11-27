@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "fs";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -248,6 +249,40 @@ describe("targeted index runs (#2835)", () => {
     write(root, "notes/raft.md", note("Raft", "Built on Ogygia, wrecked, rebuilt, sailed."));
     await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
     expect(partitions(snapshot(db)).links).toEqual((await fresh(root, "fresh-edited")).links);
+  });
+
+  test("a multi-line alias whose lines are also aliases of the same note still reads back whole (#4876, #5002)", async () => {
+    // Its lines and their space-joined form are aliases too, so the name keys
+    // written from the whole aliases equal the keys of the stored lines.
+    const root = brain({
+      "notes/strait.md": note("Strait", "Between the rock and the whirlpool.", 'aliases: ["Scylla\\nCharybdis", "Scylla", "Charybdis", "Scylla Charybdis"]\n'),
+      "notes/passage.md": note("Passage", "Rowed through [[Scylla\nCharybdis]], past [[Scylla]]."),
+      "notes/calm.md": note("Calm", "No wind for days.", "aliases: [Calm Sea]\n"),
+      "notes/raft.md": note("Raft", "Built on Ogygia."),
+    });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia, then wrecked."));
+    const read = fs.readFileSync;
+    const reads: string[] = [];
+    const spy = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...rest: unknown[]) => {
+      if (typeof path === "string") reads.push(path);
+      return (read as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof fs.readFileSync);
+    try {
+      await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    } finally {
+      spy.mockRestore();
+    }
+    const after = partitions(snapshot(db));
+    expect(after.links).toEqual([
+      { source: "notes/passage.md", target: "Scylla", resolved: "notes/strait.md" },
+      { source: "notes/passage.md", target: "Scylla\nCharybdis", resolved: "notes/strait.md" },
+    ]);
+    expect(after).toEqual(await fresh(root, "fresh"));
+    // Only the note whose aliases may span lines is read; a single-line alias is taken from the index.
+    expect(reads.filter((path) => path.endsWith("notes/strait.md"))).toHaveLength(1);
+    expect(reads.filter((path) => path.endsWith("notes/calm.md") || path.endsWith("notes/passage.md"))).toEqual([]);
   });
 
   test("an index without markdown is built completely, whatever paths were named", async () => {
