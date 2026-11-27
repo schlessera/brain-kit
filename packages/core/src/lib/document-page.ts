@@ -16,8 +16,9 @@ import { statSync } from "fs";
 
 import { safeResolve } from "./safe-path.js";
 
-/** The hard bound on one page: UTF-8 bytes of the compact JSON envelope. */
-export const DOCUMENT_PAGE_MAX_BYTES = 30_000;
+import { DOCUMENT_PAGE_MAX_BYTES } from "./read-schemas.js";
+
+export { DOCUMENT_PAGE_MAX_BYTES };
 
 /** Warnings may use at most this share of the page budget before the rest are counted, not listed. */
 const WARNING_SHARE = 4;

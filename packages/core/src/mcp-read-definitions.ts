@@ -1,9 +1,8 @@
 /** Static package-owned MCP read definitions. No brain/configuration is loaded here. */
 import { z } from "zod";
-import { isIsoDate } from "./lib/search-engine.js";
+import { isIsoDate } from "./lib/iso-date.js";
 import { SEARCH_SORTS } from "./lib/types.js";
-import { DOCUMENT_PAGE_MAX_BYTES } from "./lib/document-page.js";
-import { contextCoverageSchema, contextScopeListSchema, DEFAULT_LIST_LIMIT, listLimitSchema, MAX_LIST_LIMIT } from "./lib/ops/read.js";
+import { contextCoverageSchema, contextScopeListSchema, DEFAULT_LIST_LIMIT, DOCUMENT_PAGE_MAX_BYTES, listLimitSchema, MAX_LIST_LIMIT } from "./lib/read-schemas.js";
 import { READ_MANY_DESCRIPTION, readManyInputShape } from "./lib/ops/read-many.js";
 export const MAX_SEARCH_LIMIT = 50;
 export const MAX_GRAPH_DEPTH = 5;

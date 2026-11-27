@@ -7,7 +7,7 @@ import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/s
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CallToolResultSchema, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { brainReadDefinitions, BRAIN_READ_DEFINITION_VERSION } from "@schlessera/brain/internal";
+import { brainReadDefinitions, BRAIN_READ_DEFINITION_VERSION } from "@schlessera/brain/internal/read-definitions";
 import { launchAgentWorkerAsync, retainWorkerStartupView, processStateLedger,
   workerCleanupUnconfirmed, processCleanupReconciler, reportStrandedWorkerCleanup,
   type LaunchedWorker, type WorkerLimitReport, type WorkerSandbox, type WorkerStartupView, type WorkerLimitsPlan, type WorkerStateLimits,
@@ -233,15 +233,24 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
 }
 
 
-/** The in-sandbox inventory check: the project entry must be canonical (#4325 F22). */
-export const BRAIN_INVENTORY_ENTRY = Bun.resolveSync("./brain-bridge-inventory-entry", import.meta.dir);
+let inventoryEntry: string | undefined, bridgeVersion: string | undefined;
+/**
+ * The in-sandbox inventory check: the project entry must be canonical
+ * (#4325 F22). Resolved on first use, so importing this module under Node
+ * runs no Bun-only code.
+ */
+export function brainInventoryEntry(): string {
+  return inventoryEntry ??= Bun.resolveSync("./brain-bridge-inventory-entry", import.meta.dir);
+}
 
 /**
  * The `@schlessera/brain` version whose static read definitions the bridge
  * advertises: the host's own installed package, never a brain file. The
  * inventory check requires the brain's server to be this same version (F14).
  */
-export const BRIDGE_BRAIN_VERSION = (JSON.parse(readFileSync(Bun.resolveSync("@schlessera/brain/package.json", import.meta.dir), "utf8")) as { version: string }).version;
+export function bridgeBrainVersion(): string {
+  return bridgeVersion ??= (JSON.parse(readFileSync(Bun.resolveSync("@schlessera/brain/package.json", import.meta.dir), "utf8")) as { version: string }).version;
+}
 
 /**
  * #4381: without a static module inventory, select the unchanged stdio path.
@@ -261,7 +270,7 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
     else ownedSignal.addEventListener("abort", () => resolve("deadline"), { once: true });
   });
   try {
-    const starting = startBrainToolWorker(input, [process.execPath, BRAIN_INVENTORY_ENTRY, BRIDGE_BRAIN_VERSION])(ownedSignal);
+    const starting = startBrainToolWorker(input, [process.execPath, brainInventoryEntry(), bridgeBrainVersion()])(ownedSignal);
     const started = await Promise.race([starting, deadline]);
     if (started === "deadline") { void starting.then(late => late.close()).catch(() => {}); return "unavailable"; }
     resource = started;

@@ -254,6 +254,10 @@ export "./internal/graph" (./src/internal-graph.ts)
   computeClusterLayout
   computeMetrics
 
+export "./internal/read-definitions" (./src/internal-read-definitions.ts)
+  BRAIN_READ_DEFINITION_VERSION
+  brainReadDefinitions
+
 export "./module" (./src/module.ts)
   GEMINI_FLASH_MODEL
   type GeminiCompletionConfig

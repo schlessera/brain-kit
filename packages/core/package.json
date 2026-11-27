@@ -62,6 +62,11 @@
       "types": "./dist/internal-graph.d.ts",
       "default": "./dist/internal-graph.js"
     },
+    "./internal/read-definitions": {
+      "bun": "./src/internal-read-definitions.ts",
+      "types": "./dist/internal-read-definitions.d.ts",
+      "default": "./dist/internal-read-definitions.js"
+    },
     "./storage": {
       "bun": "./src/storage.ts",
       "types": "./dist/storage.d.ts",

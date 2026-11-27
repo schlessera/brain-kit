@@ -14,7 +14,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { launchLimits, restrictedReadPaths, resolveTurnTempLimits } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { replaceNativeStartupAcquisitionForFixture } from "../../ui-server/tests/helpers/fixture-native-startup.js";
-import { createBrainToolForwarder, startBrainToolWorker, probeBrainBridgeInventory, BRAIN_INVENTORY_ENTRY } from "../src/brain-tool-forwarder.js";
+import { createBrainToolForwarder, startBrainToolWorker, probeBrainBridgeInventory, brainInventoryEntry } from "../src/brain-tool-forwarder.js";
 
 /** The brain's own installed core: this checkout's, so it is the host's version (#4325 F14). */
 const CORE_MANIFEST = resolve("packages/core/package.json");
@@ -63,7 +63,7 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
   restore = replaceNativeStartupAcquisitionForFixture();
   const errors: unknown[] = [];
   const base = prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] });
-  const sandbox = { ...base, readPaths: restrictedReadPaths([mcp, entry, BRAIN_INVENTORY_ENTRY, CORE_MANIFEST]),
+  const sandbox = { ...base, readPaths: restrictedReadPaths([mcp, entry, brainInventoryEntry(), CORE_MANIFEST]),
     providerMasks: { folders: ["sealed"], index: join(scratch, "index") } };
   cpSync(join(brain, ".brain-index"), join(scratch, "index"), { recursive: true });
   let starts = 0;
@@ -133,7 +133,7 @@ test("a config change between two new sessions preserves the second session modu
     writeFileSync(entry, `import ${JSON.stringify(cli)};`);
     openDatabase(join(brain, ".brain-index/brain.db")).close();
     view = createFixtureWorkerStartupView(brain);
-    const sandbox = { ...prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry, BRAIN_INVENTORY_ENTRY, CORE_MANIFEST]) };
+    const sandbox = { ...prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry, brainInventoryEntry(), CORE_MANIFEST]) };
     const input = { brainPath: brain, exec: {}, sandbox, startupView: view, env: { PATH: process.env.PATH, HOME: home },
       limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits({}), credentialEnv: [], req: { bridge: {} } as never };
     const firstInventory = await probeBrainBridgeInventory(input, controller.signal);

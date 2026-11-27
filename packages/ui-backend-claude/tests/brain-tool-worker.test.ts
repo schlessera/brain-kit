@@ -5,7 +5,7 @@ import { isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
 import * as internal from "@schlessera/brain-ui-sdk/internal";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder, BRIDGE_BRAIN_VERSION } from "../src/brain-tool-forwarder.js";
+import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder, bridgeBrainVersion } from "../src/brain-tool-forwarder.js";
 import * as promptContext from "../src/prompt-context.js";
 import { createBridgedTurnReservation } from "../src/brain-tool-reservation.js";
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
@@ -50,7 +50,7 @@ for (const mode of ["inventory", "forwarder"] as const) test(`${mode} shares the
     expect(calls).toHaveLength(1);
     const input = calls[0]!;
     expect(input.command, "BRAIN_SUBPROCESS_USES_OPERATOR_WRAPPER").toEqual(["/usr/bin/env", process.execPath,
-      ...(mode === "inventory" ? [Bun.resolveSync("../src/brain-bridge-inventory-entry", import.meta.dir), BRIDGE_BRAIN_VERSION] : ["node_modules/.bin/brain", "mcp"])]);
+      ...(mode === "inventory" ? [Bun.resolveSync("../src/brain-bridge-inventory-entry", import.meta.dir), bridgeBrainVersion()] : ["node_modules/.bin/brain", "mcp"])]);
     expect(input.readOnlyBrain, "BRAIN_SUBPROCESS_IS_READ_ONLY").toBe(true);
     // The launcher plans an absolute existing argument as a host runtime
     // path; nothing in the live brain may become one (#4325 F19).
