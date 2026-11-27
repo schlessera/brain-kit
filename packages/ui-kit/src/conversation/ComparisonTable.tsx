@@ -6,6 +6,7 @@ import { VALUE_CUE } from "../internal/tone-cue.js";
 import { Icon } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { ValueTone } from "../types.js";
+import { valueInk } from "../internal/tone-ink.js";
 
 /**
  * Candidates side by side — the other axis from `DataTable`, for when the
@@ -49,21 +50,6 @@ export interface ComparisonTableProps {
   footnote?: string;
   labelWidth?: number;
 }
-
-/** Every accent's ink plus the two inks. An untoned cell is primary ink and
- * `neutral` is the grey accent (D33); the source's dead `muted` entry is gone
- * and `dim` is the real member. */
-const TONES: Record<ValueTone, string> = {
-  teal: accent.teal.ink,
-  amber: accent.amber.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  gold: accent.gold.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-  ink: color.ink,
-  dim: color.inkDim,
-};
 
 const FALLBACK_COLUMNS: ComparisonColumn[] = [
   { label: "Pass under Scylla", note: "Circe's advice", tone: "amber", recommended: true },
@@ -133,7 +119,7 @@ export function ComparisonTable(p: ComparisonTableProps) {
                 padding: "9px 8px",
                 textAlign: "center",
                 font: `600 11px/1.3 ${font.body}`,
-                color: TONES[tone] || TONES.dim,
+                color: valueInk(tone, "dim"),
                 background: i === recIdx ? token("compare-recommended-head") : "transparent",
                 borderLeft: `1px solid ${color.line}`,
               }}
@@ -195,7 +181,7 @@ export function ComparisonTable(p: ComparisonTableProps) {
                   borderLeft: `1px solid ${color.line}`,
                   background: isRec ? token("compare-recommended-cell") : "transparent",
                   font: `${isRec ? 600 : 500} 11px/1.4 ${font.mono}`,
-                  color: TONES[tone] || TONES.dim,
+                  color: valueInk(tone, "dim"),
                 }}
               >
                 {/* The judgement, before the text and centred with it. */}

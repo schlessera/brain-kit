@@ -56,15 +56,6 @@ export interface EmptyStateProps {
   onSecondary?: () => void;
 }
 
-const INKS: Record<EmptyTone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 const MEDALLION_TINTS: Record<EmptyTone, string> = {
   amber: token("medallion-tint-amber"),
   gold: token("medallion-tint-gold"),
@@ -126,7 +117,7 @@ export function EmptyState(p: EmptyStateProps) {
   }, [p.focusTitle]);
   const v = VARIANTS[p.variant || "caught_up"] || VARIANTS.caught_up;
   const tone = p.tone || v.tone;
-  const ink = INKS[tone] || INKS.neutral;
+  const ink = (accent[tone] ?? accent.neutral).ink;
   const meta = p.meta ?? v.meta;
 
   const box: CSSProperties = {

@@ -21,19 +21,8 @@ export interface PathRefProps {
   fontSize?: number;
 }
 
-/** A PathRef is text and a dotted underline — the `ink` role throughout. */
-const TONES: Record<Tone, string> = {
-  teal: accent.teal.ink,
-  blue: accent.blue.ink,
-  purple: accent.purple.ink,
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 export function PathRef(p: PathRefProps) {
-  const fg = TONES[p.tone || "teal"] || TONES.teal;
+  const fg = (accent[p.tone || "teal"] ?? accent.teal).ink;
   const v = p.variant || "chip";
 
   // The source computes a `skins` table and then overrides `link` with a

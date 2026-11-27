@@ -43,28 +43,6 @@ export interface NotificationCardProps {
   actions?: NotificationAction[];
 }
 
-/** The badge is a 30px filled square taking a near-black glyph when solid, so
- * it takes `fill`; unfilled, the glyph is the accent as ink. */
-const FILLS: Record<Tone, string> = {
-  amber: accent.amber.fill,
-  gold: accent.gold.fill,
-  teal: accent.teal.fill,
-  purple: accent.purple.fill,
-  blue: accent.blue.fill,
-  red: accent.red.fill,
-  neutral: accent.neutral.fill,
-};
-
-const INKS: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 export function NotificationCard(p: NotificationCardProps) {
   const v = p.variant || "rich";
   const tone = p.tone || "amber";
@@ -97,9 +75,9 @@ export function NotificationCard(p: NotificationCardProps) {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: rich ? FILLS[tone] || FILLS.amber : color.raised,
+    background: rich ? (accent[tone] ?? accent.amber).fill : color.raised,
     // The glyph inherits this, which is why `Icon` is given no colour below.
-    color: rich ? color.onFill : INKS[tone] || INKS.amber,
+    color: rich ? color.onFill : (accent[tone] ?? accent.amber).ink,
   };
   const content: CSSProperties = { flex: 1, minWidth: 0 };
   const titleRow: CSSProperties = { display: "flex", alignItems: "baseline", gap: 6 };

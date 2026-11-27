@@ -31,14 +31,6 @@ export interface QuoteCardProps {
   icon?: IconName;
 }
 
-const INKS: Record<QuoteTone, string> = {
-  teal: accent.teal.ink,
-  amber: accent.amber.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  neutral: accent.neutral.ink,
-};
-
 const TINTS: Record<QuoteTone, string> = {
   teal: token("quote-tint-teal"),
   amber: token("quote-tint-amber"),
@@ -59,7 +51,7 @@ export function QuoteCard(p: QuoteCardProps) {
   const locator = p.locator ?? "line 12";
   const note =
     p.note ?? "The crew had sworn to this sentence, in writing, thirty days before they broke it.";
-  const ink = INKS[tone] || INKS.teal;
+  const ink = (accent[tone] ?? accent.teal).ink;
   const tint = TINTS[tone] || TINTS.teal;
 
   const box: CSSProperties = {

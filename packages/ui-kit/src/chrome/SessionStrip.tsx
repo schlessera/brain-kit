@@ -88,16 +88,6 @@ const STATE_LOOK: Record<WorkingState, { tone: Tone; icon: IconName; count: stri
   cancelled: { tone: "neutral", icon: "withdrawn", count: "cancelled" },
 };
 
-const TONE_INK: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 /** `HH:MM` on a 24-hour clock in the reader's zone, the design's `ended 09:41`. */
 function defaultWorkingClock(ms: number): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -414,7 +404,7 @@ export function SessionStrip(p: SessionStripProps) {
         <span className="bk-pill-dot" style={{ background: accent[top.tone].mark }} />
         <span className="bk-pill-text" style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 0 }}>
           <span className="bk-pill-title" style={{ flex: "none" }}>{n} working</span>
-          <span className="bk-pill-wide bk-pill-value" style={{ marginLeft: 6, color: TONE_INK[top.tone], overflow: "hidden", textOverflow: "ellipsis" }}>
+          <span className="bk-pill-wide bk-pill-value" style={{ marginLeft: 6, color: accent[top.tone]?.ink, overflow: "hidden", textOverflow: "ellipsis" }}>
             · {top.text}
           </span>
         </span>
@@ -461,11 +451,11 @@ export function SessionStrip(p: SessionStripProps) {
         >
           <span className="bk-pill-text">
             <span className="bk-pill-title bk-pill-narrow">+{n} more</span>
-            <span className="bk-pill-value bk-pill-narrow" style={{ color: TONE_INK[rest[0]!.tone] }}>{rest[0]!.text}</span>
+            <span className="bk-pill-value bk-pill-narrow" style={{ color: accent[rest[0]!.tone]?.ink }}>{rest[0]!.text}</span>
             <span className="bk-pill-title bk-pill-wide">
               +{n} more
               {rest.map((c) => (
-                <span key={c.state} style={{ color: TONE_INK[c.tone], fontWeight: 600 }}> · {c.text}</span>
+                <span key={c.state} style={{ color: accent[c.tone]?.ink, fontWeight: 600 }}> · {c.text}</span>
               ))}
             </span>
           </span>

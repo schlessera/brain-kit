@@ -82,16 +82,6 @@ export interface FileRowProps {
   onFold?: (open: boolean) => void;
 }
 
-const TONES: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 const ICONS: Record<FileKind, IconName> = {
   folder: "folder",
   open: "folder-open",
@@ -162,13 +152,13 @@ export function FileRow(p: FileRowProps) {
     overflow: loading || arriving ? "visible" : "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    color: p.tone ? TONES[p.tone] : kind === "file" || kind === "image" ? color.inkDim : color.ink,
+    color: p.tone ? accent[p.tone]?.ink : kind === "file" || kind === "image" ? color.inkDim : color.ink,
   };
   const metaStyle: CSSProperties = {
     marginLeft: "auto",
     flex: "none",
     font: `400 10px/1 ${font.mono}`,
-    color: p.metaTone ? TONES[p.metaTone] : color.inkMute,
+    color: p.metaTone ? accent[p.metaTone]?.ink : color.inkMute,
   };
 
   // ←→ fold. The sixth drop's ruling: "Bind ← / → and print them. The ARIA

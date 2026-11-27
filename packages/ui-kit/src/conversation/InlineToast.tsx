@@ -48,14 +48,6 @@ export interface InlineToastProps {
   announce?: boolean;
 }
 
-const INKS: Record<ToastTone, string> = {
-  teal: accent.teal.ink,
-  amber: accent.amber.ink,
-  purple: accent.purple.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 const BORDERS: Record<ToastTone, string> = {
   teal: token("toast-border-teal"),
   amber: token("toast-border-amber"),
@@ -74,7 +66,7 @@ const TINTS: Record<ToastTone, string> = {
 
 export function InlineToast(p: InlineToastProps) {
   const tone = p.tone || "teal";
-  const ink = INKS[tone] || INKS.teal;
+  const ink = (accent[tone] ?? accent.teal).ink;
   const border = BORDERS[tone] || BORDERS.teal;
   const tint = TINTS[tone] || TINTS.teal;
   const pending = p.pending === true;
