@@ -14,9 +14,9 @@ import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/clie
  * resolved object (or a slice of it) to what it builds; tests vary that
  * configuration by passing their own env record to the resolver. Some readers
  * below the edge still default to `process.env`: child environments, a few
- * credential and key sources, and the standalone pricing fallback
- * (`CreateAppOptions.config` lists them; {@link DYNAMIC_ENV_READS} the
- * call-time reads).
+ * credential and key sources, the Apify ledger path and the standalone
+ * pricing fallback (`CreateAppOptions.config` lists them;
+ * {@link DYNAMIC_ENV_READS} the call-time reads).
  */
 
 import { join, resolve } from "path";

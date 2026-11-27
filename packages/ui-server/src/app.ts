@@ -241,7 +241,8 @@ export interface CreateAppOptions {
    * read from the process environment: child-process environments
    * (`subprocessEnv`, at each spawn), the reference, Apify and GitHub-tools
    * credentials (`referenceCredentialValues`, `apifyTokenSource`,
-   * `githubToolsTokenSource`, once per app), the web-search provider keys
+   * `githubToolsTokenSource`, once per app), the Apify ledger path
+   * (`apifyLedgerPath`, once per app), the web-search provider keys
    * (`resolveWebSearchEnv`) and the standalone pricing fallback
    * (`resolveStandalonePricingConfig`). Two apps in one process share those.
    */
