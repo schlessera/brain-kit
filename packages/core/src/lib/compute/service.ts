@@ -133,7 +133,19 @@ interface Admitted {
   env: Record<string, string>;
 }
 
-/** JSON with object keys sorted, so a reordered config hashes the same. */
+/**
+ * JSON with object keys sorted by code unit, so a reordered config hashes the
+ * same. An `undefined` member is dropped, an `undefined` element and a
+ * non-finite number become `null`, `-0` becomes `0`, and a non-plain object
+ * such as a `Date` is written by its enumerable keys (so `{}`).
+ *
+ * The compute target hash (`configHash`) is this text's digest, and every job
+ * record stores it: the rule must not change, or running jobs read as moved to
+ * another target and are blocked. `packages/core/tests/compute-target-hash.test.ts`
+ * pins it. A new caller should not reuse this lax rule; the schedule
+ * canonicaliser's, which refuses anything it cannot represent exactly
+ * (`packages/ui-server/src/schedules/canonical.ts`), is the one to copy.
+ */
 function canonicalJson(value: unknown): string {
   const sort = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(sort);

@@ -181,7 +181,7 @@ export function createPrincipal(db: Database, input: CreatePrincipalInput): Prin
     }
     if (
       input.credentialId !== undefined &&
-      !db.prepare("SELECT 1 FROM passkey_credentials WHERE id = ?").get(input.credentialId)
+      !db.query("SELECT 1 FROM passkey_credentials WHERE id = ?").get(input.credentialId)
     ) {
       throw new PrincipalCredentialNotFoundError(input.credentialId);
     }
@@ -190,10 +190,10 @@ export function createPrincipal(db: Database, input: CreatePrincipalInput): Prin
     }
 
     let id = generatePrincipalId();
-    const idExists = db.prepare("SELECT 1 FROM principals WHERE id = ?");
+    const idExists = db.query("SELECT 1 FROM principals WHERE id = ?");
     while (idExists.get(id)) id = generatePrincipalId();
 
-    db.prepare(
+    db.query(
       `INSERT INTO principals
          (id, kind, auth_method, label, credential_id, created_by, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -233,7 +233,7 @@ export function resolveAmbientPrincipal(
     let principal = resolvePrincipal(db, id);
     if (!principal) {
       const now = Date.now();
-      db.prepare(
+      db.query(
         `INSERT INTO principals
            (id, kind, auth_method, label, credential_id, created_by,
             created_at, expires_at, last_seen_at)
@@ -260,7 +260,7 @@ export function resolveSystemPrincipal(
     let principal = resolvePrincipal(db, id);
     if (!principal) {
       const now = Date.now();
-      db.prepare(
+      db.query(
         `INSERT INTO principals
            (id, kind, auth_method, label, credential_id, created_by,
             created_at, expires_at)
@@ -286,7 +286,7 @@ function resolveStoredIdentity(
     throw new Error(`Corrupt ${kind} principal ${principal.id}`);
   }
   if (principal.label !== label) {
-    db.prepare("UPDATE principals SET label = ? WHERE id = ?").run(
+    db.query("UPDATE principals SET label = ? WHERE id = ?").run(
       label,
       principal.id
     );
@@ -308,7 +308,7 @@ function resolveStoredIdentity(
 
 export function resolvePrincipal(db: Database, id: string): Principal | null {
   const row = db
-    .prepare(`SELECT ${PRINCIPAL_COLUMNS} FROM principals WHERE id = ?`)
+    .query(`SELECT ${PRINCIPAL_COLUMNS} FROM principals WHERE id = ?`)
     .get(id) as PrincipalDbRow | null;
   return row ? rowToPrincipal(row) : null;
 }
@@ -317,7 +317,7 @@ export function resolvePrincipal(db: Database, id: string): Principal | null {
 export function listLivePrincipals(db: Database, now: number): Principal[] {
   return (
     db
-      .prepare(
+      .query(
         `SELECT ${PRINCIPAL_COLUMNS} FROM principals
          WHERE kind IN ('owner', 'agent')
            AND revoked_at IS NULL AND expires_at > ?
@@ -325,6 +325,21 @@ export function listLivePrincipals(db: Database, now: number): Principal[] {
       )
       .all(now) as PrincipalDbRow[]
   ).map(rowToPrincipal);
+}
+
+/**
+ * The human who owns this brain: a principal of kind `owner` or `ambient`
+ * that did not authenticate by delegation. Every human-owner check outside
+ * `app.ts` uses this one rule; it says nothing about usability, which callers
+ * that need it check with `isUsablePrincipal`.
+ */
+export function isHumanOwner(principal: Principal | null | undefined): boolean {
+  return (
+    principal !== undefined &&
+    principal !== null &&
+    principal.authMethod !== "delegated" &&
+    (principal.kind === "owner" || principal.kind === "ambient")
+  );
 }
 
 export function isUsablePrincipal(row: Principal, now: number): boolean {
@@ -358,7 +373,7 @@ export function isLastSeenStale(lastSeenAt: number | null, now: number): boolean
 }
 
 export function touchLastSeen(db: Database, id: string, now: number): void {
-  db.prepare(
+  db.query(
     `UPDATE principals SET last_seen_at = ?
      WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)`
   ).run(now, id, now - LAST_SEEN_WRITE_INTERVAL_MS);
@@ -367,7 +382,7 @@ export function touchLastSeen(db: Database, id: string, now: number): void {
 export function revokePrincipal(db: Database, id: string, now: number): string[] {
   return idsFromRows(
     db
-      .prepare(
+      .query(
         `UPDATE principals SET revoked_at = ?
          WHERE id = ? AND kind IN ('owner', 'agent')
            AND revoked_at IS NULL RETURNING id`
@@ -379,7 +394,7 @@ export function revokePrincipal(db: Database, id: string, now: number): string[]
 export function revokeAllPrincipals(db: Database, now: number): string[] {
   return idsFromRows(
     db
-      .prepare(
+      .query(
         `UPDATE principals SET revoked_at = ?
          WHERE kind IN ('owner', 'agent')
            AND revoked_at IS NULL RETURNING id`
@@ -395,7 +410,7 @@ export function revokeByCredential(
 ): string[] {
   return idsFromRows(
     db
-      .prepare(
+      .query(
         `UPDATE principals SET revoked_at = ?
          WHERE credential_id = ? AND revoked_at IS NULL RETURNING id`
       )
@@ -411,7 +426,7 @@ export function prunePrincipals(db: Database, now: number): void {
   // Thirty days preserves a useful audit/debug window after a principal stops
   // being usable while still placing a fixed bound on terminal-row growth.
   const cutoff = now - PRINCIPAL_RETENTION_MS;
-  db.prepare(
+  db.query(
     `DELETE FROM principals
      WHERE (kind = 'ambient' AND COALESCE(last_seen_at, created_at) < ?)
         OR (kind <> 'ambient' AND (
@@ -423,7 +438,7 @@ export function prunePrincipals(db: Database, now: number): void {
 
 export function countLivePrincipals(db: Database, now: number): number {
   const row = db
-    .prepare(
+    .query(
       `SELECT COUNT(*) AS count FROM principals
        WHERE kind IN ('owner', 'agent')
          AND revoked_at IS NULL AND expires_at > ?`

@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import type { Logger } from "@opentelemetry/api-logs";
 import { closeSync, lstatSync } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { join } from "node:path";
 import {
   SHARE_MAX_FILES,
   SHARE_MAX_FILE_BYTES,
@@ -151,11 +150,6 @@ export interface ShareInput {
   text?: string | undefined;
   url?: string | undefined;
   files: File[];
-}
-
-/** Absolute staging root inside the given brain repo. */
-export function shareStagingRoot(brainPath: string): string {
-  return join(brainPath, SHARE_STAGING_DIR);
 }
 
 /**

@@ -8,15 +8,13 @@ import { join } from "path";
 
 import { ignoreScratch, SCRATCH_MAX_BYTES } from "../src/lib/scratch";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { git, gitResult } from "./git-fixture";
 
 let root: string;
 
 // Several CLI launches per test; each takes seconds when the whole suite runs.
 const CLI_TIMEOUT_MS = 120_000;
 
-function git(...args: string[]) {
-  return Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
-}
 
 beforeEach(() => {
   // A git repository with no ignore line for scratch: an existing brain from
@@ -24,7 +22,7 @@ beforeEach(() => {
   root = makeTempBrain();
   mkdirSync(join(root, "notes"), { recursive: true });
   writeFileSync(join(root, "notes/trip.md"), "# Trip\n");
-  git("init", "-q");
+  git(root, "init", "-q");
   writeFileSync(join(root, ".gitignore"), "node_modules\n");
 });
 
@@ -58,8 +56,8 @@ describe("render into the scratch area", () => {
     expect(out.output).toMatch(/^\.brain\/scratch\/trip-\d{8}T\d{9}Z-[0-9a-f]{6}\.html$/);
     expect(readFileSync(join(root, out.output), "utf8")).toContain("<h1>Trip</h1>");
     // Nothing in scratch is something git would commit.
-    git("add", "-A");
-    const staged = new TextDecoder().decode(git("diff", "--cached", "--name-only").stdout);
+    git(root, "add", "-A");
+    const staged = git(root, "diff", "--cached", "--name-only");
     expect(staged).not.toContain(".brain/scratch");
     expect(staged).toContain("notes/trip.md");
   }, CLI_TIMEOUT_MS);
@@ -146,7 +144,7 @@ describe("render into the scratch area", () => {
     await runCli(root, ["doctor", "--fix"]);
     const again = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", ".brain/scratch/exposed.html"]);
     expect(again.code).toBe(0);
-    expect(git("check-ignore", "-q", "--no-index", "--", ".brain/scratch/exposed.html").exitCode).toBe(0);
+    expect(gitResult(root, "check-ignore", "-q", "--no-index", "--", ".brain/scratch/exposed.html").code).toBe(0);
   }, CLI_TIMEOUT_MS);
 
   test("retained pins over the cap do not let the render delete its own reported output (#1691)", async () => {

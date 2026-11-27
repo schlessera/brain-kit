@@ -40,6 +40,10 @@ const HELP = `brain search <query> — hybrid FTS5 + vector search
 
 export const searchCommand: CoreCommand = {
   summary: "Hybrid search across the knowledge base",
+  flags: {
+    boolean: ["assets-only", "chunks", "include-archived", "rerank-dry-run", "upcoming"],
+    value: ["deadline-from", "deadline-to", "limit", "mode", "relevance", "rerank", "sort", "status", "tag", "type", "updated-before", "updated-since"],
+  },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);

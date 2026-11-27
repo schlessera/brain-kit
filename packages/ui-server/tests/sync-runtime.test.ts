@@ -7,7 +7,7 @@
  * says, so a test can change what the next sync reports between runs.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -21,6 +21,7 @@ import { runJob } from "../src/cron/run-job";
 import { createCronScheduler } from "../src/cron/scheduler";
 import { createUiDb } from "../src/db/client";
 import { createTestApp } from "./helpers/test-app";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 
 const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
@@ -66,27 +67,18 @@ const FAILED_AFTER_INIT = result({
  * A brain root whose CLI (`node_modules/.bin/brain`, also on `bin` for a
  * shell) records its argv and answers `sync` from the scenario file.
  */
-function fakeBrain(): { root: string; bin: string; set(s: Scenario): void; argv(): string[][] } {
+function scenarioBrain(): { root: string; bin: string; set(s: Scenario): void; argv(): string[][] } {
   const root = mkdtempSync(join(tmpdir(), "sync-runtime-"));
   roots.push(root);
   const bin = join(root, "node_modules", ".bin");
-  mkdirSync(bin, { recursive: true });
   const scenario = join(root, "scenario.json");
   const argvLog = join(root, "argv.log");
-  writeFileSync(
-    join(bin, "brain"),
-    `#!${process.execPath}
-import { appendFileSync, readFileSync } from "node:fs";
-const args = process.argv.slice(2);
-appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/argv.log" : ${JSON.stringify(argvLog)}, JSON.stringify(args) + "\\n");
+  installFakeBrain(root, { argvLog, body: `import { readFileSync } from "node:fs";
 if (args[0] === "index") { console.log("indexed"); process.exit(0); }
 const s = JSON.parse(readFileSync(${JSON.stringify(scenario)}, "utf8"));
 if (s.stdout) process.stdout.write(s.stdout + "\\n");
 if (s.stderr) process.stderr.write(s.stderr + "\\n");
-process.exit(s.exit);
-`
-  );
-  chmodSync(join(bin, "brain"), 0o755);
+process.exit(s.exit);` });
   return {
     root,
     bin,
@@ -110,7 +102,7 @@ function syncRoots(db: ReturnType<typeof createUiDb>, store: ActivityStore): Spa
 
 describe("BrainClient.sync reads the result", () => {
   test("asks for --json, and returns the readable message with the result", async () => {
-    const brain = fakeBrain();
+    const brain = scenarioBrain();
     brain.set({ stdout: INVOKED_KNOWN, exit: 0 });
     const synced = await createBrainClient({ brainPath: brain.root }).sync();
 
@@ -120,7 +112,7 @@ describe("BrainClient.sync reads the result", () => {
   });
 
   test("a failure after init rejects, carrying the runtime it observed", async () => {
-    const brain = fakeBrain();
+    const brain = scenarioBrain();
     brain.set({ stdout: FAILED_AFTER_INIT, stderr: "claude CLI failed (exit 1): boom", exit: 2 });
     const error = await createBrainClient({ brainPath: brain.root }).sync().catch((e) => e);
 
@@ -130,7 +122,7 @@ describe("BrainClient.sync reads the result", () => {
   });
 
   test("a malformed result never turns a failed sync into success, and claims no runtime", async () => {
-    const brain = fakeBrain();
+    const brain = scenarioBrain();
     brain.set({ stdout: '{"run": {"status": "complete"', exit: 1 });
     const error = await createBrainClient({ brainPath: brain.root }).sync().catch((e) => e);
     expect(error).toBeInstanceOf(BrainSyncError);
@@ -163,7 +155,7 @@ describe("the container cron wrapper reads the sync job's result", () => {
   }
 
   async function wrap(
-    brain: ReturnType<typeof fakeBrain>,
+    brain: ReturnType<typeof scenarioBrain>,
     dbPath: string,
     jobName: string,
     command: readonly string[]
@@ -188,7 +180,7 @@ describe("the container cron wrapper reads the sync job's result", () => {
   }
 
   test("the sync job: the runtime on its run, its report in the log, the reindex after", async () => {
-    const brain = fakeBrain();
+    const brain = scenarioBrain();
     const dbPath = dbFile();
     brain.set({ stdout: INVOKED_KNOWN, exit: 0 });
     const run = await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND);
@@ -212,7 +204,7 @@ describe("the container cron wrapper reads the sync job's result", () => {
   });
 
   test("a failure after init: the child's exit code, and the observation kept", async () => {
-    const brain = fakeBrain();
+    const brain = scenarioBrain();
     const dbPath = dbFile();
     brain.set({ stdout: FAILED_AFTER_INIT, stderr: "claude CLI failed (exit 1): boom", exit: 2 });
     const run = await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND);
@@ -227,7 +219,7 @@ describe("the container cron wrapper reads the sync job's result", () => {
   });
 
   test("any other command's stdout is passed through and never read as a sync result", async () => {
-    const brain = fakeBrain();
+    const brain = scenarioBrain();
     const dbPath = dbFile();
     brain.set({ stdout: INVOKED_KNOWN, exit: 0 });
     // Same job name, a command this module did not emit; then another job.
@@ -249,7 +241,7 @@ describe("the container cron wrapper reads the sync job's result", () => {
   });
   // Moved from the in-process scheduler's runner (#4681), which no production path reached.
   test("each run keeps only its own observation, and status tells latest from last observed", async () => {
-    const brain = fakeBrain();
+    const brain = scenarioBrain();
     const dbPath = dbFile();
     brain.set({ stdout: INVOKED_KNOWN, exit: 0 });
     expect((await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND)).code).toBe(0);
@@ -279,7 +271,7 @@ describe("the container cron wrapper reads the sync job's result", () => {
   });
 
   test("a failure after init is an error run, in cron status too, whose observation is the latest", async () => {
-    const brain = fakeBrain();
+    const brain = scenarioBrain();
     const dbPath = dbFile();
     brain.set({ stdout: FAILED_AFTER_INIT, stderr: "claude CLI failed (exit 1): boom", exit: 2 });
     expect((await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND)).code).toBe(2);
@@ -293,7 +285,7 @@ describe("the container cron wrapper reads the sync job's result", () => {
   });
 
   test("an unreadable result and an unknown version record no version", async () => {
-    const brain = fakeBrain();
+    const brain = scenarioBrain();
     const dbPath = dbFile();
     brain.set({ stdout: "not a result", exit: 0 });
     expect((await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND)).code).toBe(0);
@@ -318,7 +310,7 @@ describe("/api/status shows the sync runtime beside chat's", () => {
   test("a wrapper-recorded sync reaches the mounted status, apart from the chat runtime", async () => {
     const t = await createTestApp();
     try {
-      const brain = fakeBrain();
+      const brain = scenarioBrain();
       brain.set({ stdout: INVOKED_KNOWN, exit: 0 });
       const code = await runJob({
         jobName: "sync",

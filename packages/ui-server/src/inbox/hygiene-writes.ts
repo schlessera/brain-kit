@@ -5,7 +5,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneMediaReceipt, HygieneReviewRead, HygieneReviewState, InboxActionItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
 import { hygieneDiffSchema, hygieneEffectSchema, hygieneMediaReceiptSchema, hygieneOutcomeSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
-import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
+import { isHumanOwner, isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxAction, insertInboxAction, inboxIdentity } from "./actions.js";
 import { createInboxResolver, inboxSnoozeUntil } from "./resolve.js";
 import { createInboxStore } from "./store.js";
@@ -37,7 +37,7 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
   // stamped before the review waited for the writer, and records times only.
   function authority(principalId: string) {
     const p = resolvePrincipal(db, principalId);
-    if (!p || !isUsablePrincipal(p, Date.now()) || !["owner", "ambient"].includes(p.kind)) throw new HygieneAuthorityError("Human review authority is required");
+    if (!p || !isUsablePrincipal(p, Date.now()) || !isHumanOwner(p)) throw new HygieneAuthorityError("Human review authority is required");
   }
   function state(): HygieneReviewState {
     const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;

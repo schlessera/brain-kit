@@ -35,7 +35,7 @@ interface CronRunRecord {
  */
 export function recordCronRun(db: Database, jobName: string): CronRunRecord {
   const startedAt = Date.now();
-  db.prepare(
+  db.query(
     "INSERT INTO cron_runs (job_name, started_at, status) VALUES (?, ?, 'running')"
   ).run(jobName, startedAt);
 
@@ -44,11 +44,11 @@ export function recordCronRun(db: Database, jobName: string): CronRunRecord {
       const finishedAt = Date.now();
       const durationMs = finishedAt - startedAt;
       if (error === undefined) {
-        db.prepare(
+        db.query(
           "UPDATE cron_runs SET status = 'success', finished_at = ?, duration_ms = ? WHERE job_name = ? AND started_at = ?"
         ).run(finishedAt, durationMs, jobName, startedAt);
       } else {
-        db.prepare(
+        db.query(
           "UPDATE cron_runs SET status = 'error', finished_at = ?, duration_ms = ?, error_message = ? WHERE job_name = ? AND started_at = ?"
         ).run(finishedAt, durationMs, error, jobName, startedAt);
       }

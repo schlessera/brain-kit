@@ -16,7 +16,6 @@ import {
   SCRATCH_TTL_MS,
   assertScratchWritable,
   cleanScratch,
-  ensureScratch,
   ignoreScratch,
   isInScratch,
   pruneScratch,
@@ -28,6 +27,7 @@ import {
   writeScratchFile,
 } from "../src/lib/scratch.js";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { git } from "./git-fixture";
 
 let root: string;
 const NOW = Date.parse("2026-09-24T12:00:00Z");
@@ -230,7 +230,6 @@ describe("a symlinked scratch", () => {
     symlinkSync(outside.dir, join(root, SCRATCH_DIR));
     expect(() => pruneScratch(root, NOW)).toThrow(ScratchRedirectedError);
     expect(() => cleanScratch(root)).toThrow(ScratchRedirectedError);
-    expect(() => ensureScratch(root)).toThrow(ScratchRedirectedError);
     expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).toThrow(
       ScratchRedirectedError,
     );
@@ -248,7 +247,7 @@ describe("a symlinked scratch", () => {
     symlinkSync(outside.dir, join(root, ".brain"));
     expect(() => pruneScratch(root, NOW)).toThrow(ScratchRedirectedError);
     expect(() => cleanScratch(root)).toThrow(ScratchRedirectedError);
-    expect(() => ensureScratch(root)).toThrow(ScratchRedirectedError);
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).toThrow(ScratchRedirectedError);
     expect(existsSync(join(outside.dir, "scratch", "old.pdf"))).toBe(true);
   });
 
@@ -524,7 +523,6 @@ describe("a prune beside another process", () => {
 });
 
 describe("gitignore guard", () => {
-  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, ...args]);
   const fileIgnored = (rel: string) =>
     Bun.spawnSync(["git", "-C", root, "check-ignore", "-q", "--no-index", "--", rel]).exitCode === 0;
 
@@ -551,10 +549,10 @@ describe("gitignore guard", () => {
   test("outside a git repository the ignore line is required all the same, and git reads it", () => {
     // A later `git init` would put an unignored scratch into the first commit.
     expect(scratchIgnored(root)).toBe(false);
-    expect(() => ensureScratch(root)).toThrow(ScratchNotIgnoredError);
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).toThrow(ScratchNotIgnoredError);
     expect(ignoreScratch(root)).toBe(true);
     expect(scratchIgnored(root)).toBe(true);
-    expect(() => ensureScratch(root)).not.toThrow();
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).not.toThrow();
     expect(ignoreScratch(root)).toBe(false);
     // The same rules git would apply: a later negation cancels the line.
     writeFileSync(join(root, ".gitignore"), ".brain/scratch/\n!.brain/scratch/\n");
@@ -562,18 +560,18 @@ describe("gitignore guard", () => {
   });
 
   test("in a git repository, writes wait for the ignore line, which ignoreScratch adds once", () => {
-    git("init", "-q");
+    git(root, "init", "-q");
     writeFileSync(join(root, ".gitignore"), "node_modules");
     expect(scratchIgnored(root)).toBe(false);
-    expect(() => ensureScratch(root)).toThrow(ScratchNotIgnoredError);
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).toThrow(ScratchNotIgnoredError);
     expect(ignoreScratch(root)).toBe(true);
     expect(scratchIgnored(root)).toBe(true);
     expect(ignoreScratch(root)).toBe(false);
-    expect(() => ensureScratch(root)).not.toThrow();
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).not.toThrow();
   });
 
   test("only the directory's own exclusion counts: a `/*` rule with a negation is refused, and the fix repairs it", () => {
-    git("init", "-q");
+    git(root, "init", "-q");
     writeFileSync(join(root, ".gitignore"), ".brain/scratch/*\n!.brain/scratch/exposed.pdf\n");
     expect(fileIgnored(`${SCRATCH_DIR}/exposed.pdf`)).toBe(false);
     expect(scratchIgnored(root)).toBe(false);
@@ -589,7 +587,7 @@ describe("gitignore guard", () => {
   });
 
   test("a directory line cancelled by a later negation is refused, and the fix repairs it", () => {
-    git("init", "-q");
+    git(root, "init", "-q");
     writeFileSync(join(root, ".gitignore"), ".brain/scratch/\n!.brain/scratch/\n");
     expect(scratchIgnored(root)).toBe(false);
     const target = join(realpathSync(root), SCRATCH_DIR, "x.pdf");

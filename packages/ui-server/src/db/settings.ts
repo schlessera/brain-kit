@@ -41,7 +41,7 @@ export function getSetting<T>(db: Database, key: string, fallback: T, log?: Logg
 }
 
 export function setSetting(db: Database, key: string, value: unknown): void {
-  db.prepare(
+  db.query(
     `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
   ).run(key, JSON.stringify(value), Date.now());

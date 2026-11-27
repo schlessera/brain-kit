@@ -8,6 +8,7 @@ import type { BrainContext } from "../lib/context.js";
 import type { Enrichment } from "../lib/enrichment.js";
 import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/seams.js";
 import type { ResolvedProviders } from "../lib/registry.js";
+import type { CommandFlags } from "./command-flags.js";
 
 /**
  * Everything a core command needs beyond its arguments. Assembled once by the
@@ -34,6 +35,8 @@ export interface CliContext {
 /** A core command implementation. Modules use the public CommandModule instead. */
 export interface CoreCommand {
   summary: string;
+  /** Every flag the command reads, across all of its verbs, except the global ones (command-flags.ts). */
+  flags: CommandFlags;
   helpBlock?: string;
   run(args: string[], cli: CliContext): Promise<number | void>;
 }

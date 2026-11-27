@@ -10,10 +10,12 @@ import {
   ShareTooLargeError,
   pruneShareStaging,
   sanitizeFileName,
-  shareStagingRoot,
   stageShare,
 } from "../src/share/staging";
 import { PathEscapeError } from "../src/files/walker";
+
+/** The staging root inside a brain repo. */
+const stagingRoot = (brainPath: string) => join(brainPath, SHARE_STAGING_DIR);
 
 const BRAIN_ROOT = `/tmp/brain-ui-share-${process.pid}`;
 
@@ -182,7 +184,7 @@ describe("POST /api/share", () => {
       error: "text_too_large",
       limit: 200_000,
     });
-    await expect(readdir(shareStagingRoot(BRAIN_ROOT))).rejects.toThrow();
+    await expect(readdir(stagingRoot(BRAIN_ROOT))).rejects.toThrow();
   });
 
   test("a body with no content-length is still capped while streaming", async () => {
@@ -230,7 +232,7 @@ describe("POST /api/share", () => {
 
     expect(response.status).toBe(403);
     expect((await response.json()).error).toBe("cross_origin_rejected");
-    await expect(readdir(shareStagingRoot(BRAIN_ROOT))).rejects.toThrow();
+    await expect(readdir(stagingRoot(BRAIN_ROOT))).rejects.toThrow();
   });
 
   test("a same-origin POST from the app is accepted", async () => {
@@ -362,7 +364,7 @@ describe("share staging", () => {
 
     try {
       await mkdir(join(brainRoot, ".brain-ui"));
-      await symlink(outsideRoot, shareStagingRoot(brainRoot), "dir");
+      await symlink(outsideRoot, stagingRoot(brainRoot), "dir");
 
       await expect(
         stageShare(brainRoot, { text: "must stay inside", files: [] })
@@ -381,7 +383,7 @@ describe("share staging", () => {
 
     try {
       await mkdir(join(brainRoot, ".brain-ui"));
-      await symlink(missingTarget, shareStagingRoot(brainRoot), "dir");
+      await symlink(missingTarget, stagingRoot(brainRoot), "dir");
 
       await expect(
         stageShare(brainRoot, { text: "must fail closed", files: [] })
@@ -478,7 +480,7 @@ describe("share staging", () => {
       ShareTooLargeError
     );
     // The half-written directory is removed, not left for the agent to read.
-    await expect(readdir(shareStagingRoot(BRAIN_ROOT))).resolves.toEqual([]);
+    await expect(readdir(stagingRoot(BRAIN_ROOT))).resolves.toEqual([]);
   });
 
   test("a share is only visible once it is whole", async () => {
@@ -494,12 +496,12 @@ describe("share staging", () => {
     const staging = stageShare(BRAIN_ROOT, { text: "atomic", files: [file] });
     try {
       await reading;
-      const incomplete = await readdir(shareStagingRoot(BRAIN_ROOT));
+      const incomplete = await readdir(stagingRoot(BRAIN_ROOT));
       expect(incomplete).toHaveLength(1);
       expect(incomplete[0]).toMatch(/^\.[a-f0-9-]{36}\.partial$/);
     } finally { release(); await staging; }
     const result = await staging;
-    const entries = await readdir(shareStagingRoot(BRAIN_ROOT));
+    const entries = await readdir(stagingRoot(BRAIN_ROOT));
     expect(await readFile(join(BRAIN_ROOT, result.files[0]!.path), "utf8")).toBe("x");
 
     expect(entries).toEqual([result.id]);
@@ -533,7 +535,7 @@ describe("share staging", () => {
 
   test("the inbox refuses to grow without bound", async () => {
     for (let n = 0; n < 50; n += 1) {
-      await mkdir(join(shareStagingRoot(BRAIN_ROOT), `share-${n}`), { recursive: true });
+      await mkdir(join(stagingRoot(BRAIN_ROOT), `share-${n}`), { recursive: true });
     }
 
     await expect(stageShare(BRAIN_ROOT, { text: "one too many", files: [] })).rejects.toMatchObject({
@@ -564,10 +566,10 @@ describe("share staging", () => {
         await mkdir(join(target, "valuable"), { recursive: true });
         await writeFile(join(target, "valuable/keep.txt"), "preserve");
         await mkdir(join(BRAIN_ROOT, ".brain-ui"), { recursive: true });
-        await symlink(target, shareStagingRoot(BRAIN_ROOT));
+        await symlink(target, stagingRoot(BRAIN_ROOT));
         expect(await pruneShareStaging(BRAIN_ROOT, Date.now() + 365 * 86400000)).toBe(0);
         expect(await readFile(join(target, "valuable/keep.txt"), "utf8")).toBe("preserve");
-        await rm(shareStagingRoot(BRAIN_ROOT));
+        await rm(stagingRoot(BRAIN_ROOT));
       }
     } finally { await rm(outside, { recursive: true, force: true }); }
   });
@@ -580,20 +582,20 @@ describe("share staging", () => {
       await stageShare(BRAIN_ROOT, { text: "expired share", files: [] });
       await mkdir(join(holder, "valuable"));
       await writeFile(join(holder, "valuable/keep.txt"), "preserve");
-      await symlink(join(holder, "valuable"), join(shareStagingRoot(BRAIN_ROOT), "linked"));
+      await symlink(join(holder, "valuable"), join(stagingRoot(BRAIN_ROOT), "linked"));
       expect(await pruneShareStaging(link, Date.now() + 365 * 86400000)).toBe(1);
       expect(await readFile(join(holder, "valuable/keep.txt"), "utf8")).toBe("preserve");
     } finally { await rm(holder, { recursive: true, force: true }); }
   });
 
   test("pruneShareStaging sweeps orphaned partial directories sooner", async () => {
-    const partial = join(shareStagingRoot(BRAIN_ROOT), ".abc.partial");
+    const partial = join(stagingRoot(BRAIN_ROOT), ".abc.partial");
     await mkdir(partial, { recursive: true });
     const anHourAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     await utimes(partial, anHourAgo, anHourAgo);
 
     expect(await pruneShareStaging(BRAIN_ROOT)).toBe(1);
-    expect(await readdir(shareStagingRoot(BRAIN_ROOT))).toEqual([]);
+    expect(await readdir(stagingRoot(BRAIN_ROOT))).toEqual([]);
   });
 
   test("pruneShareStaging removes expired shares and keeps fresh ones", async () => {
@@ -605,7 +607,7 @@ describe("share staging", () => {
     await utimes(staleDir, expired, expired);
 
     expect(await pruneShareStaging(BRAIN_ROOT)).toBe(1);
-    expect(await readdir(shareStagingRoot(BRAIN_ROOT))).toEqual([fresh.id]);
+    expect(await readdir(stagingRoot(BRAIN_ROOT))).toEqual([fresh.id]);
   });
 
   test("pruneShareStaging is a no-op when nothing has been staged", async () => {

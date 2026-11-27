@@ -107,6 +107,21 @@ function describeValue(value: unknown): string {
   return `a ${typeof value}`;
 }
 
+/**
+ * `value` with every string in it copied. A string cut from a file's text
+ * (a YAML scalar, a link target) can share that whole text's buffer, so one
+ * kept past its file would keep the file's body alive for the rest of the run.
+ * The copy keeps every UTF-16 code unit, lone surrogates included.
+ */
+function own<T>(value: T): T {
+  if (typeof value === "string") return value.split("").join("") as T;
+  if (Array.isArray(value)) return value.map(own) as T;
+  if (value !== null && typeof value === "object" && [Object.prototype, null].includes(Object.getPrototypeOf(value))) {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [own(key), own(entry)])) as T;
+  }
+  return value;
+}
+
 /** The corpus issues, as `brain validate` reports them. */
 export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
   return validateDetailed(root, taxonomy).map(({ file, level, message }) => ({ file, level, message }));
@@ -120,39 +135,55 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
   const vocabulary = taxonomy.tags?.vocabulary ? new Set(taxonomy.tags.vocabulary) : null;
 
   // Build the same maps the indexer uses, so validation and resolution agree
-  const fileMap = new Map<string, string>();
+  const fileMap = new Map<string, string>(files.map((path) => [path, path]));
   const aliasMap = new Map<string, string[]>();
   // `supersedes` values as written, checked once every file is known.
   const supersedes = new Map<string, unknown>();
-  for (const path of files) {
-    fileMap.set(path, path);
-    try {
-      const { data } = parseFrontmatter(readFileSync(resolve(root, path), "utf-8"), { dataOnly: true });
-      if (data.supersedes !== undefined) supersedes.set(path, data.supersedes);
-      if (Array.isArray(data.aliases)) {
-        for (const alias of data.aliases) {
-          const key = String(alias).toLowerCase().trim();
-          if (!key) continue;
-          const paths = aliasMap.get(key) ?? [];
-          paths.push(path);
-          aliasMap.set(key, paths);
-        }
-      }
-    } catch {
-      // frontmatter errors reported in the main loop
-    }
-  }
-
   const resolveLink = createWikiLinkResolver(fileMap, taxonomy.dirAnchors);
   const describeUnresolved = createUnresolvedLinkDescriber(files);
+
+  // One read and one frontmatter parse per file (#4785). Everything but an
+  // alias link is judged as the file is read; a link that resolves to no path
+  // waits, as a copied string, until every file's aliases are known. Nothing
+  // kept past its file shares that file's text (see `own`).
+  const checked: Array<{ file: string; issues: DetailedValidationIssue[]; aliasLinks: string[] }> = [];
   for (const filePath of files) {
-    const fullPath = resolve(root, filePath);
-    const raw = readFileSync(fullPath, "utf-8");
+    const raw = readFileSync(resolve(root, filePath), "utf-8");
+    const fileIssues: DetailedValidationIssue[] = [];
+    const aliasLinks: string[] = [];
+    checked.push({ file: filePath, issues: fileIssues, aliasLinks });
+
+    let parsed: { data: Record<string, any>; content: string } | null = null;
+    let parseError: unknown;
+    try {
+      parsed = parseFrontmatter(raw, { dataOnly: true });
+    } catch (e) {
+      parseError = e;
+    }
+    // Aliases and `supersedes` count whatever the fences look like, and a
+    // value that cannot be read stops only this file's collection.
+    if (parsed) {
+      try {
+        const { data } = parsed;
+        if (data.supersedes !== undefined) supersedes.set(filePath, own(data.supersedes));
+        if (Array.isArray(data.aliases)) {
+          for (const alias of data.aliases) {
+            const key = own(String(alias).toLowerCase().trim());
+            if (!key) continue;
+            const paths = aliasMap.get(key) ?? [];
+            paths.push(filePath);
+            aliasMap.set(key, paths);
+          }
+        }
+      } catch {
+        // the per-file checks below report what is wrong with the frontmatter
+      }
+    }
 
     // Check for frontmatter, by the fences the indexer reads (#2507): a
     // byte order mark before them is fine, a `----` line is not a fence.
     if (!frontmatterBlock(raw)) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "error",
         message: "Missing YAML frontmatter",
@@ -161,27 +192,22 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
       continue;
     }
 
-    let data: Record<string, any>;
-    let content: string;
-    try {
-      const parsed = parseFrontmatter(raw, { dataOnly: true });
-      data = parsed.data;
-      content = parsed.content;
-    } catch (e) {
-      issues.push({
+    if (!parsed) {
+      fileIssues.push({
         file: filePath,
         level: "error",
-        message: `Invalid YAML frontmatter: ${e}`,
+        message: `Invalid YAML frontmatter: ${parseError}`,
         detail: { rule: "frontmatter-invalid" },
       });
       continue;
     }
+    const { data, content } = parsed;
     // The field a rule checks, with its value as written.
     const about = (field: string) => ({ field, value: rawValue(Object.hasOwn(data, field) ? data[field] : undefined) });
 
     // Required fields
     if (!data.title) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "error",
         message: "Missing required field: title",
@@ -189,14 +215,14 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
       });
     }
     if (!data.type) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "error",
         message: "Missing required field: type",
         detail: { rule: "required-missing", ...about("type") },
       });
     } else if (!taxonomy.isValidType(data.type)) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "error",
         message: `Invalid type: "${data.type}". Valid: ${taxonomy.validTypes().join(", ")}`,
@@ -204,7 +230,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
       });
     }
     if (!data.created) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "warning",
         message: "Missing field: created",
@@ -212,7 +238,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
       });
     }
     if (!data.updated) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "warning",
         message: "Missing field: updated",
@@ -220,7 +246,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
       });
     }
     if (!data.tags || !Array.isArray(data.tags) || data.tags.length === 0) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "warning",
         message: "Missing or empty tags",
@@ -230,7 +256,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
 
     // Optional field validation
     if (data.status && !VALID_STATUSES.includes(data.status)) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "error",
         message: `Invalid status: "${data.status}". Valid: ${VALID_STATUSES.join(", ")}`,
@@ -238,7 +264,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
       });
     }
     if (data.relevance && !VALID_RELEVANCES.includes(data.relevance)) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "error",
         message: `Invalid relevance: "${data.relevance}". Valid: ${VALID_RELEVANCES.join(", ")}`,
@@ -246,7 +272,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
       });
     }
     if ("generated_from" in data && (typeof data.generated_from !== "string" || data.generated_from.trim() === "")) {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "error",
         message: `Invalid generated_from: ${describeValue(data.generated_from)}. It must be a non-empty string: a repo-relative path or a tool name`,
@@ -256,14 +282,14 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
     for (const field of ["propagation_scope", "propagation_reference"]) {
       if (field in data && (typeof data[field] !== "string" || !data[field].trim() || (field === "propagation_scope" && data[field].length > 4000) ||
         (field === "propagation_reference" && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(data[field])))) {
-        issues.push({ file: filePath, level: "error", message: `Invalid ${field}: expected ${field === "propagation_reference" ? "a full Git commit ID" : "a non-empty scope string"}`,
+        fileIssues.push({ file: filePath, level: "error", message: `Invalid ${field}: expected ${field === "propagation_reference" ? "a full Git commit ID" : "a non-empty scope string"}`,
           detail: { rule: "field-invalid", ...about(field) } });
       }
     }
     // `verification` (#394): `unverified` is the one value brain reads. Any
     // other would read as a claim (say, "verified") that nothing checks.
     if ("verification" in data && data.verification !== "unverified") {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "warning",
         message: `Unrecognised verification: ${typeof data.verification === "string" ? `"${data.verification}"` : describeValue(data.verification)}. The only value brain reads is "unverified"; otherwise leave the field out`,
@@ -271,7 +297,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
       });
     }
     if (data.status === "archived" && data.relevance === "primary") {
-      issues.push({
+      fileIssues.push({
         file: filePath,
         level: "warning",
         message: "status: archived contradicts relevance: primary; set relevance: historical",
@@ -283,7 +309,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
     if (Array.isArray(data.tags)) {
       for (const tag of data.tags) {
         if (typeof tag !== "string" || tag !== tag.toLowerCase() || tag.includes(" ")) {
-          issues.push({
+          fileIssues.push({
             file: filePath,
             level: "warning",
             message: `Tag "${tag}" should be lowercase and hyphenated (no spaces)`,
@@ -292,14 +318,14 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
         }
         const name = String(tag);
         if (tagAliases && Object.hasOwn(tagAliases, name)) {
-          issues.push({
+          fileIssues.push({
             file: filePath,
             level: "warning",
             message: `Tag "${name}" is an alias in taxonomy.tags — use "${tagAliases[name]}"`,
             detail: { rule: "tag-alias", field: "tags", value: name },
           });
         } else if (vocabulary && !vocabulary.has(name)) {
-          issues.push({
+          fileIssues.push({
             file: filePath,
             level: "warning",
             message: `Tag "${name}" is not in taxonomy.tags.vocabulary`,
@@ -311,14 +337,17 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
 
     // Wiki-link validation — uses the indexer's resolver so warnings match
     // what the link graph will actually contain
-    const wikiLinks = extractWikiLinks(content);
-    for (const link of wikiLinks) {
-      const resolved =
-        resolveLink(link, filePath) ??
-        resolveAlias(link, aliasMap, filePath);
-      if (resolved) continue;
+    for (const link of extractWikiLinks(content)) {
+      if (!resolveLink(link, filePath)) aliasLinks.push(own(link));
+    }
+  }
+
+  for (const { file, issues: fileIssues, aliasLinks } of checked) {
+    issues.push(...fileIssues);
+    for (const link of aliasLinks) {
+      if (resolveAlias(link, aliasMap, file)) continue;
       // `brain audit` words its broken-link findings with the same describer.
-      issues.push({ file: filePath, level: "warning", message: describeUnresolved(link), detail: { rule: "link-unresolved", target: link } });
+      issues.push({ file, level: "warning", message: describeUnresolved(link), detail: { rule: "link-unresolved", target: link } });
     }
   }
 

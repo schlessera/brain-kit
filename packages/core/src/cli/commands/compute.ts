@@ -51,8 +51,8 @@ error or a refusal (nothing allocated); exit 2 a job whose cleanup was not
 confirmed (run \`brain compute reconcile\`); exit 3 a job that ended other
 than succeeded. A second Ctrl-C leaves an attached run at once (exit 130).`;
 
-const VALUE_FLAGS = new Set(["provider", "cwd", "env", "source", "artifact", "lease"]);
-const BOOLEAN_FLAGS = new Set(["retain", "detach", "confirm", "json", "human"]);
+export const VALUE_FLAGS = new Set(["provider", "cwd", "env", "source", "artifact", "lease"]);
+export const BOOLEAN_FLAGS = new Set(["retain", "detach", "confirm", "json", "human"]);
 const REPEATABLE = new Set(["env", "source", "artifact"]);
 const OUTPUT = ["json", "human"];
 const ALLOWED: Record<string, string[]> = {
@@ -369,6 +369,7 @@ export async function runJob(
 
 export const computeCommand: CoreCommand = {
   summary: "External compute: plan, run, inspect, cancel and collect jobs on a configured provider",
+  flags: { boolean: ["confirm", "detach", "retain"], value: ["artifact", "cwd", "env", "lease", "provider", "source"] },
   helpBlock: USAGE,
   async run(rest, cli) {
     const p = parseComputeArgs(rest);
