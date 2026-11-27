@@ -6,7 +6,7 @@ import { priceUsage, type RollupPricing } from "../activity/store.js";
 import { priceProviderAttempt } from "../pricing/provider-pricing.js";
 import type { ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
 import type { BudgetObservation, TurnBudgetReceipt } from "@schlessera/brain-ui-sdk/protocol";
-import { procedureCaller, type SqliteWriter, type WriteProcedures } from "../db/write-worker.js";
+import { procedureCaller, trackedCaller, type SqliteWriter, type WriteProcedures } from "../db/write-worker.js";
 import type { ApifyInferenceSpend } from "@schlessera/brain-common/internal/apify";
 export class BudgetUnavailable extends Error {
   constructor() { super("Inference budget accounting became unavailable. The turn stopped; review any partial work before continuing."); }
@@ -327,15 +327,8 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
     failed?: unknown;
   }>();
   const ledger = budgetLedger(db);
-  const submit = procedureCaller(db, { url, setup }, undefined, writer);
   // The latest budget write, until it settles: admission reads after it.
-  let tail: Promise<unknown> = Promise.resolve();
-  const call = <T>(name: string, ...args: unknown[]): Promise<T> => {
-    const done = submit<T>(name, ...args);
-    tail = done.then(() => {}, () => {});
-    return done;
-  };
-  const settled = async () => { let waiting: Promise<unknown>; do { waiting = tail; await waiting; } while (waiting !== tail); };
+  const { call, settled } = trackedCaller(procedureCaller(db, { url, setup }, undefined, writer));
   const current = (id: string) => {
     const turn = active.get(id);
     if (turn?.failed !== undefined) throw turn.failed;

@@ -11,7 +11,7 @@ import { parseGovernancePolicy, GOVERNANCE_POLICY_PATH, GovernancePolicyReadErro
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { PROPOSE_POLICY_CHANGE_INPUT_SCHEMA, type PolicyChangeInput, type PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { admitHeld, AuthorityHeld, retryHeld, type AuthorityHold } from "./authority-hold.js";
-import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import { procedureCaller, trackedCaller, type SqliteWriter } from "../db/write-worker.js";
 import * as proposalWrites from "./policy-proposal-writes.js";
 
 const hash = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -113,13 +113,8 @@ export function createPolicyProposals(options: {
   validate?: typeof parseGovernancePolicy;
 }) {
   const db = options.db;
-  const call = procedureCaller(db, proposalWrites, undefined, options.writer);
-  let tail: Promise<void> = Promise.resolve();
-  const submit = (name: string, ...args: unknown[]) => {
-    const done = call(name, ...args);
-    tail = done.then(() => {}, () => {});
-    return done;
-  };
+  const writes = trackedCaller(procedureCaller(db, proposalWrites, undefined, options.writer));
+  const submit = (name: string, ...args: unknown[]) => writes.call(name, ...args);
   // App startup also serves hosts whose brain has not been provisioned yet.
   // Keep existing roots canonical; a missing root is resolved at the operation,
   // never created by policy publication.
@@ -157,7 +152,7 @@ export function createPolicyProposals(options: {
       return submit("bind", turnId, sessionId);
     },
     /** Settles once every write submitted before it has settled: history joins proposals by session. */
-    async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
+    settled: writes.settled,
     async propose(turn: PolicyProposalTurn, requestId: string, raw: PolicyChangeInput): Promise<PolicyChangeReview> {
       const held = () => !turn.signal.aborted && !turn.isAuthorized() && !!turn.hold?.active();
       const authority = (waits = true) => {

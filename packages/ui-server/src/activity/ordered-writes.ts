@@ -1,5 +1,6 @@
 /** The activity store's write methods and one caller's ordered write queue (#2814, #4818). */
 import type { ActivityWriteMethod, AwaitableActivityStore } from "./store.js";
+import { untilStable } from "../db/write-worker.js";
 
 export const ACTIVITY_WRITE_METHODS = ["writeClientReceipt", "writeLifecycle", "startSpan", "endSpan", "patchSpan", "appendEvent", "heartbeat",
   "cascadeClose", "sweepOwnOrphans", "sweepStale", "rollupRun", "prune"] as const satisfies readonly ActivityWriteMethod[];
@@ -40,5 +41,5 @@ export function orderedWrites<S extends Partial<AwaitableActivityStore>>(store: 
       after(() => Reflect.apply(store[name] as (...values: unknown[]) => unknown, store, args));
     } });
   }
-  return { store: view, after, settled: async () => { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); } };
+  return { store: view, after, settled: () => untilStable(() => tail) };
 }

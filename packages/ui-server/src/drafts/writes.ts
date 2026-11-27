@@ -1,8 +1,8 @@
 /** Composer mutations share one FIFO channel; reads stay on the app connection. */
 import type { Database } from "bun:sqlite";
-import { procedureCaller, type SqliteWriter, type WireError } from "../db/write-worker.js";
+import { procedureCaller, trackedCaller, type SqliteWriter, type WireError } from "../db/write-worker.js";
 import { DraftAuthError, DraftError } from "./errors.js";
-import { createDraftStore, type AwaitableDraftStore, type DraftStore, type DraftStoreOptions, type DraftWrite } from "./store.js";
+import { createDraftStore, DRAFT_WRITE_METHODS, type AwaitableDraftStore, type DraftStoreOptions, type DraftWrite } from "./store.js";
 
 export const url = import.meta.url;
 export function setup(db: Database, options: { limits?: DraftStoreOptions["limits"]; attachmentPoolBytes?: number }) {
@@ -22,39 +22,21 @@ function revive(error: WireError): Error | undefined {
 }
 export function createDraftWrites(db: Database, options: DraftStoreOptions, writer: SqliteWriter): AwaitableDraftStore {
   const reads = createDraftStore(db, options);
-  const call = procedureCaller(db, { url, setup }, {
+  // A refused mutation must not poison later reads. FIFO means the last
+  // submitted reply also settles all earlier mutations on this channel.
+  const writes = trackedCaller(procedureCaller(db, { url, setup }, {
     limits: options.limits,
     ...(options.attachmentPoolBytes !== undefined ? { attachmentPoolBytes: options.attachmentPoolBytes } : {}),
-  }, writer, revive);
-  let pending: Promise<unknown> = Promise.resolve();
-  const write = <K extends DraftWrite>(method: K, args: Parameters<DraftStore[K]>) => {
-    const done = call<ReturnType<DraftStore[K]>>("write", method, args, options.now?.());
-    // A refused mutation must not poison later reads. FIFO means the last
-    // submitted reply also settles all earlier mutations on this channel.
-    pending = done.catch(() => {});
-    return done;
-  };
+  }, writer, revive));
+  const forwarded = Object.fromEntries(DRAFT_WRITE_METHODS.map(method =>
+    [method, (...args: unknown[]) => writes.call("write", method, args, options.now?.())])) as Pick<AwaitableDraftStore, DraftWrite>;
   return {
     limits: reads.limits, list: reads.list, get: reads.get,
     attachmentPoolBytes: reads.attachmentPoolBytes,
     attachments: reads.attachments, attachmentRef: reads.attachmentRef,
     attachmentReferenced: reads.attachmentReferenced, attachmentInventory: reads.attachmentInventory,
     attachmentReads: reads.attachmentReads,
-    save: (...args) => write("save", args),
-    upload: (...args) => write("upload", args),
-    remove: (...args) => write("remove", args),
-    bind: (...args) => write("bind", args),
-    accept: (...args) => write("accept", args),
-    reserveAttachment: (...args) => write("reserveAttachment", args),
-    commitAttachment: (...args) => write("commitAttachment", args),
-    releaseReservation: (...args) => write("releaseReservation", args),
-    discardReservations: (...args) => write("discardReservations", args),
-    sweepMark: (...args) => write("sweepMark", args),
-    sweepForget: (...args) => write("sweepForget", args),
-    markMissing: (...args) => write("markMissing", args),
-    adoptOrphan: (...args) => write("adoptOrphan", args),
-    releaseSession: (...args) => write("releaseSession", args),
-    recordAttachmentRead: (...args) => write("recordAttachmentRead", args),
-    async settled() { await pending; },
+    ...forwarded,
+    settled: writes.settled,
   };
 }

@@ -13,7 +13,7 @@
  */
 import type { Database } from "bun:sqlite";
 import type { ProviderExposure } from "./governance-policy.js";
-import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import { procedureCaller, trackedCaller, type SqliteWriter } from "../db/write-worker.js";
 import { url as GOVERNED_TURN_WRITES, setup as governedTurnWriteSetup } from "./governed-turn-writes.js";
 import { folders } from "./exposure-writers.js";
 
@@ -46,13 +46,8 @@ export interface ProviderExposures {
  * `settled()` once every write submitted before it has.
  */
 export function createProviderExposures(db: Database, writer?: SqliteWriter): ProviderExposures {
-  const call = procedureCaller(db, { url: GOVERNED_TURN_WRITES, setup: governedTurnWriteSetup }, undefined, writer);
-  let tail: Promise<void> = Promise.resolve();
-  const submit = (name: string, ...args: unknown[]): Promise<void> => {
-    const done = call<void>(name, ...args);
-    tail = done.then(() => {}, () => {});
-    return done;
-  };
+  const writes = trackedCaller(procedureCaller(db, { url: GOVERNED_TURN_WRITES, setup: governedTurnWriteSetup }, undefined, writer));
+  const submit = (name: string, ...args: unknown[]): Promise<void> => writes.call<void>(name, ...args);
   return {
     record: (turnId, sessionId, exposure) => submit("exposureRecord", turnId, sessionId, exposure, Date.now()),
     bind: (turnId, sessionId) => submit("exposureBind", turnId, sessionId),
@@ -69,6 +64,6 @@ export function createProviderExposures(db: Database, writer?: SqliteWriter): Pr
       const row = db.query("SELECT masked FROM session_masked_lineage WHERE session_id = ?").get(sessionId) as { masked: string } | null;
       return row ? folders(row.masked) : undefined;
     },
-    async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
+    settled: writes.settled,
   };
 }

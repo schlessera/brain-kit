@@ -241,8 +241,10 @@ function deleted(row: DraftRow): DraftError {
   });
 }
 
-export type DraftWrite = "save" | "upload" | "remove" | "bind" | "accept" | "reserveAttachment" | "commitAttachment" | "releaseReservation"
-  | "discardReservations" | "sweepMark" | "sweepForget" | "markMissing" | "adoptOrphan" | "releaseSession" | "recordAttachmentRead";
+/** Every mutating method of the store: the write channel forwards exactly these (#4724). */
+export const DRAFT_WRITE_METHODS = ["save", "upload", "remove", "bind", "accept", "reserveAttachment", "commitAttachment", "releaseReservation",
+  "discardReservations", "sweepMark", "sweepForget", "markMissing", "adoptOrphan", "releaseSession", "recordAttachmentRead"] as const;
+export type DraftWrite = (typeof DRAFT_WRITE_METHODS)[number];
 export type AwaitableDraftStore = Omit<DraftStore, DraftWrite> & {
   [K in DraftWrite]: (...args: Parameters<DraftStore[K]>) => ReturnType<DraftStore[K]> | Promise<ReturnType<DraftStore[K]>>;
 } & { settled?(): Promise<void> };

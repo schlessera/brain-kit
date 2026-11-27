@@ -14,7 +14,7 @@ import { CheckoutCaptureRefused, captureCodeChanges, checkedCodeDirectory, listC
 import { observeDiagnostic, type MaintenanceHost, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { randomUUID } from "node:crypto";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
-import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
+import { openSqliteWriter, untilStable, type SqliteWriter } from "../db/write-worker.js";
 import { codeReceiptTablesExist, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { installEscapeGuard, JournalObjectQuarantined, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createGovernanceWrites } from "../governance/event-writes.js";
@@ -1033,8 +1033,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       for (const root of retiredWorktrees) await root.releasesSettled();
     },
     async idle(): Promise<void> {
-      let waiting: Promise<unknown>;
-      do { waiting = tail; await waiting; } while (waiting !== tail);
+      await untilStable(() => tail);
       // Background worktree cleanup (#3825) is not awaited here: every turn's
       // host effects wait on idle(), and one ended turn's slow release must not
       // delay them. releasesSettled() waits for it.
