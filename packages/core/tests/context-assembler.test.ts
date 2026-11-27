@@ -18,7 +18,7 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 
 import { initContext, type BrainContext } from "../src/lib/context";
-import { assembleContext, emptyAssembleReport, estimateTokens } from "../src/lib/context-assembler";
+import { assembleContext, emptyAssembleReport, emptyContextCoverage, estimateTokens } from "../src/lib/context-assembler";
 import { openDatabase } from "../src/lib/db";
 import { topLevelBlocks } from "../src/lib/document-parts";
 import { hybridSearch } from "../src/lib/search-engine";
@@ -943,6 +943,80 @@ describe("sections from chunks", () => {
       }
     });
 
+    // Review round 1 of #3683: the span is placed by the chunk's own lines.
+    async function unplaced(files: Record<string, string>, maxTokens: number, scope?: { include: string[] }) {
+      const { ctx, db } = await brainWith(files);
+      const spy = failMatchLine(db);
+      try {
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens, includeIdentity: false, includeCurrentFocus: false, ...(scope ? { scope, coverage } : {}) });
+        const chunks = db
+          .prepare("SELECT c.heading, c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? ORDER BY chunk_index")
+          .all(Object.keys(files)[0]!) as { heading: string; content: string }[];
+        return { hit: hitsOf(out).find((h) => h.includes(`(${Object.keys(files)[0]})`))!, chunks, coverage };
+      } finally {
+        spy.mockRestore();
+        db.close();
+      }
+    }
+    /** The 1-based line of `file` that starts with `text`. */
+    const lineOf = (file: string, text: string) => file.split("\n").findIndex((line) => line.startsWith(text)) + 1;
+
+    test("a span ends where its chunk ends, not where its last section does", async () => {
+      const file = study("Folded", `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 120)}\n`);
+      const { hit, chunks, coverage } = await unplaced({ "studies/folded.md": file }, 3000, { include: ["studies/"] });
+      // The premise: Signal and the first part of Tides are one chunk, the rest of Tides others.
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(chunks.map((c) => c.heading)).toEqual(["Tides", ...chunks.slice(1).map(() => "Tides (cont.)")]);
+      const last = Math.max(...[...chunks[0]!.content.matchAll(/Tide paragraph (\d+) /g)].map((m) => Number(m[1])));
+      expect(hit).toContain("#### Signal\nThe beacon code is violet.\n\n#### Tides\nTide paragraph 1 ");
+      expect(hit).toEndWith(`Tide paragraph ${last} fills out the section with plain field notes.`);
+      expect(hit).not.toContain(`Tide paragraph ${last + 1} `);
+      // Its source lines are in the coverage record, from Signal's heading to the chunk's last line.
+      const excerpt = coverage.excerpts.find((e) => e.path === "studies/folded.md");
+      expect(excerpt).toEqual({ path: "studies/folded.md", lane: "search", form: "section", lines: [lineOf(file, "## Signal"), lineOf(file, `Tide paragraph ${last} `)] });
+    });
+
+    test("a level-one heading inside a section is not a folded section", async () => {
+      const body = `## Log\n\n# Weather\n\nThe beacon log opens here.\n\n${para("Log", 8)}\n\n## Weather\n\n${para("Calm", 8)}\n`;
+      const { hit, chunks } = await unplaced({ "studies/folded.md": study("Folded", body) }, 4000);
+      expect(chunks.map((c) => c.heading)).toEqual(["Log", "Weather"]);
+      expect(hit).toContain("#### Log\n##### Weather\n\nThe beacon log opens here.");
+      expect(hit).not.toContain("Calm paragraph 1");
+    });
+
+    test.each([
+      ["with a short section", "A short lead about the cove.\n\n## Signal\n\nThe beacon code is violet.\n\n", "#### Signal\nThe beacon code is violet.\n\n"],
+      ["alone", "A short lead about the beacon cove.\n\n", ""],
+    ])("a short lead folded forward %s is in the span", async (_, lead, signal) => {
+      const { hit, chunks } = await unplaced({ "studies/folded.md": study("Folded", `${lead}## Tides\n\n${para("Tide", 8)}\n`) }, 4000);
+      expect(chunks).toHaveLength(1);
+      expect(hit.split("\n").slice(1).join("\n")).toStartWith(`${lead.trimEnd().split("\n\n")[0]}\n\n${signal}#### Tides\nTide paragraph 1`);
+    });
+
+    test("a component heading repeated elsewhere in the file does not stop the span", async () => {
+      const body = `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n\n## Signal\n\n${para("Later", 8)}\n`;
+      const { hit } = await unplaced({ "studies/folded.md": study("Folded", body) }, 20000);
+      expect(hit).toContain("#### Signal\nThe beacon code is violet.\n\n#### Tides\nTide paragraph 1");
+      expect(hit).not.toContain("Later paragraph 1");
+    });
+
+    test("a chunk whose lines the file holds twice cannot be placed, and keeps its snippet", async () => {
+      const pair = `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n\n`;
+      const { hit, chunks } = await unplaced({ "studies/folded.md": study("Folded", `${pair}${pair}`) }, 4000);
+      expect(chunks).toHaveLength(2);
+      expect(chunks[0]!.content).toBe(chunks[1]!.content);
+      expect(hit.split("\n")).toHaveLength(2);
+      expect(hit).not.toContain("####");
+    });
+
+    test("a heading with a closing sequence is a component like any other", async () => {
+      const body = `## Signal\n\nThe beacon code is violet.\n\n## Cove ##\n\n${para("Cove", 8)}\n`;
+      const { hit, chunks } = await unplaced({ "studies/folded.md": study("Folded", body) }, 4000);
+      expect(chunks.map((c) => c.heading)).toEqual(["Cove ##"]);
+      expect(hit).toContain("#### Signal\nThe beacon code is violet.\n\n#### Cove\nCove paragraph 1");
+    });
+
     test("a match line that two of its sections hold widens it too", async () => {
       const body = `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n\nThe beacon code is violet.\n`;
       const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", body) });
@@ -955,6 +1029,21 @@ describe("sections from chunks", () => {
         db.close();
       }
     });
+  });
+
+  test("a match only one section of a folded chunk holds takes that section, though another chunk repeats the line", async () => {
+    const line = "The beacon code is violet; the beacon burns at dusk.";
+    const body = `## Signal\n\n${line}\n\n## Tides\n\n${para("Tide", 8)}\n\n## Harbour\n\n${para("Harbour", 16)}\n\n${line}\n`;
+    const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", body) });
+    try {
+      const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+      const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+      expect(hit).toContain(`#### Signal\n${line}`);
+      expect(hit).not.toContain("Tide paragraph 1");
+      expect(hit).not.toContain("Harbour paragraph 1");
+    } finally {
+      db.close();
+    }
   });
 
   test("when chunk matching fails, the context still assembles, from snippets", async () => {

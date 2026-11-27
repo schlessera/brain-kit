@@ -52,8 +52,12 @@ function topLevel(text: string): MdNode[] {
 const startOf = (node: MdNode) => node.position?.start.offset ?? 0;
 const endOf = (node: MdNode) => node.position?.end.offset ?? 0;
 
-/** A heading's text as written: after the `#`s for ATX, the text lines for setext. */
-function headingText(source: string): string {
+/**
+ * A heading's text as written: after the `#`s for ATX, the text lines for
+ * setext. A `##` heading whose text is empty is content, not a split; context
+ * assembly reads a source's sections by the same rule (#3683).
+ */
+export function headingText(source: string): string {
   const atx = source.match(/^ {0,3}#{1,6}(?:[ \t]+|$)(.*)$/s);
   if (atx) return atx[1].trim();
   return source.split("\n").slice(0, -1).map((line) => line.trim()).join(" ").trim();

@@ -140,9 +140,18 @@ which validates the scope (`parseContextScope`,
   leaves it out. The scope only narrows: it never makes readable what the
   index, policy or provider masks leave out.
 - **Coverage.** A scoped call returns `coverage`: `{ exhaustive: false,
-  include, exclude, excerpts: [{ path, lane, form }], omitted: [{ path, reason
+  include, exclude, excerpts: [{ path, lane, form, lines? }], omitted: [{ path, reason
   }], omittedMore, budgetExhausted }`. `lane` is `identity`, `focus`, `search`
   or `related`; `form` is `whole`, `cut`, `section`, `snippet` or `summary`.
+  `lines` (additive in 0.45.0, #3683) is present only on a `search` excerpt
+  widened to a folded chunk's span: a hit whose best chunk merged a short
+  section into its neighbour and whose match no single section holds becomes
+  every section of that chunk, in source order and held to the chunk's own
+  extent, taken whole or not at all. `lines` is `[start, end]`, the 1-based
+  file lines from the span's first heading (or first line) to its last line.
+  `budgetExhausted` is true when an in-scope candidate was cut or left out for
+  lack of budget, including a hit that kept its snippet because its section
+  or span did not fit.
   `reason` is `budget` (an in-scope candidate with no room), `unavailable`
   (named or canonical but not indexed, missing, unreadable or outside the
   root), `not_ranked` (an exactly included path the query did not select) or
