@@ -20,6 +20,12 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## UI-kit Google journal calls (additive, 0.46.0, #4216)
+
+`GoogleJournalCalls`, its row and props types, and `googleOperationWords`
+add a presentational list of reversible Google decisions and shared operation
+words. See [the package API](integration-contract/package-api.md#ui-kit-google-journal-calls-additive-0460-4216).
+
 ## Tool renderers choose what Copy output copies (additive, 0.46.0, #4210)
 
 `ToolRenderer` gains the optional method `copyText(tool)`: what the chat

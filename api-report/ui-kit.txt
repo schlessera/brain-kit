@@ -186,6 +186,9 @@ export "." (./src/index.ts)
   type GoogleApprovalListProps
   type GoogleEffect
   type GoogleHostTime
+  type GoogleJournalCall
+  GoogleJournalCalls
+  type GoogleJournalCallsProps
   GoogleMailApprovalCard
   type GoogleMailApprovalCardProps
   type GoogleMailDraftDeleteProps
@@ -467,6 +470,7 @@ export "." (./src/index.ts)
   githubHref
   googleActionWords
   googleApprovalKeys
+  googleOperationWords
   invisibleSegments
   markupBytesLabel
   markupNotes
@@ -1785,6 +1789,23 @@ signatures (every public export and the types it is made of)
     export interface GoogleHostTime {
         short: string;
         full: string;
+    }
+  GoogleJournalCall (packages/ui-kit/src/google/GoogleJournalCalls.tsx)
+    export interface GoogleJournalCall {
+        id: number | string;
+        operation: string;
+        target: string | null;
+        tainted: boolean;
+        decision: "allowed" | "approved" | "declined" | "refused";
+        admission: "policy" | "remembered_approval" | "session_allowance" | null;
+    }
+  GoogleJournalCalls (packages/ui-kit/src/google/GoogleJournalCalls.tsx)
+    export function GoogleJournalCalls({ calls, truncated, headingLevel = 3 }: GoogleJournalCallsProps): import("react").JSX.Element | null;
+  GoogleJournalCallsProps (packages/ui-kit/src/google/GoogleJournalCalls.tsx)
+    export interface GoogleJournalCallsProps {
+        calls: readonly GoogleJournalCall[];
+        truncated?: boolean;
+        headingLevel?: 2 | 3 | 4;
     }
   GoogleMailApprovalCard (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
     export function GoogleMailApprovalCard(p: GoogleMailApprovalCardProps): import("react").JSX.Element;
@@ -3745,6 +3766,11 @@ signatures (every public export and the types it is made of)
     export function googleApprovalKeys(effect: GoogleEffect): {
         allow?: "a";
         deny: "d";
+    };
+  googleOperationWords (packages/ui-kit/src/google/GoogleJournalCalls.tsx)
+    export function googleOperationWords(operation: string): {
+        text: string;
+        mono?: string;
     };
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   invisibleSegments (packages/ui-kit/src/google/reveal-invisibles.ts)
