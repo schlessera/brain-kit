@@ -253,7 +253,9 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
         workerStartFailure: turn.workerStartFailure };
       // Once the roster decision is known, overlap brain startup with the
       // remaining independent preparation too; cleanup already owns it.
-      turn.startBrainTools?.();
+      // A login the worker could read is refused at the prompt gate: no brain
+      // process starts before that, on a resumed bridge session too (#4325 F11).
+      if (brainProcessesMayStart(relay?.hostLogin)) turn.startBrainTools?.();
       return turn;
     });
     const runtimePreparation = (async () => {
@@ -322,6 +324,7 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
     await runTurnStream({ stream: result, input, adapter, frames, terminal, req, backendId: BACKEND_ID, profileId: profile.id,
       account, reportActivity, reportRuntime, runtimeRequirements, probedVersion, turnLock: claim.turnLock, limits,
       observeAnswerText: sdkTurn.observeAnswerText, abortController, ackGrace,
+      ...(sdkTurn.outputSpeed ? { outputSpeed: sdkTurn.outputSpeed } : {}),
       adoptSessionId: (sessionId) => adoptSessionId(runner, claim, sessionId) });
   } catch (caught) {
     if (caught instanceof TurnFailureEscape) throw caught.cause;
@@ -340,7 +343,16 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
  */
 export function checksBrainInventory(req: Pick<StartTurnRequest, "sessionId" | "autonomous" | "workerSandbox">,
   hostLogin: { inBrain: boolean } | undefined, hosted: boolean): boolean {
-  return !req.sessionId && !req.autonomous && !hostLogin?.inBrain && hosted && Boolean(req.workerSandbox);
+  return !req.sessionId && !req.autonomous && brainProcessesMayStart(hostLogin) && hosted && Boolean(req.workerSandbox);
+}
+
+/**
+ * Whether a turn may start any brain process before its prompt gate: never
+ * while the host login lies inside the brain, where brain code could read it
+ * before the gate refuses the turn, on new and resumed sessions alike (#4325 F11, F18).
+ */
+export function brainProcessesMayStart(hostLogin: { inBrain: boolean } | undefined): boolean {
+  return !hostLogin?.inBrain;
 }
 
 /** The SDK turn, from the claimed turn and its relay. */

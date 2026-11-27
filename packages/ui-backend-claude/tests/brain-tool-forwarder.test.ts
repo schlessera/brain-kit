@@ -33,6 +33,8 @@ test("an early core read waits for readiness, then forwards unchanged; ready rea
     forward.start(); await started.promise;
     let completed = false;
     const early = client.callTool({ name: "brain_read", arguments: { path: "notes/raft.md" } }).then(value => { completed = true; return value; });
+    // Give a call that did not wait every chance to finish first (#4325 F16).
+    await Bun.sleep(50);
     expect(completed, "READ_CANNOT_COMPLETE_BEFORE_SANDBOX_READY").toBe(false);
     gate.resolve();
     expect(await early).toEqual(result);

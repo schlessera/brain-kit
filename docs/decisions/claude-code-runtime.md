@@ -59,7 +59,7 @@ next to it.
   spawned it directly at this baseline. #1037 subsequently made worker execution
   unconditional; #1808 retired this unused adapter. The optional exec wrapper
   now runs inside the worker (`createWorkerSpawn`,
-  `packages/ui-backend-claude/src/worker-spawn.ts:95-365`).
+  `packages/ui-backend-claude/src/worker-spawn.ts:96-366`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
@@ -1593,14 +1593,15 @@ no cloud provider is selected; anything else is refused with
 requires the runtime to report `fast_mode_state: "on"` before releasing input.
 Any other state (`off` with its reason, `cooldown`, or no report) refuses the
 turn by name instead of running it at standard speed. A standard session that
-native settings turn fast is a `settings_conflict`. The CLI prices
-`claude-opus-5-5` fast output at its own fast rate ($8 input and $40 output
-per million tokens in the pinned binary). The host records that reported cost
-as real spend; see [cost tracking](cost-tracking.md#fast-output-runs-4310). The
-runtime may still drop an individual request to standard speed after a rate
-limit (`cooldown` mid-turn). The host cannot prevent that, and it does not yet
-surface it; that is tracked separately. The UI control is a separate design
-issue.
+native settings turn fast is a `settings_conflict`. The pinned
+binary prices `claude-opus-5-5` fast output at $8 input and $40 output per
+million tokens. The host prices fast usage from a copy of that table, as real
+spend; see [cost tracking](cost-tracking.md#fast-output-runs-4310). The
+runtime may still drop a request to standard speed after a rate limit
+(`cooldown`). The host cannot prevent that, so a fast turn whose responses
+report `standard` speed, or whose final fast-mode state is not `on`, ends with
+a `fast_output_unavailable` error result instead of a plain success, keeping
+its output and usage. The UI control is a separate design issue.
 
 The earlier system-role message content array-to-string rewrite is the CLI's
 cache-breakpoint carrier: the one message that carries the moving breakpoint is
@@ -1697,11 +1698,15 @@ Module MCP tools have no static inventory yet (#4381). Every new hosted
 session runs `brain module list --json` in a credential-filtered sandbox worker
 with the same turn view, before retaining its roster. The helper runs it only
 when the project `brain` entry is exactly `bun node_modules/.bin/brain mcp`,
-with no environment, working directory or other option, and under the
-tool-search setting the bridged session pins; any other entry keeps stdio.
+with no environment, working directory or other option, the project's Claude
+settings do not turn that server off, and the brain's installed
+`@schlessera/brain` is the host's own version (the static definitions are that
+version's); it runs under the tool-search setting the bridged session pins. Any
+other brain keeps stdio.
 A turn whose host login lies inside the brain skips the helper. The forwarder
 serves read tools only: it keeps the turn's profile, view, data tree and masks
-but mounts no writable area and stages no output, names the brain entry
+but is launched read-only on every profile (`readOnlyBrain`: the brain itself
+read-only, no writable area, workspace or worktree, no output stage), names the brain entry
 relative to the worker's brain root so the host plans no runtime path inside
 the live brain, and adds its limit hits to the turn's limit report. The host neither reads
 brain bytes nor resolves brain paths for this inventory, and keeps no cache.

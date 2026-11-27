@@ -166,9 +166,9 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
     // its owner, content-free, so the owner can delete it (#3337). Resumes
     // and host work bind nothing; the write binds only a new row.
     const creator = !resumedSession && work === undefined && turn.turnId === turnId && authorization.valid && host.isPrincipalAuthorized(principalId) ? principalId : undefined;
-    catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId, creator,creator?turnId:undefined);
-    // A new session's speed is stored with it, once; resumes read it back (#4310).
-    if (!resumedSession && turn.outputSpeed) catalog.recordOutputSpeed?.(msg.sessionId, turn.outputSpeed);
+    // A new session's speed is stored with its row, in the same write; resumes read it back (#4310).
+    catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId, creator, creator ? turnId : undefined,
+      !resumedSession && turn.outputSpeed ? turn.outputSpeed : undefined);
     // Governance events recorded before the row existed join it now (#1651).
     catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
     // A backend can ask immediately after this synchronous announcement.

@@ -1204,17 +1204,21 @@ turn of it at that speed, so its provider request shape and cache never
 change mid-session. Absent on a new conversation means `standard`; a session
 that predates the field keeps the runtime's own default. An invalid value is
 rejected by frame validation. `fast` is the provider's faster output mode.
-Each fast run records the backend's reported cost at the fast rate as both
-its list and effective cost, on a subscription too, where it is usage beyond
-the plan. It is never priced from the host's standard rates; without a
-backend report its cost is unknown, never zero. Live budget accounting counts
-a fast turn's usage as unpriced, so the unpriced-token stops hold it, and the
-backend's own budget backstop prices it at the fast rate. A fast session that
-its backend, profile, account or upstream cannot serve is refused before any
-model request with `failure.errorClass: "fast_output_unavailable"`, whose
-message names the reason; it is never run at standard speed. A standard
-session whose native settings turn fast output on is refused with
-`settings_conflict`.
+Each fast run is priced at the fast rate as both its list and effective cost,
+on a subscription too, where it is usage beyond the plan: the host prices a
+fast session's Claude usage from the pinned runtime's fast-rate table, never
+from its standard catalog, and a Claude model without a fast rate is unpriced,
+never zero. Live budget accounting uses the same fast rates, so every dollar
+cap holds; an independent relayed provider completion keeps its own rate. A
+fast session that its backend, profile, account or upstream cannot serve is
+refused before any model request with `failure.errorClass:
+"fast_output_unavailable"`, whose message names the reason; it is never run at
+standard speed. A fast turn during which the runtime served any response at
+standard speed (a usage report of `standard`, or a final fast-mode state other
+than `on`, such as `cooldown` after a rate limit) ends with an error result
+carrying that class instead of a plain success; its output and usage are
+kept. A standard session whose native settings turn fast output on is refused
+with `settings_conflict`.
 
 <a id="per-message-reasoning-effort-additive-543"></a>
 
@@ -1373,7 +1377,8 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   the provider's first-party origin, or the runtime reported fast output off
   (with its own reason, for example `model_not_allowed` or
   `extra_usage_disabled`). The turn is refused before any model request and
-  never runs at standard speed. It carries no `authAction`.
+  never runs at standard speed. A fast turn the runtime dropped to standard
+  speed mid-turn also ends with this class. It carries no `authAction`.
   `settings_conflict` means the native runtime could not honor a retained host
   setting before prompt release, including an unreadable or rejected native
   settings-control request after successful initialization. It carries no `authAction`, emits no

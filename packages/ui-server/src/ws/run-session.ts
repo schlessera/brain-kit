@@ -306,6 +306,8 @@ export async function handleChatMessage(
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
     attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
     providerId?: string;
+    /** Only a new conversation chooses its speed (#4310). */
+    outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed;
     client?: ClientEnvironment;
     source?: MessageSource;
     thinkingLevel?: ThinkingLevel;
@@ -513,6 +515,7 @@ export async function handleChatMessage(
     ...(files?.length ? { files } : {}),
     ...(attachmentFiles?.length ? { attachmentFiles } : {}),
     providerId: requestedProviderId,
+    ...(msg.outputSpeed && !sessionId ? { outputSpeed: msg.outputSpeed } : {}),
     ...(client ? { client } : {}),
     ...(source ? { source } : {}),
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),

@@ -304,6 +304,24 @@ for (const pair of PAIRS) describe(`${pair.source} → ${pair.destination}`, () 
     expect(sourceRow?.source).toBe("handoff");
   });
 
+  // #4310 F2: the destination is a new conversation and takes the requested speed.
+  test("a fast handoff starts its destination at fast speed and stores it, or refuses by name on a backend without it", async () => {
+    const r = rig();
+    const source = seedSource(r, pair.source);
+    const ws = r.open();
+    r.send(ws, chat(source, "h-fast-0001", { outputSpeed: "fast" }));
+    await until(() => ws.frames.some((f) => f.type === "result" || f.type === "error"));
+    if (pair.destination === "claude") {
+      expect(r.starts.claude.map((start) => start.outputSpeed), "HANDOFF_DESTINATION_RUNS_FAST").toEqual(["fast"]);
+      const info = ws.frames.find((f) => f.type === "session_info")!;
+      await r.host.catalog.settled?.();
+      expect((r.db.query("SELECT output_speed AS speed FROM sessions WHERE id = ?").get(info.sessionId) as { speed: string }).speed, "HANDOFF_DESTINATION_STORES_FAST").toBe("fast");
+    } else {
+      expect(r.starts.pi, "HANDOFF_FAST_ON_PI_NEVER_STARTS").toHaveLength(0);
+      expect(ws.frames.find((f) => f.type === "error"), "HANDOFF_FAST_ON_PI_NAMED").toMatchObject({ failure: { errorClass: "fast_output_unavailable" } });
+    }
+  });
+
   test("a dropped acknowledgement is recovered by status, and a retry with the same key never creates a second session or turn", async () => {
     const r = rig();
     const source = seedSource(r, pair.source);

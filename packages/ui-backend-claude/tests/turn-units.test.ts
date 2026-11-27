@@ -365,7 +365,7 @@ describe("runTurnStream", () => {
       if (thrown) throw thrown;
     })();
   }
-  function run(messages: unknown[], options: { thrown?: Error; sessionId?: string; frames?: ServerMessage[] } = {}) {
+  function run(messages: unknown[], options: { thrown?: Error; sessionId?: string; frames?: ServerMessage[]; outputSpeed?: "fast" | "standard" } = {}) {
     const sink = bridge();
     const abortController = new AbortController();
     const frames = new TurnFrames(sink.bridge, options.sessionId ?? null);
@@ -381,6 +381,7 @@ describe("runTurnStream", () => {
       turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool: () => {}, close: () => {} },
       limits: new WorkerLimitReporter(() => {}), observeAnswerText: undefined, abortController, ackGrace: {},
       adoptSessionId: (id) => adopted.push(id),
+      ...(options.outputSpeed ? { outputSpeed: options.outputSpeed } : {}),
     };
     return { done: runTurnStream(inputs), frames: sink.frames, adopted, terminal };
   }
@@ -394,6 +395,30 @@ describe("runTurnStream", () => {
     expect(turn.frames[0]).toMatchObject({ type: "session_info", sessionId: "s1", isNew: true });
     expect(turn.frames.filter((frame) => frame.type === "result")).toHaveLength(1);
     expect(turn.frames.at(-1)).toMatchObject({ type: "result", durationMs: 5 });
+  });
+
+  // #4310 F7: a fast turn that the runtime dropped to standard speed is never a plain success.
+  test("a fast turn that fell back to standard speed is reported as fast_output_unavailable, keeping its usage", async () => {
+    const assistant = (speed: string) => ({ type: "assistant", session_id: "s1", parent_tool_use_id: null,
+      message: { id: "m1", type: "message", role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Odysseus sails." }],
+        stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1, speed } } });
+    const init = { type: "system", subtype: "init", session_id: "s1" };
+    for (const [label, messages] of [
+      ["standard response", [init, assistant("standard"), { ...sdkResult, fast_mode_state: "on" }]],
+      ["cooldown result", [init, assistant("fast"), { ...sdkResult, fast_mode_state: "cooldown" }]],
+    ] as const) {
+      const turn = run([...messages], { outputSpeed: "fast" });
+      await turn.done;
+      const result = turn.frames.find((frame) => frame.type === "result");
+      expect(result, `FAST_FALLBACK_${label}_NOT_SUCCESS`).toMatchObject({ outcome: "error", isError: true,
+        failure: { errorClass: "fast_output_unavailable" } });
+    }
+    const served = run([init, assistant("fast"), { ...sdkResult, fast_mode_state: "on" }], { outputSpeed: "fast" });
+    await served.done;
+    expect(served.frames.find((frame) => frame.type === "result"), "FAST_SERVED_IS_SUCCESS").toMatchObject({ outcome: "success" });
+    const standard = run([init, assistant("standard"), { ...sdkResult, fast_mode_state: "off" }], { outputSpeed: "standard" });
+    await standard.done;
+    expect(standard.frames.find((frame) => frame.type === "result"), "STANDARD_SESSION_UNCHANGED").toMatchObject({ outcome: "success" });
   });
 
   test("a stream that ends without a result fails the turn", async () => {

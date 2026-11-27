@@ -9,7 +9,8 @@ import type { OutputSpeed } from "@schlessera/brain-ui-sdk/protocol";
 import { installTestHome } from "../../../scripts/test-home.js";
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
 import { promptGateCheck } from "../src/turn-prompt-gate.js";
-import { TurnFrames, TurnTerminal } from "../src/turn-terminal.js";
+import { TurnFrames, TurnTerminal, thrownTurnFailure } from "../src/turn-terminal.js";
+import { brainProcessesMayStart, checksBrainInventory } from "../src/turn-runner.js";
 
 let home: ReturnType<typeof installTestHome>, brain: string;
 beforeEach(() => { home = installTestHome(); brain = mkdtempSync(join(tmpdir(), "ithaca-fast-output-")); });
@@ -96,4 +97,20 @@ test("a standard session is refused when native settings turn fast output on, an
   expect(conflict.terminal.refused).toMatchObject({ failure: { errorClass: "settings_conflict", message: expect.stringContaining("fast output") } });
   expect(await gate("standard", { fast_mode_state: "off", fast_mode_disabled_reason: "preference" }).check(), "STANDARD_OFF_RELEASES").toBe(true);
   expect(await gate(undefined, { fast_mode_state: "on" }).check(), "PREDATING_SESSION_UNCHANGED").toBe(true);
+});
+
+// #4325 F6: a route refusal thrown during assembly keeps its machine-readable class.
+test("a fast route refusal thrown during the turn reaches the client with its named class", () => {
+  const { refusal } = thrownTurnFailure(new FastOutputUnavailableError("not_first_party: this profile's upstream is not the provider's first-party origin"));
+  expect(refusal, "ROUTE_REFUSAL_NAMED").toMatchObject({ code: "CLAUDE_ERROR", failure: { errorClass: "fast_output_unavailable", message: expect.stringContaining("not_first_party") } });
+});
+
+// #4325 F11: no brain process may start while the login sits inside the brain,
+// for a resumed bridge session as for a new one.
+test("no brain process starts before the prompt gate while the host login is inside the brain", () => {
+  expect(brainProcessesMayStart(undefined)).toBe(true);
+  expect(brainProcessesMayStart({ inBrain: false })).toBe(true);
+  expect(brainProcessesMayStart({ inBrain: true }), "LOGIN_IN_BRAIN_STARTS_NO_BRAIN_PROCESS").toBe(false);
+  const resumed = { sessionId: "ithaca", workerSandbox: { brain: "/ithaca", profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] } } as never;
+  expect(checksBrainInventory(resumed, undefined, true), "RESUME_SKIPS_INVENTORY").toBe(false);
 });

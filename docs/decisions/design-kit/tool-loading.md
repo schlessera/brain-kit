@@ -472,8 +472,11 @@ that executable configuration selects the same modules and reading those
 inputs on the host bypasses the worker boundary. The helper first requires the
 project `brain` entry to be exactly `bun node_modules/.bin/brain mcp`, with no
 environment, working directory or other option, since the bridge reproduces
-only that entry; it then runs `brain module list --json` under the tool-search
-setting the bridged session pins. A proven empty module-tool inventory permits
+only that entry; the project's Claude settings must not turn that server off;
+and the brain's installed `@schlessera/brain` must be the host's own version,
+whose static definitions the bridge advertises. It then runs
+`brain module list --json` under the tool-search setting the bridged session
+pins. A proven empty module-tool inventory permits
 the bridge. Another project entry, config-selected module tools, helper
 failure, timeout or malformed output retain the original project stdio entry
 and pin search off. The owner log records `brain_bridge_fallback_module_tools`
@@ -484,10 +487,15 @@ Resumes use their retained selection and skip the helper. The extra command is
 not a `brain mcp` process. Pi keeps its existing in-worker reads.
 
 The forwarding worker serves read tools only. It keeps the turn's profile,
-startup view, data tree and masks but mounts no writable area and stages no
-output: a strict worker's writable areas are aliased outside the brain root
-that `brain mcp` reads, and a second output stage would take a staging slot
-the runtime needs.
+startup view, data tree and masks but is launched read-only on every profile:
+the brain itself is mounted read-only (a governed worker would otherwise get
+the live brain writable), and no writable area, workspace or worktree is
+bound, so it stages no output. A strict worker's writable areas are aliased
+outside the brain root that `brain mcp` reads, and a second output stage would
+take a staging slot the runtime needs. Its cleanup ends the server's input
+before killing it and waits for exit within a bound; an exit it cannot confirm
+keeps the worker's allowance held by the cleanup reconciler. No brain process
+starts before the prompt gate while the host login lies inside the brain.
 
 The pinned runtime can start a project stdio server even when an SDK server
 uses the same name. Bridge sessions therefore reject only the project `brain`

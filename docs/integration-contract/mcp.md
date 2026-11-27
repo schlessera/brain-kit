@@ -27,7 +27,7 @@ to 30 seconds; an individual forwarding request has the same 30-second bound.
 Failures return `isError: true` with `brain_tool_unavailable` or
 `brain_tool_timeout`, without disabling other tools or falling back to a host
 read. A timed-out early call may succeed later once startup finishes.
-The forwarder serves read tools only and mounts no writable area.
+The forwarder serves read tools only and runs read-only on every profile.
 The inventory helper and forwarder use the runtime's ordinary launch policy:
 its exec wrapper, worker PATH and shell-startup environment filtering. Runtime
 and forwarder divide one admitted turn-temp allowance between their private
@@ -38,8 +38,9 @@ until both processes' storage has closed, including a rejected exit observer.
 
 Every new hosted session resolves `brain module list --json` in the turn
 sandbox before fixing its roster, and only when the project `brain` entry is
-exactly `bun node_modules/.bin/brain mcp` with no other option; any other
-entry keeps that entry and search off. The host reads no brain bytes or resolves
+exactly `bun node_modules/.bin/brain mcp` with no other option, not turned
+off by the project's Claude settings, and served by the host's own
+`@schlessera/brain` version; any other brain keeps that entry and search off. The host reads no brain bytes or resolves
 brain paths to select this verdict, and retains no inventory cache. The helper
 overlaps independent runtime-version and route-input preparation before
 `query()`; its verdict selects the SDK brain server, project-entry rejection
@@ -92,7 +93,7 @@ characters collapse to single spaces and it is capped at 80 characters, so a
 config value cannot add lines of its own. They point to `brain_search`,
 `brain_context`, `brain_read` and `brain_graph` for reading, and `brain_add`
 and `brain_update` for writing, and say that `brain.db` is never edited
-(`serverInstructions`, `packages/core/src/mcp-server.ts:84-98`). Since 0.45.0
+(`serverInstructions`, `packages/core/src/mcp-server.ts:85-99`). Since 0.45.0
 they add one sentence: the `brain_apify_*` tools reach Apify's paid remote
 extractors under the governance policy, are not web search, and discovering or
 inspecting an Actor never runs it. Tool descriptions are descriptive in the

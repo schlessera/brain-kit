@@ -92,6 +92,12 @@ export const WORKER_HOST_ROUTE = "Use a verified Linux or qualifying WSL2 host w
 
 export interface WorkerLaunch {
   brainPath: string;
+  /**
+   * A read-only consumer of the turn's view (#4325): the brain is mounted
+   * read-only and no writable area, workspace or worktree is bound, whatever
+   * the sandbox profile would otherwise make writable.
+   */
+  readOnlyBrain?: boolean;
   /** Host-owned immutable execution view for snapshot consumers. */
   startupView?: WorkerStartupView;
   /** Async-acquired stage and its owned startup reference, consumed by this launch. */
@@ -196,6 +202,8 @@ export interface MaintenanceEnvelope {
   output?: { source: string; target: string; storage?: WorkerOutputStorage };
   /** Agent profiles make the empty host masks read-only. */
   readOnlyMasks?: boolean;
+  /** Mount the brain itself read-only: a consumer that only reads (#4325). */
+  readOnlyBrain?: boolean;
   /** One sized /tmp for all maintenance temporary writes; never agent turn temp. */
   tempBytes?: number;
   /** The host network namespace. Otherwise a private one with only loopback. */
@@ -522,7 +530,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     // again over the home just bound back.
     for (const mask of resolved) if (mask !== home && within(home, mask)) { argv.push("--tmpfs", mask); readOnlyMasks.add(mask); }
   }
-  argv.push("--bind", brain, brain);
+  argv.push(envelope.readOnlyBrain ? "--ro-bind" : "--bind", brain, brain);
   if (!envelope.credentials) argv.push("--dir", MAINTENANCE_HOME);
   if (!envelope.credentials || envelope.maskEnvFiles) argv.push(...maintenanceEnvMasks(brain, brain));
   for (const requested of envelope.writeFiles ?? []) {
@@ -679,7 +687,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   const runtimeViewMounts = [
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
-      network: true, credentials: false, readOnlyMasks: true,
+      network: true, credentials: false, readOnlyMasks: true, ...(input.readOnlyBrain ? { readOnlyBrain: true } : {}),
       readPaths: [...runtimePaths,
         ...(input.egress ? restrictedReadPaths([process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir)]) : [])],
       maskPaths: input.sandbox.maskPaths,
@@ -719,7 +727,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
         return existsSync(source) ? ["--ro-bind", source, target] : ["--tmpfs", target, "--remount-ro", target];
       }),
     ] : []),
-    ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
+    ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...(input.readOnlyBrain ? [] : writable.binds),
     ...writable.readOnlyBinds,
     // Workspace ancestor pins stay read-only; quarantine child masks come last.
     ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders,

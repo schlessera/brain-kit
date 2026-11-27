@@ -31,11 +31,13 @@ import { saveConversationEpoch, saveConversationTask } from "./conversation-stor
 import { assertLive, recordChatCleanup, retireChat, type ChatStore, type ChatStoreOutcome, type RetireChatInput } from "./chat-lifecycle.js";
 import { cleanChatStore, type HostChatStore } from "./chat-store-cleanup.js";
 import { principalAccount } from "../middleware/account-partition.js";
+import { pricingForSpeed } from "../pricing/fast-output.js";
 export const url = import.meta.url;
 
-export const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+export const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id, output_speed)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(id) DO UPDATE SET
+     output_speed = COALESCE(sessions.output_speed, excluded.output_speed),
      last_active_at = excluded.last_active_at,
      total_cost_usd = total_cost_usd + excluded.total_cost_usd,
      num_turns = num_turns + excluded.num_turns,
@@ -45,6 +47,8 @@ export const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, 
 /** One `sessions` upsert, with its clock taken where it was submitted. */
 export interface SessionRow {
   id: string; title: string; at: number; costUsd: number; turns: number; providerId: string | null; backendId: string | null;
+  /** A new session's speed (#4310), stored in the same statement as its row; a stored speed never changes. */
+  outputSpeed?: OutputSpeed | null;
   /**
    * The authenticated principal whose typed request created this session
    * (#3337). Bound only if this upsert creates the row; an existing session
@@ -54,7 +58,9 @@ export interface SessionRow {
   creatorTurnId?: string;
 }
 
-export interface ClaudeUsageContext { billingMode?: BillingMode; pricingRoute?: PricingRoute; principalId?: string }
+export interface ClaudeUsageContext { billingMode?: BillingMode; pricingRoute?: PricingRoute; principalId?: string;
+  /** A fast session's usage is priced at its fast rate, never a standard one (#4310). */
+  outputSpeed?: "fast" }
 
 /**
  * Where Claude usage accounting writes its title and unstreamed runs.
@@ -71,8 +77,9 @@ export interface SessionCatalogWriteOptions {
  * immediate transaction: the turn's claim, its title and unstreamed runs, the
  * session's cost and the reconciled state.
  */
-export function accountClaudeUsage(db: Database, store: ActivityStore, pricing: RollupPricing, sessionId: string, backendId: string,
+export function accountClaudeUsage(db: Database, store: ActivityStore, catalogPricing: RollupPricing, sessionId: string, backendId: string,
   turnId: string, evidence: ClaudeUsageEvidence, resumed: boolean, context?: ClaudeUsageContext): void {
+  const pricing = pricingForSpeed(catalogPricing, context?.outputSpeed);
   db.transaction(() => {
     if (db.query("SELECT 1 FROM claude_usage_turns WHERE turn_id=?").get(turnId)) return;
     const row = db.query("SELECT state_json FROM claude_session_usage WHERE session_id=? AND backend_id=?")
@@ -96,6 +103,7 @@ export function accountClaudeUsage(db: Database, store: ActivityStore, pricing: 
         "gen_ai.usage.per_model": receipt.usage.perModel!,
         ...(context?.billingMode ? { "brain.billing_mode": context.billingMode } : {}),
         ...(context?.pricingRoute ? { "brain.pricing_route": context.pricingRoute } : {}),
+        ...(context?.outputSpeed ? { "brain.output_speed": context.outputSpeed } : {}),
       } });
       store.rollupRun(runId);
       if (cost !== undefined) db.query("UPDATE sessions SET total_cost_usd=total_cost_usd+? WHERE id=?").run(cost, sessionId);
@@ -119,6 +127,7 @@ export function accountClaudeUsage(db: Database, store: ActivityStore, pricing: 
         "brain.usage.coverage": result.state.partial ? "partial" : "observed",
         ...(allocation.unattributed?.perModel ? { "gen_ai.usage.per_model": allocation.unattributed.perModel } : {}),
         ...(allocation.unattributed && context?.billingMode ? { "brain.billing_mode": context.billingMode } : {}),
+        ...(context?.outputSpeed ? { "brain.output_speed": context.outputSpeed } : {}),
         ...(context?.pricingRoute ? { "brain.pricing_route": context.pricingRoute } : {}),
         ...(evidence.reportedCostUsd !== undefined ? { "brain.usage.reported_session_cost_usd": evidence.reportedCostUsd } : {}),
       } });
@@ -167,18 +176,13 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
         "The original request is unavailable or is no longer the latest turn.") };
       return retries.reserveRetry(db, sessionId, turnId, requestId, principalId, expectedPrompt);
     },
-    /** The speed a new session started with (#4310); a stored speed never changes. */
-    recordOutputSpeed(sessionId: string, speed: OutputSpeed) {
-      live(sessionId);
-      db.prepare("UPDATE sessions SET output_speed = COALESCE(output_speed, ?) WHERE id = ?").run(speed, sessionId);
-    },
     upsertSession(row: SessionRow) {
       live(row.id);
       const owner = row.ownerPrincipalId;
-      if (!owner) { db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId); return; }
+      if (!owner) { db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId, row.outputSpeed ?? null); return; }
       db.transaction(() => {
         const created = !db.query("SELECT 1 FROM sessions WHERE id=?").get(row.id);
-        db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
+        db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId, row.outputSpeed ?? null);
         if (created) {
           // Its durable account from the creator's own row (#4138), deletion evidence once the login is pruned.
           db.prepare("INSERT OR IGNORE INTO chat_session_owners(session_id,principal_id,principal_account,created_at) VALUES(?,?,?,?)").run(row.id, owner, principalAccount(db, owner), row.at);

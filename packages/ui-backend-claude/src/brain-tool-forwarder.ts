@@ -1,4 +1,5 @@
 import { ordinaryWorkerLaunch } from "./worker-launch-command.js";
+import { readFileSync } from "node:fs";
 /** Per-turn MCP relay. This module never opens brain content on the host. */
 import type { ZodRawShape } from "zod";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -15,6 +16,8 @@ import { safeStartupTiming, type ExecWrapperConfig, type StartTurnRequest } from
 
 /** Product bound for readiness and individual calls, independent of test watchdogs. */
 export const BRAIN_TOOL_TIMEOUT_MS = 30_000;
+/** Product bound for the forwarding process to exit at cleanup before its allowance is handed to the reconciler. */
+export const BRAIN_TOOL_EXIT_WAIT_MS = 5_000;
 
 /** Adapt the sandbox launch's existing pipes; never spawn a process in a transport. */
 export function brainWorkerTransport(worker: Pick<LaunchedWorker, "stdin" | "stdout" | "exited" | "kill">): Transport {
@@ -22,7 +25,11 @@ export function brainWorkerTransport(worker: Pick<LaunchedWorker, "stdin" | "std
   const transport: Transport = {
     async start() {
       worker.stdout.on("data", chunk => {
-        buffer.append(Buffer.from(chunk));
+        // An oversized message (the pinned SDK's 10 MiB bound) ends this
+        // transport with a reported error: its pending calls then return the
+        // named tool error, and nothing escapes the stream listener (#4325 F9).
+        try { buffer.append(Buffer.from(chunk)); }
+        catch (error) { transport.onerror?.(error as Error); void transport.close().catch(() => {}); return; }
         // Like the pinned stdio transport: a malformed line is reported and
         // consumed, and every later buffered line is still delivered.
         for (;;) {
@@ -121,7 +128,28 @@ export const BRAIN_ENTRY = "node_modules/.bin/brain";
  * a staging slot the runtime needs (#4325 F20).
  */
 export function readOnlyBrainSandbox(sandbox: WorkerSandbox): WorkerSandbox {
-  return { ...sandbox, areas: sandbox.areas.filter(area => !area.mount.writable) };
+  // Managed worktrees are writable generations; the read tools never use them.
+  const { worktrees: _worktrees, ...rest } = sandbox;
+  return { ...rest, areas: sandbox.areas.filter(area => !area.mount.writable) };
+}
+
+/**
+ * End input first, since `brain mcp` exits on it even when a signal is refused
+ * or lost, then kill, and wait for exit within a bound (#4325 F12). The pipes
+ * are disposed either way; an unconfirmed exit is reported, never awaited forever.
+ */
+async function stopBrainWorker(child: Pick<LaunchedWorker, "stdin" | "stdout" | "stderr" | "exited">, kill: () => void):
+  Promise<{ settled: true; error?: unknown } | { settled: false }> {
+  try { child.stdin.end(); } catch { /* The kill below still applies. */ }
+  kill();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const exit = await Promise.race([
+    child.exited.then(() => ({ settled: true as const }), (error: unknown) => ({ settled: true as const, error })),
+    new Promise<{ settled: false }>(resolve => { timer = setTimeout(() => resolve({ settled: false }), BRAIN_TOOL_EXIT_WAIT_MS); }),
+  ]);
+  clearTimeout(timer);
+  child.stdout.destroy(); child.stderr.destroy();
+  return exit;
 }
 
 export function startBrainToolWorker(input: BrainToolWorkerInput, command: readonly string[] = [process.execPath, BRAIN_ENTRY, "mcp"]) {
@@ -137,6 +165,11 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
       }
       await worker?.turnTemp?.closeAsync();
     };
+    const unexited = () => new Error("brain_tool_worker_exit_unconfirmed: the sandboxed brain server did not exit; its allowance stays held until it does.");
+    /** A process that may still run keeps its storage and reservation, owned by the reconciler until it is confirmed gone (#4325 F12). */
+    const retainUnexited = (child: LaunchedWorker, error: Error) => processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
+      close: async () => { await child.exited.catch(() => {}); await child.released(); await closeStorage(); },
+      release: () => reservation.release(), report: notice => input.req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, error);
     const release = async () => {
       try { await closeStorage(); reservation.release(); }
       catch (error) {
@@ -153,7 +186,9 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
       // Validate the wrapper before retaining the view: a throw here leaves
       // nothing that no launcher owns (#4325 F25).
       const launch = ordinaryWorkerLaunch(input.brainPath, [...command], input.env, input.exec);
-      worker = await launchAgentWorkerAsync({ brainPath: input.brainPath, sandbox, limits: input.limits,
+      // Read-only on every profile: a governed worker would otherwise bind the
+      // live brain and its workspaces writable (#4325 F10).
+      worker = await launchAgentWorkerAsync({ brainPath: input.brainPath, sandbox, limits: input.limits, readOnlyBrain: true,
         ...(input.startupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(input.startupView) } : {}),
         ...launch, credentialEnv: input.credentialEnv, ...(input.egress ? { egress: input.egress } : {}), turnTempBytes: reservation.turnTempBytes });
       const child = worker;
@@ -169,26 +204,29 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
       return { worker, transport: brainWorkerTransport(worker), close() {
         return closing ??= (async () => {
           if (abort) signal.removeEventListener("abort", abort);
-          try { kill(); await child.exited; }
-          finally {
-            child.stdin.end(); child.stdout.destroy(); child.stderr.destroy();
-            try { await child.released(); } finally { await release(); }
-          }
+          const exit = await stopBrainWorker(child, kill);
+          if (!exit.settled) { const error = unexited(); retainUnexited(child, error); throw error; }
+          try { await child.released(); } finally { await release(); }
+          if ("error" in exit) throw exit.error;
         })();
       } };
     } catch (error) {
       launchFailure = error;
       if (abort) signal.removeEventListener("abort", abort);
+      let held = false, exitError: { error: unknown } | undefined;
       try {
         if (worker) {
-          try { try { worker.kill("SIGKILL"); } catch { /* exited is still awaited. */ } await worker.exited; }
-          finally {
-            worker.stdin.end(); worker.stdout.destroy(); worker.stderr.destroy();
-            await worker.released();
+          const launched = worker;
+          const exit = await stopBrainWorker(launched, () => { try { launched.kill("SIGKILL"); } catch { /* Exit is still awaited, bounded. */ } });
+          if (!exit.settled) { held = true; retainUnexited(launched, unexited()); }
+          else {
+            // A rejected exit observer is the more specific failure, as before.
+            if ("error" in exit) exitError = { error: exit.error };
+            await launched.released();
           }
         }
-      } finally { await release(); }
-      throw error;
+      } finally { if (!held) await release(); }
+      throw exitError ? exitError.error : error;
     }
   };
 }
@@ -196,6 +234,13 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
 
 /** The in-sandbox inventory check: the project entry must be canonical (#4325 F22). */
 export const BRAIN_INVENTORY_ENTRY = Bun.resolveSync("./brain-bridge-inventory-entry", import.meta.dir);
+
+/**
+ * The `@schlessera/brain` version whose static read definitions the bridge
+ * advertises: the host's own installed package, never a brain file. The
+ * inventory check requires the brain's server to be this same version (F14).
+ */
+export const BRIDGE_BRAIN_VERSION = (JSON.parse(readFileSync(Bun.resolveSync("@schlessera/brain/package.json", import.meta.dir), "utf8")) as { version: string }).version;
 
 /**
  * #4381: without a static module inventory, select the unchanged stdio path.
@@ -208,7 +253,7 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
   let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
   const timer = setTimeout(() => controller.abort(), BRAIN_TOOL_TIMEOUT_MS);
   try {
-    resource = await startBrainToolWorker(input, [process.execPath, BRAIN_INVENTORY_ENTRY])(ownedSignal);
+    resource = await startBrainToolWorker(input, [process.execPath, BRAIN_INVENTORY_ENTRY, BRIDGE_BRAIN_VERSION])(ownedSignal);
     let text = "";
     for await (const chunk of resource.worker.stdout) {
       text += String(chunk);

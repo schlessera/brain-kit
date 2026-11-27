@@ -1598,7 +1598,7 @@ also preserves the previous observation: it supplied no new bytes
 
 Claude keeps these observations in its backend-owned session map
 (`fileVersionsBySession: new Map()`,
-`packages/ui-backend-claude/src/turn-runner.ts:102`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:104`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:21`); internal RPC reports
@@ -1826,7 +1826,7 @@ worker does:
   evaluates `brain.config.ts` and its modules, opens `brain.db`, registers
   module tools, and advances compute jobs it started for as long as it lives
   (`export async function startMcpServer`,
-  `packages/core/src/mcp-server.ts:555-627`). That is the Claude counterpart of
+  `packages/core/src/mcp-server.ts:551-623`). That is the Claude counterpart of
   a pi worker with extensions loaded, which reports nothing.
 - **The CLI reloads configuration during the session.** The bundled CLI has
   a settings change detector that watches the settings files for additions,
@@ -2459,7 +2459,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:512`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:529`)
   must not feed any budget.
 
 **Enforcement:**
@@ -2762,7 +2762,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:267`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:275`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -2804,7 +2804,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:430-489`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:438-497`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -2880,9 +2880,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:668-674`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:703-742`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:704-722`).
+`packages/ui-sdk/src/server/worker-launcher.ts:676-682`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:711-750`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:712-730`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -3402,7 +3402,7 @@ every turn without a proven recipient:
   - **The handoff summary.** Drafting a handoff summary refuses when the
     policy has provider rules and the source chat's lineage does not cover
     every provider folder, before its history is read (`unprovenHistory`,
-    `packages/ui-server/src/ws/handoff.ts:309-312`). The run has no proven
+    `packages/ui-server/src/ws/handoff.ts:311-314`). The run has no proven
     recipient, so every provider folder is denied to it. A policy with a type
     selector always refuses: the type's folders follow the current taxonomy,
     which this check does not translate, and a remembered translation may be
@@ -3854,7 +3854,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:95`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:96`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -3914,7 +3914,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:291-325`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:299-333`).
 This compatibility check does not change default autonomous admission or add
 another route.
 

@@ -5,7 +5,7 @@ import { installTestHome } from "../../../scripts/test-home.js";
 import { installIthacaModuleTool } from "./fixtures/brain-module-tool.js";
 /** Real sandbox/stdio proof; copied immutable fixture storage stands in for native acquisition only. */
 import { expect, test } from "bun:test";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { openDatabase } from "@schlessera/brain/internal";
@@ -16,6 +16,12 @@ import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../
 import { replaceNativeStartupAcquisitionForFixture } from "../../ui-server/tests/helpers/fixture-native-startup.js";
 import { createBrainToolForwarder, startBrainToolWorker, probeBrainBridgeInventory, BRAIN_INVENTORY_ENTRY } from "../src/brain-tool-forwarder.js";
 
+/** The brain's own installed core: this checkout's, so it is the host's version (#4325 F14). */
+const CORE_MANIFEST = resolve("packages/core/package.json");
+function installCore(brain: string) {
+  mkdirSync(join(brain, "node_modules/@schlessera"), { recursive: true });
+  symlinkSync(resolve("packages/core"), join(brain, "node_modules/@schlessera/brain"));
+}
 /** The template's own project entry, the only one the bridge stands in for. */
 const CANONICAL_MCP = JSON.stringify({ mcpServers: { brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] } } });
 
@@ -41,7 +47,7 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
   try {
   cpSync(resolve("packages/core/fixtures/corpus"), brain, { recursive: true });
   mkdirSync(home); mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-  writeFileSync(join(brain, ".mcp.json"), CANONICAL_MCP);
+  writeFileSync(join(brain, ".mcp.json"), CANONICAL_MCP); installCore(brain);
   mkdirSync(join(brain, "notes"), { recursive: true }); mkdirSync(join(brain, "sealed"));
   writeFileSync(join(brain, "notes/raft.md"), "Odysseus checks the original raft.\n");
   writeFileSync(join(brain, "sealed/route.md"), "Athena keeps the route private.\n");
@@ -57,7 +63,7 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
   restore = replaceNativeStartupAcquisitionForFixture();
   const errors: unknown[] = [];
   const base = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] });
-  const sandbox = { ...base, readPaths: restrictedReadPaths([mcp, entry, BRAIN_INVENTORY_ENTRY]),
+  const sandbox = { ...base, readPaths: restrictedReadPaths([mcp, entry, BRAIN_INVENTORY_ENTRY, CORE_MANIFEST]),
     providerMasks: { folders: ["sealed"], index: join(scratch, "index") } };
   cpSync(join(brain, ".brain-index"), join(scratch, "index"), { recursive: true });
   let starts = 0;
@@ -120,14 +126,14 @@ test("a config change between two new sessions preserves the second session modu
   try {
     cpSync(resolve("packages/core/fixtures/corpus"), brain, { recursive: true });
     mkdirSync(home); mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-    writeFileSync(join(brain, ".mcp.json"), CANONICAL_MCP);
+    writeFileSync(join(brain, ".mcp.json"), CANONICAL_MCP); installCore(brain);
     const config = join(brain, "brain.config.ts");
     writeFileSync(config, (await Bun.file(config).text()).replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
     const cli = resolve("packages/core/src/cli/brain.ts"), entry = join(brain, "node_modules/.bin/brain");
     writeFileSync(entry, `import ${JSON.stringify(cli)};`);
     openDatabase(join(brain, ".brain-index/brain.db")).close();
     view = createFixtureWorkerStartupView(brain);
-    const sandbox = { ...prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry, BRAIN_INVENTORY_ENTRY]) };
+    const sandbox = { ...prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry, BRAIN_INVENTORY_ENTRY, CORE_MANIFEST]) };
     const input = { brainPath: brain, exec: {}, sandbox, startupView: view, env: { PATH: process.env.PATH, HOME: home },
       limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits({}), credentialEnv: [], req: { bridge: {} } as never };
     const firstInventory = await probeBrainBridgeInventory(input, controller.signal);

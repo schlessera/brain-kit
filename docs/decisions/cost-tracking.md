@@ -245,10 +245,11 @@ Files API is free, and the video's tokens are charged on its generation.
 A run of a fast-output session carries `brain.output_speed: "fast"` on its
 root span and the `api` billing mode on every profile. Fast output on a
 subscription draws usage beyond the plan, so it is never covered. The host's
-pricing catalog has no fast rates, so a fast run is never priced from it. Its
-list and effective cost are the backend's own report at the fast rate, or
-unknown when the backend reported none; never zero and never a standard
-price. During the turn, budget accounting counts fast usage as unpriced, so
-the unpriced-token stops hold it, while the backend's budget backstop
-(`maxBudgetUsd`) prices it at the fast rate. Admission otherwise follows the
-same list-price rules as any paid run.
+catalogs carry standard rates only, so a fast session's Claude usage is priced
+from a fast-rate table copied from the pinned runtime (`pricing/fast-output.ts`,
+marked `estimate`): `claude-opus-5-5` at $8 input, $40 output, $10 cache write
+and $0.40 cache read per million tokens. A Claude model without a fast rate is
+unpriced, never zero and never a standard price. The same resolver prices the
+turn's accounted cost, its rollup and its live budget observations, so every
+dollar cap holds. An independent relayed provider completion in a fast turn
+runs at standard speed and keeps its own rate.

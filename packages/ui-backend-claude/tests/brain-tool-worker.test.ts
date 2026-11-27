@@ -5,7 +5,7 @@ import { isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
 import * as internal from "@schlessera/brain-ui-sdk/internal";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder } from "../src/brain-tool-forwarder.js";
+import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder, BRIDGE_BRAIN_VERSION } from "../src/brain-tool-forwarder.js";
 import * as promptContext from "../src/prompt-context.js";
 import { createBridgedTurnReservation } from "../src/brain-tool-reservation.js";
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
@@ -50,7 +50,8 @@ for (const mode of ["inventory", "forwarder"] as const) test(`${mode} shares the
     expect(calls).toHaveLength(1);
     const input = calls[0]!;
     expect(input.command, "BRAIN_SUBPROCESS_USES_OPERATOR_WRAPPER").toEqual(["/usr/bin/env", process.execPath,
-      ...(mode === "inventory" ? [Bun.resolveSync("../src/brain-bridge-inventory-entry", import.meta.dir)] : ["node_modules/.bin/brain", "mcp"])]);
+      ...(mode === "inventory" ? [Bun.resolveSync("../src/brain-bridge-inventory-entry", import.meta.dir), BRIDGE_BRAIN_VERSION] : ["node_modules/.bin/brain", "mcp"])]);
+    expect(input.readOnlyBrain, "BRAIN_SUBPROCESS_IS_READ_ONLY").toBe(true);
     // The launcher plans an absolute existing argument as a host runtime
     // path; nothing in the live brain may become one (#4325 F19).
     expect(input.command.filter(part => isAbsolute(part) && (part === f.brain || part.startsWith(`${f.brain}/`))), "BRAIN_LAUNCH_PLANS_NO_LIVE_BRAIN_PATH").toEqual([]);
@@ -291,5 +292,50 @@ test("a forwarder cleanup failure still acknowledges the delivered context and t
   } finally {
     for (const child of children) child.launched.kill("SIGKILL");
     controller.abort(); acknowledge.mockRestore(); launch.mockRestore(); home.dispose(); rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+// #4325 F9: an oversized message ends the transport with an error instead of
+// throwing out of the host stream listener.
+test("an oversized stdout message ends the transport with a reported error, never a throw from the listener", async () => {
+  const f = fixture(), child = worker(f.state);
+  let killed = 0;
+  const kill = child.launched.kill;
+  (child.launched as { kill: unknown }).kill = (signal: string) => { killed++; kill(signal as never); };
+  try {
+    const transport = brainWorkerTransport(child.launched);
+    const errors: unknown[] = [];
+    transport.onerror = error => errors.push(error);
+    await transport.start();
+    expect(() => child.stdout.write(Buffer.alloc(10 * 1024 * 1024 + 1, 0x41)), "OVERSIZED_CHUNK_NEVER_THROWS").not.toThrow();
+    await Bun.sleep(0);
+    expect(errors.map(String), "OVERSIZED_MESSAGE_REPORTED").toEqual([expect.stringContaining("ReadBuffer exceeded maximum size")]);
+    expect(killed, "OVERSIZED_MESSAGE_CLOSES_TRANSPORT").toBe(1);
+  } finally { child.launched.kill("SIGKILL"); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4325 F12: a refused signal never hangs cleanup; end of input stops the
+// server, and an exit that never comes keeps its allowance held, not leaked.
+test("a refused kill still stops the server through end of input, and an unconfirmed exit keeps its allowance held", async () => {
+  const f = fixture(), ledger = internal.createStateLedger();
+  const exits = worker(f.state), stuck = worker(f.state);
+  for (const child of [exits, stuck]) (child.launched as { kill: unknown }).kill = () => { throw new Error("Ithaca supervisor refused the signal."); };
+  exits.stdin.on("finish", () => { exits.stdout.end(); exits.exit.resolve(0); });
+  let launch = spyOn(internal, "launchAgentWorkerAsync").mockResolvedValue(exits.launched);
+  const nativeTimer = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) =>
+    nativeTimer(callback, ms === 5_000 ? 0 : ms, ...args)) as typeof setTimeout);
+  try {
+    const reserve = () => ledger.reserve(undefined, f.input.turnTempLimits);
+    const stopped = await startBrainToolWorker({ ...f.input, reservation: reserve })(f.signal);
+    await stopped.close();
+    expect([exits.released, exits.closed, ledger.turnTempHeld], "END_OF_INPUT_STOPS_A_SIGNAL_REFUSED_SERVER").toEqual([1, 1, 0]);
+    launch.mockRestore(); launch = spyOn(internal, "launchAgentWorkerAsync").mockResolvedValue(stuck.launched);
+    const hung = await startBrainToolWorker({ ...f.input, reservation: reserve })(f.signal);
+    await expect(hung.close(), "UNCONFIRMED_EXIT_NEVER_HANGS").rejects.toThrow("brain_tool_worker_exit_unconfirmed");
+    expect(ledger.turnTempHeld, "UNCONFIRMED_EXIT_KEEPS_ALLOWANCE_HELD").toBe(f.input.turnTempLimits.allowanceBytes);
+    expect([stuck.stdout.destroyed, stuck.stderr.destroyed], "UNCONFIRMED_EXIT_DISPOSES_PIPES").toEqual([true, true]);
+  } finally {
+    stuck.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true });
   }
 });

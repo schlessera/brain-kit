@@ -49,7 +49,8 @@ session runs at it, resumes included. A resumed session ignores the field.
 `fast` is priced as real spend at the fast rate on every billing mode and is
 never priced from standard rates. A route, profile or backend that cannot
 serve it refuses the turn with failure class `fast_output_unavailable`; it
-never falls back to standard. The SDK gains `OutputSpeed`, `OUTPUT_SPEEDS`,
+never falls back to standard, and a turn the runtime dropped to standard
+speed mid-turn ends with that class instead of a plain success. The SDK gains `OutputSpeed`, `OUTPUT_SPEEDS`,
 `isOutputSpeed`, `StartTurnRequest.outputSpeed`,
 `BackendCapabilities.fastOutput` and `FastOutputUnavailableError`. See
 [the wire component](integration-contract/wire.md#per-session-output-speed-additive-4310)

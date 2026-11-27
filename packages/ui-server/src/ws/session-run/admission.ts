@@ -106,7 +106,6 @@ export function createRunRecorder(
           principalId: turn.principalId,
           lifecycle,
           ...billing,
-          ...(turn.outputSpeed === "fast" ? { outputSpeed: "fast" as const } : {}),
           ...(work?.posture === "voice" ? { posture: "voice" as const } : {}),
         }
       )

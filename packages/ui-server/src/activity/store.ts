@@ -1,3 +1,4 @@
+import { pricingForSpeed } from "../pricing/fast-output.js";
 import { stoppedTime } from "./stopped-time.js";
 import { clientTurnTimingSchema, MAX_CLIENT_TURN_RECEIPT_BYTES } from "@schlessera/brain-ui-sdk/schemas";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
@@ -607,14 +608,10 @@ export function createActivityStore(
     const pricingRoute = isPricingRoute(attrRoute) ? attrRoute : undefined;
 
     const usage = usageForPricing(root, spans);
-    // A fast run (#4310) costs the fast rate, which the host's catalog does
-    // not carry: it is never priced from standard rates here. Its cost is the
-    // backend's own report at the fast rate, real spend on every billing mode,
-    // or unknown when the backend reported none.
+    // A fast run (#4310) is priced at its fast rate, never from the
+    // catalog's standard rates, and is real spend on every billing mode.
     const fast = root.attrs["brain.output_speed"] === "fast";
-    const priced = fast
-      ? (root.usage.costUsd !== null && root.usage.costUsd !== undefined ? { costUsd: root.usage.costUsd, estimate: false } : null)
-      : usage.kind === "usage" ? priceUsage(usage.byModel, getPricing(), pricingRoute) : null;
+    const priced = usage.kind === "usage" ? priceUsage(usage.byModel, pricingForSpeed(getPricing(), fast ? "fast" : undefined), pricingRoute) : null;
 
     // Effective-cost semantics (NULL = unknown, 0 = genuinely free):
     // subscription → 0 regardless of tokens (AE1); api → the priced sum —
