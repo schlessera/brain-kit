@@ -62,8 +62,9 @@ const transcriptEntry = input.superRefine((entry, ctx) => {
 });
 export const piWorkerEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("message_end"), message }),
+  // A delta frame carries its text only: never the accumulated answer (#4853).
   z.object({ type: z.literal("message_update"), assistantMessageEvent:
-    z.object({ type: z.enum(["text_delta", "thinking_delta"]), delta: text }).passthrough() }),
+    z.object({ type: z.enum(["text_delta", "thinking_delta"]), delta: text }).strict() }).strict(),
   z.object({ type: z.literal("tool_execution_start"), toolCallId: text, toolName: text, args: input }),
   z.object({ type: z.literal("tool_execution_end"), toolCallId: text, toolName: text,
     result: z.object({ content: z.array(z.object({ type: text, text: text.optional() }).passthrough()), details: z.unknown().optional() }), isError: z.boolean() }),

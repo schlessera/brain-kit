@@ -219,9 +219,15 @@ async function initialize(init: Init): Promise<void> {
   session = opened.session;
   session.subscribe(event => {
     if (snapshotFailed) return;
-    if (event.type === "message_end" || event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "auto_retry_start"
-      || event.type === "message_update" && ["text_delta", "thinking_delta"].includes(event.assistantMessageEvent.type)) {
+    if (event.type === "message_end" || event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "auto_retry_start") {
       send({ type: "event", event });
+    } else if (event.type === "message_update") {
+      // The host reads a delta's text only. The upstream event also carries the
+      // whole answer so far, twice (`message`, `partial`), and must not cross.
+      const { assistantMessageEvent: update } = event;
+      if (update.type === "text_delta" || update.type === "thinking_delta") {
+        send({ type: "event", event: { type: "message_update", assistantMessageEvent: { type: update.type, delta: update.delta } } });
+      }
     }
     // pi's internal subscriber appends before this subscriber is called.
     if (event.type === "entry_appended") snapshot();
