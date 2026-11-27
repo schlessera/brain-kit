@@ -6371,11 +6371,13 @@ permanent gap already records the loss, and it stays visible (#4351). There
 an ordinary untrusted proxy input proceeds under the restricted recipient
 policy it already passed, without source trust. A tolerated terminal-exposure
 loss stops neither its operation nor the turn. A source-trusted input still
-needs its durable occurrence, and any other lost write, including a lost
-connection audit or any loss outside a permanent gap, keeps its containment.
-A first loss that fails the collection after the operation's own Network card
-was answered is new safety evidence for that card: that operation alone
-refuses with 403 safety_changed, and a new card reviews the gap as it stands.
+needs its durable occurrence, and any other lost write, including a refused
+write such as a full recording queue, a lost connection audit or any loss
+outside a permanent gap, keeps its containment. The tolerated result names
+the lost write's reservation, and the collection's failure cause keeps it.
+An answered Network card treats its own operation's tolerated loss as its own
+input: neither that reservation nor a collection failure it alone caused
+withdraws the card. Any other new recording failure still does.
 
 Network approval markers exclude only the approved operation’s own occurrence
 and, when it creates the turn’s first collection, that same collection-start

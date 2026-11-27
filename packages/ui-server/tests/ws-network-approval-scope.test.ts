@@ -1,15 +1,14 @@
 /**
  * A tainted Network card's scope through the WebSocket host (#3595): the
  * request frame and its re-delivery carry the host's offer, a reply's scope
- * reaches the backend only when the card offered it, and the decision
- * receipt and host outcome keep the scope that was granted.
+ * reaches the backend only when the card offered it, and a wider grant is
+ * committed before the host publishes a granted outcome naming it.
  */
 import { afterEach, expect, test } from "bun:test";
 import type { NetworkApprovalOffer } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { createActivityStore } from "../src/activity/store";
-import { createActivityStream } from "../src/activity/stream";
 import { createUiDb } from "../src/db/client";
 import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers } from "../src/ws/connection";
@@ -18,7 +17,8 @@ import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
 
-async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+/** Polls a condition; the watchdog only stops a hang and scales under load. */
+async function until(cond: () => boolean, timeoutMs = watchdogMs(10_000)): Promise<void> {
   const start = Date.now();
   while (!cond()) {
     if (Date.now() - start > timeoutMs) throw new Error("until: timed out");
@@ -31,26 +31,27 @@ afterEach(() => { cleanup?.(); cleanup = null; });
 
 const OFFER: NetworkApprovalOffer = { transport: "http", host: "aeaea.invalid", port: 8080, scopes: ["once", "origin", "session"] };
 
-/** A turn raising one Network card (with `network`, when given) for `tool-aeaea`. */
-function setup(network?: NetworkApprovalOffer) {
+/**
+ * A turn raising one Network card for `net-aeaea`, as the turn proxy does:
+ * no tool span, the offer when given, and the proxy's commit hook.
+ */
+function setup(network?: NetworkApprovalOffer, commit?: (scope: "origin" | "session") => Promise<boolean>) {
   const db = createUiDb(":memory:");
-  const store = createActivityStore(db, { writer: "server-test" });
-  const stream = createActivityStream(store);
-  const state: { decided: PermissionDecision | null; finish: () => void } = { decided: null, finish: () => {} };
+  const state: { decided: PermissionDecision | null; finish: () => void; commits: string[] } = { decided: null, finish: () => {}, commits: [] };
   const backend = makeFakeBackend({
     id: "fake",
     capabilities: { permissions: true },
     startTurn: async ({ bridge }: { bridge: BackendBridge }) => {
       bridge.emit({ type: "session_info", sessionId: "sess-aeaea", isNew: true });
-      bridge.emit({ type: "tool_use_start", toolUseId: "tool-aeaea", toolName: "Network" });
-      state.decided = await bridge.requestPermission({ toolUseId: "tool-aeaea", toolName: "Network", kind: "command",
-        input: { host: "aeaea.invalid", port: 8080, method: "GET", target: "aeaea.invalid:8080" }, ...(network ? { network } : {}) });
+      state.decided = await bridge.requestPermission({ toolUseId: "net-aeaea", toolName: "Network", kind: "command",
+        input: { host: "aeaea.invalid", port: 8080, method: "GET", target: "aeaea.invalid:8080" }, ...(network ? { network } : {}),
+        ...(commit ? { commitNetworkScope: (scope: "origin" | "session") => { state.commits.push(scope); return commit(scope); } } : {}) });
       await new Promise<void>(r => (state.finish = r));
       bridge.emit({ type: "result", sessionId: "sess-aeaea", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
     },
   });
-  const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog: createSessionCatalog(() => db), activity: { store, stream } });
-  cleanup = () => { state.finish(); host.close(); stream.close(); db.close(); };
+  const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog: createSessionCatalog(() => db) });
+  cleanup = () => { state.finish(); host.close(); db.close(); };
   async function connect() {
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
@@ -67,36 +68,53 @@ function setup(network?: NetworkApprovalOffer) {
     await until(() => client.frames("tool_approval_request").length === 1);
     return client.frames("tool_approval_request")[0].turnId;
   }
-  const decisions = () => {
-    const span = store.getSpan("tool-aeaea");
-    return span ? store.snapshotRun(span.runId)!.events.filter(e => e.eventType === "approval_decision").map(e => e.payload) : [];
-  };
-  return { state, connect, raise, decisions };
+  return { state, connect, raise };
 }
 
-test("the card and its re-delivery carry the offer; an offered scope reaches the backend and its receipts", async () => {
-  const s = setup(OFFER);
+test("the card and its re-delivery carry the offer; a committed wider scope reaches the backend and the host outcome", async () => {
+  let resolutionBeforeCommit = false;
+  const s = setup(OFFER, async () => { resolutionBeforeCommit = card.frames("tool_resolution").length > 0; return true; });
   const card = await s.connect();
   const turnId = await s.raise(card);
   expect(card.frames("tool_approval_request")[0].network, "NETWORK_OFFER_ON_THE_CARD").toEqual(OFFER);
   const reconnected = await s.connect();
   await until(() => reconnected.frames("tool_approval_request").length === 1);
   expect(reconnected.frames("tool_approval_request")[0].network, "NETWORK_OFFER_ON_REDELIVERY").toEqual(OFFER);
-  reconnected.send({ type: "tool_approval", toolUseId: "tool-aeaea", networkScope: "origin", channel: "card", turnId });
+  reconnected.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "origin", channel: "card", turnId });
   await until(() => s.state.decided !== null);
   expect(s.state.decided, "OFFERED_SCOPE_REACHES_THE_BACKEND").toEqual({ behavior: "allow", networkScope: "origin" });
-  expect(s.decisions(), "DECISION_RECEIPT_KEEPS_THE_SCOPE").toEqual([{ principalId: "test-principal", decision: "allow", requestKind: "command", channel: "card", networkScope: "origin" }]);
+  expect(s.state.commits, "WIDER_SCOPE_COMMITS_ONCE").toEqual(["origin"]);
+  expect(resolutionBeforeCommit, "GRANT_COMMITS_BEFORE_ITS_OUTCOME_IS_PUBLISHED").toBe(false);
   await until(() => card.frames("tool_resolution").length === 1);
   expect(card.frames("tool_resolution")[0], "HOST_OUTCOME_KEEPS_THE_SCOPE").toMatchObject({ outcome: "granted", networkScope: "origin" });
 });
 
-test("a scope the card did not offer narrows to this one connection", async () => {
-  const s = setup({ ...OFFER, scopes: ["once"] });
+test("a wider grant that cannot commit expires the card and publishes no granted scope", async () => {
+  const s = setup(OFFER, async () => false);
   const client = await s.connect();
   const turnId = await s.raise(client);
-  client.send({ type: "tool_approval", toolUseId: "tool-aeaea", networkScope: "session", channel: "card", turnId });
+  client.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "session", channel: "card", turnId });
+  await until(() => s.state.decided !== null);
+  expect(s.state.decided?.behavior, "UNCOMMITTED_GRANT_ALLOWS_NOTHING").toBe("deny");
+  await until(() => client.frames("tool_resolution").length === 1);
+  const outcome = client.frames("tool_resolution")[0];
+  expect(outcome, "UNCOMMITTED_GRANT_IS_EXPIRED").toMatchObject({ outcome: "expired" });
+  expect(outcome).not.toHaveProperty("networkScope");
+  // A late reply learns the same truthful outcome.
+  client.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "session", channel: "card", turnId });
+  await until(() => client.frames("tool_resolution").length === 2);
+  expect(client.frames("tool_resolution")[1], "LATE_REPLY_GETS_NO_GRANTED_SCOPE").toMatchObject({ outcome: "expired" });
+  expect(client.frames("tool_resolution")[1]).not.toHaveProperty("networkScope");
+});
+
+test("a scope the card did not offer narrows to this one connection and commits nothing", async () => {
+  const s = setup({ ...OFFER, scopes: ["once"] }, async () => true);
+  const client = await s.connect();
+  const turnId = await s.raise(client);
+  client.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "session", channel: "card", turnId });
   await until(() => s.state.decided !== null);
   expect(s.state.decided, "UNOFFERED_SCOPE_CREATES_NO_GRANT").toEqual({ behavior: "allow", networkScope: "once" });
+  expect(s.state.commits).toEqual([]);
 });
 
 for (const reply of ["legacy reply", "scope on an unrelated card"] as const) test(`a ${reply} keeps the existing answer`, async () => {
@@ -104,7 +122,7 @@ for (const reply of ["legacy reply", "scope on an unrelated card"] as const) tes
   const client = await s.connect();
   const turnId = await s.raise(client);
   if (reply === "scope on an unrelated card") expect(client.frames("tool_approval_request")[0]).not.toHaveProperty("network");
-  client.send({ type: "tool_approval", toolUseId: "tool-aeaea", ...(reply === "legacy reply" ? {} : { networkScope: "session" }), channel: "card", turnId });
+  client.send({ type: "tool_approval", toolUseId: "net-aeaea", ...(reply === "legacy reply" ? {} : { networkScope: "session" }), channel: "card", turnId });
   await until(() => s.state.decided !== null);
   expect(s.state.decided, "UNSCOPED_ANSWER_UNCHANGED").toEqual({ behavior: "allow" });
 });

@@ -1,4 +1,4 @@
-import type { ClientMessage, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, NetworkApprovalOffer, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiRoot } from "../root.js";
 import { awaitsDecision, offersAlwaysAllow, type ToolCall } from "../stores/chat-store.js";
 
@@ -18,9 +18,25 @@ export const NETWORK_SCOPE_RECEIPTS: Readonly<Record<NetworkApprovalScope, strin
  * host-wide grant.
  */
 export function offeredNetworkScope(tool: Pick<ToolCall, "approvalNetwork">, scope?: NetworkApprovalScope): NetworkApprovalScope | undefined {
-  const offered = tool.approvalNetwork?.scopes;
-  if (!offered?.length) return undefined;
+  const offered = networkScopes(tool);
+  if (!offered.length) return undefined;
   return scope && offered.includes(scope) ? scope : offered[0];
+}
+
+const SCOPE_ORDER: readonly NetworkApprovalScope[] = ["once", "origin", "session"];
+/**
+ * The scopes a card offers, narrowest first whatever order the frame lists
+ * them in, so Allow and its key are always the narrowest one (#3595).
+ */
+export function networkScopes(tool: Pick<ToolCall, "approvalNetwork">): NetworkApprovalScope[] {
+  const offered = tool.approvalNetwork?.scopes ?? [];
+  return SCOPE_ORDER.filter(scope => offered.includes(scope));
+}
+
+/** The destination a Network card names, with its transport: an HTTP request and an opaque CONNECT tunnel are different origins. */
+export function networkDestination(offer: NetworkApprovalOffer): string {
+  const host = offer.host.includes(":") ? `[${offer.host}]` : offer.host;
+  return `${offer.transport === "connect" ? "CONNECT tunnel to" : "HTTP to"} ${host}:${offer.port}`;
 }
 
 /** Existing card reply, guarded by the current shared request state. */

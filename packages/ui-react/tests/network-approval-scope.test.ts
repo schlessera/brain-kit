@@ -2,10 +2,9 @@ import { beforeEach, expect, test } from "bun:test";
 import type { ClientMessage, NetworkApprovalOffer, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { activeChat, useChatStore } from "../src/stores/chat-store";
 import { defaultRoot } from "../src/default-root";
-import { replyToToolApproval } from "../src/lib/tool-approval";
+import { networkDestination, networkScopes, replyToToolApproval } from "../src/lib/tool-approval";
 import { approvalOutcome } from "../src/components/activity/approval-card";
 import { effectOf } from "../src/components/chat/tool-views";
-import { readApprovalDecision } from "../src/components/activity/span-bits";
 
 // A tainted Network card's scopes in the client (#3595): the store keeps the
 // host's offer through a re-delivery, both surfaces reply with an offered
@@ -79,8 +78,24 @@ test("a scoped card drops the legacy session-wide sentence; an unscoped one keep
   expect(effectOf(tool()!)).toBe(DESCRIPTION);
 });
 
-test("the recorded decision names its scope, and an unknown scope is not guessed", () => {
-  expect(readApprovalDecision({ principalId: "odysseus", decision: "allow", requestKind: "command", channel: "card", networkScope: "origin" })?.text, "DECISION_TEXT_NAMES_SCOPE")
-    .toBe("Allowed for this origin, this session on the card");
-  expect(readApprovalDecision({ principalId: "odysseus", decision: "allow", requestKind: "command", networkScope: "forever" })).toBeNull();
+test("a frame listing wider scopes first still makes Allow the narrowest", () => {
+  card({ ...OFFER, scopes: ["session", "origin", "once"] });
+  const replies: ClientMessage[] = [];
+  replyToToolApproval(defaultRoot, SID, message => { replies.push(message); return true; }, "net-aeaea", true);
+  expect(replies[0], "BARE_ALLOW_IS_NARROWEST_WHATEVER_THE_ORDER").toMatchObject({ networkScope: "once" });
+  expect(networkScopes(tool()!)).toEqual(["once", "origin", "session"]);
+  expect(approvalOutcome(tool(), "net-aeaea", true).receipt.text).toBe("Allowed once");
+});
+
+test("the Actions card names the transport, so HTTP and CONNECT origins read differently", () => {
+  expect(networkDestination(OFFER), "HTTP_DESTINATION_NAMED").toBe("HTTP to aeaea.invalid:8080");
+  expect(networkDestination({ ...OFFER, transport: "connect", port: 443 }), "CONNECT_DESTINATION_NAMED").toBe("CONNECT tunnel to aeaea.invalid:443");
+});
+
+test("the host's granted scope lands on the card, also when another client answered", () => {
+  card();
+  handleServerMessage({ type: "tool_resolution", sessionId: SID, turnId: "turn-aeaea", toolUseId: "net-aeaea", outcome: "granted", networkScope: "origin" } as ServerMessage);
+  expect(tool()?.approvalNetworkScope, "HOST_SCOPE_REACHES_THE_TRANSCRIPT").toBe("origin");
+  handleServerMessage({ type: "tool_resolution", sessionId: SID, turnId: "turn-aeaea", toolUseId: "net-aeaea", outcome: "expired" } as ServerMessage);
+  expect(tool()?.approvalNetworkScope).toBe("origin");
 });

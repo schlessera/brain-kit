@@ -28,9 +28,9 @@ export function setup(db: Database): WriteProcedures {
   const retired=(turnId:string)=>!!db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId);
   // Writes the failure at the narrowest scope that takes it and tells the app
   // side which one did, on the error itself: `chat`, `brain`, or `unrecorded`.
-  const contain=(error:unknown,turnId:string|null,site:SafetyFailureSite,sessionId:string|null=null)=>{
+  const contain=(error:unknown,turnId:string|null,site:SafetyFailureSite,sessionId:string|null=null,reservation?:string)=>{
     let scope:string;
-    try{scope=recordSafetyFailure(db,turnId,error,site,sessionId);}catch{scope="unrecorded";}
+    try{scope=recordSafetyFailure(db,turnId,error,site,sessionId,reservation);}catch{scope="unrecorded";}
     if(error instanceof Error)try{Object.defineProperty(error,"safetyScope",{value:scope,enumerable:true,configurable:true});}catch{/* frozen: treated as unrecorded */}
   };
   return {
@@ -60,7 +60,7 @@ export function setup(db: Database): WriteProcedures {
     // until the event commits, a refused reservation delivered nothing.
     safetyReserve: (row:GovernanceEventRow,id:string,bytes:number,beforeDelivery=false) => {
       try {const turnId=ensureSafetyEventCollection(db,row);reserveSafetyWrite(db,turnId,id,bytes,row.kind==="taint_exposure"?JSON.parse(row.payload).occurrenceId:undefined);}
-      catch(error){if(!(error instanceof ChatRetiredError)&&!beforeDelivery)contain(error,row.turnId,"safetyReserve",row.sessionId);throw error;}
+      catch(error){if(!(error instanceof ChatRetiredError)&&!beforeDelivery)contain(error,row.turnId,"safetyReserve",row.sessionId,id);throw error;}
     },
     // `discharge`: the obligation of the call whose result this row completes.
     // It goes in the row's own transaction, so no end or restart finds the
@@ -71,7 +71,7 @@ export function setup(db: Database): WriteProcedures {
         if(discharge===null)return stored;
         if(!row.turnId)throw new SafetyUnavailable("Safety discharge requires its turn");
         dischargeSafetyObligation(db,row.turnId,discharge);return {...stored,discharged:true};}).immediate();}
-      catch(error){if(!(error instanceof ChatRetiredError))contain(error,row.turnId,"safetyCommit",row.sessionId);throw error;}
+      catch(error){if(!(error instanceof ChatRetiredError))contain(error,row.turnId,"safetyCommit",row.sessionId,id);throw error;}
     },
     bind: (turnId: string, sessionId: string) => bindTurnEvents(db, turnId, sessionId),
     // Classification reads the turn's earlier events on the same connection,
@@ -113,13 +113,16 @@ export interface GovernanceWrites {
    * obligation of the call it completes, discharged in the same transaction;
    * `discharged` confirms that it was (#3812).
    */
-  record(input: GovernanceEventInput, options?: { discharge?: string }): Promise<{ id: number; recorded: boolean; discharged?: boolean }>;
+  /** `reservation`: on a loss a permanently gapped turn tolerates, the lost write's reservation (#4351). */
+  record(input: GovernanceEventInput, options?: { discharge?: string }): Promise<{ id: number; recorded: boolean; discharged?: boolean; reservation?: string }>;
   /** Stores every distinct occurrence; only the exact host key deduplicates. Historical internal method name. */
   /** `beforeDelivery`: a tool's input, recorded before the tool runs, which
    * the producer holds until this settles; a refused reservation delivered
    * nothing and refuses only the turn. Never for a result: its bytes already
    * exist and a runtime may keep them in its session (#3812). */
-  firstTaint(input: GovernanceEventInput<"taint">, options?: { beforeDelivery?: boolean }): Promise<boolean>;
+  firstTaint(input: GovernanceEventInput<"taint">, options?: { beforeDelivery?: boolean;
+    /** Told the reservation of a loss a permanently gapped turn tolerated (#4351). */
+    tolerated?(reservation: string): void }): Promise<boolean>;
   /** The brain-wide recorder state the owner sees on `/api/status` (#3810). */
   recordingStatus(): SafetyRecordingStatus;
   /** Owner fallback for automatic recovery, with the strict quiescence precondition. */
@@ -205,7 +208,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     if(scope==="brain"){scheduleSafetyRecovery(db);return;}
     retainedForBrain(turnId,error);
   };
-  const record = (input: GovernanceEventInput, options: { beforeDelivery?: boolean; discharge?: string } = {}): Promise<{ id: number; recorded: boolean; discharged?: boolean }> => {
+  const record = (input: GovernanceEventInput, options: { beforeDelivery?: boolean; discharge?: string } = {}): Promise<{ id: number; recorded: boolean; discharged?: boolean; reservation?: string }> => {
     const row = governanceEventRow(input);
     if (input.kind !== "taint" && input.kind !== "taint_exposure") return call("record", row);
     const restricted=covered(row.turnId);
@@ -240,7 +243,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       if((error as {code?:string})?.code==="chat_retired")throw error;
       // Already permanently gapped before delivery: this loss changes nothing.
       if(restricted){logSafetyRecording("safety evidence not recorded for a restricted turn",{"safety.scope":"turn","safety.turn_id":row.turnId,
-        "error.message":error instanceof Error?error.message:String(error)});return {id:0,recorded:false};}
+        "error.message":error instanceof Error?error.message:String(error)});return {id:0,recorded:false,reservation};}
       if(!reserved&&options.beforeDelivery)throw new SafetyRecordingUnavailable(brainFailed(),error);
       contained(error,row.turnId);
       throw error;
@@ -312,7 +315,10 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
 
       });
     },
-    firstTaint: (input, options) => record(input, options).then(result => result.recorded),
+    firstTaint: (input, options) => record(input, options).then(result => {
+      if (!result.recorded && result.reservation) options?.tolerated?.(result.reservation);
+      return result.recorded;
+    }),
     taint(turnId, sessionId) {
       return snapshot(()=>{
         if (shared.failed||lostInScope(turnId,sessionId)) return { eventId: 0, source: "legacy_unknown" };

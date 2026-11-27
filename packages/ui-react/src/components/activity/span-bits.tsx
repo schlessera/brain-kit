@@ -125,11 +125,6 @@ const DECISION_TEXT = new Map([
   ["always_allow", "Always allowed"],
   ["deny", "Denied"],
 ]);
-const NETWORK_SCOPE_TEXT = new Map([
-  ["once", "once"],
-  ["origin", "for this origin, this session"],
-  ["session", "for all origins, this session"],
-]);
 const CHANNEL_TEXT = new Map([
   ["card", "on the card"],
   ["voice", "by voice"],
@@ -151,15 +146,12 @@ export function readApprovalDecision(
   if (!decision) return null;
   const channel = typeof p.channel === "string" ? CHANNEL_TEXT.get(p.channel) : undefined;
   if (p.channel !== undefined && !channel) return null;
-  // The tainted Network scope a grant took (#3595); an unknown one is not guessed.
-  const scope = typeof p.networkScope === "string" ? NETWORK_SCOPE_TEXT.get(p.networkScope) : undefined;
-  if (p.networkScope !== undefined && !scope) return null;
   const facts = [
     typeof p.principalId === "string" ? `principal ${p.principalId}` : null,
     p.requestKind === "command" ? "command confirmation" : null,
   ].filter(Boolean);
   return {
-    text: [decision, scope, channel].filter(Boolean).join(" "),
+    text: channel ? `${decision} ${channel}` : decision,
     facts: facts.length > 0 ? facts.join(" · ") : null,
   };
 }

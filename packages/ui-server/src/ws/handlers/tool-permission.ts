@@ -131,6 +131,18 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
       attributes: { "tool.name": pending.request.toolName, "toolUse.id": msg.toolUseId, scope: networkScope } });
     networkScope = "once";
   }
+  // A wider grant is durable before anyone is told it was granted (#3595):
+  // a grant that cannot commit, or whose connection is gone, expires the
+  // card instead, as a remembered tool grant that cannot be stored does.
+  if ((networkScope === "origin" || networkScope === "session") && pending.request.commitNetworkScope) {
+    let committed = false;
+    try { committed = await pending.request.commitNetworkScope(networkScope); } catch { committed = false; }
+    if (!committed) {
+      coordinator.expireApproval(msg.toolUseId, "The network grant could not be recorded. Nothing was allowed; request a fresh decision.",
+        "grant_storage_failed", p => p === claimed);
+      return;
+    }
+  }
   coordinator.settleApproval(
     msg.toolUseId,
     pending,

@@ -32,7 +32,6 @@ import {
   SPAN_OP_INVOKE_AGENT,
   SPAN_TOOL_NAME_PREFIX,
   type ApprovalChannel,
-  type NetworkApprovalScope,
   type BillingMode,
   type PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
@@ -127,9 +126,7 @@ export interface TurnRecorder {
     decision: "allow" | "always_allow" | "deny",
     requestKind: "tool" | "command" | "policy" | "actor",
     principalId?: string,
-    channel?: ApprovalChannel,
-    /** The scope a tainted Network approval took (#3595). */
-    networkScope?: NetworkApprovalScope
+    channel?: ApprovalChannel
   ): void;
   /**
    * Close the turn: merge the buffered result enrichment into the root's
@@ -750,7 +747,7 @@ export function createTurnRecorder(
       });
     },
 
-    onApprovalDecision(toolUseId, decision, requestKind, principalId, channel, networkScope) {
+    onApprovalDecision(toolUseId, decision, requestKind, principalId, channel) {
       guard(() => {
         if (principalId) {
           // One tool can raise several approval requests. The span-level actor
@@ -763,7 +760,6 @@ export function createTurnRecorder(
             decision,
             requestKind,
             ...(channel ? { channel } : {}),
-            ...(networkScope ? { networkScope } : {}),
           });
           store.patchSpan(toolUseId, { principalId });
         }

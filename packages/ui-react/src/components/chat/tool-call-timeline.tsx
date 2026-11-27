@@ -1,4 +1,5 @@
 import type { NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
+import { NETWORK_SCOPE_RECEIPTS } from "../../lib/tool-approval.js";
 import { PolicyChangeCard } from "./policy-change-card.js";
 import { ToolSafetyIndicator } from "./safety-indicator.js";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -369,6 +370,13 @@ function ToolCallEntryView({
           className="pb-1 pl-[30px] pr-2 font-[family-name:var(--font-mono)] text-[11px] text-muted-foreground"
         >
           {closedWord}
+        </p>
+      )}
+
+      {/* A Network card's granted scope (#3595): one connection, one origin, or the whole session. */}
+      {toolCall.approvalNetworkScope && toolCall.status !== "pending_approval" && (
+        <p data-network-scope-receipt={toolCall.approvalNetworkScope} className="pb-1 pl-[30px] pr-2 font-[family-name:var(--font-mono)] text-[11px] text-muted-foreground">
+          {NETWORK_SCOPE_RECEIPTS[toolCall.approvalNetworkScope]}
         </p>
       )}
 

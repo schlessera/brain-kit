@@ -1,7 +1,7 @@
 import { ActionCard, Button } from "@schlessera/brain-ui-kit";
 import type { KeyboardEvent } from "react";
 import type { ClientMessage, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
-import { NETWORK_SCOPE_ALLOW_LABELS, NETWORK_SCOPE_RECEIPTS, offeredNetworkScope } from "../../lib/tool-approval.js";
+import { NETWORK_SCOPE_ALLOW_LABELS, NETWORK_SCOPE_RECEIPTS, networkDestination, networkScopes, offeredNetworkScope } from "../../lib/tool-approval.js";
 import { offersAlwaysAllow, type ToolCall } from "../../stores/chat-store.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { effectOf, getToolLabel, getToolSummary } from "../chat/tool-views.js";
@@ -77,13 +77,15 @@ export function approvalOutcome(
 
 export function ApprovalCard(p: ApprovalCardProps) {
   const label = getToolLabel(p.tool.name);
-  const summary = getToolSummary(p.tool);
+  // A Network card names its transport: "this origin" means different
+  // authority for an HTTP request and an opaque CONNECT tunnel (#3595).
+  const summary = p.tool.approvalNetwork ? networkDestination(p.tool.approvalNetwork) : getToolSummary(p.tool);
   const finePointer = useFinePointer();
   const printKeys = p.keys && finePointer;
   // A tainted Network card offers its scopes (#3595); Allow, and the `a`
   // key, stay the narrowest.
-  const network = p.tool.approvalNetwork;
-  function decide(card: HTMLElement | null, approved: boolean, always?: boolean, networkScope: NetworkApprovalScope | undefined = approved ? network?.scopes[0] : undefined) {
+  const scopes = networkScopes(p.tool);
+  function decide(card: HTMLElement | null, approved: boolean, always?: boolean, networkScope: NetworkApprovalScope | undefined = approved ? scopes[0] : undefined) {
     if (card) focusAfterDecision(card, APPROVAL_CARD, "[data-needs-you-heading]");
     p.onDecide(approved, always, networkScope);
   }
@@ -109,8 +111,8 @@ export function ApprovalCard(p: ApprovalCardProps) {
         chevron={false}
       >
         <div className="mt-2 flex flex-wrap gap-2">
-          <Button label={network ? NETWORK_SCOPE_ALLOW_LABELS[network.scopes[0]!] : "Allow"} icon="confirm" tone="primary" size="sm" center block={false} style={ALLOW_MOUNT} onClick={() => decide(cardOf(), true)} />
-          {network?.scopes.slice(1).map(scope => (
+          <Button label={scopes.length ? NETWORK_SCOPE_ALLOW_LABELS[scopes[0]!] : "Allow"} icon="confirm" tone="primary" size="sm" center block={false} style={ALLOW_MOUNT} onClick={() => decide(cardOf(), true)} />
+          {scopes.slice(1).map(scope => (
             <Button key={scope} label={NETWORK_SCOPE_ALLOW_LABELS[scope]} tone="ghost" size="sm" block={false} style={WIDER_MOUNT} onClick={() => decide(cardOf(), true, undefined, scope)} />
           ))}
           {offersAlwaysAllow(p.tool) && (

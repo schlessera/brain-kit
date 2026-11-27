@@ -11,7 +11,7 @@ import { effectOf, getToolLabel } from "./tool-views.js";
 import { riskHints } from "./risk-hints.js";
 import { APIFY_APPROVAL_TOOLS, apifyApprovalTarget } from "./renderers/apify-tools.js";
 import { githubApproval } from "./renderers/github-tools.js";
-import { NETWORK_SCOPE_ALLOW_LABELS } from "../../lib/tool-approval.js";
+import { NETWORK_SCOPE_ALLOW_LABELS, networkScopes } from "../../lib/tool-approval.js";
 import type { NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
 
 export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: forced }: {
@@ -43,8 +43,8 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
     ?? JSON.stringify(input);
   // A tainted Network card offers its scopes (#3595): Allow is the narrowest
   // one, and each wider one has its own button.
-  const network = toolCall.approvalNetwork;
-  function decide(approved: boolean, always?: boolean, networkScope: NetworkApprovalScope | undefined = approved ? network?.scopes[0] : undefined) {
+  const network = toolCall.approvalNetwork, scopes = networkScopes(toolCall);
+  function decide(approved: boolean, always?: boolean, networkScope: NetworkApprovalScope | undefined = approved ? scopes[0] : undefined) {
     if (!onApproval || decision.current.sent) return;
     decision.current.sent = true;
     const focused = document.activeElement;
@@ -66,8 +66,8 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
       badge={`Approval needed${apifyRun ? " · paid run" : ""}${toolCall.restored ? " · restored" : ""}`}
       {...(apifyApprovalTarget(toolCall) !== null ? { allowLabel: "Allow once" } : {})}
       {...(github ? { allowLabel: github.allowLabel, denyLabel: github.denyLabel } : {})}
-      {...(network ? { allowLabel: NETWORK_SCOPE_ALLOW_LABELS[network.scopes[0]!], wrapActions: true,
-        widerAllows: network.scopes.slice(1).map(scope => ({ label: NETWORK_SCOPE_ALLOW_LABELS[scope], ...(onApproval ? { onAllow: () => decide(true, undefined, scope) } : {}) })) } : {})}
+      {...(network && scopes.length ? { allowLabel: NETWORK_SCOPE_ALLOW_LABELS[scopes[0]!], wrapActions: true,
+        widerAllows: scopes.slice(1).map(scope => ({ label: NETWORK_SCOPE_ALLOW_LABELS[scope], ...(onApproval ? { onAllow: () => decide(true, undefined, scope) } : {}) })) } : {})}
       wrapHeader diff="" risk={riskHints(toolCall, renderer.semantics).join(" · ")}
       shortcuts={printKeys ? { allow: "a", deny: "d" } : undefined}
       onAllow={onApproval ? () => decide(true) : undefined} onDeny={onApproval ? () => decide(false) : undefined}

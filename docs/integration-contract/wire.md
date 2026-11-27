@@ -2946,8 +2946,10 @@ A wider scope skips only the taint-specific Network question. A reply without
 rest of the session. A scope the request did not offer narrows to `once`, and
 `networkScope` on any other request is ignored. A client that offers scopes
 answers its plain Allow, and a keyboard allow, with the narrowest one. A
-re-delivered card carries the same offer. `tool_resolution` and the
-`approval_decision` activity event carry the granted `networkScope`.
+re-delivered card carries the same offer. `tool_resolution` carries the
+granted `networkScope`, published only after an `origin` or `session` grant
+has committed; a grant that cannot commit, or whose connection has ended,
+expires the card with `grant_storage_failed` and grants nothing.
 Clients validate the offer (`serverToolApprovalRequestSchema`); one that fails
 it is dropped, and the card keeps its single Allow.
 

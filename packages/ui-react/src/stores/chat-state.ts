@@ -507,6 +507,8 @@ export interface ChatState {
   ) => void;
   applyVoicePermission: (receipt: VoicePermissionReceipt) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean, networkScope?: NetworkApprovalScope) => void;
+  /** The scope the host says a Network card was granted with (#3595), whichever client answered it. */
+  noteNetworkScope: (key: ChatKey, toolUseId: string, networkScope: NetworkApprovalScope) => void;
   /**
    * Make restored approval cards read-only, each with the host fact that
    * closed it (#1072, D52 §4 R3). Only a restored card that is not already

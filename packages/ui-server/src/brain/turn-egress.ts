@@ -10,7 +10,7 @@ import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, networkGrants, networkOriginKey, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
 import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
-import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
+import { safetyProjection, safetyEvidenceSequence, safetyFailureReservation } from "../governance/safety-store.js";
 import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
 import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
@@ -153,6 +153,8 @@ export async function prepareTurnEgress(options: {
     ({ transport: destination.method === "CONNECT" ? "connect" as const : "http" as const, host: destination.host, port: destination.port });
   /** The wider grant that covers this destination, if any. A one-time answer covers its own connection only. */
   const grantScope = (destination: { host: string; port: number; method: string }, connectionId?: string): NetworkApprovalScope | undefined => {
+    // Voice has no grant surface, and an approval given elsewhere never widens it.
+    if (options.origin !== "interactive") return undefined;
     if (connectionId && scoped.get(connectionId) === "once") return "once";
     return grants.session ? "session" : grants.origins.has(networkOriginKey(networkOrigin(destination))) ? "origin" : undefined;
   };
@@ -162,14 +164,17 @@ export async function prepareTurnEgress(options: {
   // Each card owns its peer inputs until its last connection terminates. Keep
   // their immutable ids after a peer finishes so a slower peer sees the same
   // reviewed context; independent cards and independent input remain evidence.
-  type ApprovalGroup = { members:Set<string>; occurrences:Set<string>; starts:Set<string>;pending?:{generation:bigint;size:number;ids:readonly string[]} };
+  // `lost`: the reservations of the card's own writes a permanently gapped
+  // turn tolerated losing (#4351). They are its own input, never new evidence.
+  type ApprovalGroup = { members:Set<string>; occurrences:Set<string>; starts:Set<string>; lost:Set<string>;pending?:{generation:bigint;size:number;ids:readonly string[]} };
   const approvalGroups = new Map<string,ApprovalGroup>();
   const pendingReservations = (connectionId?:string):readonly string[] => {
     const group=connectionId?approvalGroups.get(connectionId):undefined;if(!db||!group)return [];
     const queue=safetyQueue(db);
-    if(group.pending?.generation===queue.generation&&group.pending.size===group.occurrences.size)return group.pending.ids;
-    const ids=Object.freeze([...queue.pending].filter(p=>p.occurrenceId!==null&&group.occurrences.has(p.occurrenceId)).map(p=>p.id));
-    group.pending={generation:queue.generation,size:group.occurrences.size,ids};return ids;
+    const size=group.occurrences.size+group.lost.size;
+    if(group.pending?.generation===queue.generation&&group.pending.size===size)return group.pending.ids;
+    const ids=Object.freeze([...[...queue.pending].filter(p=>p.occurrenceId!==null&&group.occurrences.has(p.occurrenceId)).map(p=>p.id),...group.lost]);
+    group.pending={generation:queue.generation,size,ids};return ids;
   };
   const exposureCommits = new Map<string, Promise<unknown>>();
   const normalBefore = new Set<string>();
@@ -291,24 +296,30 @@ export async function prepareTurnEgress(options: {
       // An uninstrumented turn was already unknown before its first record.
       // Creating its sole incomplete epoch is metadata of this same input.
       const coverage=state.coverage.epochs.length===1&&starts.has(state.coverage.epochs[0]!.id)&&state.coverage.state==="incomplete"?"unknown":state.coverage.state;
-      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
+      // The card's own tolerated loss failed its collection: that failure is
+      // its own input. Any other active failure still counts (#4351).
+      const ownFailure=!!group?.lost.size&&state.reasons.includes("recording_failed")&&group.lost.has(safetyFailureReservation(db,options.turnId,options.sessionId())??"");
+      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved" && !(ownFailure && reason === "recording_failed")), safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
         writes?.recordingAvailable?.(options.turnId, options.sessionId(),excludedPending) ?? safety?.recordingAvailable,callGeneration]);
       approvalMarkers.set(key,{version,marker}); return marker;
     };
   type NetworkAnswer = boolean | "superseded" | "expired" | "unconfirmed";
   type NetworkDecision = { answer: NetworkAnswer; scope?: NetworkApprovalScope };
-  const asking = new Map<string, {decision:Promise<NetworkDecision>;group:ApprovalGroup;owner?:string}>();
+  const asking = new Map<string, {decision:Promise<NetworkDecision>;group:ApprovalGroup;owner?:string;signals:Set<AbortSignal>}>();
   /**
    * Commits an origin or session grant before any connection uses it
-   * (#3595). Without a durable record it grants nothing.
+   * (#3595): only while a connection still waits on the card and its turn
+   * runs, and only once the record is durable. Otherwise it grants nothing.
    */
-  const commitGrant = async (scope: "origin" | "session", origin: ReturnType<typeof networkOrigin>, toolUseId: string): Promise<boolean> => {
-    if (!options.record || options.controller.signal.aborted) return false;
+  const commitGrant = async (scope: "origin" | "session", origin: ReturnType<typeof networkOrigin>, toolUseId: string, waiting: () => boolean): Promise<boolean> => {
+    if (!options.record || !db || options.controller.signal.aborted || !waiting()) return false;
     try {
       const result = await options.record({ ...base(), kind: "network_grant", payload: scope === "session" ? { scope, toolUseId } : { scope, toolUseId, ...origin } });
       if (result === false || result && typeof result === "object" && "recorded" in result && result.recorded === false
         && !("id" in result && typeof result.id === "number" && result.id > 0)) return false;
+      // A recorder may resolve without a result: only the committed row counts.
+      if (!db.query("SELECT 1 FROM governance_events WHERE kind='network_grant' AND json_extract(payload,'$.toolUseId')=?").get(toolUseId)) return false;
     } catch { return false; }
     if (scope === "session") grants.session = true; else grants.origins.add(networkOriginKey(origin));
     return true;
@@ -320,19 +331,26 @@ export async function prepareTurnEgress(options: {
       const origin = networkOrigin(destination);
       const network: NetworkApprovalOffer = { ...origin, scopes: ["once", "origin", "session"] };
       const toolUseId = crypto.randomUUID();
+      const signals = new Set<AbortSignal>();
+      // One commit per card, shared by the host's answer handler, which
+      // commits before it publishes the outcome, and this card's own wait.
+      let committing: Promise<boolean> | undefined;
+      const commitNetworkScope = (scope: "origin" | "session") =>
+        committing ??= commitGrant(scope, origin, toolUseId, () => [...signals].some(waiting => !waiting.aborted));
       const decision = requestToolPermission(options.bridge, { toolUseId, toolName: "Network", kind: "command",
-        input: { ...destination, target: networkAuthority(destination) }, network,
+        input: { ...destination, target: networkAuthority(destination) }, network, commitNetworkScope,
         description: (replacement ? "New safety evidence arrived while the previous request was waiting. " : "") + taintedDestinationDescription(destination, firstTaint()?.source ?? null),
       }).then(async (decision): Promise<NetworkDecision> => {
         if (decision.behavior !== "allow") return { answer: options.networkRefusal?.(toolUseId) ?? false };
         // A wider grant commits before any connection relies on it.
         const scope = decision.networkScope;
-        if ((scope === "origin" || scope === "session") && !await commitGrant(scope, origin, toolUseId)) return { answer: "unconfirmed" };
+        if ((scope === "origin" || scope === "session") && !await commitNetworkScope(scope)) return { answer: "unconfirmed" };
         return { answer: true, ...(scope ? { scope } : {}) };
       }, () => ({ answer: "unconfirmed" as const })).finally(() => asking.delete(key));
-      pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set()},...(connectionId?{owner:connectionId}:{})};
+      pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set(),lost:new Set()},signals,...(connectionId?{owner:connectionId}:{})};
       asking.set(key, pending);
     }
+    pending.signals.add(signal);
     if(connectionId){pending.group.members.add(connectionId);approvalGroups.set(connectionId,pending.group);}
     const settledDecision = await pending.decision;
     // A one-time answer allows only the connection whose card it was; a
@@ -441,22 +459,24 @@ export async function prepareTurnEgress(options: {
     const group=approvalGroups.get(destination.connectionId);
     if(group){group.occurrences.add(exposure.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}
     const hadCollection=db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId);
-    let durable = false;
+    let durable = false, failed = false, lost: string | undefined;
     try {
       const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
-        detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } });
+        detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } }, { tolerated: reservation => { lost = reservation; } });
       exposureCommits.set(destination.connectionId, initial);
       durable = await initial === true;
-    } catch { durable = false; }
+    } catch { failed = true; }
     finally { exposureCommits.delete(destination.connectionId); }
     if (!durable) {
       // No occurrence means no trusted fact and no terminal exposure to append.
       exposures.delete(destination.connectionId);
-      // A tolerated loss on a permanently gapped turn changes nothing for
-      // ordinary traffic: it already passed the restricted recipient policy,
-      // which every later check keeps applying. Source trust still needs its
-      // durable occurrence (#4351).
-      if (match || !gapped()) throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
+      // A tolerated loss (an explicit false result) on a permanently gapped
+      // turn changes nothing for ordinary traffic: it already passed the
+      // restricted recipient policy, which every later check keeps applying.
+      // A refused write, such as a full recording queue, never qualifies, and
+      // source trust still needs its durable occurrence (#4351).
+      if (failed || match || !gapped()) throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
+      if (lost && group) { group.lost.add(lost); for (const peer of group.members) approvalMarkers.delete(`${peer}:network`); }
       return;
     }
     if(db&&!hadCollection){

@@ -11,6 +11,7 @@ type ApprovalsSliceSlice = Pick<ChatState,
   | "requestToolApproval"
   | "applyVoicePermission"
   | "resolveToolApproval"
+  | "noteNetworkScope"
   | "closeRestoredApprovals"
   | "reopenRestoredApprovals"
   | "revokeRestoredApprovals"
@@ -133,6 +134,16 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
             : t
         ),
       })),
+
+    noteNetworkScope: (key, toolUseId, networkScope) => {
+      const chat = key === null ? get().draft : get().buffers[key];
+      // Only a Network card that offered scopes takes one; the host's word wins.
+      if (!chat?.messages.some(m => m.toolCalls.some(t => t.id === toolUseId && t.approvalNetwork && t.approvalNetworkScope !== networkScope))) return;
+      mutateToolHolder(key, toolUseId, (holder) => ({
+        ...holder,
+        toolCalls: holder.toolCalls.map(t => t.id === toolUseId && t.approvalNetwork ? { ...t, approvalNetworkScope: networkScope } : t),
+      }));
+    },
 
     closeRestoredApprovals: (key, closures) => {
       if (closures.length === 0) return;

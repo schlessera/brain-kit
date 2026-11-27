@@ -80,7 +80,9 @@ export function advance(db: Database): string {
 export type SafetyFailureSite = "safetyBegin"|"safetyReserve"|"safetyCommit"|"record"|"safetyFail"|"safetyEnd"|"migrate"|"boot-pending"|"boot-obligation";
 export type SafetyFailureReason = "recording_failed"|"capacity";
 /** A failure's cause: identifiers and error text only, never message content. */
-export interface SafetyFailureCause { errorClass:string; message:string; stack:string|null; site:SafetyFailureSite; turnId:string|null; at:number }
+export interface SafetyFailureCause { errorClass:string; message:string; stack:string|null; site:SafetyFailureSite; turnId:string|null; at:number;
+  /** The reserved write whose loss this is, when one was (#4351): lets its own approval tell its loss from another. */
+  reservation?:string }
 const clip=(text:string,bytes:number)=>{const buffer=Buffer.from(text);return buffer.length<=bytes?text:buffer.subarray(0,bytes).toString().replace(/�+$/,"");};
 export function safetyFailureCause(error:unknown,site:SafetyFailureSite,turnId:string|null,at=Date.now()):SafetyFailureCause {
   const value=error instanceof Error?error:new Error(String(error));
@@ -128,8 +130,8 @@ export function latchSafety(db:Database,turnId:string|null,reason:SafetyFailureR
 }
 /** Contain a failure at the narrowest scope that durably takes it: the turn's
  * chat, else the brain. Throws only when neither fact could commit. */
-export function recordSafetyFailure(db:Database,turnId:string|null,error:unknown,site:SafetyFailureSite,sessionId:string|null=null):"chat"|"brain" {
-  const reason=safetyFailureReason(error),cause=safetyFailureCause(error,site,turnId);
+export function recordSafetyFailure(db:Database,turnId:string|null,error:unknown,site:SafetyFailureSite,sessionId:string|null=null,reservation?:string):"chat"|"brain" {
+  const reason=safetyFailureReason(error),cause:SafetyFailureCause={...safetyFailureCause(error,site,turnId),...(reservation?{reservation}:{})};
   try {
     if(turnId&&failSafetyCollection(db,turnId,reason,cause))return "chat";
     if(sessionId&&failSafetySession(db,turnId,sessionId,reason,cause))return "chat";
@@ -470,6 +472,19 @@ function safetyScope(db:Database,turnId:string|null,sessionId:string|null) {
 }
 /** Pending input uses the aggregate's durable canonical membership, even before
  * its own reservation commits. Include an unbound turn with no collection yet. */
+/**
+ * The reserved write that alone accounts for the scope's active recording
+ * failure (#4351): the first cause of the only unended failed collection,
+ * with the brain not latched. Null when any other failure is active, or the
+ * cause names no reservation.
+ */
+export function safetyFailureReservation(db:Database,turnId:string|null,sessionId:string|null):string|null {
+ if(meta(db).failed)return null;
+ const {scope,args}=safetyScope(db,turnId,sessionId);
+ const failed=db.query<{failure_cause:string|null},(string|null)[]>(`SELECT c.failure_cause FROM safety_collections c WHERE ${scope} AND c.failure IS NOT NULL AND c.ended=0 LIMIT 2`).all(...args);
+ if(failed.length!==1||!failed[0]!.failure_cause)return null;
+ try{const reservation=(JSON.parse(failed[0]!.failure_cause) as {reservation?:unknown}).reservation;return typeof reservation==="string"?reservation:null;}catch{return null;}
+}
 export function safetyScopeTurns(db:Database,turnId:string|null,sessionId:string|null):Set<string> {
  const {scope,args}=safetyScope(db,turnId,sessionId);
  const turns=new Set(db.query<{turn_id:string},(string|null)[]>(`SELECT c.turn_id FROM safety_collections c WHERE ${scope}`).all(...args).map(c=>c.turn_id));

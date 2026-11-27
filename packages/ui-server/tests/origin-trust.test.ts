@@ -357,23 +357,14 @@ for (const recipient of ["allowlisted", "approved", "declined"] as const) test(`
     permanentGap(f.db, "source");
     f.writes.firstTaint = async (...args) => { const result = await original(...args); outcomes.push(result); return result; };
     f.decide(async () => recipient === "declined" ? { behavior: "deny", message: "Penelope declines" } : { behavior: "allow" });
-    let status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    // An answered card's own tolerated loss is its own input, never new
+    // evidence that withdraws it (maintainer ruling on #4351).
+    const status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
     await f.proxy.settled();
-    if (recipient === "approved") {
-      // The first loss fails the collection after the card was answered: new
-      // safety evidence for that card, which refuses only this connection.
-      expect(status, "OWN_FIRST_LOSS_IS_NEW_EVIDENCE_FOR_ITS_CARD").toBe(403);
-      expect(queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })[0]?.payload).toMatchObject({ reason: "safety_changed", dispatched: false });
-      expect(untrustedHits).toBe(0);
-      expect(f.controller.signal.aborted).toBe(false);
-      // A new card reviews the gap as it now stands and is honoured.
-      status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
-      await f.proxy.settled();
-    }
-    expect(status, "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_ITS_RECIPIENT_POLICY").toBe(recipient === "declined" ? 403 : 200);
+    expect(status, recipient === "approved" ? "OWN_TOLERATED_LOSS_KEEPS_ITS_ANSWERED_CARD" : "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_ITS_RECIPIENT_POLICY").toBe(recipient === "declined" ? 403 : 200);
     expect(untrustedHits).toBe(recipient === "declined" ? 0 : 1);
-    expect(f.asks()).toBe(recipient === "allowlisted" ? 0 : recipient === "approved" ? 2 : 1);
-    expect(outcomes).toEqual(recipient === "declined" ? [] : recipient === "approved" ? [false, false] : [false]);
+    expect(f.asks()).toBe(recipient === "allowlisted" ? 0 : 1);
+    expect(outcomes).toEqual(recipient === "declined" ? [] : [false]);
     expect(f.controller.signal.aborted, "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_THE_TURN").toBe(false);
     expect(f.proxy.recordingFailure()).toBeUndefined();
     const connections = queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 });
@@ -446,5 +437,47 @@ for (const lost of ["taint", "taint_exposure"] as const) test(`#4351: outside a 
       expect(f.controller.signal.aborted, "UNGAPPED_LOST_TERMINAL_EXPOSURE_STILL_STOPS_THE_TURN").toBe(true);
       expect(f.proxy.recordingFailure()).toBeDefined();
     }
+  } finally { untrusted.stop(true); await f.close(); }
+});
+
+test("#4351: another write's new failure on a gapped turn still withdraws an answered card", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  const original = f.writes.firstTaint;
+  try {
+    f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();
+    // While the flag is set, a reservation fails: that write leaves no
+    // pending row, only the collection's failure, and the failure is its.
+    f.db.exec("CREATE TABLE odysseus_flag(on_ INTEGER)");
+    f.db.exec("CREATE TRIGGER ithaca_reserve_gap BEFORE INSERT ON safety_pending WHEN EXISTS(SELECT 1 FROM odysseus_flag) BEGIN SELECT RAISE(FAIL,'Odysseus store unavailable'); END");
+    f.decide(async () => ({ behavior: "allow" }));
+    // After the answer, an independent input's write fails the collection
+    // first; then the connection's own write is lost too.
+    f.writes.firstTaint = async (...args) => {
+      if (args[0].payload.source === "egress_connection") {
+        f.db.exec("INSERT INTO odysseus_flag VALUES (1)");
+        try { await f.taint(); } finally { f.db.exec("DELETE FROM odysseus_flag"); }
+      }
+      return original(...args);
+    };
+    const status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    expect(status, "OTHER_NEW_FAILURE_STILL_WITHDRAWS_THE_CARD").toBe(403);
+    expect(queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })[0]?.payload).toMatchObject({ reason: "safety_changed", dispatched: false });
+    expect(untrustedHits).toBe(0);
+    expect(f.controller.signal.aborted).toBe(false);
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_reserve_gap"); untrusted.stop(true); await f.close(); }
+});
+test("#4351: a refused occurrence write on a gapped turn is never a tolerated loss", async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  try {
+    f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();
+    // The writer refuses outright when its recording queue is full: ingestion must stop.
+    f.writes.firstTaint = async () => { throw new Error("Safety occurrence write capacity exceeded; ingestion must stop"); };
+    expect(await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0), "GAPPED_REFUSED_WRITE_STILL_503").toBe(503);
+    expect(untrustedHits).toBe(0);
   } finally { untrusted.stop(true); await f.close(); }
 });

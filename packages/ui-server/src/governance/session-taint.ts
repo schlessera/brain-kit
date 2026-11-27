@@ -2,7 +2,7 @@
 import { canonicalEgressHost } from "@schlessera/brain-ui-sdk/internal";
 import { safetyProjection } from "./safety-store.js";
 import type { Database } from "bun:sqlite";
-import type { GovernanceEventInput, GovernanceEventPayload } from "./events.js";
+import { GOVERNANCE_EVENT_SCHEMAS, type GovernanceEventInput, type GovernanceEventPayload } from "./events.js";
 
 export type TaintSource = GovernanceEventPayload<"taint">["source"];
 export interface SessionTaint { eventId: number; source: TaintSource }
@@ -61,9 +61,17 @@ export const networkOriginKey = (origin: { transport: "http" | "connect"; host: 
 export function networkGrants(db: Database, sessionId: string | null): { session: boolean; origins: Set<string> } {
   const grants = { session: false, origins: new Set<string>() };
   if (!sessionId) return grants;
-  const rows = db.query("SELECT payload FROM governance_events WHERE kind='network_grant' AND session_id=?").all(sessionId) as { payload: string }[];
+  const spec = GOVERNANCE_EVENT_SCHEMAS.network_grant;
+  const rows = db.query("SELECT schema_version, payload FROM governance_events WHERE kind='network_grant' AND session_id=?").all(sessionId) as { schema_version: number; payload: string }[];
   for (const row of rows) {
-    const grant = JSON.parse(row.payload) as { scope: "origin" | "session"; transport?: "http" | "connect"; host?: string; port?: number };
+    // Only a record this version understands grants anything: an unknown
+    // version or a payload that fails its schema is skipped, never guessed.
+    if (row.schema_version !== spec.version) continue;
+    let payload: unknown;
+    try { payload = JSON.parse(row.payload); } catch { continue; }
+    const parsed = spec.payload.safeParse(payload);
+    if (!parsed.success) continue;
+    const grant = parsed.data;
     if (grant.scope === "session") grants.session = true;
     else if (grant.transport && grant.host && grant.port) grants.origins.add(networkOriginKey({ transport: grant.transport, host: grant.host, port: grant.port }));
   }

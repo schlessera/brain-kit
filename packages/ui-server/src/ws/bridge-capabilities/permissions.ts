@@ -128,8 +128,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
               : "allow",
           req.kind ?? "tool",
           response?.principalId,
-          response?.channel,
-          decision.behavior === "allow" ? decision.networkScope : undefined
+          response?.channel
         );
         resolve(decision);
       };

@@ -71,6 +71,7 @@ for (const width of [320, 1280]) for (const surface of ["transcript", "actions"]
         expect(button.scrollWidth, "NETWORK_LABEL_WHOLE").toBeLessThanOrEqual(button.clientWidth + 1);
       }
       if (surface === "transcript") expect(card.textContent, "SCOPED_CARD_DROPS_LEGACY_SENTENCE").not.toContain("for the rest of this session without asking again");
+      if (surface === "actions") expect(card.textContent, "ACTIONS_CARD_NAMES_THE_TRANSPORT").toContain(`HTTP to ${OFFER.host}:8080`);
     }
     await commands.formViewport(width, Math.ceil(host!.scrollHeight) + 32); await page.viewport(width, Math.ceil(host!.scrollHeight) + 32);
     await page.screenshot({ element: host!, path: `../../.vitest-attachments/network-approval-scope/${surface}-${width}.png` });
@@ -84,4 +85,6 @@ for (const width of [320, 1280]) for (const surface of ["transcript", "actions"]
     const settled = activeChat(root!.stores.chat.getState()).messages.flatMap(message => message.toolCalls);
     expect(settled.map(call => call.approvalNetworkScope), "SETTLED_CARDS_KEEP_THEIR_SCOPE").toEqual(["once", "session"]);
     if (surface === "actions") expect(receipts, "ACTIONS_RECEIPTS_NAME_THE_SCOPE").toEqual(["Allowed once", "Allowed all origins for this session"]);
+    if (surface === "transcript") await expect.poll(() => [...host!.querySelectorAll<HTMLElement>("[data-network-scope-receipt]")].map(row => row.textContent),
+      { message: "TRANSCRIPT_RECEIPTS_NAME_THE_SCOPE" }).toEqual(["Allowed once", "Allowed all origins for this session"]);
   });
