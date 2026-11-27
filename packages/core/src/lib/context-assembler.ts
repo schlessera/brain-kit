@@ -748,7 +748,7 @@ function chunkSpan(body: string, chunk: ChunkMatch): { components: Array<{ part:
   const same = again[chunk.chunk_index];
   if (!same || same.content !== chunk.content || same.heading !== chunk.heading) return null;
   const next = again[chunk.chunk_index + 1]?.heading ?? "";
-  const piece = (heading: string) => / \(cont\.\)$/.test(heading) || heading.includes(" › ");
+  const piece = (heading: string) => heading.endsWith(" (cont.)") || heading.includes(" › ");
   if (piece(chunk.heading) || next === `${chunk.heading} (cont.)` || next.startsWith(`${chunk.heading} › `)) return null;
   const heads = splitHeadings(body);
   const all: ChunkerPart[] = [

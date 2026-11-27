@@ -959,8 +959,6 @@ describe("sections from chunks", () => {
         db.close();
       }
     }
-    /** The 1-based line of `file` that starts with `text`. */
-    const lineOf = (file: string, text: string) => file.split("\n").findIndex((line) => line.startsWith(text)) + 1;
 
     test("a piece of a section split over several chunks keeps its snippet", async () => {
       const file = study("Folded", `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 120)}\n`);
