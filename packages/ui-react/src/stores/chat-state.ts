@@ -325,6 +325,12 @@ export interface SessionChat {
    * selected session before its history comes back is not, however empty.
    */
   historyConfirmed?: true;
+  /**
+   * @internal Every `turn\0toolUseId` under which this client has seen
+   * differently named calls (#4513). Grow-only: a replay that carries one of
+   * the calls cannot make the action look proven again.
+   */
+  ambiguousTools?: readonly string[];
 }
 
 /**

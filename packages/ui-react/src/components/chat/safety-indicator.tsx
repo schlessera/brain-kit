@@ -45,8 +45,9 @@ export function ToolSafetyIndicator({turnId,toolCalls}:{turnId?:string;toolCalls
 
 /** The action a tool-use ID proves: its one tool name in the turn, `null`
  * when differently named calls share the ID, `undefined` when no call has it. */
-function attributedTool(calls:readonly ToolCall[]|undefined,toolUseId:string|undefined):string|null|undefined {
+export function attributedTool(calls:readonly ToolCall[]|undefined,toolUseId:string|undefined,reused?:boolean):string|null|undefined {
   if(!toolUseId)return undefined;
+  if(reused)return null;
   const names=new Set(calls?.filter(tool=>tool.id===toolUseId).map(tool=>tool.name));
   return names.size>1?null:[...names][0];
 }
@@ -132,6 +133,9 @@ function unresolvedInput(entry:SafetyEvidence) {
 
 function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:SafetyEvidence[];toolCalls?:readonly ToolCall[];turnId?:string}) {
   const root=useBrainUiRoot(),sessionId=useChatStore(s=>s.activeSessionId),auth=useStore(root.authLock.state,s=>s.phase);
+  // Grow-only: once two names were seen under an ID, a replay holding one
+  // of them proves nothing (#4513).
+  const reused=useChatStore(s=>activeChat(s).ambiguousTools);
   const supported=useStore(root.stores.safety,s=>s.supported),readReason=useStore(root.stores.safety,s=>s.reason);
   const readStatus=useStore(root.stores.safety,s=>s.status),historyScopeKey=useStore(root.stores.safety,s=>s.historyScopeKey);
   const chatCount=useStore(root.stores.safety,s=>s.status==="ready"&&s.identity&&"sessionId" in s.identity&&s.identity.sessionId===sessionId?s.projection?.unresolvedCount:undefined);
@@ -195,7 +199,7 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
       style={{...position,width:"min(384px, calc(100vw - 24px))",maxHeight:"min(65vh, 520px)",overflowWrap:"anywhere"}}>
       <div className="flex items-center justify-between gap-2"><strong>{name}</strong><IconButton icon="dismiss" name="Close safety details" style={{minWidth:44,minHeight:44}} onClick={close}/></div>
       <p className="mb-3 text-xs">Marking an input safe accepts that input for this chat. Its contents stay in the model’s context.</p>
-      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} toolName={entry.occurrence.turnId===turnId ? attributedTool(toolCalls,entry.occurrence.entry?.toolUseId) : undefined}/>)}
+      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} toolName={entry.occurrence.turnId===turnId ? attributedTool(toolCalls,entry.occurrence.entry?.toolUseId,reused?.includes(`${turnId}\0${entry.occurrence.entry?.toolUseId}`)) : undefined}/>)}
       {entries.length>limit&&<Button label="Show more inputs" tone="quiet" reach onClick={()=>setLimit(n=>n+20)}/>}
     </div>,document.body)}
   </span>;

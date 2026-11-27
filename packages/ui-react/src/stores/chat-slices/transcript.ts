@@ -49,6 +49,24 @@ function includesDrawnText(text: string, drawn: string): boolean {
 }
 
 /** Shared tools keep their chronological IDs even when either copy missed a call. */
+/** The grow-only set of `turn\0toolUseId` keys under which one copy of the
+ * transcript holds differently named calls (#4513). */
+function reusedToolIds(prior: readonly string[] | undefined, ...copies: readonly ChatMessage[][]): readonly string[] | undefined {
+  const keys = new Set(prior);
+  for (const messages of copies) {
+    const names = new Map<string, Set<string>>();
+    for (const m of messages) {
+      const turn = m.turnId ?? m.streamTurnId;
+      if (turn) for (const t of m.toolCalls) {
+        const key = `${turn}\0${t.id}`, seen = names.get(key) ?? new Set<string>();
+        seen.add(t.name); names.set(key, seen);
+      }
+    }
+    for (const [key, seen] of names) if (seen.size > 1) keys.add(key);
+  }
+  return keys.size ? [...keys] : prior;
+}
+
 /** Each call's identity within its list. The runtime can reuse one
  * tool-use ID for several calls (#4513): the n-th call under an ID matches
  * the n-th call under it in another copy, never the first. */
@@ -376,7 +394,8 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
         const buffers = {
           ...state.buffers,
           [key]: base
-            ? { ...emptyChat(), ...drawn, replay: { base, received: messages }, historyConfirmed: true as const }
+            ? { ...emptyChat(), ...drawn, replay: { base, received: messages }, historyConfirmed: true as const,
+              ambiguousTools: reusedToolIds(existing!.ambiguousTools, base.messages, messages) }
             : { ...emptyChat(), messages, historyConfirmed: true as const },
         };
         const restoreFailures = { ...state.restoreFailures };
@@ -406,7 +425,8 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
           return {
             buffers: {
               ...state.buffers,
-              [key]: { ...existing, ...drawn, replay: { base: current, received: all }, lastTouched: Date.now() },
+              [key]: { ...existing, ...drawn, replay: { base: current, received: all }, lastTouched: Date.now(),
+            ambiguousTools: reusedToolIds(existing.ambiguousTools, existing.messages, all) },
             },
           };
         }
