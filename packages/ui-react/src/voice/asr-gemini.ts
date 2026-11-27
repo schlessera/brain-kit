@@ -15,6 +15,7 @@ import type { AsrClient } from "@schlessera/brain-ui-sdk/client";
 import { CONVERSATION_LIMITS, type AsrEvent } from "@schlessera/brain-ui-sdk/protocol";
 import { speechError } from "./dictation-failure.js";
 import { openPcmMicrophone, pcm16Bytes, type PcmMicrophone } from "./pcm-capture.js";
+import { bytesToBase64 } from "../lib/base64.js";
 
 const GEMINI_SAMPLE_RATE = 16_000;
 /** 100 ms of 16 kHz mono PCM16: 1,600 samples, 3,200 bytes. */
@@ -238,9 +239,7 @@ export class GeminiAsrClient implements AsrClient {
 
   private enqueue(samples: Int16Array): void {
     const bytes = pcm16Bytes(samples);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-    const frame = JSON.stringify({ realtimeInput: { audio: { data: btoa(binary), mimeType: MIME } } });
+    const frame = JSON.stringify({ realtimeInput: { audio: { data: bytesToBase64(bytes), mimeType: MIME } } });
     if (!this.setupDone) {
       if (this.queue.length >= GEMINI_PRESETUP_FRAMES) { this.fail("Gemini setup did not complete in time", "network"); return; }
       this.queue.push(frame);

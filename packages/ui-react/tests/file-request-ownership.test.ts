@@ -44,4 +44,11 @@ describe("file request ownership", () => {
       expect(useFileStore.getState().currentContent?.content).toBe("new");
     }
   });
+
+  test("a 413 with the host's size records too-large with that size (#4725)", async () => {
+    const requests = setup();
+    const open = useFileStore.getState().openFile("big.md");
+    requests[0]!.resolve(Response.json({ error: "too large", size: 1234 }, { status: 413 })); await open;
+    expect(useFileStore.getState().contentFailure).toEqual({ kind: "too-large", size: 1234 });
+  });
 });

@@ -12,10 +12,33 @@ import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, Hy
 import type { ContentRendererDeclaration, ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
-  constructor(message: string, readonly status: number, readonly errors: Array<{ path: string; message: string }> = []) {
+  constructor(message: string, readonly status: number, readonly errors: Array<{ path: string; message: string }> = [], readonly body?: unknown) {
     super(message);
     this.name = "ApiRequestError";
   }
+}
+
+type Request = (url: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * The one failure mapping for a REST response: a non-2xx answer throws
+ * `ApiRequestError` with its status, the parsed failure body and a message
+ * taken from `error`, `reason` or `code`. Network failures pass through
+ * unwrapped, so a caller can still tell "unreachable" apart. The headers sent
+ * are exactly the ones given.
+ */
+async function requestResponse(request: Request, url: string, init?: RequestInit): Promise<Response> {
+  const res = await request(url, init);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new ApiRequestError(body?.error || body?.reason || body?.code || `HTTP ${res.status}`, res.status, body?.errors ?? [], body);
+  }
+  return res;
+}
+
+/** `requestResponse`, then the 2xx body as JSON. */
+export async function requestJson<T>(request: Request, url: string, init?: RequestInit): Promise<T> {
+  return (await requestResponse(request, url, init)).json();
 }
 import type {
   VoiceKeytermsResponse,
@@ -339,19 +362,14 @@ export function createBrainApi(
   getBase: () => string,
   request: (url: string, init?: RequestInit) => Promise<Response> = (url, init) => fetch(url, init),
 ) {
-  async function fetchResponse(path: string, init?: RequestInit): Promise<Response> {
-    const res = await request(`${getBase()}${path}`, {
+  function fetchResponse(path: string, init?: RequestInit): Promise<Response> {
+    return requestResponse(request, `${getBase()}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
         ...init?.headers,
       },
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }));
-      throw new ApiRequestError(body.error || body.reason || body.code || `HTTP ${res.status}`, res.status, body.errors ?? []);
-    }
-    return res;
   }
 
   async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {

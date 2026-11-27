@@ -6,9 +6,9 @@ import type { RecordingStore, Recording } from "../../lib/recordings.js";
 import { useLocalCapture } from "../../voice/use-local-capture.js";
 import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
 import { RecordingItem } from "../voice/recordings-tray.js";
+import { formatBytes } from "../../lib/format-bytes.js";
 
 export const LOCAL_CAPTURE_UNSUPPORTED = "This browser can't save recordings on the device. You can type a note and send it when you're back online.";
-const size = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 /** Shell-only capture. Account content is never opened, even after the probe recovers. */
 export function LocalCaptureScreen({ reachable, onContinue }: {
@@ -115,11 +115,11 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
       {error && <p role="alert" className="text-sm">{error}</p>}
       <p role="status" className="text-sm text-muted-foreground">{ready ? notice : notice || "Checking recordings on this device…"}</p>
       <section aria-label="Drafts on this device" className="space-y-3">
-        <h2 className="text-sm font-mono">Drafts on this device · {rows.length} · {size(rows.reduce((n, row) => n + row.bytes, 0))}</h2>
+        <h2 className="text-sm font-mono">Drafts on this device · {rows.length} · {formatBytes(rows.reduce((n, row) => n + row.bytes, 0))}</h2>
         {removed && <p className="text-sm">{removed}</p>}
         {rows.map(row => <RecordingItem store={store} key={row.id} row={row} offline localOnly onAccepted={() => {}} onDiscard={async () => { await store.discard("unassigned", row.id); focusRecord(); }} />)}
       </section>
-      {lockedBytes !== null && lockedBytes > 0 && <p data-locked-recordings="" className="text-sm text-muted-foreground">Locked recordings · {size(lockedBytes)}<br />Sign in to open them.</p>}
+      {lockedBytes !== null && lockedBytes > 0 && <p data-locked-recordings="" className="text-sm text-muted-foreground">Locked recordings · {formatBytes(lockedBytes)}<br />Sign in to open them.</p>}
       <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
         <span>Retrying connection…</span>
         <Button label="Try now" tone="ghost" block={false} reach onClick={root.recheckVpn} />

@@ -349,7 +349,7 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   keeps its whole immediate transaction, and settings consumers await the
   commit before their dependent reads or replies. Without a writer, the same
   operations still run inline, including the cron digest job; the notifier's
-  cursor and the unhosted detail-retention setter keep their existing paths.
+  cursor keeps its existing path.
 - **Reference sources and managed worktrees followed** (#2999, part of #2850).
   Checkpoint ownership, worktree allocation, grants, renewal, release, generation
   boundaries and cleanup receipts, reference-source publication and leases, and

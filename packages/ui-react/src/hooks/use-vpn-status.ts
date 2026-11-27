@@ -1,6 +1,7 @@
 import { useBrainUiRoot } from "../root-context.js";
 import type { BrainUiRoot } from "../root.js";
 import { useEffect, useRef, useState } from "react";
+import { readVpnCheck } from "../lib/vpn-check.js";
 import {
   type VpnStatus,
 } from "../stores/connection-store.js";
@@ -13,27 +14,21 @@ const TIMEOUT_MS = 5_000;
 type VpnReading = { status: VpnStatus; accountKey?: string | null };
 
 /** The host's account partition key (#1014): an opaque name, read defensively. */
-async function readAccountKey(res: Response): Promise<string | null> {
-  try {
-    const body = await res.json() as { accountKey?: unknown } | null;
-    const key = body?.accountKey;
-    return typeof key === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(key) ? key : null;
-  } catch {
-    return null;
-  }
+function validAccountKey(key: unknown): string | null {
+  return typeof key === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(key) ? key : null;
 }
 
 async function fetchVpnStatus(root: BrainUiRoot): Promise<VpnReading> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await root.request(root.backendUrl("/api/vpn-check"), {
+    const { status, accountKey } = await readVpnCheck(root, {
       signal: controller.signal,
     });
 
-    if (res.ok) return { status: "connected", accountKey: await readAccountKey(res) };
-    if (res.status === 401) return { status: "unauthorized" };
-    if (res.status === 403) return { status: "forbidden" };
+    if (status >= 200 && status < 300) return { status: "connected", accountKey: validAccountKey(accountKey) };
+    if (status === 401) return { status: "unauthorized" };
+    if (status === 403) return { status: "forbidden" };
     return { status: "unreachable" };
   } catch {
     return { status: "unreachable" };

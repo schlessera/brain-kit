@@ -322,11 +322,6 @@ function areaPath(xy: ReadonlyArray<readonly [number, number]>, baseline: number
   return `${linePath(xy)} L${r(last[0])} ${r(baseline)} L${r(first[0])} ${r(baseline)} Z`;
 }
 
-/** How many subpaths (`M` commands) a path has. A gap must make two. */
-export function subpathCount(path: string): number {
-  return (path.match(/M/g) ?? []).length;
-}
-
 /* ── Bands ────────────────────────────────────────────────────────────────── */
 
 interface Band {

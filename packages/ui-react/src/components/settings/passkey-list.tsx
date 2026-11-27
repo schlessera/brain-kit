@@ -1,5 +1,5 @@
 import { Button, Chip, IconButton, Placeholder } from "@schlessera/brain-ui-kit";
-import { Fingerprint, Pencil, Trash2, X } from "lucide-react";
+import { Fingerprint, Pencil, Trash2, X } from "../icons.js";
 import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
 import { useState, type ReactNode } from "react";
 

@@ -35,20 +35,10 @@ export interface SparklineProps {
   height?: number;
 }
 
-const INKS: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 export function Sparkline({ points, label, valueLabel, showValue = true, tone = "blue", width = 120, height = 24 }: SparklineProps) {
   const g = sparklineGeometry(points, width, height);
   const known = g.measured > 0 && Boolean(valueLabel);
-  const ink = INKS[tone] ?? INKS.blue;
+  const ink = (accent[tone] ?? accent.blue).ink;
   const gaps = g.gaps ? `, ${g.gaps} gap${g.gaps === 1 ? "" : "s"}` : "";
   const name = g.measured > 0 ? `${label}${gaps}` : `${label}, not measured`;
   const wrap: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 8, maxWidth: "100%", minWidth: 0 };

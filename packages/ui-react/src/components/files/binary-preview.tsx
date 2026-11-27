@@ -1,4 +1,4 @@
-import { Download } from "lucide-react";
+import { Download } from "../icons.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
 import { formatSize } from "./file-viewer-frame.js";
 

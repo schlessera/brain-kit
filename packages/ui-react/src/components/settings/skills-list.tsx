@@ -1,5 +1,5 @@
 import { Button, IconButton, Toggle, Placeholder } from "@schlessera/brain-ui-kit";
-import { Loader2, Pencil, Trash2, Upload } from "lucide-react";
+import { Loader2, Pencil, Trash2, Upload } from "../icons.js";
 import type { SkillEntry, SkillInstallOutcome } from "../../lib/api-client.js";
 import { cn } from "../../lib/utils.js";
 import { PANE_GRID, Prose, WIDE_CONTENT } from "./prose.js";

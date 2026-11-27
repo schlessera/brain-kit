@@ -105,11 +105,6 @@ export function toolStateLine(p: ToolStateInput): ToolStateLine {
   }
 }
 
-/** The state line as one string, for accessible names and announcements. */
-export function toolStateText(line: ToolStateLine): string {
-  return line.detail ? `${line.word} · ${line.detail}` : line.word;
-}
-
 /**
  * The measured-change line. A missing change, or a delta with no text, is
  * "not measured" with a reason: an unknown is never drawn as a number and

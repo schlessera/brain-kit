@@ -39,16 +39,6 @@ export interface RelatedFilesProps {
   items?: RelatedFileItem[];
 }
 
-const INKS: Record<Tone, string> = {
-  teal: accent.teal.ink,
-  blue: accent.blue.ink,
-  purple: accent.purple.ink,
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 const FALLBACK: RelatedFileItem[] = [
   {
     path: "decisions/scylla-or-charybdis.md",
@@ -109,7 +99,7 @@ export function RelatedFiles(p: RelatedFilesProps) {
         </div>
       ) : null}
       {src.map((it, i) => {
-        const ink = INKS[it.tone || "teal"] || INKS.teal;
+        const ink = (accent[it.tone || "teal"] ?? accent.teal).ink;
         const act = Boolean(it.onClick);
         const row: CSSProperties = {
           display: "flex",
