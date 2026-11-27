@@ -1,89 +1,83 @@
-import { runtimePackageBuild } from "./fixtures/runtime-package-build";
+import { chromePath, startRuntimeHost, type RuntimeHost } from "./fixtures/runtime-host";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test as bunTest } from "bun:test";
 import { Database } from "bun:sqlite";
 import { pathToFileURL } from "node:url";
-import { statSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { chromium, type Browser } from "playwright";
-import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
-import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
-import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
+import type { Browser } from "playwright";
+import { createRecordingObservability, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createWriterGate } from "../../ui-server/src/brain/writer-gate.js";
 import { recordGovernanceEvent } from "../../ui-server/src/governance/events.js";
 import { createClaudeWorkerState } from "../../ui-backend-claude/src/worker-state.js";
 import { createStateLedger } from "../../ui-backend-claude/src/worker-state-budget.js";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.js";
 import { MIN_BRAIN_CLI_VERSION } from "../../ui-server/src/brain/client";
-const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"].find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
-if (!executablePath) throw new Error("Turn journal proof requires real Chrome");
+const executablePath = chromePath("turn-journal-runtime.test.ts");
+// Every test in this file drives Chrome; without one they all skip.
+const test = bunTest.skipIf(!executablePath);
 const repo = resolve(import.meta.dir, "../../.."), password = "the bow only Odysseus can string", turnId = "odysseus-journal";
 const skillPath = ".claude/skills/voyage-log/SKILL.md";
 let taintSourceEventId = 0;
 const observability = createRecordingObservability();
-let root = "", origin = "", browser: Browser, app: Awaited<ReturnType<typeof createApp>>, server: ReturnType<typeof Bun.serve>;
+let host: RuntimeHost | undefined, root = "", origin = "", browser: Browser, app: NonNullable<RuntimeHost["app"]>;
 async function child(args: string[]) {
   const process = Bun.spawn(args, { cwd: repo, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
   const [out, err, code] = await hook.child("fixture-child", process);
   if (code !== 0) throw new Error(`Journal fixture build failed (${code})\n${out}${err}`);
 }
 const hook = runtimeHookPhases("turn-journal-runtime.test.ts");
-beforeAll(() => hook.phase("setup", async () => {
-  await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], hook);
-  root = await mkdtemp(resolve(tmpdir(), "odysseus-journal-browser-"));
-  const brain = resolve(root, "brain"), assets = resolve(root, "assets");
-  await hook.phase("fixture-files", () => createFixtureBrain(repo, brain)); await mkdir(assets);
-  await hook.phase("fixture-seed-files", async () => {
-  await mkdir(resolve(brain,"scripts"));
-  await writeFile(resolve(brain,"scripts/brain-cli.ts"),`// Fixture-only startup version; real commands execute the release-candidate CLI source.\nif(process.argv.includes("--version"))console.log("${MIN_BRAIN_CLI_VERSION}");else await import(${JSON.stringify(pathToFileURL(resolve(repo,"packages/core/src/cli/brain.ts")).href)});\n`);
-  await writeFile(resolve(brain, "notes/voyage.md"), "Ithaca\r\n");
-  await mkdir(resolve(brain, ".claude/skills/voyage-log"), { recursive: true });
-  await writeFile(resolve(brain, skillPath), "# Voyage log\nOdysseus records the crossing.\n");
+beforeAll(async () => {
+  if (!executablePath) return;
+  const passwordHash = await Bun.password.hash(password);
+  host = await startRuntimeHost({ file: "turn-journal-runtime.test.ts", executablePath, packages: ["ui-react", "ui-server", "core"], scratchPrefix: "odysseus-journal-browser-",
+    client: resolve(import.meta.dir, "fixtures/turn-journal-client.tsx"),
+    seed: ({ brain }) => hook.phase("fixture-seed-files", async () => {
+      await mkdir(resolve(brain,"scripts"));
+      await writeFile(resolve(brain,"scripts/brain-cli.ts"),`// Fixture-only startup version; real commands execute the release-candidate CLI source.\nif(process.argv.includes("--version"))console.log("${MIN_BRAIN_CLI_VERSION}");else await import(${JSON.stringify(pathToFileURL(resolve(repo,"packages/core/src/cli/brain.ts")).href)});\n`);
+      await writeFile(resolve(brain, "notes/voyage.md"), "Ithaca\r\n");
+      await mkdir(resolve(brain, ".claude/skills/voyage-log"), { recursive: true });
+      await writeFile(resolve(brain, skillPath), "# Voyage log\nOdysseus records the crossing.\n");
+      // Seed the excluded-path receipt explicitly; background cache writes are not test inputs.
+      await writeFile(resolve(brain, ".gitignore"), "journal-ignored.tmp\n");
+      await writeFile(resolve(brain, "journal-ignored.tmp"), "Odysseus prepares a temporary draft.\n");
+    }),
+    app: { backend: makeFakeBackend({ id: "journal-fixture" }), observability, config: ({ brain, db }) => resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: db, AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: passwordHash, COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }) },
+    page: async (started, { brain, scratch: root }) => { app = started!; return hook.phase("journal-and-assets", async () => {
+      await app.wsHost.journal!.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+      await writeFile(resolve(brain, "notes/voyage.md"), "Athena charts the return.\r\n");
+      await writeFile(resolve(brain, "journal-ignored.tmp"), "Athena revises the temporary draft.\n");
+      await writeFile(resolve(brain, skillPath), "# Voyage log\nAthena reviews the crossing.\n");
+      app.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Homeward',1,1)").run();
+      taintSourceEventId = recordGovernanceEvent(app.db, { kind: "taint", sessionId: "ithaca", turnId, actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus reads a harbour notice." } }).id;
+      for (const decision of ["approved", "declined"] as const) recordGovernanceEvent(app.db, { kind: "outward_action", sessionId: "ithaca", turnId, actor: "interactive", model: null, profile: "governed",
+        payload: { tool: "Bash", input: JSON.stringify({ command: "git push origin main" }), inputTruncated: false, action: "git_push", target: "github.com/odysseus/voyage.git", historyRewrite: false, tainted: false, decision, rule: null } });
+      await app.wsHost.journal!.finish(turnId);
+      const seed = JSON.stringify({ turnId, summary: app.wsHost.journal!.summary(turnId) });
+      const conflictPath=resolve(brain,"notes/crossing.md"), conflictId="odysseus-conflict";
+      await writeFile(conflictPath,"---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\nInitial crossing.\n");
+      const metadata={sessionId:"ithaca",actor:"interactive" as const,model:null,profile:"governed" as const,policyHash:null};
+      await app.wsHost.journal!.begin(conflictId,metadata,error=>{throw error;});await app.wsHost.journal!.begin("athena-conflict",metadata,error=>{throw error;});
+      for(const owner of ["Odysseus","Athena"]){await child(["bash","-c",'printf "%s" "$2" > "$1"',"odysseus-fixture",conflictPath,`---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\n${owner} charts the crossing.\n`]);await app.wsHost.journal!.observe();}
+      await app.wsHost.journal!.finish(conflictId);await app.wsHost.journal!.finish("athena-conflict");
+      const memoryId = "odysseus-external-memory", saved = resolve(root, "claude-config"), project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`, memory = resolve(saved, project, "memory");
+      await mkdir(memory, { recursive: true }); await writeFile(resolve(memory, "voyage.md"), "Ithaca memory\r\n", {mode:0o600});
+      const memoryState = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { ledger: createStateLedger() });
+      const temporary = resolve(root, "memory-worker"); await mkdir(temporary); memoryState.populate(temporary);
+      await app.wsHost.journal!.begin(memoryId, metadata, error => { throw error; });
+      await writeFile(resolve(temporary, project, "memory/voyage.md"), "Athena remembers the crossing.\r\n");
+      // The Claude backend awaits copy-out before its turn ends (`TurnTerminal.release`); so does this fixture.
+      await memoryState.persist(temporary, undefined, (change, save) => app.wsHost.journal!.persistClaudeMemory(memoryId, change, save)); memoryState.release();
+      await app.wsHost.journal!.finish(memoryId);
+      const memorySeed = JSON.stringify({ turnId: memoryId, summary: app.wsHost.journal!.summary(memoryId) });
+      const conflictSeed=JSON.stringify({turnId:conflictId,summary:app.wsHost.journal!.summary(conflictId)});
+      return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus journal</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px;max-width:900px}textarea{max-width:100%}</style></head><body><div id="app"></div><script>window.__journalSeed=${seed};window.__conflictSeed=${conflictSeed};window.__memorySeed=${memorySeed}</script><script type="module" src="/client.js"></script></body></html>`;
+    }); },
   });
-  await child([process.execPath, "-e", 'const result=await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"});if(!result.success){console.error(result.logs);process.exit(1)}', resolve(import.meta.dir, "fixtures/turn-journal-client.tsx"), assets]);
-  // Seed the excluded-path receipt explicitly; background cache writes are not test inputs.
-  await writeFile(resolve(brain, ".gitignore"), "journal-ignored.tmp\n");
-  await writeFile(resolve(brain, "journal-ignored.tmp"), "Odysseus prepares a temporary draft.\n");
-  const backend = makeFakeBackend({ id: "journal-fixture" });
-  app = await hook.phase("host-start", async () => createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password), COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability }));
-  await hook.phase("journal-and-assets", async () => {
-  await app.wsHost.journal!.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
-  await writeFile(resolve(brain, "notes/voyage.md"), "Athena charts the return.\r\n");
-  await writeFile(resolve(brain, "journal-ignored.tmp"), "Athena revises the temporary draft.\n");
-  await writeFile(resolve(brain, skillPath), "# Voyage log\nAthena reviews the crossing.\n");
-  app.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Homeward',1,1)").run();
-  taintSourceEventId = recordGovernanceEvent(app.db, { kind: "taint", sessionId: "ithaca", turnId, actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus reads a harbour notice." } }).id;
-  for (const decision of ["approved", "declined"] as const) recordGovernanceEvent(app.db, { kind: "outward_action", sessionId: "ithaca", turnId, actor: "interactive", model: null, profile: "governed",
-    payload: { tool: "Bash", input: JSON.stringify({ command: "git push origin main" }), inputTruncated: false, action: "git_push", target: "github.com/odysseus/voyage.git", historyRewrite: false, tainted: false, decision, rule: null } });
-  await app.wsHost.journal!.finish(turnId);
-  const seed = JSON.stringify({ turnId, summary: app.wsHost.journal!.summary(turnId) });
-  const conflictPath=resolve(brain,"notes/crossing.md"), conflictId="odysseus-conflict";
-  await writeFile(conflictPath,"---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\nInitial crossing.\n");
-  const metadata={sessionId:"ithaca",actor:"interactive" as const,model:null,profile:"governed" as const,policyHash:null};
-  await app.wsHost.journal!.begin(conflictId,metadata,error=>{throw error;});await app.wsHost.journal!.begin("athena-conflict",metadata,error=>{throw error;});
-  for(const owner of ["Odysseus","Athena"]){await child(["bash","-c",'printf "%s" "$2" > "$1"',"odysseus-fixture",conflictPath,`---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\n${owner} charts the crossing.\n`]);await app.wsHost.journal!.observe();}
-  await app.wsHost.journal!.finish(conflictId);await app.wsHost.journal!.finish("athena-conflict");
-  const memoryId = "odysseus-external-memory", saved = resolve(root, "claude-config"), project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`, memory = resolve(saved, project, "memory");
-  await mkdir(memory, { recursive: true }); await writeFile(resolve(memory, "voyage.md"), "Ithaca memory\r\n", {mode:0o600});
-  const memoryState = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { ledger: createStateLedger() });
-  const temporary = resolve(root, "memory-worker"); await mkdir(temporary); memoryState.populate(temporary);
-  await app.wsHost.journal!.begin(memoryId, metadata, error => { throw error; });
-  await writeFile(resolve(temporary, project, "memory/voyage.md"), "Athena remembers the crossing.\r\n");
-  // The Claude backend awaits copy-out before its turn ends (`TurnTerminal.release`); so does this fixture.
-  await memoryState.persist(temporary, undefined, (change, save) => app.wsHost.journal!.persistClaudeMemory(memoryId, change, save)); memoryState.release();
-  await app.wsHost.journal!.finish(memoryId);
-  const memorySeed = JSON.stringify({ turnId: memoryId, summary: app.wsHost.journal!.summary(memoryId) });
-  const conflictSeed=JSON.stringify({turnId:conflictId,summary:app.wsHost.journal!.summary(conflictId)});
-  await writeFile(resolve(assets, "index.html"), `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus journal</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px;max-width:900px}textarea{max-width:100%}</style></head><body><div id="app"></div><script>window.__journalSeed=${seed};window.__conflictSeed=${conflictSeed};window.__memorySeed=${memorySeed}</script><script type="module" src="/client.js"></script></body></html>`);
-  for (const [name, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) await writeFile(resolve(assets, name!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
-  });
-  server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket }); origin = `http://127.0.0.1:${server.port}`;
-  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] }));
-}), 180_000);
-afterAll(() => hook.phase("cleanup", async () => { await browser?.close(); server?.stop(true); await app?.close(); if (root) await rm(root, { recursive: true, force: true }); }));
+  ({ scratch: root, origin, browser } = host);
+}, 180_000);
+afterAll(() => host?.close());
 async function scene(width = 1280, theme = "dark", replay = false, conflict = false, memory = false) {
   const context = await browser.newContext({ viewport: { width, height: 800 }, reducedMotion: "reduce" }), outside: string[] = [];
   await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : (outside.push(route.request().url()), route.abort()));

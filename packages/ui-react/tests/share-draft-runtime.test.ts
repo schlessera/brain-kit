@@ -1,25 +1,16 @@
-import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
-import { runtimePackageBuild } from "./fixtures/runtime-package-build";
+import { chromePath, startRuntimeHost, type RuntimeHost } from "./fixtures/runtime-host";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { statSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
-import { createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
-import { createFixtureApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
+import { join } from "node:path";
+import type { Browser, Page } from "playwright";
+import { resolveServerConfig } from "@schlessera/brain-ui-server";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.js";
-import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import type { SessionChat } from "../src/stores/chat-state.js";
 
 // Real browser -> mounted share hook -> HTTP upload -> real host/WS echo ->
 // root/store routing. A scripted keyless backend delays both announcements.
-const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]
-  .find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
-if (!executablePath) throw new Error("Share draft runtime proof requires real Chrome");
-let scratch: string;
-let app: Awaited<ReturnType<typeof createFixtureApp>>;
-let server: ReturnType<typeof Bun.serve>;
+const executablePath = chromePath("share-draft-runtime.test.ts");
+let host: RuntimeHost | undefined;
+let app: NonNullable<RuntimeHost["app"]>;
 let browser: Browser;
 let origin: string;
 const gates = new Map<string, () => void>();
@@ -27,15 +18,7 @@ const frames: Array<{ type: string; draftId?: string; requestId?: string; sessio
 const prompts: Array<{ sessionId: string; text: string; images: number }> = [];
 let sequence = 0;
 beforeAll(async () => {
-  // Browser bundles resolve the SDK's default dist exports, not its Bun source condition.
-  const [out, err, code] = await runtimePackageBuild(resolve(import.meta.dir, "../../.."), ["ui-sdk"], runtimeHookPhases("share-draft-runtime.test.ts"));
-  if (code !== 0) throw new Error(`Share fixture package build failed (${code}): ${out}\n${err}`);
-  scratch = await mkdtemp(join(tmpdir(), "odysseus-share-draft-"));
-  const brain = join(scratch, "brain");
-  await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
-  const bundle = await Bun.build({ entrypoints: [join(import.meta.dir, "fixtures/share-draft-client.tsx")], target: "browser" });
-  if (!bundle.success) throw new Error(`Share client build failed: ${bundle.logs}`);
-  const script = await bundle.outputs[0]!.text();
+  if (!executablePath) return;
   const backend = makeFakeBackend({ id: "share-scripted", capabilities: { attachments: true }, startTurn: async req => {
     const sessionId = `odysseus-share-${++sequence}`;
     prompts.push({ sessionId, text: req.prompt, images: req.attachments?.length ?? 0 });
@@ -44,21 +27,15 @@ beforeAll(async () => {
     req.bridge.emit({ type: "text_delta", sessionId, text: "Athena has the plan." });
     req.bridge.emit({ type: "result", sessionId, isError: false, durationMs: 1, numTurns: 1 });
   } });
-  app = await createFixtureApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: join(scratch, "ui.db"), AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id) });
-  server = Bun.serve({ hostname: "127.0.0.1", port: 0, websocket: app.websocket,
-    fetch(req, server) {
-      const path = new URL(req.url).pathname;
-      if (path === "/app.js") return new Response(script, { headers: { "content-type": "text/javascript" } });
-      if (path === "/") return new Response('<!doctype html><div id="app"></div><script src="/app.js"></script>', { headers: { "content-type": "text/html" } });
-      return app.fetch(req, server);
-    } });
-  origin = `http://127.0.0.1:${server.port}`;
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
-}, 60_000);
+  // Browser bundles resolve the SDK's default dist exports, not its Bun source condition.
+  host = await startRuntimeHost({ file: "share-draft-runtime.test.ts", executablePath, packages: ["ui-sdk"], scratchPrefix: "odysseus-share-draft-",
+    client: join(import.meta.dir, "fixtures/share-draft-client.tsx"), page: '<!doctype html><div id="app"></div><script src="/client.js"></script>',
+    app: { backend, config: ({ brain, db }) => resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: db, AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }) } });
+  ({ browser, origin } = host); app = host.app!;
+}, 180_000);
 afterAll(async () => {
   for (const release of gates.values()) release();
-  await browser?.close(); server?.stop(true); app?.cancelActiveTurns(); await app?.close();
-  if (scratch) await rm(scratch, { recursive: true, force: true });
+  await host?.close();
 });
 
 type State = { pending: string | null; active: string | null; draft: SessionChat | null; detached: Record<string, SessionChat>; buffers: Record<string, SessionChat>; queue: number; busy: boolean; error: string | null };
@@ -77,7 +54,7 @@ async function waiting(sessionId: string) {
 }
 async function release(sessionId: string) { const gate = await waiting(sessionId); gates.delete(sessionId); gate(); }
 
-for (const scenario of ["same draft", "new chat B", "existing conversation"] as const) test(`direct share announcement preserves ownership: ${scenario}`, async () => {
+for (const scenario of ["same draft", "new chat B", "existing conversation"] as const) test.skipIf(!executablePath)(`direct share announcement preserves ownership: ${scenario}`, async () => {
   const context = await browser.newContext();
   const egress: string[] = [];
   await context.route("**/*", route => {
