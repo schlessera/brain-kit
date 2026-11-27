@@ -35,7 +35,7 @@ const WRITE: BrainApplicationInput = { operation: "write", path: NOTE, expectedB
 const silentLog = { emit() {} } as never;
 
 type Script = (req: StartTurnRequest) => Promise<void>;
-function fixture(route = "needs_agent", configured = true) {
+function fixture(route = "needs_agent", configured = true, options: { yieldAfterMs?: number } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "brain-dispatch-")), root = join(directory, "brain");
   mkdirSync(root);
   mkdirSync(join(root, "notes"), { recursive: true });
@@ -66,7 +66,7 @@ function fixture(route = "needs_agent", configured = true) {
     pricing: { resolve: () => ({ input: 0.000001, output: 0.000001, cacheRead: null, cacheWrite: null, estimate: true, source: "snapshot" as const }) } };
   const native = createNativeAppFixture(root), nativeManager = createNativeBrainManagerClient(native.nativeBrain);
   const activity = createActivityStore(db, { writer: "dispatch-test" });
-  const dispatcher = createInboxDispatcher(db, { brainRoot: root, nativeManager, applicationPlanner: boundaryPlanner(createHostBoundary({ brainPath: root, dbPath, nativeManager })), budget, classification: { apiKey: "fixture-key" }, fetch, store: activity,
+  const dispatcher = createInboxDispatcher(db, { brainRoot: root, nativeManager, applicationPlanner: boundaryPlanner(createHostBoundary({ brainPath: root, dbPath, nativeManager })), budget, classification: { apiKey: "fixture-key" }, fetch, store: activity, ...options,
     select: async () => configured ? { backend, profileId: "fixture", model: "fixture-model", billingMode: "subscription" } : null });
   const runtime = createInboxRuntime(db, { log: silentLog, brainRoot: root, budget,
     timers: { setInterval: () => 0 as never, clearInterval: () => {} }, ...dispatcher });
@@ -197,4 +197,14 @@ test("drop, needs_user and an unconfigured selection never start an agent turn",
   expect(f.turns).toHaveLength(0);
   // T1 triage claimed the arrival once; the agent tier never did.
   expect(f.store.getItem(itemId)).toMatchObject({ type: "triage", status: "ready", attempts: 1 });
+});
+
+test("the configured autonomous yield reaches the backend request; unconfigured it stays 20 s (#4680)", async () => {
+  for (const [options, expected] of [[{ yieldAfterMs: 15_000 }, 15_000], [{}, 20_000]] as const) {
+    const f = fixture("needs_agent", true, options);
+    await f.arrive("Penelope asks that the loom be recorded in Ithaca's notes.");
+    expect(await f.runtime.tick()).toMatchObject({ claimed: 1 });
+    expect(f.turns).toHaveLength(1);
+    expect(f.turns[0]!.autonomous!.yieldAfterMs).toBe(expected);
+  }
 });
