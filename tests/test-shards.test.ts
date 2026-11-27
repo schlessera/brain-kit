@@ -173,7 +173,7 @@ describe("a Bun test file fits half a determinism partition (#4842)", () => {
   });
 
   test("an exemption whose file dropped to the bound or disappeared is stale", () => {
-    const costs = { ...reviewed(), "packages/ui-react/tests/association-signout-runtime.test.ts": 150 };
+    const costs: Record<string, number> = { ...reviewed(), "packages/ui-react/tests/association-signout-runtime.test.ts": 150 };
     delete costs["packages/ui-react/tests/parallel-sessions-runtime.test.ts"];
     expect(weightBound(costs, EXEMPT, 300, 2).stale).toEqual(Object.keys(EXEMPT).sort());
   });
