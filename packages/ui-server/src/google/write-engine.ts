@@ -12,6 +12,7 @@ import { GOOGLE_APPROVAL_CARD_BYTES, GOOGLE_MAIL_APPROVAL_SCHEMA, GOOGLE_WRITE_S
 import type { GoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
 import { GooglePreparationError, type GogResult } from "@schlessera/brain-common/internal/google-gog";
 import type { createGoogleAllowances, GoogleAllowanceContext, GoogleAllowanceRow } from "./allowances.js";
+import { SEND_MAY_HAVE_GONE } from "./irreversible.js";
 import type { GoogleToolsTurn, GoogleCallAudit } from "./host.js";
 import type { createGoogleStateWrites, GoogleDecisionEvent, GoogleInversePrepared, GoogleInverseResult } from "./state-writes.js";
 
@@ -417,7 +418,10 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       report(`Google write failed: ${String(cause)}`);
       if (dispatched) {
         if (inverseId) { const id = inverseId; await cleanup("Google inverse unknown marking", () => options.state.markInverseUnknown(sessionId, id)); }
-        return refuse(gogError("outcome_unknown", "dispatch_failed"));
+        // A send's bytes stay pending: never suggest trying them again.
+        return refuse(operation === "gmail.draft.send"
+          ? { code: "outcome_unknown", reason: "dispatch_failed", message: SEND_MAY_HAVE_GONE }
+          : gogError("outcome_unknown", "dispatch_failed"));
       }
       return await withdraw(ctx.signal.aborted ? cancelled : cause instanceof GooglePreparationError ? cause.error : error("state_unavailable", "Google write preparation or state failed; nothing was sent.", "unavailable"));
     } finally { releaseAlias?.(); held?.(); }

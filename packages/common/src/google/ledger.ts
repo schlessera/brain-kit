@@ -6,15 +6,13 @@ import { dirname, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { GOOGLE_OPERATIONS, type GoogleOperation } from "./catalog.js";
+import { GOG_PRE_REQUEST_FAILURES } from "./gog/errors.js";
 
-// Only code/reason pairs proven pre-request release a reservation. The spawn
-// catch is before any child exists (runGogProcess, packages/common/src/google/gog/runner.ts:94-108).
-// At gog 44364d31, usage/ErrReadOnly and CredentialsMissingError precede HTTP
-// (GmailSendCmd.runRaw, internal/cmd/gmail_send.go:259-292; stableExitCode,
-// internal/cmd/exit_codes.go:54-126). See wire.md for the full source chain.
-// HTTP refusals may follow an earlier accepted attempt inside gog's retry
-// transport. Never release an outcome_unknown code, even for a matching reason.
-const retryableSendCauses = ["transport_incompatible/spawn_failed", "transport_incompatible/usage", "unavailable/config"];
+// Only the pairs proven pre-request release a reservation (GOG_PRE_REQUEST_FAILURES,
+// with its sources). HTTP refusals may follow an earlier accepted attempt
+// inside gog's retry transport, and exit 2 may be a crash after the request.
+// Never release an outcome_unknown code, even for a matching reason.
+const retryableSendCauses = GOG_PRE_REQUEST_FAILURES;
 const key = z.string().min(1).max(2048);
 const scopeSchema = z.strictObject({ principal_id: key, brain_id: key, account_identity: key });
 export interface GoogleApprovalScope { principal_id: string; brain_id: string; account_identity: string }

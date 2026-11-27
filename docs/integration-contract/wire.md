@@ -3713,22 +3713,24 @@ including after process restart. The refusal tells the owner to check Gmail’s
 Sent folder or edit the draft to send new bytes. The new `sent_digests` table
 has a nullable `cause` column. Failed pending rows retain their cause as a
 `code/reason` pair (`null` is stored literally for a null reason). Only
-`transport_incompatible/spawn_failed`, `transport_incompatible/usage` and
-`unavailable/config` permit a new card to reserve the same digest atomically.
-These fail before any HTTP request: the host spawn catch (`runGogProcess`,
-`packages/common/src/google/gog/runner.ts:94-108`); pinned gog's argv parsing
-(`wrapParseError`, `internal/cmd/root.go:547-556`), raw-input usage validation
-(`readRawGmailInput`, `internal/cmd/gmail_raw_input.go:29-73`), no-send guard
-(`checkAccountNoSend`, `internal/cmd/gmail_no_send.go:75-88`) and `ErrReadOnly`
-before service creation (`runRaw`, `internal/cmd/gmail_send.go:259-292`);
-and missing credentials (`ClientCredentialsStore.ReadMetadata`,
+`transport_incompatible/spawn_failed` and `unavailable/config` permit a new
+card to reserve the same digest atomically (`GOG_PRE_REQUEST_FAILURES`,
+`packages/common/src/google/gog/errors.ts`). These fail before any HTTP
+request: the host spawn catch (`runGogProcess`,
+`packages/common/src/google/gog/runner.ts:94-108`), and missing credentials
+(`ClientCredentialsStore.ReadMetadata`,
 `internal/config/client_credentials_store.go:103-137`, propagated before
 transport creation by `clientCredentialsForAccount`,
 `internal/googleapi/client_auth.go:343-355`, and
 `authenticatedTransportWithStoredScopeCheck`, `internal/googleapi/client.go:125-182`).
 The exit mapping is `stableExitCode` (`internal/cmd/exit_codes.go:54-126`),
 all upstream citations at 44364d31; the host maps them in `gogProcessError`
-(`packages/common/src/google/gog/errors.ts:56-84`).
+(`packages/common/src/google/gog/errors.ts`). Exit 2,
+`transport_incompatible/usage`, is not among them. gog's own usage errors
+precede any request, but the Go runtime also ends an unrecovered panic or a
+fatal error with status 2, and gog re-panics anything but its own exit
+(`executeWithRuntime`, `internal/cmd/root.go:125-175`), so an exit 2 can
+follow a request. It stays pending.
 
 `unavailable/auth_required`, `not_found/null`, `forbidden/null` and
 `rate_limited/null` after reservation stay pending: gog can return that refusal
@@ -3737,8 +3739,12 @@ after retrying an earlier attempt that may have delivered. The answer is
 code. Its message is: "Gmail refused this send, but gog retries a send after a
 server error, so an earlier attempt may have gone out. Check Gmail's Sent
 folder, or edit the draft to send new bytes. These bytes will not be sent again."
-Every `outcome_unknown` cause, including gog's generic exit 1, stays pending.
-The engine preserves send-specific recovery messages. Failure
+Every other failure after reservation stays pending too: exit 1, 2, 3, 8, 11
+and any other exit, a timeout, a signal, oversized output, an answer brain-kit
+cannot read, and a failure after dispatch. Each answers `outcome_unknown` with
+its reason and the message: "This send may have gone out. Check Gmail's Sent
+folder, or edit the draft to send new bytes. These bytes will not be sent
+again." The engine keeps the send's own message. Failure
 to record the cause retains pending and returns
 `outcome_unknown/digest_failure_recording_failed`. A reservation refusal at
 dispatch records a refusal and retains its specific recovery message; nothing
@@ -3750,18 +3756,25 @@ the reservation and returns `outcome_unknown/digest_confirmation_failed`.
 Known limitation ([#4657](https://github.com/schlessera/brain-kit/issues/4657)):
 one approved send can deliver twice if Gmail accepts an attempt whose response
 is a 5xx, because pinned gog retries it inside one process. `RetryTransport.RoundTrip`
-(`internal/googleapi/transport.go:82-231`) retries once after a 5xx and up to six
+(`internal/googleapi/transport.go:82-232`) retries once after a 5xx and up to six
 times after a 429 or rate-limit 403 (`MaxRateLimitRetries`,
 `internal/googleapi/retry_constants.go:10-16`, at 44364d31). The raw send does
-not set `WithoutRetries` (`internal/googleapi/transport.go:32-34`;
+not set `WithoutRetries` (`internal/googleapi/transport.go:33-35`;
 `runRaw`, `internal/cmd/gmail_send.go:259-292`). The host's replay ledger cannot
-see or prevent that internal retry.
+see or prevent that internal retry. The same retry covers draft deletion and
+trash: a delete or trash that took effect can still end in a refusal, such as a
+404 after a retried 5xx or a 429, so their refusals do not prove that nothing
+changed.
 
 The structured send result additively carries `draft_deleted: boolean | null`
 (optional in the schema for existing producers; always present from the
-production factory). `true` confirms draft deletion, `false` means cleanup
-definitively did not delete it, and `null` means the deletion outcome is unknown
-(exit 8, timeout, signal or an unreadable response). Google confirmed sending
+production factory). `true` confirms draft deletion. `false` means cleanup did
+not delete it: the draft changed or could not be re-read, its final authority
+check refused, or gog failed before any request. `null` means the deletion
+outcome is unknown: any refusal or failure after the request, which may follow
+a retried delete that worked, exit 8, a timeout, a signal, an unreadable
+response, a reply naming another draft id, or an error during the delete.
+Google confirmed sending
 in all three cases. It never means the send should be repeated. Cleanup has its
 own once-only final authority check and re-reads the draft digest before
 removal; changed drafts are retained. The call audit records

@@ -122,7 +122,7 @@ test("Google send digest retry clears its cause atomically across connections", 
   const path = resolve(scratch(), "ledger.sqlite"), ledger = openGoogleLedger(path), digest = "c".repeat(64);
   cleanups.push(() => ledger.close());
   ledger.reserveSentDigest("odysseus@example.com", digest, 1);
-  ledger.failSentDigest("odysseus@example.com", digest, "transport_incompatible/usage");
+  ledger.failSentDigest("odysseus@example.com", digest, "unavailable/config");
   expect(ledger.sentDigest("odysseus@example.com", digest)).toBeNull();
   expect(ledger.reserveSentDigest("odysseus@example.com", digest, 3), "DIGEST_FAILED_REACQUIRED").toBe(true);
   const second = openGoogleLedger(path);
@@ -133,6 +133,16 @@ test("Google send digest retry clears its cause atomically across connections", 
   ledger.confirmSentDigest("odysseus@example.com", digest);
   expect(ledger.sentDigest("odysseus@example.com", digest)).toBe("sent");
   expect(ledger.reserveSentDigest("odysseus@example.com", digest, 6)).toBe(false);
+});
+
+// Exit 2 is gog's usage class, but a Go panic after the request also exits 2.
+test("Google send digest failed with exit 2 stays pending", () => {
+  const path = resolve(scratch(), "ledger.sqlite"), ledger = openGoogleLedger(path), digest = "d".repeat(64);
+  cleanups.push(() => ledger.close());
+  ledger.reserveSentDigest("odysseus@example.com", digest, 1);
+  ledger.failSentDigest("odysseus@example.com", digest, "transport_incompatible/usage");
+  expect(ledger.sentDigest("odysseus@example.com", digest), "DIGEST_USAGE_RETAINED").toBe("pending");
+  expect(ledger.reserveSentDigest("odysseus@example.com", digest, 2)).toBe(false);
 });
 
 test("Google ledger made before sends still reads approvals without a sent_digests table", () => {

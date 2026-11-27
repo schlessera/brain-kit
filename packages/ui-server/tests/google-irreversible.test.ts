@@ -326,7 +326,11 @@ for (const call of [{ tool: "brain_google_gmail_draft", input: { action: "update
     expect(f.fake.callsOf("gmail.drafts.delete"), "ONLY_SEND_CLEANUP_DELETES").toHaveLength(1);
   });
 
-for (const [exit, cause] of [[2, "transport_incompatible/usage"], [10, "unavailable/config"], [null, "transport_incompatible/spawn_failed"]] as const)
+const RELEASED_FIRST_ANSWERS = {
+  "unavailable/config": { code: "unavailable", reason: "config", message: "Google is not available on this host right now." },
+  "transport_incompatible/spawn_failed": { code: "transport_incompatible", reason: "spawn_failed", message: "The Google transport is not the pinned gog release or answered in a shape brain-kit does not read." },
+} as const;
+for (const [exit, cause] of [[10, "unavailable/config"], [null, "transport_incompatible/spawn_failed"]] as const)
   test(`google definitive send failure ${cause} permits a newly approved retry`, async () => {
     const f = fixture();
     let spawnSpy: ReturnType<typeof spyOn> | undefined;
@@ -338,7 +342,8 @@ for (const [exit, cause] of [[2, "transport_incompatible/usage"], [10, "unavaila
       }) as typeof Bun.spawn);
       cleanups.push(() => spawnSpy?.mockRestore());
     } else f.fake.setScenario({ ...sendScenario(), "gmail.send": { exit } });
-    expect(await f.call(send)).toMatchObject({ ok: false });
+    // Nothing reached Google: the first answer is the failure itself, never "may have gone out".
+    expect(await f.call(send), "SEND_RELEASED_FIRST_ANSWER").toMatchObject({ ok: false, error: RELEASED_FIRST_ANSWERS[cause] });
     spawnSpy?.mockRestore();
     const ledgerDb = new Database(f.ledgerPath);
     try { expect(ledgerDb.query("SELECT state,cause FROM sent_digests").all(), "SEND_FAILURE_CAUSE_DURABLE").toEqual([{ state: "pending", cause }]); }
@@ -351,14 +356,34 @@ for (const [exit, cause] of [[2, "transport_incompatible/usage"], [10, "unavaila
     expect(f.cards).toHaveLength(2);
   });
 
-for (const exit of [1, 8]) test(`google ambiguous send exit ${exit} stays pending with its cause`, async () => {
-  const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.send": { exit } });
-  expect(await f.call(send)).toMatchObject({ ok: false, error: { code: "outcome_unknown" } });
+const sendMayHaveGone = "This send may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
+// Exit 2 is gog's usage class, but the Go runtime also exits 2 on a panic, which can follow the request.
+for (const [end, reason, cause] of [
+  [{ exit: 1 }, "error", "outcome_unknown/error"],
+  [{ exit: 8 }, "retryable", "outcome_unknown/retryable"],
+  [{ exit: 2 }, "usage", "transport_incompatible/usage"],
+  [{ signal: "SIGTERM" }, "signal", "outcome_unknown/signal"],
+] as const) test(`google ambiguous send ${JSON.stringify(end)} stays pending with its cause`, async () => {
+  const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.send": end });
+  expect(await f.call(send), "SEND_PENDING_FIRST_ANSWER").toMatchObject({ ok: false, error: { code: "outcome_unknown", reason, message: sendMayHaveGone } });
   const ledgerDb = new Database(f.ledgerPath);
-  try { expect(ledgerDb.query("SELECT state,cause FROM sent_digests").all()).toEqual([{ state: "pending", cause: exit === 1 ? "outcome_unknown/error" : "outcome_unknown/retryable" }]); }
+  try { expect(ledgerDb.query("SELECT state,cause FROM sent_digests").all(), "SEND_PENDING_CAUSE_DURABLE").toEqual([{ state: "pending", cause }]); }
   finally { ledgerDb.close(); }
   expect(await f.call(send), "SEND_AMBIGUOUS_NOT_RELEASED").toMatchObject({ ok: false, error: { reason: "digest_pending", message: expect.stringContaining("edit the draft") } });
   expect(f.cards).toHaveLength(1); expect(f.fake.callsOf("gmail.send")).toHaveLength(1);
+});
+
+test("google send that throws after dispatch stays pending and never invites a retry", async () => {
+  const f = fixture(), execute = f.transport.execute.bind(f.transport);
+  f.transport.execute = (async (operation, input, execution) => {
+    const answer = await execute(operation, input, execution);
+    if (operation === "gmail.draft.send") throw new Error("Ithaca lost the answer after dispatch");
+    return answer;
+  }) as typeof f.transport.execute;
+  expect(await f.call(send), "SEND_DISPATCH_THROW_PENDING").toMatchObject({ ok: false, error: { code: "outcome_unknown", reason: "dispatch_failed", message: sendMayHaveGone } });
+  f.transport.execute = execute;
+  expect(await f.call(send)).toMatchObject({ ok: false, error: { reason: "digest_pending" } });
+  expect(f.fake.callsOf("gmail.send")).toHaveLength(1);
 });
 
 test("google unavailable dispatch reservation records refusal with no dispatch claim", async () => {
@@ -370,7 +395,7 @@ test("google unavailable dispatch reservation records refusal with no dispatch c
   expect(f.fake.callsOf("gmail.send")).toHaveLength(0);
 });
 
-for (const [response, deleted] of [[{ exit: 6 }, false], [{ exit: 8 }, null], [{ signal: "SIGTERM" }, null], [{ stdout: { deleted: true, draftId: DRAFT, unexpected: true } }, null], [{ stdout: { deleted: true, draftId: "r-987654321" } }, null]] as const)
+for (const [response, deleted] of [[{ exit: 10 }, false], [{ exit: 6 }, null], [{ exit: 5 }, null], [{ exit: 8 }, null], [{ signal: "SIGTERM" }, null], [{ stdout: { deleted: true, draftId: DRAFT, unexpected: true } }, null], [{ stdout: { deleted: true, draftId: "r-987654321" } }, null]] as const)
   test(`google cleanup reports ${JSON.stringify(response)} honestly`, async () => {
     const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.drafts.delete": response });
     expect(await f.call(send), "SEND_CLEANUP_TRI_STATE").toMatchObject({ ok: true, result: { draft_deleted: deleted } });
@@ -458,6 +483,12 @@ for (const [name, answer, reason] of [
   expect(f.db.query("SELECT * FROM google_send_locks").all()).toEqual([]);
   f.answer(async () => ({ behavior: "allow" }));
   expect(await f.call(send), "SEND_REFUSED_CARD_LOCKS_RELEASED").toMatchObject({ ok: true });
+});
+
+test("google other writes replace a factory's own uncertain message with the generic one", async () => {
+  const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.drafts.delete": { stdout: { deleted: true, draftId: "r-987654321" } } });
+  expect(await f.call(remove), "OTHER_WRITE_FACTORY_UNKNOWN_GENERIC").toMatchObject({ ok: false, error: {
+    code: "outcome_unknown", reason: "write_unconfirmed", message: "The write may or may not have happened at Google; check before trying again." } });
 });
 
 test("google other writes keep the generic ambiguous outcome message", async () => {

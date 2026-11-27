@@ -2,6 +2,7 @@
 import { GMAIL_LIMITS, type GmailTrashInput, type GoogleError } from "../catalog.js";
 import { parseGmailRawDraft } from "../mime.js";
 import type { GoogleCallFacts } from "../classify.js";
+import { isGogPreRequestFailure } from "./errors.js";
 import type { GogExecution } from "./transport.js";
 import { gmailWriteReader, GooglePreparationError, type GmailWritePreparationContext } from "./reversible.js";
 
@@ -40,9 +41,14 @@ export async function prepareGmailSend(ctx: GmailWritePreparationContext, draftI
       // Another client can edit the draft during the send. Never delete those new bytes.
       const current = await readDraft(ctx, draftId);
       if (current.parsed.digest !== digest || current.threadId !== threadId) return false;
+      // A refused final admission spawns nothing: the draft was not deleted.
+      let refused = false;
+      const admit: typeof finalAdmission = () => { const denied = finalAdmission(); refused = denied !== null; return denied; };
       try {
-        const answer = await ctx.transport.execute("gmail.draft.delete", { draft_id: draftId }, { ...read.execution, finalAdmission });
-        if (!answer.ok) return answer.error.code === "outcome_unknown" ? null : false;
+        const answer = await ctx.transport.execute("gmail.draft.delete", { draft_id: draftId }, { ...read.execution, finalAdmission: admit });
+        // gog retries a DELETE after a 5xx, so a final refusal can follow a
+        // delete that happened. Only a refusal before any request proves it did not.
+        if (!answer.ok) return refused || isGogPreRequestFailure(answer.error) ? false : null;
         return answer.value.draft_id === draftId ? true : null;
       } catch { return null; }
     } };

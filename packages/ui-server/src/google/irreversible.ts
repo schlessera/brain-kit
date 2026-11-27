@@ -1,10 +1,14 @@
 /** Card-only sends, draft deletion and trash. No standing grants or inverses. */
-import { prepareGmailSend, prepareGmailDelete, prepareGmailTrash, GooglePreparationError } from "@schlessera/brain-common/internal/google-gog";
+import { prepareGmailSend, prepareGmailDelete, prepareGmailTrash, GooglePreparationError, isGogPreRequestFailure } from "@schlessera/brain-common/internal/google-gog";
 import { matchGoogleAllowList } from "@schlessera/brain-common/internal/google-operations";
 import type { GoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
 import { GOOGLE_APPROVAL_CARD_BYTES, GOOGLE_MAIL_APPROVAL_SCHEMA, type GoogleMailApproval } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { GoogleCredential } from "./credential.js";
 import type { GoogleWriteFactories } from "./write-engine.js";
+
+const SEND_REFUSED_AFTER_RETRY = "Gmail refused this send, but gog retries a send after a server error, so an earlier attempt may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
+/** A send whose bytes stay pending: it may have reached Google. */
+export const SEND_MAY_HAVE_GONE = "This send may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
 
 const storeError = () => new GooglePreparationError({ code: "unavailable", reason: "digest_store_unavailable", message: "Send replay protection is unavailable; nothing was sent." });
 const replayError = (state: "pending" | "sent") => new GooglePreparationError(state === "sent"
@@ -73,12 +77,16 @@ export function createGmailIrreversibleFactories(options: { credential: Pick<Goo
           if (reserved) {
             try { ledger().failSentDigest(accountIdentity, digest, `${answer.error.code}/${answer.error.reason}`); }
             catch { return { ok: false, error: { code: "outcome_unknown", reason: "digest_failure_recording_failed", message: "The send failure could not be recorded. Check Gmail's Sent folder, or edit the draft to send new bytes." } }; }
-            // A final HTTP/auth refusal can follow a delivered attempt that gog
-            // retried internally. Keep these bytes pending and explain why.
-            if ((answer.error.code === "unavailable" && answer.error.reason === "auth_required") ||
-                ["not_found", "forbidden", "rate_limited"].includes(answer.error.code))
+            // Only a failure proven pre-request releases these bytes, and keeps
+            // its own answer. Anything else may follow a delivered attempt: a
+            // final HTTP/auth refusal after gog retried internally, or a crash,
+            // timeout or unreadable answer. Keep the bytes pending and say so.
+            if (!isGogPreRequestFailure(answer.error)) {
+              const refused = (answer.error.code === "unavailable" && answer.error.reason === "auth_required") ||
+                ["not_found", "forbidden", "rate_limited"].includes(answer.error.code);
               return { ok: false, error: { code: "outcome_unknown", reason: answer.error.reason ?? answer.error.code,
-                message: "Gmail refused this send, but gog retries a send after a server error, so an earlier attempt may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again." } };
+                message: refused ? SEND_REFUSED_AFTER_RETRY : SEND_MAY_HAVE_GONE } };
+            }
           }
           return answer;
         }
