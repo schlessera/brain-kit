@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { RerankSetup } from "./registry.js";
+import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
@@ -7,8 +8,9 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import type { BrainContext } from "./context.js";
 import { parseContextScope, type ContextScope, type ContextScopeInput } from "./context-scope.js";
 import type { EmbeddingProvider } from "./seams.js";
-import { estimateTokens } from "./chunker.js";
-import { topLevelBlocks } from "./document-parts.js";
+import { CHUNKER_VERSION, estimateTokens, headingText as chunkerHeadingText, lineIndex } from "./chunker.js";
+import { topLevelBlocks, type TopLevelBlock } from "./document-parts.js";
+import { codeRanges } from "./markdown-code.js";
 import { chunkMatchLine, hybridSearch } from "./search-engine.js";
 import type { ChunkMatch, SearchResult } from "./types.js";
 
@@ -63,6 +65,12 @@ export interface ContextExcerpt {
   path: string;
   lane: ContextLane;
   form: ContextExcerptForm;
+  /**
+   * The source file lines a search excerpt widened to a folded chunk's span
+   * holds (#3683): 1-based, both inclusive, from the first part's heading (or
+   * first line) to the span's last line. Absent on every other excerpt.
+   */
+  lines?: [number, number];
 }
 
 /**
@@ -94,7 +102,10 @@ export interface ContextCoverage {
   omitted: ContextOmission[];
   /** Omissions past {@link MAX_COVERAGE_OMISSIONS}, counted but not listed. */
   omittedMore: number;
-  /** True when an in-scope candidate was cut or left out for lack of budget. */
+  /**
+   * True when an in-scope candidate was cut or left out for lack of budget,
+   * or a hit stayed a snippet because its section or span did not fit.
+   */
   budgetExhausted: boolean;
 }
 
@@ -230,14 +241,28 @@ function hitHeader(result: SearchResult): string {
   return `### ${oneLine(result.title)} ${facts.join(" · ")}${summary}`;
 }
 
+/**
+ * One source file's body and summary, and the file line its body starts on
+ * (1-based; absent when the body cannot be placed in the file).
+ */
+interface SourceDoc {
+  body: string;
+  summary: string | null;
+  line?: number;
+  /** How many leading blank lines of the text after the frontmatter the body drops. */
+  dropped: number;
+  /** The file's SHA-256, as the index records it (`documents.content_hash`). */
+  hash: string;
+}
+
 /** Reads one source file's body and summary, or null when it cannot (or, under a scope, may not). */
-type SourceReader = (relativePath: string) => { body: string; summary: string | null } | null;
+type SourceReader = (relativePath: string) => SourceDoc | null;
 
 /**
  * Read a markdown file and extract the content after frontmatter.
  * Returns null if the file doesn't exist.
  */
-function readMarkdownContent(root: string, relativePath: string): { body: string; summary: string | null } | null {
+function readMarkdownContent(root: string, relativePath: string): SourceDoc | null {
   try {
     const fullPath = resolve(root, relativePath);
     const raw = readFileSync(fullPath, "utf-8");
@@ -246,7 +271,14 @@ function readMarkdownContent(root: string, relativePath: string): { body: string
     const summary = typeof data.summary === "string" && data.summary.trim() ? blockSafe(data.summary) : null;
     // Leading blank lines and trailing whitespace go; the first line's
     // indentation stays, since it can make that line indented code.
-    return { body: content.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd(), summary };
+    const leading = /^(?:[ \t]*\r?\n)*/.exec(content)![0];
+    const body = content.slice(leading.length).trimEnd();
+    const dropped = leading.split("\n").length - 1;
+    const hash = createHash("sha256").update(raw).digest("hex");
+    // The body is the file's tail after its frontmatter, so its first line
+    // is counted in the file; otherwise it cannot be placed.
+    const at = raw.endsWith(content) ? raw.length - content.length + leading.length : -1;
+    return at < 0 ? { body, summary, dropped, hash } : { body, summary, line: lineIndex(raw)(at), dropped, hash };
   } catch {
     return null;
   }
@@ -493,11 +525,21 @@ export async function assembleContext(
       const current = parts[index]!;
       // Within the cap and what is left, with this hit's snippet given back.
       const room = Math.min(hitCap, budget + cost(current) - (index > 0 ? estimateTokens(SEPARATOR) : 0));
-      const section = hitSection(result, best, chunkMatchLine(db, opts.query, result.path, best.chunk_index), read, room);
-      if (section === null || cost(section.text) - cost(current) > budget) continue;
+      const section = hitSection(result, best, chunkMatchLine(db, opts.query, result.path, best.chunk_index), read, room, indexedChunk(db, result.path, best));
+      if (section === null) continue;
+      // A hit left as its snippet for want of room is budget left short (#3683).
+      if (section === "budget" || cost(section.text) - cost(current) > budget) {
+        budgetShort = true;
+        continue;
+      }
       budget -= cost(section.text) - cost(current);
       parts[index] = section.text;
-      lanes.set(index, { path: result.path, lane: "search", form: section.cut ? "cut" : "section" });
+      lanes.set(index, {
+        path: result.path,
+        lane: "search",
+        form: section.cut ? "cut" : "section",
+        ...(section.lines ? { lines: section.lines } : {}),
+      });
     }
 
     growCanonicals();
@@ -653,28 +695,172 @@ function chunkLines(content: string): string[] {
   return content.split("\n").map((line) => line.trimEnd()).filter((line) => line.trim() !== "");
 }
 
+/** A part of a document: its lead (no name) or one `##` section's text under its name. */
+interface SourcePart {
+  name: string | null;
+  text: string;
+}
+
+/**
+ * What a hit's best chunk comes from in its source: one part (`parts` of
+ * one), or a folded chunk's span, its whole parts in source order, with the
+ * body lines the span covers (1-based, both inclusive).
+ */
+interface SourceFind {
+  parts: SourcePart[];
+  lines?: [number, number];
+}
+
+/** The `##` headings the chunker splits at: level two, with text (`headingText`). */
+function splitHeadings(text: string): TopLevelBlock[] {
+  return topLevelBlocks(text).filter(
+    (block) => block.type === "heading" && block.depth === 2 && chunkerHeadingText(text.slice(block.start, block.end)) !== ""
+  );
+}
+
+/**
+ * What the index holds for a hit's best chunk, read in one statement so the
+ * row, its lines and the file's hash are one snapshot: `hash` is the file's
+ * SHA-256 as indexed, `range` the chunk's recorded source lines, or null when
+ * it has none (a piece of a split section, an index from an older chunker or
+ * an older schema). Null when the index no longer holds the chunk the search
+ * returned (the same heading and text at the same place in the same file):
+ * a reindex since the search, or a read that failed.
+ */
+interface IndexedChunk {
+  hash: string | null;
+  range: [number, number] | null;
+}
+
+/** The index's snapshot of a hit's chunk (`IndexedChunk`); a failed read is no answer, never a pass. */
+function indexedChunk(db: Database, path: string, chunk: ChunkMatch): IndexedChunk | null {
+  const where = "FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? AND c.chunk_index = ? AND c.heading = ? AND c.content = ?";
+  const args = [path, chunk.chunk_index, chunk.heading, chunk.content] as const;
+  type Row = { content_hash: string | null; start_line?: number | null; end_line?: number | null; chunker_version?: number | null };
+  let row: Row | null;
+  try {
+    row = db.prepare(`SELECT d.content_hash, c.start_line, c.end_line, d.chunker_version ${where}`).get(...args) as Row | null;
+  } catch {
+    // An older schema has no line columns: the same snapshot, without lines.
+    try {
+      row = db.prepare(`SELECT d.content_hash ${where}`).get(...args) as Row | null;
+    } catch {
+      return null;
+    }
+  }
+  if (!row) return null;
+  const lined = row.start_line != null && row.end_line != null && row.chunker_version === CHUNKER_VERSION;
+  return { hash: row.content_hash, range: lined ? [row.start_line!, row.end_line!] : null };
+}
+
+/**
+ * A folded chunk's span (#3683), read from the lines the index recorded for
+ * it, never inferred: `range` holds the chunk's first and last body lines.
+ * It is a span only when those lines are exactly a run of two or more whole
+ * parts as the chunker splits the body (the lead, then each `##` heading with
+ * text): the first part's first line to the last part's last non-blank
+ * line. Each part comes whole, in source order, from the hit's own file.
+ *
+ * Null when the range is one part, so the caller reads the chunk as it
+ * always has, or when it does not fall on part boundaries.
+ */
+function recordedSpan(
+  body: string,
+  range: [number, number]
+): { components: Array<{ name: string | null; heading: string | null; text: string }>; lines: [number, number] } | null {
+  const heads = splitHeadings(body);
+  // The body's line breaks are found once, so placing every part is linear.
+  const lineAt = lineIndex(body);
+  // What follows a heading: the rest of its line and blank lines go, indentation stays.
+  const tidy = (text: string) => text.replace(/^[ \t]*\r?\n/, "").replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
+  const parts = [
+    { name: null as string | null, heading: null as string | null, start: 0, content: 0, end: heads[0]?.start ?? body.length },
+    ...heads.map((head, i) => ({
+      name: headingBlockText(body.slice(head.start, head.end)),
+      // The heading as written, so a match line is compared with it raw.
+      heading: body.slice(head.start, head.end) as string | null,
+      start: head.start,
+      content: head.end,
+      end: heads[i + 1]?.start ?? body.length,
+    })),
+  ]
+    .map((part) => ({ ...part, text: tidy(body.slice(part.content, part.end)) }))
+    // As the chunker has them: a part without text is no section.
+    .filter((part) => part.text !== "")
+    .map((part) => ({
+      ...part,
+      first: lineAt(part.name === null ? body.slice(0, part.end).search(/\S/) : part.start),
+      last: lineAt(part.start + body.slice(part.start, part.end).trimEnd().length - 1),
+    }));
+  const from = parts.findIndex((part) => part.first === range[0]);
+  const to = parts.findIndex((part) => part.last === range[1]);
+  if (from === -1 || to <= from) return null;
+  return { components: parts.slice(from, to + 1).map(({ name, heading, text }) => ({ name, heading, text })), lines: range };
+}
+
 /**
  * The part of a document a chunk comes from: its lead (the text before the
  * first top-level `##`) or one `##` section, as the source parses today.
  *
- * When the query's first match in the chunk is known (`matchLine`, the line
- * that holds it), the part holding that line is taken. That is what decides a
- * folded chunk, one into which the chunker merged a short section: it carries
- * that section's `##` heading, and only the match says which part answers.
- * Otherwise, for a chunk that is not folded, the part holding most of its
- * lines is taken (the chunker can repeat a table's header row or re-prefix a
- * nested table's row, so not every line need be there), ties going to the
- * part the chunk's heading names, then the first.
+ * A folded chunk made of whole sections, one the chunker merged a short
+ * section (or the lead) into, is placed by the lines the index recorded for
+ * it (`recordedSpan`); a piece of a split section records none. When the query's first match
+ * in it is known (`matchLine`, the line that holds it) and one of its parts
+ * holds that line, that whole part is taken; when the match is unknown, or
+ * several of its parts hold it, the chunk's span is taken (#3683).
+ *
+ * Any other chunk is read as before: with a known match line, the part
+ * holding it; otherwise, for a chunk without the chunker's `##` labels, the
+ * part holding most of its lines (the chunker can repeat a table's header row
+ * or re-prefix a nested table's row, so not every line need be there), ties
+ * going to the part the chunk's heading names, then the first.
  *
  * Null, so the caller keeps the snippet, when the part cannot be told: a
- * folded chunk whose match line is unknown, a match line more than one part
- * holds in a folded chunk, or a chunk no part holds half of (the file has
+ * labelled chunk that cannot be placed and has no single matching part, a
+ * match line no part holds, or a chunk no part holds half of (the file has
  * changed since it was indexed).
  */
-function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null): { name: string | null; text: string } | null {
+function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null, range: [number, number] | null): SourceFind | null {
+  const asHeading = matchLine !== null && /^#{1,6}(?:[ \t]|$)/.test(matchLine) ? headingBlockText(matchLine) : null;
+  const holds = (part: SourcePart) => matchLine !== null && (part.text.includes(matchLine) || (asHeading !== null && part.name === asHeading));
+  const span = range ? recordedSpan(body, range) : null;
+  if (span) {
+    if (matchLine !== null) {
+      // A match line that is one of the chunker's own fold labels (a `##`
+      // heading it wrote for a merged section, which need not be a source
+      // line: a setext heading's label is not) names its section: the one
+      // whose heading the chunker reads as that same name (`headingText`, so
+      // `## Beacon ##` and `## Beacon` stay apart). Any other match line is compared raw (trimmed only) with
+      // each component's own source lines outside fenced code, its heading as
+      // written included; a component that only contains it inside a longer
+      // line counts when none has it exactly.
+      const label = splitHeadings(chunk.content).some((block) => chunk.content.slice(block.start, block.end).trim() === matchLine);
+      const own = (c: (typeof span.components)[number]) => {
+        // A line wholly inside code (a fence of any kind, an indented block)
+        // is code, never a heading or a line that owns the match.
+        const code = codeRanges(c.text);
+        const lines: string[] = c.heading === null ? [] : c.heading.split("\n");
+        let at = 0;
+        for (const line of c.text.split("\n")) {
+          const end = at + line.trimEnd().length;
+          if (!code.some(([from, to]) => at >= from && end <= to)) lines.push(line);
+          at += line.length + 1;
+        }
+        return lines;
+      };
+      const named = label ? chunkerHeadingText(matchLine) : null;
+      const exact = label
+        ? span.components.filter((c) => c.heading !== null && chunkerHeadingText(c.heading) === named)
+        : span.components.filter((c) => own(c).some((line) => line.trim() === matchLine));
+      const holding = exact.length > 0 || label ? exact : span.components.filter((c) => c.text.includes(matchLine) || (c.heading ?? "").includes(matchLine));
+      if (holding.length === 0) return null;
+      if (holding.length === 1) return { parts: [{ name: holding[0]!.name, text: holding[0]!.text }] };
+    }
+    return { parts: span.components.map(({ name, text }) => ({ name, text })), lines: span.lines };
+  }
   const { lead, sections } = splitSections(body);
-  const parts = [
-    { name: null as string | null, text: lead },
+  const parts: SourcePart[] = [
+    { name: null, text: lead },
     ...sections.map((section) => {
       const heading = topLevelBlocks(section)[0]!;
       const name = headingBlockText(section.slice(heading.start, heading.end));
@@ -683,15 +869,17 @@ function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null): 
       return { name, text: rest.trimEnd() };
     }),
   ];
-  const folded = topLevelBlocks(chunk.content).some((block) => block.type === "heading" && (block.depth ?? 1) <= 2);
   let candidates = parts;
   if (matchLine !== null) {
-    const asHeading = /^#{1,6}(?:[ \t]|$)/.test(matchLine) ? headingBlockText(matchLine) : null;
-    candidates = parts.filter((part) => part.text.includes(matchLine) || (asHeading !== null && part.name === asHeading));
-    if (candidates.length === 1) return candidates[0]!;
+    candidates = parts.filter(holds);
+    if (candidates.length === 1) return { parts: [candidates[0]!] };
     if (candidates.length === 0) return null;
   }
-  if (folded) return null;
+  // Main's rule, unchanged: a chunk with a heading of level one or two in it
+  // (a fold label, an empty `##` the source parse splits at, a `#`) cannot
+  // be told by its line counts. A chunk without a recorded range never
+  // expands past what this fallback allows.
+  if (topLevelBlocks(chunk.content).some((block) => block.type === "heading" && (block.depth ?? 1) <= 2)) return null;
   const lines = chunkLines(chunk.content);
   if (lines.length === 0) return null;
   const hinted = chunk.heading.replace(/ \(cont\.\)$/, "").split(" › ")[0];
@@ -702,7 +890,19 @@ function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null): 
       !best || found > best.found || (found === best.found && part.name === hinted && best.part.name !== hinted);
     if (better) best = { part, found };
   }
-  return best && best.found * 2 >= lines.length && best.found > 0 ? best.part : null;
+  return best && best.found * 2 >= lines.length && best.found > 0 ? { parts: [best.part] } : null;
+}
+
+/** A part's text as a hit's section shows it: headings demoted, a construct left open at its end closed. */
+function sectionText(part: SourcePart): string {
+  return closeOpenConstructs(demoteHeadings(part.text));
+}
+
+/** A hit grown into its section or span, with the file lines a span covers. */
+interface HitSection {
+  text: string;
+  cut: boolean;
+  lines?: [number, number];
 }
 
 /**
@@ -711,32 +911,60 @@ function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null): 
  * the source file: under the hit's header and a `####` naming the
  * section, with its headings demoted below that and a construct left open at
  * its end closed. Longer than `cap` tokens, it is cut after its last whole
- * block that fits, with a pointer to the file. Null, so the caller falls back
- * to the snippet, when the file cannot be read or no longer holds the chunk,
- * when not even the header fits, or when no block but a heading survives the
- * cut.
+ * block that fits, with a pointer to the file.
+ *
+ * A folded chunk's span (#3683) is each of its parts that way, in source
+ * order, under the one header, with the file lines it covers: taken whole
+ * when it fits `cap`, never cut.
+ *
+ * `"budget"`, so the caller keeps the snippet and says the budget was short,
+ * when the section or span does not fit: not even the header, no block but a
+ * heading after the cut, or a span over `cap`. Null, so the caller keeps the
+ * snippet, when the file cannot be read, has changed since the index run (its
+ * hash is not the indexed one, or the indexed hash cannot be read), or no
+ * longer holds the chunk.
  */
 function hitSection(
   result: SearchResult,
   best: ChunkMatch,
   matchLine: string | null,
   read: SourceReader,
-  cap: number
-): { text: string; cut: boolean } | null {
+  cap: number,
+  indexed: IndexedChunk | null
+): HitSection | "budget" | null {
   const doc = read(result.path);
-  const part = doc ? sourcePart(doc.body, best, matchLine) : null;
-  if (!part || !part.text) return null;
-  const text = closeOpenConstructs(demoteHeadings(part.text));
+  // The index no longer holding the chunk the search matched, or a file
+  // changed since that index snapshot, keeps the hit's snippet, and nothing
+  // of the file is read for it (#3683).
+  if (!doc || !indexed || indexed.hash === null || indexed.hash !== doc.hash) return null;
+  const range: [number, number] | null = indexed.range ? [indexed.range[0] - doc.dropped, indexed.range[1] - doc.dropped] : null;
+  const found = sourcePart(doc.body, best, matchLine, range);
+  if (!found) return null;
+  if (found.lines) {
+    if (!found.parts.some((part) => part.text)) return null;
+    const shown = found.parts.map((part) => {
+      const text = part.text ? sectionText(part) : "";
+      const named = part.name ? `#### ${oneLine(part.name)}` : "";
+      return named && text ? `${named}\n${text}` : named || text;
+    });
+    const whole = `${hitHeader(result)}\n${shown.filter(Boolean).join(SEPARATOR)}`;
+    if (estimateTokens(whole) > cap) return "budget";
+    const lines = doc.line === undefined ? undefined : ([found.lines[0] + doc.line - 1, found.lines[1] + doc.line - 1] as [number, number]);
+    return lines ? { text: whole, cut: false, lines } : { text: whole, cut: false };
+  }
+  const part = found.parts[0]!;
+  if (!part.text) return null;
+  const text = sectionText(part);
   const named = part.name ? `\n#### ${oneLine(part.name)}` : "";
   const head = `${hitHeader(result)}${named}`;
   const whole = `${head}\n${text}`;
   if (estimateTokens(whole) <= cap) return { text: whole, cut: false };
   const marker = `(truncated — brain read ${result.path})`;
   const cut = truncateAtBoundary(head, text, marker, cap);
-  if (cut === null) return null;
+  if (cut === null) return "budget";
   // A cut that keeps no block but headings says nothing the snippet does not.
   const kept = cut.slice(head.length + 1, cut.length - marker.length);
-  return topLevelBlocks(kept).some((block) => block.type !== "heading") ? { text: cut, cut: true } : null;
+  return topLevelBlocks(kept).some((block) => block.type !== "heading") ? { text: cut, cut: true } : "budget";
 }
 
 interface NeighbourDoc {

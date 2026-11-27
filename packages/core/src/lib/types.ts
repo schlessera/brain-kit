@@ -40,6 +40,13 @@ export interface Chunk {
   content: string;
   token_estimate: number;
   context?: string | null;
+  /**
+   * The chunk's first and last source lines, 1-based in the text the chunker
+   * was given (#3683). Null for a chunk holding a piece of a split section,
+   * and for a chunk indexed before the lines were recorded.
+   */
+  start_line?: number | null;
+  end_line?: number | null;
 }
 
 export interface SearchResult {
