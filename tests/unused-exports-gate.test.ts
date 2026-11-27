@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { ALLOWLIST, SCANNED_PACKAGES, check, type CheckOptions } from "../scripts/check-unused-exports.ts";
+import { ALLOWLIST, SCANNED_PACKAGES, check, isTestFile, type AllowlistEntry, type CheckOptions } from "../scripts/check-unused-exports.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -53,7 +53,7 @@ describe("unused exports gate", () => {
     expect(tree({
       "packages/ui-server/src/a.ts": "export const A = 1;\nexport type T = string;\nexport function f() {}\n",
       "packages/ui-server/src/b.ts": 'import { A, type T } from "./a.js";\nexport { };\nconsole.log(A as unknown as T);\n',
-      "packages/ui-server/tests/a.test.ts": 'import { f } from "../src/a.ts";\nf();\n',
+      "packages/core/src/use-a.ts": 'import { f } from "../../ui-server/src/a.ts";\nf();\n',
     }).findings).toEqual([]);
   });
 
@@ -153,5 +153,83 @@ describe("unused exports gate", () => {
       expect(entry.reason.length).toBeGreaterThan(20);
       expect(SCANNED_PACKAGES.some(pkg => entry.file.startsWith(`packages/${pkg}/src/`))).toBe(true);
     }
+  });
+});
+
+describe("unused exports gate: code only tests reach", () => {
+  const probe = { "packages/ui-server/src/probe.ts": "export function probeOnlyTests() {}\n" };
+  const testImporter = { "packages/ui-server/tests/probe.test.ts": 'import { probeOnlyTests } from "../src/probe.ts";\nprobeOnlyTests();\n' };
+  const testOnlyEntry: AllowlistEntry = { file: "packages/ui-server/src/probe.ts", name: "probeOnlyTests", kind: "test-only", reason: "a deliberate seam the fixture keeps" };
+
+  test("a value declaration only a test imports is reported as test-only with file, line and name", () => {
+    expect(tree({ ...probe, ...testImporter }).findings)
+      .toEqual([{ file: "packages/ui-server/src/probe.ts", line: 1, name: "probeOnlyTests", kind: "test-only" }]);
+  });
+
+  test("a non-test importer is a production use", () => {
+    expect(tree({ ...probe, ...testImporter,
+      "packages/ui-server/src/caller.ts": 'import { probeOnlyTests } from "./probe.ts";\nprobeOnlyTests();\nexport {};\n',
+    }).findings).toEqual([]);
+  });
+
+  test("a call inside the declaring file is a production use", () => {
+    expect(tree({ ...testImporter,
+      "packages/ui-server/src/probe.ts": "export function probeOnlyTests() {}\nexport const used = 1;\nprobeOnlyTests();\n",
+      "packages/ui-server/src/caller.ts": 'import { used } from "./probe.ts";\nconsole.log(used);\n',
+    }).findings).toEqual([]);
+  });
+
+  test("a type-only declaration and a re-export that only a test imports are not reported", () => {
+    expect(tree({
+      "packages/ui-server/src/types.ts": "export interface OnlyTests { a: number }\nexport type AlsoTests = string;\n",
+      "packages/ui-server/src/live.ts": "export const live = 1;\nconsole.log(live);\n",
+      "packages/ui-server/src/barrel.ts": 'export { live } from "./live.ts";\n',
+      "packages/ui-server/tests/a.test.ts": 'import type { OnlyTests, AlsoTests } from "../src/types.ts";\nimport { live } from "../src/barrel.ts";\nconsole.log(live as unknown as OnlyTests | AlsoTests);\n',
+    }).findings).toEqual([]);
+  });
+
+  test("a test file is any file under the test, fixture, story and eval roots", () => {
+    for (const file of ["tests/a.ts", "experiments/a.ts", "evals/x/run.ts", "packages/ui-react/tests/a.ts", "packages/ui-kit/stories/a.tsx",
+      "packages/core/fixtures/a.ts", "packages/ui-server/evals/triage/a.ts", "packages/ui-kit/.storybook/main.ts",
+      "scripts/skill-tests/a.ts", "scripts/fixtures/a.ts", "packages/ui-kit/src/a.stories.tsx", "packages/ui-kit/src/a.spec.ts"]) {
+      expect(isTestFile(file)).toBe(true);
+    }
+    for (const file of ["packages/ui-server/src/a.ts", "scripts/lint.ts", "website/scripts/a.ts", "packages/ui-react/src/tests.ts"]) {
+      expect(isTestFile(file)).toBe(false);
+    }
+  });
+
+  test("a test-only allowlist entry excuses its name and goes stale when a production importer appears or the name is deleted", () => {
+    const allowlist = [testOnlyEntry];
+    const excused = tree({ ...probe, ...testImporter }, { allowlist });
+    expect(excused.findings).toEqual([]);
+    expect(excused.allowlisted).toEqual(allowlist);
+    expect(excused.staleAllowlist).toEqual([]);
+
+    const imported = tree({ ...probe, ...testImporter,
+      "packages/ui-server/src/caller.ts": 'import { probeOnlyTests } from "./probe.ts";\nprobeOnlyTests();\nexport {};\n',
+    }, { allowlist });
+    expect(imported.findings).toEqual([]);
+    expect(imported.staleAllowlist).toEqual(allowlist);
+
+    const deleted = tree({ "packages/ui-server/src/probe.ts": "export {};\n" }, { allowlist });
+    expect(deleted.findings).toEqual([]);
+    expect(deleted.staleAllowlist).toEqual(allowlist);
+  });
+
+  test("a test-only entry does not excuse the name once its last test importer is gone", () => {
+    const report = tree(probe, { allowlist: [testOnlyEntry] });
+    expect(report.findings).toEqual([{ file: "packages/ui-server/src/probe.ts", line: 1, name: "probeOnlyTests", kind: "declaration" }]);
+    expect(report.staleAllowlist).toEqual([testOnlyEntry]);
+  });
+
+  test("every test-only entry is either a deliberate seam or names its owning issue", () => {
+    const owned = ALLOWLIST.filter(entry => entry.owner !== undefined);
+    expect(owned.length).toBeGreaterThan(0);
+    for (const entry of owned) {
+      expect(entry.owner).toMatch(/^#\d+$/);
+      expect(entry.reason).toContain(entry.owner!);
+    }
+    for (const entry of ALLOWLIST.filter(e => e.kind === undefined)) expect(entry.owner).toBeUndefined();
   });
 });
