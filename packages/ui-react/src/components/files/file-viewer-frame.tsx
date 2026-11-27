@@ -1,5 +1,5 @@
 import { Button, IconButton, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
-import { Check, Copy, ExternalLink, FolderOpen } from "lucide-react";
+import { Check, Copy, ExternalLink, FolderOpen } from "../icons.js";
 import type { ReactNode } from "react";
 import type { FileLoadFailure } from "../../stores/file-state.js";
 import { formatBytes as formatSize } from "../../lib/format-bytes.js";

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect } from "react";
-import { ImageOff } from "lucide-react";
+import { ImageOff } from "../icons.js";
 
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";

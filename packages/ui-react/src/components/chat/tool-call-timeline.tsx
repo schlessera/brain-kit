@@ -10,7 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
-} from "lucide-react";
+} from "../icons.js";
 import { awaitsDecision, useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";

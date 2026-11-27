@@ -1,5 +1,5 @@
 import { Fragment, Suspense, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { ChevronRight, HardDrive, KeyRound, Laptop, Mic, Puzzle, SlidersHorizontal, UserRound, Workflow } from "lucide-react";
+import { ChevronRight, HardDrive, KeyRound, Laptop, Mic, Puzzle, SlidersHorizontal, UserRound, Workflow } from "../icons.js";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";

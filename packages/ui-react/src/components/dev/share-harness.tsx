@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, RefreshCw, Send, Trash2 } from "lucide-react";
+import { TriangleAlert, RefreshCw, Send, Trash2 } from "../icons.js";
 import {
   DEFAULT_SHARE_TARGET_PATH,
   getShareStore,
@@ -110,7 +110,7 @@ export function ShareHarness({
 
       {!controlled && (
         <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-raised p-3 text-sm">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             No service worker controls this page, so the POST goes to the
             network and the server answers with the no-worker fallback rather

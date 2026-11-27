@@ -4,7 +4,7 @@ import { FileChip } from "./file-chip.js";
 import type { PendingTrack } from "../../lib/track-uploads.js";
 import type { QueuedFile } from "../../lib/attachment-queue.js";
 import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
-import { X } from "lucide-react";
+import { X } from "../icons.js";
 import { useId } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import type { ClipboardEvent, DragEvent, KeyboardEvent, ReactNode, RefObject } from "react";

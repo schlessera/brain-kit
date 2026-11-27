@@ -3,7 +3,7 @@ import { HygieneFinding, HygieneReviewStrip, useHygieneReview } from "./hygiene-
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Activity as ActivityIcon, RefreshCw } from "lucide-react";
+import { Activity as ActivityIcon, RefreshCw } from "../icons.js";
 import type { ActivitySpan, InboxActionItem, InboxQueueItem, SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { useInboxStore, pendingDecisionCount } from "../../stores/inbox-store.js";
 import {

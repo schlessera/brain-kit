@@ -1,7 +1,7 @@
 import { TextButton } from "@schlessera/brain-ui-kit";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
-import { Brain, WifiOff, ShieldAlert } from "lucide-react";
+import { Brain, WifiOff, ShieldAlert } from "../icons.js";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
