@@ -2,7 +2,7 @@ import type { RecordingTranscription } from "@schlessera/brain-ui-sdk/protocol";
 import { followDraftTarget } from "./draft-target.js";
 import type { BrainUiServices } from "../root.js";
 import { startLocalCapture, type LocalCapture, type LocalCaptureChunk, type LocalCaptureSink, type LocalCaptureStopReason, type StartLocalCaptureOptions } from "../voice/local-capture.js";
-import { accountPartition, PartitionRefusedError, type LocalPartitions, type PartitionId, type PartitionWrite, type WriterFence } from "./local-partitions.js";
+import { accountPartition, measure, PartitionRefusedError, type LocalPartitions, type PartitionId, type PartitionWrite, type WriterFence } from "./local-partitions.js";
 import { registerUpdateHold } from "./update-holds.js";
 
 /** Limits from #578's retention ruling; the budget and warning are tuning defaults. */
@@ -256,6 +256,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     write: Promise<void> | null;
     failure: "budget" | "write" | null;
     ending: Promise<void> | null;
+    /** The budget read at begin, less the stored size of every chunk committed since (#4745). */
+    remaining: number;
   }
   function deferred(preflight?: { partition: PartitionId; generation: string; release: () => Promise<void>; signal: AbortSignal }): LocalCaptureSink {
     let session: Session | null = null;
@@ -325,7 +327,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             await handle.write([{ delete: indexKey(row.id) }]).catch(() => {});
             throw error;
           }
-          session = { row, partition, generation: pending.generation, blobs: [], release, timers, beganAt, armAudio, capture: normalizedStop ? { stop: normalizedStop } : null, accepting: !preflight?.signal.aborted, authInterrupted: false, write: null, failure: null, ending: null };
+          session = { row, partition, generation: pending.generation, blobs: [], release, timers, beganAt, armAudio, capture: normalizedStop ? { stop: normalizedStop } : null, accepting: !preflight?.signal.aborted, authInterrupted: false, write: null, failure: null, ending: null, remaining: free.bytes };
           running = session;
           notify();
         } catch (error) { for (const timer of timers) clearTimeout(timer); await release?.(); throw error; }
@@ -343,10 +345,16 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         }
         // Do not truncate an encoded chunk: retain a playable contiguous prefix.
         if (chunk.endMs > RECORDING_MAX_MS) { s.accepting = false; void s.capture?.stop("limit"); return; }
-        const free = await budget();
-        if (!s.accepting) return;
+        // One capture holds the cross-tab lock, so the budget read at begin
+        // less what it wrote is still the budget. It is read again only
+        // close to running out, to notice freed space or a changed quota.
+        const stored = measure(chunk);
+        if (s.remaining - stored < MIN_BYTES) {
+          s.remaining = (await budget()).bytes;
+          if (!s.accepting) return;
+        }
         if (!sameGeneration(s.partition, s.generation)) { s.authInterrupted = true; s.accepting = false; throw new PartitionRefusedError(s.partition); }
-        if (chunk.data.size > free.bytes) {
+        if (chunk.data.size > s.remaining) {
           s.failure = "budget"; s.accepting = false;
           void s.capture?.stop("storage");
           throw new Error("Recording storage is full");
@@ -359,6 +367,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         s.write = write;
         try {
           await write;
+          s.remaining -= stored;
           s.row = next;
           s.blobs.push(chunk.data);
           s.armAudio(next.savedThroughMs);

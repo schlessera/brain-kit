@@ -92,7 +92,8 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
 }
 
 /** An estimate of what a value occupies: UTF-8 for text, the byte length of binary data. */
-function measure(value: unknown, seen = new Set<object>()): number {
+/** The stored size of one value, as `sizes` reports it. */
+export function measure(value: unknown, seen = new Set<object>()): number {
   if (typeof value === "string") {
     let n = 0;
     for (let i = 0; i < value.length; i++) {
