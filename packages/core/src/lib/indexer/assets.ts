@@ -26,6 +26,9 @@ import type { AssetEmbedTask, AssetTask, ExistingDoc, IndexRun } from "./types.j
 /** How many vision calls are in flight at once. */
 const DESCRIBE_CONCURRENCY = 10;
 
+/** A describe-time read found bytes other than the ones the row phase hashed. */
+const CHANGED_SINCE_HASHED = Symbol("changed since hashed");
+
 /** The text an asset carries until a real description replaces it. */
 export function placeholderFor(asset: Pick<Asset, "path" | "mimeType">): string {
   const kind = asset.mimeType.startsWith("image/") ? "Image" : "PDF";
@@ -64,6 +67,12 @@ type Statements = ReturnType<typeof prepareStatements>;
  * The stat fingerprint (`mtimeMs-size`) is the fast path that makes this
  * affordable: without it every run re-read and re-hashed the entire asset
  * tree — hundreds of megabytes — only to conclude nothing had changed.
+ *
+ * Changed assets are read and hashed before the write transaction opens, one
+ * file at a time, and their bytes are not kept: the transaction only writes
+ * the rows decided from those hashes, so the write lock is held for the
+ * writes alone, and the description step reads each file again when it gets
+ * to it.
  */
 function persistChangedAssets(
   run: IndexRun,
@@ -71,29 +80,32 @@ function persistChangedAssets(
   assets: Asset[],
   existingDocs: Map<string, ExistingDoc>
 ): AssetTask[] {
+  const decided: Array<{ asset: Asset; existing: ExistingDoc | undefined; fingerprint: string; hash: string }> = [];
+  for (const asset of assets) {
+    const fullPath = resolve(run.root, asset.path);
+    const existing = existingDocs.get(asset.path);
+
+    let fingerprint: string;
+    try {
+      const st_ = statSync(fullPath);
+      fingerprint = `${st_.mtimeMs}-${st_.size}`;
+    } catch {
+      continue; // vanished mid-run — next run's deletion sweep handles it
+    }
+    if (!run.force && existing && existing.stat_fingerprint === fingerprint) continue;
+
+    let raw: Buffer;
+    try {
+      raw = readFileSync(fullPath);
+    } catch {
+      continue;
+    }
+    decided.push({ asset, existing, fingerprint, hash: createHash("sha256").update(raw).digest("hex") });
+  }
+
   const changed: AssetTask[] = [];
-
   const write = run.db.transaction(() => {
-    for (const asset of assets) {
-      const fullPath = resolve(run.root, asset.path);
-      const existing = existingDocs.get(asset.path);
-
-      let fingerprint: string;
-      try {
-        const st_ = statSync(fullPath);
-        fingerprint = `${st_.mtimeMs}-${st_.size}`;
-      } catch {
-        continue; // vanished mid-run — next run's deletion sweep handles it
-      }
-      if (!run.force && existing && existing.stat_fingerprint === fingerprint) continue;
-
-      let raw: Buffer;
-      try {
-        raw = readFileSync(fullPath);
-      } catch {
-        continue;
-      }
-      const hash = createHash("sha256").update(raw).digest("hex");
+    for (const { asset, existing, fingerprint, hash } of decided) {
       const isNew = !existing;
       const isChanged = !isNew && existing!.content_hash !== hash;
 
@@ -136,7 +148,7 @@ function persistChangedAssets(
       run.stats.assets++;
       run.stats.chunks++;
 
-      changed.push({ asset, raw: Buffer.from(raw), docId: docRow.id, hash });
+      changed.push({ asset, docId: docRow.id, hash });
     }
   });
   write.immediate();
@@ -146,8 +158,8 @@ function persistChangedAssets(
 
 /**
  * Queue assets still sitting on a placeholder — a previous run's vision call
- * failed, or ran with no enrichment configured. Their bytes are read lazily,
- * at describe time, since most runs will not have any.
+ * failed, or ran with no enrichment configured. Their bytes are read at
+ * describe time, as every task's are.
  */
 function queuePlaceholderRetries(
   run: IndexRun,
@@ -183,7 +195,6 @@ function queuePlaceholderRetries(
         type: row.docType as DocumentType,
         sizeBytes: 0,
       },
-      raw: null,
       docId: row.docId,
       hash: row.hash,
     });
@@ -228,6 +239,12 @@ function makeFinisher(run: IndexRun, st: Statements, embedQueue: AssetEmbedTask[
  *
  * A description that fails is left on its placeholder on purpose — see the
  * module header. Failures are reported, never thrown.
+ *
+ * Each group's file is read when its batch starts, so at most
+ * DESCRIBE_CONCURRENCY files are in memory, and the bytes read are hashed
+ * again: a file rewritten since the row phase hashed it is not described
+ * under the old hash. Its group keeps the placeholder this run, and the next
+ * embeddings run sees the changed fingerprint and picks it up.
  */
 async function describeAssets(
   run: IndexRun,
@@ -277,9 +294,9 @@ async function describeAssets(
   for (let i = 0; i < groups.length; i += DESCRIBE_CONCURRENCY) {
     const batch = groups.slice(i, i + DESCRIBE_CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map(async ([{ asset, raw }]) => {
-        const buffer =
-          raw ?? Buffer.from(await Bun.file(resolve(run.root, asset.path)).arrayBuffer());
+      batch.map(async ([{ asset, hash }]) => {
+        const buffer = Buffer.from(await Bun.file(resolve(run.root, asset.path)).arrayBuffer());
+        if (createHash("sha256").update(buffer).digest("hex") !== hash) return CHANGED_SINCE_HASHED;
         return enrichment.describeAsset(buffer, asset.mimeType, asset.title);
       })
     );
@@ -288,7 +305,9 @@ async function describeAssets(
     for (let j = 0; j < results.length; j++) {
       const result = results[j];
       for (const task of batch[j]) {
-        if (result.status === "fulfilled") {
+        if (result.status === "fulfilled" && result.value === CHANGED_SINCE_HASHED) {
+          run.report(`  Left undescribed: ${task.asset.path} — its bytes changed during the run; retry on the next embeddings run`);
+        } else if (result.status === "fulfilled") {
           if (result.value === null) {
             run.report(`  Left undescribed: ${task.asset.path} — no description returned; retry on the next embeddings run`);
           } else {

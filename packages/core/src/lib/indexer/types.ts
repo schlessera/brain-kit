@@ -136,11 +136,13 @@ export interface ParseResult {
   aliasMap: Map<string, string[]>;
 }
 
-/** An asset whose bytes changed (or whose description needs a retry). */
+/**
+ * An asset whose bytes changed (or whose description needs a retry). It
+ * carries no bytes: the description step reads the file and checks it
+ * against `hash`.
+ */
 export interface AssetTask {
   asset: Asset;
-  /** Bytes, when already read; null means "read lazily at describe time". */
-  raw: Buffer | null;
   docId: number;
   hash: string;
 }
