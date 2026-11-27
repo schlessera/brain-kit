@@ -24,6 +24,7 @@ import {
   searchJobs,
   formatJobSummary,
   formatJobDetail,
+  formatSalaryRange,
 } from "./review.js";
 import { runInteractiveReview, openUrl } from "./interactive-review.js";
 import { ensurePipelineIndex } from "./pipeline.js";
