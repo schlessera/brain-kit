@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { readBodyBytes } from "../middleware/body-limit.js";
 
 import type { AppEnv } from "../app-env.js";
 import { parseStrictJson } from "../schedules/canonical.js";
@@ -16,24 +17,11 @@ function errorResponse(c: Context, error: ScheduleError) {
 async function readBody(c: Context): Promise<unknown> {
   const media = c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (media !== "application/json") throw new ScheduleError("invalid_request", "Send application/json.");
-  const declared = Number(c.req.header("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) throw new ScheduleError("invalid_request", "Request body too large.");
-  const reader = c.req.raw.body?.getReader();
-  if (!reader) throw new ScheduleError("invalid_request", "Expected a JSON body.");
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY_BYTES) {
-      await reader.cancel().catch(() => {});
-      throw new ScheduleError("invalid_request", "Request body too large.");
-    }
-    chunks.push(value);
-  }
+  if (!c.req.raw.body) throw new ScheduleError("invalid_request", "Expected a JSON body.");
+  const body = await readBodyBytes(c.req.raw, MAX_BODY_BYTES);
+  if (!body) throw new ScheduleError("invalid_request", "Request body too large.");
   let text: string;
-  try { text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)); }
+  try { text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(body.chunks, body.bytes)); }
   catch { throw new ScheduleError("invalid_request", "Request body is not valid UTF-8."); }
   if (text.includes("\u0000")) throw new ScheduleError("invalid_request", "Request body contains NUL.");
   try { return parseStrictJson(text); }

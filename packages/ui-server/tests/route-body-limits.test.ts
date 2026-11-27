@@ -1,18 +1,30 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
-import type { SpeechProvider } from "@schlessera/brain-ui-sdk/server";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createHash, randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Hono } from "hono";
+import { SHARE_MAX_TOTAL_BYTES } from "@schlessera/brain-ui-sdk/protocol";
+import { BRAIN_MARKUP_MAX_BYTES, type SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { httpContractApp, type HttpContractApp } from "./helpers/http-contract-app";
+import type { AppEnv } from "../src/app-env";
+import { createMarkupRoutes, MARKUP_UPLOAD_MAX_BODY_BYTES } from "../src/routes/markup";
+import { createShareRoutes } from "../src/routes/share";
+import { MAX_TRANSCRIPTION_BYTES } from "../src/routes/transcriptions";
 import { MAX_ARCHIVE_BYTES } from "../src/skills/install";
+import { TurnCoordinator, type RunningTurn } from "../src/ws/turns";
 
 /** The documented JSON request cap (`docs/http-api.md`). */
 const CAP = 262_144;
 const TOO_LARGE = { error: "Request body too large" };
 const JSON_HEADERS = { "content-type": "application/json" };
 
-let sessions = 0;
+let sessions = 0, transcribed = 0;
 const speech: SpeechProvider = {
   id: "fixture-speech",
   capabilities: { streaming: true, interimResults: false, endpointing: false, keyterms: false },
   createSession: async () => { sessions++; return { url: "wss://speech.example/listen" }; },
+  transcribeRecording: async () => { transcribed++; return { text: "Odysseus reaches Ithaca." }; },
 };
 
 let t: HttpContractApp;
@@ -136,3 +148,120 @@ test("skill archive: a streamed body past the archive cap is refused after readi
   expect(pulled).toBeLessThanOrEqual(cap + chunk.byteLength);
 });
 
+/**
+ * Six routes keep their own limits, statuses and messages on the shared byte
+ * reader (#4774). Each is sent its limit plus one byte with no Content-Length,
+ * which only a streamed count can refuse, and exactly its limit, which the
+ * reader must pass on to the route's own next answer.
+ */
+describe("route-local limits on the shared byte reader", () => {
+  const zeros = new Uint8Array(256 * 1024);
+  /** `size` bytes of `fill` (or zeros), streamed without a Content-Length. */
+  function stream(size: number, fill?: Uint8Array): { body: ReadableStream<Uint8Array>; pulled: () => number } {
+    const source = fill ?? zeros;
+    let offset = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset >= size) return controller.close();
+        const length = Math.min(size - offset, fill ? fill.byteLength - offset : source.byteLength);
+        controller.enqueue(fill ? fill.subarray(offset, offset + length) : source.subarray(0, length));
+        offset += length;
+      },
+    }, { highWaterMark: 0 });
+    return { body, pulled: () => offset };
+  }
+  const streamedInit = (method: string, size: number, headers: Record<string, string>, fill?: Uint8Array): RequestInit =>
+    ({ method, body: stream(size, fill).body, headers, duplex: "half" }) as RequestInit;
+  /** A JSON request padded with trailing whitespace to exactly `size` bytes. */
+  const padded = (value: unknown, size: number) => {
+    const json = JSON.stringify(value);
+    return new TextEncoder().encode(json + " ".repeat(size - Buffer.byteLength(json)));
+  };
+  const answer = async (response: Response) => ({ status: response.status, body: await response.json() });
+
+  async function jsonLimit(method: string, path: string, limit: number, value: unknown, over: { status: number; body: unknown }) {
+    const refused = await t.fetch(path, streamedInit(method, limit + 1, JSON_HEADERS, padded(value, limit + 1)));
+    expect(await answer(refused)).toEqual(over);
+    const compact = await answer(await t.fetch(path, { method, headers: JSON_HEADERS, body: JSON.stringify(value) }));
+    expect(compact.status).not.toBe(over.status === 400 ? 413 : over.status);
+    const exact = await t.fetch(path, streamedInit(method, limit, JSON_HEADERS, padded(value, limit)));
+    expect(await answer(exact), "exactly the limit gets the same answer as the compact request").toEqual(compact);
+  }
+
+  test("drafts: a bind body over 4,096 bytes is the draft's 400; exactly 4,096 is read", async () => {
+    await jsonLimit("POST", "/api/drafts/draft-ithaca/bind", 4096, { sessionId: "fixture-session" },
+      { status: 400, body: { error: "DRAFT_INVALID", message: "The body is too large." } });
+  });
+
+  test("schedules: a body over 64 KiB is the schedule refusal; exactly 64 KiB is read", async () => {
+    await jsonLimit("POST", "/api/schedules/proposals", 64 * 1024, {},
+      { status: 400, body: { ok: false, error: { code: "invalid_request", message: "Request body too large." } } });
+  });
+
+  test("session profiles: a body over 4,096 bytes is 413; exactly 4,096 is saved", async () => {
+    await jsonLimit("PUT", "/api/drafts/draft-ithaca/profile", 4096, { preference: "strict" },
+      { status: 413, body: { error: "Profile request is too large." } });
+  });
+
+  test("session profiles: an over-declared Content-Length is refused before the body is read", async () => {
+    const { body, pulled } = stream(4097);
+    const response = await t.fetch("/api/drafts/draft-ithaca/profile", {
+      method: "PUT", body, duplex: "half", headers: { ...JSON_HEADERS, "content-length": "4097" },
+    } as RequestInit);
+    expect(await answer(response)).toEqual({ status: 413, body: { error: "Profile request is too large." } });
+    expect(pulled(), "no byte of the body was read").toBe(0);
+  });
+
+  test("session profiles: the JSON media type is compared like every other JSON route", async () => {
+    const save = (type: string) => t.fetch("/api/drafts/draft-ithaca/profile",
+      { method: "PUT", headers: { "content-type": type }, body: JSON.stringify({ preference: "governed" }) });
+    expect(await answer(await save("Application/JSON; charset=utf-8")))
+      .toMatchObject({ status: 200, body: { preference: "governed", draftPreferenceStored: true } });
+    expect(await answer(await save("text/plain"))).toEqual({ status: 415, body: { error: "Use JSON." } });
+  });
+
+  test("transcriptions: a recording over the upload budget is 413; exactly the budget is transcribed", async () => {
+    const path = `/api/voice/recordings/${randomUUID()}/transcription`;
+    const headers = (bytes: Uint8Array) => ({ "content-type": "audio/webm;codecs=opus", "content-sha256": createHash("sha256").update(bytes).digest("hex") });
+    const over = new Uint8Array(MAX_TRANSCRIPTION_BYTES + 1);
+    expect(await answer(await t.fetch(path, streamedInit("PUT", over.byteLength, headers(over), over))))
+      .toEqual({ status: 413, body: { error: "recording_too_large", message: "The recording exceeds the upload byte budget." } });
+    expect(transcribed).toBe(0);
+    const exact = over.subarray(0, MAX_TRANSCRIPTION_BYTES);
+    const accepted = await t.fetch(path, streamedInit("PUT", exact.byteLength, headers(exact), exact));
+    expect(accepted.status).toBe(200);
+    expect(transcribed).toBe(1);
+  });
+
+  test("share: a body over the share cap plus framing is 413; exactly that much reaches the multipart parser", async () => {
+    const brainRoot = join(tmpdir(), `brain-ui-share-limit-${process.pid}`);
+    const share = createShareRoutes({ brainRoot, allowedOrigins: [], trustProxy: false });
+    try {
+      const limit = SHARE_MAX_TOTAL_BYTES + 1_000_000;
+      const headers = { "content-type": "multipart/form-data; boundary=ithaca" };
+      expect(await answer(await share.request("/share", streamedInit("POST", limit + 1, headers))))
+        .toEqual({ status: 413, body: { error: "share_too_large", limit: SHARE_MAX_TOTAL_BYTES } });
+      expect(await answer(await share.request("/share", streamedInit("POST", limit, headers))))
+        .toEqual({ status: 400, body: { error: "invalid_form" } });
+    } finally { rmSync(brainRoot, { recursive: true, force: true }); }
+  });
+
+  test("markup: a body over the upload bound is 413; exactly the bound reaches the multipart parser", async () => {
+    const coordinator = new TurnCoordinator();
+    const app = new Hono<AppEnv>()
+      .use("*", async (c, next) => { c.set("principal", { id: "odysseus" } as never); await next(); })
+      .route("/api", createMarkupRoutes({ peekMarkup: (...a) => coordinator.peekMarkup(...a), claimMarkup: (...a) => coordinator.claimMarkup(...a) }));
+    const open = () => {
+      const requestId = `markup-${randomUUID()}`;
+      coordinator.openMarkup(requestId, { turn: {} as RunningTurn, turnId: "raft-turn", principalId: "odysseus",
+        source: () => ({ bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), type: "image/jpeg" }), resolve: () => {}, reject: () => {} });
+      return `/api/markup/${requestId}?turnId=raft-turn`;
+    };
+    const headers = { "content-type": "multipart/form-data; boundary=ithaca" };
+    expect(await answer(await app.request(open(), streamedInit("POST", MARKUP_UPLOAD_MAX_BODY_BYTES + 1, headers))))
+      .toEqual({ status: 413, body: { error: "markup_too_large", limit: BRAIN_MARKUP_MAX_BYTES,
+        message: `This markup is over the ${BRAIN_MARKUP_MAX_BYTES}-byte (50 MiB) limit.` } });
+    expect(await answer(await app.request(open(), streamedInit("POST", MARKUP_UPLOAD_MAX_BODY_BYTES, headers))))
+      .toEqual({ status: 400, body: { error: "markup_invalid", message: "The upload is not valid multipart/form-data." } });
+  });
+});
