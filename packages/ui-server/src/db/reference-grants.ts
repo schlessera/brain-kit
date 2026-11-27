@@ -154,13 +154,13 @@ export function createReferenceGrant(db: Database, input: {
     const target = resolvePrincipal(db, input.principalId), creator = resolvePrincipal(db, input.createdBy);
     if (!target || !isCookieBearingPrincipal(target) || !isUsablePrincipal(target, at)) throw new ReferenceGrantPrincipalError();
     if (!creator || creator.kind !== "owner" || !isUsablePrincipal(creator, at)) throw new ReferenceGrantPrincipalError();
-    db.prepare("DELETE FROM reference_grants WHERE revoked_at IS NOT NULL AND revoked_at < ?").run(input.now - REFERENCE_GRANT_RETENTION_MS);
-    const live = db.prepare(`SELECT COUNT(*) AS count FROM reference_grants g JOIN principals p ON p.id = g.principal_id WHERE ${LIVE}`).get(input.now) as { count: number };
+    db.query("DELETE FROM reference_grants WHERE revoked_at IS NOT NULL AND revoked_at < ?").run(input.now - REFERENCE_GRANT_RETENTION_MS);
+    const live = db.query(`SELECT COUNT(*) AS count FROM reference_grants g JOIN principals p ON p.id = g.principal_id WHERE ${LIVE}`).get(input.now) as { count: number };
     if (live.count >= MAX_LIVE_REFERENCE_GRANTS) throw new ReferenceGrantLimitError();
-    const duplicates = db.prepare(`SELECT repository_prefix FROM reference_grants g WHERE g.revoked_at IS NULL AND g.brain = ? AND g.principal_id = ? AND g.credential IS ?`)
+    const duplicates = db.query(`SELECT repository_prefix FROM reference_grants g WHERE g.revoked_at IS NULL AND g.brain = ? AND g.principal_id = ? AND g.credential IS ?`)
       .all(grant.brain, grant.principalId, grant.credential) as { repository_prefix: string }[];
     if (duplicates.some(row => storedPrefix(row.repository_prefix) === grant.repositoryPrefix)) throw new ReferenceGrantDuplicateError();
-    db.prepare(`INSERT INTO reference_grants (id, brain, principal_id, repository_prefix, credential, created_by, created_at, metadata_credential_recipient) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    db.query(`INSERT INTO reference_grants (id, brain, principal_id, repository_prefix, credential, created_by, created_at, metadata_credential_recipient) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(grant.id, grant.brain, grant.principalId, grant.repositoryPrefix, grant.credential, grant.createdBy, grant.createdAt, metadataRecipient);
   }).immediate();
   return grant;
@@ -168,13 +168,13 @@ export function createReferenceGrant(db: Database, input: {
 
 /** Live grants of one principal for the served brain, oldest first. */
 export function listReferenceGrants(db: Database, brain: string, principalId: string, now: number): ReferenceGrant[] {
-  return (db.prepare(`SELECT ${COLUMNS} FROM reference_grants g JOIN principals p ON p.id = g.principal_id
+  return (db.query(`SELECT ${COLUMNS} FROM reference_grants g JOIN principals p ON p.id = g.principal_id
     WHERE ${LIVE} AND g.brain = ? AND g.principal_id = ? ORDER BY g.created_at ASC, g.id ASC`).all(now, brain, principalId) as GrantRow[]).map(fromRow);
 }
 
 /** Revoke one live grant of this principal; returns it, or null when none matched. */
 export function revokeReferenceGrant(db: Database, input: { brain: string; principalId: string; id: string; now: number }): ReferenceGrant | null {
-  const row = db.prepare(`UPDATE reference_grants SET revoked_at = ? WHERE id = ? AND brain = ? AND principal_id = ? AND revoked_at IS NULL
+  const row = db.query(`UPDATE reference_grants SET revoked_at = ? WHERE id = ? AND brain = ? AND principal_id = ? AND revoked_at IS NULL
     RETURNING id, brain, principal_id, repository_prefix, credential, created_by, created_at, revoked_at, metadata_credential_recipient`).get(input.now, input.id, input.brain, input.principalId) as GrantRow | null;
   return row ? fromRow(row) : null;
 }
@@ -185,7 +185,7 @@ export function revokeReferenceGrant(db: Database, input: { brain: string; princ
  * first. Null means no private authority, whatever credentials the host holds.
  */
 export function coveringReferenceGrant(db: Database, input: { brain: string; principalId: string; repository: ReferenceRepository; now: number }): ReferenceGrant | null {
-  const rows = db.prepare(`SELECT ${COLUMNS} FROM reference_grants g JOIN principals p ON p.id = g.principal_id
+  const rows = db.query(`SELECT ${COLUMNS} FROM reference_grants g JOIN principals p ON p.id = g.principal_id
     WHERE ${LIVE} AND g.brain = ? AND g.principal_id = ? ORDER BY g.created_at DESC, g.id ASC`)
     .all(input.now, input.brain, input.principalId) as GrantRow[];
   const repository = referenceRepository(input.repository.url, { prefix: true }).canonical;
@@ -199,5 +199,5 @@ export function coveringReferenceGrant(db: Database, input: { brain: string; pri
 
 /** Whether one recorded grant is still live; in-flight private work rechecks this before publishing. */
 export function isLiveReferenceGrant(db: Database, id: string, now: number): boolean {
-  return Boolean(db.prepare(`SELECT 1 FROM reference_grants g JOIN principals p ON p.id = g.principal_id WHERE g.id = ? AND ${LIVE}`).get(id, now));
+  return Boolean(db.query(`SELECT 1 FROM reference_grants g JOIN principals p ON p.id = g.principal_id WHERE g.id = ? AND ${LIVE}`).get(id, now));
 }

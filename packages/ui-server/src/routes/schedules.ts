@@ -17,9 +17,11 @@ function errorResponse(c: Context, error: ScheduleError) {
 async function readBody(c: Context): Promise<unknown> {
   const media = c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (media !== "application/json") throw new ScheduleError("invalid_request", "Send application/json.");
-  if (!c.req.raw.body) throw new ScheduleError("invalid_request", "Expected a JSON body.");
+  // The declared length is checked first, as on every other route (#4903).
+  const hasBody = c.req.raw.body !== null;
   const body = await readBodyBytes(c.req.raw, MAX_BODY_BYTES);
   if (!body) throw new ScheduleError("invalid_request", "Request body too large.");
+  if (!hasBody) throw new ScheduleError("invalid_request", "Expected a JSON body.");
   let text: string;
   try { text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(body.chunks, body.bytes)); }
   catch { throw new ScheduleError("invalid_request", "Request body is not valid UTF-8."); }

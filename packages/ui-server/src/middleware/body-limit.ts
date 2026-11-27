@@ -31,8 +31,10 @@ export async function readBodyBytes(
   maxBytes: number,
   options: { copyChunks?: boolean } = {}
 ): Promise<BodyBytes | null> {
+  // A missing or unparseable header is NaN and never over; a length too long
+  // for a double is Infinity, which is (#4903).
   const declaredBytes = Number(request.headers.get("content-length") ?? undefined);
-  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) return null;
+  if (declaredBytes > maxBytes) return null;
 
   const reader = request.body?.getReader();
   if (!reader) return { chunks: [], bytes: 0 };
@@ -46,7 +48,8 @@ export async function readBodyBytes(
       if (!value) continue;
       bytes += value.byteLength;
       if (bytes > maxBytes) return null;
-      chunks.push(options.copyChunks ? value.slice() : value);
+      // `new Uint8Array(view)` copies; `slice()` of a Node Buffer is a view (#4903).
+      chunks.push(options.copyChunks ? new Uint8Array(value) : value);
     }
   } finally {
     await reader.cancel().catch(() => undefined);
@@ -72,7 +75,9 @@ export async function readJsonBody<T = unknown>(
   c: Context,
   maxBytes = JSON_BODY_LIMIT_BYTES
 ): Promise<T | Response> {
-  const body = await readBodyBytes(c.req.raw, maxBytes);
+  // Copied as they arrive: an in-process stream may enqueue one buffer twice,
+  // changing it in between, and the chunks are decoded only at the end (#4903).
+  const body = await readBodyBytes(c.req.raw, maxBytes, { copyChunks: true });
   if (!body) return bodyTooLarge(c);
   return JSON.parse(decodeUtf8(body)) as T;
 }
