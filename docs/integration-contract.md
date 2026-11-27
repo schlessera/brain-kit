@@ -31,6 +31,27 @@ package refuses a database at the newer version. See
 [the index read contract](integration-contract/frontmatter.md#braindb-direct-sql-reads).
 This ships in a minor.
 
+## Robots.txt cache lifetime (additive, 0.45.0, #4813)
+
+`RobotsCacheOptions` gains optional `maxAgeMs` (default 24 hours),
+`failureMaxAgeMs` (default 5 minutes), `maxEntries` (default 1,000) and `now`.
+A `RobotsCache` fetches an origin's robots.txt again once its answer is older
+than its age, and drops the least recently used origin past `maxEntries`. A
+failed fetch stays permissive. See
+[the package API](integration-contract/package-api.md#robots-txt-cache-lifetime-additive-0450-4813).
+This ships in a minor.
+
+## Track coverage counts comparisons performed (additive, 0.45.0, #4814)
+
+`trackCoverage` finds each sample's candidate edges of B through a spatial grid,
+so the 5,000,000-comparison bound now counts comparisons performed and refuses
+only when that count is reached. Inputs that returned
+`unknown: ["analysis_limit_exceeded"]` for the product of samples and edges now
+return a ratio; wherever a result was returned before it is exactly the same.
+Both limit values, every output field and every reason are unchanged. See
+[the package API](integration-contract/package-api.md#shared-geo-library-additive-525).
+This ships in a minor.
+
 ## Storage events timeline (additive, 0.45.0, #4541)
 
 `GET /api/storage/events` returns a bounded, per-kind timeline of warning

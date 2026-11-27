@@ -6,7 +6,6 @@ import {
   GEMINI_ASPECTS,
   isGeminiAspect,
   parseAspect,
-  sizeToNearestGeminiAspect,
 } from "../src/shape";
 import { route } from "../src/routing";
 import { availableModels } from "../src/providers/index";
@@ -91,14 +90,6 @@ describe("isValidOpenAiSize", () => {
   });
 });
 
-describe("sizeToNearestGeminiAspect", () => {
-  test("snaps to the closest legal ratio", () => {
-    expect(sizeToNearestGeminiAspect("1920x1080")).toBe("16:9");
-    expect(sizeToNearestGeminiAspect("1024x1024")).toBe("1:1");
-    expect(sizeToNearestGeminiAspect("1080x1920")).toBe("9:16");
-  });
-  test("rejects a non-size", () => expect(sizeToNearestGeminiAspect("big")).toBeNull());
-});
 
 describe("isGeminiAspect", () => {
   test("accepts the documented ten", () => {
