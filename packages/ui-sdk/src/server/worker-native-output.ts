@@ -3,6 +3,7 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { INDEX_DB_PATH } from "@schlessera/brain-common/internal/index-location";
 import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { parseProcStat } from "./proc-identity.js";
+import { at, DIRECTORY, noFollowParent } from "./no-follow-walk.js";
 import { open } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -156,21 +157,13 @@ export function bindPreparedWorkerOutputExit(output: PreparedWorkerOutput, exite
     void state.exited.catch(() => {});
   }
 }
-const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const FILE = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
-const at = (fd: number, name: string) => `/proc/self/fd/${fd}/${name}`;
 type Entry = { type: "file" | "directory" | "symlink"; mode: number; hash?: string; link?: string; members?: string[] };
 type Captured = { entry: Entry | undefined; stamp: string | undefined };
 const equal = (a: Entry | undefined, b: Entry | undefined, members = false) => JSON.stringify(a?.type === "directory" && !members ? { ...a, members: undefined } : a)
   === JSON.stringify(b?.type === "directory" && !members ? { ...b, members: undefined } : b);
 function stamp(info: import("node:fs").BigIntStats) { return [info.dev, info.ino, info.mode, info.size, info.mtimeNs, info.ctimeNs].join(":"); }
-function parent(root: string, rel: string) {
-  const parts = rel.split("/");
-  if (parts.some(p => !p || p === "." || p === ".." || p.includes("\u0000"))) throw Error("Invalid native output path");
-  let fd = openSync(root, DIRECTORY);
-  try { for (const part of parts.slice(0, -1)) { const child = openSync(at(fd, part), DIRECTORY); closeSync(fd); fd = child; } return { fd, name: parts.at(-1)! }; }
-  catch (error) { closeSync(fd); throw error; }
-}
+const parent = (root: string, rel: string) => noFollowParent(root, rel, "Invalid native output path");
 /** New-directory children prepare in their nearest existing no-follow ancestor. */
 function preparationDirectory(root: string, rel: string): number {
   let fd = openSync(root, DIRECTORY);
