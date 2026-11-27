@@ -18,6 +18,7 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 import { completeJsonLines } from "./helpers/json-lines.js";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 const roots: string[] = [];
 const closeNative: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of closeNative.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -27,10 +28,8 @@ function fixture(version = MIN_BRAIN_CLI_VERSION) {
   const root = join(directory, "brain"); mkdirSync(root);
   const calls = join(root, "calls.jsonl");
   const bin = join(root, "node_modules/.bin/brain");
-  mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
   function install(nextVersion: string) {
-    writeFileSync(bin, `#!/usr/bin/env bun\nimport { appendFileSync } from "node:fs";\nconst args = process.argv.slice(2);\nappendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/calls.jsonl" : ${JSON.stringify(calls)}, JSON.stringify(args) + "\\n");\nif (args[0] === "--version") console.log(${JSON.stringify(nextVersion)});\nelse console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
-    chmodSync(bin, 0o755);
+    installFakeBrain(root, { version: nextVersion, argvLog: calls, body: "console.log(JSON.stringify({ results: [], warnings: [] }));" });
   }
   install(version);
   const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", DB_PATH: join(directory, "ui.db"), BRAIN_PATH: root, BRAIN_UI_PRICING_DISCOVERY: "0" });
@@ -230,7 +229,7 @@ describe("explicit CLI minima on direct clients and probes", () => {
     const f = fixture();
     const wrapper = join(f.root, "wrapper.ts");
     const records = join(f.root, "wrapper.jsonl");
-    writeFileSync(wrapper, `#!/usr/bin/env bun\nimport { appendFileSync } from "node:fs";\nappendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/wrapper.jsonl" : ${JSON.stringify(records)}, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), color: process.env.NO_COLOR }) + "\\n");\nconst child = Bun.spawn(process.argv.slice(2), { stdin: "inherit", stdout: "inherit", stderr: "inherit" });\nprocess.exit(await child.exited);\n`);
+    writeFileSync(wrapper, `#!${process.execPath}\nimport { appendFileSync } from "node:fs";\nappendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/wrapper.jsonl" : ${JSON.stringify(records)}, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), color: process.env.NO_COLOR }) + "\\n");\nconst child = Bun.spawn(process.argv.slice(2), { stdin: "inherit", stdout: "inherit", stderr: "inherit" });\nprocess.exit(await child.exited);\n`);
     chmodSync(wrapper, 0o755);
     const previous = process.env.BRAIN_UI_EXEC_WRAPPER;
     process.env.BRAIN_UI_EXEC_WRAPPER = wrapper;

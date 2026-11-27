@@ -9,7 +9,7 @@
  */
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createNativeAppFixture, createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
@@ -18,6 +18,7 @@ import { createRecordingObservability } from "../src/observability";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { journalDatabasePath } from "../src/db/journal-database";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const POLICY = "---\nschema_version: 1\noutward:\n  github:\n    repositories: [ithaca/*]\n---\nOdysseus decides what leaves Ithaca.\n";
@@ -51,9 +52,7 @@ function fixture() {
   mkdirSync(join(other, "context/policies"), { recursive: true });
   writeFileSync(join(other, "context/policies/governance.md"), POLICY);
   git(other, "add", "."); git(other, "commit", "-m", "Open GitHub writes to Ithaca"); git(other, "push", "origin", "main");
-  mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-  const cli = join(brain, "node_modules/.bin/brain");
-  writeFileSync(cli, `#!/usr/bin/env bun\nawait import(${JSON.stringify(join(ROOT, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
+  installFakeBrain(brain, { real: true });
   const serverConfig = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", DB_PATH: join(root, "ui.db"), BRAIN_PATH: brain, BRAIN_UI_PRICING_DISCOVERY: "0" });
   const native = createNativeAppFixture(brain); closers.push(native.close);
   serverConfig.nativeBrain = native.nativeBrain;
