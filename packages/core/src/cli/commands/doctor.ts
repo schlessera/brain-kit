@@ -7,15 +7,12 @@ import { readEnvVar, resolveEnv } from "../../config/env.js";
 import {
   openDatabase,
   loadVecSupport,
-  migrateVecSchema,
-  storedVectorWidth,
   getMeta,
   embeddingIdentityMatches,
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
   vecVersion,
   vectorCount,
 } from "../../lib/db.js";
-import { indexAll } from "../../lib/indexer.js";
 import { migrateSidecarCaches } from "../../lib/indexer/caches.js";
 import { indexStaleness } from "../../lib/ops/staleness.js";
 import { DEFAULT_INSTRUCTIONS_MAX_TOKENS } from "../../lib/config.js";
@@ -27,7 +24,7 @@ import { missingEmbeddingKey, rerankerKeyEnv, resolveReranker } from "../../lib/
 import { JEV_MODEL } from "../../lib/llm-defaults.js";
 import { relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 import type { CoreCommand, CliContext } from "../types.js";
-import { emit, embeddingDims, parseArgs } from "../io.js";
+import { emit, parseArgs, reindexWithProviders } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
 import { GIT_MISSING, HOOK_NAMES, gitInstalled, installGitHooks, isGitRepo, packagedHooksDir } from "../hooks-util.js";
 import { isToolLeftover } from "../../lib/tool-leftovers.js";
@@ -1000,22 +997,9 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<{ applied: 
   if (failing.has("db") || failing.has("embeddings")) {
     if (failing.has("db")) attempted.add("db");
     if (failing.has("embeddings")) attempted.add("embeddings");
-    const dims = embeddingDims(cli.embeddings);
-    const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
-    await migrateVecSchema(db, storedVectorWidth(db, dims));
-    const wantEmbeddings = !!cli.embeddings;
-    await indexAll(db, {
-      root,
-      taxonomy: cli.brain.taxonomy,
-      force: false,
-      quiet: true,
-      embeddings: wantEmbeddings,
-      provider: wantEmbeddings ? cli.embeddings : undefined,
-      enrichment: wantEmbeddings ? cli.enrichment : undefined,
-    });
-    db.close();
+    await reindexWithProviders(cli);
     if (failing.has("db")) applied.push("db");
-    if (failing.has("embeddings") && wantEmbeddings) applied.push("embeddings");
+    if (failing.has("embeddings") && cli.embeddings) applied.push("embeddings");
   }
   // After the db fix, so the rebuilt index exists before the old copy goes.
   if (failing.has("legacy-index")) {

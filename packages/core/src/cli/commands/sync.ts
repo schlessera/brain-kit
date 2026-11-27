@@ -1,10 +1,8 @@
-import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
-import { indexAll } from "../../lib/indexer.js";
 import { syncSkills } from "../../lib/skills/index.js";
 import { mediaPolicy } from "../../lib/media.js";
 import { resolveEnv } from "../../config/env.js";
 import type { CoreCommand, CliContext } from "../types.js";
-import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
+import { emit, parseArgs, reindexWithProviders, UsageError } from "../io.js";
 import { AgentRunError, runAgent, type AgentInvocation } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
 import { assess, classifyPostSyncDirt, domainFor, workingTreeDirt } from "../../lib/sync/assess.js";
@@ -119,20 +117,7 @@ async function postSync(cli: CliContext): Promise<PostSyncResult> {
 
   let index: string;
   try {
-    const dims = embeddingDims(cli.embeddings);
-    const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
-    await migrateVecSchema(db, storedVectorWidth(db, dims));
-    const wantEmbeddings = !!cli.embeddings;
-    await indexAll(db, {
-      root,
-      taxonomy: cli.brain.taxonomy,
-      force: false,
-      quiet: true,
-      embeddings: wantEmbeddings,
-      provider: wantEmbeddings ? cli.embeddings : undefined,
-      enrichment: wantEmbeddings ? cli.enrichment : undefined,
-    });
-    db.close();
+    await reindexWithProviders(cli);
     index = "ok";
   } catch (e) {
     index = `FAILED — ${(e as Error).message}`;
