@@ -1,7 +1,8 @@
 import { Button, IconButton, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
-import { Check, Copy, ExternalLink, FolderOpen } from "lucide-react";
+import { Check, Copy, ExternalLink, FolderOpen } from "../icons.js";
 import type { ReactNode } from "react";
 import type { FileLoadFailure } from "../../stores/file-state.js";
+import { formatBytes as formatSize } from "../../lib/format-bytes.js";
 
 /**
  * The viewer's chrome, rendered from props (S7): the toolbar over the file,
@@ -152,8 +153,4 @@ export function ViewerEmpty() {
   );
 }
 
-export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-}
+export { formatSize };

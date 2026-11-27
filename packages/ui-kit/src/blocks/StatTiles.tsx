@@ -6,6 +6,7 @@ import { VALUE_CUE } from "../internal/tone-cue.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font } from "../tokens.js";
 import type { ValueTone } from "../types.js";
+import { valueInk } from "../internal/tone-ink.js";
 
 /**
  * Two to four numbers that answer a question at a glance.
@@ -33,21 +34,6 @@ export interface StatTilesProps {
   /** Minimum tile width. At most three columns, or four past ~1100px. */
   minTile?: number;
 }
-
-/** Every accent's ink, plus the two inks. An UNTONED value is primary ink —
- * an unremarkable number is still a number you read — and `neutral` is the
- * grey accent, as everywhere else (D33). */
-const TONES: Record<ValueTone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-  ink: color.ink,
-  dim: color.inkDim,
-};
 
 /**
  * A no-props example from the Odysseus world. The example-corpus decision
@@ -90,7 +76,7 @@ export function StatTiles(p: StatTilesProps) {
       <div className="bk-stattiles-grid" style={grid}>
         {src.map((t, i) => {
           const tone = t.tone || "ink";
-          const c = TONES[tone] || TONES.dim;
+          const c = valueInk(tone, "dim");
           const cue = VALUE_CUE[tone];
           return (
             <div

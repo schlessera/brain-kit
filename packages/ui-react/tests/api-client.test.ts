@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { api, createBrainApi, ApiRequestError } from "../src/lib/api-client.js";
+import { api, createBrainApi, ApiRequestError, requestJson } from "../src/lib/api-client.js";
 
 import { Database } from "bun:sqlite";
 import { createHealthRoutes } from "../../ui-server/src/routes/health.js";
@@ -255,4 +255,24 @@ test("dictation selection client preserves legacy requests and sends exact provi
   expect(cap.urls).toEqual(["/api/voice/session", "/api/voice/session", "/api/voice/providers", "/api/voice/dictation/settings", "/api/voice/dictation/settings"]);
   expect(new Headers(cap.inits[4]?.headers).get("If-Match")).toBe('"4"');
   expect(JSON.parse(String(cap.inits[4]?.body))).toEqual({ defaultProvider: "alpha", smart: true });
+});
+
+describe("requestJson (#4725)", () => {
+  test("a failure with only a reason is an ApiRequestError carrying that text, the status and the body", async () => {
+    const sent: Array<RequestInit | undefined> = [];
+    const request = async (_url: string, init?: RequestInit) => { sent.push(init); return Response.json({ reason: "index_missing" }, { status: 503 }); };
+    const error = await requestJson(request, "/api/graph/meta").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect((error as ApiRequestError).message).toBe("index_missing");
+    expect((error as ApiRequestError).status).toBe(503);
+    expect((error as ApiRequestError).body).toEqual({ reason: "index_missing" });
+    // A store's GET goes out with exactly the init it gave: no added header.
+    expect(sent).toEqual([undefined]);
+  });
+
+  test("a network failure passes through unwrapped", async () => {
+    const failure = new TypeError("fetch failed");
+    const error = await requestJson(async () => { throw failure; }, "/api/files/tree").catch((e: unknown) => e);
+    expect(error).toBe(failure);
+  });
 });

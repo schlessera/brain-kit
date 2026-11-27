@@ -54,13 +54,6 @@ export interface ToggleProps {
   onClick?: () => void;
 }
 
-/** The track is a filled surface, so each tone takes the `fill` role. */
-const TONES: Record<ToggleTone, string> = {
-  amber: accent.amber.fill,
-  teal: accent.teal.fill,
-  purple: accent.purple.fill,
-};
-
 export function Toggle(p: ToggleProps) {
   const on = p.on !== false;
   const interactive = Boolean(p.onClick);
@@ -78,7 +71,7 @@ export function Toggle(p: ToggleProps) {
     position: "relative",
     flex: "none",
     display: "inline-block",
-    background: on ? TONES[p.tone || "amber"] || TONES.amber : color.edge,
+    background: on ? (accent[p.tone || "amber"] ?? accent.amber).fill : color.edge,
     cursor: p.onClick ? "pointer" : "default",
     transition: "background .18s ease",
     ...(disabled ? { opacity: 0.45, cursor: "not-allowed", pointerEvents: "none" } : null),

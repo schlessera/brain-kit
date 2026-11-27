@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { IconButton, Overlay, TextButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
+import { Loader2, Search, SlidersHorizontal, X } from "../icons.js";
 import type { BrainSearchHit } from "../../lib/api-client.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import {

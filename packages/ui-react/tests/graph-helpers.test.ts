@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { LIGHT_TOKENS, TOKENS } from "@schlessera/brain-ui-kit/internal";
 import { graphTheme } from "../src/components/graph/use-graph-theme.js";
 import {
-  SLOT_COUNT,
   assignFolderColors,
   buildQuery,
   communityColor,
@@ -141,9 +140,9 @@ describe("palette", () => {
   test("the first eight communities get distinct slots, in the same order in both themes", () => {
     for (const palette of [dark, paper]) {
       const seen = new Set<string>();
-      for (let i = 0; i < SLOT_COUNT; i++) seen.add(communityColor(i, palette));
+      for (let i = 0; i < 8; i++) seen.add(communityColor(i, palette));
       expect(seen.size).toBe(8);
-      expect(palette.slots).toHaveLength(SLOT_COUNT);
+      expect(palette.slots, "eight distinguishable slots before the tail folds").toHaveLength(8);
     }
     // Slot order is the CVD mechanism: community 2 is slot 3 on both grounds.
     expect(communityColor(2, dark)).toBe(TOKENS["canvas-slot-3"]);

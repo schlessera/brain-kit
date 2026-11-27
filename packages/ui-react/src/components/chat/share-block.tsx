@@ -8,7 +8,7 @@ import { ShareMenu, type ShareOption } from "../share/share-menu.js";
 import { renderAndShare, shareFile, shareText, copyRichText } from "../../lib/share.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
 import { preRenderBrowserFences } from "../../lib/content-renderer-share.js";
-import { Share2 } from "lucide-react";
+import { Share2 } from "../icons.js";
 
 export type ShareBlockFormat = "image" | "pdf" | "text" | "markdown" | "richtext";
 

@@ -137,7 +137,7 @@ test("stored chips: unread PDF/text says not read yet, no reader says so, a reje
     storedFileCopy(stored(FILE_ID, { name: "sirens.m4a", kind: "binary", reader: "none", mediaType: "audio/mp4", bytes: 3_250_000 })),
     storedFileCopy(stored(FILE_ID, { name: "dock-walk.json", kind: "text", reader: "text", mediaType: "application/json", trackRejected: true })),
   ];
-  expect(copies.map((c) => c.status)).toEqual(["PDF · 56 B · not read yet", "Text · 1.8 KB · not read yet", "3.1 MB · no reader here", "Text · not a usable track"]);
+  expect(copies.map((c) => c.status)).toEqual(["PDF · 56 B · not read yet", "Text · 2 KB · not read yet", "3.1 MB · no reader here", "Text · not a usable track"]);
   for (const copy of copies) expect(`${copy.status} ${copy.detail ?? ""}`).not.toMatch(/\b(readable|processed|decoded|saved)\b/i);
 });
 

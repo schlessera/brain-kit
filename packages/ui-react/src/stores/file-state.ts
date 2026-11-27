@@ -7,6 +7,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreEnvironment } from "./store-environment.js";
 import { isMermaidPath } from "../lib/mermaid.js";
+import { ApiRequestError, requestJson } from "../lib/api-client.js";
 
 export interface FileState {
   // Tree state
@@ -83,12 +84,17 @@ export interface FileLoadFailure {
 }
 
 function observedFailure(error: unknown): FileLoadFailure {
-  const e = error as { status?: number; size?: number; name?: string } | null;
-  if (e?.status === 401) return { kind: "unauthenticated" };
-  if (e?.status === 403) return { kind: "forbidden" };
-  if (e?.status === 404) return { kind: "not-found" };
-  if (e?.status === 413) return { kind: "too-large", ...(typeof e.size === "number" && Number.isFinite(e.size) && e.size >= 0 ? { size: e.size } : {}) };
-  if (e?.status === undefined && (error instanceof TypeError || e?.name === "TimeoutError")) return { kind: "unreachable" };
+  if (error instanceof ApiRequestError) {
+    if (error.status === 401) return { kind: "unauthenticated" };
+    if (error.status === 403) return { kind: "forbidden" };
+    if (error.status === 404) return { kind: "not-found" };
+    if (error.status === 413) {
+      const size = (error.body as { size?: unknown } | null | undefined)?.size;
+      return { kind: "too-large", ...(typeof size === "number" && Number.isFinite(size) && size >= 0 ? { size } : {}) };
+    }
+    return { kind: "unknown" };
+  }
+  if (error instanceof TypeError || (error as { name?: unknown } | null)?.name === "TimeoutError") return { kind: "unreachable" };
   return { kind: "unknown" };
 }
 
@@ -125,43 +131,20 @@ export function createFileStore(env: StoreEnvironment) {
 
   async function fetchTree(path: string): Promise<FileEntry[]> {
     const url = `${apiBase()}/files/tree${path ? `?path=${encodeURIComponent(path)}` : ""}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(body.error || `HTTP ${res.status}`);
-    }
-    const data = await res.json();
+    const data = await requestJson<{ entries: FileEntry[] }>(fetch, url);
     return data.entries;
   }
 
-  async function fetchContent(path: string, signal: AbortSignal): Promise<FileContentResponse> {
-    const res = await fetch(`${apiBase()}/files/content?path=${encodeURIComponent(path)}`, { signal });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }));
-      const err = new Error(body.error || `HTTP ${res.status}`);
-      (err as Error & { status: number; size?: number }).status = res.status;
-      if (typeof body.size === "number" && Number.isFinite(body.size) && body.size >= 0) (err as Error & { status: number; size?: number }).size = body.size;
-      throw err;
-    }
-    return res.json();
+  function fetchContent(path: string, signal: AbortSignal): Promise<FileContentResponse> {
+    return requestJson(fetch, `${apiBase()}/files/content?path=${encodeURIComponent(path)}`, { signal });
   }
 
-  async function fetchResolve(path: string, signal: AbortSignal): Promise<FileResolveResponse> {
-    const res = await fetch(`${apiBase()}/files/resolve?path=${encodeURIComponent(path)}`, { signal });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(body.error || `HTTP ${res.status}`);
-    }
-    return res.json();
+  function fetchResolve(path: string, signal: AbortSignal): Promise<FileResolveResponse> {
+    return requestJson(fetch, `${apiBase()}/files/resolve?path=${encodeURIComponent(path)}`, { signal });
   }
 
-  async function fetchWikilinks(): Promise<WikilinkMapResponse> {
-    const res = await fetch(`${apiBase()}/files/wikilinks`);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(body.error || `HTTP ${res.status}`);
-    }
-    return res.json();
+  function fetchWikilinks(): Promise<WikilinkMapResponse> {
+    return requestJson(fetch, `${apiBase()}/files/wikilinks`);
   }
 
   /** HEAD on the raw route: the bytes stay on the server, the status says enough. */
@@ -346,7 +329,7 @@ export function createFileStore(env: StoreEnvironment) {
           const response = await fetch(url, { method: "HEAD", signal: owner!.signal });
           if (!ownsPreview()) return false;
           if (response.ok) return true;
-          set(failureUpdate(content.path, { status: response.status, size: content.size }, get()));
+          set(failureUpdate(content.path, new ApiRequestError(`HTTP ${response.status}`, response.status, [], { size: content.size }), get()));
         } catch (error) {
           if (ownsPreview()) set(failureUpdate(content.path, error, get()));
         }

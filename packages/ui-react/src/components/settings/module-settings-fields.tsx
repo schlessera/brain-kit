@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
-import { ArrowDown, ArrowUp, Minus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Minus, X } from "../icons.js";
 import { Button, IconButton, ItemCard, Toggle } from "@schlessera/brain-ui-kit";
 import type { ModuleSettingsField, ModuleSettingsSnapshot } from "@schlessera/brain-ui-sdk";
 import { mergeSettings, record, replaceAt, sameSettings, valueAt, type ModuleSettingsSession, type ModuleSettingsSessionStore, type SettingsPath } from "./module-settings-state.js";
