@@ -356,6 +356,47 @@ for (const [exit, cause] of [[10, "unavailable/config"], [null, "transport_incom
     expect(f.cards).toHaveLength(2);
   });
 
+test("google cancelled send keeps a proven pre-request failure's own answer", async () => {
+  const f = fixture(), execute = f.transport.execute.bind(f.transport), controller = new AbortController();
+  f.turn.write!.signal = controller.signal;
+  f.fake.setScenario({ ...sendScenario(), "gmail.send": { exit: 10 } });
+  f.transport.execute = (async (operation, input, execution) => {
+    const answer = await execute(operation, input, execution);
+    if (operation === "gmail.draft.send") controller.abort();
+    return answer;
+  }) as typeof f.transport.execute;
+  expect(await f.call(send), "SEND_CANCELLED_RELEASED_ANSWER").toMatchObject({ ok: false, error: RELEASED_FIRST_ANSWERS["unavailable/config"] });
+  const ledgerDb = new Database(f.ledgerPath);
+  try { expect(ledgerDb.query("SELECT state,cause FROM sent_digests").all()).toEqual([{ state: "pending", cause: "unavailable/config" }]); }
+  finally { ledgerDb.close(); }
+});
+
+test("google cleanup refused after an admitted delete reports unknown", async () => {
+  const f = fixture(), execute = f.transport.execute.bind(f.transport);
+  f.transport.execute = (async (operation, input, execution) => {
+    const answer = await execute(operation, input, execution);
+    if (operation !== "gmail.draft.delete") return answer;
+    // A transport that asked again after the delete ran: the refusal must not read as "not deleted".
+    const denied = execution!.finalAdmission!();
+    return denied ? { ok: false as const, error: denied } : answer;
+  }) as typeof f.transport.execute;
+  expect(await f.call(send), "SEND_CLEANUP_ADMITTED_THEN_REFUSED").toMatchObject({ ok: true, result: { draft_deleted: null } });
+  expect(f.fake.callsOf("gmail.drafts.delete")).toHaveLength(1);
+});
+
+test("google cleanup whose draft re-read fails reports not deleted", async () => {
+  const f = fixture(), execute = f.transport.execute.bind(f.transport);
+  let sent = false;
+  f.transport.execute = (async (operation, input, execution) => {
+    if (sent && operation === "gmail.draft.get") throw new Error("Ithaca cleanup read unavailable");
+    const answer = await execute(operation, input, execution);
+    if (operation === "gmail.draft.send") sent = true;
+    return answer;
+  }) as typeof f.transport.execute;
+  expect(await f.call(send), "SEND_CLEANUP_READ_FAILED").toMatchObject({ ok: true, result: { draft_deleted: false } });
+  expect(f.fake.callsOf("gmail.drafts.delete")).toHaveLength(0);
+});
+
 const sendMayHaveGone = "This send may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
 // Exit 2 is gog's usage class, but the Go runtime also exits 2 on a panic, which can follow the request.
 for (const [end, reason, cause] of [

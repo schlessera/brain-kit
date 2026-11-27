@@ -401,9 +401,10 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       if (!dispatched) return await withdraw(error("missing_admission", "The prepared write did not reach final admission."));
       if (!outcome.ok) {
         if (inverseId) { const id = inverseId; await cleanup("Google inverse unknown marking", () => options.state.markInverseUnknown(sessionId, id)); }
-        // Send factories own actionable replay guidance; retain it instead of
-        // suggesting a retry of bytes whose reservation remains pending.
-        if (operation === "gmail.draft.send" && outcome.error.code === "outcome_unknown") return refuse(outcome.error);
+        // A send factory owns every answer after dispatch: a failure proven
+        // pre-request keeps its own, even if the turn was cancelled meanwhile,
+        // and anything else already says the bytes stay pending.
+        if (operation === "gmail.draft.send") return refuse(outcome.error);
         const ambiguous = outcome.error.code === "outcome_unknown" || outcome.error.code === "upstream_error" || ctx.signal.aborted;
         return refuse(ambiguous ? gogError("outcome_unknown", outcome.error.reason ?? "dispatch_failed") : outcome.error);
       }

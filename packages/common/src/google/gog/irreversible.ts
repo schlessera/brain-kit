@@ -41,14 +41,19 @@ export async function prepareGmailSend(ctx: GmailWritePreparationContext, draftI
       // Another client can edit the draft during the send. Never delete those new bytes.
       const current = await readDraft(ctx, draftId);
       if (current.parsed.digest !== digest || current.threadId !== threadId) return false;
-      // A refused final admission spawns nothing: the draft was not deleted.
-      let refused = false;
-      const admit: typeof finalAdmission = () => { const denied = finalAdmission(); refused = denied !== null; return denied; };
+      // A refused final admission spawns nothing: the draft was not deleted,
+      // unless an earlier admission already let a delete run.
+      let refused = false, admitted = false;
+      const admit: typeof finalAdmission = () => {
+        const denied = finalAdmission();
+        if (denied) refused = true; else admitted = true;
+        return denied;
+      };
       try {
         const answer = await ctx.transport.execute("gmail.draft.delete", { draft_id: draftId }, { ...read.execution, finalAdmission: admit });
         // gog retries a DELETE after a 5xx, so a final refusal can follow a
         // delete that happened. Only a refusal before any request proves it did not.
-        if (!answer.ok) return refused || isGogPreRequestFailure(answer.error) ? false : null;
+        if (!answer.ok) return (refused && !admitted) || isGogPreRequestFailure(answer.error) ? false : null;
         return answer.value.draft_id === draftId ? true : null;
       } catch { return null; }
     } };
