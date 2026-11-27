@@ -311,6 +311,10 @@ imported them from it (#4691, 2026-11-27): `COMPUTE_JOB_ID`,
 helpers they use from `@schlessera/brain/module`. The declarations stay in
 their source modules, and the third migration path applies.
 
+Later dropped from `@schlessera/brain/internal` for the same reason (#4930,
+2026-11-27): `resolveCompletionProvider`. The video module takes it from
+`@schlessera/brain/module`, which keeps it.
+
 An internal-only package (#1396): `@schlessera/brain-common` has no root
 entry. Its entries, `./internal/env`, `./internal/frontmatter` and
 `./internal/worker-areas`, `./internal/protected-paths`,
