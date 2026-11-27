@@ -294,6 +294,7 @@ export async function generateBriefing(brain: BrainContext, limit = 15, opts: Br
 
 export const briefingCommand: CoreCommand = {
   summary: "Emit a mechanical daily briefing (deadlines, reviews, silent edits)",
+  flags: { boolean: [], value: ["limit", "limit-reviews"] },
   helpBlock: `brain briefing — mechanical daily status (no LLM)
 
   --limit <n>             Max recently-active docs (default: 15)

@@ -29,6 +29,7 @@ Exits 2 when a file could not be removed (it is listed in failed); the report is
 
 export const scratchCommand: CoreCommand = {
   summary: "Clean or prune the brain's scratch area",
+  flags: { boolean: ["dry-run"], value: ["pins-file"] },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);

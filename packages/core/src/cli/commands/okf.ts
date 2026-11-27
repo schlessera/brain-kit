@@ -65,6 +65,7 @@ function emitCheck(json: boolean, report: OkfCheckReport): void {
 
 export const okfCommand: CoreCommand = {
   summary: "Export or validate an Open Knowledge Format v0.1 bundle",
+  flags: { boolean: ["no-assets"], value: ["exclude", "include", "out"] },
   helpBlock: HELP,
   async run(argv, cli) {
     const { args, flags } = parseArgs(argv);

@@ -36,7 +36,7 @@ export function prefixDigest(messages: SessionHistoryMessage[], end: number): st
 }
 
 export function saveTurnFailure(db: Database, sessionId: string, backendId: string, record: RecordedTurnFailure): boolean {
-  db.prepare(`INSERT INTO turn_failures (session_id, backend_id, assistant_ordinal, turn_id, prefix_digest, failure_json)
+  db.query(`INSERT INTO turn_failures (session_id, backend_id, assistant_ordinal, turn_id, prefix_digest, failure_json)
     VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(session_id, backend_id, assistant_ordinal, prefix_digest) DO NOTHING`)
     .run(sessionId, backendId, record.assistantOrdinal, record.turnId, record.prefixDigest, JSON.stringify(record.failure));
   const stored = db.query("SELECT turn_id,failure_json FROM turn_failures WHERE session_id=? AND backend_id=? AND assistant_ordinal=? AND prefix_digest=?")

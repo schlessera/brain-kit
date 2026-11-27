@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import type { Statement } from "bun:sqlite";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import { serializeSigned } from "hono/utils/cookie";
 
@@ -188,10 +189,11 @@ describe("principal revocation boundary", () => {
         ttlSeconds: 3_600,
       });
       const cookie = await serializeSigned("brain_ui_session", principal.id, secret);
-      const originalPrepare = app.db.prepare.bind(app.db);
       let revokedDuringTouch = false;
-      app.db.prepare = ((sql: string) => {
-        const statement = originalPrepare(sql);
+      // The touch is taken from db.query, which caches it, and db.prepare is
+      // hooked as well, so the test does not depend on which one compiles it (#4808).
+      const touching = (compile: (sql: string) => Statement) => ((sql: string) => {
+        const statement = compile(sql);
         if (!sql.includes("UPDATE principals SET last_seen_at")) return statement;
         return new Proxy(statement, {
           get(target, property, receiver) {
@@ -210,7 +212,9 @@ describe("principal revocation boundary", () => {
             return typeof value === "function" ? value.bind(target) : value;
           },
         });
-      }) as typeof app.db.prepare;
+      });
+      app.db.query = touching(app.db.query.bind(app.db)) as typeof app.db.query;
+      app.db.prepare = touching(app.db.prepare.bind(app.db)) as typeof app.db.prepare;
 
       let upgradeData: unknown;
       const response = await app.fetch(

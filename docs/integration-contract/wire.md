@@ -1082,7 +1082,7 @@ exists or sits behind a qualified native host, so a host that never qualified
 and has no database reports on stderr alone. No module job can carry the
 name: theirs are always `<module>-<entry>`.
 A scheduled `brain sync` run (a `cron` root span with `jobName` `sync`,
-written by the in-process scheduler or the container cron wrapper; additive in
+written only by the container cron wrapper; additive in
 0.40.0, #290) carries `brain.sync.agent`: `not-invoked`, `invoked`, or
 `unknown` when the run ended without a readable `brain sync --json` result.
 It may also carry `brain.sync.run_status` (the result's `run.status`),
