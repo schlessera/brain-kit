@@ -26,7 +26,7 @@ const RETRY = "Could not refresh sessions. Please retry.";
 describe("session-list refresh", () => {
   test("three calls during one request send one follow-up, after the first answer", async () => {
     const { api, requests } = fakeApi();
-    const lists: string[][] = [];
+    const lists: (string | null)[][] = [];
     const store = createSessionListStore({ api }, (sessions) => lists.push(sessions.map((s) => s.title)));
     const first = store.getState().refresh();
     const second = store.getState().refresh();

@@ -79,7 +79,7 @@ function mount(r: BrainUiRoot, message: ChatMessage) {
 /** The activity stream's span for one tool call, server-stamped. */
 function seedSpan(r: BrainUiRoot, toolUseId: string, startedAt: number, endedAt: number) {
   const span = {
-    spanId: toolUseId, runId: "run-1", name: `tool:${toolUseId}`, kind: "tool", origin: "chat",
+    spanId: toolUseId, runId: "run-1", name: `tool:${toolUseId}`, kind: "tool", origin: "session",
     sessionId: SESSION, startedAt, endedAt,
   } as ActivitySpan;
   r.stores.activity.setState((s) => ({
