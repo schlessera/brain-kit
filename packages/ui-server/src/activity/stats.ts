@@ -25,8 +25,7 @@ import { cacheDiagnostics } from "./cache-diagnostics.js";
 import type { Database } from "bun:sqlite";
 import type { ActivityRuntimeStats } from "@schlessera/brain-ui-sdk/protocol";
 
-import { getDetailRetentionDays } from "../db/settings.js";
-import { rowToRunRollup, summarizeRollups } from "./store.js";
+import { ACTIVITY_DETAIL_RETENTION_DAYS, rowToRunRollup, summarizeRollups } from "./store.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Mean Gregorian month: per-month is per-day projected, not calendar-bound. */
@@ -136,7 +135,7 @@ function windowFromRollups(
   const coveredDays =
     recordedSince === null ? 0 : Math.max(1, (now - Math.max(since, recordedSince)) / DAY_MS);
 
-  const retentionDays = getDetailRetentionDays(db);
+  const retentionDays = ACTIVITY_DETAIL_RETENTION_DAYS;
   const cutoffAt = now - retentionDays * DAY_MS;
 
   const perDay = (n: number) => (coveredDays > 0 ? n / coveredDays : null);

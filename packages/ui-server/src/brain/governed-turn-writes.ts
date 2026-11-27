@@ -9,7 +9,7 @@
 import type { Database } from "bun:sqlite";
 
 import type { WriteProcedures } from "../db/write-worker.js";
-import { exposureWriters } from "./provider-exposure.js";
+import { exposureWriters } from "./exposure-writers.js";
 import type { ProviderExposure } from "./governance-policy.js";
 
 export const url = import.meta.url;

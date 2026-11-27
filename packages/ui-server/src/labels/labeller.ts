@@ -27,7 +27,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import { createHash } from "node:crypto";
 
 import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "../activity/store.js";
-import { orderedWrites } from "../activity/store-writes.js";
+import { orderedWrites } from "../activity/ordered-writes.js";
 import { normaliseLabel } from "./normalise.js";
 
 /** What the labeller sends for one label. */
