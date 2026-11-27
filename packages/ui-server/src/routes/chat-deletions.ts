@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { readJsonBody } from "../middleware/body-limit.js";
 import type { ChatDeletionNotAdmitted, ChatDeletionRefusal, ChatDeletionRequest } from "@schlessera/brain-ui-sdk/protocol";
 import type { AppEnv } from "../app-env.js";
 import type { Principal } from "../db/principals.js";
@@ -48,7 +49,9 @@ export function createChatDeletionRoutes(deps: { deletion: ChatDeletion; princip
     c.header("Cache-Control", "no-store");
     const principal = c.get("principal");
     if (!principal) return c.json({ error: "Authentication required", authRequired: true }, 401);
-    const request = parse(await c.req.json().catch(() => null));
+    const body = await readJsonBody(c).catch(() => null);
+    if (body instanceof Response) return body;
+    const request = parse(body);
     if (!request) return c.json({ error: "INVALID_CHAT_DELETION", message: "Name one chat, an operation ID and what was reviewed." }, 400);
     let result;
     try {

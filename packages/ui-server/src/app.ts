@@ -51,7 +51,7 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, computeConfigForDbPath, githubToolsTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
@@ -383,7 +383,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // unwrapped. Resolved here, once; every spawn below uses `config.exec`.
   const config: ServerConfig & { exec: ExecWrapperConfig } = {
     ...resolved,
-    ...(options.dbPath !== undefined ? { dbPath: options.dbPath } : {}),
+    // A compute state directory derived from the resolved DB_PATH follows the
+    // folded path, like every other path derived from it below (#4821).
+    ...(options.dbPath !== undefined ? { dbPath: options.dbPath,
+      ...(resolved.compute ? { compute: computeConfigForDbPath(resolved.compute, options.dbPath) } : {}) } : {}),
     exec: resolved.exec ?? ambientExecConfig(),
   };
   const speechProviders = createSpeechProviderRegistry(config.voice, options);
@@ -680,12 +683,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   });
   bootCleanup.push(() => activity.close());
   activity.runtime.setBoot(runtimeProbes);
-  const cron = createCronScheduler({
-    db,
-    brain,
-    log: observability.logger("cron"),
-    activity: activity.store,
-  });
+  const cron = createCronScheduler({ db });
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -977,7 +975,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   };
   if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager,
     privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner, indexBatch,
-    select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
+    select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now, yieldAfterMs: config.inbox?.yieldAfterMs,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, governanceWrites: activity.governanceWrites, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
   // The agent worker boundary, probed now (#1632) so the server knows at boot

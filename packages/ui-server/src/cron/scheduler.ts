@@ -1,16 +1,13 @@
 import type { Database } from "bun:sqlite";
-import type { Logger } from "@opentelemetry/api-logs";
-import { BrainSyncError, type BrainClient } from "../brain/client.js";
-import { syncActivityAttrs } from "../brain/sync-result.js";
-import type { AwaitableActivityStore } from "../activity/store.js";
-import { startCronSpan, type CronSpan } from "./activity.js";
-import { observeWrite } from "../activity/store-writes.js";
 
 // Scheduling is owned by the container crontab (config/crontab) — sync at
-// 02:00, validate at 03:00, job scrape at 04:00. This module only provides
-// manual triggers (triggerJob) and run history for the /api/status endpoint.
-// Runs started by the crontab report themselves via recordCronRun below;
-// their stdout/stderr still goes to syslog.
+// 02:00, validate at 03:00, job scrape at 04:00. Its wrapper runs each job
+// (cron/run-job.ts) and reports the run via recordCronRun below; this module
+// only provides that recorder and the run history for the /api/status
+// endpoint. The jobs' stdout/stderr still goes to syslog.
+
+/** Listed by /api/status before their first run, so a fresh deployment shows them. */
+const BASE_JOB_NAMES = ["sync", "validate"];
 
 interface CronScheduler {
   getCronStatus(): Array<{
@@ -20,13 +17,6 @@ interface CronScheduler {
     lastDurationMs: number | null;
     lastError: string | null;
   }>;
-  triggerJob(name: string): Promise<boolean>;
-}
-
-interface CronJob {
-  name: string;
-  /** `annotate` adds attributes to the run's root span, written when it ends. */
-  handler: (run: { annotate(attrs: Record<string, string>): void }) => Promise<void>;
 }
 
 /** One in-flight job run being recorded into `cron_runs`. */
@@ -39,11 +29,8 @@ interface CronRunRecord {
  * Record a job run in the `cron_runs` history that `/api/status` serves
  * (`cronJobs`, via {@link CronScheduler.getCronStatus}).
  *
- * The scheduler in this module only writes the table for its own manual
- * triggers; in the shipped deployment the jobs are executed by the container
- * crontab, whose runs were invisible to `/api/status`. An external scheduler's
- * wrapper calls this before the job and `finish()` after, writing exactly the
- * rows the in-process runner writes. A run whose process died before
+ * The jobs are executed by the container crontab; its wrapper calls this
+ * before the job and `finish()` after. A run whose process died before
  * `finish()` stays in status "running" — itself a signal.
  */
 export function recordCronRun(db: Database, jobName: string): CronRunRecord {
@@ -69,109 +56,16 @@ export function recordCronRun(db: Database, jobName: string): CronRunRecord {
   };
 }
 
-export function createCronScheduler(deps: {
-  db: Database;
-  brain: BrainClient;
-  /** Where run outcomes are reported; absent means silence. */
-  log?: Logger;
-  /**
-   * The activity store each run's root span goes into, as the container cron
-   * wrapper writes it; absent records only `cron_runs`.
-   */
-  activity?: AwaitableActivityStore;
-}): CronScheduler {
-  const { db, brain, log, activity } = deps;
-
-  const jobs: CronJob[] = [
-    {
-      name: "sync",
-      handler: async (run) => {
-        // What the sync reported about its agent goes on this run, and only
-        // this one: a failed sync keeps what it observed before it failed,
-        // and one whose result cannot be read records "unknown" (#290).
-        try {
-          const synced = await brain.sync();
-          run.annotate(syncActivityAttrs(synced.result ?? null));
-        } catch (err) {
-          run.annotate(syncActivityAttrs(err instanceof BrainSyncError ? err.result ?? null : null));
-          throw err;
-        }
-        await brain.index();
-      },
-    },
-    {
-      name: "validate",
-      handler: async () => {
-        await brain.validate();
-      },
-    },
-  ];
-
-  async function runJob(job: CronJob) {
-    const startedAt = Date.now();
-    // Same recorder the external-scheduler path uses, so the two can never
-    // drift in what a cron_runs row looks like.
-    const record = recordCronRun(db, job.name);
-    // Fail-open, as the wrapper's tracking is: the activity record never
-    // stops the job it observes.
-    let span: CronSpan | null = null;
-    const unavailable = (err: unknown) => {
-      log?.emit({
-        severityText: "WARN",
-        body: "job activity unavailable",
-        attributes: { job: job.name, error: err instanceof Error ? err.message : String(err) },
-      });
-    };
-    try {
-      if (activity) span = startCronSpan(db, activity, job.name, unavailable);
-    } catch (err) {
-      unavailable(err);
-    }
-    const attrs: Record<string, string> = {};
-    const endSpan = (error?: string) => {
-      if (!activity || !span) return;
-      try {
-        // Committed in this order; a failure stays unobserved, as before.
-        observeWrite(activity.endSpan(span.rootSpanId, {
-          outcome: error === undefined ? "success" : "error",
-          reason: error,
-          attrs,
-        }), () => {});
-        observeWrite(activity.rollupRun(span.runId), () => {});
-      } catch {
-        // Observability must not break the observed.
-      }
-    };
-
-    try {
-      await job.handler({ annotate: (more) => Object.assign(attrs, more) });
-      record.finish();
-      endSpan();
-      log?.emit({
-        severityText: "INFO",
-        body: "job completed",
-        attributes: { job: job.name, "duration.ms": Date.now() - startedAt },
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      record.finish(message);
-      endSpan(message);
-      log?.emit({
-        severityText: "ERROR",
-        body: "job failed",
-        attributes: { job: job.name, error: message },
-      });
-    }
-  }
+export function createCronScheduler(deps: { db: Database }): CronScheduler {
+  const { db } = deps;
 
   return {
     getCronStatus() {
-      // Every job name that ever recorded a run, not just the two in-process
-      // triggers: module jobs and the maintain/digest crontab entries land in
-      // cron_runs through the same recorder and were previously invisible
-      // here (the "cron-status name gap"). The in-process names are unioned
-      // in so a fresh deployment still lists them before their first run.
-      // One window query yields each job's latest run.
+      // Every job name that ever recorded a run: module jobs and the
+      // maintain/digest crontab entries land in cron_runs through the same
+      // recorder as sync and validate. Those two are unioned in so a fresh
+      // deployment still lists them before their first run. One window query
+      // yields each job's latest run.
       const lastRuns = db
         .query(
           `SELECT job_name, started_at, status, duration_ms, error_message FROM (
@@ -189,7 +83,7 @@ export function createCronScheduler(deps: {
       }>;
       const byName = new Map(lastRuns.map((r) => [r.job_name, r]));
       const names = [
-        ...new Set([...jobs.map((j) => j.name), ...lastRuns.map((r) => r.job_name)]),
+        ...new Set([...BASE_JOB_NAMES, ...lastRuns.map((r) => r.job_name)]),
       ];
       return names.map((name) => {
         const lastRun = byName.get(name);
@@ -201,14 +95,6 @@ export function createCronScheduler(deps: {
           lastError: lastRun?.error_message ?? null,
         };
       });
-    },
-
-    async triggerJob(name: string): Promise<boolean> {
-      const job = jobs.find((j) => j.name === name);
-      if (!job) return false;
-      // Run async (don't await - let it run in background)
-      runJob(job);
-      return true;
     },
   };
 }

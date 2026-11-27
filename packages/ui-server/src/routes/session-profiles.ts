@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { readBodyBytes } from "../middleware/body-limit.js";
 import type { AppEnv } from "../app-env.js";
 import { SessionProfileError, type SessionProfiles } from "../ws/session-profiles.js";
 
@@ -14,17 +15,11 @@ export function createSessionProfileRoutes(profiles: SessionProfiles) {
         const id = c.req.param("id");
         if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)) throw new SessionProfileError(400, "Invalid chat identity.");
         if (c.req.method === "GET" || c.req.method === "HEAD") return c.json(setting === "code-changes" ? profiles.readCodeChanges(principal.id, kind, id) : profiles.read(principal.id, kind, id));
-        if (c.req.header("content-type")?.split(";", 1)[0] !== "application/json") return c.json({ error: "Use JSON." }, 415);
-        const reader = c.req.raw.body?.getReader();
-        const chunks: Uint8Array[] = []; let length = 0;
-        if (reader) for (;;) {
-          const { value, done } = await reader.read(); if (done) break;
-          length += value.length;
-          if (length > 4096) { await reader.cancel().catch(() => {}); return c.json({ error: "Profile request is too large." }, 413); }
-          chunks.push(value);
-        }
+        if (c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return c.json({ error: "Use JSON." }, 415);
+        const read = await readBodyBytes(c.req.raw, 4096);
+        if (!read) return c.json({ error: "Profile request is too large." }, 413);
         let body: unknown;
-        try { body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))); }
+        try { body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(read.chunks, read.bytes))); }
         catch { throw new SessionProfileError(400, "Invalid JSON."); }
         if (setting === "code-changes") {
           if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1
