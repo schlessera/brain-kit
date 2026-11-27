@@ -259,19 +259,19 @@ function writeTags(st: Statements, docId: number, tags: unknown): string[] {
 function sweepDeletions(
   run: IndexRun,
   st: Statements,
+  existingDocs: Map<string, ExistingDoc>,
   markdownOnDisk: Set<string>,
   assetsOnDisk: Set<string>
 ): void {
-  const rows = run.db
-    .prepare("SELECT id, path, asset_type FROM documents")
-    .all() as { id: number; path: string; asset_type: string }[];
-
-  for (const row of rows) {
-    const onDisk =
-      row.asset_type === "markdown"
-        ? markdownOnDisk.has(row.path)
-        : assetsOnDisk.has(row.path);
+  // The candidates are the rows the scan loaded; every row this run wrote is
+  // on disk. Each one's id is read again here, inside the transaction: a
+  // `--force` wipe already removed every markdown row (and may have handed
+  // its id to a new one), so only a row that still exists is swept or counted.
+  for (const [path, existing] of existingDocs) {
+    const onDisk = existing.asset_type === "markdown" ? markdownOnDisk.has(path) : assetsOnDisk.has(path);
     if (onDisk) continue;
+    const row = st.getDocId.get(path) as { id: number } | null;
+    if (!row) continue;
     st.deleteFts.run(row.id);
     st.deleteChunks.run(row.id);
     st.deleteTags.run(row.id);
@@ -350,7 +350,7 @@ export function persistMarkdown(
       else run.stats.updated++;
     }
 
-    sweepDeletions(run, st, markdownOnDisk, assetsOnDisk);
+    sweepDeletions(run, st, existingDocs, markdownOnDisk, assetsOnDisk);
     rebuildLinks(run, st, parsed);
   });
   write.immediate();

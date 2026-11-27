@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import type { Database } from "bun:sqlite";
+import type { Database, Statement } from "bun:sqlite";
 import { openDatabase } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
@@ -65,6 +65,32 @@ async function fresh(root: string, name: string) {
   return partitions(snapshot(db));
 }
 
+/**
+ * Count every statement execution on `db`: each `get`, `all`, `run`,
+ * `values` and `iterate` of a prepared or cached statement, and each direct
+ * `run`/`exec`. Counting `prepare` alone would miss a statement prepared once
+ * and executed per row.
+ */
+function countExecutions(db: Database): { count: () => number; restore: () => void } {
+  let executions = 0;
+  const { prepare, query, run, exec } = db;
+  const counted = (statement: Statement) => {
+    for (const method of ["get", "all", "run", "values", "iterate"] as const) {
+      const original = (statement as any)[method];
+      (statement as any)[method] = function (this: unknown, ...args: unknown[]) { executions++; return original.apply(statement, args); };
+    }
+    return statement;
+  };
+  db.prepare = ((...args: Parameters<typeof prepare>) => counted(prepare.apply(db, args) as Statement)) as typeof prepare;
+  db.query = ((...args: Parameters<typeof query>) => counted(query.apply(db, args) as Statement)) as typeof query;
+  db.run = ((...args: Parameters<typeof run>) => { executions++; return run.apply(db, args); }) as typeof run;
+  db.exec = ((...args: Parameters<typeof exec>) => { executions++; return exec.apply(db, args); }) as typeof exec;
+  return {
+    count: () => executions,
+    restore: () => { db.prepare = prepare; db.query = query; db.run = run; db.exec = exec; },
+  };
+}
+
 describe("targeted index runs (#2835)", () => {
   test("batched writes, repeated edits, removals and secondary structures match a fresh build", async () => {
     const root = brain({
@@ -110,6 +136,41 @@ describe("targeted index runs (#2835)", () => {
     write(root, "notes/stray.txt.md", "---\ntitle: Stray\n---\nNo type.\n");
     await indexAll(db, { ...options(root), paths: ["notes/telemachus.md", "notes/stray.txt.md", "notes/never-written.md"] });
     expect(partitions(snapshot(db))).toEqual(await fresh(root, "fresh-2"));
+  });
+
+  test("a one-file targeted run executes as many statements on 200 notes as on 20", async () => {
+    const executions = async (size: number) => {
+      const files: Record<string, string> = {};
+      for (let i = 0; i < size; i++) files[`notes/n${String(i).padStart(3, "0")}.md`] = note(`Note ${i}`, `Body of note ${i}.`, `aliases: [Alias ${i}]\n`);
+      const root = brain(files);
+      const db = open(root, "brain");
+      await indexAll(db, options(root));
+      write(root, "notes/n007.md", note("Note 7", "Body of note 7, edited.", "aliases: [Alias 7]\n"));
+      const counter = countExecutions(db);
+      try {
+        const stats = await indexAll(db, { ...options(root), paths: ["notes/n007.md"] });
+        expect(stats.updated).toBe(1);
+      } finally {
+        counter.restore();
+      }
+      return counter.count();
+    };
+    const small = await executions(20);
+    expect(await executions(200)).toBe(small);
+  });
+
+  test("a named file resolves a link through an alias of a file it did not name", async () => {
+    const root = brain({
+      "notes/calypso.md": note("Calypso", "Keeps Odysseus on her island.", "aliases: [Nymph of Ogygia]\n"),
+      "notes/raft.md": note("Raft", "Built on Ogygia."),
+    });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia; [[Nymph of Ogygia]] helped."));
+    await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    const after = partitions(snapshot(db));
+    expect(after.links).toEqual([{ source: "notes/raft.md", target: "Nymph of Ogygia", resolved: "notes/calypso.md" }]);
+    expect(after).toEqual(await fresh(root, "fresh"));
   });
 
   test("an index without markdown is built completely, whatever paths were named", async () => {

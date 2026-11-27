@@ -223,6 +223,27 @@ function sidecarLines(root: string, file: string): string[] {
 }
 
 describe("incremental indexing (default mode)", () => {
+  test("stats.deleted counts a removed note, a removed asset, and nothing a --force wipe already removed", async () => {
+    const root = makeCorpus({
+      "notes/alpha.md": md("Alpha", "alpha body"),
+      "notes/beta.md": md("Beta", "beta body"),
+      "notes/gamma.md": md("Gamma", "gamma body"),
+      "assets/logo.png": FAKE_PNG,
+      "assets/chart.png": Buffer.concat([FAKE_PNG, Buffer.from([0x01])]),
+    });
+    await runIndex(root, withEnrichment());
+    unlinkSync(join(root, "notes/alpha.md"));
+    expect((await runIndex(root)).deleted).toBe(1);
+    unlinkSync(join(root, "assets/logo.png"));
+    expect((await runIndex(root)).deleted).toBe(1);
+    unlinkSync(join(root, "notes/beta.md"));
+    expect((await runIndex(root, { force: true })).deleted).toBe(0);
+    const db = await openRead(root);
+    const paths = db.prepare("SELECT path FROM documents ORDER BY path").all();
+    db.close();
+    expect(paths).toEqual([{ path: "assets/chart.png" }, { path: "notes/gamma.md" }]);
+  });
+
   test("second run reports everything unchanged and keeps row ids stable", async () => {
     const root = makeCorpus({
       "notes/alpha.md": md("Alpha", "quixotic content about zeppelins"),
