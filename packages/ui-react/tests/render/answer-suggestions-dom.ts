@@ -5,10 +5,15 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act } from "react";
 
-if (!GlobalRegistrator.isRegistered) {
-  GlobalRegistrator.register();
+/** Registers happy-dom; runs on import, and again when a repeated evaluation of the test file calls it (./dom.ts, point 3). */
+export function registerAnswerSuggestionsDom(): void {
+  if (!GlobalRegistrator.isRegistered) {
+    GlobalRegistrator.register();
+  }
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 }
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+registerAnswerSuggestionsDom();
 
 export async function unregisterAnswerSuggestionsDom(): Promise<void> {
   if (GlobalRegistrator.isRegistered) {

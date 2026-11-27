@@ -1,29 +1,25 @@
-import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
-import { runtimePackageBuild } from "./fixtures/runtime-package-build";
-import { afterAll, beforeAll, expect, test } from "bun:test";
-import { statSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chromePath, startRuntimeHost, type RuntimeHost } from "./fixtures/runtime-host";
+import { afterAll, beforeAll, expect, test as bunTest } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import type { Browser, Page } from "playwright";
 import { buildHtmlDocument } from "@schlessera/brain-render-template";
 import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
-import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.ts";
 import { artifactRecoveryCapture } from "./fixtures/artifact-recovery-capture.ts";
 
-const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]
-  .find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
-if (!executablePath) throw new Error("Artifact recovery proof requires real Chrome");
+const executablePath = chromePath("artifact-recovery-runtime.test.ts");
+// Every test in this file drives Chrome; without one they all skip.
+const test = bunTest.skipIf(!executablePath);
 const repo = resolve(import.meta.dir, "../../..");
 const target = ".brain/scratch/raft/overview.pdf";
 const svgPath = ".brain/scratch/raft/palette.svg";
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160"><style>rect{fill:rgb(240,200,40)}@media(prefers-color-scheme:dark){rect{fill:rgb(30,50,70)}}@media print{rect{fill:rgb(220,40,120)}}</style><rect width="240" height="160"/><title>Odysseus studies the crossing</title></svg>`;
 const password = "the bow only Odysseus can string";
 let fixture = "", brain = "", origin = "";
+let host: RuntimeHost | undefined;
 let app: Awaited<ReturnType<typeof createApp>>;
-let server: ReturnType<typeof Bun.serve>;
 let browser: Browser;
 let activeApp: typeof app;
 let passwordHash = "";
@@ -43,44 +39,33 @@ function pdf(): Uint8Array {
   return new TextEncoder().encode(out + `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
 }
 
-async function child(args: string[]) {
-  const process = Bun.spawn(args, { cwd: repo, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
-  if (code !== 0) throw new Error(`Artifact fixture build failed (${code})\n${out}${err}`);
-}
-
 beforeAll(async () => {
-  // The invocation owns fresh package output; client bundling stays fresh below.
-  await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], runtimeHookPhases("artifact-recovery-runtime.test.ts"));
-  fixture = await mkdtemp(resolve(tmpdir(), "odysseus-artifact-recovery-"));
-  brain = resolve(fixture, "brain");
-  await createFixtureBrain(repo, brain);
-  await mkdir(resolve(brain, ".brain/scratch/raft"), { recursive: true });
-  await writeFile(resolve(brain, ".gitignore"), ".brain/scratch/\n");
-  await writeFile(resolve(brain, target), pdf());
-  await writeFile(resolve(brain, svgPath), svg);
-  await writeFile(resolve(brain, ".brain/scratch/raft/other.pdf"), pdf());
-  await writeFile(resolve(brain, ".brain/scratch/raft/overview.html"), "<!doctype html><h1>The raft of Odysseus</h1>");
-  await writeFile(resolve(brain, ".brain/scratch/raft/hull.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lZkAAAAASUVORK5CYII=", "base64"));
-  const assets = resolve(fixture, "assets");
-  await mkdir(assets);
-  await child([process.execPath, "-e", 'const r=await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"});if(!r.success){console.error(r.logs);process.exit(1)}', resolve(import.meta.dir, "fixtures/artifact-recovery-client.tsx"), assets]);
-  await writeFile(resolve(assets, "index.html"), '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus artifact recovery</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px}article{margin:24px 0}textarea{display:block;max-width:100%}[data-bk-nav]{height:44px}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
-  for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) await writeFile(resolve(assets, file!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
-  await writeFile(resolve(assets, "svg-print.html"), `<!doctype html><html data-theme="dark"><head><link rel="stylesheet" href="/app.css"></head><body><img width="240" height="160" src="/api/files/content?path=${encodeURIComponent(svgPath)}&raw=1"></body></html>`);
-  await writeFile(resolve(assets, "svg-share.html"), buildHtmlDocument({ content: `<img width="240" height="160" src="data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}">`, contentType: "html" }));
-  const backend = makeFakeBackend({ id: "artifact-fixture" });
+  if (!executablePath) return;
   passwordHash = await Bun.password.hash(password);
-  app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(fixture, "ui.db"), AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test",
-    BRAIN_UI_PASSWORD_HASH: passwordHash, COOKIE_SECRET: "odysseus-artifact-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }),
-    registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability: createRecordingObservability() });
+  // The invocation owns fresh package output; client bundling stays fresh in the host.
+  host = await startRuntimeHost({ file: "artifact-recovery-runtime.test.ts", executablePath, packages: ["ui-react", "ui-server", "core"], scratchPrefix: "odysseus-artifact-recovery-",
+    client: resolve(import.meta.dir, "fixtures/artifact-recovery-client.tsx"),
+    page: '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus artifact recovery</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px}article{margin:24px 0}textarea{display:block;max-width:100%}[data-bk-nav]{height:44px}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>',
+    seed: async ({ brain, assets }) => {
+      await mkdir(resolve(brain, ".brain/scratch/raft"), { recursive: true });
+      await writeFile(resolve(brain, ".gitignore"), ".brain/scratch/\n");
+      await writeFile(resolve(brain, target), pdf());
+      await writeFile(resolve(brain, svgPath), svg);
+      await writeFile(resolve(brain, ".brain/scratch/raft/other.pdf"), pdf());
+      await writeFile(resolve(brain, ".brain/scratch/raft/overview.html"), "<!doctype html><h1>The raft of Odysseus</h1>");
+      await writeFile(resolve(brain, ".brain/scratch/raft/hull.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lZkAAAAASUVORK5CYII=", "base64"));
+      await writeFile(resolve(assets, "svg-print.html"), `<!doctype html><html data-theme="dark"><head><link rel="stylesheet" href="/app.css"></head><body><img width="240" height="160" src="/api/files/content?path=${encodeURIComponent(svgPath)}&raw=1"></body></html>`);
+      await writeFile(resolve(assets, "svg-share.html"), buildHtmlDocument({ content: `<img width="240" height="160" src="data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}">`, contentType: "html" }));
+    },
+    app: { backend: makeFakeBackend({ id: "artifact-fixture" }), observability: createRecordingObservability(), fetch: () => request => activeApp.fetch(request),
+      config: ({ brain, db }) => resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: db, AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test",
+        BRAIN_UI_PASSWORD_HASH: passwordHash, COOKIE_SECRET: "odysseus-artifact-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }) } });
+  ({ scratch: fixture, brain, origin, browser } = host);
+  app = host.app!;
   activeApp = app;
-  server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => activeApp.fetch(request), websocket: app.websocket });
-  origin = `http://127.0.0.1:${server.port}`;
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 }, 180_000);
 
-afterAll(async () => { await browser?.close(); server?.stop(true); await app?.close(); if (fixture) await rm(fixture, { recursive: true, force: true }); });
+afterAll(() => host?.close());
 
 async function scene(width = 1280, theme = "dark", path = target, replay = false) {
   const context = await browser.newContext({ viewport: { width, height: 800 }, reducedMotion: "reduce" });
