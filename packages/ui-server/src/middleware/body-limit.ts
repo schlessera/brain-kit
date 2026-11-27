@@ -7,7 +7,7 @@ export const JSON_BODY_LIMIT_BYTES = 256 * 1024;
 export const RENDER_BODY_LIMIT_BYTES = 5_000_000;
 
 /** A body read within its limit: the chunks as streamed, and their total size. */
-export interface BodyBytes {
+interface BodyBytes {
   chunks: Uint8Array[];
   bytes: number;
 }
