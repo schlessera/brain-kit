@@ -363,3 +363,183 @@ describe("a list in another document reads that document's focus", () => {
     });
   }
 });
+
+/* ── A failed read, and rows the host cannot show (#4212 round 2) ────────── */
+
+const APPROVAL_FAILED = "Couldn't load remembered approvals.";
+const APPROVAL_FAILED_DETAIL = "Any you have may still run without asking.";
+const ALLOWANCE_FAILED = "Couldn't load this chat's allowances.";
+const ALLOWANCE_FAILED_DETAIL = "Any you allowed here may still apply.";
+const APPROVAL_EMPTY = "None yet.";
+const ALLOWANCE_EMPTY = "Nothing is allowed in this chat.";
+
+describe("a failed read", () => {
+  for (const [list, element, failed, detail, empty, unavailable] of [
+    ["approval list", (p: Partial<GoogleApprovalListProps>) => <GoogleApprovalList state="failed" accounts={twoAccounts()} onRevoke={noop} {...p} />, APPROVAL_FAILED, APPROVAL_FAILED_DETAIL, APPROVAL_EMPTY, "can't be read right now"],
+    ["allowance list", (p: Partial<GoogleAllowanceListProps>) => <GoogleAllowanceList state="failed" grants={[grant("a", 84)]} onRevoke={noop} {...p} />, ALLOWANCE_FAILED, ALLOWANCE_FAILED_DETAIL, ALLOWANCE_EMPTY, "can't be read right now"],
+  ] as const) {
+    test(`${list}: says the read failed, claims no empty list and nothing running, and draws no rows`, () => {
+      const doc = draw(element({ onRetry: noop, unshown: 3 }));
+      const box = doc.querySelector("[data-google-approvals], [data-google-allowances]")!;
+      expect(box.getAttribute(box.hasAttribute("data-google-approvals") ? "data-google-approvals" : "data-google-allowances")).toBe("failed");
+      expect(doc.querySelector("[data-google-failed]")?.textContent, "KIT_GOOGLE_FAILED_COPY").toBe(`${failed}${detail}Try again`);
+      expect(doc.querySelector("[aria-busy]"), "KIT_GOOGLE_FAILED_NOT_BUSY").toBeNull();
+      expect(doc.querySelectorAll(".bk-ghost"), "no loading ghost").toHaveLength(0);
+      expect(doc.body.textContent, "KIT_GOOGLE_FAILED_NOT_EMPTY").not.toContain(empty);
+      expect(doc.body.textContent, "not the unavailable claim either").not.toContain(unavailable);
+      expect(doc.querySelectorAll("[data-google-target], ul"), "no rows").toHaveLength(0);
+      expect(doc.querySelector("[data-google-unshown]"), "a count is read only when ready").toBeNull();
+      expect(names(doc), "KIT_GOOGLE_RETRY_OFFERED").toEqual([null]);
+      expect([...doc.querySelectorAll("[role='button']")].map((el) => el.textContent)).toEqual(["Try again"]);
+      expect(doc.querySelector("[role='button']")?.classList.contains("bk-hit"), "Try again reaches under a coarse pointer").toBe(true);
+    });
+
+    test(`${list}: without onRetry there is no Try again`, () => {
+      const doc = draw(element({}));
+      expect(doc.querySelector("[data-google-failed]")?.textContent).toBe(`${failed}${detail}`);
+      expect(doc.querySelectorAll("[role='button']"), "KIT_GOOGLE_RETRY_GATED").toHaveLength(0);
+    });
+
+    test(`${list}: a revoke error still shows its banner beside the failed state`, () => {
+      const doc = draw(element({ error: "Couldn't revoke Archive." }));
+      expect(doc.querySelector("[role='alert']")?.textContent).toBe("Couldn't revoke Archive.");
+      expect(doc.querySelector("[data-google-failed]")).not.toBeNull();
+    });
+  }
+
+  test("the allowance explainer keeps only its first sentence when the read failed", () => {
+    expect(draw(<GoogleAllowanceList state="failed" grants={[grant("a", 84)]} onRevoke={noop} />).querySelector("p")?.textContent)
+      .toBe("This chat is restricted, so remembered approvals are off.");
+  });
+});
+
+describe("rows the host cannot show", () => {
+  test("approvals: only unshown rows never read as none, and name the CLI that lists them", () => {
+    const doc = draw(<GoogleApprovalList state="ready" accounts={[]} unshown={1} onRevoke={noop} />);
+    expect(doc.body.textContent, "KIT_GOOGLE_UNSHOWN_NO_EMPTY").not.toContain(APPROVAL_EMPTY);
+    const notice = doc.querySelector("[data-google-unshown]")!;
+    expect(notice.getAttribute("data-google-unshown")).toBe("1");
+    expect(notice.textContent, "KIT_GOOGLE_UNSHOWN_COPY").toBe("1 remembered approval can't be shown here. brain google approvals lists it.");
+    expect(notice.querySelector("code")?.textContent, "the command is code").toBe("brain google approvals");
+    expect(doc.querySelector("[role='alert']"), "the notice is not the revoke-error banner").toBeNull();
+  });
+
+  test("approvals: with rows, the notice follows them, and a revoke error shows beside it", () => {
+    const doc = draw(<GoogleApprovalList state="ready" accounts={twoAccounts()} unshown={2} error="Couldn't revoke Archive." onRevoke={noop} />);
+    expect(names(doc)).toHaveLength(3);
+    const notice = doc.querySelector("[data-google-unshown]")!;
+    expect(notice.textContent).toBe("2 remembered approvals can't be shown here. brain google approvals lists them.");
+    const alert = doc.querySelector("[role='alert']")!;
+    expect(alert.textContent, "KIT_GOOGLE_UNSHOWN_WITH_ERROR").toBe("Couldn't revoke Archive.");
+    const rows = doc.querySelector(".bk-google-rows")!;
+    expect(rows.compareDocumentPosition(notice) & 4, "the notice is after the rows").toBeTruthy();
+    expect(notice.compareDocumentPosition(alert) & 4, "the banner is after the notice").toBeTruthy();
+  });
+
+  test("allowances: only unshown allowances never read as nothing allowed, and still apply", () => {
+    const doc = draw(<GoogleAllowanceList state="ready" grants={[]} unshown={1} onRevoke={noop} />);
+    expect(doc.body.textContent, "KIT_GOOGLE_UNSHOWN_NO_EMPTY").not.toContain(ALLOWANCE_EMPTY);
+    expect(doc.querySelector("[data-google-unshown]")?.textContent, "KIT_GOOGLE_UNSHOWN_COPY").toBe("1 allowance in this chat can't be shown here. It still applies.");
+    expect(doc.querySelector("p")?.textContent, "no row, so the explainer's lead alone").toBe("This chat is restricted, so remembered approvals are off.");
+    const two = draw(<GoogleAllowanceList state="ready" grants={[grant("a", 84)]} unshown={2} error="Couldn't revoke Archive." onRevoke={noop} />);
+    expect(two.querySelector("[data-google-unshown]")?.textContent).toBe("2 allowances in this chat can't be shown here. They still apply.");
+    expect(two.querySelector("[role='alert']")?.textContent, "KIT_GOOGLE_UNSHOWN_WITH_ERROR").toBe("Couldn't revoke Archive.");
+    expect(names(two)).toEqual(["Revoke Archive"]);
+  });
+
+  test("a zero, missing or not-a-number count is no notice; a fraction is still one", () => {
+    for (const unshown of [0, undefined, Number.NaN, -2]) {
+      const doc = draw(<GoogleApprovalList state="ready" accounts={[]} unshown={unshown} onRevoke={noop} />);
+      expect(doc.querySelector("[data-google-unshown]"), `unshown ${unshown}`).toBeNull();
+      expect(doc.body.textContent).toContain(APPROVAL_EMPTY);
+    }
+    const half = draw(<GoogleAllowanceList state="ready" grants={[]} unshown={0.5} onRevoke={noop} />);
+    expect(half.querySelector("[data-google-unshown]")?.getAttribute("data-google-unshown")).toBe("1");
+    expect(half.body.textContent).not.toContain(ALLOWANCE_EMPTY);
+  });
+
+  test("a count outside the ready state is not drawn", () => {
+    for (const state of ["loading", "unavailable", "failed"] as const) {
+      expect(draw(<GoogleApprovalList state={state} accounts={[]} unshown={2} onRevoke={noop} />).querySelector("[data-google-unshown]"), state).toBeNull();
+      expect(draw(<GoogleAllowanceList state={state} grants={[]} unshown={2} onRevoke={noop} />).querySelector("[data-google-unshown]"), state).toBeNull();
+    }
+  });
+});
+
+describe("Try again, in a live tree", () => {
+  const failedApprovals = (state: GoogleApprovalListProps["state"], onRetry?: () => void) => <GoogleApprovalList state={state} accounts={[]} onRevoke={noop} onRetry={onRetry} />;
+  const failedAllowances = (state: GoogleAllowanceListProps["state"], onRetry?: () => void) => <GoogleAllowanceList state={state} grants={[]} onRevoke={noop} onRetry={onRetry} />;
+  const retryButton = () => [...document.querySelectorAll<HTMLElement>("[role='button']")].find((el) => el.textContent === "Try again")!;
+
+  for (const [list, element] of [["approval list", failedApprovals], ["allowance list", failedAllowances]] as const) {
+    test(`${list}: Enter on Try again calls onRetry, and leaving the failed state hands focus to the heading`, async () => {
+      let calls = 0;
+      const onRetry = () => { calls++; };
+      await render(element("failed", onRetry));
+      await focus(retryButton());
+      await act(async () => {
+        retryButton().dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
+      });
+      expect(calls, "KIT_GOOGLE_RETRY_CALLS").toBe(1);
+      await render(element("loading", onRetry));
+      expect(document.activeElement, "KIT_GOOGLE_RETRY_FOCUS_HEADING").toBe(heading());
+      await render(element("failed", onRetry));
+      expect(document.activeElement, "failing again leaves focus on the heading").toBe(heading());
+    });
+
+    test(`${list}: a retry fired while Try again did not hold focus moves focus nowhere`, async () => {
+      let calls = 0;
+      const onRetry = () => { calls++; };
+      await render(element("failed", onRetry));
+      expect(document.activeElement, "nothing holds focus").toBe(document.body);
+      // A script's click: Try again never took focus.
+      await act(async () => retryButton().click());
+      expect(calls, "the retry still runs").toBe(1);
+      await render(element("loading", onRetry));
+      expect(document.querySelector("[aria-busy='true']"), "the list is reading").not.toBeNull();
+      expect(document.activeElement, "KIT_GOOGLE_RETRY_FOCUS_ONLY_FROM_TRY_AGAIN").toBe(document.body);
+    });
+
+    test(`${list}: one polite status region for the list's whole life holds the failure, so failing again is announced and loading is not`, async () => {
+      const region = () => {
+        const all = document.querySelectorAll<HTMLElement>("[role='status']");
+        expect(all.length, "one status region").toBe(1);
+        return all[0]!;
+      };
+      await render(element("ready", noop));
+      const first = region();
+      expect(first.textContent, "empty while the list is not failed").toBe("");
+      expect(first.getAttribute("aria-live"), "role=status: polite by its role, never assertive").toBeNull();
+      expect(first.closest("[role='alert']"), "not an alert").toBeNull();
+      await render(element("failed", noop));
+      expect(region(), "KIT_GOOGLE_STATUS_PERSISTS").toBe(first);
+      const words = first.textContent!;
+      expect(words, "the failure is drawn inside the region").toMatch(/^Couldn't load .+\.Any you .+\.$/);
+      expect(document.body.textContent!.split(words).length - 1, "KIT_GOOGLE_STATUS_ONCE: the words are drawn once, not copied for the region").toBe(1);
+      expect(first.querySelector("[role='button']"), "Try again sits outside the region").toBeNull();
+      await render(element("loading", noop));
+      expect(region(), "KIT_GOOGLE_STATUS_PERSISTS").toBe(first);
+      expect(first.textContent, "KIT_GOOGLE_STATUS_NOT_LOADING: loading says nothing").toBe("");
+      expect(document.querySelector("[aria-busy='true']"), "the reading placeholder is drawn").not.toBeNull();
+      expect(first.querySelector("[aria-busy]"), "outside the region").toBeNull();
+      await render(element("failed", noop));
+      expect(region(), "failing again changes the same region's text").toBe(first);
+      expect(first.textContent).toBe(words);
+    });
+
+    test(`${list}: focus the user moved elsewhere after Try again stays there`, async () => {
+      const outside = document.createElement("button");
+      document.body.append(outside);
+      try {
+        await render(element("failed", noop));
+        await focus(retryButton());
+        await act(async () => retryButton().click());
+        await focus(outside);
+        await render(element("loading", noop));
+        expect(document.activeElement).toBe(outside);
+      } finally {
+        outside.remove();
+      }
+    });
+  }
+});

@@ -10,13 +10,19 @@ import { accent, color, font } from "../tokens.js";
 import {
   ADDRESS,
   ActionWords,
+  Command,
   EXPLAINER,
+  FailedRead,
   HEADING,
   LIST_ROOT,
   TARGET_ATTR,
+  UnshownNotice,
   actionText,
+  counted,
   titleStyle,
+  unshownCount,
   useFocusAfterRemoval,
+  useFocusAfterRetry,
   type GoogleHostTime,
   type GoogleStandingAction,
 } from "./shared.js";
@@ -45,15 +51,28 @@ import {
  * (its name is its address) holding a real list, one item per approval, so a
  * screen reader hears the account and the count. An account with no
  * approvals draws no group.
+ *
+ * `failed` is a read that finished without a list: it says so and claims
+ * neither that there are none nor that anything is still loading, with Try
+ * again when the host passes `onRetry`. The failure is drawn inside a status
+ * region the list keeps for its whole life, so reaching it while the list is
+ * on screen (a Try again that fails again, say) is announced once, politely;
+ * loading is not. `unshown` counts approvals the host holds but cannot name;
+ * while it is above zero the list never says "None yet", and a notice under
+ * the rows says how many and where the CLI lists them.
  */
 export interface GoogleApprovalListProps {
-  state: "ready" | "loading" | "unavailable";
+  state: "ready" | "loading" | "unavailable" | "failed";
   accounts: { address: string; approvals: { id: string; action: GoogleStandingAction; since: GoogleHostTime }[] }[];
+  /** Ready only: approvals that exist but cannot be shown here. */
+  unshown?: number;
   /** The approval whose revoke is in flight. */
   busy?: string | null;
   /** The last revoke failure, shown as a banner under the list. */
   error?: string | null;
   onRevoke(id: string): void;
+  /** Failed only: read again. Without it the failed state offers no Try again. */
+  onRetry?: () => void;
 }
 
 const HEADING_TEXT = "Remembered Gmail approvals";
@@ -61,6 +80,8 @@ const EXPLAINER_TEXT =
   "These run without asking while a chat is normal. In a restricted chat every change asks again. Sending, trashing and deleting always ask. Revoke one to be asked again.";
 const EMPTY_TEXT = "None yet. Every Gmail change asks first. Choose “Allow always” on a card to remember one.";
 const UNAVAILABLE_TEXT = "Remembered approvals can't be read right now, so every Gmail change asks until they can.";
+const FAILED_TEXT = "Couldn't load remembered approvals.";
+const FAILED_DETAIL = "Any you have may still run without asking.";
 
 const SUB: CSSProperties = { display: "block", font: `400 10.5px/1.4 ${font.body}`, color: color.inkMute };
 
@@ -69,7 +90,9 @@ export function GoogleApprovalList(p: GoogleApprovalListProps) {
   const heading = useRef<HTMLDivElement>(null);
   const groups = p.state === "ready" ? p.accounts.filter((account) => account.approvals.length > 0) : [];
   const ids = groups.flatMap((account) => account.approvals.map((approval) => approval.id));
+  const unshown = unshownCount(p.state, p.unshown);
   const focus = useFocusAfterRemoval(ids, root, heading);
+  const retry = useFocusAfterRetry(p.state, root, heading, p.onRetry);
 
   return (
     <div ref={root} data-google-approvals={p.state} style={LIST_ROOT} onFocus={focus.onFocus} onBlur={focus.onBlur}>
@@ -79,13 +102,20 @@ export function GoogleApprovalList(p: GoogleApprovalListProps) {
       <p style={EXPLAINER}>{EXPLAINER_TEXT}</p>
       {p.state === "loading" ? <Placeholder variant="loading" lines={2} /> : null}
       {p.state === "unavailable" ? <Callout tone="amber" variant="boxed" icon="unverified" text={UNAVAILABLE_TEXT} /> : null}
-      {p.state === "ready" && groups.length === 0 ? <Placeholder variant="empty" message={EMPTY_TEXT} /> : null}
+      <FailedRead failed={p.state === "failed"} message={FAILED_TEXT} detail={FAILED_DETAIL} onRetry={retry} />
+      {p.state === "ready" && groups.length === 0 && unshown === 0 ? <Placeholder variant="empty" message={EMPTY_TEXT} /> : null}
       {groups.length > 0 ? (
         <div className="bk-google-rows" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {groups.map((account) => (
             <AccountGroup key={account.address} account={account} busy={p.busy ?? null} onRevoke={p.onRevoke} />
           ))}
         </div>
+      ) : null}
+      {unshown > 0 ? (
+        <UnshownNotice count={unshown}>
+          {counted(unshown, "remembered approval", "remembered approvals")} can't be shown here.{" "}
+          <Command>brain google approvals</Command> lists {unshown === 1 ? "it" : "them"}.
+        </UnshownNotice>
       ) : null}
       {p.error ? (
         <div role="alert">

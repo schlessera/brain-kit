@@ -1,5 +1,8 @@
 import { useLayoutEffect, useRef, type CSSProperties, type FocusEvent, type ReactNode, type RefObject } from "react";
+import { Button } from "../primitives/Button.js";
+import { Callout } from "../primitives/Callout.js";
 import { Icon } from "../primitives/Icon.js";
+import { Placeholder } from "../states/Placeholder.js";
 import { accent, color, font } from "../tokens.js";
 import { invisibleSegments, revealInvisibles, type InvisibleSegment } from "./reveal-invisibles.js";
 
@@ -375,6 +378,109 @@ export function titleStyle(dim: boolean): CSSProperties {
     font: `600 12.5px/1.35 ${font.body}`,
     color: dim ? color.inkDim : color.ink,
     overflowWrap: "anywhere",
+  };
+}
+
+/* ── Rows the host cannot show, and a read that failed ──────────────────── */
+
+/**
+ * How many rows the host holds but cannot show, read only in the ready
+ * state. Any count above zero is at least one: a fractional or absurd count is
+ * a host bug, and it must never turn into an empty claim.
+ */
+export function unshownCount(state: string, unshown: number | undefined): number {
+  return state === "ready" && typeof unshown === "number" && unshown > 0 ? Math.ceil(unshown) : 0;
+}
+
+/** "1 remembered approval", "2 remembered approvals". */
+export function counted(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** A CLI command inside notice text: mono, wrapping at its spaces. */
+const COMMAND: CSSProperties = { font: `500 10.5px/1.5 ${font.mono}`, color: color.ink, overflowWrap: "anywhere" };
+
+export function Command({ children }: { children: string }) {
+  return <code style={COMMAND}>{children}</code>;
+}
+
+/**
+ * Rows that exist but cannot be drawn here: a boxed amber notice with the
+ * standing-permission key, saying how many and what still holds for them.
+ * It replaces the list's empty line whenever its count is above zero, and it
+ * is separate from the revoke-error banner: both can show at once.
+ */
+export function UnshownNotice({ count, children }: { count: number; children: ReactNode }) {
+  return (
+    <div data-google-unshown={count}>
+      <Callout tone="amber" variant="boxed" icon="capability">
+        {children}
+      </Callout>
+    </div>
+  );
+}
+
+/** The failed read's box: the error state, then Try again under it. */
+const FAILED_BOX: CSSProperties = { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, minWidth: 0 };
+/** Not failed: the box is empty and out of flow, so the list's gap does not count it. */
+const FAILED_QUIET: CSSProperties = { position: "absolute", width: 0, height: 0, overflow: "hidden" };
+const STATUS: CSSProperties = { alignSelf: "stretch", minWidth: 0 };
+
+/**
+ * A read that finished and failed: the kit's error state (red hairline, the
+ * failure named, what it means underneath), never the loading ghost, which
+ * says `aria-busy` while nothing is running, and never the empty line, which
+ * would claim there is nothing. Try again shows only when the host listens,
+ * as every kit retry does; it is a reaching `Button` as Live service settings'
+ * Try again is, rather than `Placeholder`'s own pill, which paints under 24px
+ * and has no coarse-pointer reach (#3252).
+ *
+ * The list draws this box in every state, so its `role="status"` region lives
+ * as long as the list does, empty unless the read failed. Reaching the failed
+ * state while the list is on screen (after Try again, or after a read the
+ * host started) is then a change inside a region screen readers already
+ * watch: they announce it once, politely, as Live service settings' persistent
+ * status line is announced. The words are the ones drawn, not a hidden copy,
+ * so browse mode reads them once. Loading draws its placeholder outside the
+ * region, so nothing announces it; Try again sits outside it too.
+ */
+export function FailedRead({ failed, message, detail, onRetry }: { failed: boolean; message: string; detail: string; onRetry?: () => void }) {
+  return (
+    <div data-google-failed={failed ? "" : undefined} style={failed ? FAILED_BOX : FAILED_QUIET}>
+      <div role="status" data-google-status="" style={STATUS}>
+        {failed ? <Placeholder variant="error" message={message} detail={detail} /> : null}
+      </div>
+      {failed && onRetry ? <Button label="Try again" icon="retry" tone="ghost" size="sm" block={false} reach onClick={onRetry} /> : null}
+    </div>
+  );
+}
+
+/** Try again, found in the list it belongs to. */
+const RETRY = "[data-google-failed] [role='button']";
+
+/**
+ * Try again leaves the failed state, and with it the button: when Try again
+ * held focus as it was pressed, focus goes to the heading, the list's focus
+ * target when nothing else is left to hold it. A retry fired while focus was
+ * anywhere else (a script's click, say) moves nothing, and focus the user
+ * moved elsewhere after pressing stays.
+ */
+export function useFocusAfterRetry(state: string, root: RefObject<HTMLElement | null>, heading: RefObject<HTMLElement | null>, onRetry?: () => void) {
+  const pressed = useRef(false);
+  useLayoutEffect(() => {
+    if (state === "failed" || !pressed.current) return;
+    pressed.current = false;
+    const doc = root.current?.ownerDocument;
+    if (!doc) return;
+    const active = doc.activeElement;
+    if (active && active !== doc.body && active.isConnected) return;
+    heading.current?.focus();
+  }, [state, root, heading]);
+  if (!onRetry) return undefined;
+  return () => {
+    const retry = root.current?.querySelector(RETRY) ?? null;
+    pressed.current = retry !== null && retry.ownerDocument.activeElement === retry;
+    onRetry();
   };
 }
 

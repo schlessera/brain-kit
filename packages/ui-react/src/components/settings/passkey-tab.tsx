@@ -7,6 +7,7 @@ import { Button, ChoiceOption } from "@schlessera/brain-ui-kit";
 import { LocalWorkDialog } from "../voice/local-work-dialog.js";
 import type { SignOutLoss } from "../../lib/local-work-flow.js";
 import { ToolPermissionsSection } from "./tool-permissions.js";
+import { GoogleApprovalsSection } from "./google-approvals.js";
 import { PasskeyList } from "./passkey-list.js";
 
 /**
@@ -158,7 +159,7 @@ export function PasskeyTab({ active }: { active: boolean }) {
   return (
     <>
     <PasskeyList
-      sections={<><TrustSettingsSection active={active} /><ToolPermissionsSection active={active} /></>}
+      sections={<><TrustSettingsSection active={active} /><ToolPermissionsSection active={active} /><GoogleApprovalsSection active={active} /></>}
       credentials={credentials}
       status={loading ? "loading" : passkeyMode ? "ready" : "unavailable"}
       busy={busy}
