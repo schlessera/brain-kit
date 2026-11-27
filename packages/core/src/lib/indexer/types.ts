@@ -52,6 +52,13 @@ export interface IndexOptions {
   /** Rebuild the derived graph tables at the end of the run. Default: true. */
   graph?: boolean;
   /**
+   * Prune unreachable lines from the sidecar caches under the brain root at
+   * the end of the run. Default: true. An index that is not the brain's own
+   * (a hygiene repair's in-memory projection) passes false: it must change
+   * no file under the root.
+   */
+  pruneCaches?: boolean;
+  /**
    * Exact repo-relative markdown paths that changed since the index was last
    * complete. Only these files are read and written; every corpus-wide
    * structure (link resolution, the link graph, supersedes, the graph tables)
