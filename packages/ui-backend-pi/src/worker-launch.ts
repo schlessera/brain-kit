@@ -87,7 +87,7 @@ export async function admitPiWorker(request: PiWorkerAdmissionRequest): Promise<
   const agentDir = piSessionDirectory(backend.brainPath, getAgentDir());
   // A restricted autonomous turn copies no native state into the worker: no
   // stored login, provider override or settings (#676). The relay holds the key.
-  const envelope = restricted ? piAutonomousEnvelope(declared, agentDir, undefined,
+  const envelope = restricted ? piAutonomousEnvelope(declared, agentDir,
     path => { if (!path.endsWith("/count_tokens")) startupTiming?.received(); }) : undefined;
   // A governed or strict turn on the turn proxy: the host holds the credential
   // and the worker's pi reaches inference only through the relay (#1665).
