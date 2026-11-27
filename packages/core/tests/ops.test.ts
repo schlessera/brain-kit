@@ -7,14 +7,15 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import * as fs from "fs";
-import { existsSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "fs";
-import { isAbsolute, join, relative } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from "fs";
+import { dirname, isAbsolute, join, relative } from "path";
 
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { initContext, type BrainContext } from "../src/lib/context";
 import { openDatabase } from "../src/lib/db";
-import { getMarkdownFiles, indexAll } from "../src/lib/indexer";
+import { chunkContextKey, getMarkdownFiles, indexAll } from "../src/lib/indexer";
+import { CONTEXT_CACHE_PATH } from "@schlessera/brain-common/internal/cache-location";
 import { cachedStaleness, indexStaleness, STALENESS_MIN_TTL_MS } from "../src/lib/ops/staleness";
 import { contextBriefing, listDocuments, readDocument, searchDocuments } from "../src/lib/ops/read";
 import { addDocument, archiveWithReindex, splitTags, updateDocumentFields } from "../src/lib/ops/write";
@@ -282,6 +283,30 @@ describe("write operations index only the paths they change", () => {
     expect(moved.reads).toEqual([moved.result.path, from].sort());
     expect(row(db, from)).toBeNull();
     expect(row(db, moved.result.path)?.status).toBe("archived");
+  });
+
+  test("a write keeps the cached context of a note on disk that the index does not hold yet", async () => {
+    const note = "notes/log-11.md";
+    const chunk = db.prepare("SELECT d.title, c.heading, c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? LIMIT 1")
+      .get(note) as { title: string; heading: string; content: string };
+    const line = `${JSON.stringify({ k: chunkContextKey(chunk.title, chunk.heading, chunk.content), v: "the eleventh day at sea" })}\n`;
+    const cache = join(root, CONTEXT_CACHE_PATH);
+    // The note leaves and its row goes; then it comes back out of band with
+    // its context line, as a merge from another clone brings both.
+    const aside = join(root, "..", `${relative(dirname(root), root)}-log-11.md`);
+    renameSync(join(root, note), aside);
+    await indexAll(db, { root, taxonomy: brain.taxonomy, force: false, quiet: true });
+    expect(row(db, note)).toBeNull();
+    renameSync(aside, join(root, note));
+    mkdirSync(dirname(cache), { recursive: true });
+    writeFileSync(cache, (existsSync(cache) ? readFileSync(cache, "utf8") : "") + line);
+
+    await updateDocumentFields(deps(), { path: "notes/log-12.md", summary: "Helios's cattle graze on Thrinacia" });
+    expect(readFileSync(cache, "utf8")).toContain(line);
+
+    await indexAll(db, { root, taxonomy: brain.taxonomy, force: false, quiet: true });
+    expect(row(db, note)).not.toBeNull();
+    expect(readFileSync(cache, "utf8")).toContain(line);
   });
 
   test("a note edited elsewhere stays counted stale after a write and is indexed by the next complete run", async () => {
