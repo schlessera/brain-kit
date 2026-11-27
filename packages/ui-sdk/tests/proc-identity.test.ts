@@ -10,21 +10,41 @@ import { killWorker, registerWorker, workerStopCompletion } from "../src/server/
 import { parseProcStat, procChildren, readProcStat } from "../src/server/proc-identity.js";
 import { sandboxPid } from "../src/server/worker-launcher.js";
 import { killGatedSandbox } from "../src/server/worker-status.js";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 
 const spawned: Bun.Subprocess[] = [];
+/** Grandchildren a test started; killing their shell would orphan them. */
+const orphans: number[] = [];
 afterEach(async () => {
+  for (const pid of orphans.splice(0)) { try { process.kill(pid, "SIGKILL"); } catch { /* Already gone. */ } }
   for (const child of spawned.splice(0)) { child.kill("SIGKILL"); await child.exited; }
 });
 
 /** A shell that runs `/bin/true` to completion (an exited, reaped child), then keeps one live `sleep` and prints its PID. */
 async function parentWithOneLiveChild(): Promise<{ parent: Bun.Subprocess<"ignore", "pipe", "inherit">; live: number }> {
-  const parent = Bun.spawn(["/bin/sh", "-c", "/bin/true; sleep 60 & echo $!; wait"], { stdout: "pipe" });
+  // The sleep holds no pipe of ours, so it cannot keep this process waiting.
+  const parent = Bun.spawn(["/bin/sh", "-c", "/bin/true; sleep 60 >/dev/null 2>&1 & echo $!; wait"], { stdout: "pipe" });
   spawned.push(parent);
   const reader = parent.stdout.getReader();
   let text = "";
   while (!text.includes("\n")) { const next = await reader.read(); if (next.done) break; text += new TextDecoder().decode(next.value); }
   reader.releaseLock();
+  orphans.push(Number(text.trim()));
   return { parent, live: Number(text.trim()) };
+}
+
+/**
+ * Whether a signalled process is dead: gone, a zombie, or its PID reused. A
+ * SIGKILL lands asynchronously, so this waits; the watchdog only stops a hang.
+ */
+async function dies(pid: number, start: string): Promise<boolean> {
+  const deadline = Date.now() + watchdogMs(10_000);
+  for (;;) {
+    const now = readProcStat(pid);
+    if (now === undefined || now.start !== start || now.state === "Z" || now.state === "X") return true;
+    if (Date.now() >= deadline) return false;
+    await Bun.sleep(5);
+  }
 }
 
 /** A real `stat` line: 52 fields, the command name holding `) `, spaces and a newline. */
@@ -104,8 +124,7 @@ describe("child scan sites", () => {
     const start = readProcStat(live)!.start;
     expect(killGatedSandbox(parent, undefined), "GATED_KILL_LIVE_CHILD_ONLY").toEqual([{ pid: live, start }]);
     await parent.exited;
-    const after = readProcStat(live);
-    expect(after === undefined || after.start !== start || after.state === "Z", "GATED_KILL_CHILD_DEAD").toBe(true);
+    expect(await dies(live, start), "GATED_KILL_CHILD_DEAD").toBe(true);
   });
 
   test("maintenance cancellation kills the live child of its worker and passes over the exited one", async () => {
@@ -115,7 +134,6 @@ describe("child scan sites", () => {
     killWorker(parent);
     await workerStopCompletion(parent);
     await parent.exited;
-    const after = readProcStat(live);
-    expect(after === undefined || after.start !== start || after.state === "Z", "CANCELLATION_KILLS_LIVE_CHILD").toBe(true);
+    expect(await dies(live, start), "CANCELLATION_KILLS_LIVE_CHILD").toBe(true);
   });
 });
