@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 import type { AppEnv } from "../app-env.js";
+import { isHumanOwner } from "../db/principals.js";
 import type { StorageFilter, StorageTreeFilter } from "@schlessera/brain-ui-sdk/protocol";
 import { StorageUnavailable, type StorageCoordinator } from "../storage/coordinator.js";
 /** Ordinary content authorization does not grant access to deployment inventory. */
@@ -13,7 +14,7 @@ export function createStorageRoutes(storage: StorageCoordinator, guidance?: Stor
     c.header("Cache-Control", "private, no-store");
     const principal = c.get("principal");
     if (!principal) return c.json({ error: "Authentication required." }, 401);
-    if (!["owner", "ambient"].includes(principal.kind)) return c.json({ error: "Storage requires human-owner access." }, 403);
+    if (!isHumanOwner(principal)) return c.json({ error: "Storage requires human-owner access." }, 403);
     try { storage.status(principal.id); await next(); }
     catch (error) { return c.json({ error: error instanceof StorageUnavailable ? error.message : "Storage temporarily unavailable." }, error instanceof StorageUnavailable ? error.status : 503); }
   });

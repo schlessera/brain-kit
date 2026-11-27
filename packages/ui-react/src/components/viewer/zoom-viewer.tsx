@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconButton, Overlay } from "@schlessera/brain-ui-kit";
-import { Minus, Maximize2 } from "lucide-react";
+import { Minus, Maximize2 } from "../icons.js";
 
 /**
  * Full-screen, pan-and-zoom view of one visual thing — a diagram, an image,

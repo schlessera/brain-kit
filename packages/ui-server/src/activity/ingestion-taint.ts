@@ -115,16 +115,6 @@ export function inputTaintSource(tool: string, input: unknown, brainPath?: strin
   return typeof path === "string" ? fileSource(path, brainPath, marked) : null;
 }
 
-/** A search from an ancestor directory taints when its output names a file in an untrusted area or a marked file. */
-export function outputTaintSource(tool: string, output: string, brainPath?: string, marked?: MarkedLookup): IngestionSource | null {
-  // Legacy scalar callers report a known source, not collection completeness.
-  // Reuse exact path parsing; the collector retains the separate unknown signal.
-  const signals = outputTaintSignals(tool, output, brainPath, marked, searchOutputContext(tool, {}));
-  const known = signals.find(
-    signal => signal.source !== "legacy_unknown");
-  return known?.source ?? null;
-}
-
 /** Independent detector signals; `key` is local correlation, never persisted raw. */
 export interface IngestionSignal {
   source: IngestionSource;
@@ -138,15 +128,6 @@ export function ingestionSignalIdentity(signal:IngestionSignal):string {
   const kind=signal.source==='legacy_unknown'?'synthetic':signal.detector==='explicit_untrusted_input'||signal.detector==='tool_web_input'?'user':'structural';
   return JSON.stringify([kind,signal.source,signal.detector,signal.key]);
 }
-
-/** Versioned installed-tool inventory. Completeness still needs delivery hooks and epoch acknowledgement. */
-export const INGESTION_DETECTOR_MANIFEST = {
-  version: 1,
-  web: WEB_TOOLS, webInputKeys: { WebFetch:["url"],WebSearch:["query"],fetch_content:["url","urls"],web_search:["query","queries"],get_search_content:["url"],source_check:["claim","queries"] }, files: FILE_TOOLS, search: [...SEARCH_TOOLS], attachments: [...ATTACHMENT_READ_TOOLS],
-  compute: [...COMPUTE_OUTPUT_TOOLS], referenceReads:["reference_read","mcp__brain-ui__reference_read"], hostRemotePages:["brain_apify_discover","brain_apify_inspect","brain_apify_results","brain_github_issue_read","brain_github_issue_search"], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
-  shell: ["Bash", "bash"],
-  exclusions: ["proxied_shell_local_read", "opaque_tunnel_inner_protocol", "uninstrumented_backend_input", "missing_historical_signals"],
-} as const;
 
 function fileSignals(path: string, brainPath: string | undefined, marked: MarkedLookup | undefined,
   detector: "tool_file_input" | "tool_search_output"): IngestionSignal[] {

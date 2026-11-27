@@ -10,10 +10,13 @@ import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/clie
  * ({@link resolveServerConfig}) that turns an environment into a plain,
  * fully-resolved {@link ServerConfig}.
  *
- * `createApp()` resolves the environment ONCE, at the edge; every consumer
- * inside the package receives the resolved object (or a slice of it) and never
- * touches `process.env` itself. Tests vary configuration by passing their own
- * env record to the resolver — no global mutation required.
+ * `createApp()` resolves the environment ONCE, at the edge, and passes the
+ * resolved object (or a slice of it) to what it builds; tests vary that
+ * configuration by passing their own env record to the resolver. Some readers
+ * below the edge still default to `process.env`: child environments, a few
+ * credential and key sources, the Apify ledger path and the standalone
+ * pricing fallback (`CreateAppOptions.config` lists them;
+ * {@link DYNAMIC_ENV_READS} the call-time reads).
  */
 
 import { join, resolve } from "path";
@@ -1386,32 +1389,46 @@ export function resolveComputeConfig(env: EnvRecord, dbPath: string): NonNullabl
     keys[provider] = [...new Set([...(keys[provider] ?? []), ...names])];
   }
   const workerEnvExtra = parseSubprocessEnvExtra(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA);
-  if (env.BRAIN_UI_COMPUTE_STATE_DIR) return { keys, stateDir: resolve(env.BRAIN_UI_COMPUTE_STATE_DIR), workerEnvExtra };
+  if (env.BRAIN_UI_COMPUTE_STATE_DIR) {
+    const explicit = { keys, stateDir: resolve(env.BRAIN_UI_COMPUTE_STATE_DIR), workerEnvExtra };
+    computeStateDirExplicit.add(explicit);
+    return explicit;
+  }
   return computeBesideDatabase({ keys, stateDir: null, workerEnvExtra }, dbPath);
 }
 
 /**
- * Compute settings whose state directory was derived from the database path
- * rather than set by BRAIN_UI_COMPUTE_STATE_DIR. Kept out of `ServerConfig`
- * so no embedder-visible field carries it.
+ * The state directory each derived compute settings object was given, and
+ * the settings BRAIN_UI_COMPUTE_STATE_DIR set. Kept out of `ServerConfig` so
+ * no embedder-visible field carries them.
  */
-const computeStateDirDerived = new WeakSet<object>();
+const computeStateDirDerived = new WeakMap<object, string | null>();
+const computeStateDirExplicit = new WeakSet<object>();
+
+/** The state directory `resolveComputeConfig` derives for a database at `dbPath`. */
+const stateDirBeside = (dbPath: string) => dbPath === "" || dbPath === ":memory:" ? null : `${resolve(dbPath)}.compute`;
 
 /**
- * The compute settings for a database at `dbPath`: a state directory derived
- * from the database moves beside it (`<dbPath>.compute`, or none for an
- * ephemeral database), while an explicit BRAIN_UI_COMPUTE_STATE_DIR, or
- * settings that did not come from `resolveComputeConfig`, stay as they are.
+ * The compute settings for a database moved from `fromDbPath` to `dbPath`: a
+ * state directory derived from the database moves beside the new one
+ * (`<dbPath>.compute`, or none for an ephemeral database), while an explicit
+ * BRAIN_UI_COMPUTE_STATE_DIR, or a directory an embedder chose, stays as it is.
  * `createApp` calls it when `options.dbPath` replaces the resolved path (#4821).
+ * "Derived" is decided by value (#4904): settings `resolveComputeConfig`
+ * derived stay derived only while their directory is still the one it gave
+ * them, so a directory changed in place is kept; a spread copy is derived
+ * while its directory is the one `fromDbPath` derives.
  */
-export function computeConfigForDbPath(compute: NonNullable<ServerConfig["compute"]>, dbPath: string): NonNullable<ServerConfig["compute"]> {
-  return computeStateDirDerived.has(compute) ? computeBesideDatabase(compute, dbPath) : compute;
+export function computeConfigForDbPath(compute: NonNullable<ServerConfig["compute"]>, fromDbPath: string, dbPath: string): NonNullable<ServerConfig["compute"]> {
+  const derived = computeStateDirDerived.has(compute)
+    ? computeStateDirDerived.get(compute) === compute.stateDir
+    : compute.stateDir !== null && !computeStateDirExplicit.has(compute) && compute.stateDir === stateDirBeside(fromDbPath);
+  return derived ? computeBesideDatabase(compute, dbPath) : compute;
 }
 
 function computeBesideDatabase(compute: NonNullable<ServerConfig["compute"]>, dbPath: string): NonNullable<ServerConfig["compute"]> {
-  const ephemeral = dbPath === "" || dbPath === ":memory:";
-  const derived = { ...compute, stateDir: ephemeral ? null : `${resolve(dbPath)}.compute` };
-  computeStateDirDerived.add(derived);
+  const derived = { ...compute, stateDir: stateDirBeside(dbPath) };
+  computeStateDirDerived.set(derived, derived.stateDir);
   return derived;
 }
 

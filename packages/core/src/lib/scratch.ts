@@ -200,17 +200,6 @@ export function isInScratch(root: string, path: string): boolean {
 }
 
 /**
- * Make sure the scratch area may be written: not redirected by a symlink,
- * ignored by git, and present. Throws rather than writing where a commit
- * would pick the file up or a link would send it.
- */
-export function ensureScratch(root: string): string {
-  const dir = scratchDir(root);
-  if (!scratchIgnored(root)) throw new ScratchNotIgnoredError();
-  return dir;
-}
-
-/**
  * Create every directory from the verified scratch dir down to `parent`, one
  * real directory at a time: an existing segment must be a directory that is
  * not a link, so a `mkdir -p` never walks through one.

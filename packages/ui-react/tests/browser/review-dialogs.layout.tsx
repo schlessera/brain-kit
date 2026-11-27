@@ -9,7 +9,8 @@ import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { LocalWorkDialog } from "../../src/components/voice/local-work-dialog.js";
 import { DiagnosticReview } from "../../src/components/report/diagnostic-review.js";
-import { CompareDrafts, DraftSaveLine } from "../../src/components/chat/draft-save-line.js";
+import { CompareDrafts } from "../../src/components/chat/draft-save-line.js";
+import { DraftIndicator } from "../../src/components/chat/draft-indicator.js";
 import { updateHeld } from "../../src/lib/update-holds.js";
 
 let styles: HTMLStyleElement;
@@ -176,25 +177,27 @@ test("local work under diagnostic: only topmost Escape closes and returns into l
 
 
 test("draft comparison: dismissal returns to Compare after activation without focus", async ctx => {
-  // Mutation: omit DraftSaveLine's explicit Compare returnFocus policy.
+  // Mutation: omit the draft indicator's explicit Compare returnFocus policy.
   const s = await mount(ctx, "compare", 320, "light");
   await userEvent.keyboard("{Escape}"); await frame();
   const host = document.createElement("div"); s.host.append(host);
   const renderer = createRoot(host);
   ctx.onTestFinished(() => flushSync(() => renderer.unmount()));
+  // The composer shows draft state through the draft indicator (#4679).
   flushSync(() => renderer.render(<BrainUiProvider root={s.ui}>
-    <input aria-label="Other Ithaca field" />
-    <DraftSaveLine draftId={s.id} />
+    <DraftIndicator draftId={s.id} queued={[]} online />
   </BrainUiProvider>));
-  const trigger = host.querySelector<HTMLButtonElement>("[data-draft-compare]")!;
-  const field = host.querySelector("input")!;
-  expect(trigger, "actual conflict Compare trigger exists").not.toBeNull();
-  field.focus();
-  expect(document.activeElement, "activation starts outside Compare").toBe(field);
-  // Native click() models activation that does not focus the trigger, as touch
+  const indicator = host.querySelector<HTMLButtonElement>("[data-draft-indicator] .bk-status-indicator-btn")!;
+  expect(indicator, "the conflict shows the draft indicator").not.toBeNull();
+  await userEvent.click(indicator); await frame();
+  const compare = document.querySelector<HTMLElement>('dialog[open][data-status-details] [data-draft-action="compare"] [data-bk-button]')!;
+  expect(compare, "actual conflict Compare action exists").not.toBeNull();
+  expect(document.activeElement, "activation starts outside Compare").not.toBe(compare);
+  // Native click() models activation that does not focus the action, as touch
   // can do; all focus and dismissal thereafter run in actual Chromium.
-  flushSync(() => trigger.click()); await frame();
-  expect(s.dialog()?.matches(":modal"), "actual draft line opens comparison").toBe(true);
+  flushSync(() => compare.click()); await frame();
+  expect(s.dialog()?.matches(":modal"), "the indicator's Compare opens comparison").toBe(true);
   await userEvent.keyboard("{Escape}"); await frame();
-  expect(document.activeElement, "comparison returns to explicit Compare trigger").toBe(trigger);
+  expect(s.dialog(), "Escape closes comparison").toBeNull();
+  expect(document.activeElement, "comparison returns to explicit Compare action").toBe(compare);
 });

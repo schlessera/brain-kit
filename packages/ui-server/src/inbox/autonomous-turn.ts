@@ -36,6 +36,7 @@ import { ensureIndexDirectory } from "../brain/index-directory.js";
 import { ProviderThreadRefusedError } from "../brain/provider-mask-refusal.js";
 import { admitOriginThread, type OriginThreadAdmission } from "./provenance.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
+import { clipUtf8 } from "../clip-utf8.js";
 
 export type AutonomousEscalation = {
   runId: string;
@@ -468,13 +469,3 @@ function canonical(value: unknown): string {
   return JSON.stringify(sort(value));
 }
 
-function clipUtf8(text: string, limit: number): string {
-  const bytes = new TextEncoder().encode(text);
-  if (bytes.length <= limit) return text;
-  // Drop an incomplete trailing sequence rather than replacing it with bytes
-  // that would make a supposedly bounded checkpoint exceed the limit.
-  for (let end = limit; end >= limit - 3; end--) {
-    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end)); } catch { /* try the prior boundary */ }
-  }
-  return "";
-}

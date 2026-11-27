@@ -181,7 +181,7 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
         if (safety && !sameAccount(db, { principalId: safety.principal_id, account: safety.principal_account }, input.principalId))
           throw new Error("Dialogue ownership mismatch");
         const id = safety?.history_owner_id ?? input.conversationId;
-        db.prepare(
+        db.query(
           "INSERT INTO dialogue_owners(id,principal_id,principal_account,session_id,coverage,created_at) VALUES(?,?,?,?,?,?)"
         ).run(
           id,
@@ -201,7 +201,7 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
         return row.id===input.conversationId || (active ? active.owner.coverage === "partial" : !pendingEpochFor(db,owner!,row,pending));
       });
       if (unfinished) {
-        db.prepare(
+        db.query(
           "UPDATE dialogue_owners SET coverage='partial' WHERE id=?"
         ).run(owner.id);
         owner = { ...owner, coverage: "partial" };
@@ -210,7 +210,7 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
         throw new Error("Dialogue session mismatch");
       // The opening login is the conversation's own attribution and is never
       // rewritten; the history owner it writes to may be another login's.
-      db.prepare(
+      db.query(
         "INSERT INTO dialogue_conversations(id,owner_id,epoch,provider_id,principal_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET epoch=excluded.epoch,closed=0"
       ).run(input.conversationId, owner.id, input.epoch, input.providerId, input.principalId);
       return owner;
@@ -237,26 +237,26 @@ export function bindDialogue(
         throw new Error("Dialogue session cannot change");
       const target = dialogueOwner(db, { sessionId }, principalId);
       if (target && target.id !== owner.id) {
-        db.prepare(
+        db.query(
           "UPDATE dialogue_records SET owner_id=? WHERE owner_id=?"
         ).run(target.id, owner.id);
-        db.prepare(
+        db.query(
           "UPDATE dialogue_conversations SET owner_id=? WHERE owner_id=?"
         ).run(target.id, owner.id);
-        db.prepare(
+        db.query(
           "UPDATE dialogue_aliases SET owner_id=? WHERE owner_id=?"
         ).run(target.id, owner.id);
-        db.prepare("INSERT INTO dialogue_aliases VALUES(?,?)").run(
+        db.query("INSERT INTO dialogue_aliases VALUES(?,?)").run(
           owner.id,
           target.id
         );
-        db.prepare(
+        db.query(
           "UPDATE dialogue_owners SET coverage=CASE WHEN coverage='partial' OR ?='partial' THEN 'partial' ELSE coverage END WHERE id=?"
         ).run(owner.coverage, target.id);
-        db.prepare("DELETE FROM dialogue_owners WHERE id=?").run(owner.id);
+        db.query("DELETE FROM dialogue_owners WHERE id=?").run(owner.id);
         return target;
       }
-      db.prepare("UPDATE dialogue_owners SET session_id=? WHERE id=?").run(
+      db.query("UPDATE dialogue_owners SET session_id=? WHERE id=?").run(
         sessionId,
         owner.id
       );
@@ -334,7 +334,7 @@ export function appendDialogue(
         old?.sequence ??
         Number(
           db
-            .prepare(
+            .query(
               "INSERT INTO dialogue_records(owner_id,identity,payload) VALUES(?,?,?)"
             )
             .run(owner.id, input.identity, payload).lastInsertRowid
@@ -477,10 +477,10 @@ export function closeDialogue(
     if (!dialogueOwner(db, { ownerId: c.owner_id }, principalId))
       throw new Error("Dialogue owner unavailable");
     if (partial)
-      db.prepare(
+      db.query(
         "UPDATE dialogue_owners SET coverage='partial' WHERE id=?"
       ).run(c.owner_id);
-    db.prepare(
+    db.query(
       "UPDATE dialogue_conversations SET closed=1 WHERE id=? AND epoch=?"
     ).run(conversationId, epoch);
   }).immediate();

@@ -5,7 +5,8 @@ import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe, createWorkerStatusPipeSteps } from "./worker-status.js";
 import { prepareWorkerIdentity, workerCleanupUnconfirmed, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
-import { chmodSync, chownSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
+import { conformingPrivateSocket, createPrivateSocketDirectory, verifyPrivateSocketDirectory } from "./private-socket-dir.js";
+import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
   realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
@@ -300,19 +301,8 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
     seen.add(path);
     argv.push("--ro-bind", path, path);
   }
-  const separateIdentity = Boolean(workerIdentityHelper());
-  let inference = "", valid = false;
-  try {
-    inference = realpathSync(envelope.inferenceDir);
-    const directory = lstatSync(inference), socket = lstatSync(join(inference, "relay.sock"));
-    valid = inference === normalize(envelope.inferenceDir) && directory.isDirectory() && socket.isSocket()
-      && directory.uid === process.getuid?.() && socket.uid === process.getuid?.()
-      && (directory.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
-      && (socket.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
-      && (!separateIdentity || directory.gid === process.getgid?.() && socket.gid === process.getgid?.())
-      && !holds(brain, inference) && !holds(inference, brain);
-  } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
-  if (!valid) throw new WorkerHostError("the inference relay requires its private directory and server-owned socket");
+  const inference = verifyPrivateSocketDirectory(envelope.inferenceDir, "relay.sock", brain, Boolean(workerIdentityHelper()));
+  if (!inference) throw new WorkerHostError("the inference relay requires its private directory and server-owned socket");
   argv.push("--ro-bind", inference, WORKER_INFERENCE_DIR);
   return argv;
 }
@@ -402,18 +392,8 @@ export { MODULE_GITHUB_SOCKET_ENV } from "./worker-environment.js";
  * the brain: never a path a worker or the brain could have supplied.
  */
 function serverSocketDirectory(requested: string, socket: string, brain: string, purpose = "the provider relay"): string {
-  const separateIdentity = Boolean(workerIdentityHelper());
-  const serverUid = process.getuid?.(), serverGid = process.getgid?.();
-  try {
-    const directory = realpathSync(requested);
-    const directoryInfo = lstatSync(directory), socketInfo = lstatSync(join(directory, socket));
-    if (directory === normalize(requested) && directoryInfo.isDirectory() && socketInfo.isSocket()
-      && directoryInfo.uid === serverUid && socketInfo.uid === serverUid
-      && (directoryInfo.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
-      && (socketInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
-      && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
-      && !holds(brain, directory) && !holds(directory, brain)) return directory;
-  } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
+  const directory = verifyPrivateSocketDirectory(requested, socket, brain, Boolean(workerIdentityHelper()));
+  if (directory) return directory;
   throw new WorkerHostError(`${purpose} requires its private server-owned directory and socket`);
 }
 
@@ -594,25 +574,13 @@ export function workerCommand(input: WorkerLaunch): string[] {
   let relayedKeyNames: string[] = [];
   if (input.egress) {
     const separateIdentity = Boolean(workerIdentityHelper());
-    const serverUid = process.getuid?.(), serverGid = process.getgid?.();
-    let directory = "", valid = false;
-    try {
-      directory = realpathSync(input.egress.proxyDir);
-      const directoryInfo = lstatSync(directory), socketInfo = lstatSync(join(directory, "proxy.sock"));
-      valid = directory === normalize(input.egress.proxyDir) && directoryInfo.isDirectory() && socketInfo.isSocket()
-        && directoryInfo.uid === serverUid && socketInfo.uid === serverUid
-        && (directoryInfo.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
-        && (socketInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
-        && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
-        && !holds(brain, directory) && !holds(directory, brain);
-    } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
-    if (!valid) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
+    const serverUid = process.getuid?.();
+    const directory = verifyPrivateSocketDirectory(input.egress.proxyDir, "proxy.sock", brain, separateIdentity);
+    if (!directory) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
     egressMounts = ["--ro-bind", directory, WORKER_EGRESS_DIR];
+    // A non-conforming provider-relay socket withholds the relay; it does not refuse the launch.
     try {
-      const relayInfo = lstatSync(join(directory, PROVIDER_RELAY_SOCKET_NAME));
-      providerRelay = relayInfo.isSocket() && relayInfo.uid === serverUid
-        && (relayInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
-        && (!separateIdentity || relayInfo.gid === serverGid);
+      providerRelay = conformingPrivateSocket(lstatSync(join(directory, PROVIDER_RELAY_SOCKET_NAME)), separateIdentity);
     } catch { /* No relay: the CLI's providers stay withheld. */ }
     if (providerRelay) {
       try {
@@ -1776,9 +1744,7 @@ function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOption
     } : undefined;
     let restricted: RestrictedEnvelope | undefined;
     if (options.restricted || identityHelper) {
-      relayDir = mkdtempSync(join(identityHelper ? realpathSync(tmpdir()) : tmpdir(), "brain-inference-probe-"));
-      if (identityHelper) chownSync(relayDir, process.getuid!(), process.getgid!());
-      chmodSync(relayDir, identityHelper ? 0o750 : 0o700);
+      relayDir = createPrivateSocketDirectory(join(identityHelper ? realpathSync(tmpdir()) : tmpdir(), "brain-inference-probe-"), Boolean(identityHelper));
       if (options.restricted) restricted = { readPaths: [process.execPath, ...(identitySentinel ? [identitySentinel] : [])], inferenceDir: relayDir };
       if (identityHelper) {
         const python = ["/usr/bin/python3", "/bin/python3"].find(existsSync);
@@ -1793,7 +1759,7 @@ function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOption
         const directoryInfo = lstatSync(relayDir), socketInfo = lstatSync(join(relayDir, "relay.sock"));
         if (realpathSync(relayDir) !== relayDir || !directoryInfo.isDirectory()
           || directoryInfo.uid !== process.getuid!() || directoryInfo.gid !== process.getgid!() || (directoryInfo.mode & 0o7777) !== 0o750
-          || !socketInfo.isSocket() || socketInfo.uid !== process.getuid!() || socketInfo.gid !== process.getgid!() || (socketInfo.mode & 0o7777) !== 0o660) {
+          || !conformingPrivateSocket(socketInfo, true)) {
           throw new WorkerHostError("worker_identity_relay_probe_invalid");
         }
         if (sandbox) (sandbox as { readPaths: readonly string[] }).readPaths = [...sandbox.readPaths!, relayDir];

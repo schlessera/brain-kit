@@ -134,7 +134,21 @@ export default mergeConfig(
       sequence: { sequencer: MeasuredBrowserSequencer },
       provide: { proofWorkerMode: "selected-zero-v1" },
       setupFiles: ["./tests/visual/worker-boundary-setup.ts", "./tests/visual/design-font-setup.ts"],
-      browser: { commands: { designFonts: rankFooterFonts, designFontUsage } },
+      browser: {
+        commands: { designFonts: rankFooterFonts, designFontUsage },
+        // A screenshot mismatch writes its reference, actual and diff images
+        // to `<root>/<attachmentsDir>/<spec dir relative to root>`. A
+        // `../ui-react` spec's directory climbs out of the attachments
+        // directory (packages/ui-kit/ui-react/...), where CI's diagnostic
+        // upload never looks. Name the spec directory from packages/ instead,
+        // so every mismatch lands under .vitest-attachments (#4969).
+        expect: {
+          toMatchScreenshot: {
+            resolveDiffPath: ({ arg, ext, root, attachmentsDir, browserName, platform, testFileDirectory, testFileName }) =>
+              path.resolve(root, attachmentsDir, path.relative(path.resolve(root, ".."), path.resolve(root, testFileDirectory)), testFileName, `${arg}-${browserName}-${platform}${ext}`),
+          },
+        },
+      },
       projects: [
         {
           extends: true,

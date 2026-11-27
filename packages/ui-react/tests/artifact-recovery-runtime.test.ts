@@ -250,7 +250,7 @@ test("artifact authoritative answer rewrite keeps the current viewer and opens t
 
 test("artifact413 displays a supplied finite size and never offers a download bypass", async () => {
   const { page, context } = await scene(320);
-  try { await metadataStatus(page, 413, 42 * 1024 * 1024); await activate(page); expect(await page.getByText("42.00 MB", { exact: true }).isVisible()).toBe(true);
+  try { await metadataStatus(page, 413, 42 * 1024 * 1024); await activate(page); expect(await page.getByText("42 MB", { exact: true }).isVisible()).toBe(true);
     expect(await page.locator("a[download]").count()).toBe(0); }
   finally { await context.close(); }
 });

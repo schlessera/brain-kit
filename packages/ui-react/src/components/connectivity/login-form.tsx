@@ -1,6 +1,6 @@
 import { BrandMark, Button, Callout } from "@schlessera/brain-ui-kit";
 import { motion } from "framer-motion";
-import { Lock } from "lucide-react";
+import { Lock } from "../icons.js";
 import type { FormEvent, ReactNode } from "react";
 
 /**

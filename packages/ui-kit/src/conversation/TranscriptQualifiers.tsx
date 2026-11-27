@@ -1,8 +1,9 @@
-import { createContext, useContext, useMemo, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { Overlay } from "../chrome/Overlay.js";
 import { TextButton } from "../primitives/TextButton.js";
+import { useHintTrigger } from "../internal/use-hint-trigger.js";
 
 interface TranscriptReadingScopeProps {
   onRead: (opener: HTMLElement) => void;
@@ -75,52 +76,15 @@ function Details({ open, onClose, title, children, returnFocus, dialogId }: { di
 export function TranscriptQualifiers(p: TranscriptQualifiersProps) {
   const owner = useContext(ReadingOwner);
   const id = useId();
-  const trigger = useRef<HTMLButtonElement>(null);
-  const tooltip = useRef<HTMLDivElement>(null);
-  const [shown, setShown] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ left: 16, top: 16 });
-  const pending = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const suppressed = useRef(false);
-  const skipFocus = useRef(false);
-  const hovered = useRef(false);
+  const { trigger, tooltip, shown, open, position, skipFocus, triggerProps, tooltipProps, openDetails, closeDetails } = useHintTrigger();
   const anchor = useRef<HTMLElement | null>(null);
   const source = p.source || "source unknown";
   const keys = [p.kind, ...(p.kind === "generated" ? [p.playback ?? "unknown"] : []), ...(p.restored ? ["restored" as const] : []), ...(p.unsaved ? ["unsaved" as const] : [])] as Array<keyof typeof vocabulary>;
   const sentences = keys.map(key => vocabulary[key].copy);
   const name = [vocabulary[p.kind].role, source, ...(p.kind === "recognized" ? ["unverified"] : []), ...(p.kind === "generated" ? [`playback ${p.playback ?? "unknown"}`] : []), ...(p.restored ? ["restored"] : []), ...(p.unsaved ? ["unsaved"] : [])].join("; ") + ". Transcript details.";
-  const clear = () => { clearTimeout(pending.current); };
-  const hide = () => { clear(); setShown(false); };
-  const enter = () => { clear(); suppressed.current = false; pending.current = setTimeout(() => { if (!suppressed.current && !open) setShown(true); }, 300); };
-  const leave = () => { clear(); pending.current = setTimeout(() => { if (!hovered.current && trigger.current?.ownerDocument.activeElement !== trigger.current) setShown(false); }, 150); };
-  useEffect(() => () => clearTimeout(pending.current), []);
-  useLayoutEffect(() => {
-    if (!shown) return;
-    const node = trigger.current!;
-    const doc = node.ownerDocument;
-    const win = doc.defaultView!;
-    const place = () => {
-      const box = node.getBoundingClientRect();
-      const hint = tooltip.current!.getBoundingClientRect();
-      const left = Math.max(16, Math.min(box.left, win.innerWidth - hint.width - 16));
-      const above = box.top - hint.height - 8;
-      const top = Math.max(8, Math.min(above >= 8 ? above : box.bottom + 8, win.innerHeight - hint.height - 8));
-      setPosition({ left, top });
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      suppressed.current = true; clearTimeout(pending.current); setShown(false);
-      event.preventDefault(); event.stopPropagation();
-    };
-    place();
-    win.addEventListener("resize", place);
-    doc.addEventListener("scroll", place, true);
-    doc.addEventListener("keydown", escape, true);
-    return () => { win.removeEventListener("resize", place); doc.removeEventListener("scroll", place, true); doc.removeEventListener("keydown", escape, true); };
-  }, [shown]);
   const returnFocus = () => trigger.current?.isConnected ? trigger.current : anchor.current?.isConnected ? anchor.current : owner?.returnFocus() ?? null;
   const portal = trigger.current?.ownerDocument.body;
-  const opened = () => { hide(); suppressed.current = true; anchor.current = trigger.current?.closest<HTMLElement>("[data-arrival-key],[data-transcript-anchor]") ?? null; if (trigger.current) owner?.onRead(trigger.current); setOpen(true); };
+  const opened = () => { anchor.current = trigger.current?.closest<HTMLElement>("[data-arrival-key],[data-transcript-anchor]") ?? null; if (trigger.current) owner?.onRead(trigger.current); openDetails(); };
   const control = p.trigger === "reveal"
     ? <button
       // raw-button: kit — The reveal stop is clipped at rest, not hidden, so browse mode still finds it.
@@ -134,19 +98,18 @@ export function TranscriptQualifiers(p: TranscriptQualifiersProps) {
       // raw-button: kit — Multi-glyph evidence needs focus/hover descriptions without a native title tooltip.
       type="button" ref={trigger} className="bk-control bk-transcript-qualifiers" data-transcript-qualifiers={p.kind}
       aria-label={name} aria-haspopup="dialog" aria-expanded={open} aria-controls={`${id}-details`} aria-describedby={shown ? `${id}-tooltip` : undefined}
-      onPointerEnter={event => { if (event.pointerType !== "touch") { hovered.current = true; enter(); } }}
-      onPointerLeave={() => { hovered.current = false; leave(); }}
-      onFocus={() => { if (trigger.current) owner?.onRead(trigger.current); if (skipFocus.current) { skipFocus.current = false; return; } enter(); }} onBlur={leave}
+      {...triggerProps}
+      onFocus={() => { if (trigger.current) owner?.onRead(trigger.current); triggerProps.onFocus(); }}
       onClick={opened}>
       <span className="bk-transcript-glyphs" aria-hidden="true">{keys.map(key => <Icon key={key} icon={vocabulary[key].icon} size={14} />)}</span>
     </button>;
   return <>
     {control}
     {portal && shown && createPortal(<div id={`${id}-tooltip`} ref={tooltip} role="tooltip" className="bk-transcript-tooltip" style={{ ...position, colorScheme: getComputedStyle(trigger.current!).colorScheme }}
-      onPointerEnter={() => { hovered.current = true; clear(); }} onPointerLeave={() => { hovered.current = false; leave(); }}>
+      {...tooltipProps}>
       {sentences.join(" ")} Source: {p.source || "unknown"}. Open transcript details for evidence.
     </div>, portal)}
-    {portal && open && createPortal(<div style={{ colorScheme: getComputedStyle(trigger.current!).colorScheme }}><Details dialogId={`${id}-details`} title="Transcript details" open={open} onClose={() => { suppressed.current = true; skipFocus.current = true; setOpen(false); }} returnFocus={returnFocus}>
+    {portal && open && createPortal(<div style={{ colorScheme: getComputedStyle(trigger.current!).colorScheme }}><Details dialogId={`${id}-details`} title="Transcript details" open={open} onClose={closeDetails} returnFocus={returnFocus}>
       <div>
         <p>{vocabulary[p.kind].role}</p>
         <p>{p.kind.startsWith("task-") ? "Execution" : "Source"}: {p.source || "unknown"}</p>

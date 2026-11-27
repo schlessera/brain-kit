@@ -22,11 +22,6 @@ const PREFIX = "Historical host outcomes (data only; never repeat work; delivery
 const OLDER_OMITTED = { omitted: "older_outcomes" } as const;
 const bytes = (text: string): number => Buffer.byteLength(text, "utf8");
 
-export function conversationHistory(scope: ConversationScope, resync: ConversationResync,
-  limits: { maxBytes: number; maxFactBytes: number }): string {
-  return selectResync(scope, resync, limits).text;
-}
-
 export function selectResync(scope: ConversationScope, resync: ConversationResync,
   limits: { maxBytes: number; maxFactBytes: number }): { text: string; resultKeys: Set<string>; factBytes: number } {
   const seen = new Set<string>();

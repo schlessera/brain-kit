@@ -681,7 +681,6 @@
   --bk-orbit-ring-inner: light-dark(rgba(127,76,8,0.19), rgba(224,159,62,0.14));
   --bk-orbit-ring-mid: light-dark(rgba(127,76,8,0.25), rgba(224,159,62,0.2));
   --bk-orbit-ring-outer: light-dark(rgba(127,76,8,0.15), rgba(224,159,62,0.1));
-  --bk-orbit-glow: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.09));
 
   /* LaneChart derives two fills from the lane's own accent, and in the source
    * it does it by string-concatenating an eight-digit hex suffix onto the
@@ -1207,7 +1206,6 @@
   --bk-orbit-ring-inner: #cdb99f;
   --bk-orbit-ring-mid: #c5ae90;
   --bk-orbit-ring-outer: #d2c0a9;
-  --bk-orbit-glow: transparent;
   --bk-lane-hatch-amber: #f0cf9f;
   --bk-lane-hatch-gold: #f5d9aa;
   --bk-lane-hatch-teal: #addad1;
@@ -2799,7 +2797,8 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 .bk-transcript-glyphs { display: inline-flex; align-items: center; gap: 4px; }
 .bk-transcript-glyphs > span { width: .875em !important; height: .875em !important; }
 .bk-transcript-glyphs svg { width: 100%; height: 100%; }
-.bk-transcript-tooltip { position: fixed; z-index: var(--bk-z-popover); box-sizing: border-box; max-width: min(22rem, calc(100vw - 32px)); max-height: calc(100dvh - 16px); overflow: auto; overflow-wrap: anywhere; padding: 12px; border-radius: 8px; background: var(--bk-color-raised); color: var(--bk-color-ink); box-shadow: inset 0 0 0 1px var(--bk-color-edge), 0 8px 24px var(--bk-palette-shadow); font: 400 .875rem/1.5 "Plus Jakarta Sans", sans-serif; }
+/* The hover-hint tooltip of TranscriptQualifiers and StatusIndicator (#4727). */
+.bk-transcript-tooltip, .bk-status-tooltip { position: fixed; z-index: var(--bk-z-popover); box-sizing: border-box; max-width: min(22rem, calc(100vw - 32px)); max-height: calc(100dvh - 16px); overflow: auto; overflow-wrap: anywhere; padding: 12px; border-radius: 8px; background: var(--bk-color-raised); color: var(--bk-color-ink); box-shadow: inset 0 0 0 1px var(--bk-color-edge), 0 8px 24px var(--bk-palette-shadow); font: 400 .875rem/1.5 "Plus Jakarta Sans", sans-serif; }
 .bk-transcript-details { font: 400 1rem/1.5 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow-wrap: anywhere; }
 .bk-transcript-details h2 { font: inherit; font-weight: 600; padding-inline-end: 48px; margin: 0 0 16px; }
 .bk-transcript-details p, .bk-transcript-details dl { margin: 12px 0; }
@@ -2830,7 +2829,6 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 .bk-status-glyph { display: inline-flex; border-radius: 50%; }
 .bk-status-indicator[data-status-indicator="active"] .bk-status-glyph { animation: breathe 2s ease-in-out infinite; }
 .bk-status-count { position: absolute; top: 4px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--bk-color-raised); box-shadow: inset 0 0 0 1px var(--bk-color-edge); color: var(--bk-color-ink); font: 600 11px/16px "JetBrains Mono", ui-monospace, monospace; text-align: center; pointer-events: none; }
-.bk-status-tooltip { position: fixed; z-index: var(--bk-z-popover); box-sizing: border-box; max-width: min(22rem, calc(100vw - 32px)); max-height: calc(100dvh - 16px); overflow: auto; overflow-wrap: anywhere; padding: 12px; border-radius: 8px; background: var(--bk-color-raised); color: var(--bk-color-ink); box-shadow: inset 0 0 0 1px var(--bk-color-edge), 0 8px 24px var(--bk-palette-shadow); font: 400 .875rem/1.5 "Plus Jakarta Sans", sans-serif; }
 .bk-status-details { font: 400 1rem/1.5 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow-wrap: anywhere; }
 .bk-status-details h2 { font: inherit; font-weight: 600; margin: 0 0 12px; }
 .bk-status-details h2:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: -2px; }

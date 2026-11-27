@@ -15,6 +15,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { TurnHeader } from "../../src/components/chat/transcript-turn.js";
 import type { ChatMessage } from "../../src/stores/chat-state.js";
+import { clockTime } from "../../src/lib/format-time.js";
 
 const AT = Date.parse("2026-07-12T09:00:00Z");
 const turn = (id: string, role: ChatMessage["role"], content: string, minutes: number): ChatMessage =>
@@ -86,7 +87,7 @@ for (const width of [320, 1280]) {
     const host = await scene(ctx, width, "dark", transcript);
     for (const [index, span] of times(host).entries()) {
       const message = TURNS[index]!;
-      const expected = new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const expected = clockTime(message.timestamp);
       expect(span.textContent, "the existing when string, unchanged").toBe(expected);
       expect(span.checkVisibility({ opacityProperty: true, visibilityProperty: true }), "painted").toBe(true);
       expect(span.getBoundingClientRect().width).toBeGreaterThan(0);

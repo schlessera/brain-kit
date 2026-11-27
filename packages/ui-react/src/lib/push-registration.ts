@@ -1,4 +1,5 @@
 import type { BrainApi } from "./api-client.js";
+import { bytesToBase64 } from "./base64.js";
 
 /**
  * This runtime's IANA zone, as the client environment already reads it.
@@ -161,7 +162,5 @@ async function existingSubscription(signal?: AbortSignal, waitForWorker = true):
 export function subscriptionMatchesKey(subscription: PushSubscription, publicKey: string): boolean {
   const key = subscription.options.applicationServerKey;
   if (!key) return true;
-  let bin = "";
-  for (const b of new Uint8Array(key)) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === publicKey;
+  return bytesToBase64(new Uint8Array(key)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === publicKey;
 }

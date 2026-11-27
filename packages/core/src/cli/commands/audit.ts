@@ -17,6 +17,7 @@ informational is infos.`;
 
 export const auditCommand: CoreCommand = {
   summary: "Run staleness and quality audit",
+  flags: { boolean: ["fix"], value: [] },
   helpBlock: HELP,
   async run(args, cli) {
     const { flags } = parseArgs(args);

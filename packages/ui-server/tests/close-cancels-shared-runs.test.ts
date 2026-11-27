@@ -6,7 +6,7 @@
  * on how long sandbox setup takes.
  */
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createStaticBackendRegistry } from "../src/agent/backend";
@@ -15,7 +15,7 @@ import { createRecordingObservability } from "../src/observability/index";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
-import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
 const roots: string[] = [];
@@ -35,19 +35,11 @@ const STATS = { documents: 1, byType: { note: 1 }, byStatus: { active: 1 }, byRe
  * an isolated worker with a read-only brain, so the host detects its start
  * from the process table rather than from a marker file.
  */
-function brainWithCli(command: string, output: unknown, afterMs: number | null) {
+function brainAnswering(command: string, output: unknown, afterMs: number | null) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-close-grace-"));
   roots.push(root);
-  const bin = join(root, "node_modules", ".bin");
-  mkdirSync(bin, { recursive: true });
-  const cli = join(bin, "brain");
-  writeFileSync(cli, `#!/usr/bin/env bun
-const args = process.argv.slice(2);
-if (args.includes("--version")) { console.log("${MIN_BRAIN_CLI_VERSION}"); process.exit(0); }
-if (args[0] !== ${JSON.stringify(command)}) { console.log("{}"); process.exit(0); }
-${afterMs === null ? "setInterval(() => {}, 1000);" : `await Bun.sleep(${afterMs});\nconsole.log(${JSON.stringify(JSON.stringify(output))});`}
-`);
-  chmodSync(cli, 0o755);
+  const cli = installFakeBrain(root, { body: `if (args[0] !== ${JSON.stringify(command)}) { console.log("{}"); process.exit(0); }
+${afterMs === null ? "setInterval(() => {}, 1000);" : `await Bun.sleep(${afterMs});\nconsole.log(${JSON.stringify(JSON.stringify(output))});`}` });
   const running = () => readdirSync("/proc").some(pid => {
     if (!/^\d+$/.test(pid)) return false;
     try { const argv = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0"); return argv.includes(cli) && argv.includes(command); }
@@ -83,7 +75,7 @@ async function closeWithin(app: { close(): Promise<void> }, ms: number) {
 }
 
 test("close cancels a read that never exits once the grace period ends", async () => {
-  const cli = brainWithCli("stats", STATS, null);
+  const cli = brainAnswering("stats", STATS, null);
   const app = await appFor(cli.root);
   const stats = Promise.resolve(app.fetch(new Request("http://localhost/api/brain/stats")));
   await cli.started();
@@ -96,7 +88,7 @@ test("close cancels a read that never exits once the grace period ends", async (
 }, 45_000);
 
 test("a read that finishes within the grace period is answered", async () => {
-  const cli = brainWithCli("stats", STATS, 500);
+  const cli = brainAnswering("stats", STATS, 500);
   const app = await appFor(cli.root);
   const stats = Promise.resolve(app.fetch(new Request("http://localhost/api/brain/stats")));
   await cli.started();
@@ -106,7 +98,7 @@ test("a read that finishes within the grace period is answered", async () => {
 }, 45_000);
 
 test("close lets a writer that outlasts the grace period finish", async () => {
-  const cli = brainWithCli("add", ADDED, 11_000);
+  const cli = brainAnswering("add", ADDED, 11_000);
   const app = await appFor(cli.root);
   const add = Promise.resolve(app.fetch(new Request("http://localhost/api/brain/add", { method: "POST",
     headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Landed on Ithaca at dawn." }) })));
@@ -119,7 +111,7 @@ test("close lets a writer that outlasts the grace period finish", async () => {
 }, 45_000);
 
 test("the client's shutdown signal cancels a plain index with its exact reason", async () => {
-  const cli = brainWithCli("index", { indexed: 0 }, null);
+  const cli = brainAnswering("index", { indexed: 0 }, null);
   const shutdown = new AbortController();
   const brain = createBrainClient({ brainPath: cli.root, shutdown: shutdown.signal });
   const index = brain.index().then(() => "resolved", error => error);
@@ -131,7 +123,7 @@ test("the client's shutdown signal cancels a plain index with its exact reason",
 }, 45_000);
 
 test("the client's shutdown signal never cancels a writer", async () => {
-  const cli = brainWithCli("add", ADDED, 1_000);
+  const cli = brainAnswering("add", ADDED, 1_000);
   const shutdown = new AbortController();
   const brain = createBrainClient({ brainPath: cli.root, shutdown: shutdown.signal });
   const add = brain.add("Landed on Ithaca at dawn.");
@@ -141,7 +133,7 @@ test("the client's shutdown signal never cancels a writer", async () => {
 }, 45_000);
 
 test("the client's closing signal lets admitted metadata finish", async () => {
-  const cli = brainWithCli("module", { enabled: [], available: [] }, 1_000);
+  const cli = brainAnswering("module", { enabled: [], available: [] }, 1_000);
   const closing = new AbortController(), shutdown = new AbortController();
   const brain = createBrainClient({ brainPath: cli.root, closing: closing.signal, shutdown: shutdown.signal });
   const modules = brain.modules!().catch(error => error);
@@ -152,7 +144,7 @@ test("the client's closing signal lets admitted metadata finish", async () => {
 }, 45_000);
 
 test("the client's shutdown signal cancels admitted metadata with its exact reason", async () => {
-  const cli = brainWithCli("module", { enabled: [], available: [] }, null);
+  const cli = brainAnswering("module", { enabled: [], available: [] }, null);
   const closing = new AbortController(), shutdown = new AbortController();
   const brain = createBrainClient({ brainPath: cli.root, closing: closing.signal, shutdown: shutdown.signal });
   const modules = brain.modules!().then(() => "resolved", error => error);

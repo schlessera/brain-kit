@@ -598,3 +598,118 @@ describe("backend entry and status", () => {
     ] as never);
   });
 });
+
+// Characterisation of the per-turn members of the slot at each boundary
+// (#4831): every member is set to a recognisable value before the boundary,
+// and every member's value is asserted after it. `KEPT` means the very value
+// set before; a function checks a value the boundary made.
+describe("per-turn members at each boundary", () => {
+  const MEMBERS = ["shareId", "requestId", "draftRef", "attachmentFileIds", "work", "revision", "startedAt", "backendStarted",
+    "retryRequest", "retryPrompt", "isManualRetry", "recorder", "turnId", "abortController", "timeoutHandle", "handingOver",
+    "timedOutTurnId", "hostStop", "lastResult", "principalId", "authorization"] as const satisfies readonly (keyof RunningTurn)[];
+  type Member = typeof MEMBERS[number];
+  const KEPT = Symbol("kept");
+  type Expected = typeof KEPT | ((value: unknown) => void) | string | number | boolean | null | undefined;
+
+  const timers: Array<ReturnType<typeof setTimeout>> = [];
+  afterEach(() => { while (timers.length) clearTimeout(timers.pop()); });
+
+  /** Recognisable values for every per-turn member. */
+  function marked(slot: SessionSlot): Record<Member, unknown> {
+    const timeoutHandle = setTimeout(() => {}, 60_000); timers.push(timeoutHandle);
+    const before: Record<Member, unknown> = {
+      shareId: "share-ithaca", requestId: "req-ithaca", draftRef: { draftId: "draft-ithaca", revision: 1 }, attachmentFileIds: ["file-ithaca"],
+      work: recordingWork(), revision: 9, startedAt: 111, backendStarted: true,
+      retryRequest: { type: "chat_message", text: "ithaca", attachments: [] }, retryPrompt: "ithaca prompt", isManualRetry: true,
+      recorder: { marker: "recorder-ithaca" }, turnId: "turn-ithaca", abortController: new AbortController(), timeoutHandle,
+      handingOver: queued("ithaca"), timedOutTurnId: "turn-ithaca", hostStop: { turnId: "turn-ithaca", cause: HOST_STOP_CAUSES[0] },
+      lastResult: "success", principalId: "principal-ithaca", authorization: countedAuthorization(true),
+    };
+    Object.assign(slot.turn, before);
+    return before;
+  }
+
+  function expectMembers(turn: RunningTurn, before: Record<Member, unknown>, expected: Record<Member, Expected>): void {
+    for (const member of MEMBERS) {
+      const value = (turn as unknown as Record<Member, unknown>)[member], want = expected[member];
+      if (want === KEPT) expect(value, member).toBe(before[member]);
+      else if (typeof want === "function") { expect(value, member).not.toBe(before[member]); want(value); }
+      else expect(value, member).toBe(want);
+    }
+  }
+
+  const fresh = (type: abstract new (...args: never[]) => unknown) => (value: unknown) => expect(value).toBeInstanceOf(type);
+  const equal = (wanted: unknown) => (value: unknown) => expect(value).toEqual(wanted);
+  const same = (wanted: () => unknown) => (value: unknown) => expect(value).toBe(wanted());
+
+  test("taking the next request off the queue", async () => {
+    const { host } = setupHost();
+    const slot = await openSlot(host);
+    const before = marked(slot);
+    const entry = queued("next", AUTHORIZATION, { lifecycleTurnId: "turn-queued" });
+    slot.turn.queue.push(entry);
+    expect(dequeueRequest(slot.turn)).toBe(entry);
+    expectMembers(slot.turn, before, {
+      shareId: KEPT, requestId: KEPT, draftRef: KEPT, attachmentFileIds: KEPT, work: KEPT, revision: KEPT, startedAt: KEPT,
+      backendStarted: KEPT, retryRequest: undefined, retryPrompt: undefined, isManualRetry: KEPT, recorder: KEPT, turnId: "turn-queued",
+      abortController: KEPT, timeoutHandle: KEPT, handingOver: same(() => entry), timedOutTurnId: KEPT, hostStop: KEPT,
+      lastResult: null, principalId: KEPT, authorization: KEPT,
+    });
+  });
+
+  for (const valid of [true, false]) {
+    test(`binding a ${valid ? "valid" : "revoked"} request`, async () => {
+      const { host } = setupHost();
+      const slot = await openSlot(host);
+      const before = marked(slot);
+      const work = recordingWork(), authorization = countedAuthorization(valid);
+      const entry = queued("next", authorization, { requestId: "req-next", revision: 5, draftRef: { draftId: "draft-next", revision: 2 },
+        attachmentFiles: [{ fileId: "file-next" }] as never, work });
+      slot.releaseActive = entry.releaseAuthorization;
+      expect(bindRequest(slot, entry, undefined)).toBe(valid ? "bound" : "revoked");
+      const bound: Pick<Record<Member, Expected>, "requestId" | "draftRef" | "attachmentFileIds" | "work" | "revision"> = valid
+        ? { requestId: "req-next", draftRef: same(() => entry.draftRef), attachmentFileIds: equal(["file-next"]), work: same(() => work), revision: 5 }
+        : { requestId: KEPT, draftRef: KEPT, attachmentFileIds: KEPT, work: KEPT, revision: undefined };
+      expectMembers(slot.turn, before, {
+        shareId: KEPT, ...bound, startedAt: undefined, backendStarted: KEPT, retryRequest: KEPT, retryPrompt: KEPT, isManualRetry: KEPT,
+        recorder: KEPT, turnId: KEPT, abortController: KEPT, timeoutHandle: KEPT, handingOver: KEPT, timedOutTurnId: KEPT, hostStop: KEPT,
+        lastResult: KEPT, principalId: AUTHORIZATION.principalId, authorization: same(() => authorization),
+      });
+    });
+  }
+
+  test("running a turn whose principal is revoked before it starts", async () => {
+    const { host } = setupHost();
+    const slot = await openSlot(host);
+    const before = marked(slot);
+    const authorization = countedAuthorization(true);
+    const entry = queued("next", authorization, { requestId: "req-next", revision: 5 });
+    slot.releaseActive = entry.releaseAuthorization;
+    bindRequest(slot, entry, undefined);
+    spyOn(host, "expireAuthorizationContexts", (() => { (authorization as { valid: boolean }).valid = false; }) as never);
+    expect(await runSlotTurn(slot, entry, undefined)).toEqual({ kind: "revoked" });
+    expectMembers(slot.turn, before, {
+      shareId: KEPT, requestId: "req-next", draftRef: undefined, attachmentFileIds: undefined, work: undefined, revision: undefined,
+      startedAt: undefined, backendStarted: KEPT, retryRequest: KEPT, retryPrompt: KEPT, isManualRetry: KEPT, recorder: KEPT, turnId: KEPT,
+      abortController: fresh(AbortController), timeoutHandle: (value) => expect(value).toBeDefined(), handingOver: KEPT,
+      timedOutTurnId: KEPT, hostStop: KEPT, lastResult: KEPT, principalId: AUTHORIZATION.principalId, authorization: same(() => authorization),
+    });
+  });
+
+  test("running a turn to its end", async () => {
+    const { host } = setupHost();
+    const slot = await openSlot(host, { sessionId: "session-1" });
+    const before = marked(slot);
+    const entry = queued("hi", AUTHORIZATION, { work: recordingWork(), requestId: "req-next" });
+    slot.releaseActive = entry.releaseAuthorization;
+    bindRequest(slot, entry, undefined);
+    expect((await runSlotTurn(slot, entry, undefined)).kind).toBe("ran");
+    expectMembers(slot.turn, before, {
+      shareId: undefined, requestId: "req-next", draftRef: undefined, attachmentFileIds: undefined, work: undefined, revision: undefined,
+      startedAt: undefined, backendStarted: false, retryRequest: equal({ type: "chat_message", text: "hi", attachments: [], requestId: "req-next" }),
+      retryPrompt: "hi", isManualRetry: false, recorder: undefined, turnId: KEPT, abortController: fresh(AbortController),
+      timeoutHandle: (value) => expect(value).toBeDefined(), handingOver: KEPT, timedOutTurnId: KEPT, hostStop: KEPT, lastResult: KEPT,
+      principalId: AUTHORIZATION.principalId, authorization: same(() => AUTHORIZATION),
+    });
+  });
+});

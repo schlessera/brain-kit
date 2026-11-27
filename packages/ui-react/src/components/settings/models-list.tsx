@@ -1,5 +1,5 @@
 import { Button, Callout, Chip, IconButton, Placeholder, Toggle } from "@schlessera/brain-ui-kit";
-import { X } from "lucide-react";
+import { X } from "../icons.js";
 import {
   type BillingMode,
   type ModelCatalogEntry,

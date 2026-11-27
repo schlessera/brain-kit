@@ -12,7 +12,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } fr
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import { auditWithModules } from "../packages/core/src/lib/auditor";
-import { initContext, setContext, type BrainContext } from "../packages/core/src/lib/context";
+import { initContext, type BrainContext } from "../packages/core/src/lib/context";
 import type { AuditIssue } from "../packages/core/src/lib/types";
 
 const REPO = resolve(import.meta.dir, "..");
@@ -20,7 +20,6 @@ const BRAIN_BIN = join(REPO, "packages/core/src/cli/brain.ts");
 const NOW = "2026-07-12";
 const temporary: string[] = [];
 afterAll(() => {
-  setContext(null);
   for (const dir of temporary) rmSync(dir, { recursive: true, force: true });
 });
 

@@ -69,14 +69,6 @@ export interface SuggestionChipsProps {
   wrap?: boolean;
 }
 
-const INKS: Record<SuggestionTone, string> = {
-  neutral: accent.neutral.ink,
-  teal: accent.teal.ink,
-  amber: accent.amber.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-};
-
 const BORDERS: Record<SuggestionTone, string> = {
   neutral: token("suggestion-border-neutral"),
   teal: token("suggestion-border-teal"),
@@ -156,7 +148,7 @@ export function SuggestionChips(p: SuggestionChipsProps) {
       >
         {src.map((it, i) => {
           const tone = it.tone;
-          const ink = tone ? INKS[tone] || color.inkDim : color.inkDim;
+          const ink = tone ? accent[tone]?.ink || color.inkDim : color.inkDim;
           const off = it.disabled === true;
           // A disabled chip is still a control: it is the chip a user would
           // tap, and it has to be reachable to announce why it cannot run.

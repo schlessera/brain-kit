@@ -52,7 +52,7 @@ export function accountPartitionSeed(db: Database): string {
     const raced = readSeed(db);
     if (raced) return raced;
     const seed = randomBytes(32).toString("hex");
-    db.prepare(
+    db.query(
       `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
     ).run(SEED_KEY, JSON.stringify(seed), Date.now());

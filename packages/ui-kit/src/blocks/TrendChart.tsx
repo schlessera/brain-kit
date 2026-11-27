@@ -45,16 +45,6 @@ export interface TrendChartProps {
   height?: number;
 }
 
-const INKS: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 const BARS: Record<Tone, string> = {
   amber: token("trend-bar-amber"),
   gold: token("trend-bar-gold"),
@@ -68,7 +58,7 @@ const BARS: Record<Tone, string> = {
 export function TrendChart(p: TrendChartProps) {
   if (p.values && !Array.isArray(p.values)) warnOnce("TrendChart: `values` is not an array; the fallback series will draw instead.");
   const tone = p.tone || "purple";
-  const ink = INKS[tone] || INKS.purple;
+  const ink = (accent[tone] ?? accent.purple).ink;
   const bar = BARS[tone] || BARS.purple;
 
   // The source's fallback series, verbatim — it carries no brand, so it stays.

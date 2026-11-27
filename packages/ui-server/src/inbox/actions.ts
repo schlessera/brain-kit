@@ -181,17 +181,19 @@ const LIVE_WORK = "deleted_at IS NULL AND queue = 'queue' AND type != 'cleanup_p
  * its retention or schedule, failed work out of attempts, and finished work
  * in a thread with a triage item that has no cleanup item yet. A cleanup is
  * matched by staging id in its own thread; one held elsewhere only makes the
- * thread a candidate, and `enqueueInboxCleanup` still skips it.
+ * thread a candidate, and `enqueueInboxCleanup` still skips it. Those threads
+ * are read from `inbox_cleanup_due`, which triggers keep to exactly the
+ * triage items still without a cleanup, so finished work in threads already
+ * cleaned up is never visited (#4897). `CROSS JOIN` keeps them the outer loop
+ * and `INDEXED BY` reads each thread's items, not every finished item.
  */
 const SWEEP_CANDIDATES = `SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'actions' AND status IN ('pending', 'snoozed') AND expires_at <= ?1
   UNION SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'actions' AND status = 'snoozed' AND wait_until <= ?1
   UNION SELECT id FROM inbox_items WHERE ${LIVE_WORK} AND status IN ('blocked', 'ready', 'scheduled', 'failed') AND expires_at <= ?1
   UNION SELECT id FROM inbox_items WHERE ${LIVE_WORK} AND status = 'scheduled' AND (wait_until IS NULL OR wait_until <= ?1)
   UNION SELECT id FROM inbox_items WHERE ${LIVE_WORK} AND status = 'failed' AND attempts >= max_attempts
-  UNION SELECT id FROM inbox_items i WHERE ${LIVE_WORK} AND status IN ('done', 'superseded', 'expired', 'dropped') AND EXISTS (
-    SELECT 1 FROM inbox_items t WHERE t.thread_id = i.thread_id AND t.queue = 'queue' AND t.type = 'triage' AND NOT EXISTS (
-      SELECT 1 FROM inbox_items c WHERE c.thread_id = t.thread_id AND c.type = 'cleanup_pending'
-        AND json_extract(c.data_json, '$.payload.stagingId') = json_extract(t.data_json, '$.payload.stagingId')))
+  UNION SELECT i.id FROM inbox_cleanup_due d CROSS JOIN inbox_items i INDEXED BY inbox_items_thread ON i.thread_id = d.thread_id
+    WHERE i.deleted_at IS NULL AND i.queue = 'queue' AND i.type != 'cleanup_pending' AND i.status IN ('done', 'superseded', 'expired', 'dropped')
   ORDER BY 1`;
 
 /** Deterministic maintenance, callable at boot/tick without any backend. */

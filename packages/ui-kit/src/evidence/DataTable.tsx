@@ -2,8 +2,9 @@ import type { CSSProperties } from "react";
 
 import { Cue } from "../internal/cue.js";
 import { VALUE_CUE } from "../internal/tone-cue.js";
-import { accent, color, font } from "../tokens.js";
+import { color, font } from "../tokens.js";
 import type { Tone } from "../types.js";
+import { valueInk } from "../internal/tone-ink.js";
 
 /**
  * Inline table for model answers. Numbers are always mono and right-aligned; a
@@ -46,19 +47,6 @@ export interface DataTableProps {
   columns?: DataTableColumn[];
   rows?: DataTableRow[];
 }
-
-/** `ink` is not a tone — it is the untoned default, and it is what an untagged
- * cell gets. Every tone that IS a tone reads as ink-role accent. */
-const TONES: Record<Tone | "ink", string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-  ink: color.ink,
-};
 
 const FALLBACK_COLUMNS: DataTableColumn[] = [
   { label: "Landfall" },
@@ -133,7 +121,7 @@ export function DataTable(p: DataTableProps) {
                   textAlign: cols[i]?.align || "left",
                   fontFamily: c.mono ? font.mono : font.body,
                   fontWeight: c.bold ? 600 : 400,
-                  color: TONES[tone] || TONES.ink,
+                  color: valueInk(tone, "ink"),
                 }}
               >
                 {cue ? <Cue icon={cue} size={11} inline /> : null}

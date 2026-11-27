@@ -17,20 +17,10 @@ import { createUiDb } from "../src/db/client";
 import { openSqliteWriter } from "../src/db/write-worker";
 import * as probe from "./fixtures/write-worker-probe";
 import { watchWriteSites } from "./helpers/write-sites";
-import {
-  JEV_ENDPOINT,
-  JEV_TIMEOUT_MS,
-  TurnTextCollector,
-  attachMessageBlocks,
-  confidenceDistribution,
-  createJevClient,
-  createTurnClassifier,
-  loadMessageBlocks,
-  partHash,
-  recordQuestionConfidence,
-  saveMessageBlocks,
-  type JevClient,
-} from "../src/classification/index";
+import { JEV_ENDPOINT, JEV_TIMEOUT_MS, createJevClient, type JevClient } from "../src/classification/jev-client";
+import { recordQuestionConfidence } from "../src/classification/confidence-store";
+import { attachMessageBlocks, loadMessageBlocks, partHash, saveMessageBlocks } from "../src/classification/blocks-store";
+import { TurnTextCollector, createTurnClassifier } from "../src/classification/classify-turn";
 import { createSilentObservability } from "../src/observability/index";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { WsHost } from "../src/ws/host";
@@ -633,17 +623,15 @@ describe("the confidence record", () => {
       const blocks = await createTurnClassifier({ jev, db: () => db, log: silentLog }).run("s-net", [TEXT]);
       expect(blocks).toHaveLength(1);
       expect(rows("s-net")).toHaveLength(3);
-      // Reading the distribution back is a query against the local file too.
-      expect(confidenceDistribution(db).length).toBeGreaterThan(0);
     } finally {
       globalThis.fetch = realFetch;
     }
     expect(seen).toEqual([JEV_ENDPOINT]);
   });
 
-  test("the distribution reads back per candidate kind, question and bucket", async () => {
+  test("each pass records its confidence, threshold and outcome per candidate kind and question", async () => {
     // Ten passes over the same table, the shape answer walking up through the
-    // swap line, so the read-back has a distribution rather than one point.
+    // swap line, so the rows span both sides of it.
     for (let i = 0; i < 10; i++) {
       const confidence = Number((0.05 + i * 0.1).toFixed(2));
       const answers = {
@@ -652,47 +640,25 @@ describe("the confidence record", () => {
       };
       await classifier(answering(answers)).run(`s-dist-${i}`, [TEXT]);
     }
-    const shape = confidenceDistribution(db).filter((row) => row.question === "shape");
+    const shape = rows().filter((row) => row.question === "shape");
     expect(shape).toHaveLength(10);
     expect(shape.every((row) => row.candidateKind === "table" && row.threshold === CONFIDENCE.swap)).toBe(true);
-    expect(shape.map((row) => [row.bucket, row.count, row.cleared, row.swapped])).toEqual([
-      [0, 1, 0, 0],
-      [0.1, 1, 0, 0],
-      [0.2, 1, 0, 0],
-      [0.3, 1, 0, 0],
-      [0.4, 1, 0, 0],
-      [0.5, 1, 0, 0],
+    expect(shape.map((row) => [row.confidence, row.cleared, row.outcome === "swapped" ? 1 : 0])).toEqual([
+      [0.05, 0, 0],
+      [0.15, 0, 0],
+      [0.25, 0, 0],
+      [0.35, 0, 0],
+      [0.45, 0, 0],
+      [0.55, 0, 0],
       // 0.65 clears the 0.6 line, so the candidate was drawn as a block.
-      [0.6, 1, 1, 1],
-      [0.7, 1, 1, 1],
-      [0.8, 1, 1, 1],
-      [0.9, 1, 1, 1],
+      [0.65, 1, 1],
+      [0.75, 1, 1],
+      [0.85, 1, 1],
+      [0.95, 1, 1],
     ]);
   });
 
-  test("a confidence sitting exactly on a line buckets with the line, not under it", () => {
-    // 0.7 * 10 is 6.999… in binary floating point, and a truncating bucket
-    // would file every threshold-hitting answer one bucket too low — exactly
-    // the rows a threshold is tuned on.
-    for (const confidence of [CONFIDENCE.swap, CONFIDENCE.noul, CONFIDENCE.tone, 1]) {
-      recordQuestionConfidence(db, "s-edge", [
-        {
-          candidateId: "p0c0",
-          candidateKind: "table",
-          question: "shape",
-          answerType: "choice",
-          choice: "comparison",
-          confidence,
-          threshold: CONFIDENCE.swap,
-          cleared: true,
-          outcome: "swapped",
-        },
-      ]);
-    }
-    expect(confidenceDistribution(db).map((row) => row.bucket)).toEqual([0.6, 0.7, 0.8, 0.9]);
-  });
-
-  test("the read window and the retention prune bound what is kept", () => {
+  test("the retention prune bounds what is kept", () => {
     const observation = {
       candidateId: "p0c0",
       candidateKind: "table" as const,
@@ -711,8 +677,6 @@ describe("the confidence record", () => {
     // The next write prunes what has aged out.
     recordQuestionConfidence(db, "s-new", [observation], now);
     expect(rows().map((row) => row.sessionId)).toEqual(["s-recent", "s-new"]);
-    expect(confidenceDistribution(db, { since: now }).map((row) => row.count)).toEqual([1]);
-    expect(confidenceDistribution(db, { since: now + 1 })).toEqual([]);
   });
 });
 

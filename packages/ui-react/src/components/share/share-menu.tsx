@@ -1,7 +1,7 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { IconButton } from "@schlessera/brain-ui-kit";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { Share2, Loader2, Check, AlertCircle } from "lucide-react";
+import { Share2, Loader2, Check, AlertCircle } from "../icons.js";
 import { cn } from "../../lib/utils.js";
 
 export interface ShareOption {
