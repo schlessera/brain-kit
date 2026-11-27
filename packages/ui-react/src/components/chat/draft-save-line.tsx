@@ -1,80 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { createPortal } from "react-dom";
-import { Overlay, Button, TextButton } from "@schlessera/brain-ui-kit";
+import { Overlay, Button } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import type { BrainUiRoot } from "../../root.js";
-import { SAVING_SHOWN_AFTER_MS, draftSaveView } from "../../lib/drafts.js";
-import { VERSION_SWITCH_COPY } from "../../lib/draft-indicator.js";
-import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
 import { hasContent, holdsSnapshots, type DraftConflictChoice } from "../../stores/draft-state.js";
-
-/**
- * The line under the composer while a draft exists (D52 §5): `draft ·
- * saved` only once the host acknowledged this exact revision, images
- * included; `draft · saving…` once a save has been out for 600ms; and the
- * honest states for a host that is unreachable, keeps no drafts, or
- * refused the size. A conflict prints `Compare`, which opens both versions.
- * Content is kept here in every state.
- */
-export function DraftSaveLine({ draftId }: { draftId: string }) {
-  const root = useBrainUiRoot();
-  const draft = useRootStore("drafts", (s) => s.drafts[draftId]);
-  const supported = useRootStore("drafts", (s) => s.supported);
-  const limits = useRootStore("drafts", (s) => s.limits);
-  const localFailed = useLocalWorkStatus((s) => s.failed);
-  const switchNote = useRootStore("drafts", (s) => (s.versionSwitch?.draftId === draftId && s.versionSwitch.outcome !== "unattached" ? s.versionSwitch.outcome : null));
-  const [, tick] = useState(0);
-  const [comparing, setComparing] = useState(false);
-  const compareRef = useRef<HTMLButtonElement>(null);
-  // `saving…` appears once the save has been out long enough, without another change to wait for.
-  useEffect(() => {
-    if (draft?.savingSince == null) return;
-    const left = SAVING_SHOWN_AFTER_MS - (Date.now() - draft.savingSince);
-    if (left <= 0) return;
-    const timer = setTimeout(() => tick((n) => n + 1), left);
-    return () => clearTimeout(timer);
-  }, [draft?.savingSince]);
-  useEffect(() => { if (!draft?.conflict) setComparing(false); }, [draft?.conflict]);
-
-  const view = draftSaveView(draft, { supported, limits, localFailed }, Date.now());
-  const tone = view.state === "saved" ? "text-accent"
-    : view.state === "conflict" || view.state === "too_large" || view.state === "full" || view.state === "refused" || view.state === "unsaved" ? "text-primary"
-    : "text-muted-foreground";
-  // A failed device write takes back "both versions kept", not the switch's outcome (#4567).
-  if (draft?.deviceConflict && !draft.conflict && (!localFailed || switchNote)) return (
-    <div className="mx-auto mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 px-1 font-mono text-[10.5px] leading-4 text-foreground" data-device-conflict="">
-      {localFailed ? null : <span role="status">Another tab changed this draft · Both versions kept</span>}
-      {draft.failure?.kind === "refused" && draft.failure.edit === draft.edit ? <span className="text-primary" data-draft-save="refused">· not saved · refused by the brain</span> : null}
-      {switchNote ? <span data-version-switch={switchNote}>{localFailed ? "" : "· "}{VERSION_SWITCH_COPY[switchNote]}</span> : null}
-      <TextButton tone="inherit" label="Open other version" onClick={() => openOtherVersion(root, draft.deviceConflict!.otherId, draftId)} />
-    </div>
-  );
-  if (view.state === "none") {
-    // Absent, with no spacer, while there is no draft. A draft whose save is
-    // still on its way prints nothing too, but keeps the line's place, so a
-    // keystroke or a drop that turns it into `not saved yet` never moves the
-    // field above it (#1013).
-    if (!draft || (draft.text.length === 0 && draft.attachments.length === 0)) return null;
-    return <div aria-hidden="true" className="mx-auto mt-1 h-4 max-w-3xl" data-draft-save-slot="" />;
-  }
-  return (
-    <div className="mx-auto mt-1 flex min-h-[16px] max-w-3xl items-center gap-2 px-1 font-mono text-[10.5px] leading-4" data-draft-save={view.state} data-draft-id={draftId}>
-      {view.state === "conflict" ? (
-        <>
-          <span className={tone}>{view.copy}</span>
-          <span aria-hidden="true" className="text-muted-foreground">·</span>
-          <span className="text-foreground">
-            <TextButton ref={compareRef} tone="inherit" inline label="Compare" haspopup="dialog"
-              ariaLabel="Compare drafts" onClick={() => setComparing(true)} data-draft-compare="" />
-          </span>
-        </>
-      ) : (
-        <span className={tone}>{view.copy}</span>
-      )}
-      {comparing && draft?.conflict ? <CompareDrafts draftId={draftId} onClose={() => setComparing(false)} returnFocus={() => compareRef.current} /> : null}
-    </div>
-  );
-}
+import { clockTime } from "../../lib/format-time.js";
 
 /** Each side's images, so two versions with the same count can still be told apart. */
 function Thumbs({ urls, names }: { urls: string[]; names: string[] }) {
@@ -84,10 +14,6 @@ function Thumbs({ urls, names }: { urls: string[]; names: string[] }) {
       {urls.map((url, i) => <img key={i} src={url} alt={names[i]} className="h-12 w-12 rounded-lg border border-border object-cover" />)}
     </div>
   );
-}
-
-function clock(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 /**
@@ -111,12 +37,12 @@ export function CompareDrafts({ draftId, onClose, returnFocus }: { draftId: stri
       initialFocus={heading} onClose={onClose} returnFocus={returnFocus}>
       <h2 ref={heading} tabIndex={-1} className="bk-sr-only">Compare drafts</h2>
       <section className="mb-3" data-compare-side="this">
-        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">This device · edited {clock(draft.editedAt)}{images(draft.attachments.length)}</div>
+        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">This device · edited {clockTime(draft.editedAt)}{images(draft.attachments.length)}</div>
         <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{draft.text || "(images only)"}</p>
         <Thumbs urls={draft.attachments.map((a) => a.previewUrl)} names={draft.attachments.map((a) => a.name)} />
       </section>
       <section className="mb-4" data-compare-side="other">
-        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">Other device · edited {clock(other.updatedAt)}{images(other.attachments.length)}</div>
+        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">Other device · edited {clockTime(other.updatedAt)}{images(other.attachments.length)}</div>
         <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{other.text || "(images only)"}</p>
         <Thumbs urls={other.attachments.map((a) => `data:${a.mime};base64,${a.bytes}`)} names={other.attachments.map((a) => a.name ?? "image")} />
       </section>

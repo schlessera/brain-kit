@@ -14,7 +14,7 @@ import { CheckoutCaptureRefused, captureCodeChanges, checkedCodeDirectory, listC
 import { observeDiagnostic, type MaintenanceHost, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { randomUUID } from "node:crypto";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
-import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
+import { openSqliteWriter, untilStable, type SqliteWriter } from "../db/write-worker.js";
 import { codeReceiptTablesExist, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { installEscapeGuard, JournalObjectQuarantined, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createGovernanceWrites } from "../governance/event-writes.js";
@@ -576,21 +576,61 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     value.append(db.query("SELECT sequence,path,before_json,after_json,class,overlaps FROM turn_journal_changes WHERE turn_id=? AND sequence>? ORDER BY sequence").all(turnId, value.sequence) as ChangeRow[]);
     return value;
   }
+  /** What a summary is built from, read one turn at a time or many at once. */
+  type SummaryFacts = { row: TurnRow; counts: { changedFiles: number; steeringFiles: number; keptFiles: number; sharedAttribution: number }; codeCount: number;
+    cost: { effective_cost_usd: number | null; pricing_estimate: number | null } | null; scope: { summary: string } | null; configuration: ReturnType<typeof configurationOf> };
+  const CHANGE_COUNTS = `count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,
+      count(DISTINCT CASE WHEN ${KEPT_CHANGE} THEN path END) AS keptFiles,max(overlaps!='[]') AS sharedAttribution`;
   function summary(turnId: string): TurnJournalSummary {
     const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow | null;
-    if (!row) return { state: "unknown", changedFiles: null, steeringFiles: null, keptFiles: null, costUsd: null, costIsEstimate: null, profile: null, actor: null, model: null, policyHash: null, sharedAttribution: false, observedAt: null };
-    const retained = row.summary ? JSON.parse(row.summary) as { changedFiles: number; steeringFiles: number; keptFiles?: number | null; sharedAttribution: boolean } : undefined;
-    const counts = { ...((active.has(turnId) ? advanceCounters(turnId).counts : undefined) ?? db.query(`SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,
-      count(DISTINCT CASE WHEN ${KEPT_CHANGE} THEN path END) AS keptFiles,max(overlaps!='[]') AS sharedAttribution FROM turn_journal_changes WHERE turn_id=?`)
-      .get(DISPOSABLE_INDEX_PATHS, INDEX_PUBLICATION_COPY, turnId) as { changedFiles: number; steeringFiles: number; keptFiles: number; sharedAttribution: number }) };
+    if (!row) return summarize(null);
+    const counts = { ...((active.has(turnId) ? advanceCounters(turnId).counts : undefined) ?? db.query(`SELECT ${CHANGE_COUNTS} FROM turn_journal_changes WHERE turn_id=?`)
+      .get(DISPOSABLE_INDEX_PATHS, INDEX_PUBLICATION_COPY, turnId) as SummaryFacts["counts"]) };
     const codeCount = codeReceiptTablesExist(db) ? (db.query("SELECT coalesce(sum(json_array_length(receipt,'$.paths')),0) AS n FROM turn_journal_code_receipts WHERE turn_id=?").get(turnId) as { n: number }).n : 0;
+    const cost = db.query("SELECT effective_cost_usd,pricing_estimate FROM activity_run_rollups WHERE run_id=?").get(turnId) as SummaryFacts["cost"];
+    const scope = db.query("SELECT summary FROM turn_scope WHERE turn_id=?").get(turnId) as SummaryFacts["scope"];
+    return summarize({ row, counts, codeCount, cost, scope, configuration: configurationOf(row) });
+  }
+  /**
+   * `summary` of many turns for history replay (#4800). An active turn keeps
+   * the per-turn path and its in-memory counters; the ended turns are read
+   * with one statement per kind over the whole list, and the schema is probed
+   * once.
+   */
+  function summaries(turnIds: readonly string[]): Map<string, TurnJournalSummary> {
+    const result = new Map<string, TurnJournalSummary>();
+    const ended: string[] = [];
+    for (const turnId of new Set(turnIds)) if (active.has(turnId)) result.set(turnId, summary(turnId)); else ended.push(turnId);
+    if (!ended.length) return result;
+    const ids = JSON.stringify(ended), listed = "IN (SELECT value FROM json_each(?))";
+    const byTurn = <T extends { turn_id: string }>(rows: T[]) => new Map(rows.map(row => [row.turn_id, row]));
+    const rows = byTurn(db.query(`SELECT * FROM turn_journal_turns WHERE turn_id ${listed}`).all(ids) as TurnRow[]);
+    const counts = byTurn(db.query(`SELECT turn_id,${CHANGE_COUNTS} FROM turn_journal_changes WHERE turn_id ${listed} GROUP BY turn_id`)
+      .all(DISPOSABLE_INDEX_PATHS, INDEX_PUBLICATION_COPY, ids) as (SummaryFacts["counts"] & { turn_id: string })[]);
+    const codeCounts = byTurn(codeReceiptTablesExist(db) ? db.query(`SELECT turn_id,coalesce(sum(json_array_length(receipt,'$.paths')),0) AS n FROM turn_journal_code_receipts WHERE turn_id ${listed} GROUP BY turn_id`)
+      .all(ids) as { turn_id: string; n: number }[] : []);
+    const costs = new Map((db.query(`SELECT run_id,effective_cost_usd,pricing_estimate FROM activity_run_rollups WHERE run_id ${listed}`).all(ids) as (NonNullable<SummaryFacts["cost"]> & { run_id: string })[])
+      .map(({ run_id, ...cost }) => [run_id, cost]));
+    const scopes = byTurn(db.query(`SELECT turn_id,summary FROM turn_scope WHERE turn_id ${listed}`).all(ids) as { turn_id: string; summary: string }[]);
+    const hashes = [...new Set([...rows.values()].flatMap(row => row.configuration_set ? [row.configuration_set] : []))];
+    const sets = new Map(hashes.length ? (db.query(`SELECT hash,paths FROM turn_journal_configuration_sets WHERE hash ${listed}`).all(JSON.stringify(hashes)) as { hash: string; paths: string }[])
+      .map(set => [set.hash, JSON.parse(set.paths) as string[]]) : []);
+    for (const turnId of ended) {
+      const row = rows.get(turnId), count = counts.get(turnId);
+      result.set(turnId, summarize(row ? { row, configuration: recordedConfigurationSet(row, hash => sets.get(hash)),
+        counts: count ? { changedFiles: count.changedFiles, steeringFiles: count.steeringFiles, keptFiles: count.keptFiles, sharedAttribution: count.sharedAttribution } : { changedFiles: 0, steeringFiles: 0, keptFiles: 0, sharedAttribution: 0 },
+        codeCount: codeCounts.get(turnId)?.n ?? 0, cost: costs.get(turnId) ?? null, scope: scopes.get(turnId) ?? null } : null));
+    }
+    return result;
+  }
+  function summarize(facts: SummaryFacts | null): TurnJournalSummary {
+    if (!facts) return { state: "unknown", changedFiles: null, steeringFiles: null, keptFiles: null, costUsd: null, costIsEstimate: null, profile: null, actor: null, model: null, policyHash: null, sharedAttribution: false, observedAt: null };
+    const { row, counts, codeCount, cost, scope, configuration } = facts;
+    const retained = row.summary ? JSON.parse(row.summary) as { changedFiles: number; steeringFiles: number; keptFiles?: number | null; sharedAttribution: boolean } : undefined;
     counts.changedFiles += codeCount; counts.keptFiles += codeCount;
-    const cost = db.query("SELECT effective_cost_usd,pricing_estimate FROM activity_run_rollups WHERE run_id=?").get(turnId) as { effective_cost_usd: number | null; pricing_estimate: number | null } | null;
-    const partial = row.state !== "expired" && (failures.has(turnId) || row.failure.trim() || row.state === "partial");
-    const scope = db.query("SELECT summary FROM turn_scope WHERE turn_id=?").get(turnId) as { summary: string } | null;
+    const partial = row.state !== "expired" && (failures.has(row.turn_id) || row.failure.trim() || row.state === "partial");
     // Coverage is complete only for a set this turn actually recorded: a
     // legacy row without one never reads as complete (#3257).
-    const configuration = configurationOf(row);
     return { configurationCoverage: configuration.paths.length ? "incomplete" : configuration.recorded && !partial && row.state === "complete" ? "complete" : "unknown",
       ...(configuration.recorded && configuration.paths.length ? { configurationCoverageSet: configuration.hash } : {}), ...(scope ? { scope: JSON.parse(scope.summary) } : {}), state: partial ? "partial" : row.state, changedFiles: retained?.changedFiles ?? (partial && !counts.changedFiles ? null : counts.changedFiles), steeringFiles: retained?.steeringFiles ?? (partial && !counts.changedFiles ? null : counts.steeringFiles),
       // A retained summary from before keptFiles existed stays unknown; its changes are gone.
@@ -993,8 +1033,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       for (const root of retiredWorktrees) await root.releasesSettled();
     },
     async idle(): Promise<void> {
-      let waiting: Promise<unknown>;
-      do { waiting = tail; await waiting; } while (waiting !== tail);
+      await untilStable(() => tail);
       // Background worktree cleanup (#3825) is not awaited here: every turn's
       // host effects wait on idle(), and one ended turn's slow release must not
       // delay them. releasesSettled() waits for it.
@@ -1208,6 +1247,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       return this.withCodeEvidence(sessionId, turnId, checkout, (receipt, pack) => withCodeMaintenance(host => previewCodeChanges(options.brainPath, { ...receipt, pack }, host)));
     },
     summary,
+    summaries,
     /**
      * The brain's current untraced configuration-input set (#3257): the one the
      * most recent complete turn recorded from a configuration inventory. A

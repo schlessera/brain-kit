@@ -1,7 +1,7 @@
 import { Button, IconButton } from "@schlessera/brain-ui-kit";
 import { trackBytes, trackDisplayName } from "../../lib/track-uploads.js";
 import { useEffect, useMemo, useState } from "react";
-import { Share2, X } from "lucide-react";
+import { Share2, X } from "../icons.js";
 import type { StoredShare } from "@schlessera/brain-ui-sdk/share-target";
 import { useShareIntake } from "../../hooks/use-share-intake.js";
 import { useShareStore } from "../../stores/share-store.js";

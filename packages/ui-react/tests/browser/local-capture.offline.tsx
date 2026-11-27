@@ -317,6 +317,23 @@ test("a refused microphone shows the denial, keeps focus on the mic and leaves t
   expect(s.gum.calls, "no second prompt").toBe(1);
 });
 
+test("dismissing the denial from the keyboard hands focus back to the mic (#4828)", async (ctx) => {
+  const s = await mount(ctx, { gum: async () => { throw new DOMException("Permission denied", "NotAllowedError"); } });
+  // Found by its place in the kit's mic slot, never by its accessible name:
+  // the composer's own focus return must not depend on the wording either.
+  const resting = () => s.host.querySelector<HTMLElement>("[data-composer] [data-composer-mic] button.bk-voice-mic");
+  await expect.poll(resting, { message: "the resting mic is drawn" }).not.toBe(null);
+  await userEvent.click(resting()!);
+  await expect.poll(() => notice(s)?.querySelector("[data-capture-message]")?.textContent, { message: "the denial copy" })
+    .toBe("Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again.");
+  const dismiss = notice(s)!.querySelector<HTMLElement>('[aria-label="Dismiss capture notice"]')!;
+  dismiss.focus();
+  expect(document.activeElement, "Dismiss holds focus").toBe(dismiss);
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(() => notice(s)?.querySelector("[data-capture-message]") ?? null, { message: "the notice goes" }).toBe(null);
+  await expect.poll(() => document.activeElement, { message: "focus returns to the mic" }).toBe(resting());
+});
+
 test("a browser that cannot record on the device says so, with no mic claiming to", async (ctx) => {
   vi.spyOn(MediaRecorder, "isTypeSupported").mockReturnValue(false);
   const s = await mount(ctx);

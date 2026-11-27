@@ -15,7 +15,7 @@ import {
   NotebookPen,
   MapPin,
   ChevronRight,
-} from "lucide-react";
+} from "../icons.js";
 import { DiffBlock } from "@schlessera/brain-ui-kit";
 import type { ToolCall } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";

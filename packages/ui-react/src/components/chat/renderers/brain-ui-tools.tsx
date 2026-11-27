@@ -14,7 +14,7 @@ import {
   REQUEST_IMAGE_MASK_CONTRACT,
   SHOW_BLOCK_CONTRACT,
 } from "@schlessera/brain-ui-sdk/client";
-import { LayoutGrid, MapPin, PenLine, Scissors } from "lucide-react";
+import { LayoutGrid, MapPin, PenLine, Scissors } from "../../icons.js";
 import { BlockCard, blockSummary } from "../tool-cards/block-card.js";
 import { LocationResultCard } from "../tool-cards/location-card.js";
 import { ImageMaskResultCard, ImageMaskFallback } from "../tool-cards/image-mask-card.js";

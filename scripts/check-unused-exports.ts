@@ -137,16 +137,6 @@ export const ALLOWLIST: AllowlistEntry[] = [
   { file: "packages/ui-server/src/middleware/tailscale.ts", name: "tailscaleGuard", kind: "test-only", owner: "#4678", reason: "only tests mount it; #4678 removes it" },
   { file: "packages/ui-server/src/share/staging.ts", name: "shareStagingRoot", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
   { file: "packages/ui-server/src/voice/conversation-history.ts", name: "conversationHistory", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
-
-  // #4679 removes ui-react and ui-kit helpers only tests reach.
-  { file: "packages/ui-react/src/components/chat/draft-save-line.tsx", name: "DraftSaveLine", kind: "test-only", owner: "#4679", reason: "production never renders it; #4679 removes it" },
-  { file: "packages/ui-react/src/lib/draft-indicator.ts", name: "draftIndicatorAtRisk", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
-  { file: "packages/ui-react/src/lib/graph-helpers.ts", name: "SLOT_COUNT", kind: "test-only", owner: "#4679", reason: "only tests read it; #4679 removes it" },
-  { file: "packages/ui-react/src/lib/stats/compose-stats.ts", name: "VALUE_BUDGET", kind: "test-only", owner: "#4679", reason: "only tests read it; #4679 removes it" },
-  { file: "packages/ui-react/src/stores/activity-store-helpers.ts", name: "subagentSpans", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
-  { file: "packages/ui-react/src/stores/activity-store-helpers.ts", name: "timingFor", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
-  { file: "packages/ui-kit/src/storage/history-geometry.ts", name: "subpathCount", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
-  { file: "packages/ui-kit/src/storage/tool-row-model.ts", name: "toolStateText", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
 ];
 
 export interface Finding { file: string; line: number; name: string; kind: "declaration" | "re-export" | "test-only" }

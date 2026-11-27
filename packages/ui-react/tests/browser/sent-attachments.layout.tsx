@@ -117,12 +117,12 @@ for (const width of [320,1280]) for (const theme of ["dark","light"]) {
     for (const row of rows()) expect(row).not.toMatch(/not read yet|\bread\b|couldn't read/);
     answer();
     await expect.poll(() => rows()[0]).toContain("PDF · 2.4 MB · read p. 1–3");
-    expect(rows()[1]).toContain("Text · 1.8 KB · not read yet");
+    expect(rows()[1]).toContain("Text · 2 KB · not read yet");
     expect(rows()[2]).toContain("3.1 MB · no reader for this kind of file");
-    expect(rows()[3]).toContain("PDF · 640.0 KB · couldn't read: password-protected");
+    expect(rows()[3]).toContain("PDF · 640 KB · couldn't read: password-protected");
     // A later turn's read arrives as a frame and updates its row in place.
     root.connection.handleServerMessage({ type: "attachment_read", sessionId: SESSION, read: { fileId: ORIGINALS[1].fileId, turnId: "turn-2", outcome: "partial", scope: { bytes: [0, 1_024], totalBytes: 1_843 }, at: at + 2 } });
-    await expect.poll(() => rows()[1]).toContain("Text · 1.8 KB · read stopped at 1.0 KB");
+    await expect.poll(() => rows()[1]).toContain("Text · 2 KB · read stopped at 1 KB");
     for (const row of host.querySelectorAll<HTMLElement>("[data-sent-files] [data-kit-attachment-row]")) {
       for (const line of row.querySelectorAll<HTMLElement>("b,span")) expect(line.scrollWidth, "complete label/metadata fits").toBeLessThanOrEqual(line.clientWidth + 1);
     }
