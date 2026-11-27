@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 import type { JobRow, ReviewStatus } from "./types.js";
-import { getReviewQueue, setReviewStatus, deleteJob, type ReviewOptions } from "./review.js";
+import { getReviewQueue, setReviewStatus, deleteJob, formatSalaryRange, parseTags, type ReviewOptions } from "./review.js";
 
 /** Open a URL in the default browser, detecting WSL2 and suppressing output. */
 export function openUrl(url: string): void {
@@ -156,9 +156,7 @@ function renderJobCard(
   if (job.salary_raw) {
     meta.push(`${GREEN}${job.salary_raw}${RESET}`);
   } else if (job.salary_min || job.salary_max) {
-    const min = job.salary_min ? `€${Math.round(job.salary_min / 100).toLocaleString()}` : "?";
-    const max = job.salary_max ? `€${Math.round(job.salary_max / 100).toLocaleString()}` : "?";
-    meta.push(`${GREEN}${min} - ${max}${RESET}`);
+    meta.push(`${GREEN}${formatSalaryRange(job, { suffix: false })}${RESET}`);
   }
   lines.push(meta.join(` ${DIM}|${RESET} `));
 
@@ -170,13 +168,9 @@ function renderJobCard(
   lines.push(`${DIM}${info.join(" | ")}${RESET}`);
 
   // Tags
-  if (job.tags) {
-    try {
-      const tags = JSON.parse(job.tags) as string[];
-      if (tags.length > 0) {
-        lines.push(`${DIM}Tags:${RESET} ${tags.slice(0, 12).join(", ")}${tags.length > 12 ? ` (+${tags.length - 12})` : ""}`);
-      }
-    } catch {}
+  const tags = parseTags(job);
+  if (tags.length > 0) {
+    lines.push(`${DIM}Tags:${RESET} ${tags.slice(0, 12).join(", ")}${tags.length > 12 ? ` (+${tags.length - 12})` : ""}`);
   }
 
   // URL

@@ -16,9 +16,11 @@ import { existsSync } from "fs";
 
 import { resolveEnv } from "../config/env.js";
 import type { BrainContext } from "../lib/context.js";
-import { openDatabase } from "../lib/db.js";
+import { migrateVecSchema, openDatabase, storedVectorWidth } from "../lib/db.js";
+import type { IndexStats } from "../lib/indexer.js";
 import { EMBEDDING_DIMENSIONS } from "../lib/models.js";
 import type { EmbeddingProvider } from "../lib/seams.js";
+import type { CliContext } from "./types.js";
 
 /** Thrown for user/usage errors → exit code 1. Any other error → exit code 2. */
 export class UsageError extends Error {}
@@ -190,4 +192,32 @@ export function openReadonlyDb(brain: BrainContext): Database {
 /** Open (creating if needed) the brain database read-write. */
 export function openWritableDb(brain: BrainContext, dims = EMBEDDING_DIMENSIONS): Database {
   return openDatabase(brain.dbPath, { embeddingDimensions: dims });
+}
+
+/**
+ * Bring the index up to date for `maintain`, `doctor --fix` and `sync`: open
+ * with the configured embedding width, migrate the vector schema, run an
+ * incremental index (with embeddings when a provider is configured), and close
+ * the handle before the result or the error reaches the caller. The indexer is
+ * imported here, not at the top, because every command imports this file.
+ */
+export async function reindexWithProviders(cli: CliContext): Promise<IndexStats> {
+  const { indexAll } = await import("../lib/indexer.js");
+  const dims = embeddingDims(cli.embeddings);
+  const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
+  try {
+    await migrateVecSchema(db, storedVectorWidth(db, dims));
+    const wantEmbeddings = !!cli.embeddings;
+    return await indexAll(db, {
+      root: cli.brain.root,
+      taxonomy: cli.brain.taxonomy,
+      force: false,
+      quiet: true,
+      embeddings: wantEmbeddings,
+      provider: wantEmbeddings ? cli.embeddings : undefined,
+      enrichment: wantEmbeddings ? cli.enrichment : undefined,
+    });
+  } finally {
+    db.close();
+  }
 }

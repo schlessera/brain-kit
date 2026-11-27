@@ -78,7 +78,7 @@ export const piRetiredDirectory = (sessionDir: string) => join(sessionDir, "reti
 
 const HEADER_BYTES = 64 * 1024;
 /** The session header of one plain, single-name transcript file, or undefined. */
-function header(path: string): { type?: unknown; id?: unknown; cwd?: unknown } | undefined {
+export function piSessionHeader(path: string): { type?: unknown; id?: unknown; cwd?: unknown } | undefined {
   let fd: number;
   try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { return undefined; }
   try {
@@ -102,7 +102,7 @@ export function removePiSession(sessionDir: string, brainPath: string, id: strin
   if (!isPiSessionId(id)) throw new BackendRequestError("Invalid server session identity");
   const outcomes: SessionHistoryRemovalOutcome[] = [];
   for (const name of ownedNames(sessionDir, name => name.endsWith(".jsonl"))) {
-    const canonical = name === `${id}.jsonl`, found = header(join(sessionDir, name));
+    const canonical = name === `${id}.jsonl`, found = piSessionHeader(join(sessionDir, name));
     const ours = found?.type === "session" && found.id === id;
     if (ours && found.cwd === brainPath) outcomes.push(removeOwnedArtifact(sessionDir, name));
     else if (canonical) outcomes.push("partial");

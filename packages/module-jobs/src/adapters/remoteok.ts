@@ -85,7 +85,7 @@ export class RemoteOKAdapter extends BaseAdapter {
           salary_currency: entry.salary_min && entry.salary_min > 0 ? "USD" : undefined,
           salary_raw:
             entry.salary_min && entry.salary_min > 0
-              ? `$${entry.salary_min.toLocaleString()} - $${(entry.salary_max || 0).toLocaleString()}`
+              ? `$${entry.salary_min.toLocaleString("en-US")} - $${(entry.salary_max || 0).toLocaleString("en-US")}`
               : undefined,
           published_at: pubDate,
         });

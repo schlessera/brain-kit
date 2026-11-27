@@ -1,15 +1,18 @@
+import * as fs from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, expect, test, describe } from "bun:test";
+import { afterAll, expect, spyOn, test, describe } from "bun:test";
 import type {
   listSessions as sdkListSessions,
   getSessionMessages as sdkGetSessionMessages,
   SDKSessionInfo,
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
-import { createHistory } from "../src/history";
+import { sessionPromptContext, sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
+import { installTestHome } from "../../../scripts/test-home.js";
+import { buildSessionHistory, createHistory } from "../src/history";
+import { claudePromptContext } from "../src/prompt-context.js";
 
 const brain = mkdtempSync(join(tmpdir(), "claude-history-context-"));
 afterAll(() => rmSync(brain, { recursive: true, force: true }));
@@ -212,4 +215,31 @@ describe("listSessions normalization", () => {
     });
     expect(await history.listSessions()).toEqual([]);
   });
+});
+
+test("a history read opens the prompt-context file once, whatever the number of user entries (#4859)", async () => {
+  const home = installTestHome(), ithaca = mkdtempSync(join(tmpdir(), "claude-history-opens-"));
+  try {
+    const session = crypto.randomUUID(), store = claudePromptContext(ithaca, session);
+    store.retainAppend("Odysseus keeps the log.");
+    const transcript: SessionMessage[] = [];
+    for (let turn = 0; turn < 20; turn++) {
+      const sent = store.prepare(`Turn ${turn}: which way to Ithaca?`, { device: turn % 2 ? "phone" : "tablet" });
+      store.acknowledge(sent.id);
+      transcript.push({ ...entry("user", [{ type: "text", text: sent.text }]), uuid: sent.id } as SessionMessage,
+        entry("assistant", [{ type: "tool_use", id: `call-${turn}`, name: "brain_search", input: {} }]),
+        entry("user", [{ type: "tool_result", tool_use_id: `call-${turn}`, content: "Ithaca lies west." }]),
+        entry("assistant", [{ type: "text", text: "Sail west." }]));
+    }
+    const { dir, name } = sessionPromptContextLocation(process.env.CLAUDE_CONFIG_DIR!, ithaca, session);
+    const open = spyOn(fs, "openSync");
+    let history, opens;
+    try {
+      history = await buildSessionHistory(session, (async () => transcript) as unknown as typeof sdkGetSessionMessages, ithaca);
+      opens = open.mock.calls.filter(([path]) => path === join(dir, name)).length;
+    } finally { open.mockRestore(); }
+    expect(opens, "ONE_PROMPT_CONTEXT_READ_PER_HISTORY").toBe(1);
+    expect(history.filter(message => message.role === "user").map(message => message.content))
+      .toEqual(Array.from({ length: 20 }, (_, turn) => `Turn ${turn}: which way to Ithaca?`));
+  } finally { rmSync(ithaca, { recursive: true, force: true }); home.dispose(); }
 });
