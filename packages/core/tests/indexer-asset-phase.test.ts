@@ -62,7 +62,7 @@ const provider: EmbeddingProvider = {
   },
 };
 
-function enrichment(describe: (buffer: Buffer) => Promise<string>): Enrichment {
+function enrichment(describe: (buffer: Uint8Array) => Promise<string>): Enrichment {
   return {
     describeAsset: (buffer) => describe(buffer),
     async generateChunkContext() {
@@ -73,7 +73,7 @@ function enrichment(describe: (buffer: Buffer) => Promise<string>): Enrichment {
 
 const dbPath = (root: string) => join(root, ".brain-index", "brain.db");
 
-async function embeddingsRun(root: string, describe: (buffer: Buffer) => Promise<string>, db = openDatabase(dbPath(root))) {
+async function embeddingsRun(root: string, describe: (buffer: Uint8Array) => Promise<string>, db = openDatabase(dbPath(root))) {
   try {
     return await indexAll(db, { root, taxonomy, quiet: true, embeddings: true, provider, enrichment: enrichment(describe) });
   } finally {
@@ -99,7 +99,7 @@ function onDescribeRead(root: string, onRead: () => void): void {
 }
 
 /** The asset an enrichment call was handed, by the index its bytes carry. */
-const assetIndex = (buffer: Buffer) => buffer[buffer.length - 1];
+const assetIndex = (buffer: Uint8Array) => buffer[buffer.length - 1];
 
 describe("the asset phase", () => {
   test("reads changed assets outside the write transaction, while another connection can write", async () => {

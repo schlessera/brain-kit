@@ -294,7 +294,7 @@ async function describeAssets(
   for (let i = 0; i < groups.length; i += DESCRIBE_CONCURRENCY) {
     const batch = groups.slice(i, i + DESCRIBE_CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map(async ([{ asset, hash }]) => {
+      batch.map(async ([{ asset, hash }]): Promise<string | null | typeof CHANGED_SINCE_HASHED> => {
         const buffer = Buffer.from(await Bun.file(resolve(run.root, asset.path)).arrayBuffer());
         if (createHash("sha256").update(buffer).digest("hex") !== hash) return CHANGED_SINCE_HASHED;
         return enrichment.describeAsset(buffer, asset.mimeType, asset.title);
@@ -305,10 +305,10 @@ async function describeAssets(
     for (let j = 0; j < results.length; j++) {
       const result = results[j];
       for (const task of batch[j]) {
-        if (result.status === "fulfilled" && result.value === CHANGED_SINCE_HASHED) {
-          run.report(`  Left undescribed: ${task.asset.path} — its bytes changed during the run; retry on the next embeddings run`);
-        } else if (result.status === "fulfilled") {
-          if (result.value === null) {
+        if (result.status === "fulfilled") {
+          if (result.value === CHANGED_SINCE_HASHED) {
+            run.report(`  Left undescribed: ${task.asset.path} — its bytes changed during the run; retry on the next embeddings run`);
+          } else if (result.value === null) {
             run.report(`  Left undescribed: ${task.asset.path} — no description returned; retry on the next embeddings run`);
           } else {
             done.push([task, result.value]);
