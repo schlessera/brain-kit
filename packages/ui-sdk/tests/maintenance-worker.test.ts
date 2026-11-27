@@ -196,14 +196,11 @@ describe("maintenance worker (#1648)", () => {
     writeFileSync(join(home, "db/brain-ui.db"), "sessions");
     const program = `const fs = require("fs"); let db; try { db = fs.readFileSync(process.env.HOME + "/db/brain-ui.db", "utf8"); } catch (e) { db = e.code; }
       console.log(JSON.stringify({ db }));`;
-    for (const overlay of [true, false]) {
-      const launch = maintenanceLaunch({ brainPath: f.brain, command: [process.execPath, "-e", program], env: { PATH: "/usr/bin:/bin", HOME: home },
-        credentials: true, home, maskPaths: [join(home, "db")] });
-      launch.maintenance!.home!.overlay = overlay && launch.maintenance!.home!.overlay;
-      const result = Bun.spawnSync(workerCommand(launch), { stdout: "pipe", stderr: "pipe" });
-      expect(result.exitCode, result.stderr.toString()).toBe(0);
-      expect(JSON.parse(result.stdout.toString()), "DB_STAYS_MASKED").toEqual({ db: "ENOENT" });
-    }
+    const launch = maintenanceLaunch({ brainPath: f.brain, command: [process.execPath, "-e", program], env: { PATH: "/usr/bin:/bin", HOME: home },
+      credentials: true, home, maskPaths: [join(home, "db")] });
+    const result = Bun.spawnSync(workerCommand(launch), { stdout: "pipe", stderr: "pipe" });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(JSON.parse(result.stdout.toString()), "DB_STAYS_MASKED").toEqual({ db: "ENOENT" });
   });
 
   test("git against the brain runs in a worker once the boundary is proven: it never reads a masked host file", () => {

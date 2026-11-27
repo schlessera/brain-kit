@@ -228,7 +228,7 @@ export interface MaintenanceEnvelope {
    * credentialed worker gets it (the interim exposure the decision record
    * names): a read-only bind. Writable tool directories live in bounded /tmp.
    */
-  home?: { path: string; overlay: boolean };
+  home?: { path: string };
   /** Host files and directories bound back read-only after the masks: the runtime, the entry and its packages. */
   readPaths: readonly string[];
   /** Private host directories or regular files masked in addition to {@link HOST_MASKS}. */
@@ -514,7 +514,6 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     // `/` is refused for itself: a home that holds the brain is ordinary, but
     // one at `/` would bind the whole host back over the masks.
     if (home === "/" || holds(brain, home)) throw new WorkerHostError("the server's home must be a directory outside the brain");
-    if (envelope.home.overlay) throw new WorkerHostError("maintenance HOME overlays are not bounded; use read-only HOME and bounded XDG directories");
     argv.push("--ro-bind", home, home);
     // A mask inside the home (the UI database's directory below it) is laid
     // again over the home just bound back.
@@ -988,8 +987,6 @@ export interface PrepareWorkerSandboxOptions {
   maskPaths?: readonly string[];
   maintenance?: import("./maintenance-worker.js").MaintenanceHost;
   restricted?: boolean;
-  /** @deprecated XDG-only planning ignores this path; the backend selects runtime HOME. */
-  home?: string;
   /** Which writable areas this worker gets. Default: all of them. */
   areas?: readonly WorkerAreaName[];
   /** Opt in to writable workspace mounts and their alias scan. Default: inspection only. */
@@ -1074,18 +1071,11 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   const areaNames = options.profile === "governed" && !requestedAreas.includes("workspaces")
     ? [...requestedAreas, "workspaces" as const] : requestedAreas;
   for (const name of areaNames) {
-    // A check that fails unexpectedly (EACCES on the way, an unreadable mount
-    // table) leaves the area read-only for the turn rather than failing it.
-    try {
-      if (name === "scratch") {
-        const scratch = preparedScratch!;
-        removed = scratch.removed;
-        areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
-      } else areas.push({ name, rel: WORKER_AREAS[name], mount: workspaceMount });
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
-      areas.push({ name, rel: WORKER_AREAS[name], mount: { writable: false, reason: `${WORKER_AREAS[name]}/ could not be checked (${code})` } });
-    }
+    if (name === "scratch") {
+      const scratch = preparedScratch!;
+      removed = scratch.removed;
+      areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
+    } else areas.push({ name, rel: WORKER_AREAS[name], mount: workspaceMount });
   }
   // No per-turn home overlay: bubblewrap resolves an overlay's upper
   // directory on the host, where no size-limited mount can hold it (#1703).
@@ -1137,28 +1127,6 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
   return { command: [process.execPath, entry], env: {
     BRAIN_WORKER_LAUNCH: JSON.stringify({ ...launch, argv, ...(cgroup ? { cgroup } : {}) }),
   } };
-}
-
-/**
- * Maintenance-only HOME overlay probe (#1648). Agent workers always use XDG
- * under their bounded /tmp (#1703); credentialed maintenance commands retain
- * their existing optional namespace-private home overlay.
- */
-export function probeHomeOverlay(brain: string, home: string): true | string {
-  const marker = `.brain-home-overlay-probe-${process.pid}-${Date.now()}`;
-  const target = join(home, marker);
-  try {
-    const argv = workerCommand({ brainPath: brain, env: { HOME: home },
-      command: ["/bin/sh", "-c", 'echo odysseus > "$HOME/$1" && test -s "$HOME/$1"', "sh", marker],
-      maintenance: { network: false, credentials: true, home: { path: home, overlay: true }, readPaths: [] } });
-    const result = Bun.spawnSync(argv, { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe", timeout: 5_000 });
-    if (existsSync(target)) {
-      rmSync(target, { force: true });
-      return "an overlay write reached the host home";
-    }
-    if (result.exitCode !== 0) return `bubblewrap could not overlay the home (${result.stderr.toString().trim().slice(0, 200)})`;
-    return true;
-  } catch (error) { return error instanceof Error ? error.message : String(error); }
 }
 
 /** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
