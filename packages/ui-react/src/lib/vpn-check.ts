@@ -7,7 +7,7 @@ import type { BrainUiServices } from "../root.js";
  * a readable JSON object, and otherwise the body's `accountKey` (`null` when
  * absent: an agent principal gets none). Callers validate the key themselves.
  */
-export interface VpnCheckReading {
+interface VpnCheckReading {
   status: number;
   accountKey: unknown;
 }
