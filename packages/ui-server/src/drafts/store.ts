@@ -596,10 +596,12 @@ export function createDraftStore(db: Database, options: DraftStoreOptions = {}):
         setRefs(db, "draft", draftId, fileIds, at);
         setRefs(db, "outgoing", draftId, owned, at);
         // An image the previous revision listed and this one dropped is gone;
-        // an upload no revision has listed yet waits for its own save.
+        // an upload no revision has listed yet waits for its own save. An
+        // image already attached is left alone: the update would rewrite its
+        // whole row, BLOB included (#4898).
         for (const attachment of stored.values()) {
           if (keep.has(attachment.attachment_id)) {
-            db.query("UPDATE session_draft_attachments SET attached = 1 WHERE attachment_id = ?").run(attachment.attachment_id);
+            if (attachment.attached !== 1) db.query("UPDATE session_draft_attachments SET attached = 1 WHERE attachment_id = ?").run(attachment.attachment_id);
           } else {
             db.query("DELETE FROM session_draft_attachments WHERE attachment_id = ? AND attached = 1").run(attachment.attachment_id);
           }
