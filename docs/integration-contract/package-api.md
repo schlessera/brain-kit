@@ -1914,7 +1914,10 @@ extending/README.md and the tags in the source disagree.
 `ToolRenderer` (`@schlessera/brain-ui-sdk/client`) gains the optional method
 `copyText(tool: ToolCallView): string`, read when the chat timeline's Copy
 output control is pressed. Without it the control copies `tool.output` as
-stored, as before. The ui-react Gmail search and read renderers copy their
+stored, as before. When a renderer that has it throws, the timeline's fallback
+shows the same text, with no links and no input, instead of the generic view;
+if `copyText` throws too, the fallback says the output can't be shown. The
+ui-react Gmail search and read renderers copy their
 output with hidden characters as the `‹U+XXXX›` markers their cards and
 fallback show, so a paste never carries a direction override the reader was
 not shown. The stored output is unchanged.

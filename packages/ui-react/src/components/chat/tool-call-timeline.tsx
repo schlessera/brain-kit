@@ -17,8 +17,8 @@ import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { getToolLabel, getTouchedFile, formatTokenCount } from "./tool-views.js";
 import { formatDuration } from "../../lib/duration.js";
-import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
-import type { ToolRenderer } from "@schlessera/brain-ui-sdk/client";
+import { fallbackRenderer, registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
+import type { ToolRenderer, ToolRendererRegistry } from "@schlessera/brain-ui-sdk/client";
 import { useShallow } from "zustand/react/shallow";
 import { ToolPermissionCard } from "./tool-permission-card.js";
 import { ToolRendererBoundary } from "./tool-renderer-boundary.js";
@@ -237,6 +237,11 @@ function ToolCallEntry(props: EntryProps) {
   );
 }
 
+/** A resolution inside the error fallback, where a throwing predicate must not escape. */
+function resolveQuietly(renderers: ToolRendererRegistry, toolCall: ToolCall, backendId: string): ToolRenderer | null {
+  try { return renderers.resolve(toolCall, backendId); } catch { return null; }
+}
+
 function ToolCallEntryView({
   toolCall,
   backendId,
@@ -261,9 +266,10 @@ function ToolCallEntryView({
       }
     : toolCall;
   // Resolve the renderer for this tool (backend-scoped exact -> global exact ->
-  // shape-sniffing predicate). Falls back to the generic renderer.
+  // shape-sniffing predicate). Falls back to the generic renderer. After a
+  // renderer failed, a renderer with `copyText` keeps its shown text instead.
   const renderer: ToolRenderer = fallback
-    ? GENERIC_RENDERER
+    ? fallbackRenderer(resolveQuietly(root.renderers, toolCall, backendId))
     : root.renderers.resolve(toolCall, backendId) ?? GENERIC_RENDERER;
   const Icon = renderer.icon ?? FileText;
   const label =

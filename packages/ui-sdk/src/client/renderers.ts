@@ -72,7 +72,8 @@ export interface ToolRenderer {
    * What the timeline's Copy output control copies; absent = the output as
    * stored. A renderer that shows output with its hidden characters as
    * markers copies it the same way, so a paste never carries what the reader
-   * was not shown.
+   * was not shown. If the renderer throws, the timeline's fallback shows this
+   * text, with no links and no input, instead of the generic view.
    */
   copyText?(tool: ToolCallView): string;
 }

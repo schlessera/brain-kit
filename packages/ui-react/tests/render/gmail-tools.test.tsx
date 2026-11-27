@@ -15,7 +15,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render as mount, type RenderResult } from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
 import type { ReactElement, ReactNode } from "react";
-import { visibleToolName, type ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import { visibleToolName, type ToolCallView, type ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { revealInvisibles } from "@schlessera/brain-ui-kit";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { GMAIL_TOOL_NAMES } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -161,8 +161,9 @@ function Transcript() {
  * through the socket's own `session_history` handler, drawn from that stored
  * entry and opened as a reader opens it: the run's summary row, then the call.
  */
-function transcript(output: string, call: { name: string; input: Record<string, unknown> } = { name: visibleToolName(GMAIL_TOOL_NAMES.read, "claude"), input: { target: "thread", id: THREAD, view: "content" } }) {
+function transcript(output: string, call: { name: string; input: Record<string, unknown> } = { name: visibleToolName(GMAIL_TOOL_NAMES.read, "claude"), input: { target: "thread", id: THREAD, view: "content" } }, setup?: (root: BrainUiRoot) => void) {
   const root = makeRoot();
+  setup?.(root);
   root.stores.chat.getState().setActiveSession(SESSION);
   root.connection.handleServerMessage({
     type: "session_history",
@@ -389,6 +390,37 @@ describe("the transcript's Copy output", () => {
       expect(storedCall(root)?.output, "the stored output is untouched").toBe(output);
     });
   }
+
+  test("output with no hidden character copies byte for byte", async () => {
+    const raw = "  Calypso's raft log\tday 4\r\n  ";
+    const { view } = transcript(raw);
+    expect(await copied(view), "GMAIL_COPY_BYTE_IDENTICAL").toEqual([raw]);
+  });
+
+  /** The Gmail read renderer as registered, with its Output replaced by one that throws. */
+  const failingRead = (over: Partial<ToolRenderer> = {}) => (root: BrainUiRoot) => {
+    registerBuiltinRenderers(root.renderers);
+    const name = visibleToolName(GMAIL_TOOL_NAMES.read, "claude");
+    const original = root.renderers.resolve(call(name, "{}"), "claude")!;
+    root.renderers.register({ renderers: [{ ...original, match: name, Output: () => { throw new Error("Ithaca: injected Gmail view failure"); }, ...over }] });
+  };
+
+  test("a Gmail view that fails falls back to the text Copy output copies: markers, no links", async () => {
+    const raw = JSON.stringify(draftRead(HOSTILE_LINE));
+    const { view, root } = transcript(raw, undefined, failingRead());
+    expect(text(view), "GMAIL_FALLBACK_AFTER_FAILURE_REVEALS").toContain("see the list‹U+202E›fdp.exe");
+    expect(text(view)).not.toContain("\u{202E}");
+    expect(controlsWith(view, SENDER_PATH), "GMAIL_FALLBACK_AFTER_FAILURE_NO_LINKS").toEqual([]);
+    expect(await copied(view), "GMAIL_COPY_AFTER_FAILURE_REVEALS").toEqual([revealInvisibles(raw)]);
+    expect(storedCall(root)?.output).toBe(raw);
+  });
+
+  test("a failed Gmail view whose copyText also throws shows nothing of the output", () => {
+    const raw = JSON.stringify(draftRead(HOSTILE_LINE));
+    const { view } = transcript(raw, undefined, failingRead({ copyText: () => { throw new Error("Ithaca: injected copy failure"); } }));
+    expect(text(view), "GMAIL_FALLBACK_UNSHOWABLE").toContain("This output can't be shown.");
+    expect(text(view)).not.toContain("fdp.exe");
+  });
 
   test("a tool with no copyText still copies its output as stored", async () => {
     const raw = `exported list\u{202E}fdp.exe`;

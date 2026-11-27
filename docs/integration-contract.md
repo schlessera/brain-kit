@@ -24,8 +24,10 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 
 `ToolRenderer` gains the optional method `copyText(tool)`: what the chat
 timeline's Copy output control copies for that call. A renderer without it
-copies the output as stored, as before. The Gmail read renderers copy their
-output with hidden characters as the `‹U+XXXX›` markers the reader is shown. See
+copies the output as stored, as before. When a renderer with it throws, the
+timeline's fallback shows that text, unlinked and without the input, instead
+of the generic view. The Gmail read renderers copy their output with hidden
+characters as the `‹U+XXXX›` markers the reader is shown. See
 [the package API](integration-contract/package-api.md#tool-renderer-copy-text-additive-0460-4210).
 This ships in a minor.
 

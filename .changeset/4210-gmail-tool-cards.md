@@ -8,7 +8,7 @@ The host Gmail read tools' results now render as the ui-kit Gmail components ins
 - **Search:** a page of threads as `GmailResultList`, in the view the result carries, under the query the call sent, with "Gmail has more matches" when there is a next page.
 - **Read:** a thread as `GmailThread` and a message as `GmailMessage`, each in its view. A draft and the account's label list keep the tool's own output until the kit has components for them.
 - **The fallback** (a draft, the label list, output that is not a result, or a result the history transport cut) shows hidden characters as their `‹U+XXXX›` markers and never turns a path in it into a file link.
-- **Copy output** copies a Gmail call's output the way it is shown, hidden characters as their markers, for every result, card or fallback. The stored output is unchanged. `ToolRenderer` gains the optional `copyText(tool)` that does this; a renderer without it copies the output as stored, as before.
+- **Copy output** copies a Gmail call's output the way it is shown, hidden characters as their markers, for every result, card or fallback. The stored output is unchanged. `ToolRenderer` gains the optional `copyText(tool)` that does this; a renderer without it copies the output as stored, as before. If a Gmail view fails, the fallback shows that same text, unlinked, rather than the raw output.
 - **Refusals** are drawn in the host's words.
 - **The tool row** shows each call's effect class and view: `read · content view`, `read · structured view`, or `read · no result`; a call refused as invalid input, which was never classified, shows `no result`.
 
