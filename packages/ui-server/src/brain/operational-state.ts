@@ -1,7 +1,7 @@
 /** Hosted operational state never belongs in the agent-writable brain (#1649). */
-import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readlinkSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { mountPointsUnder, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import type { GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
@@ -113,6 +113,60 @@ export interface OperationalStateLayout {
   dbPath?: string;
   privateStatePaths?: readonly { setting: string; path: string }[];
 }
+/** What the server and cron both derive the private-state layout from (#4498). */
+export interface PrivateStateLayoutInput {
+  /** `DB_PATH`; `""` and `:memory:` are ephemeral. */
+  dbPath: string;
+  /** `BRAIN_UI_NATIVE_BRAIN_LEASE_PATH`, when configured. */
+  nativeLeasePath?: string;
+  /** `BRAIN_UI_INBOX_POKE_TOKEN_FILE`, when configured. */
+  pokeTokenFile?: string | null;
+  /** Resolved compute settings (`resolveComputeConfig`). */
+  compute: { keys: Readonly<Record<string, readonly string[]>>; stateDir: string | null };
+  /**
+   * The server's fresh temporary journal directory for an ephemeral
+   * database. Cron cannot share it and does not check it.
+   */
+  ephemeralJournalRoot?: string;
+}
+
+export interface PrivateStateLayout {
+  ephemeral: boolean;
+  nativeLeasePath: string;
+  /** Absent for an ephemeral database without a supplied journal root. */
+  journalRoot?: string;
+  /** The compute state directory, only when compute is configured. */
+  computeStateDir?: string;
+  privateStatePaths: { setting: string; path: string }[];
+}
+
+/**
+ * The one derivation of `privateStatePaths` for the server, both cron entry
+ * points and cron module discovery (#4498). Reads only whether an existing
+ * compute state directory is present; creates nothing.
+ */
+export function privateStateLayout(input: PrivateStateLayoutInput): PrivateStateLayout {
+  const ephemeral = input.dbPath === "" || input.dbPath === ":memory:";
+  const nativeLeasePath = resolve(input.nativeLeasePath ?? `${input.dbPath}.native-leases.sqlite`);
+  const journalRoot = ephemeral ? input.ephemeralJournalRoot
+    : join(dirname(resolve(input.dbPath)), `${basename(input.dbPath)}.journal`);
+  const privateStatePaths = input.pokeTokenFile ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: input.pokeTokenFile }] : [];
+  if (journalRoot) privateStatePaths.push({ setting: "Storage transfer cache", path: `${journalRoot}.storage-cache` }, { setting: "turn journal", path: journalRoot });
+  privateStatePaths.push({ setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
+  // The host web executor's per-session private directories (#3686): host
+  // operational state beside the journal, refused inside the brain and masked
+  // from workers like the rest.
+  if (journalRoot) privateStatePaths.push({ setting: "web executor state", path: `${journalRoot}.web-executor` });
+  // Hosted external compute state (#3108, ruling R5): host operational state
+  // beside the database. An unconfigured host (no bound credential, no
+  // earlier state) has none, so it boots exactly as before hosted compute.
+  const { stateDir } = input.compute;
+  const computeConfigured = Object.keys(input.compute.keys).length > 0 || (stateDir !== null && existsSync(stateDir));
+  const computeStateDir = stateDir && computeConfigured ? stateDir : undefined;
+  if (computeStateDir) privateStatePaths.push({ setting: "BRAIN_UI_COMPUTE_STATE_DIR", path: computeStateDir });
+  return { ephemeral, nativeLeasePath, ...(journalRoot ? { journalRoot } : {}), ...(computeStateDir ? { computeStateDir } : {}), privateStatePaths };
+}
+
 /** Include real SQLite sidecars and the separately derived quarantine location. */
 type StatePath = { setting: string; path: string | (() => string) };
 const statePath = (entry: StatePath): string => typeof entry.path === "string" ? entry.path : entry.path();

@@ -181,6 +181,8 @@ interface PersistModuleDiscoveryOptions {
    * unqualified host records only into a database that already exists.
    */
   hostQualified: boolean;
+  /** The server's private-state layout (`privateStateLayout`, #4498), checked before anything is recorded. */
+  privateStatePaths?: readonly { setting: string; path: string }[];
   outcome: DiscoveryOutcome;
   report: (line: string) => void;
 }
@@ -191,11 +193,11 @@ interface PersistModuleDiscoveryOptions {
  * present or behind a qualified host. Returns whether it was recorded.
  */
 export function persistModuleDiscovery(options: PersistModuleDiscoveryOptions): boolean {
-  const { brainPath, dbPath, hostQualified, outcome, report } = options;
+  const { brainPath, dbPath, privateStatePaths, hostQualified, outcome, report } = options;
   if (!dbPath || dbPath === ":memory:") return false;
   let db: Database | undefined;
   try {
-    assertOperationalStateOutsideBrain({ brainPath, dbPath });
+    assertOperationalStateOutsideBrain({ brainPath, dbPath, ...(privateStatePaths ? { privateStatePaths } : {}) });
     if (!hostQualified && !existsSync(dbPath)) return false;
     db = openSharedUiDb(dbPath);
     recordModuleDiscovery(db, outcome);

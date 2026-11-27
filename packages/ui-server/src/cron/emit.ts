@@ -322,6 +322,8 @@ export const CRON_CONTROL_ENV_NAMES: readonly string[] = [
   // The module GitHub relay's credential and enabled writes (#4259): the runner reads them, no job receives them.
   "BRAIN_UI_MODULE_GITHUB_TOKEN",
   "BRAIN_UI_MODULE_GITHUB_WRITES",
+  // The settings the server's private-state layout derives from (#4498): the runner checks the same paths, no job receives them.
+  "BRAIN_UI_INBOX_POKE_TOKEN_FILE", "BRAIN_UI_COMPUTE_KEYS", "BRAIN_UI_COMPUTE_STATE_DIR",
 ];
 
 export function emitEnvironment(

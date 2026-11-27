@@ -41,7 +41,7 @@ import { HTTPException } from "hono/http-exception";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
-import { basename, dirname, join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
@@ -207,7 +207,7 @@ import { createComputeHost, readHostedComputeConfig } from "./brain/compute-host
 import { createReferenceTransport } from "./brain/reference-transport.js";
 import { createReferenceWorktreeHygiene } from "./brain/reference-worktree-hygiene.js";
 import { createReferenceWorktrees, forgetReferenceWorktreeCheckpoint, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner } from "./brain/reference-worktrees.js";
-import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
+import { assertOperationalStateOutsideBrain, operationalStateMasks, privateStateLayout } from "./brain/operational-state.js";
 
 export type { AppRenderer };
 
@@ -397,30 +397,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   if (realpathSync(config.brainPath) !== nativeReady.brainPath) throw new Error("The native storage manager serves a different brain. Correct the configured managed brain path before starting hosted workers.");
   const ephemeralJournal = config.dbPath === "" || config.dbPath === ":memory:";
   if (ephemeralJournal && !config.nativeBrain.leasePath) throw new Error("An ephemeral UI database requires BRAIN_UI_NATIVE_BRAIN_LEASE_PATH outside the brain for durable native checkpoint ownership.");
-  const nativeLeasePath = resolve(config.nativeBrain.leasePath ?? `${config.dbPath}.native-leases.sqlite`);
-  const journalRoot = ephemeralJournal ? mkdtempSync(join(tmpdir(), "brain-ui-journal-"))
-    : join(dirname(resolve(config.dbPath)), `${basename(config.dbPath)}.journal`);
-  const storageCacheRoot = `${journalRoot}.storage-cache`;
-  const privateStatePaths = config.inbox?.pokeTokenFile
-    ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
-  privateStatePaths.push({ setting: "Storage transfer cache", path: storageCacheRoot }, { setting: "turn journal", path: journalRoot }, { setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
-  // The host web executor's per-session private directories (#3686): host
-  // operational state beside the journal, refused inside the brain and masked
-  // from workers like the rest.
-  const webExecutorRoot = `${journalRoot}.web-executor`;
-  privateStatePaths.push({ setting: "web executor state", path: webExecutorRoot });
-  // Hosted external compute state (#3108, ruling R5): host operational state
-  // beside the database, refused inside the brain and masked from workers.
-  // An ephemeral database has no durable place for it, so compute is off.
-  // An unconfigured host (no bound credential, no earlier state) creates and
-  // masks nothing, so it boots exactly as before hosted compute existed.
   const computeSettings = config.compute ?? resolveComputeConfig({}, config.dbPath);
-  const computeConfigured = Object.keys(computeSettings.keys).length > 0
-    || (computeSettings.stateDir !== null && existsSync(computeSettings.stateDir));
-  if (computeSettings.stateDir && computeConfigured) {
-    privateStatePaths.push({ setting: "BRAIN_UI_COMPUTE_STATE_DIR", path: computeSettings.stateDir });
-    mkdirSync(computeSettings.stateDir, { recursive: true, mode: 0o700 });
-  }
+  const layout = privateStateLayout({ dbPath: config.dbPath, nativeLeasePath: config.nativeBrain.leasePath, pokeTokenFile: config.inbox?.pokeTokenFile, compute: computeSettings,
+    ...(ephemeralJournal ? { ephemeralJournalRoot: mkdtempSync(join(tmpdir(), "brain-ui-journal-")) } : {}) });
+  const { nativeLeasePath, privateStatePaths } = layout, journalRoot = layout.journalRoot!;
+  const storageCacheRoot = `${journalRoot}.storage-cache`;
+  const webExecutorRoot = `${journalRoot}.web-executor`;
+  // Hosted compute is off for an ephemeral database: it has no durable place
+  // for the state directory. The directory is created here, not by the layout.
+  if (layout.computeStateDir) mkdirSync(layout.computeStateDir, { recursive: true, mode: 0o700 });
   // The manager verifies its fixed topology and root-private state. These are
   // exact masks, not app-owned directories to enumerate or mask by parent.
   const nativeMaskPaths = nativeReady.privatePaths;
@@ -811,7 +796,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
     refresh(turnId) { host.governedTurns?.refresh(host.workerLock, turnId); } });
   const computeHost = createComputeHost({ db, brainPath: config.brainPath, stateDir: computeSettings.stateDir,
-    stateMasked: computeConfigured && computeSettings.stateDir !== null && turnMaskPaths.includes(realpathSync(computeSettings.stateDir)),
+    stateMasked: layout.computeStateDir !== undefined && turnMaskPaths.includes(realpathSync(layout.computeStateDir)),
     keys: computeSettings.keys, workerEnvExtra: computeSettings.workerEnvExtra,
     readConfig: ctx => readHostedComputeConfig({ brainPath: config.brainPath, nativeManager, maskPaths: turnMaskPaths, policy: ctx.policy, signal: AbortSignal.timeout(60_000) }),
     budgets, activity, log: brainLog, ...options.computeOverrides });
