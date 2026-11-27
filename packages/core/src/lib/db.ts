@@ -19,7 +19,7 @@ import { maintenanceConfigRoots } from "../config/env.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 /** Embedding identity written into index_metadata; defaults come from llm-defaults.ts. */
 export interface SchemaOptions {
@@ -544,7 +544,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 15);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 16) {
     // v16 — the newest index run is a lookup, not a scan. `indexed_at` is
     // stored behind the body, so `MAX(indexed_at)`, which every supported
     // query and the graph's staleness check take, walked every body's
@@ -552,6 +552,18 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     // an upgraded brain needs no reindex. No index on `asset_type`: without
     // ANALYZE statistics it moves unrelated plans onto it (#4787).
     db.run("CREATE INDEX IF NOT EXISTS idx_documents_indexed_at ON documents(indexed_at)");
+
+    setSchemaVersion(db, 16);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v17 — each chunk's source lines (#3683), which context assembly reads
+    // to widen a folded chunk. Existing rows read NULL until the next index
+    // run, which re-chunks every document for the chunker version that
+    // records them.
+    const columns = db.prepare("PRAGMA table_info(chunks)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "start_line")) db.run("ALTER TABLE chunks ADD COLUMN start_line INTEGER");
+    if (!columns.some((c) => c.name === "end_line")) db.run("ALTER TABLE chunks ADD COLUMN end_line INTEGER");
 
     setSchemaVersion(db, SCHEMA_VERSION);
   }

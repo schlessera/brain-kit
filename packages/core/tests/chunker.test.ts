@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import { chunkDocument, chunkTextForEmbedding, estimateTokens } from "../src/lib/chunker";
 
@@ -453,5 +453,62 @@ describe("a table nested in a list or blockquote (#497)", () => {
     const chunks = chunkDocument({ title: "T", documentId: 1, content: `## Registry\n\n${lines.join("\n")}` });
     const holding = chunks.find((c) => c.content.includes("| short |"))!;
     expect(holding.content.split("\n")).toEqual([`> ${wideHeader}`, "> | --- |", "> | short |"]);
+  });
+});
+
+// #3683: each chunk made of whole sections records its source lines, so
+// context assembly reads a folded chunk's span instead of inferring it.
+describe("recorded source lines", () => {
+  const para = (topic: string, n: number) =>
+    Array.from({ length: n }, (_, i) => `${topic} paragraph ${i + 1} fills out the section with plain field notes.`).join("\n\n");
+  const lineOf = (text: string, start: string) => text.split("\n").findIndex((line) => line.startsWith(start)) + 1;
+
+  test("a short section merged forward spans from its heading to the next section's last line", () => {
+    const content = `\nA short lead.\n\n## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n\n\n`;
+    const [chunk] = chunkDocument({ title: "T", documentId: 1, content });
+    expect(chunk!.heading).toBe("Tides");
+    expect([chunk!.start_line, chunk!.end_line]).toEqual([lineOf(content, "A short lead."), lineOf(content, "Tide paragraph 8 ")]);
+  });
+
+  test("a trailing stub folded back spans the chunk before it and the stub", () => {
+    const content = `## Weather\n\n${para("Weather", 8)}\n\n## Signal\n\nThe beacon code is violet.\n`;
+    const chunks = chunkDocument({ title: "T", documentId: 1, content });
+    expect(chunks.map((c) => [c.heading, c.start_line, c.end_line])).toEqual([["Weather", 1, lineOf(content, "The beacon code")]]);
+  });
+
+  test("whole sections each record their own lines, and a piece of a split section records none", () => {
+    const content = `## Notes\n\n${para("Note", 8)}\n\n## Survey\n\n${para("Survey", 120)}\n`;
+    const chunks = chunkDocument({ title: "T", documentId: 1, content });
+    expect(chunks[0]).toMatchObject({ heading: "Notes", start_line: 1, end_line: lineOf(content, "Note paragraph 8 ") });
+    expect(chunks.length).toBeGreaterThan(2);
+    for (const piece of chunks.slice(1)) expect([piece.heading.replace(" (cont.)", ""), piece.start_line, piece.end_line]).toEqual(["Survey", null, null]);
+  });
+});
+
+// #3683 review round 5: recording each chunk's lines must stay linear in the
+// document. The work is counted (newline scans), not timed: doubling the
+// document may double it, never quadruple it.
+describe("recorded lines cost", () => {
+  const watches = (n: number) =>
+    Array.from({ length: n }, (_, i) => `## Watch ${i + 1}\n\n${Array.from({ length: 20 }, (_, j) => `Watch ${i + 1} line ${j + 1} with plain field notes for the pilot.`).join("\n")}\n`).join("\n");
+  function scans(run: () => void): number {
+    let count = 0;
+    const real = String.prototype.indexOf;
+    const spy = spyOn(String.prototype, "indexOf").mockImplementation(function (this: string, search: string, from?: number) {
+      if (search === "\n") count++;
+      return real.call(this, search, from);
+    } as typeof String.prototype.indexOf);
+    try {
+      run();
+    } finally {
+      spy.mockRestore();
+    }
+    return count;
+  }
+
+  test("doubling the sections at most doubles the newline scans", () => {
+    const [small, large] = [200, 400].map((n) => scans(() => chunkDocument({ title: "T", documentId: 1, content: watches(n) })));
+    expect(small).toBeGreaterThan(0);
+    expect(large / small).toBeLessThan(2.5);
   });
 });
