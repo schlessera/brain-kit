@@ -144,12 +144,12 @@ function writeDocument(
     : undefined;
 
   // An updated file's old rows go first, except its chunks, which are
-  // matched below. On a force rebuild everything was already dropped, so this
+  // matched below, and its links, which `rebuildLinks` brings up to date as
+  // a difference. On a force rebuild everything was already dropped, so this
   // would be redundant work.
   if (isChanged && !run.force && existing) {
     st.deleteFts.run(existing.id);
     st.deleteTags.run(existing.id);
-    st.deleteLinks.run(existing.id);
     st.deleteSupersedes.run(existing.id);
   }
 
@@ -259,24 +259,24 @@ function writeTags(st: Statements, docId: number, tags: unknown): string[] {
 function sweepDeletions(
   run: IndexRun,
   st: Statements,
+  existingDocs: Map<string, ExistingDoc>,
   markdownOnDisk: Set<string>,
   assetsOnDisk: Set<string>,
   sweepOnly?: ReadonlySet<string>
 ): void {
-  const rows = run.db
-    .prepare("SELECT id, path, asset_type FROM documents")
-    .all() as { id: number; path: string; asset_type: string }[];
-
-  for (const row of rows) {
-    // A targeted run knows only the paths it was named: a row another run
-    // committed after this one's scan is not in its snapshot, but is no
-    // evidence of a deletion.
-    if (sweepOnly && !sweepOnly.has(row.path)) continue;
-    const onDisk =
-      row.asset_type === "markdown"
-        ? markdownOnDisk.has(row.path)
-        : assetsOnDisk.has(row.path);
+  // The candidates are the rows the scan loaded; every row this run wrote is
+  // on disk, and a row another run committed after the scan is no evidence
+  // of a deletion. A targeted run knows only the paths it was named, so only
+  // those may be swept. Each candidate's id is read again here, inside the
+  // transaction: a `--force` wipe already removed every markdown row (and may
+  // have handed its id to a new one), so only a row that still exists is
+  // swept or counted.
+  for (const [path, existing] of existingDocs) {
+    if (sweepOnly && !sweepOnly.has(path)) continue;
+    const onDisk = existing.asset_type === "markdown" ? markdownOnDisk.has(path) : assetsOnDisk.has(path);
     if (onDisk) continue;
+    const row = st.getDocId.get(path) as { id: number } | null;
+    if (!row) continue;
     st.deleteFts.run(row.id);
     st.deleteChunks.run(row.id);
     st.deleteTags.run(row.id);
@@ -287,46 +287,77 @@ function sweepDeletions(
 }
 
 /**
- * Rebuild the ENTIRE link table, every run, changed files or not.
+ * Re-resolve the ENTIRE link table, every run, changed files or not.
  *
  * Resolution depends on corpus-wide state — ambiguity between duplicate
  * basenames, aliases, whether a target exists at all — so a per-changed-file
  * incremental update goes stale as soon as an unrelated file is added, and
  * stays wrong forever after a resolver fix. Full re-resolution is cheap: it is
- * a regex pass over content already in memory-mapped pages.
+ * a regex pass over every markdown body, streamed rather than held at once.
+ *
+ * Only the result is incremental: the resolved set is compared with the rows
+ * the table holds, and only rows that left the set, joined it or resolve to
+ * another document are written. A run in which no link changed writes no
+ * `links` row. Targets are always markdown paths, so their ids come from the
+ * rows read here; no statement runs per link.
  */
 function rebuildLinks(run: IndexRun, st: Statements, parsed: ParseResult): void {
-  run.db.run("DELETE FROM links");
-
-  const docs = run.db
-    .prepare("SELECT id, path, content FROM documents WHERE asset_type = 'markdown'")
-    .all() as { id: number; path: string; content: string }[];
-
+  const docs = run.db.prepare<{ id: number; path: string; content: string }, []>(
+    "SELECT id, path, content FROM documents WHERE asset_type = 'markdown'"
+  );
   const resolveLink = createWikiLinkResolver(parsed.fileMap, run.taxonomy.dirAnchors);
-  for (const doc of docs) {
+  const idByPath = new Map<string, number>();
+  const extracted: Array<{ sourceId: number; target: string; targetPath: string | null }> = [];
+  for (const doc of docs.iterate()) {
+    idByPath.set(doc.path, doc.id);
     for (const link of extractWikiLinks(doc.content)) {
-      const targetPath =
-        resolveLink(link, doc.path) ??
-        resolveAlias(link, parsed.aliasMap, doc.path);
-      let targetId: number | null = null;
-      if (targetPath) {
-        const targetRow = st.getDocId.get(targetPath) as { id: number } | null;
-        targetId = targetRow?.id ?? null;
-      }
-      st.insertLink.run(doc.id, link, targetId);
+      const targetPath = resolveLink(link, doc.path) ?? resolveAlias(link, parsed.aliasMap, doc.path);
+      extracted.push({ sourceId: doc.id, target: link, targetPath });
     }
+  }
+  const idOf = (path: string | null) => (path === null ? null : idByPath.get(path) ?? null);
+
+  // source_id -> target -> target_id, as resolved now. The table's key is
+  // (source_id, target), so a target text is one row per source.
+  const resolved = new Map<number, Map<string, number | null>>();
+  for (const link of extracted) {
+    const targets = resolved.get(link.sourceId) ?? new Map<string, number | null>();
+    if (!targets.has(link.target)) targets.set(link.target, idOf(link.targetPath));
+    resolved.set(link.sourceId, targets);
+  }
+
+  const stored = run.db.prepare<{ source_id: number; target: string; target_id: number | null }, []>(
+    "SELECT source_id, target, target_id FROM links"
+  ).all();
+  const deleteLink = run.db.prepare("DELETE FROM links WHERE source_id = ? AND target = ?");
+  const updateLink = run.db.prepare("UPDATE links SET target_id = ? WHERE source_id = ? AND target = ?");
+  for (const row of stored) {
+    const targets = resolved.get(row.source_id);
+    if (!targets?.has(row.target)) {
+      deleteLink.run(row.source_id, row.target);
+      continue;
+    }
+    const targetId = targets.get(row.target)!;
+    targets.delete(row.target);
+    if (targetId !== row.target_id) updateLink.run(targetId, row.source_id, row.target);
+  }
+  // What is left was not stored yet.
+  for (const [sourceId, targets] of resolved) {
+    for (const [target, targetId] of targets) st.insertLink.run(sourceId, target, targetId);
   }
 
   // `supersedes` targets resolve the same way, re-resolved on every run so a
   // renamed or newly added target is picked up without touching the source.
+  // Only a row whose resolved target changed is written.
   const update = run.db.prepare("UPDATE supersedes SET target_id = ? WHERE source_id = ? AND target = ?");
   const rows = run.db
-    .prepare("SELECT s.source_id, s.target, d.path FROM supersedes s JOIN documents d ON d.id = s.source_id")
-    .all() as { source_id: number; target: string; path: string }[];
+    .prepare("SELECT s.source_id, s.target, s.target_id, d.path FROM supersedes s JOIN documents d ON d.id = s.source_id")
+    .all() as { source_id: number; target: string; target_id: number | null; path: string }[];
   for (const row of rows) {
     const targetPath = resolveLink(row.target, row.path) ?? resolveAlias(row.target, parsed.aliasMap, row.path);
-    const targetId = targetPath ? ((st.getDocId.get(targetPath) as { id: number } | null)?.id ?? null) : null;
-    update.run(targetId === row.source_id ? null : targetId, row.source_id, row.target);
+    const targetId = idOf(targetPath);
+    const next = targetId === row.source_id ? null : targetId;
+    if (next !== row.target_id) update.run(next, row.source_id, row.target);
   }
 }
 
@@ -357,7 +388,7 @@ export function persistMarkdown(
       else run.stats.updated++;
     }
 
-    sweepDeletions(run, st, markdownOnDisk, assetsOnDisk, sweepOnly);
+    sweepDeletions(run, st, existingDocs, markdownOnDisk, assetsOnDisk, sweepOnly);
     rebuildLinks(run, st, parsed);
   });
   write.immediate();
