@@ -4,6 +4,7 @@
  * activity to the runtime status it was given, keyed by the turn's run.
  */
 import { describe, expect, test } from "bun:test";
+import { until } from "../../../tests/helpers/until";
 
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
@@ -19,7 +20,6 @@ import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
-import { until } from "../../../tests/helpers/until";
 
 describe("the runtime status over the ws path", () => {
   test("a turn's runtime report and auth failure are kept for /api/status, on that turn's run", async () => {
