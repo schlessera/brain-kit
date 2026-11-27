@@ -3,10 +3,31 @@
  * Nothing here throws; a caller reads `code` and decides what a failure means.
  */
 
+import { existsSync } from "fs";
+import { join } from "path";
+
 export interface GitResult {
   stdout: string;
   stderr: string;
   code: number;
+}
+
+/** Whether a `git` executable is on PATH. Spawning a missing one throws. */
+export function gitInstalled(): boolean {
+  return Bun.which("git") !== null;
+}
+
+/** Whether `root` has a git directory. Without git on PATH only a `.git` entry counts. */
+export function isGitRepo(root: string): boolean {
+  if (existsSync(join(root, ".git"))) return true;
+  if (!gitInstalled()) return false;
+  return Bun.spawnSync(["git", "-C", root, "rev-parse", "--git-dir"]).exitCode === 0;
+}
+
+/** One git config value, trimmed; empty when it is unset or there is no git to ask. */
+export function gitConfig(root: string, key: string): string {
+  if (!gitInstalled()) return "";
+  return git(root, ["config", "--get", key]).stdout;
 }
 
 /** Run `git -C root …`. stdout is trimmed unless `raw`, which keeps NUL-separated output intact. */

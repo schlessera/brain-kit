@@ -11,7 +11,6 @@
 
 import { join } from "path";
 import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
-import { validateRenderInput } from "./commands/render.js";
 import { isReadOnlyBrainMount, readOnlyBrainError, writeTarget } from "./read-only.js";
 import { Console } from "node:console";
 
@@ -26,7 +25,7 @@ import type { Enrichment } from "../lib/enrichment.js";
 import { packageVersion } from "../package-version.js";
 import { resolveProviders, type ResolvedProviders } from "../lib/registry.js";
 
-import { timeMcpStartup } from "./mcp-startup-timing.js";
+import { logMcpStaticPhase, timeMcpStartup } from "./mcp-startup-timing.js";
 import { buildRegistry, helpText } from "./registry.js";
 import type { CliContext } from "./types.js";
 import { computeJson, parseArgs, scanCliArgs, UsageError } from "./io.js";
@@ -124,6 +123,8 @@ function degradedContext(): BrainContext {
 }
 
 async function main(): Promise<number> {
+  // Everything the bin imports statically has evaluated by now.
+  const staticLoaded = performance.now();
   const argv = process.argv.slice(2);
   if (argv[0] === "--version" || argv[0] === "-v") {
     console.log(packageVersion());
@@ -131,6 +132,7 @@ async function main(): Promise<number> {
   }
   const json = computeJson(argv);
   const { command, wantsHelp } = scanCliArgs(argv);
+  if (command === "mcp") logMcpStaticPhase(staticLoaded);
 
   // Storage observes host-selected roots without executing repository config.
   if (command === "storage" && argv[1] !== "pack") {
@@ -194,10 +196,13 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // `brain <cmd> --help` → that command's usage block.
+  // `brain <cmd> --help` → that command's usage block. A core command that
+  // fails to load is an internal failure, not a reason to print its summary.
   if (wantsHelp) {
     let help = entry.helpBlock;
-    if (!help && entry.describe) {
+    if (!help && entry.describe && entry.source === "core") {
+      help = (await entry.describe()).helpBlock;
+    } else if (!help && entry.describe) {
       try {
         help = (await entry.describe()).helpBlock;
       } catch {
@@ -236,7 +241,10 @@ async function main(): Promise<number> {
   }
 
   // Render source mistakes must reach the caller before a sandbox refusal.
-  if (command === "render") validateRenderInput(argv.slice(1), brain.root);
+  if (command === "render") {
+    const { validateRenderInput } = await import("./commands/render.js");
+    validateRenderInput(argv.slice(1), brain.root);
+  }
 
   // Refuse known write forms before handlers which intentionally collect
   // per-file errors; those loops cannot surface EROFS to main's catch.
