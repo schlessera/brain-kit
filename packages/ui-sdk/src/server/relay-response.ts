@@ -1,5 +1,14 @@
 import { chargeReceivedBytes } from "./egress-accounting.js";
 import type { EgressChargeFailure } from './egress-proxy.js';
+import { CREDENTIAL_HEADERS } from "@schlessera/brain-common/internal/provider-relay";
+
+/** Request headers a worker may not choose: credentials, routing and hop-by-hop. Both relays strip them. */
+export const RELAY_REQUEST_STRIPPED: ReadonlySet<string> = new Set([...CREDENTIAL_HEADERS, "host", "proxy-connection", "connection",
+  "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "content-length", "forwarded", "x-forwarded-for", "x-forwarded-host",
+  "x-forwarded-proto", "accept-encoding"]);
+/** Response headers neither relay hands back to the worker. */
+export const RELAY_RESPONSE_STRIPPED: ReadonlySet<string> = new Set(["connection", "keep-alive", "transfer-encoding", "content-length",
+  "content-encoding", "set-cookie"]);
 
 /** Counts every peer-supplied pair before any forwarding policy removes fields. */
 function receivedHeadBytes(first:string,rawHeaders:readonly string[],allowance:number):number {
