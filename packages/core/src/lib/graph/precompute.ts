@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
-import { getMeta } from "../db.js";
+import { getMeta, setMeta } from "../db.js";
 
 import { loadLinkGraph } from "./build.js";
 import { bfsDistances } from "./distances.js";
@@ -60,6 +60,22 @@ function outputCounts(db: Database): string {
 }
 
 /**
+ * The tables still describe the index, but a document was indexed after they
+ * were computed (a body edit, say). Move `graph_computed_at` forward so the
+ * reader's staleness check (newest `documents.indexed_at` against it) stays
+ * false, and rewrite nothing else. A run in which nothing was indexed writes
+ * nothing.
+ */
+function refreshProvenance(db: Database): void {
+  const computedAt = getMeta(db, "graph_computed_at");
+  const { newest } = db
+    .prepare("SELECT MAX(indexed_at) AS newest FROM documents")
+    .get() as { newest: string | null };
+  if (!computedAt || !newest || !(Date.parse(computedAt) < Date.parse(newest))) return;
+  setMeta(db, "graph_computed_at", new Date().toISOString());
+}
+
+/**
  * Rebuild every `graph_*` table from `documents` + `links`.
  *
  * Wholesale replacement in one immediate transaction, exactly like the link
@@ -95,20 +111,21 @@ function precompute(
     taxonomy: options.taxonomy,
     override: options.rootOverride,
   });
-  // Hash authoritative graph inputs, never layout output. Include indexed_at
-  // so the cache's provenance stays newer than edited documents. Resolving the
-  // root on every run also catches edits to index-excluded entry files.
-  // Bump revision when graph algorithms/label rules change, even if their
-  // numeric parameters do not. This key is internal disposable cache state.
+  // Hash only what the graph tables are computed from (node ids and paths,
+  // titles for labels, link rows, tags), never layout output: a body edit
+  // leaves every table as it is. Resolving the root on every run also catches
+  // edits to index-excluded entry files. Bump revision when graph
+  // algorithms/label rules or the hashed inputs change, even if the numeric
+  // parameters do not. This key is internal disposable cache state.
   const hash = createHash("sha256");
   hash.update(JSON.stringify({
-    revision: 1, root, anchors: options.taxonomy.dirAnchors,
+    revision: 2, root, anchors: options.taxonomy.dirAnchors,
     damping: PAGERANK_DAMPING, seed: LOUVAIN_SEED,
     direction: ROOT_DIRECTION, cold: LAYOUT_ITERATIONS_COLD,
     warm: LAYOUT_ITERATIONS_WARM, cap: LAYOUT_NODE_CAP,
   }));
   for (const sql of [
-    "SELECT id, path, title, type, status, updated, content_hash, indexed_at FROM documents WHERE asset_type = 'markdown' ORDER BY id",
+    "SELECT id, path, title FROM documents WHERE asset_type = 'markdown' ORDER BY id",
     "SELECT source_id, target, target_id FROM links ORDER BY source_id, target",
     "SELECT dt.document_id, t.name FROM document_tags dt JOIN tags t ON t.id = dt.tag_id ORDER BY dt.document_id, t.name",
   ]) {
@@ -117,6 +134,7 @@ function precompute(
   const inputHash = hash.digest("hex");
   if (reuse && getMeta(db, "graph_input_hash") === inputHash && getMeta(db, "graph_computed_at") &&
       getMeta(db, "graph_output_counts") === outputCounts(db)) {
+    refreshProvenance(db);
     return null;
   }
 
