@@ -1680,6 +1680,21 @@ cache that lives for one scrape run behaves as before; one held for days, like
 the hosted Apify site-permission checker's, now reads robots.txt again daily
 and retries a failed fetch after five minutes. Additive; ships in a minor.
 
+<a id="scrape-fetch-max-bytes-additive-4768"></a>
+
+## Bounded response bodies (additive, #4768)
+
+`FetchOptions` (`@schlessera/brain-scrape`) gains an optional `maxBytes`. When
+it is set, `ScrapeClient.getJson`, `getPage` and `getText` read at most that
+many bytes of a response body, including the body of a non-2xx response they
+quote in their error: a longer body is refused as it streams in, its stream
+is cancelled, and the call rejects (`response body exceeds N bytes`; a non-2xx
+error keeps its status and names the refusal in place of the body). Unset,
+the helpers read the whole body as before, and `get` always returns its
+`Response` unread and unbounded, with its final `url`. The default
+robots.txt fetcher refuses a body over its `maxBytes` through the same
+reader. Additive; ships in a minor.
+
 <a id="browser-scraping-navigation-policy"></a>
 
 ## Browser scraping navigation policy
