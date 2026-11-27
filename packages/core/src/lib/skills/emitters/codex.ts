@@ -15,14 +15,12 @@
  * deleted, so the next sync can finish the job.
  */
 
-import { existsSync, lstatSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "fs";
+import { lstatSync, readdirSync, readFileSync, rmdirSync, rmSync } from "fs";
 import { join } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import type { SkillEmitter } from "../../seams.js";
-import { CONTRACT_END, CONTRACT_FILE, CONTRACT_START, renderContractBlock } from "./contract-block.js";
-import { INDEX_END, INDEX_START } from "./index-block.js";
-import { appendBlock, applyEdits, scanBlock, type Edit } from "./managed-block.js";
+import { upsertContractBlock } from "./contract-block.js";
 
 export { CONTRACT_END, CONTRACT_FILE, CONTRACT_START, renderContractBlock } from "./contract-block.js";
 
@@ -175,55 +173,8 @@ function migratePrompts(
 export const codexEmitter: SkillEmitter = {
   agent: "codex",
   emit(_skills, repoRoot) {
-    const written: string[] = [];
-    const removed: string[] = [];
-    const warnings: string[] = [];
-
-    const agentsFile = join(repoRoot, "AGENTS.md");
-    const original = existsSync(agentsFile) ? readFileSync(agentsFile, "utf8") : null;
-    const text = original ?? "";
-
-    const contract = scanBlock(text, { start: CONTRACT_START, end: CONTRACT_END });
-    const index = scanBlock(text, { start: INDEX_START, end: INDEX_END });
-    for (const [scan, label] of [
-      [contract, "contract"],
-      [index, "old skills index"],
-    ] as const) {
-      if (scan.kind === "malformed") {
-        warnings.push(`AGENTS.md has ${scan.reason} for the ${label} block; left it unchanged, fix the markers by hand`);
-        return { written, removed, warnings };
-      }
-    }
-    if (
-      contract.kind === "present" &&
-      index.kind === "present" &&
-      contract.from < index.to &&
-      index.from < contract.to
-    ) {
-      warnings.push("AGENTS.md has the contract and old skills index blocks overlapping; left it unchanged, fix the markers by hand");
-      return { written, removed, warnings };
-    }
-
-    const block = renderContractBlock(readFileSync(CONTRACT_FILE, "utf8"));
-
-    if (index.kind === "present") {
-      const indexBlock = text.slice(index.from, index.to);
-      if (!migratePrompts(repoRoot, indexBlock, removed, warnings)) return { written, removed, warnings };
-    }
-
-    const edits: Edit[] = [];
-    if (contract.kind === "present") {
-      edits.push({ from: contract.from, to: contract.to, insert: block });
-      if (index.kind === "present") edits.push({ from: index.from, to: index.to, insert: "" });
-    } else if (index.kind === "present") {
-      edits.push({ from: index.from, to: index.to, insert: block });
-    }
-    const next = edits.length > 0 ? applyEdits(text, edits) : appendBlock(text, block);
-
-    if (next !== original) {
-      writeFileSync(agentsFile, next);
-      written.push("AGENTS.md");
-    }
-    return { written, removed, warnings };
+    return upsertContractBlock(join(repoRoot, "AGENTS.md"), "AGENTS.md", {
+      migrateIndex: (indexBlock, result) => migratePrompts(repoRoot, indexBlock, result.removed, result.warnings),
+    });
   },
 };

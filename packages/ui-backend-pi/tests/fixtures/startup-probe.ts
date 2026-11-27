@@ -43,10 +43,14 @@ const backend = createPiBackend({brainPath:brain,sessionDir:sessions,loadExtensi
   log(_level, message, meta) { if (current && message.startsWith("Pi startup")) current.phases.push({message,...meta}); } });
 const sandbox = prepareWorkerSandbox(brain,{profile:"strict",areas:[]});
 async function run(kind: string, sessionId?: string) {
-  current = {kind,started:performance.now(),phases:[],frames:[]}; turnCalls=0;
+  // Backend start -> first frame / first provider request, after and apart
+  // from the fixture's copied startup view (fixturePreparationMs, #4286).
+  const prepared = performance.now();
+  current = {kind,started:prepared,phases:[],frames:[]}; turnCalls=0;
   await startFixtureTurn(backend,brain,{sessionId,prompt:"Continue the voyage",profileId:"fixture",signal:AbortSignal.timeout(20000),workerSandbox:sandbox,
     workerStarted(worker) { current.workerPid = (worker as unknown as {pid:number}).pid; },
-    bridge:{emit(frame) { if (current.firstFrameMs === undefined) current.firstFrameMs=performance.now()-current.started; current.frames.push(frame); },requestPermission:async()=>({behavior:"allow"})}});
+    bridge:{emit(frame) { if (current.firstFrameMs === undefined) current.firstFrameMs=performance.now()-current.started; current.frames.push(frame); },requestPermission:async()=>({behavior:"allow"})}},
+    { viewReady() { current.started = performance.now(); current.fixturePreparationMs = current.started - prepared; } });
   const terminal = current.frames.at(-1);
   if (terminal?.type !== "result" || terminal.outcome !== "success") throw new Error(JSON.stringify(current.frames));
   const identity = current.frames.find((f:any)=>f.type==="tool_result" && f.toolUseId==="identity" && !f.isError);

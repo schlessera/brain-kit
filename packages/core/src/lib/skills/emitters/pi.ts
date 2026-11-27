@@ -12,46 +12,21 @@
  * Symlinks rather than copies, so a skill has exactly one source of truth.
  */
 
-import { existsSync, mkdirSync, readdirSync, rmSync } from "fs";
 import { join } from "path";
 
 import type { SkillEmitter } from "../../seams.js";
-import { isSymlink, makeLink, normalizeLinkTarget, readLink } from "../fs-links.js";
+import { linkSkillsInto } from "../fs-links.js";
 
 export const piEmitter: SkillEmitter = {
   agent: "pi",
   emit(skills, repoRoot) {
-    const written: string[] = [];
-    const removed: string[] = [];
-
-    const piDir = join(repoRoot, ".pi", "skills");
-    mkdirSync(piDir, { recursive: true });
-
-    const want = new Set(skills.map((s) => s.name));
-
-    for (const skill of skills) {
-      const link = join(piDir, skill.name);
-      const relTarget = `../../.agents/skills/${skill.name}`;
-
-      if (isSymlink(link)) {
-        if (normalizeLinkTarget(readLink(link) ?? "") === relTarget) continue; // already correct
-        rmSync(link);
-      } else if (existsSync(link)) {
-        continue; // a real file/dir lives here — never clobber it
-      }
-
-      if (makeLink(relTarget, link, true)) written.push(`.pi/skills/${skill.name}`);
-    }
-
-    // Prune stale skill symlinks (removed/renamed skills). Real dirs untouched.
-    for (const entry of readdirSync(piDir)) {
-      const p = join(piDir, entry);
-      if (isSymlink(p) && !want.has(entry)) {
-        rmSync(p);
-        removed.push(`.pi/skills/${entry}`);
-      }
-    }
-
-    return { written, removed };
+    const { linked, pruned } = linkSkillsInto(
+      join(repoRoot, ".pi", "skills"),
+      skills.map((skill) => ({ name: skill.name, target: `../../.agents/skills/${skill.name}` }))
+    );
+    return {
+      written: linked.map((name) => `.pi/skills/${name}`),
+      removed: pruned.map((name) => `.pi/skills/${name}`),
+    };
   },
 };

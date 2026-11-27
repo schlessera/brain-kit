@@ -1,5 +1,5 @@
 /**
- * Symlink helpers shared by skill sync + the claude emitter.
+ * Symlink helpers shared by skill sync and the claude and pi emitters.
  *
  * Ports the platform handling of `scripts/hooks/sync-skills`: standard symlinks
  * on Unix/WSL/macOS, directory-junction fallback on native Windows. Unlike the
@@ -8,8 +8,8 @@
  * NTFS junction, no child process. See sync.ts fidelity notes.
  */
 
-import { lstatSync, readlinkSync, symlinkSync } from "fs";
-import { dirname, isAbsolute, resolve } from "path";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, rmSync, symlinkSync } from "fs";
+import { dirname, isAbsolute, join, resolve } from "path";
 
 /** True when the path exists and is itself a symlink (does not follow). */
 export function isSymlink(p: string): boolean {
@@ -56,4 +56,51 @@ export function makeLink(target: string, link: string, isDir: boolean): boolean 
     }
     return false;
   }
+}
+
+/** What {@link linkSkillsInto} did, by skill or entry name. */
+export interface LinkSkillsResult {
+  /** Linked, or re-pointed from an old target, this run. */
+  linked: string[];
+  /** Symlinks in the directory that name no wanted skill, removed. */
+  pruned: string[];
+  /** Left alone because a real file or directory occupies the path. */
+  skipped: string[];
+  /** Could not be linked. */
+  failed: string[];
+}
+
+/**
+ * Keep `dir` holding one symlink per entry, `<dir>/<name>` → `target`: a link
+ * already pointing at its target stays, one pointing elsewhere is re-pointed,
+ * a real file or directory at the path is never clobbered, and any other
+ * symlink in `dir` is pruned. Real directories are never touched.
+ */
+export function linkSkillsInto(dir: string, entries: { name: string; target: string }[]): LinkSkillsResult {
+  const result: LinkSkillsResult = { linked: [], pruned: [], skipped: [], failed: [] };
+  mkdirSync(dir, { recursive: true });
+
+  for (const { name, target } of entries) {
+    const link = join(dir, name);
+    if (isSymlink(link)) {
+      if (normalizeLinkTarget(readLink(link) ?? "") === normalizeLinkTarget(target)) continue; // already correct
+      rmSync(link); // old target — re-point
+    } else if (existsSync(link)) {
+      result.skipped.push(name);
+      continue;
+    }
+    if (makeLink(target, link, true)) result.linked.push(name);
+    else result.failed.push(name);
+  }
+
+  // Prune stale symlinks (removed or renamed skills, old package paths).
+  const want = new Set(entries.map((e) => e.name));
+  for (const entry of readdirSync(dir)) {
+    const p = join(dir, entry);
+    if (isSymlink(p) && !want.has(entry)) {
+      rmSync(p);
+      result.pruned.push(entry);
+    }
+  }
+  return result;
 }
