@@ -1624,3 +1624,14 @@ including any quote, exceeds 32,768 characters, `invalid_input/reply_no_recipien
 leaves no recipient, or `draft_not_displayable/reply_threading_unreadable` when
 Message-ID/References cannot be represented exactly or the target is unsent.
 Standalone does not compose replies or expose quote input.
+
+
+### Irreversible Gmail command refusals (#4214)
+
+`brain google gmail send <draft-id>`, `brain google gmail draft delete
+<draft-id>` and `brain google gmail trash <message-id…>` return the normal
+error envelope with their operation (`gmail.draft.send`, `gmail.draft.delete`
+or `gmail.trash`), `code: "policy_denied"`, `reason:
+"standalone_irreversible"`, and exit 1. They never open a Google credential
+or dispatch a transport call. There is no terminal approval, opt-in or
+remembered grant that enables them; use a hosted conversation with a card.

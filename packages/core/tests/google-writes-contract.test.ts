@@ -140,3 +140,16 @@ test("google standalone busy lock refuses and releases for the next call", async
   } finally { db.exec("ROLLBACK"); db.close(); }
   expect((await f.run(modifyArgs)).code, "CLI_BUSY_RECOVERY").toBe(0);
 }, 60_000);
+
+for (const [args, operation] of [
+  [["send", DRAFT], "gmail.draft.send"],
+  [["draft", "delete", DRAFT], "gmail.draft.delete"],
+  [["trash", FIRST], "gmail.trash"],
+] as const) test(`google standalone ${operation} refuses before any credential access`, async () => {
+  const f = fixture();
+  const result = await f.run([...args]);
+  expect(result.code).toBe(1);
+  expect(JSON.parse(result.stdout), "CLI_IRREVERSIBLE_REFUSAL").toMatchObject({ ok: false, operation, error: { code: "policy_denied", reason: "standalone_irreversible" } });
+  expect(f.fake.calls(), "CLI_IRREVERSIBLE_NO_CREDENTIAL").toHaveLength(0);
+  expect(existsSync(f.ledger)).toBe(false);
+});

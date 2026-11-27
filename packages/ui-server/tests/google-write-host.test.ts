@@ -145,7 +145,7 @@ for (const kind of ["authority", "policy", "safety"]) test(`google ${kind} chang
 for (const kind of ["authority", "policy", "safety", "taint", "routing"]) test(`google ${kind} change at final admission refuses card-less dispatch`, async () => {
   const f = fixture("allow");
   f.prepare(async call => { const p = googleModifyPrepared(call, () => { throw new Error("must not dispatch"); });
-    const execute = p.execute; p.execute = async check => { f.change(kind); return execute(check); }; return p; });
+    const execute = p.execute; p.execute = async (check, cleanup) => { f.change(kind); return execute(check, cleanup); }; return p; });
   expect(await f.call(), "GOOGLE_FINAL_ADMISSION_REFUSAL").toMatchObject({ ok: false });
   // The admission was recorded before execute; the refusal follows it, and the never-dispatched inverse is withdrawn.
   expect((f.db.query("SELECT json_extract(payload,'$.decision') AS decision FROM governance_events ORDER BY id").all() as { decision: string }[])
@@ -317,7 +317,7 @@ test("google approval frame at the card budget replicates byte for byte", async 
 test("google withdrawal and unknown marking that fail are retried until they land", async () => {
   const f = fixture("allow");
   f.db.exec("CREATE TRIGGER google_withdraw_failure BEFORE DELETE ON google_inverses BEGIN SELECT RAISE(ABORT, 'withdraw failed'); END");
-  f.prepare(async call => { const p = googleModifyPrepared(call); const execute = p.execute; p.execute = async check => { f.change("authority"); return execute(check); }; return p; });
+  f.prepare(async call => { const p = googleModifyPrepared(call); const execute = p.execute; p.execute = async (check, cleanup) => { f.change("authority"); return execute(check, cleanup); }; return p; });
   expect(await f.call(), "GOOGLE_FINAL_ADMISSION_REFUSAL").toMatchObject({ ok: false });
   expect(f.db.query("SELECT state FROM google_inverses").all(), "GOOGLE_WITHDRAWAL_FAILED_ONCE").toEqual([{ state: "prepared" }]);
   f.db.exec("DROP TRIGGER google_withdraw_failure");
@@ -524,10 +524,10 @@ for (const kind of ["remembered", "session"]) test(`google ${kind} revocation is
   const f = fixture(); f.tainted(kind === "session");
   f.answer(async () => ({ behavior: "allow", ...(kind === "session" ? { forSession: true } : { always: true }) })); await f.call();
   f.prepare(async call => { const p = googleModifyPrepared(call), execute = p.execute;
-    p.execute = async final => {
+    p.execute = async (final, cleanup) => {
       if (kind === "session") await f.allowances.revoke("ithaca", "odysseus", "brain", f.cards[0]!.toolUseId);
       else for (const row of f.ledger.list("brain")) f.ledger.revoke("brain", row.id);
-      return execute(final);
+      return execute(final, cleanup);
     }; return p; });
   expect(await f.call(), "GOOGLE_FINAL_GRANT_REVOKED").toMatchObject({ ok: false });
   expect(f.dispatched()).toBe(1);
@@ -620,12 +620,12 @@ test("google final admission cannot switch to an unreserved allowance", async ()
   const f = fixture(); f.answer(async () => ({ behavior: "allow", always: true })); await f.call();
   f.prepare(async call => {
     const prepared = googleModifyPrepared(call, () => { throw new Error("GOOGLE_UNRESERVED_DISPATCH"); }), execute = prepared.execute;
-    prepared.execute = async final => {
+    prepared.execute = async (final, cleanup) => {
       await f.allowances.grant({ sessionId: "ithaca", principalId: "odysseus", brainId: "brain", accountIdentity: "odysseus@example.com",
         hostEpoch: "ithaca-epoch", policyHash: JSON.stringify(googlePolicy()), now: f.now(), tainted: true, authorized: true },
         "gmail.modify", ["archive"], "other-card");
       f.tainted(true);
-      return execute(final);
+      return execute(final, cleanup);
     };
     return prepared;
   });

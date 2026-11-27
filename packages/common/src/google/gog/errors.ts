@@ -5,10 +5,11 @@
  * stderr and gog's JSON error envelope never reach the model: only a code, a
  * short machine reason and a fixed message. A write that may have reached
  * Google before it failed is `outcome_unknown` and is never retried; a write
- * that gog says Google refused (auth, not found, denied, rate limited) did
- * not happen.
+ * that gog says Google refused retains its final refusal code here. A send
+ * factory must account for gog-internal retries before inferring non-delivery.
  */
 import type { GoogleError, GoogleErrorCode } from "../catalog.js";
+import { PRE_REQUEST_FAILURES } from "../pre-request.js";
 
 /** gog v0.48.1's exit codes, by the class name gog gives each. */
 export const GOG_EXIT_CODES = Object.freeze({
@@ -27,6 +28,7 @@ const MESSAGES: Readonly<Record<GoogleErrorCode, string>> = Object.freeze({
   rate_limited: "Google is rate limiting the connected account; try again later.",
   upstream_error: "Google did not answer this read; try again later.",
   draft_not_displayable: "This draft cannot be shown in full, so it cannot be sent from here.",
+  already_sent: "These exact draft bytes have already been sent.",
   draft_locked: "This draft is waiting on an open send card.",
   recording_unavailable: "The decision could not be recorded, so nothing ran.",
   transport_incompatible: "The Google transport is not the pinned gog release or answered in a shape brain-kit does not read.",
@@ -35,6 +37,14 @@ const MESSAGES: Readonly<Record<GoogleErrorCode, string>> = Object.freeze({
 
 export function gogError(code: GoogleErrorCode, reason: string | null): GoogleError {
   return { code, reason, message: MESSAGES[code] };
+}
+
+/** The code/reason pairs proven to end gog before any request reached Google, with their sources (`PRE_REQUEST_FAILURES`, `../pre-request.ts`). */
+export const GOG_PRE_REQUEST_FAILURES: readonly string[] = PRE_REQUEST_FAILURES;
+
+/** Whether this error is one of `GOG_PRE_REQUEST_FAILURES`: nothing reached Google. */
+export function isGogPreRequestFailure(error: Pick<GoogleError, "code" | "reason">): boolean {
+  return GOG_PRE_REQUEST_FAILURES.includes(`${error.code}/${error.reason}`);
 }
 
 export type GogEffect = "read" | "write";

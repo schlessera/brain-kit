@@ -27,8 +27,7 @@
  * from reading the thread (plan §5, last bullet). A page with more hits than
  * it asked for (at most 25) is refused before any thread read is scheduled.
  *
- * Reversible writes require a host-resolved account and final admission. Other
- * writes remain unavailable until their operation-specific codecs land.
+ * All writes require a host-resolved account and final admission.
  */
 import { GMAIL_LIMITS, type GoogleError, type GoogleOperation } from "../catalog.js";
 import type { GmailLabelRecord, GmailMessageRecord, GmailSearchPageRecord, GmailThreadRecord } from "../records.js";
@@ -97,7 +96,7 @@ export type GogAvailability =
   | { ok: true; fake: true }
   | { ok: false; error: GoogleError };
 
-export type GogWriteOperation = "gmail.modify" | "gmail.draft.save";
+export type GogWriteOperation = keyof GogWriteResults;
 export type GogExecutableOperation = GogReadOperation | GogWriteOperation;
 export type GogResults = GogReadResults & GogWriteResults;
 export interface GogExecution {
