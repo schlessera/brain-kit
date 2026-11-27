@@ -37,7 +37,7 @@ import { parseMarkdownFiles } from "./parse.js";
 import { persistMarkdown } from "./persist.js";
 import { completeCorpusMaps, getAssetFiles, getMarkdownFiles, loadExistingDocs, targetedScan } from "./scan.js";
 import type { AssetEmbedTask, IndexOptions, IndexRun, IndexStats, ParseResult } from "./types.js";
-import { carryMarkdownVectors, dropIneligibleVectors, dropMarkdownVectors, dropOrphanedVectors, syncVectorFilters } from "./vectors.js";
+import { carryMarkdownVectors, dropCarriedVectors, dropIneligibleVectors, dropMarkdownVectors, dropOrphanedVectors, syncVectorFilters } from "./vectors.js";
 
 function emptyStats(): IndexStats {
   return {
@@ -176,6 +176,8 @@ async function runIndex(db: Database, options: IndexOptions): Promise<IndexStats
   try {
     return await runPipeline(run, options);
   } finally {
+    // A `--force` run's carried vectors live for the run only.
+    if (run.carriedVectors) dropCarriedVectors(run.db);
     // --- checkpoint -------------------------------------------------------
     checkpointWal(run);
   }
@@ -215,7 +217,7 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
 
   // Drop vectors while their old markdown chunk IDs still exist, before the
   // persist phase replaces those chunks. Whatever the embedding phase can
-  // reuse is held in memory first.
+  // reuse is copied into the run's carry table first.
   if (run.force) {
     if (run.wantEmbeddings && run.provider) run.carriedVectors = carryMarkdownVectors(run.db, run.provider);
     dropMarkdownVectors(run.db);

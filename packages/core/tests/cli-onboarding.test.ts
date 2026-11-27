@@ -1,6 +1,15 @@
 /**
  * Onboarding CLI tests: init --check / --default, doctor, import --stamp,
  * skills lint (with a broken fixture skill), and config check.
+ *
+ * Cases that assert what a command prints run it in process
+ * (`runCliInProcess`). Each command the file covers keeps at least one spawned
+ * case (`runCli`) for its exit code, stdio completion and environment
+ * isolation: init and doctor ("init --default in an empty dir"), import (the
+ * byte order mark case), config check, the refusals of index, add, sync,
+ * graph compute, skills sync and setup, and doctor's MCP fallback through a
+ * PATH shim, and the three cases that take git off PATH, which are about the
+ * environment a child is given.
  */
 
 import { afterEach, expect, test } from "bun:test";
@@ -18,6 +27,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { runCliInProcess } from "./cli-in-process-runner";
 import { installGitHooks } from "../src/cli/hooks-util";
 import { withoutSigning } from "./git-fixture";
 
@@ -34,7 +44,7 @@ afterEach(() => {
 test("JSON indexing preserves its stats envelope and reports skipped files on stderr", async () => {
   const root = tempBrain();
   writeFileSync(join(root, "notes", "broken.md"), '---\ntitle: "Unclosed\ntype: note\n---\nbody\n');
-  const { stdout, stderr, code } = await runCli(root, ["index", "--json"]);
+  const { stdout, stderr, code } = await runCliInProcess(root, ["index", "--json"]);
   expect(code).toBe(0);
   const stats = JSON.parse(stdout);
   expect(Object.keys(stats).sort()).toEqual([
@@ -48,7 +58,7 @@ test("JSON indexing preserves its stats envelope and reports skipped files on st
 
 test("init --check emits the preflight shape", async () => {
   const root = tempBrain();
-  const { stdout, code } = await runCli(root, ["init", "--check", "--json"]);
+  const { stdout, code } = await runCliInProcess(root, ["init", "--check", "--json"]);
   expect(code).toBe(0);
   const p = JSON.parse(stdout);
   expect(typeof p.bun.ok).toBe("boolean");
@@ -86,8 +96,8 @@ test("init --default in an empty dir, then doctor mostly-passes", async () => {
 
 test("init --default is idempotent (re-run creates nothing)", async () => {
   const root = tempBrain({ empty: true });
-  await runCli(root, ["init", "--default", "--json"]);
-  const again = await runCli(root, ["init", "--default", "--json"]);
+  await runCliInProcess(root, ["init", "--default", "--json"]);
+  const again = await runCliInProcess(root, ["init", "--default", "--json"]);
   expect(again.code).toBe(0);
   expect(JSON.parse(again.stdout).created).toHaveLength(0);
 });
@@ -99,7 +109,7 @@ test("import --stamp adds frontmatter to bare markdown", async () => {
   writeFileSync(join(importDir, "note.md"), "# My Imported Note\n\nsome text\n");
   writeFileSync(join(importDir, "already.md"), "---\ntype: note\ntitle: Already\n---\nbody\n");
 
-  const { stdout, code } = await runCli(root, ["import", "--stamp", "import/vault", "--json"]);
+  const { stdout, code } = await runCliInProcess(root, ["import", "--stamp", "import/vault", "--json"]);
   expect(code).toBe(0);
   const out = JSON.parse(stdout);
   expect(out.stamped).toContain("note.md");
@@ -137,7 +147,7 @@ test("skills lint fails on a broken fixture skill", async () => {
     "---\nname: broken-skill\ndescription: Do a thing: with an unquoted colon\n---\nbody\n"
   );
 
-  const { stdout, code } = await runCli(root, ["skills", "lint", "--json"]);
+  const { stdout, code } = await runCliInProcess(root, ["skills", "lint", "--json"]);
   expect(code).toBe(1);
   const out = JSON.parse(stdout);
   expect(out.errors).toBeGreaterThan(0);
@@ -241,7 +251,7 @@ test("doctor requires a real hook file under core.hooksPath", async () => {
   const installed = installGitHooks(root);
   expect(installed.hooks.length).toBeGreaterThan(0);
 
-  const healthy = await runCli(root, ["doctor", "--json"]);
+  const healthy = await runCliInProcess(root, ["doctor", "--json"]);
   const healthyCheck = JSON.parse(healthy.stdout).checks.find(
     (check: { id: string }) => check.id === "git-hooks"
   );
@@ -250,7 +260,7 @@ test("doctor requires a real hook file under core.hooksPath", async () => {
   for (const hook of readdirSync(join(root, ".githooks"))) {
     rmSync(join(root, ".githooks", hook));
   }
-  const wiped = await runCli(root, ["doctor", "--json"]);
+  const wiped = await runCliInProcess(root, ["doctor", "--json"]);
   const wipedCheck = JSON.parse(wiped.stdout).checks.find(
     (check: { id: string }) => check.id === "git-hooks"
   );
@@ -271,7 +281,7 @@ function hookedBrain(): string {
 }
 
 async function gitHooksCheck(root: string, args: string[] = []) {
-  const { stdout, code } = await runCli(root, ["doctor", "--json", ...args], isolatedHome());
+  const { stdout, code } = await runCliInProcess(root, ["doctor", "--json", ...args], isolatedHome());
   expect(code).toBe(0);
   const out = JSON.parse(stdout);
   return { check: out.checks.find((c: { id: string }) => c.id === "git-hooks"), fixesApplied: out.fixesApplied };
@@ -319,7 +329,7 @@ test("doctor reports a dead MCP source-file registration", async () => {
     })
   );
 
-  const result = await runCli(root, ["doctor", "--json"]);
+  const result = await runCliInProcess(root, ["doctor", "--json"]);
   const mcp = JSON.parse(result.stdout).checks.find(
     (check: { id: string }) => check.id === "mcp"
   );
@@ -334,7 +344,7 @@ test("doctor reports a dead MCP source-file registration", async () => {
       },
     })
   );
-  const current = await runCli(root, ["doctor", "--json"]);
+  const current = await runCliInProcess(root, ["doctor", "--json"]);
   const currentMcp = JSON.parse(current.stdout).checks.find(
     (check: { id: string }) => check.id === "mcp"
   );
@@ -559,7 +569,7 @@ test("init --check reports the template's empty starter config as not initialize
     join(root, "brain.config.ts"),
     'import { defineConfig } from "@schlessera/brain";\n\nexport default defineConfig({\n  // profile: { name: "Your Name" },\n});\n'
   );
-  const { stdout, code } = await runCli(root, ["init", "--check", "--json"]);
+  const { stdout, code } = await runCliInProcess(root, ["init", "--check", "--json"]);
   expect(code).toBe(0);
   const p = JSON.parse(stdout);
   expect(p.config.exists).toBe(true);
@@ -569,7 +579,7 @@ test("init --check reports the template's empty starter config as not initialize
 
 test("init --check reports a configured brain as initialized", async () => {
   // The fixture corpus is a fully personalized brain: profile, custom types.
-  const { stdout, code } = await runCli(tempBrain(), ["init", "--check", "--json"]);
+  const { stdout, code } = await runCliInProcess(tempBrain(), ["init", "--check", "--json"]);
   expect(code).toBe(0);
   const p = JSON.parse(stdout);
   expect(p.config.exists).toBe(true);
@@ -581,13 +591,13 @@ test("init --check reports one declared key as enough to be initialized", async 
   // next field added to the schema needs no change here.
   const root = tempBrain({ empty: true });
   writeFileSync(join(root, "brain.config.json"), JSON.stringify({ profile: { name: "A" } }));
-  const p = JSON.parse((await runCli(root, ["init", "--check", "--json"])).stdout);
+  const p = JSON.parse((await runCliInProcess(root, ["init", "--check", "--json"])).stdout);
   expect(p.config.initialized).toBe(true);
 });
 
 test("init --check reports no config at all as neither existing nor initialized", async () => {
   const root = tempBrain({ empty: true });
-  const p = JSON.parse((await runCli(root, ["init", "--check", "--json"])).stdout);
+  const p = JSON.parse((await runCliInProcess(root, ["init", "--check", "--json"])).stdout);
   expect(p.config.exists).toBe(false);
   expect(p.config.initialized).toBe(false);
 });
@@ -595,7 +605,7 @@ test("init --check reports no config at all as neither existing nor initialized"
 test("init --check reports a broken config as existing, invalid and not initialized", async () => {
   const root = tempBrain({ empty: true });
   writeFileSync(join(root, "brain.config.json"), JSON.stringify({ taxonomy: { types: 7 } }));
-  const p = JSON.parse((await runCli(root, ["init", "--check", "--json"])).stdout);
+  const p = JSON.parse((await runCliInProcess(root, ["init", "--check", "--json"])).stdout);
   expect(p.config.exists).toBe(true);
   expect(p.config.valid).toBe(false);
   expect(p.config.initialized).toBe(false);
@@ -681,7 +691,7 @@ test("a check that throws becomes a warn, and every later check still reports", 
   // A file where the scratch directory's parent should be: mkdir throws ENOTDIR inside the check.
   writeFileSync(join(root, ".brain"), "not a directory\n");
   const env = isolatedHome();
-  const { stdout, stderr, code } = await runCli(root, ["doctor", "--json"], env);
+  const { stdout, stderr, code } = await runCliInProcess(root, ["doctor", "--json"], env);
   expect(code, stderr).toBe(0);
   const checks = JSON.parse(stdout).checks as { id: string; status: string; detail: string }[];
   const scratch = checks.find((c) => c.id === "scratch");
@@ -689,7 +699,7 @@ test("a check that throws becomes a warn, and every later check still reports", 
   expect(scratch?.detail).toStartWith("the check itself failed: ENOTDIR");
   expect(checks.map((c) => c.id).slice(-2)).toEqual(["cache-merge", "sqlite-vec-macos"]);
 
-  const fix = await runCli(root, ["doctor", "--fix", "--json"], env);
+  const fix = await runCliInProcess(root, ["doctor", "--fix", "--json"], env);
   expect(fix.code, fix.stderr).toBe(0);
   expect(fix.stderr).toContain("doctor --fix: scratch fix failed: ENOTDIR");
   // Whatever --fix linked went into the throwaway bin directory.

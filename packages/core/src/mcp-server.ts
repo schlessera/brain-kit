@@ -25,7 +25,7 @@ import { isIsoDate } from "./lib/search-engine.js";
 import { walkLinks } from "./lib/link-walk.js";
 import { resolveProviders } from "./lib/registry.js";
 import type { EmbeddingProvider } from "./lib/seams.js";
-import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
+import { EMBEDDING_DIMENSIONS } from "./lib/llm-defaults.js";
 import { SEARCH_SORTS } from "./lib/types.js";
 import { packageVersion } from "./package-version.js";
 import { registerModuleTools } from "./lib/module-mcp-tools.js";

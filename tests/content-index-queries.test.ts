@@ -6,7 +6,6 @@ import { join, resolve } from "path";
 import * as queries from "@schlessera/brain/queries";
 import type { QueryResult } from "@schlessera/brain/queries";
 import { SCHEMA_VERSION } from "@schlessera/brain";
-import { walkLinks } from "../packages/core/src/lib/link-walk.js";
 import { filterSearch } from "../packages/core/src/lib/search-engine.js";
 // The frozen pre-migration server readers: core must keep reproducing them.
 import { getClusters, getDiscovery, getGraphMeta, getMaintenance, getNeighborhood } from "./helpers/legacy-ui/graph-reader.js";
@@ -22,6 +21,57 @@ function success<T>(result: QueryResult<T>): T {
   expect(result.snapshot.schemaVersion).toBe(SCHEMA_VERSION);
   expect(result.snapshot.newestIndexedAt).toBeString();
   return result.value;
+}
+/** The fixture's link walks from CENTER, by direction and clamped depth. */
+const WALK_NODES: Record<string, queries.LinkWalk["nodes"][number]> = {
+  "notes/ithaca.md": { path: "notes/ithaca.md", title: "Ithaca", type: "note", summary: null, updated: "2026-01-01" },
+  "notes/odysseus.md": { path: "notes/odysseus.md", title: "Odysseus", type: "note", summary: null, updated: "2026-01-01" },
+};
+/** Edges as [source, target, resolved] in walk order, and the touched documents by path. */
+const WALKS: Record<string, { edges: [string, string, boolean][]; nodes: string[] }> = {
+  "incoming:1": {
+    edges: [["notes/ithaca.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "incoming:2": {
+    edges: [["notes/ithaca.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/ithaca.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "incoming:4": {
+    edges: [["notes/ithaca.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/ithaca.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "outgoing:1": {
+    edges: [["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "outgoing:2": {
+    edges: [["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "outgoing:4": {
+    edges: [["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "both:1": {
+    edges: [["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "both:2": {
+    edges: [["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "both:4": {
+    edges: [["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+};
+function pinnedWalk(direction: string, depth: number): queries.LinkWalk {
+  const walk = WALKS[`${direction}:${depth}`];
+  return {
+    edges: walk.edges.map(([source, target, resolved]) => ({ source, target, resolved })),
+    nodes: walk.nodes.map((path) => WALK_NODES[path]),
+  };
 }
 function clone(): string {
   const dir = mkdtempSync(join(tmpdir(), "brain-query-copy-"));
@@ -98,22 +148,14 @@ describe("supported content-index results against a real CLI index", () => {
     expect(maintenance).toEqual(getMaintenance(opts));
   });
   test("link walking keeps unresolved text, cycles, directions and depth clamps", () => {
-    const db = new Database(join(brainPath, ".brain-index", "brain.db"), { readonly: true });
-    try {
-      for (const direction of ["incoming", "outgoing", "both"] as const)
-        for (const depth of [-1, 1, 2, 4, 9]) {
-          const value = success(queries.readLinkWalk({ brainPath, path: CENTER, depth, direction }));
-          expect(value.edges.length).toBeGreaterThan(0);
-          expect(value.nodes.length).toBeGreaterThan(0);
-          expect(value).toEqual(walkLinks(db, { path: CENTER, depth: Math.min(4, Math.max(1, depth)), direction }));
-        }
-      const value = success(queries.readLinkWalk({ brainPath, path: `./${CENTER}` }));
-      expect(value.edges.some(e => !e.resolved && e.target === "Unknown Harbour")).toBe(true);
-      expect(new Set(value.edges.map(e => `${e.source}->${e.target}`)).size).toBe(value.edges.length);
-    }
-    finally {
-      db.close();
-    }
+    for (const direction of ["incoming", "outgoing", "both"] as const)
+      for (const depth of [-1, 1, 2, 4, 9]) {
+        const value = success(queries.readLinkWalk({ brainPath, path: CENTER, depth, direction }));
+        expect(value).toEqual(pinnedWalk(direction, Math.min(4, Math.max(1, depth))));
+      }
+    const value = success(queries.readLinkWalk({ brainPath, path: `./${CENTER}` }));
+    expect(value.edges.some(e => !e.resolved && e.target === "Unknown Harbour")).toBe(true);
+    expect(new Set(value.edges.map(e => `${e.source}->${e.target}`)).size).toBe(value.edges.length);
   });
   test("vocabulary and list ranking match the existing populated readers", () => {
     const value = success(queries.readVoiceVocabulary({ brainPath, limit: 200 }));

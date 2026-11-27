@@ -29,3 +29,21 @@ test("layer gate rejects every import form that reaches components/", () => {
     'packages/ui-react/src/connection.ts:1: ./components/connectivity/connection-state.js — stores/, lib/, connection.ts and ws-client/ must not import components/; move the shared code into lib/',
   ]);
 });
+
+const coreLib = "packages/core/src/lib/archiver.ts";
+test("layer gate covers core's lib/, providers/, queries/ and config/", () => {
+  for (const file of [coreLib, "packages/core/src/providers/embeddings/gemini.ts", "packages/core/src/queries/links.ts", "packages/core/src/config/env.ts"]) expect(isLowerLayer(file)).toBe(true);
+  for (const file of ["packages/core/src/cli/main.ts", "packages/core/src/mcp-server.ts", "packages/core/src/module.ts", "packages/core/src/internal.ts"]) expect(isLowerLayer(file)).toBe(false);
+});
+test("layer gate reports a core lower-layer import of cli/ with its file and line", () => {
+  expect(checkLayerDirection('import type { X } from "./x.js";\nimport { UsageError } from "../cli/io.js";', coreLib)).toEqual([
+    "packages/core/src/lib/archiver.ts:2: ../cli/io.js — lib/, providers/, queries/ and config/ must not import cli/; move the shared code out of cli/",
+  ]);
+  expect(checkLayerDirection('const { runBrainCli } = await import("../../cli/main.js");', "packages/core/src/lib/skills/sync.ts")).toEqual([
+    "packages/core/src/lib/skills/sync.ts:1: ../../cli/main.js — lib/, providers/, queries/ and config/ must not import cli/; move the shared code out of cli/",
+  ]);
+});
+test("layer gate lets core's cli/ import lib/", () => {
+  expect(checkLayerDirection('import { openDatabase } from "../lib/db.js";', "packages/core/src/cli/main.ts")).toEqual([]);
+  expect(checkLayerDirection('import { openDatabase } from "../lib/db.js";', coreLib)).toEqual([]);
+});
