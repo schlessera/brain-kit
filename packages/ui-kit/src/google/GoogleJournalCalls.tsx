@@ -61,7 +61,7 @@ export function GoogleJournalCalls({ calls, truncated, headingLevel = 3 }: Googl
     <section data-google-journal-calls="" style={{ minWidth: 0 }}>
       <Heading style={{ margin: 0, fontSize: "inherit", fontWeight: 500 }}>Reversible Google calls</Heading>
       <p style={{ margin: "8px 0 0" }}>These record each decision, not that Google applied it. Brain recorded how to reverse each admitted change, but restoring local files does not reverse them. Undo is not available here yet.</p>
-      <ul role="list" className="grid gap-[8px] any-pointer-coarse:gap-y-[16px]" style={{ margin: "8px 0 0", padding: 0, listStyle: "none" }}>
+      <ul role="list" className="bk-google-journal-list">
         {calls.map((call) => {
           const words = googleOperationWords(call.operation);
           return (
