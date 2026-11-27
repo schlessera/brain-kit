@@ -67,7 +67,7 @@ describe("one read and one parse per file (#4785)", () => {
 
   test("a file with no frontmatter, invalid YAML, or a byte order mark before its fences each gives its issue", () => {
     const root = corpus({
-      "studies/bom.md": `﻿${note("Byte order mark")}`,
+      "studies/bom.md": `\uFEFF${note("Byte order mark")}`,
       "studies/broken.md": "---\ntitle: [unclosed\n---\n\nbody\n",
       "studies/raw.md": "no frontmatter here\n",
     });
