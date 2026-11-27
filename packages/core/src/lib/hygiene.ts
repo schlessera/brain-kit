@@ -627,6 +627,8 @@ export interface Detection {
   failedChecks: string[];
   /** The media inventory the `media` findings came from; null when it could not be built. */
   media: MediaInventory | null;
+  /** Every indexed markdown row the detection read, the log's own included: the one load a reconcile's document map is built from. */
+  docs: AuditDoc[];
 }
 
 /**
@@ -658,13 +660,14 @@ export async function detectCandidates(
   now: Date
 ): Promise<Detection> {
   const inLog = (path: string) => isWithin(HYGIENE_DIR, path, { includeRoot: false });
-  const docs = loadAuditDocs(db).filter((d) => !inLog(d.path));
+  // One load and one registry plan per detection, shared with the audit.
+  const indexed = loadAuditDocs(db);
+  const docs = indexed.filter((d) => !inLog(d.path));
   const byPath = new Map(docs.map((d) => [d.path, d]));
   // The indexes that opt in to a generated registry table; none when the
   // brain's root cannot be scanned (audit reports that check as failed).
-  const registryIndexes = new Set(
-    existsSync(brain.root) ? planRegistry(brain.root, brain.taxonomy, isoDay(now.getTime())).indexes.map((i) => i.path) : []
-  );
+  const registry = existsSync(brain.root) ? planRegistry(brain.root, brain.taxonomy, isoDay(now.getTime())) : undefined;
+  const registryIndexes = new Set(registry?.indexes.map((i) => i.path) ?? []);
   const table = indexTableLag(docs, registryIndexes, indexedWikiLinks(db)).map((c) => withSource(c, { source: "hygiene", name: "index-table", severity: null }));
   // A row-level finding is more specific than audit's whole-file index-lag.
   const tableIndexes = new Set(table.map((c) => c.path));
@@ -673,6 +676,8 @@ export async function detectCandidates(
   // The log is left out of detection, so writing it cannot change the next run.
   const audited = (await auditWithModules(db, brain, {
     now,
+    docs: indexed,
+    registry,
     exclude: inLog,
     onCheckFailed: (name) => failed.add(name),
     onModuleIssue: (issue, module) => moduleOf.set(issue, module),
@@ -702,6 +707,7 @@ export async function detectCandidates(
     candidates: [...withLinkTokens(brain.root, [...audited, ...silent, ...table, ...validated]), ...(media ? mediaCandidates(media) : [])],
     failedChecks: [...failed].sort(),
     media,
+    docs: indexed,
   };
 }
 

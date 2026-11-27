@@ -47,6 +47,16 @@ helper `admitToolDispatch(admission)` and its input type
 `ToolDispatchAdmission`: the host's last admission step for one tool call over
 the bridge's `inputSafety`, which both first-party backends now call. See
 [the package API](integration-contract/package-api.md#final-tool-dispatch-admission-helper-additive-0450-4767).
+
+## Schema 16: an index on `documents(indexed_at)` (additive, 0.45.0, #4787)
+
+`schema_version` goes from 15 to 16. The migration adds only the index
+`idx_documents_indexed_at`, built from the rows already there, so the newest
+index run is a lookup instead of a read of every document body. No table or
+column changed: a direct SQL reader that accepts 15 reads 16 unchanged, and an
+upgraded brain needs no reindex. As with every bump, a reader from an older
+package refuses a database at the newer version. See
+[the index read contract](integration-contract/frontmatter.md#braindb-direct-sql-reads).
 This ships in a minor.
 
 ## Robots.txt cache lifetime (additive, 0.45.0, #4813)

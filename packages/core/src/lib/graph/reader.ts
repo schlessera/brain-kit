@@ -14,7 +14,10 @@
  * - Node scope. The UI counts a NULL `asset_type` as markdown; the CLI
  *   requires `'markdown'`, as the precompute does.
  * - Edge order. The CLI sorts edges by (source, target); the UI keeps the
- *   engine's DISTINCT order.
+ *   engine's DISTINCT order. A neighborhood walk visits out-neighbours in
+ *   ascending target id, then in-neighbours in ascending source id, in both
+ *   profiles: the order the CLI's sorted edges give. So when the UI walk stops
+ *   at its budget, the nodes kept are the first ones in that order.
  * - Caps. The UI bounds a neighborhood walk and scene at 1,500 nodes and every
  *   other scene at 5,000 nodes / 20,000 edges, ranked by pagerank, and reports
  *   `truncated`; it also limits each maintenance list to 5,000. The CLI has no
@@ -164,11 +167,34 @@ export class GraphReader {
    * every count agrees with the edges drawn.
    */
   get edgeSql(): string {
+    // Id sets, not joins: SQLite builds each set once per statement, where a
+    // join reached a `documents` row, and the body stored before
+    // `asset_type`, for both ends of every edge.
     return `SELECT DISTINCT l.source_id AS source, l.target_id AS target
   FROM links l
-  JOIN documents d ON d.id = l.source_id AND ${this.profile.nodeScope("d")}
-  JOIN documents t ON t.id = l.target_id AND ${this.profile.nodeScope("t")}
-   WHERE l.target_id IS NOT NULL AND l.target_id <> l.source_id${this.profile.edgeOrder}`;
+   WHERE l.target_id IS NOT NULL AND l.target_id <> l.source_id
+     AND l.source_id IN (SELECT d.id FROM documents d WHERE ${this.profile.nodeScope("d")})
+     AND l.target_id IN (SELECT t.id FROM documents t WHERE ${this.profile.nodeScope("t")})${this.profile.edgeOrder}`;
+  }
+
+  /**
+   * The graph-node ends of one node's out-links, ascending by id: a search of
+   * the `links` primary key. The primary key orders by `target` text, so the
+   * order is explicit.
+   */
+  get outNeighborSql(): string {
+    return `SELECT DISTINCT l.target_id AS id
+  FROM links l JOIN documents t ON t.id = l.target_id
+   WHERE l.source_id = ? AND l.target_id <> l.source_id AND ${this.profile.nodeScope("t")}
+   ORDER BY l.target_id`;
+  }
+
+  /** The graph-node sources of one node's in-links, ascending by id, through `idx_links_target_id`. */
+  get inNeighborSql(): string {
+    return `SELECT DISTINCT l.source_id AS id
+  FROM links l JOIN documents s ON s.id = l.source_id
+   WHERE l.target_id = ? AND l.source_id <> l.target_id AND ${this.profile.nodeScope("s")}
+   ORDER BY l.source_id`;
   }
 
   /** Loaded once per reader, straight from `links`: no derived table needed. */
@@ -194,44 +220,57 @@ export class GraphReader {
     return row?.id ?? null;
   }
 
+  /**
+   * The distinct edges with both ends in `ids`, by source then target, looked
+   * up from those ids. Every id must be a graph node.
+   */
+  edgesAmong(ids: Iterable<number>): GraphEdgeRecord[] {
+    const kept = new Set(ids);
+    const sources = [...kept].sort((a, b) => a - b);
+    const edges: GraphEdgeRecord[] = [];
+    for (let i = 0; i < sources.length; i += 500) {
+      const chunk = sources.slice(i, i + 500);
+      const rows = this.db
+        .query<GraphEdgeRecord, number[]>(
+          `SELECT DISTINCT l.source_id AS source, l.target_id AS target
+  FROM links l
+   WHERE l.source_id IN (${chunk.map(() => "?").join(", ")}) AND l.target_id IS NOT NULL AND l.target_id <> l.source_id
+   ORDER BY l.source_id, l.target_id`
+        )
+        .all(...chunk);
+      for (const edge of rows) if (kept.has(edge.target)) edges.push(edge);
+    }
+    return edges;
+  }
+
   /** Breadth-first, level by level, stopping at `maxDepth` hops or `budget` nodes. */
   walk(start: number, direction: GraphDirection, maxDepth: number, budget: number): Walk {
     const structure = this.links();
-    const distances = new Map<number, number>([[start, 0]]);
-    let frontier = [start];
-    let depth = 0;
-    let truncated = false;
-    while (frontier.length > 0 && depth < maxDepth && !truncated) {
-      depth++;
-      const next: number[] = [];
-      for (const id of frontier) {
-        const neighbors: number[] = [];
-        if (direction !== "in") neighbors.push(...(structure.out.get(id) ?? []));
-        if (direction !== "out") neighbors.push(...(structure.in.get(id) ?? []));
-        for (const neighbor of neighbors) {
-          if (distances.has(neighbor)) continue;
-          if (distances.size >= budget) {
-            truncated = true;
-            break;
-          }
-          distances.set(neighbor, depth);
-          next.push(neighbor);
-        }
-        if (truncated) break;
-      }
-      frontier = next;
-    }
-    return { distances, truncated };
+    return breadthFirst(start, maxDepth, budget, (id) => [
+      ...(direction !== "in" ? (structure.out.get(id) ?? []) : []),
+      ...(direction !== "out" ? (structure.in.get(id) ?? []) : []),
+    ]);
   }
 
-  /** The ego walk: depth 1..3 (default 1), both directions by default. */
+  /**
+   * The ego walk: depth 1..3 (default 1), both directions by default.
+   *
+   * Neighbours are visited out-neighbours first, ascending by target id, then
+   * in-neighbours, ascending by source id: the order the CLI's sorted edge
+   * list gives. When the reader has not loaded the whole structure, each
+   * frontier node is expanded by an indexed lookup instead of loading it.
+   */
   neighborhood(center: number, depth?: number, direction?: GraphDirection): Walk {
-    return this.walk(
-      center,
-      direction ?? "both",
-      clamp(depth ?? 1, 1, MAX_NEIGHBORHOOD_DEPTH),
-      this.profile.neighborhoodNodes
-    );
+    const maxDepth = clamp(depth ?? 1, 1, MAX_NEIGHBORHOOD_DEPTH);
+    const toward = direction ?? "both";
+    const budget = this.profile.neighborhoodNodes;
+    if (this.structure) return this.walk(center, toward, maxDepth, budget);
+    const out = this.db.query<{ id: number }, [number]>(this.outNeighborSql);
+    const inbound = this.db.query<{ id: number }, [number]>(this.inNeighborSql);
+    return breadthFirst(center, maxDepth, budget, (id) => [
+      ...(toward !== "in" ? out.all(id).map((row) => row.id) : []),
+      ...(toward !== "out" ? inbound.all(id).map((row) => row.id) : []),
+    ]);
   }
 
   /** Depth 1..8, default 8. */
@@ -347,6 +386,32 @@ export function parseGraphRootKey(raw: string | null | undefined): GraphRootKey 
   if (!raw) return null;
   if (raw.startsWith(VIRTUAL_ROOT_PREFIX)) return { path: raw.slice(VIRTUAL_ROOT_PREFIX.length), virtual: true };
   return { path: raw, virtual: false };
+}
+
+/** Level by level from `start`, stopping at `maxDepth` hops or `budget` nodes. */
+function breadthFirst(start: number, maxDepth: number, budget: number, neighborsOf: (id: number) => number[]): Walk {
+  const distances = new Map<number, number>([[start, 0]]);
+  let frontier = [start];
+  let depth = 0;
+  let truncated = false;
+  while (frontier.length > 0 && depth < maxDepth && !truncated) {
+    depth++;
+    const next: number[] = [];
+    for (const id of frontier) {
+      for (const neighbor of neighborsOf(id)) {
+        if (distances.has(neighbor)) continue;
+        if (distances.size >= budget) {
+          truncated = true;
+          break;
+        }
+        distances.set(neighbor, depth);
+        next.push(neighbor);
+      }
+      if (truncated) break;
+    }
+    frontier = next;
+  }
+  return { distances, truncated };
 }
 
 function push(map: Map<number, number[]>, key: number, value: number): void {
