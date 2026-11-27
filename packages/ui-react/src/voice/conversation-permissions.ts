@@ -36,16 +36,29 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
   const announced = new Set<string>();
   let applying = false;
   let full = false;
+  // The buffers as the last pass left them, its own writes included: a chat
+  // write re-applies only the receipts of a session whose buffer moved (#4742).
+  let applied: Record<string, unknown> | null = null;
   const identity = (sessionId: string, turnId: string, toolUseId: string) => JSON.stringify([sessionId, turnId, toolUseId]);
   const pending = () => {
     const s = selected();
     return s.active && s.sessionId ? [...records.values()].filter((r) => r.sessionId === s.sessionId && r.turnId === turns.get(s.sessionId!) && r.phase === "pending") : [];
   };
-  function apply() {
+  function apply(changedOnly = false) {
     if (applying) return;
     applying = true;
-    try { for (const receipt of records.values()) root.stores.chat.getState().applyVoicePermission(receipt); }
-    finally { applying = false; }
+    try {
+      const { buffers } = root.stores.chat.getState();
+      for (const receipt of records.values()) {
+        // A receipt can arrive before its tool call, so it is applied again
+        // whenever its session's transcript changes.
+        if (changedOnly && applied !== null && buffers[receipt.sessionId] === applied[receipt.sessionId]) continue;
+        root.stores.chat.getState().applyVoicePermission(receipt);
+      }
+    } finally {
+      applied = root.stores.chat.getState().buffers;
+      applying = false;
+    }
   }
   // Both shipped engines emit unknown-origin input. Echo isolation alone does
   // not prove user attribution; keep the scoped input guard and direct decisions
@@ -134,7 +147,7 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
     publish();
     return true;
   }
-  const unsubscribe = root.stores.chat.subscribe(apply);
+  const unsubscribe = root.stores.chat.subscribe(() => apply(true));
   return { state, frame, resolution, input, quiet, refresh() { publish(); quiet(); },
     lost() { for (const receipt of records.values()) if (receipt.phase === "sent") put({ ...receipt, phase: "unknown", word: "Couldn't confirm the refusal" }); publish(); },
     clear() { records.clear(); turns.clear(); announced.clear(); full = false; publish(); },
