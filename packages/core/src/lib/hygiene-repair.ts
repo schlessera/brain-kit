@@ -128,19 +128,23 @@ export async function repairDetection(brain: BrainContext, now: Date): Promise<R
   finally { projection.db.close(); }
 }
 
-function documentPath(brain: BrainContext, path: string, files = getMarkdownFiles(brain.root, brain.taxonomy)): string | null {
+/** The paths the indexer would scan: one tree walk. */
+function scannedPaths(brain: BrainContext): ReadonlySet<string> {
+  return new Set(getMarkdownFiles(brain.root, brain.taxonomy));
+}
+
+function documentPath(brain: BrainContext, path: string, files: ReadonlySet<string> = scannedPaths(brain)): string | null {
   const abs = safeResolve(brain.root, path);
-  if (!abs || !path.endsWith(".md") || !files.includes(path)) return null;
+  if (!abs || !path.endsWith(".md") || !files.has(path)) return null;
   try { return lstatSync(join(brain.root, path)).isFile() ? abs : null; }
   catch { return null; }
 }
 
 /** Exactly one note by deterministic slug, alias or exact title. No proximity/fuzzy score. */
-function suggestedNote(brain: BrainContext, target: string): string | null {
+function suggestedNote(brain: BrainContext, target: string, files: ReadonlySet<string>): string | null {
   const name = target.split("#")[0].replace(/\.md$/, "");
   const slug = basename(name);
-  const files = getMarkdownFiles(brain.root, brain.taxonomy);
-  const matches = files.filter(path => {
+  const matches = [...files].filter(path => {
     if (!documentPath(brain, path, files)) return false;
     let data: Record<string, unknown> = {};
     try { data = parseFrontmatter(readFileSync(join(brain.root, path), "utf8"), { dataOnly: true }).data; } catch { /* Only a literal slug can match malformed metadata. */ }
@@ -159,15 +163,15 @@ function fieldSchema(field: string, taxonomy: Taxonomy): InputSchema | null {
 }
 
 /** Fixed category table, also consumed by the selection/server layers. */
-export function repairHandlers(brain: BrainContext, finding: HygieneFinding): RepairHandler[] {
+export function repairHandlers(brain: BrainContext, finding: HygieneFinding, files: ReadonlySet<string> = scannedPaths(brain)): RepairHandler[] {
   const base = { category: finding.category, path: finding.path, line: 1, explanation: finding.message };
   if (finding.category === "broken-link") {
-    const abs = documentPath(brain, finding.path);
+    const abs = documentPath(brain, finding.path, files);
     if (abs) {
       const raw = readFileSync(abs, "utf8");
       base.line = linkSpans(raw, finding.evidence)[0]?.line ?? 1;
     }
-    const suggestion = suggestedNote(brain, finding.evidence);
+    const suggestion = suggestedNote(brain, finding.evidence, files);
     return [
       ...(suggestion ? [{ ...base, name: "link-suggested" as const, kind: "choice" as const, input: { type: "none" as const }, effect: "Replace this target's link tokens with the suggested note", postCheck: "file-validation", suggestedPath: suggestion }] : []),
       { ...base, name: "link-note", kind: "choice", input: { type: "path" }, effect: "Replace this target's link tokens with the selected note", postCheck: "file-validation" },
@@ -175,7 +179,7 @@ export function repairHandlers(brain: BrainContext, finding: HygieneFinding): Re
     ];
   }
   if (["todo", "verify"].includes(finding.category)) {
-    const abs = documentPath(brain, finding.path);
+    const abs = documentPath(brain, finding.path, files);
     if (abs) {
       const text = readFileSync(abs, "utf8");
       const marker = finding.category === "todo" ? "[TODO:" : "[VERIFY:";
@@ -209,7 +213,7 @@ function fieldError(field: string, schema: InputSchema, value: unknown): string 
   return null;
 }
 
-function plan(brain: BrainContext, finding: HygieneFinding, handler: RepairHandler, input: unknown, before: string): Plan | RepairResult {
+function plan(brain: BrainContext, finding: HygieneFinding, handler: RepairHandler, input: unknown, before: string, files: ReadonlySet<string>): Plan | RepairResult {
   if (handler.kind === "manual") return { status: "refused", id: finding.id, reason: "manual-only", handler };
   if (handler.name === "required-field") {
     const error = fieldError(finding.evidence, handler.input, input);
@@ -227,7 +231,7 @@ function plan(brain: BrainContext, finding: HygieneFinding, handler: RepairHandl
   }
   if (handler.name !== "link-note" && input !== null) return { status: "refused", id: finding.id, reason: "invalid-input" };
   const path = handler.name === "link-suggested" ? handler.suggestedPath : input;
-  if (handler.name !== "link-text" && (typeof path !== "string" || !documentPath(brain, path) || /[\[\]|#\r\n]/.test(path))) return { status: "refused", id: finding.id, reason: "not-a-contained-document" };
+  if (handler.name !== "link-text" && (typeof path !== "string" || !documentPath(brain, path, files) || /[\[\]|#\r\n]/.test(path))) return { status: "refused", id: finding.id, reason: "not-a-contained-document" };
   const spans = linkSpans(before, finding.evidence);
   if (spans.length === 0) return { status: "stale", id: finding.id, reason: "link-premise-changed" };
   const changes = spans.map(s => ({ before: s.token, after: handler.name === "link-text" ? s.label : `[[${(path as string).replace(/\.md$/, "")}${finding.evidence.includes("#") ? "#" + finding.evidence.split("#").slice(1).join("#") : ""}|${s.label}]]`, line: s.line }));
@@ -263,14 +267,17 @@ async function resolveOn(projection: Projection, brain: BrainContext, request: R
   const d = await detect(projection, brain, now);
   const finding = d.findings.get(request.id);
   if (!finding || finding.fingerprint !== request.expectFingerprint) return { status: "stale", id: request.id, reason: "stale-fingerprint" };
-  const handler = repairHandlers(brain, finding).find(h => h.name === request.handler);
+  // One walk for the read side of the operation; the write-time guards below
+  // take their own, at the moment of the write.
+  const files = scannedPaths(brain);
+  const handler = repairHandlers(brain, finding, files).find(h => h.name === request.handler);
   if (!handler) return { status: "refused", id: request.id, reason: "handler-unavailable" };
-  const abs = documentPath(brain, finding.path);
+  const abs = documentPath(brain, finding.path, files);
   if (!abs || !logContained(brain.root)) return { status: "refused", id: request.id, reason: "not-a-contained-document" };
   const sourceBytes = readFileSync(abs);
   const before = sourceBytes.toString("utf8");
   if (!Buffer.from(before, "utf8").equals(sourceBytes)) return { status: "refused", id: request.id, reason: "not-utf8" };
-  const effect = plan(brain, finding, handler, request.input, before);
+  const effect = plan(brain, finding, handler, request.input, before, files);
   if ("status" in effect) return effect;
   const previewToken = hash(JSON.stringify([finding.id, finding.fingerprint, request.handler, request.input, effect.premise]));
   const diff = { path: finding.path, before, after: effect.after, changes: effect.changes };

@@ -20,22 +20,25 @@ export interface AuditFixResult {
 }
 
 /**
- * One suggester per audit run. The registry plan and validation are computed at most
- * once, on the first `index-stale` finding, and shared by every later finding.
+ * One suggester per audit run. The registry plan, validation and the tree walk are
+ * computed at most once, on the first `index-stale` finding, and shared by every
+ * later finding.
  */
 export function auditFixSuggester(root: string, taxonomy: Taxonomy, asOf: string): (finding: AuditIssue) => AuditFixResult {
   let plan: ReturnType<typeof planRegistry> | undefined;
   let issues: ReturnType<typeof validate> | undefined;
+  let files: string[] | undefined;
   const context = {
     plan: () => (plan ??= planRegistry(root, taxonomy, asOf)),
     validation: () => (issues ??= validate(root, taxonomy)),
+    files: () => (files ??= getMarkdownFiles(root, taxonomy)),
   };
   return (finding) => suggestAuditFix(root, taxonomy, finding, asOf, context);
 }
 
 /** Inspect the existing registry capability without applying or authorizing it. */
 export function suggestAuditFix(root: string, taxonomy: Taxonomy, finding: AuditIssue, asOf: string,
-  context = { plan: () => planRegistry(root, taxonomy, asOf), validation: () => validate(root, taxonomy) }): AuditFixResult {
+  context = { plan: () => planRegistry(root, taxonomy, asOf), validation: () => validate(root, taxonomy), files: () => getMarkdownFiles(root, taxonomy) }): AuditFixResult {
   const base: AuditFixResult = {
     path: finding.path,
     issue: finding.message,
@@ -58,7 +61,7 @@ export function suggestAuditFix(root: string, taxonomy: Taxonomy, finding: Audit
     if (index.next === null) return manual("no content change required");
     const prefix = finding.path.slice(0, -"_index.md".length);
     // Membership alone does not establish valid metadata for every child.
-    for (const path of getMarkdownFiles(root, taxonomy).filter(p => p.startsWith(prefix))) {
+    for (const path of context.files().filter(p => p.startsWith(prefix))) {
       const full = safeResolve(root, path);
       if (!full) return manual("unsafe source path");
       const type = parseFrontmatter(readFileSync(full, "utf8"), { dataOnly: true }).data.type;
