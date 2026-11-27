@@ -1805,7 +1805,7 @@ Proof content does not change.
   (`unitPartitionLimit("confirmation")`, `scripts/integration-proof.ts:142-143`).
   `bun run lint` refuses a literal matrix, a second matrix dimension or a
   literal divisor (`The unit partition count has one owner`,
-  `scripts/check-ci-workflows.ts:100-108`). The weight refresh takes its job
+  `scripts/check-ci-workflows.ts:177-185`). The weight refresh takes its job
   count from the same table.
 - **Fewer files than partitions.** A selected inventory smaller than the cap
   gets one partition per file. No partition is empty and no file runs twice
