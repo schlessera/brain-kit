@@ -1429,7 +1429,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
     status?.closeWriter();
     const statusChannel = status, supervisor = child;
-    void child.exited.finally(() => statusChannel?.close(supervisor));
+    void child.exited.finally(() => { statusChannel?.killOrphan(); statusChannel?.close(supervisor); });
     const freezer = identityBroker ? {
       freeze: () => { identityBroker!.request("signal", { signal: "STOP" }); return true; },
       resume: () => { identityBroker!.request("signal", { signal: "CONT" }); return true; },
