@@ -18,7 +18,7 @@ interface Row { id:string; sequence:string; observed_at:number; kind:string; occ
   detector:string|null; state:string|null; payload:string; detail_pruned:number; turn_id:string; collection_id:string }
 const same = (a:unknown,b:unknown) => JSON.stringify(a)===JSON.stringify(b);
 /** The projection without its display-only attribution (#4513). */
-const enforcement = ({attributionUnknown:_,...projection}:SafetyPage["projection"]) => projection;
+const enforcement = (projection:SafetyPage["projection"]) => { const copy = { ...projection }; delete copy.attributionUnknown; return copy; };
 const fingerprint = (value:unknown) => new Bun.CryptoHasher("sha256").update(JSON.stringify(value)).digest("hex");
 const bytes = (value:unknown) => Buffer.byteLength(JSON.stringify(value));
 const wireId = (value:string) => {
