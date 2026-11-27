@@ -49,6 +49,24 @@ describe("session-list refresh", () => {
     expect(requests).toHaveLength(2);
   });
 
+  test("a caller that awaits its refresh and asks again joins the marked follow-up", async () => {
+    const { api, requests } = fakeApi();
+    const store = createSessionListStore({ api });
+    // The first caller's continuation runs before the follow-up's own, so it
+    // asks again between the first chain settling and the follow-up starting.
+    const again = store.getState().refresh().then(() => store.getState().refresh());
+    const marked = store.getState().refresh();
+    await settle();
+    requests[0]!.resolve(answer([session("s1", "Aeolia")]));
+    await settle();
+    expect(requests).toHaveLength(2);
+    requests[1]!.resolve(answer([session("s1", "The bag of winds")]));
+    await Promise.all([again, marked]);
+    expect(requests).toHaveLength(2);
+    expect(store.getState().sessions.map((s) => s.title)).toEqual(["The bag of winds"]);
+    expect(store.getState().loading).toBe(false);
+  });
+
   test("a call after every chain settled sends a new request, and one call sends one request per page", async () => {
     const { api, requests } = fakeApi();
     const store = createSessionListStore({ api });

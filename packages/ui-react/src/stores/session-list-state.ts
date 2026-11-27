@@ -74,7 +74,10 @@ export function createSessionListStore(env: Pick<StoreEnvironment, "api">, onLis
     }
     function start(): Promise<void> {
       const running: Promise<void> = chain().finally(() => {
-        if (inFlight === running) inFlight = null;
+        // A marked follow-up keeps the chain counted as in flight until it
+        // starts, so a call made in between joins it instead of starting a
+        // chain beside it.
+        if (inFlight === running && !followUp) inFlight = null;
       });
       inFlight = running;
       return running;
