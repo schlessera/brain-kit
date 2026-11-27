@@ -141,7 +141,9 @@ follow redirects to an unconfigured service.
 and is bounded to 30 days. Caches are disposable, private files rather than
 authoritative content. Cache keys include endpoint, query/body, method, service
 and application identity. Expired, future-dated or malformed entries cannot answer
-as fresh evidence. Network replies are bounded to 5 MiB and `timeoutMs` (default
+as fresh evidence. After it writes a new entry, a process deletes entries (and
+temporaries left by an interrupted write) older than 30 days, the longest
+`cacheTtlMs` any process sharing the directory may use, at most once an hour. Network replies are bounded to 5 MiB and `timeoutMs` (default
 5 s, range 100 ms–60 s), including body consumption.
 An aborted request cancels response bodies that have not acquired a reader,
 including responses delivered after timeout or failed admission persistence.
