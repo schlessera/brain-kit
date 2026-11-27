@@ -24,6 +24,8 @@ test("offline Pi startup reports new/resumed phases and preserves private per-tu
       expect(phase.elapsedMs).toBeGreaterThanOrEqual(0);
       if (phase.phase) expect(phase.durationMs).toBeGreaterThanOrEqual(0);
     }
+    // Both clocks start at backend start, after the fixture's copied view (#4286).
+    expect(row.fixturePreparationMs, "PI_STARTUP_FIXTURE_PREPARATION_REPORTED_SEPARATELY").toBeGreaterThanOrEqual(0);
     expect(row.providerRequestMs).toBeGreaterThan(row.firstFrameMs);
     expect(row.firstFrameMs).toBeGreaterThan(row.phases.at(-1).elapsedMs);
   }
