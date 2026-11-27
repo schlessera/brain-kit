@@ -2784,6 +2784,7 @@ signatures (every public export and the types it is made of)
         restrictedCheckouts(turnId: string): string[];
         retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;
         scopeHold(turnId: string, requestedAt: number, toolUseId?: string, changedPaths?: null | number): ActivityTurnHold | undefined;
+        summaries: (turnIds: readonly string[]) => Map<string, TurnJournalSummary>;
         summary: (turnId: string) => TurnJournalSummary;
         toolEnded(turnId: string, toolUseId: string): Promise<void>;
         toolExecuted(turnId: string, toolUseId: string, path: ToolExecutionPath): void;
@@ -2921,6 +2922,8 @@ signatures (every public export and the types it is made of)
     };
   resolveServerConfig (packages/ui-server/src/config/env.ts)
     export function resolveServerConfig(env?: EnvRecord): ServerConfig;
+  summaries (packages/ui-server/src/brain/turn-journal.ts)
+    function summaries(turnIds: readonly string[]): Map<string, TurnJournalSummary>;
   summary (packages/ui-server/src/brain/turn-journal.ts)
     function summary(turnId: string): TurnJournalSummary;
   unfinishedChatRetirements (packages/ui-server/src/ws/chat-lifecycle.ts)

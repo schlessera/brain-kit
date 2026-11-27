@@ -3,12 +3,13 @@ import type { Database } from "bun:sqlite";
 import type { ClientInboxResolve, InboxOperation } from "@schlessera/brain-ui-sdk/protocol";
 import { procedureCaller, type WriteProcedures } from "../db/write-worker.js";
 import { inboxWriter } from "./write-runtime.js";
-import { createInboxResolver } from "./resolve.js";
+import { createInboxResolverCore } from "./resolver-core.js";
 
 export const url = import.meta.url;
 export function setup(db: Database, options: { timeZone: string }): WriteProcedures {
   function resolver(at: number, threadId: string, allowed: readonly InboxOperation[]) {
-    return createInboxResolver(db, { now: () => at, timeZone: options.timeZone, allowedOperations: (_principal, thread) => thread.id === threadId ? allowed : [] });
+    return createInboxResolverCore(db, { now: () => at, timeZone: options.timeZone, allowedOperations: (_principal, thread) => thread.id === threadId ? allowed : [] },
+      timeZone => inboxResolutionWrites(db, timeZone));
   }
   return {
     resolve(principalId: string, request: ClientInboxResolve, expectedVersion: number | undefined, at: number,
