@@ -57,9 +57,25 @@ function host(url: string): Response {
   return Response.json({ entries: [], providers: [], backends: {}, slugs: {}, models: [], sessions: [] });
 }
 
+/** A socket that never opens: these pages are fed through their stores, not a host. */
+class DeadSocket {
+  readyState = 0;
+  onopen: (() => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor(readonly url = "") {}
+  send(): void {}
+  close(): void { this.readyState = 3; }
+  addEventListener(): void {}
+  removeEventListener(): void {}
+}
+
 const roots: BrainUiRoot[] = [];
 const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+const socketDescriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
 beforeEach(() => {
+  Object.defineProperty(globalThis, "WebSocket", { configurable: true, writable: true, value: DeadSocket });
   Object.defineProperty(globalThis, "fetch", { configurable: true, writable: true,
     value: async (input: RequestInfo | URL) => host(String(input)) });
 });
@@ -67,6 +83,7 @@ afterEach(() => {
   cleanup();
   for (const r of roots.splice(0)) r.dispose();
   if (fetchDescriptor) Object.defineProperty(globalThis, "fetch", fetchDescriptor); else Reflect.deleteProperty(globalThis, "fetch");
+  if (socketDescriptor) Object.defineProperty(globalThis, "WebSocket", socketDescriptor); else Reflect.deleteProperty(globalThis, "WebSocket");
 });
 afterAll(unregisterStoreSubscriptionsDom);
 
